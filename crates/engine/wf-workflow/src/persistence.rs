@@ -46,6 +46,7 @@ pub async fn build_workflow_execution(
             interruption_records: Vec::new(),
             event_records: Vec::new(),
             timeout_count: 0,
+            error_suspend: None,
         });
     let status: WorkflowExecutionStatus = snapshot.status.clone().into();
 

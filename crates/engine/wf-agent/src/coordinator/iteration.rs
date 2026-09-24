@@ -826,7 +826,9 @@ impl AgentIterationCoordinator {
             for event in bus.recent_events() {
                 if let Some(message) = matching_compression_failure(&event, &execution_id, version)
                 {
-                    return Ok(self.compression_failure_park(entity, version, &message).await);
+                    return Ok(self
+                        .compression_failure_park(entity, version, &message)
+                        .await);
                 }
             }
         }
@@ -861,7 +863,9 @@ impl AgentIterationCoordinator {
                     if let Some(message) =
                         matching_compression_failure(&event, &execution_id, version)
                     {
-                        return Ok(self.compression_failure_park(entity, version, &message).await);
+                        return Ok(self
+                            .compression_failure_park(entity, version, &message)
+                            .await);
                     }
                 }
             }

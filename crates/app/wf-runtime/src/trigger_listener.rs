@@ -767,6 +767,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -1176,6 +1177,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
         let handlers = wf_workflow::create_default_handlers(gateway.clone(), None);
         let exec_ctx = ExecutorContext::new(
@@ -1524,6 +1526,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
         let handlers = wf_workflow::create_default_handlers(gateway.clone(), None);
         let exec_ctx = ExecutorContext::new(
@@ -1662,10 +1665,7 @@ mod tests {
     #[async_trait]
     impl SubworkflowRunner for FlakySummaryRunner {
         async fn run(&self, _workflow_id: &str, _input: Value) -> WorkflowResult<Value> {
-            let attempt = self
-                .calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
+            let attempt = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             if attempt <= self.fail_first {
                 return Err(WorkflowError::TriggerError(format!(
                     "stub summary failure {attempt}"
@@ -1688,10 +1688,7 @@ mod tests {
     #[async_trait]
     impl SubworkflowRunner for HangingFirstRunner {
         async fn run(&self, _workflow_id: &str, _input: Value) -> WorkflowResult<Value> {
-            let attempt = self
-                .calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
+            let attempt = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             if attempt == 1 {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
             }
@@ -1882,8 +1879,7 @@ mod tests {
         let messages = vec![text_message(MessageRole::User, "long message")];
         let ctx = agent_compression_signal(&messages);
         fire_compression_signal(&registry, &bus, &ctx).await;
-        let failed =
-            next_compression_event(&mut sub, EventType::ContextCompressionFailed).await;
+        let failed = next_compression_event(&mut sub, EventType::ContextCompressionFailed).await;
         let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(&failed).unwrap();
         assert_eq!(meta.target_context_id, "chat");
         assert_eq!(meta.array_version, 7);
@@ -2003,6 +1999,7 @@ mod tests {
                         description: None,
                         weight: None,
                         metadata: None,
+                        error_route: None,
                     },
                     Edge {
                         id: "e2".into(),
@@ -2014,6 +2011,7 @@ mod tests {
                         description: None,
                         weight: None,
                         metadata: None,
+                        error_route: None,
                     },
                 ],
                 config: None,

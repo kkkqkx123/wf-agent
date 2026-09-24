@@ -288,6 +288,10 @@ struct EmbedExpansion {
     exit_ids: Vec<String>,
     nodes: Vec<WorkflowNode>,
     edges: Vec<WorkflowEdge>,
+    /// Original-id -> namespaced-id map of the embedded nodes, used to
+    /// remap the embedded catch-all default when it is adopted.
+    node_id_map: HashMap<String, String>,
+    error_default: Option<wf_types::workflow::error_branch::WorkflowErrorDefault>,
 }
 
 /// Expand all EMBED_GRAPH nodes in place (recursively, depth-capped). Each
@@ -359,14 +363,17 @@ fn flatten_graph_inner(graph: &WorkflowGraphStructure, depth: usize) -> Workflow
         for e in &sub.edges {
             let mut ne = e.clone();
             ne.id = format!("{}{}", prefix, e.id);
+            // Endpoints outside the embedded graph keep their original id
+            // (a dangling reference) so validation reports it instead of an
+            // empty-node-id corruption.
             ne.source_node_id = node_id_map
                 .get(&e.source_node_id)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_else(|| e.source_node_id.clone());
             ne.target_node_id = node_id_map
                 .get(&e.target_node_id)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_else(|| e.target_node_id.clone());
             sub_edges.push(ne);
         }
 
@@ -382,6 +389,8 @@ fn flatten_graph_inner(graph: &WorkflowGraphStructure, depth: usize) -> Workflow
                 .collect(),
             nodes: sub_nodes,
             edges: sub_edges,
+            node_id_map,
+            error_default: sub.error_default.clone(),
         });
     }
 
@@ -462,6 +471,29 @@ fn flatten_graph_inner(graph: &WorkflowGraphStructure, depth: usize) -> Workflow
         }
     }
 
+    // The flattened workflow carries exactly one catch-all default: the
+    // parent's wins; an embedded subgraph default is remapped to its
+    // namespaced target only when the parent declares none (a second one
+    // would be ambiguous and is dropped with a warning).
+    let mut error_default = graph.error_default.clone();
+    for expansion in &expansions {
+        let Some(sub_default) = &expansion.error_default else {
+            continue;
+        };
+        if error_default.is_some() {
+            tracing::warn!(
+                embed_node_id = expansion.node_id,
+                "embedded graph declares an error_default but the workflow already has one; ignoring"
+            );
+            continue;
+        }
+        let mut carried = sub_default.clone();
+        if let Some(mapped) = expansion.node_id_map.get(&carried.target_node_id) {
+            carried.target_node_id = mapped.clone();
+        }
+        error_default = Some(carried);
+    }
+
     WorkflowGraphStructure {
         nodes,
         edges,
@@ -469,6 +501,7 @@ fn flatten_graph_inner(graph: &WorkflowGraphStructure, depth: usize) -> Workflow
         reverse_adjacency_list: HashMap::new(),
         start_node_id,
         end_node_ids,
+        error_default,
     }
 }
 
@@ -496,6 +529,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -512,6 +546,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: start.map(String::from),
             end_node_ids: ends.into_iter().map(String::from).collect(),
+            error_default: None,
         }
     }
 

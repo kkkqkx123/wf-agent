@@ -157,6 +157,16 @@ pub enum EventType {
     ShellOutputReceived,
     ShellCommandCompleted,
     ShellSessionTerminated,
+    /// A node terminal failure matched an error route and control jumps to
+    /// the branch target instead of interrupting the execution. The payload
+    /// carries only the error summary (category, message prefix, source and
+    /// target nodes, attempts).
+    WorkflowErrorBranchTaken,
+    /// An error route entered a suspend point: the execution parks for
+    /// external handling and resumes from the branch target.
+    WorkflowErrorBranchSuspended,
+    /// A suspended error branch resumed from its branch target.
+    WorkflowErrorBranchResumed,
 }
 
 impl EventType {
@@ -300,6 +310,9 @@ impl EventType {
             EventType::ShellOutputReceived => "SHELL_OUTPUT_RECEIVED",
             EventType::ShellCommandCompleted => "SHELL_COMMAND_COMPLETED",
             EventType::ShellSessionTerminated => "SHELL_SESSION_TERMINATED",
+            EventType::WorkflowErrorBranchTaken => "WORKFLOW_ERROR_BRANCH_TAKEN",
+            EventType::WorkflowErrorBranchSuspended => "WORKFLOW_ERROR_BRANCH_SUSPENDED",
+            EventType::WorkflowErrorBranchResumed => "WORKFLOW_ERROR_BRANCH_RESUMED",
         }
     }
 }

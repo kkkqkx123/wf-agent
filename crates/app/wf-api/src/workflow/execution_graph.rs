@@ -699,6 +699,7 @@ impl EmptyGraph for WorkflowGraphStructure {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: None,
             end_node_ids: Vec::new(),
+            error_default: None,
         }
     }
 }
@@ -729,6 +730,7 @@ mod tests {
             condition: condition.map(String::from),
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -752,6 +754,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 

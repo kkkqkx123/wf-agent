@@ -109,6 +109,7 @@ mod tests {
                 system_prompt_template_variables: None,
                 system_prompt: None,
                 static_contexts: None,
+                error_default: None,
             }),
             variables: None,
             triggered_subworkflow_config: None,

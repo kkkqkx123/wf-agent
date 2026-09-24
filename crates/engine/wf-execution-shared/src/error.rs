@@ -1,5 +1,6 @@
 use thiserror::Error;
 use wf_common::gate::GateError;
+use wf_types::workflow::error_branch::NodeErrorCategory;
 
 #[derive(Debug, Error)]
 pub enum ExecutionSharedError {
@@ -32,6 +33,16 @@ pub enum ExecutionSharedError {
     /// trait boundary (see `wf_workflow::error`).
     #[error("Handler error: {0}")]
     HandlerError(String),
+
+    /// Terminal node failure that carries its routing category across the
+    /// handler boundary, so error-branch routing reads the category by type
+    /// rather than by matching the message text.
+    #[error("Node failure [{category}] {node_id}: {detail}")]
+    NodeFailure {
+        node_id: String,
+        category: NodeErrorCategory,
+        detail: String,
+    },
 
     #[error("Core error: {0}")]
     CoreError(#[from] wf_core::error::CoreError),

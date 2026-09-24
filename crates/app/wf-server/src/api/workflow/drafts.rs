@@ -219,6 +219,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             }],
             config: None,
             variables: None,

@@ -4,6 +4,7 @@ use wf_common::error_chain::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::workflow::snapshot::OperationState;
+use wf_types::workflow::error_branch::ErrorSuspendState;
 
 /// One node execution attempt (retries produce independent records).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -57,6 +58,10 @@ pub struct WorkflowExecutionStateSnapshot {
     pub event_records: Vec<serde_json::Value>,
     #[serde(default)]
     pub timeout_count: u32,
+    /// Pending error-branch suspend record, if the run parked at a suspend
+    /// point. Consumed (cleared) when a resumed run re-enters the branch.
+    #[serde(default)]
+    pub error_suspend: Option<ErrorSuspendState>,
 }
 
 pub struct WorkflowExecutionState {
@@ -72,6 +77,7 @@ pub struct WorkflowExecutionState {
     interruption_records: Vec<serde_json::Value>,
     event_records: Vec<serde_json::Value>,
     timeout_count: u32,
+    error_suspend: Option<ErrorSuspendState>,
 }
 
 impl Default for WorkflowExecutionState {
@@ -95,6 +101,7 @@ impl WorkflowExecutionState {
             interruption_records: Vec::new(),
             event_records: Vec::new(),
             timeout_count: 0,
+            error_suspend: None,
         }
     }
 
@@ -178,6 +185,21 @@ impl WorkflowExecutionState {
 
     pub fn set_operation_state(&mut self, state: Option<OperationState>) {
         self.operation_state = state;
+    }
+
+    /// Pending error-branch suspend record (parked at a suspend point).
+    pub fn error_suspend(&self) -> Option<&ErrorSuspendState> {
+        self.error_suspend.as_ref()
+    }
+
+    pub fn set_error_suspend(&mut self, state: Option<ErrorSuspendState>) {
+        self.error_suspend = state;
+    }
+
+    /// Consume the pending suspend record so a resumed run does not
+    /// re-persist it.
+    pub fn take_error_suspend(&mut self) -> Option<ErrorSuspendState> {
+        self.error_suspend.take()
     }
 
     pub fn start(&mut self) -> crate::WorkflowResult<()> {
@@ -382,6 +404,7 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
             interruption_records: self.interruption_records.clone(),
             event_records: self.event_records.clone(),
             timeout_count: self.timeout_count,
+            error_suspend: self.error_suspend.clone(),
         })
     }
 
@@ -401,6 +424,7 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         self.interruption_records = snapshot.interruption_records;
         self.event_records = snapshot.event_records;
         self.timeout_count = snapshot.timeout_count;
+        self.error_suspend = snapshot.error_suspend;
         Ok(())
     }
 

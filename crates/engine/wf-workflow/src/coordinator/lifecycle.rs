@@ -340,6 +340,11 @@ impl WorkflowLifecycleCoordinator {
             {
                 state.mark_node_completed(node_id.clone());
             }
+            // Carry the parked error-branch record into the fresh entity so
+            // `restore_suspended_error_branch` can consume and rebuild it.
+            if let Some(suspend) = snapshot.error_suspend.clone() {
+                state.set_error_suspend(Some(suspend));
+            }
         }
 
         let mut ctx = ExecutorContext::new(
@@ -385,6 +390,10 @@ impl WorkflowLifecycleCoordinator {
             .with_entity(entity)
             .with_hooks(hooks);
         coordinator.resume_from(&snapshot);
+        // A checkpointed error suspend rebuilds its isolated scope (error
+        // namespace over the frozen main path) so the resumed run continues
+        // from the branch target exactly as a fresh suspend entry would.
+        coordinator.restore_suspended_error_branch().await;
 
         // Same sub-workflow skip semantics as `execute`: checkpoints are
         // wired only when the (resumed) execution enables them.
@@ -420,6 +429,32 @@ impl WorkflowLifecycleCoordinator {
             Err(e) => Err(e),
         }
     }
+
+    /// External recovery entry for an execution parked at an error suspend
+    /// point. Recovery continues from the checkpointed branch target (the
+    /// failed node itself never re-runs); callers needing a re-run resend
+    /// the execution explicitly. This is the trigger and management plane's
+    /// handle for suspended error branches, reusing the standard checkpoint
+    /// resume channel.
+    pub async fn resume_suspended_error_branch(
+        &self,
+        execution_id: &str,
+        workflow_id: wf_types::Id,
+        graph: WorkflowGraphStructure,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
+        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+        hooks: Vec<HookDefinition>,
+    ) -> WorkflowResult<WorkflowOutput> {
+        self.resume_workflow(
+            execution_id,
+            workflow_id,
+            graph,
+            handlers,
+            tool_registry,
+            hooks,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -450,6 +485,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -480,6 +516,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 
@@ -822,6 +859,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
 
         let mut handlers = HandlerRegistry::new();
@@ -895,6 +933,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 
@@ -1181,6 +1220,7 @@ mod tests {
                 reverse_adjacency_list: HashMap::new(),
                 start_node_id: Some("start".to_string()),
                 end_node_ids: vec!["end".to_string()],
+                error_default: None,
             }
         }
 
@@ -1331,6 +1371,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
 
         let params = WorkflowExecutionParams {
@@ -1509,6 +1550,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
 
         let params = WorkflowExecutionParams {

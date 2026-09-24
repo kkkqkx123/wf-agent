@@ -458,6 +458,11 @@ pub async fn restore_checkpoint(
             .await
             .restore_node_execution_history(history);
     }
+    // Carry the pending error-branch suspend record so a resumed run can
+    // rebuild the isolated branch scope from typed state.
+    if let Some(suspend) = snapshot.error_suspend.clone() {
+        entity.state.write().await.set_error_suspend(Some(suspend));
+    }
     // Restore the captured execution options so `resume` rebuilds the same
     // input/options. Step budgets are consumed by the original run and are not
     // re-applied; the wall-clock budget is reduced to whatever remains after
@@ -746,6 +751,7 @@ async fn entity_resume_snapshot(
         execution_config: None,
         fork_join_aggregation_state: None,
         hook_execution_context: None,
+        error_suspend: state.error_suspend().cloned(),
     }
 }
 
@@ -823,6 +829,7 @@ async fn build_checkpoint_snapshot(
         })),
         fork_join_aggregation_state: None,
         hook_execution_context: None,
+        error_suspend: state.error_suspend().cloned(),
     }
 }
 
@@ -1134,6 +1141,7 @@ pub fn definition_to_graph(
             condition: edge.condition.clone(),
             label: edge.label.clone(),
             description: edge.description.clone(),
+            error_route: edge.error_route.clone(),
         })
         .collect();
     WorkflowGraphStructure {
@@ -1170,6 +1178,10 @@ pub fn definition_to_graph(
         edges,
         adjacency_list: HashMap::new(),
         reverse_adjacency_list: HashMap::new(),
+        error_default: definition
+            .config
+            .as_ref()
+            .and_then(|config| config.error_default.clone()),
     }
 }
 
@@ -1304,6 +1316,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
                 wf_types::workflow::Edge {
                     id: "e2".into(),
@@ -1315,6 +1328,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
             ],
             config: None,
@@ -1389,6 +1403,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
                 wf_types::workflow::Edge {
                     id: "e2".into(),
@@ -1400,6 +1415,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
                 wf_types::workflow::Edge {
                     id: "e3".into(),
@@ -1411,6 +1427,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
             ],
             config: None,

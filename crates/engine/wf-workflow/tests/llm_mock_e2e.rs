@@ -396,6 +396,7 @@ fn graph(nodes: Vec<WorkflowNode>) -> WorkflowGraphStructure {
                 condition: None,
                 label: None,
                 description: None,
+                error_route: None,
             })
             .collect(),
         nodes,
@@ -403,6 +404,7 @@ fn graph(nodes: Vec<WorkflowNode>) -> WorkflowGraphStructure {
         reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
+        error_default: None,
     }
 }
 

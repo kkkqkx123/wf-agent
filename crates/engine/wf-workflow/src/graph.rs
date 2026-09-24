@@ -1,16 +1,24 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::error::{WorkflowError, WorkflowResult};
+use crate::error_branch::{is_error_edge, ErrorRouteTable};
 
 pub struct GraphTraversal {
     graph: WorkflowGraphStructure,
+    /// Error-routing table compiled once here so the terminal-failure hot path
+    /// resolves jumps by lookup instead of re-parsing node config per failure.
+    error_table: ErrorRouteTable,
 }
 
 impl GraphTraversal {
     pub fn graph(&self) -> &WorkflowGraphStructure {
         &self.graph
+    }
+
+    pub fn error_table(&self) -> &ErrorRouteTable {
+        &self.error_table
     }
 
     pub fn new(graph: WorkflowGraphStructure) -> WorkflowResult<Self> {
@@ -44,8 +52,14 @@ impl GraphTraversal {
             }
         }
 
-        if let Some(start_id) = &graph.start_node_id {
-            let reachable = Self::compute_reachable(&graph, start_id);
+        // Compile the error-routing table from the graph's ERROR edges, then
+        // check reachability over all edges: dedicated error handlers entered
+        // only through an error jump still count as reachable parts of the
+        // execution graph.
+        let error_table = ErrorRouteTable::build(&graph);
+
+        if graph.start_node_id.is_some() {
+            let reachable = reachable_from(&graph, graph.start_node_id.as_deref());
             for node in &graph.nodes {
                 if !reachable.contains(&node.id) {
                     return Err(WorkflowError::GraphError(format!(
@@ -56,24 +70,7 @@ impl GraphTraversal {
             }
         }
 
-        Ok(Self { graph })
-    }
-
-    fn compute_reachable(graph: &WorkflowGraphStructure, start_id: &str) -> HashSet<String> {
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(start_id.to_string());
-        visited.insert(start_id.to_string());
-
-        while let Some(current) = queue.pop_front() {
-            for edge in &graph.edges {
-                if edge.source_node_id == current && visited.insert(edge.target_node_id.clone()) {
-                    queue.push_back(edge.target_node_id.clone());
-                }
-            }
-        }
-
-        visited
+        Ok(Self { graph, error_table })
     }
 
     pub fn start_node_id(&self) -> Option<&str> {
@@ -95,7 +92,7 @@ impl GraphTraversal {
         self.graph
             .edges
             .iter()
-            .filter(|e| e.source_node_id == node_id)
+            .filter(|e| e.source_node_id == node_id && !is_error_edge(e))
             .collect()
     }
 
@@ -106,7 +103,7 @@ impl GraphTraversal {
         self.graph
             .edges
             .iter()
-            .filter(|e| e.target_node_id == node_id)
+            .filter(|e| e.target_node_id == node_id && !is_error_edge(e))
             .collect()
     }
 
@@ -128,7 +125,7 @@ impl GraphTraversal {
                 .graph
                 .edges
                 .iter()
-                .filter(|e| e.target_node_id == node.id)
+                .filter(|e| e.target_node_id == node.id && !is_error_edge(e))
                 .all(|e| completed.contains(&e.source_node_id));
             if all_deps_completed {
                 ready.push(node.id.clone());
@@ -136,6 +133,36 @@ impl GraphTraversal {
         }
         ready
     }
+}
+
+/// Reachability closure over all edges (normal and ERROR): a dedicated error
+/// handler entered only through an error jump is still part of the execution
+/// graph. The workflow catch-all default can fire from any reachable failure,
+/// so its target joins the closure as soon as one node is reachable.
+fn reachable_from(graph: &WorkflowGraphStructure, start: Option<&str>) -> HashSet<String> {
+    let mut reachable = HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    if let Some(start_id) = start {
+        reachable.insert(start_id.to_string());
+        queue.push_back(start_id.to_string());
+    }
+    let default_target = graph
+        .error_default
+        .as_ref()
+        .map(|d| d.target_node_id.clone());
+    while let Some(current) = queue.pop_front() {
+        for edge in &graph.edges {
+            if edge.source_node_id == current && reachable.insert(edge.target_node_id.clone()) {
+                queue.push_back(edge.target_node_id.clone());
+            }
+        }
+        if let Some(ref target) = default_target {
+            if reachable.insert(target.clone()) {
+                queue.push_back(target.clone());
+            }
+        }
+    }
+    reachable
 }
 
 #[cfg(test)]
@@ -154,6 +181,7 @@ mod tests {
             reverse_adjacency_list: std::collections::HashMap::new(),
             start_node_id: None,
             end_node_ids: vec![],
+            error_default: None,
         };
         let result = GraphTraversal::new(graph);
         match result {
@@ -176,6 +204,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("nonexistent".to_string()),
             end_node_ids: vec!["node_1".to_string()],
+            error_default: None,
         };
         assert!(GraphTraversal::new(graph).is_err());
     }
@@ -205,11 +234,13 @@ mod tests {
                 condition: None,
                 label: None,
                 description: None,
+                error_route: None,
             }],
             adjacency_list: HashMap::new(),
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         };
         let traversal = GraphTraversal::new(graph).unwrap();
         assert_eq!(traversal.start_node_id(), Some("start"));

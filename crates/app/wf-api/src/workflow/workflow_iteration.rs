@@ -775,6 +775,7 @@ mod tests {
                 reverse_adjacency_list: Default::default(),
                 start_node_id: None,
                 end_node_ids: Vec::new(),
+                error_default: None,
             }),
             variables: None,
             input: None,

@@ -18,8 +18,13 @@ pub fn extract_branch_subgraph(
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
 
-    let edge_map: HashMap<&str, Vec<&WorkflowEdge>> =
-        graph.edges.iter().fold(HashMap::new(), |mut acc, e| {
+    let edge_map: HashMap<&str, Vec<&WorkflowEdge>> = graph
+        .edges
+        .iter()
+        // ERROR edges never define fork branch structure: an error jump must
+        // not expand a branch subgraph or its boundaries.
+        .filter(|e| !crate::error_branch::is_error_edge(e))
+        .fold(HashMap::new(), |mut acc, e| {
             acc.entry(e.source_node_id.as_str())
                 .or_insert_with(Vec::new)
                 .push(e);
@@ -72,6 +77,7 @@ pub fn extract_branch_subgraph(
         end_node_ids,
         adjacency_list: HashMap::new(),
         reverse_adjacency_list: HashMap::new(),
+        error_default: None,
     }
 }
 
@@ -86,7 +92,7 @@ pub fn find_join_node(graph: &WorkflowGraphStructure, fork_node_id: &str) -> Opt
     let branch_edges: Vec<&WorkflowEdge> = graph
         .edges
         .iter()
-        .filter(|e| e.source_node_id == fork_node_id)
+        .filter(|e| e.source_node_id == fork_node_id && !crate::error_branch::is_error_edge(e))
         .collect();
     if branch_edges.is_empty() {
         return None;
@@ -104,7 +110,7 @@ pub fn find_join_node(graph: &WorkflowGraphStructure, fork_node_id: &str) -> Opt
             for next in graph
                 .edges
                 .iter()
-                .filter(|e| e.source_node_id == current)
+                .filter(|e| e.source_node_id == current && !crate::error_branch::is_error_edge(e))
                 .map(|e| &e.target_node_id)
             {
                 if !dist.contains_key(next) {
@@ -450,6 +456,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -461,6 +468,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 }

@@ -2,9 +2,18 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure};
 
+use crate::error_branch::is_error_edge;
+
 /// An edge from a LOOP_END node back to its LOOP_START node represents the
 /// loop continuation, not a structural cycle. Such edges are excluded from
-/// cycle detection and topological sort.
+/// cycle detection and topological sort. ERROR edges are likewise excluded:
+/// an error jump back upstream (e.g. a retry-style handler) is routing, not
+/// a structural cycle; error-route cycles are checked separately against a
+/// graph where ERROR edges are retyped as normal edges.
+fn is_structural_edge(graph: &WorkflowGraphStructure, edge: &WorkflowEdge) -> bool {
+    !is_error_edge(edge) && !is_loop_back_edge(graph, edge)
+}
+
 fn is_loop_back_edge(graph: &WorkflowGraphStructure, edge: &WorkflowEdge) -> bool {
     let node_type_of = |id: &str| -> Option<&str> {
         graph
@@ -36,11 +45,14 @@ pub struct CycleDetectionResult {
 }
 
 /// Detect structural cycles in a workflow graph using iterative DFS with a
-/// recursion stack. Loop continuation edges (LOOP_END -> LOOP_START) are
-/// treated as legal control flow, not cycles.
+/// recursion stack. Loop continuation edges (LOOP_END -> LOOP_START) and
+/// ERROR routing edges are treated as legal control flow, not cycles.
 pub fn detect_cycles(graph: &WorkflowGraphStructure) -> CycleDetectionResult {
-    let outgoing: HashMap<&str, Vec<&WorkflowEdge>> =
-        graph.edges.iter().fold(HashMap::new(), |mut acc, e| {
+    let outgoing: HashMap<&str, Vec<&WorkflowEdge>> = graph
+        .edges
+        .iter()
+        .filter(|e| is_structural_edge(graph, e))
+        .fold(HashMap::new(), |mut acc, e| {
             acc.entry(e.source_node_id.as_str())
                 .or_insert_with(Vec::new)
                 .push(e);
@@ -80,9 +92,6 @@ pub fn detect_cycles(graph: &WorkflowGraphStructure) -> CycleDetectionResult {
                         stack.push((next, 0));
                     }
                     1 => {
-                        if is_loop_back_edge(graph, edge) {
-                            continue;
-                        }
                         let cycle_start = path.iter().position(|p| *p == next).unwrap_or(0);
                         let nodes: Vec<&str> = path[cycle_start..].to_vec();
                         let mut cycle_edges: Vec<String> = Vec::new();
@@ -119,14 +128,15 @@ pub struct TopologicalSortResult {
 }
 
 /// Topological sort of the workflow graph using Kahn's algorithm. Loop
-/// continuation edges are excluded so LOOP constructs do not fail the sort.
+/// continuation edges and ERROR routing edges are excluded so LOOP
+/// constructs and error branches do not fail the sort.
 pub fn topological_sort(graph: &WorkflowGraphStructure) -> TopologicalSortResult {
     let mut in_degree: HashMap<&str, usize> =
         graph.nodes.iter().map(|n| (n.id.as_str(), 0)).collect();
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
 
     for edge in &graph.edges {
-        if is_loop_back_edge(graph, edge) {
+        if !is_structural_edge(graph, edge) {
             continue;
         }
         *in_degree
@@ -307,6 +317,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -323,6 +334,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: start.map(String::from),
             end_node_ids: ends.into_iter().map(String::from).collect(),
+            error_default: None,
         }
     }
 

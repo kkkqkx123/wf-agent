@@ -62,10 +62,7 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
     if let Some(token) = &ctx.cancellation {
         tctx = tctx.with_cancellation(token.clone());
     }
-    tctx = tctx.with_parent_timeouts(
-        ctx.parent_node_timeout_ms,
-        ctx.parent_max_execution_time_ms,
-    );
+    tctx = tctx.with_parent_timeouts(ctx.parent_node_timeout_ms, ctx.parent_max_execution_time_ms);
     Ok(tctx)
 }
 
@@ -85,7 +82,7 @@ async fn execute_action(
             let next = graph
                 .edges
                 .iter()
-                .find(|e| e.source_node_id == *target)
+                .find(|e| e.source_node_id == *target && !crate::error_branch::is_error_edge(e))
                 .map(|e| e.target_node_id.clone())
                 .or_else(|| Some(target.clone()));
             if let Some(next) = next {
@@ -356,6 +353,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -367,6 +365,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 

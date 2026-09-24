@@ -709,6 +709,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: None,
             end_node_ids: Vec::new(),
+            error_default: None,
         }
     }
 

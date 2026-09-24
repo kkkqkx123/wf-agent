@@ -317,6 +317,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                 system_prompt_template_variables: None,
                 system_prompt: None,
                 static_contexts: None,
+                error_default: None,
             }),
             variables: Some(variables),
             triggered_subworkflow_config: None,
@@ -352,6 +353,7 @@ fn edge(id: &str, source: &str, target: &str, r#type: EdgeType, condition: Optio
         description: None,
         weight: None,
         metadata: None,
+        error_route: None,
     }
 }
 

@@ -65,6 +65,7 @@ fn make_workflow(id: &str) -> WorkflowDefinition {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
             wf_types::workflow::Edge {
                 id: "e2".into(),
@@ -76,6 +77,7 @@ fn make_workflow(id: &str) -> WorkflowDefinition {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
         ],
         config: None,

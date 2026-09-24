@@ -133,4 +133,8 @@ pub struct WorkflowExecutionStateSnapshot {
     /// Hook execution context for condition evaluation after restore.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_execution_context: Option<serde_json::Value>,
+    /// First-class suspend context of an error branch parked at a suspend
+    /// point. Never travels inside the business variable map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_suspend: Option<super::super::super::workflow::ErrorSuspendState>,
 }

@@ -244,7 +244,7 @@ pub async fn await_compression_settle(
                 for (target, version) in &anchored {
                     if err.0 == *target && err.1 == *version {
                         pause_for_compression_failure(ctx, &err.2);
-                        return Err(crate::error::WorkflowError::TriggerError(err.2.clone()));
+                        return Err(compression_failure(ctx, err.2.clone()));
                     }
                 }
             }
@@ -263,7 +263,7 @@ pub async fn await_compression_settle(
                     target, version
                 );
                 pause_for_compression_failure(ctx, &message);
-                return Err(crate::error::WorkflowError::TriggerError(message));
+                return Err(compression_failure(ctx, message));
             }
             if let Some(ref mut sub) = failure_events {
                 while let Ok(event) = sub.try_recv() {
@@ -272,7 +272,7 @@ pub async fn await_compression_settle(
                     {
                         if failed_target == target && failed_version == version {
                             pause_for_compression_failure(ctx, &message);
-                            return Err(crate::error::WorkflowError::TriggerError(message));
+                            return Err(compression_failure(ctx, message));
                         }
                     }
                 }
@@ -285,9 +285,11 @@ pub async fn await_compression_settle(
                     tokio::select! {
                         _ = wait => {}
                         _ = token.cancelled() => {
-                            return Err(crate::error::WorkflowError::OperationError(
-                                "aborted while waiting for compression".to_string(),
-                            ));
+                            return Err(crate::error::WorkflowError::NodeFailure {
+                                node_id: ctx.node_id.clone(),
+                                category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                                detail: "aborted while waiting for compression".to_string(),
+                            });
                         }
                     }
                 }
@@ -311,6 +313,16 @@ fn pause_for_compression_failure(ctx: &NodeExecutionContext, message: &str) {
     );
     if let Some(ref interruption) = ctx.interruption {
         let _ = interruption.pause();
+    }
+}
+
+/// Terminal compression failure carrying its routing category so the
+/// coordinator's error-branch table sees it by type, not by message text.
+fn compression_failure(ctx: &NodeExecutionContext, detail: String) -> crate::error::WorkflowError {
+    crate::error::WorkflowError::NodeFailure {
+        node_id: ctx.node_id.clone(),
+        category: wf_types::workflow::error_branch::NodeErrorCategory::CompressionFailure,
+        detail,
     }
 }
 

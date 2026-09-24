@@ -101,6 +101,7 @@ pub fn create_llm_summary_workflow_with_profile(
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         },
         Edge {
             id: "e-llm-summary-llm-to-end".into(),
@@ -112,6 +113,7 @@ pub fn create_llm_summary_workflow_with_profile(
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         },
     ];
 

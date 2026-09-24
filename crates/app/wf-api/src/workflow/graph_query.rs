@@ -218,6 +218,7 @@ pub async fn get_execution_graph(
                 reverse_adjacency_list: Default::default(),
                 start_node_id: None,
                 end_node_ids: Vec::new(),
+                error_default: None,
             }),
     )
 }
@@ -388,6 +389,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
                 wf_types::workflow::Edge {
                     id: "e2".into(),
@@ -399,6 +401,7 @@ mod tests {
                     description: None,
                     weight: None,
                     metadata: None,
+                    error_route: None,
                 },
             ],
             config: None,

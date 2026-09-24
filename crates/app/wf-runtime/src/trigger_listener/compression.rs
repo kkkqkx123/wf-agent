@@ -82,9 +82,7 @@ fn trim_messages_to_budget(
     min_keep: usize,
 ) -> Vec<Message> {
     let min_keep = min_keep.max(1).min(messages.len());
-    while messages.len() > min_keep
-        && wf_llm::estimate_messages(&messages) as u64 > budget_tokens
-    {
+    while messages.len() > min_keep && wf_llm::estimate_messages(&messages) as u64 > budget_tokens {
         messages.remove(0);
     }
     messages
@@ -496,6 +494,16 @@ impl CompressionService {
             // can see. `Fail` (default) leaves `success` false, so the
             // emitter stops on the failure event for external handling. A
             // failed degraded write-back still reports terminal failure.
+            //
+            // Convergence with the workflow error-branch table happens on the
+            // emitting side, not here: a `Fail` compression failure makes the
+            // blocked LLM node return a category-tagged `NodeFailure`
+            // (compression), which the workflow coordinator routes through the
+            // node's error-branch table. When a graph declares a route for that
+            // category the coordinator clears this pause and jumps to the
+            // handler; with no route the execution parks for external handling.
+            // `PartialSummary` never yields a routeable failure — it degrades
+            // in place below and reports success — so it is not a table entry.
             if !success
                 && matches!(status, ChainStatus::Failed(_))
                 && policy.fallback == CompressionFallbackMode::PartialSummary

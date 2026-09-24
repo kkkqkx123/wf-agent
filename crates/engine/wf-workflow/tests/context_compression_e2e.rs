@@ -116,6 +116,7 @@ impl SubworkflowRunner for SummaryRunner {
                 condition: None,
                 label: None,
                 description: None,
+                error_route: None,
             },
             WorkflowEdge {
                 id: "llm-e".to_string(),
@@ -125,6 +126,7 @@ impl SubworkflowRunner for SummaryRunner {
                 condition: None,
                 label: None,
                 description: None,
+                error_route: None,
             },
         ];
         let graph = WorkflowGraphStructure {
@@ -134,6 +136,7 @@ impl SubworkflowRunner for SummaryRunner {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("s".to_string()),
             end_node_ids: vec!["e".to_string()],
+            error_default: None,
         };
 
         let options = WorkflowExecutionOptions {

@@ -291,6 +291,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             }],
             config: None,
             variables: None,
@@ -353,6 +354,7 @@ mod tests {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         });
         let err = save_workflow(&ctx, &wf).await.unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
@@ -498,6 +500,7 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
+            error_suspend: None,
         };
         let coordinator = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
             wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(

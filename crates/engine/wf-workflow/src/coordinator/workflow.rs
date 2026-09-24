@@ -21,12 +21,16 @@ use wf_metrics::collectors::node::NodeMetricsCollector;
 use wf_types::checkpoint::NodeCheckpointConfig;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
+use wf_types::workflow::error_branch::{is_merge_point, ErrorSuspendState};
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::coordinator::NodeCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
+use crate::error_branch::{
+    check_branch_budget, classify_error, ErrorBranchScope, ErrorFailureAction,
+};
 
 /// Engine-wide fallback node timeout in milliseconds. Applied when neither
 /// the node-level `timeout_seconds` nor the global options default is set,
@@ -208,6 +212,10 @@ pub struct WorkflowCoordinator {
     /// Nodes requested for skipping by `InternalSignal::SkipNode`, applied
     /// at dispatch time (one-shot per node).
     skipped_nodes: HashSet<String>,
+    /// Active error-branch variable scope (`None` on the main path). While
+    /// set, the branch runs on an overlay cloned from the entry snapshot;
+    /// the main-path map stays frozen until an explicit JOIN merge.
+    error_scope: Option<ErrorBranchScope>,
 }
 
 impl WorkflowCoordinator {
@@ -317,6 +325,7 @@ impl WorkflowCoordinator {
             plugin_handlers: Arc::new(HashMap::new()),
             signal_receiver,
             skipped_nodes: HashSet::new(),
+            error_scope: None,
         })
     }
 
@@ -731,19 +740,34 @@ impl WorkflowCoordinator {
                 Err(e) => {
                     self.record_node_failure(&attempt, &outcome, &node_ctx, &e)
                         .await;
-                    // A handler may have paused the execution as the terminal
-                    // handling of a failure it must not absorb (a context
-                    // compression failure, for instance). End the run through
-                    // the standard paused protocol so the outcome is recorded
-                    // as paused-for-handling instead of a plain node failure.
-                    if matches!(
-                        entity.interruption().check(),
-                        Some(InterruptionSignal::Pause)
-                    ) {
-                        self.check_interruption_and_timeout(&entity, event_bus_ref, node_id)
-                            .await?;
+                    match self
+                        .route_node_failure(&entity, event_bus_ref, node_id, &node_type_str, &e)
+                        .await?
+                    {
+                        ErrorFailureAction::Continue => {}
+                        ErrorFailureAction::Suspended(suspend_err) => {
+                            return Err(suspend_err);
+                        }
+                        ErrorFailureAction::Interrupt => {
+                            // A handler may have paused the execution as the terminal
+                            // handling of a failure it must not absorb (a context
+                            // compression failure, for instance). End the run through
+                            // the standard paused protocol so the outcome is recorded
+                            // as paused-for-handling instead of a plain node failure.
+                            if matches!(
+                                entity.interruption().check(),
+                                Some(InterruptionSignal::Pause)
+                            ) {
+                                self.check_interruption_and_timeout(
+                                    &entity,
+                                    event_bus_ref,
+                                    node_id,
+                                )
+                                .await?;
+                            }
+                            return Err(e);
+                        }
                     }
-                    return Err(e);
                 }
             }
 
@@ -754,6 +778,10 @@ impl WorkflowCoordinator {
         }
 
         let result = self.compute_final_output();
+        // A branch that reaches the end without an explicit JOIN merge keeps
+        // the default no-write-back rule: drop the overlay and its error
+        // namespace instead of leaking branch writes into the main path.
+        self.discard_error_scope();
         let execution_time = now() - self.start_time;
 
         entity.state.write().await.complete()?;
@@ -1047,10 +1075,12 @@ impl WorkflowCoordinator {
                 }
                 let node_start = wf_common::now();
                 let result = tokio::time::timeout(tout_dur, fut).await.map_err(|_| {
-                    WorkflowError::CoordinatorError(format!(
-                        "Node '{}' timed out after {:?}",
-                        node_id, tout_dur
-                    ))
+                    WorkflowError::NodeFailure {
+                        node_id: node_id.to_string(),
+                        category:
+                            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                        detail: format!("timed out after {:?}", tout_dur),
+                    }
                 });
                 match &result {
                     Err(_) => {
@@ -1163,6 +1193,18 @@ impl WorkflowCoordinator {
                 .collect();
             registry.update_variables(path_id, snapshot);
         }
+
+        // An explicit merge point brings isolated error-branch writes back to
+        // the main path (last-writer-wins with audit) and reclaims the error
+        // namespace; the run continues as a normal execution.
+        if self.error_scope.is_some()
+            && self
+                .traversal
+                .get_node(node_id)
+                .is_some_and(|node| is_merge_point(&node.inner))
+        {
+            self.merge_error_scope(entity).await;
+        }
     }
 
     /// Record a failed node execution: error chain, audit record, metrics and
@@ -1225,6 +1267,283 @@ impl WorkflowCoordinator {
                 error_type: Some("node_failed"),
             });
         }
+    }
+
+    /// Route a terminal node failure through the error-branch table before
+    /// interrupting the execution. Node routes win in declaration order, then
+    /// the workflow catch-all default; no match keeps fail-fast. A matched
+    /// continue route jumps to its target on an isolated overlay, a matched
+    /// suspend route parks the execution for external recovery.
+    async fn route_node_failure(
+        &mut self,
+        entity: &WorkflowExecutionEntity,
+        event_bus: Option<&EventBus>,
+        failed_node_id: &str,
+        node_type_str: &str,
+        error: &WorkflowError,
+    ) -> WorkflowResult<ErrorFailureAction> {
+        let category = classify_error(error);
+        // External cancellation always wins: a pending Stop is never
+        // re-routed into a branch.
+        if matches!(
+            entity.interruption().check(),
+            Some(InterruptionSignal::Stop)
+        ) {
+            return Ok(ErrorFailureAction::Interrupt);
+        }
+        let Some(target) = self
+            .traversal
+            .error_table()
+            .resolve(failed_node_id, category)
+        else {
+            return Ok(ErrorFailureAction::Interrupt);
+        };
+        if self.traversal.get_node(&target.target_node_id).is_none() {
+            return Err(WorkflowError::ConfigError {
+                node_id: failed_node_id.to_string(),
+                field: "error_route".to_string(),
+                detail: format!(
+                    "error route target '{}' does not exist in the graph",
+                    target.target_node_id
+                ),
+            });
+        }
+        check_branch_budget(
+            self.traversal.graph(),
+            &target.target_node_id,
+            self.ctx.options.max_steps,
+            self.completed_nodes.len(),
+        );
+        if let Some(ref metrics) = self.ctx.metrics {
+            metrics
+                .node()
+                .record_error(failed_node_id, node_type_str, category.as_str());
+        }
+        let attempts = entity
+            .state
+            .read()
+            .await
+            .error_records()
+            .iter()
+            .filter(|record| record.node_id.as_deref() == Some(failed_node_id))
+            .count()
+            .max(1) as u32;
+        let summary = wf_types::workflow::error_branch::ErrorBranchSummary::new(
+            error.to_string(),
+            category,
+            failed_node_id,
+            attempts,
+        );
+        if target.suspend {
+            return Ok(self
+                .suspend_error_branch(entity, event_bus, summary, &target.target_node_id)
+                .await);
+        }
+        // An explicit error branch takes precedence over a handler-requested
+        // pause (the compression Fail fallback parks through the same pause
+        // signal): the graph author handles this failure internally. A Stop
+        // is never cleared — external cancellation always wins.
+        if matches!(
+            entity.interruption().check(),
+            Some(InterruptionSignal::Pause)
+        ) {
+            let _ = entity.interruption().resume();
+        }
+        self.enter_error_branch(entity, event_bus, summary, false)
+            .await;
+        self.current_node_id = Some(target.target_node_id.clone());
+        Ok(ErrorFailureAction::Continue)
+    }
+
+    /// Enter (or re-enter, on nested branch failures) the isolated error
+    /// scope: freeze the main-path map, run the branch on an overlay cloned
+    /// from the entry snapshot plus the read-only error namespace.
+    async fn enter_error_branch(
+        &mut self,
+        entity: &WorkflowExecutionEntity,
+        event_bus: Option<&EventBus>,
+        summary: wf_types::workflow::error_branch::ErrorBranchSummary,
+        from_suspend: bool,
+    ) {
+        let event_type = if from_suspend {
+            wf_types::events::EventType::WorkflowErrorBranchResumed
+        } else {
+            wf_types::events::EventType::WorkflowErrorBranchTaken
+        };
+        if let Some(scope) = self.error_scope.as_mut() {
+            scope.summary = summary.clone();
+            for (key, value) in summary.variables() {
+                self.ctx.variables.insert(key, value);
+            }
+        } else {
+            let main_variables = self.ctx.variables.clone();
+            let snapshot: HashMap<String, Value> = main_variables
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect();
+            let overlay = std::sync::Arc::new(dashmap::DashMap::new());
+            for (key, value) in &snapshot {
+                overlay.insert(key.clone(), value.clone());
+            }
+            for (key, value) in summary.variables() {
+                overlay.insert(key, value);
+            }
+            self.ctx.variables = overlay;
+            self.error_scope = Some(ErrorBranchScope {
+                summary: summary.clone(),
+                main_variables,
+                snapshot,
+            });
+        }
+        self.emit_event(
+            event_bus,
+            event_type,
+            entity,
+            &serde_json::json!({
+                "error_category": summary.category.as_str(),
+                "error_message": summary.message,
+                "source_node_id": summary.source_node_id,
+                "attempts": summary.attempts,
+            }),
+        )
+        .await;
+    }
+
+    /// Park the execution at an error suspend point: persist the typed
+    /// recovery record into the execution state (checkpointed through the
+    /// state snapshot's `error_suspend` domain, never the business variable
+    /// map), point the resume cursor at the branch target, and end the run
+    /// through the standard paused protocol so a crash still resumes from
+    /// storage. The failed node itself never re-runs; recovery continues
+    /// from the branch target.
+    async fn suspend_error_branch(
+        &mut self,
+        entity: &WorkflowExecutionEntity,
+        event_bus: Option<&EventBus>,
+        summary: wf_types::workflow::error_branch::ErrorBranchSummary,
+        target_node_id: &str,
+    ) -> ErrorFailureAction {
+        entity
+            .state
+            .write()
+            .await
+            .set_error_suspend(Some(ErrorSuspendState {
+                summary: summary.clone(),
+                target_node_id: target_node_id.to_string(),
+                suspended_at: now(),
+            }));
+        entity
+            .state
+            .write()
+            .await
+            .set_current_node(Some(target_node_id.to_string()));
+        let _ = entity.interruption().pause();
+        self.emit_event(
+            event_bus,
+            wf_types::events::EventType::WorkflowErrorBranchSuspended,
+            entity,
+            &serde_json::json!({
+                "error_category": summary.category.as_str(),
+                "error_message": summary.message,
+                "source_node_id": summary.source_node_id,
+                "target_node_id": target_node_id,
+                "attempts": summary.attempts,
+            }),
+        )
+        .await;
+        match self
+            .check_interruption_and_timeout(entity, event_bus, target_node_id)
+            .await
+        {
+            Err(paused) => ErrorFailureAction::Suspended(paused),
+            Ok(()) => {
+                // The pause was cleared concurrently: fall back to continuing
+                // on the isolated branch instead of losing the failure, and
+                // consume the suspend record so it cannot resurrect on a
+                // later checkpoint restore.
+                entity.state.write().await.set_error_suspend(None);
+                self.enter_error_branch(entity, event_bus, summary, false)
+                    .await;
+                self.current_node_id = Some(target_node_id.to_string());
+                ErrorFailureAction::Continue
+            }
+        }
+    }
+
+    /// Explicit merge point: flush isolated branch writes back to the main
+    /// path (last-writer-wins), audit the conflicting keys with names only,
+    /// and reclaim the error namespace by restoring the main-path map.
+    async fn merge_error_scope(&mut self, entity: &WorkflowExecutionEntity) {
+        let Some(scope) = self.error_scope.take() else {
+            return;
+        };
+        let event_bus = self.ctx.event_bus.clone();
+        let mut merged: Vec<String> = Vec::new();
+        let mut conflicts: Vec<String> = Vec::new();
+        for entry in self.ctx.variables.iter() {
+            let key = entry.key().clone();
+            if ErrorBranchScope::is_machinery_key(&key) {
+                continue;
+            }
+            let value = entry.value().clone();
+            match scope.snapshot.get(&key) {
+                Some(before) if before == &value => {}
+                Some(_) => {
+                    scope.main_variables.insert(key.clone(), value);
+                    merged.push(key.clone());
+                    conflicts.push(key);
+                }
+                None => {
+                    scope.main_variables.insert(key.clone(), value);
+                    merged.push(key);
+                }
+            }
+        }
+        self.ctx.variables = scope.main_variables;
+        if !merged.is_empty() {
+            self.emit_event(
+                event_bus.as_deref(),
+                wf_types::events::EventType::VariableChanged,
+                entity,
+                &serde_json::json!({
+                    "merged_keys": merged,
+                    "conflicts": conflicts,
+                    "source": "error_branch_merge",
+                }),
+            )
+            .await;
+        }
+    }
+
+    /// Drop an unfinished error scope without merging (branch writes stay
+    /// isolated per the default no-write-back rule) and restore the
+    /// main-path map.
+    fn discard_error_scope(&mut self) {
+        if let Some(scope) = self.error_scope.take() {
+            self.ctx.variables = scope.main_variables;
+        }
+    }
+
+    /// Restore a checkpointed suspend: consume the typed `error_suspend`
+    /// record from the execution state and rebuild the isolated scope plus
+    /// the error namespace, so the resumed run continues from the branch
+    /// target exactly as a fresh suspend entry would. Consuming the record
+    /// keeps a resumed run from re-persisting it. No-op when nothing was
+    /// suspended.
+    pub async fn restore_suspended_error_branch(&mut self) {
+        if self.error_scope.is_some() {
+            return;
+        }
+        let entity = match self.entity.clone() {
+            Some(entity) => entity,
+            None => return,
+        };
+        let Some(state) = entity.state.write().await.take_error_suspend() else {
+            return;
+        };
+        let event_bus = self.ctx.event_bus.clone();
+        self.enter_error_branch(&entity, event_bus.as_deref(), state.summary, true)
+            .await;
     }
 
     async fn process_trigger_effects(&mut self, entity: &WorkflowExecutionEntity) {
@@ -1549,6 +1868,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -1560,6 +1880,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
+            error_default: None,
         }
     }
 
@@ -1583,13 +1904,19 @@ mod tests {
     #[test]
     fn long_running_nodes_skip_the_engine_fallback_only() {
         let n = node("x", "AGENT_LOOP", serde_json::json!({}));
-        assert_eq!(resolve_node_timeout(&n, &StaticNodeType::AgentLoop, None), None);
+        assert_eq!(
+            resolve_node_timeout(&n, &StaticNodeType::AgentLoop, None),
+            None
+        );
         let dur = resolve_node_timeout(&n, &StaticNodeType::AgentLoop, Some(7000))
             .expect("explicit default still applies");
         assert_eq!(dur, std::time::Duration::from_millis(7000));
         let n = node("x", "LLM", serde_json::json!({}));
         let dur = resolve_node_timeout(&n, &StaticNodeType::Llm, None).expect("fallback applies");
-        assert_eq!(dur, std::time::Duration::from_millis(DEFAULT_NODE_TIMEOUT_MS));
+        assert_eq!(
+            dur,
+            std::time::Duration::from_millis(DEFAULT_NODE_TIMEOUT_MS)
+        );
     }
 
     fn options() -> WorkflowExecutionOptions {
@@ -1751,6 +2078,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec![],
+            error_default: None,
         };
 
         // Default multiplier (5): max_allowed = 3 * 5 = 15 navigations.
@@ -1865,6 +2193,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["join_v".to_string()],
+            error_default: None,
         };
         let exec_ctx = ExecutorContext::new(
             wf_common::generate_id(),

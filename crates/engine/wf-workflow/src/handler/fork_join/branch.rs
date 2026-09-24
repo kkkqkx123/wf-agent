@@ -160,7 +160,9 @@ async fn run_branch_inner(
             let outgoing: Vec<&WorkflowEdge> = g
                 .edges
                 .iter()
-                .filter(|e| e.source_node_id == ctx.node_id)
+                .filter(|e| {
+                    e.source_node_id == ctx.node_id && !crate::error_branch::is_error_edge(e)
+                })
                 .collect();
 
             let branch_edge = outgoing

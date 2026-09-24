@@ -1707,6 +1707,7 @@ mod tests {
                         description: None,
                         weight: None,
                         metadata: None,
+                        error_route: None,
                     },
                     wf_types::workflow::Edge {
                         id: "e2".into(),
@@ -1718,6 +1719,7 @@ mod tests {
                         description: None,
                         weight: None,
                         metadata: None,
+                        error_route: None,
                     },
                 ],
                 config: None,

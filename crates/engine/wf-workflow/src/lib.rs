@@ -6,6 +6,7 @@ pub mod coordinator;
 pub mod entity;
 pub mod error;
 pub mod error_analysis;
+pub mod error_branch;
 pub mod execution_callback;
 pub mod execution_context;
 pub mod executor;

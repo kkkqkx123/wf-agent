@@ -220,6 +220,7 @@ pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> ConfigResult<Vec<Edge>> 
                 description: edge.description.clone(),
                 weight: edge.weight,
                 metadata: None,
+                error_route: None,
             })
         })
         .collect()
@@ -464,6 +465,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -479,6 +481,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -498,6 +501,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -513,6 +517,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -539,6 +544,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -561,6 +567,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -583,6 +590,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -652,6 +660,7 @@ mod tests {
             description: None,
             weight: Some(0),
             metadata: None,
+            error_route: None,
         }];
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -665,6 +674,7 @@ mod tests {
             description: None,
             weight: Some(5),
             metadata: None,
+            error_route: None,
         }];
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -682,6 +692,7 @@ mod tests {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         }];
         // Edge existence is owned by GraphValidator; config layer only checks shape.
         assert!(validate_workflow_definition(&wf).is_ok());
@@ -700,6 +711,7 @@ mod tests {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         }];
         // Edge existence is owned by GraphValidator; config layer only checks shape.
         assert!(validate_workflow_definition(&wf).is_ok());
@@ -726,6 +738,7 @@ mod tests {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         }];
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -743,6 +756,7 @@ mod tests {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         }];
         // Cycle detection is owned by GraphValidator; config layer allows it.
         assert!(validate_workflow_definition(&wf).is_ok());
@@ -770,6 +784,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
             wf_types::workflow::edge::Edge {
                 id: "e2".to_string(),
@@ -781,6 +796,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
         ];
         // Cycle detection is owned by GraphValidator; config layer allows it.
@@ -817,6 +833,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
             wf_types::workflow::edge::Edge {
                 id: "e2".to_string(),
@@ -828,6 +845,7 @@ mod tests {
                 description: None,
                 weight: None,
                 metadata: None,
+                error_route: None,
             },
         ];
         assert!(validate_workflow_definition(&wf).is_ok());
@@ -919,6 +937,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: None,
+            error_default: None,
         });
         let err = validate_workflow_definition(&wf).unwrap_err();
         assert!(err.to_string().contains("must not intersect"));
@@ -939,6 +958,7 @@ mod tests {
             system_prompt_template_variables: None,
             system_prompt: None,
             static_contexts: Some(vec![serde_json::json!("not an object")]),
+            error_default: None,
         });
         let err = validate_workflow_definition(&wf).unwrap_err();
         assert!(err.to_string().contains("must be a JSON object"));
@@ -962,6 +982,7 @@ mod tests {
                 serde_json::json!({"key": "value"}),
                 serde_json::json!({"nested": {"a": 1}}),
             ]),
+            error_default: None,
         });
         assert!(validate_workflow_definition(&wf).is_ok());
     }

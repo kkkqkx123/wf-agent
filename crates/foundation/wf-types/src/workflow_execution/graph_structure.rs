@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::workflow::error_branch::{ErrorRouteConfig, WorkflowErrorDefault};
 use crate::workflow::EdgeType;
 use crate::Id;
 
@@ -26,6 +27,9 @@ pub struct WorkflowEdge {
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Failure-route config, only valid when `r#type` is `Error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_route: Option<ErrorRouteConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -37,4 +41,8 @@ pub struct WorkflowGraphStructure {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_node_id: Option<String>,
     pub end_node_ids: Vec<String>,
+    /// Workflow-level catch-all error route (from the workflow config).
+    /// Applied when no node-level error edge matches a terminal failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_default: Option<WorkflowErrorDefault>,
 }

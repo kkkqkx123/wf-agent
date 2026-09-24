@@ -264,6 +264,7 @@ impl<S> WorkflowBuilder<S> {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         });
         Ok(self)
     }
@@ -289,6 +290,7 @@ impl<S> WorkflowBuilder<S> {
             description: None,
             weight: None,
             metadata: None,
+            error_route: None,
         });
         Ok(self)
     }

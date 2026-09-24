@@ -268,7 +268,8 @@ impl LlmGateway {
     /// Single assembly preamble shared by all request entry points:
     /// resolve the profile, merge request overrides, then fetch the client.
     /// Mock routing and result post-processing stay in each caller.
-    fn prepare(&self, request: &LlmRequest) -> LlmResult<PreparedRequest> {        let profile = self.resolve_profile(&request.profile_id)?;
+    fn prepare(&self, request: &LlmRequest) -> LlmResult<PreparedRequest> {
+        let profile = self.resolve_profile(&request.profile_id)?;
         let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
         Ok(PreparedRequest {

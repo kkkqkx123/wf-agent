@@ -26,6 +26,7 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
         condition: None,
         label: None,
         description: None,
+        error_route: None,
     }
 }
 
@@ -37,6 +38,7 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
         reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
+        error_default: None,
     }
 }
 
@@ -108,6 +110,7 @@ fn edge_to_unknown_node_fails() {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }],
     );
     let err = GraphValidator::validate(g).expect_err("dangling edge must fail");

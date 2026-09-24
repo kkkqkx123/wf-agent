@@ -13,6 +13,23 @@ use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 
+/// Extract the routing category (and a clean detail) from a handler error that
+/// already carries one, so the node-failure path can preserve the typed
+/// `NodeFailure` across `fail_node` instead of collapsing it to a message.
+fn typed_failure_parts(
+    error: &WorkflowError,
+) -> Option<(wf_types::workflow::error_branch::NodeErrorCategory, String)> {
+    match error {
+        WorkflowError::NodeFailure {
+            category, detail, ..
+        } => Some((*category, detail.clone())),
+        WorkflowError::SharedError(ExecutionSharedError::NodeFailure {
+            category, detail, ..
+        }) => Some((*category, detail.clone())),
+        _ => None,
+    }
+}
+
 pub struct NodeCoordinator;
 
 /// Node context attached to hook payloads (BEFORE_EXECUTE / AFTER_EXECUTE).
@@ -31,6 +48,15 @@ struct NodeRef<'a> {
     name: &'a str,
     r#type: &'a str,
     start: i64,
+}
+
+/// Everything the shared node-failure path needs to describe one failure: the
+/// human-readable reason, the optional veto source, and the optional routing
+/// category carried by a typed handler error.
+struct NodeFailureInfo<'a> {
+    reason: &'a str,
+    rejection_source: Option<&'a str>,
+    category: Option<wf_types::workflow::error_branch::NodeErrorCategory>,
 }
 
 impl<'a> NodeRef<'a> {
@@ -111,14 +137,18 @@ impl NodeCoordinator {
         )
         .await;
         if let Some(reason) = before.vetoed_reason() {
+            let veto_reason = format!("hook veto at BEFORE_EXECUTE: {reason}");
             return Self::fail_node(
                 hooks,
                 hook_handler_registry,
                 event_bus,
                 entity,
                 &node,
-                &format!("hook veto at BEFORE_EXECUTE: {reason}"),
-                Some("hook_veto"),
+                NodeFailureInfo {
+                    reason: &veto_reason,
+                    rejection_source: Some("hook_veto"),
+                    category: None,
+                },
             )
             .await;
         }
@@ -135,10 +165,12 @@ impl NodeCoordinator {
             .map_err(WorkflowError::from);
         let result = match result {
             Err(WorkflowError::SharedError(ExecutionSharedError::InterruptionError(detail))) => {
-                return Err(WorkflowError::CoordinatorError(format!(
-                    "Execution interrupted at node {}: {}",
-                    node_id, detail
-                )));
+                return Err(WorkflowError::NodeFailure {
+                    node_id: node_id.clone(),
+                    category:
+                        wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: format!("Execution interrupted: {}", detail),
+                });
             }
             other => other,
         };
@@ -182,14 +214,32 @@ impl NodeCoordinator {
                 })
             }
             Err(e) => {
+                let detail;
+                let failure = match typed_failure_parts(e) {
+                    Some((category, msg)) => {
+                        detail = msg;
+                        NodeFailureInfo {
+                            reason: &detail,
+                            rejection_source: None,
+                            category: Some(category),
+                        }
+                    }
+                    None => {
+                        detail = e.to_string();
+                        NodeFailureInfo {
+                            reason: &detail,
+                            rejection_source: None,
+                            category: None,
+                        }
+                    }
+                };
                 Self::fail_node(
                     hooks,
                     hook_handler_registry,
                     event_bus,
                     entity,
                     &node,
-                    &e.to_string(),
-                    None,
+                    failure,
                 )
                 .await
             }
@@ -198,19 +248,24 @@ impl NodeCoordinator {
 
     /// Shared node-failure path for handler errors and BEFORE_EXECUTE
     /// vetoes: fire ON_ERROR, emit NodeFailed, never AFTER_EXECUTE.
-    /// `rejection_source` marks veto-driven failures (`Some("hook_veto")`)
-    /// so subscribers can distinguish them from handler errors (`None`);
-    /// it travels on the ON_ERROR hook payload (`rejection_source`) and on
-    /// the NodeFailed event metadata.
+    /// `failure.rejection_source` marks veto-driven failures
+    /// (`Some("hook_veto")`) so subscribers can distinguish them from handler
+    /// errors (`None`); it travels on the ON_ERROR hook payload and on the
+    /// NodeFailed event metadata. A typed `failure.category` is preserved on
+    /// the returned error so routing reads it by type, not by message.
     async fn fail_node(
         hooks: &[HookDefinition],
         hook_handler_registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
         entity: &WorkflowExecutionEntity,
         node: &NodeRef<'_>,
-        reason: &str,
-        rejection_source: Option<&str>,
+        failure: NodeFailureInfo<'_>,
     ) -> WorkflowResult<NodeExecutionResult> {
+        let NodeFailureInfo {
+            reason,
+            rejection_source,
+            category,
+        } = failure;
         let duration_ms = wf_common::now() - node.start;
         Self::execute_hooks_with_rejection(
             hooks,
@@ -238,9 +293,16 @@ impl NodeCoordinator {
         )
         .await;
 
-        Err(WorkflowError::NodeExecutionFailed {
-            node_id: node.id.to_string(),
-            reason: reason.to_string(),
+        Err(match category {
+            Some(category) => WorkflowError::NodeFailure {
+                node_id: node.id.to_string(),
+                category,
+                detail: reason.to_string(),
+            },
+            None => WorkflowError::NodeExecutionFailed {
+                node_id: node.id.to_string(),
+                reason: reason.to_string(),
+            },
         })
     }
 

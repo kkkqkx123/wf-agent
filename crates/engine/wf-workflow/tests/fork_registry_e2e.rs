@@ -122,6 +122,7 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
         condition: None,
         label: None,
         description: None,
+        error_route: None,
     }
 }
 
@@ -138,6 +139,7 @@ fn graph(
         reverse_adjacency_list: HashMap::new(),
         start_node_id: Some(start.to_string()),
         end_node_ids: ends.into_iter().map(String::from).collect(),
+        error_default: None,
     }
 }
 

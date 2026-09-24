@@ -51,6 +51,14 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             message: e.to_string(),
             cause: None,
         },
+        WorkflowError::NodeFailure { .. } => ErrorAnalysis {
+            kind: ErrorKind::Execution,
+            error_type: ErrorType::Internal,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
+            cause: None,
+        },
         WorkflowError::ForkJoinError(_)
         | WorkflowError::SubgraphError(_)
         | WorkflowError::TriggerError(_) => ErrorAnalysis {

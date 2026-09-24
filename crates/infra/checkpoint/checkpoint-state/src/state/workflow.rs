@@ -153,6 +153,7 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
+            error_suspend: None,
         }
     }
 

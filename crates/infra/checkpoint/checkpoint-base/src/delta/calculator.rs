@@ -260,6 +260,12 @@ impl
                     .and_then(|v| (!v.is_null()).then(|| v.clone()))
                     .and_then(|v| serde_json::from_value(v).ok());
             }
+            if other.contains_key("error_suspend") {
+                result.error_suspend = other
+                    .get("error_suspend")
+                    .filter(|v| !v.is_null())
+                    .and_then(|v| serde_json::from_value(v.clone()).ok());
+            }
         }
 
         Ok(result)
@@ -536,6 +542,12 @@ impl WorkflowDiffCalculator {
                     .hook_execution_context
                     .clone()
                     .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.error_suspend != previous.error_suspend {
+            other.insert(
+                "error_suspend".to_string(),
+                serde_json::to_value(&current.error_suspend).unwrap_or(serde_json::Value::Null),
             );
         }
 
@@ -994,6 +1006,7 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
+            error_suspend: None,
         }
     }
 

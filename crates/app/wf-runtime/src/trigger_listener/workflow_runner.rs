@@ -90,6 +90,7 @@ pub fn template_to_graph(template: &WorkflowTemplate) -> WorkflowGraphStructure 
             condition: edge.condition.clone(),
             label: edge.label.clone(),
             description: edge.description.clone(),
+            error_route: None,
         })
         .collect();
     WorkflowGraphStructure {
@@ -102,6 +103,7 @@ pub fn template_to_graph(template: &WorkflowTemplate) -> WorkflowGraphStructure 
         edges,
         adjacency_list: HashMap::new(),
         reverse_adjacency_list: HashMap::new(),
+        error_default: None,
     }
 }
 

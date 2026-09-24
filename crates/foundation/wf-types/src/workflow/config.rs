@@ -4,6 +4,7 @@ use crate::checkpoint::workflow::WorkflowCheckpointConfig;
 use crate::execution::RetryPolicy;
 use crate::message::Message;
 use crate::tool::AvailableTools;
+use crate::workflow::error_branch::WorkflowErrorDefault;
 use crate::Metadata;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -30,4 +31,8 @@ pub struct WorkflowConfig {
     pub system_prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub static_contexts: Option<Vec<serde_json::Value>>,
+    /// Workflow-level catch-all error route: used when a terminal node
+    /// failure matches no node-level error edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_default: Option<WorkflowErrorDefault>,
 }

@@ -1,4 +1,5 @@
 use thiserror::Error;
+use wf_types::workflow::error_branch::NodeErrorCategory;
 
 #[derive(Debug, Error)]
 pub enum WorkflowError {
@@ -19,6 +20,17 @@ pub enum WorkflowError {
 
     #[error("Node execution failed: {node_id} - {reason}")]
     NodeExecutionFailed { node_id: String, reason: String },
+
+    /// Terminal node failure carrying its routing category. Raised where the
+    /// engine knows the failure kind (coordinator timeout, interruption, the
+    /// emitting node's compression failure) so error-branch routing classifies
+    /// by type instead of by message substring.
+    #[error("Node failure [{category}] {node_id}: {detail}")]
+    NodeFailure {
+        node_id: String,
+        category: NodeErrorCategory,
+        detail: String,
+    },
 
     #[error("Fork/Join error: {0}")]
     ForkJoinError(String),
@@ -68,9 +80,24 @@ pub type WorkflowResult<T> = Result<T, WorkflowError>;
 
 /// Bridge into the shared handler boundary: workflow-internal errors surface
 /// to the shared `NodeHandler` trait as a `HandlerError` carrying the full
-/// message.
+/// message. A category-tagged `NodeFailure` is forwarded as a `NodeFailure` on
+/// the shared side so the terminal-failure routing category survives the trait
+/// boundary instead of collapsing into a string.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
-        wf_execution_shared::error::ExecutionSharedError::HandlerError(value.to_string())
+        match value {
+            WorkflowError::NodeFailure {
+                node_id,
+                category,
+                detail,
+            } => wf_execution_shared::error::ExecutionSharedError::NodeFailure {
+                node_id,
+                category,
+                detail,
+            },
+            other => {
+                wf_execution_shared::error::ExecutionSharedError::HandlerError(other.to_string())
+            }
+        }
     }
 }

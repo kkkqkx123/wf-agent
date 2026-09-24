@@ -6,7 +6,9 @@ use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, Workflo
 // Re-export for crate-internal use (e.g. preprocess.rs, node_validation.rs, protocol_consistency.rs)
 pub use wf_types::{ValidationError, ValidationResult};
 
-use crate::analysis::{analyze_graph, analyze_reachability, detect_cycles, get_reachable_nodes};
+use crate::analysis::{
+    analyze_graph, analyze_reachability, detect_cycles, get_nodes_reaching_to, get_reachable_nodes,
+};
 use crate::node_validation::validate_node_configs;
 use crate::protocol_consistency::validate_protocol_consistency_with;
 use crate::reference_closure::{ReferenceClosureReport, ReferenceContext};
@@ -132,6 +134,7 @@ impl GraphValidator {
         errors.extend(Self::validate_subgraph_nodes(&graph));
         errors.extend(Self::validate_triggered_subgraph(&graph));
         errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_error_branches(&graph));
         errors.extend(Self::validate_fork_children(&graph));
         errors.extend(Self::validate_cycles(&graph));
         errors.extend(Self::validate_reachability(&graph));
@@ -166,6 +169,7 @@ impl GraphValidator {
         errors.extend(Self::validate_subgraph_nodes(&graph));
         errors.extend(Self::validate_triggered_subgraph(&graph));
         errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_error_branches(&graph));
         errors.extend(Self::validate_fork_children(&graph));
         errors.extend(Self::validate_cycles(&graph));
         errors.extend(Self::validate_reachability(&graph));
@@ -394,7 +398,9 @@ impl GraphValidator {
     }
 
     /// Boundary nodes are excluded; any other node without both an incoming
-    /// and an outgoing edge is reported as isolated.
+    /// and an outgoing edge is reported as isolated. ERROR edges count as
+    /// connectivity, so a dedicated error handler entered only through an
+    /// error jump is not isolated.
     fn validate_isolated_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
@@ -1104,7 +1110,131 @@ impl GraphValidator {
         errors
     }
 
-    /// FORK branch entry nodes must resolve to real graph nodes.
+    /// Error-routing declarations ride on first-class ERROR edges plus the
+    /// workflow catch-all default. An `error_route` config on a non-ERROR
+    /// edge and a self-target jump are rejected; unknown edge endpoints are
+    /// already caught by the generic edge-reference check, so only the
+    /// default target needs a dedicated lookup here. Error jumps must not
+    /// introduce a control-flow cycle the normal edges alone do not have
+    /// (a handler re-entering an ancestor would loop between failing
+    /// nodes; the engine only bounds that at runtime, so reject it here).
+    /// The workflow default is excluded from the cycle check: it is an
+    /// explicit top-level escape hatch, not an edge a graph author wires.
+    /// Routing declared inside a FORK..JOIN span is warn-only: an isolated
+    /// error branch cannot safely merge back while sibling paths of the same
+    /// fork are still in flight.
+    fn validate_error_branches(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        use wf_types::workflow::edge::EdgeType;
+        let mut errors = Vec::new();
+        let node_ids: HashSet<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+
+        for edge in &graph.edges {
+            let is_error = edge.r#type == EdgeType::Error;
+            if !is_error && edge.error_route.is_some() {
+                errors.push(ValidationError::new(
+                    format!("edges.{}", edge.id),
+                    "error_route config is only allowed on ERROR edges".to_string(),
+                ));
+            }
+            if is_error && edge.source_node_id == edge.target_node_id {
+                errors.push(ValidationError::new(
+                    format!("edges.{}", edge.id),
+                    format!(
+                        "error route of node '{}' targets itself: the failed node never re-runs through its own route",
+                        edge.source_node_id
+                    ),
+                ));
+            }
+        }
+
+        if let Some(default) = &graph.error_default {
+            if !node_ids.contains(default.target_node_id.as_str()) {
+                errors.push(ValidationError::new(
+                    "error_default",
+                    format!(
+                        "workflow error default targets unknown node '{}'",
+                        default.target_node_id
+                    ),
+                ));
+            }
+        }
+
+        Self::warn_error_routes_in_fork_subtrees(graph);
+
+        if errors.is_empty() {
+            if let Some(cycle) = Self::detect_error_route_cycle(graph) {
+                errors.push(ValidationError::new(
+                    "nodes",
+                    format!(
+                        "Error-route control cycle exists through nodes [{}]: an error jump must not re-enter an ancestor",
+                        cycle.join(", ")
+                    ),
+                ));
+            }
+        }
+        errors
+    }
+
+    /// Warn (without failing validation) about ERROR edges declared inside
+    /// any FORK..JOIN span: nodes downstream of a FORK that still lead to a
+    /// JOIN through normal edges.
+    fn warn_error_routes_in_fork_subtrees(graph: &WorkflowGraphStructure) {
+        use wf_types::workflow::edge::EdgeType;
+        let normal_only = WorkflowGraphStructure {
+            nodes: graph.nodes.clone(),
+            edges: graph
+                .edges
+                .iter()
+                .filter(|e| e.r#type != EdgeType::Error)
+                .cloned()
+                .collect(),
+            adjacency_list: Default::default(),
+            reverse_adjacency_list: Default::default(),
+            start_node_id: graph.start_node_id.clone(),
+            end_node_ids: graph.end_node_ids.clone(),
+            error_default: None,
+        };
+        let mut subtree: HashSet<String> = HashSet::new();
+        for fork in normal_only.nodes.iter().filter(|n| n.node_type == "FORK") {
+            let downstream = get_reachable_nodes(&normal_only, &fork.id);
+            for join in normal_only.nodes.iter().filter(|n| n.node_type == "JOIN") {
+                let up = get_nodes_reaching_to(&normal_only, &join.id);
+                for id in downstream.iter().filter(|id| up.contains(*id)) {
+                    subtree.insert(id.clone());
+                }
+            }
+        }
+        for edge in &graph.edges {
+            if edge.r#type == EdgeType::Error && subtree.contains(&edge.source_node_id) {
+                tracing::warn!(
+                    edge_id = edge.id,
+                    source_node_id = edge.source_node_id,
+                    "error route declared inside a FORK..JOIN span: the isolated branch cannot safely merge while sibling paths are in flight"
+                );
+            }
+        }
+    }
+
+    /// Detect a cycle that exists only once ERROR edges are treated as
+    /// control edges. Returns the cycle node ids, or `None` when the
+    /// normal+error graph is acyclic (or a normal-edge cycle already exists
+    /// and is reported elsewhere).
+    fn detect_error_route_cycle(graph: &WorkflowGraphStructure) -> Option<Vec<String>> {
+        use wf_types::workflow::edge::EdgeType;
+
+        if detect_cycles(graph).has_cycle {
+            // A normal-edge cycle already exists and is reported elsewhere.
+            return None;
+        }
+        let mut combined = graph.clone();
+        for edge in &mut combined.edges {
+            if edge.r#type == EdgeType::Error {
+                edge.r#type = EdgeType::Default;
+            }
+        }
+        let result = detect_cycles(&combined);
+        result.has_cycle.then_some(result.cycle_nodes)
+    }
     fn validate_fork_children(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         use std::collections::HashSet;
         let mut errors = Vec::new();
@@ -1223,8 +1353,19 @@ impl GraphValidator {
 
         let mut errors = Vec::new();
         let analysis = analyze_reachability(graph);
+        // ERROR edges count as reachability paths, so handlers entered only
+        // through an error jump are already covered. The workflow catch-all
+        // is not an edge: its dedicated target may legitimately have no
+        // incoming edge at all.
+        let default_target = graph
+            .error_default
+            .as_ref()
+            .map(|d| d.target_node_id.as_str());
 
         for node_id in &analysis.unreachable_nodes {
+            if default_target == Some(node_id.as_str()) {
+                continue;
+            }
             errors.push(ValidationError::new(
                 format!("nodes.{}", node_id),
                 format!("Node ({}) is not reachable from START node", node_id),
@@ -1273,6 +1414,7 @@ mod tests {
             condition: None,
             label: None,
             description: None,
+            error_route: None,
         }
     }
 
@@ -1289,6 +1431,7 @@ mod tests {
             reverse_adjacency_list: HashMap::new(),
             start_node_id: start.map(|s| s.to_string()),
             end_node_ids: ends.into_iter().map(|s| s.to_string()).collect(),
+            error_default: None,
         }
     }
 

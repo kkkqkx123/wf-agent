@@ -33,7 +33,10 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
+		"@tailwindcss/typography": "^0.5.19",
+		"@tailwindcss/vite": "^4.1.18",
 		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.69.2",
 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
 		"@types/node": "^26.1.1",
@@ -49,5 +52,8 @@
 		"typescript-eslint": "^8.70.1",
 		"vite": "^8.1.4",
 		"vitest": "^5.0.1"
+	},
+	"dependencies": {
+		"tailwindcss": "^4.1.18"
 	}
 }

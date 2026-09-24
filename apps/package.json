@@ -12,5 +12,8 @@
     "test": "echo \"Test script for apps coming soon\"",
     "format": "turbo run format",
     "format:check": "turbo run format:check"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10"
   }
 }

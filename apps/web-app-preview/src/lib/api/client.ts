@@ -1,40 +1,383 @@
-import createClient from 'openapi-fetch';
-import type { paths } from './schema';
-
 /**
- * Base URL for the wf-server API.
- * Priority: VITE_API_BASE_URL env var → same origin + /api/v1.
- * In dev mode the Vite proxy forwards /api/* to the backend.
+ * Fixture-backed replacement for openapi-fetch's client.
+ *
+ * web-app-preview never talks to a real wf-server. Every call to
+ * `client.GET` / `client.POST` below resolves instantly against the
+ * hard-coded sample data in `$lib/fixtures`. The return shape matches
+ * openapi-fetch ({ data, error, response }) so `envelope.ts` and the
+ * services layer stay completely unchanged.
+ *
+ * This file is a "preview-only override": sync-web-app-preview.sh copies
+ * it *once* from the source tree, then excludes it from future syncs so
+ * edits here never get overwritten.
  */
-const _origin = typeof location !== 'undefined' ? location.origin : 'http://localhost';
-export const API_BASE_URL =
-	import.meta.env.VITE_API_BASE_URL ?? `${_origin}/api/v1`;
 
-/**
- * Resolve API key from environment or localStorage.
- * The key is optional — when AUTH_ENABLED=false on the backend,
- * no key is required.
- */
-export function resolveApiKey(): string | undefined {
-	const fromEnv = import.meta.env.VITE_API_KEY as string | undefined;
-	if (fromEnv && fromEnv.length > 0) return fromEnv;
-	if (typeof localStorage !== 'undefined') {
-		const fromStorage = localStorage.getItem('wf.apiKey');
-		if (fromStorage && fromStorage.length > 0) return fromStorage;
-	}
-	return undefined;
+import {
+        agentLoops,
+        loopMessages,
+        loopVariables,
+        loopDetail,
+} from '$lib/fixtures/agentLoops';
+import { checkpoints, fileChanges, approvals } from '$lib/fixtures/checkpoints';
+import { executions, executionDetail, executionToolCalls } from '$lib/fixtures/executions';
+import {
+        overviewMetrics,
+        templates,
+        queryResult,
+        auditReports,
+        errorAnalyses,
+        perfNodes,
+        events,
+        dependencies,
+        diagnostics,
+} from '$lib/fixtures/insights';
+import {
+        modelProfiles,
+        providers,
+        tools,
+        scripts,
+        skills,
+} from '$lib/fixtures/resources';
+import {
+        triggerRecords,
+        hooks,
+        executionTimeline,
+} from '$lib/fixtures/triggers';
+import { workflows, workflowDetail } from '$lib/fixtures/workflows';
+import { FIXTURE_EPOCH } from '$lib/fixtures/clock';
+
+// ---------------------------------------------------------------------------
+// openapi-fetch type — preview never runs typecheck against the schema
+// (we only need the runtime shape), so importing paths is intentionally
+// skipped. Using `any` keeps preview independent from schema.d.ts rebuilds.
+// ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = any;
+
+// Re-export an empty baseUrl so shared code that reads it still compiles.
+export const API_BASE_URL = '/mock';
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/** Convert one camelCase key to snake_case without double-underscores. */
+function camelToSnake(s: string): string {
+        // Only uppercase ASCII needs handling — fixture keys never have
+        // leading underscores or unicode identifiers.
+        return s.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase());
 }
 
-export const client = createClient<paths>({
-	baseUrl: API_BASE_URL,
-	headers: { 'Content-Type': 'application/json' },
+/** Recursively convert camelCase object keys to snake_case. Arrays are
+ *  recursed into; non-plain objects (dates, classes) are returned as-is. */
+function camelToSnakeDeep<T>(value: T): T {
+        if (value === null || value === undefined) return value;
+        if (Array.isArray(value)) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                return value.map((v: any) => camelToSnakeDeep(v)) as T;
+        }
+        if (typeof value === 'object') {
+                // Date, Map, Set etc. — preserve identity
+                if (value instanceof Date) return value;
+                const out: Record<string, unknown> = {};
+                for (const [k, v] of Object.entries(value)) {
+                        out[camelToSnake(k)] = camelToSnakeDeep(v);
+                }
+                return out as T;
+        }
+        return value;
+}
+
+/** Wrap a list of DTOs in the backend's PageView shape. */
+function pageView<T>(items: T[], limit = 50, offset = 0) {
+        return {
+                items: items.slice(offset, offset + limit),
+                has_more: offset + limit < items.length,
+                limit,
+                offset,
+        };
+}
+
+/** Best-effort extract of a query param from params.query. openapi-fetch
+ *  passes `{ query: { limit, offset } }` for list calls. */
+function queryOf(params?: Record<string, unknown>): Record<string, unknown> {
+        const q = params?.query;
+        return q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
+}
+
+// ---------------------------------------------------------------------------
+// Path dispatch
+// ---------------------------------------------------------------------------
+
+/**
+ * Match `pathTemplate` (e.g. `/api/v1/workflows/{id}`) against a concrete
+ * request path, returning captured params or null on miss.
+ */
+function matchPath(
+        pathTemplate: string,
+        actual: string,
+): Record<string, string> | null {
+        const regex = new RegExp(
+                '^' + pathTemplate.replace(/\{[^}]+\}/g, '([^/]+)') + '$',
+        );
+        const names = [...pathTemplate.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
+        const m = regex.exec(actual);
+        if (!m) return null;
+        const out: Record<string, string> = {};
+        names.forEach((n, i) => (out[n] = m[i + 1]));
+        return out;
+}
+
+type Handler = (
+        params: Record<string, string>,
+        query: Record<string, unknown>,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        body: any,
+) => unknown;
+
+/** Build a method router for GET/POST/PUT/DELETE. */
+function makeRouter() {
+        // Method → [ [pattern, handler], ... ]
+        const routes: Record<string, Array<[string, Handler]>> = {
+                GET: [],
+                POST: [],
+                PUT: [],
+                DELETE: [],
+                PATCH: [],
+        };
+
+        function on(method: string, pattern: string, handler: Handler) {
+                routes[method].push([pattern, handler]);
+        }
+
+        function dispatch(
+                method: string,
+                path: string,
+                query: Record<string, unknown>,
+                body: unknown,
+        ): unknown {
+                for (const [pattern, handler] of routes[method] ?? []) {
+                        const params = matchPath(pattern, path);
+                        if (params !== null) {
+                                return handler(params, query, body);
+                        }
+                }
+                return undefined;
+        }
+
+        return { on, dispatch };
+}
+
+// ---------------------------------------------------------------------------
+// Wire up every endpoint
+// ---------------------------------------------------------------------------
+
+const router = makeRouter();
+
+// ---------- workflows ----------
+router.on('GET', '/api/v1/workflows', (_p, query) => {
+        return pageView(camelToSnakeDeep(workflows), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/workflows/{id}', (params) => {
+        const found = workflowDetail.id === params.id
+                ? workflowDetail
+                : workflows.find((w) => w.id === params.id) ?? workflows[0];
+        return camelToSnakeDeep(found);
+});
+router.on('GET', '/api/v1/workflows/{id}/graph', (params) => {
+        const detail = workflowDetail.id === params.id
+                ? workflowDetail
+                : workflows.find((w) => w.id === params.id)
+                        ? workflowDetail
+                        : workflowDetail;
+        return camelToSnakeDeep(detail.graph);
+});
+router.on('GET', '/api/v1/workflows/{id}/versions', () => {
+        return camelToSnakeDeep([
+                { version: 12, created_at: '', author: 'platform', note: 'Nightly build bump', current: true },
+                { version: 11, created_at: '', author: 'platform', note: 'Reorganise test matrix', current: false },
+                { version: 10, created_at: '', author: 'sre', note: 'Tighten sandbox defaults', current: false },
+        ]);
 });
 
-/** Interceptor: inject x-api-key on every request. */
-client.use({
-	async onRequest({ request }) {
-		const key = resolveApiKey();
-		if (key) request.headers.set('x-api-key', key);
-		return request;
-	},
+// ---------- executions ----------
+router.on('GET', '/api/v1/executions', (_p, query) => {
+        return pageView(camelToSnakeDeep(executions), +(query.limit ?? 50), +(query.offset ?? 0));
 });
+router.on('GET', '/api/v1/executions/{id}', (params) => {
+        const found = executionDetail.id === params.id
+                ? executionDetail
+                : executions.find((e) => e.id === params.id) ?? executions[0];
+        return camelToSnakeDeep(found);
+});
+router.on('GET', '/api/v1/executions/{id}/audit/tool-calls', () => {
+        return camelToSnakeDeep(executionToolCalls);
+});
+router.on('GET', '/api/v1/executions/{id}/audit/timeline', () => {
+        return camelToSnakeDeep(executionTimeline);
+});
+
+// ---------- agent-loops ----------
+router.on('GET', '/api/v1/agent-loops', (_p, query) => {
+        return pageView(camelToSnakeDeep(agentLoops), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/agent-loops/{id}', (params) => {
+        const found = loopDetail.id === params.id
+                ? loopDetail
+                : agentLoops.find((a) => a.id === params.id) ?? agentLoops[0];
+        return camelToSnakeDeep(found);
+});
+router.on('GET', '/api/v1/agent-loops/{id}/summary', () => {
+        return camelToSnakeDeep({ summary: loopDetail.summary });
+});
+router.on('GET', '/api/v1/agent-loops/{id}/conversation', () => {
+        return camelToSnakeDeep(loopMessages);
+});
+router.on('GET', '/api/v1/agent-loops/{id}/graph', () => {
+        return camelToSnakeDeep(loopDetail.graph);
+});
+
+// ---------- checkpoints ----------
+router.on('GET', '/api/v1/checkpoints', (_p, query) => {
+        return pageView(camelToSnakeDeep(checkpoints), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/checkpoints/entity/{entityId}', () => {
+        return camelToSnakeDeep(checkpoints);
+});
+router.on('GET', '/api/v1/checkpoints/stats', () => {
+        return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
+});
+
+// ---------- events ----------
+router.on('GET', '/api/v1/events', (_p, query) => {
+        return pageView(camelToSnakeDeep(events), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/events/search', (_p, query) => {
+        return pageView(camelToSnakeDeep(events), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/events/size', () => {
+        return events.length;
+});
+
+// ---------- dependencies + health ----------
+router.on('GET', '/api/v1/dependencies/audit', () => camelToSnakeDeep(dependencies));
+router.on('GET', '/health', () => ({
+        ready: true,
+        storage: 'sqlite',
+        persistence: { mode: 'single', db: 'wf.db' },
+}));
+router.on('GET', '/api/v1/storage/diagnose', () => camelToSnakeDeep(diagnostics));
+router.on('GET', '/api/v1/storage/stats', () => ({
+        files: 128,
+        total_bytes: 4_120_000,
+        oldest: new Date(FIXTURE_EPOCH - 86_400_000).toISOString(),
+        newest: new Date(FIXTURE_EPOCH).toISOString(),
+}));
+
+// ---------- insights / analysis ----------
+router.on('POST', '/api/v1/query', () => camelToSnakeDeep(queryResult));
+router.on('GET', '/api/v1/analysis/stats/top-node-types', () => camelToSnakeDeep(perfNodes));
+router.on('GET', '/api/v1/analysis/stats', () => ({
+        executions_24h: overviewMetrics.find((m) => m.label === 'Completed 24h')?.value ?? 0,
+        running: overviewMetrics.find((m) => m.label === 'Running')?.value ?? 0,
+        failed_24h: overviewMetrics.find((m) => m.label === 'Failed 24h')?.value ?? 0,
+}));
+
+// ---------- resources ----------
+router.on('GET', '/api/v1/llm/profiles', () => pageView(camelToSnakeDeep(modelProfiles)));
+router.on('GET', '/api/v1/llm/providers', () => camelToSnakeDeep(providers));
+router.on('GET', '/api/v1/tools', (_p, query) => pageView(camelToSnakeDeep(tools), +(query.limit ?? 50), +(query.offset ?? 0)));
+router.on('GET', '/api/v1/scripts', (_p, query) => pageView(camelToSnakeDeep(scripts), +(query.limit ?? 50), +(query.offset ?? 0)));
+router.on('GET', '/api/v1/skills', () => camelToSnakeDeep(skills));
+router.on('POST', '/api/v1/skills/{name}/enable', () => ({ ok: true }));
+router.on('POST', '/api/v1/skills/{name}/disable', () => ({ ok: true }));
+router.on('POST', '/api/v1/tools/{id}/enable', () => ({ ok: true }));
+router.on('POST', '/api/v1/tools/{id}/disable', () => ({ ok: true }));
+
+// ---------- templates ----------
+router.on('GET', '/api/v1/templates/library', (_p, query) => {
+        return pageView(camelToSnakeDeep(templates), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/templates/library/featured', () => {
+        return camelToSnakeDeep(templates.filter((t) => t.featured));
+});
+router.on('GET', '/api/v1/templates/library/popular', () => {
+        return camelToSnakeDeep([...templates].sort((a, b) => b.usage - a.usage).slice(0, 6));
+});
+router.on('GET', '/api/v1/templates/node', (_p, query) => {
+        const nodeTemplates = templates.filter((t) => t.kind === 'node');
+        return pageView(camelToSnakeDeep(nodeTemplates), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+
+// ---------- triggers ----------
+router.on('GET', '/api/v1/triggers/history', (_p, query) => {
+        return pageView(camelToSnakeDeep(triggerRecords), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/trigger-executions', (_p, query) => {
+        return pageView(camelToSnakeDeep(triggerRecords), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+
+// ---------------------------------------------------------------------------
+// Public client object — mirrors openapi-fetch surface used by services
+// ---------------------------------------------------------------------------
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export const client: AnyClient = {
+        // openapi-fetch middleware hooks — no-ops in preview
+        use() {},
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async GET(path: string, opts?: any): Promise<any> {
+                await delay(30); // simulate a tiny network latency
+                const query = queryOf(opts?.params);
+                const paramsObj = opts?.params?.path ?? {};
+                const data = router.dispatch('GET', path, query, undefined);
+                return { data };
+        },
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async POST(path: string, opts?: any): Promise<any> {
+                await delay(30);
+                const query = queryOf(opts?.params);
+                const paramsObj = opts?.params?.path ?? {};
+                const body = opts?.body;
+                const data = router.dispatch('POST', path, query, body);
+                return { data };
+        },
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async PUT(path: string, opts?: any): Promise<any> {
+                await delay(30);
+                const query = queryOf(opts?.params);
+                const paramsObj = opts?.params?.path ?? {};
+                const body = opts?.body;
+                const data = router.dispatch('PUT', path, query, body);
+                return { data };
+        },
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async DELETE(path: string, opts?: any): Promise<any> {
+                await delay(30);
+                const query = queryOf(opts?.params);
+                const paramsObj = opts?.params?.path ?? {};
+                const data = router.dispatch('DELETE', path, query, undefined);
+                return { data };
+        },
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async PATCH(path: string, opts?: any): Promise<any> {
+                await delay(30);
+                const query = queryOf(opts?.params);
+                const body = opts?.body;
+                const data = router.dispatch('PATCH', path, query, body);
+                return { data };
+        },
+};
+
+// ---------------------------------------------------------------------------
+// resolveApiKey — no-op in preview (no backend to authenticate against)
+// ---------------------------------------------------------------------------
+export function resolveApiKey(): string | undefined {
+        return undefined;
+}

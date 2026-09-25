@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,7 +13,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import { listWorkflows, getWorkflow } from '$lib/services/workflows';
+	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
@@ -28,8 +30,12 @@
 
 	let query = $state('');
 	let status = $state('');
-	let selectedId = $state<string | null>(workflows[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
 	let graphNodeId = $state<string | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	let workflows = $state<Workflow[]>([]);
+	let selected = $state<WorkflowDetail | null>(null);
 
 	const filtered = $derived(
 		workflows.filter((workflow) => {
@@ -43,7 +49,34 @@
 		}),
 	);
 
-	const selected = $derived(workflowDetail);
+	async function loadAll() {
+		loading = true;
+		try {
+			const page = await listWorkflows({ limit: 50 });
+			workflows = page.items;
+			selectedId = workflows[0]?.id ?? null;
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadSelected(id: string) {
+		try {
+			selected = await getWorkflow(id);
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to load workflow detail');
+			selected = null;
+		}
+	}
+
+	onMount(async () => {
+		await loadAll();
+		if (selectedId) await loadSelected(selectedId);
+	});
+
+	$effect(() => {
+		if (selectedId) loadSelected(selectedId);
+	});
 </script>
 
 <SplitView
@@ -60,7 +93,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
 				/>
 				<Button
 					variant="outline"

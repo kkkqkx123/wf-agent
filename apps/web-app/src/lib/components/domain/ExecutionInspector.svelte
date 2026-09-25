@@ -7,8 +7,8 @@
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import Timeline from './Timeline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
-	import { executionToolCalls } from '$lib/fixtures/executions';
-	import { executionTimeline } from '$lib/fixtures/triggers';
+
+
 	import {
 		formatBytes,
 		formatDateTime,
@@ -19,12 +19,16 @@
 	import { statusTone } from '$lib/utils/status';
 	import { cn } from '$lib/utils/cn';
 
+	import type { ToolCallEntry, TimelineEntry } from '$lib/types/models';
+
 	interface Props {
 		execution: ExecutionDetail;
+		toolCalls?: ToolCallEntry[];
+		timeline?: TimelineEntry[];
 		class?: string;
 	}
 
-	let { execution, class: className = '' }: Props = $props();
+	let { execution, toolCalls = [], timeline = [], class: className = '' }: Props = $props();
 
 	const TABS = [
 		{ id: 'overview', label: 'Overview' },
@@ -137,10 +141,10 @@
 				</Card>
 			</div>
 		{:else if tab === 'timeline'}
-			<Timeline entries={executionTimeline} />
+			<Timeline entries={timeline} />
 		{:else if tab === 'tools'}
 			<div class="space-y-2">
-				{#each executionToolCalls as entry (entry.id)}
+				{#each toolCalls as entry (entry.id)}
 					<ToolCallCard {entry} />
 				{/each}
 			</div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,7 +9,12 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { dependencies, diagnostics, events } from '$lib/fixtures/insights';
+	import {
+		listEvents,
+		listDependencies,
+		getDiagnostics,
+	} from '$lib/services/events';
+	import type { EventRecord, Dependency, Diagnostic } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -26,6 +32,33 @@
 	let query = $state('');
 	let expandedId = $state<string | null>(null);
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let error = $state<string | null>(null);
+	let events = $state<EventRecord[]>([]);
+	let dependencies = $state<Dependency[]>([]);
+	let diagnostics = $state<Diagnostic[]>([]);
+
+	async function loadAll() {
+		loading = true;
+		error = null;
+		try {
+			const [evts, deps, diags] = await Promise.allSettled([
+				listEvents({ limit: 100 }),
+				listDependencies(),
+				getDiagnostics(),
+			]);
+			if (evts.status === 'fulfilled') events = evts.value.items;
+			if (deps.status === 'fulfilled') dependencies = deps.value;
+			if (diags.status === 'fulfilled') diagnostics = diags.value;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Unknown error';
+		} finally {
+			loading = false;
+		}
+	}
+
 	const filtered = $derived(
 		events.filter((event) => {
 			const needle = query.trim().toLowerCase();
@@ -37,6 +70,8 @@
 			);
 		}),
 	);
+
+	onMount(loadAll);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">

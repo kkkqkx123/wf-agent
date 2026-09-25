@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,7 +13,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import { getWorkflow } from '$lib/services/workflows';
+	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatNumber } from '$lib/utils/format';
 
@@ -25,13 +27,19 @@
 
 	let tab = $state('graph');
 	let graphNodeId = $state<string | null>(null);
+	let detail = $state<WorkflowDetail | null>(null);
 
-	const workflow = $derived(
-		workflows.find((item) => item.id === page.params.id) ?? workflowDetail,
-	);
-	const detail = $derived(workflowDetail);
+	const safeDetail = $derived(detail ?? ({
+		...({} as WorkflowDetail),
+		graph: { nodes: [], edges: [] },
+		versions: [],
+		drafts: [],
+		neighbors: [],
+	} as WorkflowDetail));
 
-	const versionColumns: Column<(typeof detail.versions)[number]>[] = [
+	const workflow = $derived(detail ?? ({} as Workflow));
+
+	const versionColumns: Column<(typeof safeDetail.versions)[number]>[] = [
 		{ key: 'version', header: 'Version', text: (row) => `v${row.version}` },
 		{ key: 'note', header: 'Note', text: (row) => row.note },
 		{ key: 'author', header: 'Author', text: (row) => row.author },
@@ -46,6 +54,14 @@
 			text: (row) => (row.current ? 'current' : 'superseded'),
 		},
 	];
+
+	onMount(async () => {
+		try {
+			detail = await getWorkflow(page.params.id as string);
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to load workflow');
+		}
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -88,7 +104,7 @@
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 		{#if tab === 'graph'}
 			<WorkflowGraph
-				graph={detail.graph}
+				graph={safeDetail.graph}
 				selectedId={graphNodeId}
 				onselect={(id) => (graphNodeId = id)}
 				class="max-h-[26rem]"
@@ -96,7 +112,7 @@
 			<div class="mt-3 grid gap-3 lg:grid-cols-2">
 				<Card title="Nodes">
 					<ul class="space-y-1.5">
-						{#each detail.graph.nodes as node (node.id)}
+						{#each safeDetail.graph.nodes as node (node.id)}
 							<li class="flex items-center justify-between gap-2 text-caption">
 								<span class="truncate font-mono">{node.id}</span>
 								<span class="flex shrink-0 items-center gap-2">
@@ -109,7 +125,7 @@
 				</Card>
 				<Card title="Edges">
 					<ul class="space-y-1.5">
-						{#each detail.graph.edges as edge (edge.id)}
+						{#each safeDetail.graph.edges as edge (edge.id)}
 							<li class="flex items-center gap-2 text-caption">
 								<span class="font-mono">{edge.from}</span>
 								<Icon
@@ -132,7 +148,7 @@
 			<Card title="Version history" bodyClass="p-0">
 				<DataTable
 					columns={versionColumns}
-					rows={detail.versions}
+					rows={safeDetail.versions}
 					rowKey={(row) => String(row.version)}
 				/>
 			</Card>
@@ -156,7 +172,7 @@
 			</div>
 		{:else if tab === 'drafts'}
 			<div class="space-y-2">
-				{#each detail.drafts as draft (draft.id)}
+				{#each safeDetail.drafts as draft (draft.id)}
 					<Card title={draft.name}>
 						{#snippet actions()}
 							<StatusBadge

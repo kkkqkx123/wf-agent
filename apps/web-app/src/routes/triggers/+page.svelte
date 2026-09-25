@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,7 +9,8 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { hooks, triggerRecords } from '$lib/fixtures/triggers';
+	import { listTriggerHistory, listHooks } from '$lib/services/triggers';
+	import type { Hook, TriggerRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
 
@@ -18,8 +20,28 @@
 	];
 
 	let tab = $state('records');
-	let hookName = $state(hooks[0]?.name ?? '');
+	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	let triggerRecords = $state<TriggerRecord[]>([]);
+	let hooks = $state<Hook[]>([]);
+
+	async function loadAll() {
+		loading = true;
+		try {
+			const [trRes, hRes] = await Promise.allSettled([
+				listTriggerHistory({ limit: 50 }),
+				listHooks(),
+			]);
+			if (trRes.status === 'fulfilled') triggerRecords = trRes.value.items;
+			if (hRes.status === 'fulfilled') hooks = hRes.value;
+		} finally {
+			loading = false;
+		}
+	}
+
+	onMount(loadAll);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -31,7 +53,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={loadAll}
 			/>
 			<Button
 				variant="outline"

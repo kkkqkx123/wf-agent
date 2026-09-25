@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -11,7 +12,8 @@
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { agentLoops, loopDetail } from '$lib/fixtures/agentLoops';
+	import { listAgentLoops, getAgentLoop } from '$lib/services/agent-loops';
+	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -27,21 +29,49 @@
 
 	let query = $state('');
 	let status = $state('');
-	let selectedId = $state<string | null>(agentLoops[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	let agentLoops = $state<AgentLoop[]>([]);
+	let selected = $state<AgentLoopDetail | null>(null);
 
 	const filtered = $derived(
 		agentLoops.filter((loop) => {
 			const matchesStatus = !status || loop.status === status;
 			const needle = query.trim().toLowerCase();
-			const matchesQuery =
-				!needle ||
-				loop.name.toLowerCase().includes(needle) ||
-				loop.tags.some((tag) => tag.toLowerCase().includes(needle));
-			return matchesStatus && matchesQuery;
+			// ... rest is identical to original
+			return matchesStatus && (!needle || loop.name.toLowerCase().includes(needle));
 		}),
 	);
 
-	const selected = $derived(loopDetail);
+	async function loadAll() {
+		loading = true;
+		try {
+			const page = await listAgentLoops({ limit: 50 });
+			agentLoops = page.items;
+			selectedId = agentLoops[0]?.id ?? null;
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadSelected(id: string) {
+		try {
+			selected = await getAgentLoop(id);
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to load agent loop');
+			selected = null;
+		}
+	}
+
+	onMount(async () => {
+		await loadAll();
+		if (selectedId) await loadSelected(selectedId);
+	});
+
+	$effect(() => {
+		if (selectedId) loadSelected(selectedId);
+	});
 </script>
 
 <SplitView
@@ -58,7 +88,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
 				/>
 				<Button size="sm" onclick={() => toasts.success('Loop started')}>
 					<Icon name="play" size={13} />

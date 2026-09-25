@@ -456,6 +456,7 @@ mod tests {
             agent_loop_id: Id::from(id.to_string()),
             result,
             iterations: 1,
+            finish_reason: wf_tools::callback::LoopFinishReason::Completed,
             conversation: Vec::new(),
         }
     }

@@ -237,6 +237,7 @@ impl AgentExecutionCoordinator {
             content,
             completion_data: None,
             tool_call_count: 0,
+            finish_reason: wf_tools::callback::LoopFinishReason::MaxIterationsReached,
         };
 
         // No completion checkpoint here: the terminal status is only settled
@@ -296,11 +297,14 @@ impl AgentExecutionCoordinator {
     }
 
     /// The error for a stopped execution. An explicit `stop()` already settled
-    /// the state machine (terminal status); everything else is a timeout.
+    /// the state machine (terminal status); a stop during host shutdown is a
+    /// cancellation; only a wall-clock / pause-timeout stop is a timeout.
     async fn stopped_error(entity: &AgentLoopEntity) -> AgentError {
         let status = entity.state.read().await.status();
         if status.is_terminal() {
             AgentError::ExecutionError(format!("Agent loop stopped with status {:?}", status))
+        } else if wf_common::shutdown::is_active_shutdown() {
+            AgentError::Cancelled("Agent loop cancelled by runtime shutdown".to_string())
         } else {
             AgentError::ExecutionTimeout(
                 "Agent loop execution time exceeded or was force-stopped".to_string(),
@@ -333,7 +337,9 @@ impl AgentExecutionCoordinator {
                             });
                     }
 
-                    if failure_policy.should_retry(analysis.kind, attempt) {
+                    // The structured classification owns retryability; the
+                    // policy supplies the attempt budget and backoff.
+                    if analysis.retryable && failure_policy.should_retry(analysis.kind, attempt) {
                         let delay = failure_policy.next_delay(attempt);
                         attempt += 1;
                         tokio::time::sleep(delay).await;
@@ -373,6 +379,7 @@ mod tests {
                 content: serde_json::Value::String("done".to_string()),
                 completion_data: None,
                 tool_call_count: 0,
+                finish_reason: wf_tools::callback::LoopFinishReason::Completed,
             })
         }
     }
@@ -441,6 +448,7 @@ mod tests {
                 content: serde_json::Value::String(format!("step-{step}")),
                 completion_data: None,
                 tool_call_count: 1,
+                finish_reason: wf_tools::callback::LoopFinishReason::Completed,
             })
         }
     }

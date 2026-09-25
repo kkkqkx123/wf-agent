@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use wf_tools::error::ToolError;
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::tool::ToolRiskLevel;
 use wf_types::tool::{ToolCheckpointTiming, ToolExecutionOptions};
@@ -19,16 +20,15 @@ const DEFAULT_TOOL_TIMEOUT_MS: u64 = 120_000;
 const TOOL_TIMEOUT_SAFETY_MARGIN_MS: u64 = 30_000;
 
 /// Shared single-tool execution core used by the sequential and parallel
-/// paths and by the `general` tool invoker. Errors are returned as
-/// `Err(reason)` so callers can decide how to surface them (tool error
-/// message, batch abort, etc.).
+/// paths and by the `general` tool invoker. Failures are returned as typed
+/// `ToolError` so callers can classify them (error message to the model,
+/// batch abort, audit) without string sniffing.
 pub(crate) async fn run_tool(
     ctx: &ToolRunCtx,
     tc: &LlmToolCall,
     entity_id: &str,
     entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
-) -> Result<Message, String> {
-    let params: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
+) -> Result<Message, ToolError> {
     let tool_name = tc.function.name.clone();
 
     // replay idempotency: a tool call id that already produced a
@@ -51,6 +51,22 @@ pub(crate) async fn run_tool(
             return Ok(msg);
         }
     }
+
+    // Malformed model-emitted arguments are a validation failure surfaced to
+    // the model, not a silent null-parameter execution. An absent (empty)
+    // argument payload is the no-parameters convention and parses to `Null`.
+    let params: Value = if tc.function.arguments.trim().is_empty() {
+        Value::Null
+    } else {
+        match serde_json::from_str(&tc.function.arguments) {
+            Ok(params) => params,
+            Err(e) => {
+                return Err(ToolError::ValidationFailed(format!(
+                    "arguments for tool '{tool_name}' are not valid JSON: {e}"
+                )));
+            }
+        }
+    };
     entity_state.write().await.begin_tool_call(&tc.id);
 
     let tool_id = find_tool_id_by_name(&ctx.registry, &tool_name);
@@ -67,10 +83,10 @@ pub(crate) async fn run_tool(
     if let Some(ref store) = ctx.visibility_store {
         if !store.is_tool_visible(entity_id, &tool_name).await {
             entity_state.write().await.finish_tool_call(&tc.id, None);
-            return Err(format!(
-                "Tool '{}' is not visible in this execution",
-                tool_name
-            ));
+            return Err(ToolError::ExecutionFailed {
+                tool_id: tool_name,
+                reason: "tool is not visible in this execution".to_string(),
+            });
         }
     }
 
@@ -89,7 +105,7 @@ pub(crate) async fn run_tool(
                 .record_tool_call_error(&tool_name, entity_id, "not_found");
         }
         emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-        return Err(format!("Tool not found: {}", tool_name));
+        return Err(ToolError::NotFound(tool_name));
     };
 
     // Failure protection gate.
@@ -101,7 +117,10 @@ pub(crate) async fn run_tool(
             });
             entity_state.write().await.finish_tool_call(&tc.id, None);
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            return Err(reason);
+            return Err(ToolError::ExecutionFailed {
+                tool_id: tool_name,
+                reason,
+            });
         }
     }
 
@@ -127,10 +146,10 @@ pub(crate) async fn run_tool(
             {
                 entity_state.write().await.finish_tool_call(&tc.id, None);
                 emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-                return Err(format!(
-                    "Checkpoint failed before tool '{}': {}",
-                    tool_name, e
-                ));
+                return Err(ToolError::ExecutionFailed {
+                    tool_id: tool_name,
+                    reason: format!("checkpoint failed before execution: {e}"),
+                });
             }
         }
     }
@@ -176,7 +195,7 @@ pub(crate) async fn run_tool(
                     _ = token.cancelled() => {
                         entity_state.write().await.finish_tool_call(&tc.id, None);
                         emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-                        return Err(format!("Tool '{tool_name}' was cancelled"));
+                        return Err(ToolError::Cancelled { tool_id: tool_name });
                     }
                 }
             }
@@ -324,11 +343,14 @@ pub(crate) async fn run_tool(
                         .create_checkpoint(entity_id, &format!("after tool '{}'", tool_name))
                         .await
                     {
-                        emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-                        return Err(format!(
-                            "Checkpoint failed after tool '{}': {}",
-                            tool_name, e
-                        ));
+                        // The tool call itself succeeded; a post-execution
+                        // checkpoint failure is an observability gap, not a
+                        // tool failure. Failing here would retroactively turn
+                        // a successful side effect into an error message.
+                        tracing::error!(
+                            tool = %tool_name,
+                            "checkpoint failed after successful tool execution: {e}"
+                        );
                     }
                 }
             }
@@ -368,7 +390,10 @@ pub(crate) async fn run_tool(
                 fp.record_failure(&tool_name, reason.clone());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            Err(reason)
+            Err(ToolError::ExecutionFailed {
+                tool_id: tool_name,
+                reason,
+            })
         }
         Ok(Err(e)) => {
             entity_state.write().await.finish_tool_call(&tc.id, None);
@@ -376,18 +401,19 @@ pub(crate) async fn run_tool(
                 fp.record_failure(&tool_name, e.to_string());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            Err(e.to_string())
+            Err(e)
         }
         Err(_) => {
+            let reason = format!("timeout after {timeout_ms}ms");
             entity_state.write().await.finish_tool_call(&tc.id, None);
             if let Some(ref fp) = ctx.failure_protection {
-                fp.record_failure(&tool_name, format!("timeout after {}ms", timeout_ms));
+                fp.record_failure(&tool_name, reason.clone());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            Err(format!(
-                "Tool '{}' timed out after {}ms",
-                tool_name, timeout_ms
-            ))
+            Err(ToolError::Timeout {
+                tool_id: tool_name,
+                timeout_ms,
+            })
         }
     }
 }

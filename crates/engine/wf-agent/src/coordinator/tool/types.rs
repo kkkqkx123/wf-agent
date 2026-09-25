@@ -62,7 +62,7 @@ pub trait ToolCheckpointHandler: Send + Sync {
 /// Per-task outcome produced by the parallel execution path.
 pub(crate) enum TaskOutcome {
     Ok(Message),
-    Failed(String),
+    Failed(wf_tools::error::ToolError),
 }
 
 /// Immutable execution context shared by sequential and parallel tool runs.

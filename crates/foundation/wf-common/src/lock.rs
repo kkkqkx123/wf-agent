@@ -14,7 +14,7 @@
 //! Panicking at every subsequent lock site would turn one unrelated panic
 //! into a crash of the whole service. Recovering the guard keeps the service
 //! available, and the incident stays observable: the original panic is
-//! reported by the panic hook, and every recovery logs a warning.
+//! reported by the panic hook, and every recovery logs at error level.
 //!
 //! # When this is NOT appropriate
 //!
@@ -29,7 +29,7 @@ use std::sync::{LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, WaitT
 /// instead of panicking.
 pub fn lock_ok<T>(result: LockResult<MutexGuard<'_, T>>) -> MutexGuard<'_, T> {
     result.unwrap_or_else(|poisoned| {
-        tracing::warn!("mutex was poisoned; recovering the guard");
+        tracing::error!("mutex was poisoned; recovering the guard");
         poisoned.into_inner()
     })
 }
@@ -38,7 +38,7 @@ pub fn lock_ok<T>(result: LockResult<MutexGuard<'_, T>>) -> MutexGuard<'_, T> {
 /// instead of panicking.
 pub fn read_ok<T>(result: LockResult<RwLockReadGuard<'_, T>>) -> RwLockReadGuard<'_, T> {
     result.unwrap_or_else(|poisoned| {
-        tracing::warn!("rwlock was poisoned; recovering the read guard");
+        tracing::error!("rwlock was poisoned; recovering the read guard");
         poisoned.into_inner()
     })
 }
@@ -47,7 +47,7 @@ pub fn read_ok<T>(result: LockResult<RwLockReadGuard<'_, T>>) -> RwLockReadGuard
 /// instead of panicking.
 pub fn write_ok<T>(result: LockResult<RwLockWriteGuard<'_, T>>) -> RwLockWriteGuard<'_, T> {
     result.unwrap_or_else(|poisoned| {
-        tracing::warn!("rwlock was poisoned; recovering the write guard");
+        tracing::error!("rwlock was poisoned; recovering the write guard");
         poisoned.into_inner()
     })
 }
@@ -58,7 +58,7 @@ pub fn wait_timeout_ok<T>(
     result: LockResult<(MutexGuard<'_, T>, WaitTimeoutResult)>,
 ) -> (MutexGuard<'_, T>, WaitTimeoutResult) {
     result.unwrap_or_else(|poisoned| {
-        tracing::warn!("mutex was poisoned; recovering condvar wait guard");
+        tracing::error!("mutex was poisoned; recovering condvar wait guard");
         poisoned.into_inner()
     })
 }

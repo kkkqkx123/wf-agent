@@ -12,14 +12,6 @@ pub struct ErrorPattern {
     pub recovery_action_count: HashMap<String, usize>,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ErrorMetadata {
-    pub error_type: Option<ErrorType>,
-    pub caused_by: Option<ErrorCause>,
-    pub is_recoverable: bool,
-    pub recovery_action: Option<RecoveryAction>,
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ErrorRecord {
     pub id: String,

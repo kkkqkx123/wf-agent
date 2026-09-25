@@ -384,10 +384,18 @@ impl WorkflowCheckpointIntegration {
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
-        let _ = self
+        if let Err(err) = self
             .inner
             .save_file_snapshot(&checkpoint.id, entity.id().as_str())
-            .await;
+            .await
+        {
+            tracing::error!(
+                checkpoint = %checkpoint.id,
+                entity = %entity.id().as_str(),
+                error = %err,
+                "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
+            );
+        }
 
         match &self.event_bus {
             Some(bus) => {

@@ -32,6 +32,7 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
         wf_types::Id::from(ctx.execution_id.clone()),
     )
     .with_variables(ctx.variables.clone());
+    tctx.node_id = ctx.node_id.clone();
     match &ctx.event_bus {
         Some(bus) => tctx = tctx.with_event_bus(bus.clone()),
         None => {

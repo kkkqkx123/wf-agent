@@ -9,7 +9,7 @@ use wf_agent::entity::AgentLoopEntity;
 use wf_agent::trigger::{
     snapshot_conversation_for_child, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
 };
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
+use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput, LoopFinishReason};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::trigger::{ConversationAnchor, TriggerAgentInputMode, TriggerAgentWriteback};
 use wf_types::Id;
@@ -58,6 +58,7 @@ fn success_executor(result: serde_json::Value) -> wf_agent::trigger::AgentExecut
                 agent_loop_id: Id::from("child".to_string()),
                 result,
                 iterations: 1,
+                finish_reason: LoopFinishReason::Completed,
                 conversation: Vec::new(),
             })
         })
@@ -160,6 +161,7 @@ async fn async_child_submits_immediately_and_writes_back() {
                 agent_loop_id: Id::from("child".to_string()),
                 result: serde_json::Value::from("async ok"),
                 iterations: 1,
+                finish_reason: LoopFinishReason::Completed,
                 conversation: Vec::new(),
             })
         })
@@ -216,6 +218,7 @@ async fn sync_child_timeout_is_reported() {
                 agent_loop_id: Id::from("child".to_string()),
                 result: serde_json::Value::Null,
                 iterations: 1,
+                finish_reason: LoopFinishReason::Completed,
                 conversation: Vec::new(),
             })
         })

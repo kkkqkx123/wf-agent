@@ -9,7 +9,6 @@ use wf_checkpoint::metadata::builder::{custom_fields_equal, PROGRESS_COORD_KEYS}
 use wf_checkpoint::state::AgentCheckpointStateManager;
 use wf_checkpoint::state::CheckpointStateManager;
 use wf_checkpoint::CheckpointError;
-use wf_common::error_chain::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::{AgentStateSnapshot, VariableSnapshot};
@@ -266,10 +265,21 @@ impl AgentCheckpointIntegration {
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
-        let _ = self
+        // The state checkpoint is durable at this point; a failed file
+        // snapshot means restore will carry state without file history, so
+        // the gap must be visible rather than silently swallowed.
+        if let Err(err) = self
             .inner
             .save_file_snapshot(&checkpoint.id, entity.id().as_str())
-            .await;
+            .await
+        {
+            tracing::error!(
+                checkpoint = %checkpoint.id,
+                entity = %entity.id(),
+                error = %err,
+                "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
+            );
+        }
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();
@@ -289,7 +299,7 @@ impl AgentCheckpointIntegration {
                     execution_id: entity.id().to_string(),
                     timestamp: wf_common::now(),
                     previous_status: None,
-                    new_status: format!("{:?}", entity.state.read().await.status()),
+                    new_status: entity.state.read().await.status().as_str().to_string(),
                     changes: Some(changes),
                 },
             ));
@@ -385,10 +395,20 @@ impl AgentCheckpointIntegration {
             .message_next_seq
             .unwrap_or(start.saturating_add(len));
         let ledger = snapshot.conversation_ledger.clone().unwrap_or_default();
-        let tracker = snapshot
-            .conversation_tracker
-            .clone()
-            .and_then(|v| serde_json::from_value(v).ok());
+        let tracker = snapshot.conversation_tracker.clone().and_then(|v| {
+            match serde_json::from_value(v) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    // Absent tracker is a valid state; a present-but-unparseable
+                    // one silently loses context-tracking continuity.
+                    tracing::warn!(
+                        error = %e,
+                        "checkpoint conversation_tracker present but unparseable; restored without tracker"
+                    );
+                    None
+                }
+            }
+        });
         ConversationState {
             messages,
             seqs,
@@ -413,16 +433,8 @@ impl AgentCheckpointIntegration {
     /// rebuilt from the iteration trail: a tool call recorded as successful
     /// with an LLM call id is served from the cache on replay.
     fn runtime_state_from_snapshot(snapshot: &AgentStateSnapshot) -> AgentLoopStateSnapshot {
-        let iteration_history: Vec<IterationRecord> = snapshot
-            .iteration_history
-            .as_deref()
-            .map(|records| {
-                records
-                    .iter()
-                    .filter_map(|v| serde_json::from_value::<IterationRecord>(v.clone()).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let iteration_history: Vec<IterationRecord> =
+            parse_snapshot_records(snapshot.iteration_history.as_deref(), "iteration_record");
 
         let mut completed_tool_results = HashMap::new();
         for record in &iteration_history {
@@ -446,16 +458,7 @@ impl AgentCheckpointIntegration {
             start_time: snapshot.started_at.unwrap_or(0),
             end_time: snapshot.completed_at,
             error: snapshot.error.clone(),
-            error_records: snapshot
-                .error_records
-                .as_deref()
-                .map(|records| {
-                    records
-                        .iter()
-                        .filter_map(|v| serde_json::from_value::<ErrorRecord>(v.clone()).ok())
-                        .collect()
-                })
-                .unwrap_or_default(),
+            error_records: parse_snapshot_records(snapshot.error_records.as_deref(), "error_record"),
             variable_snapshots: snapshot
                 .variable_snapshots
                 .as_ref()
@@ -468,7 +471,18 @@ impl AgentCheckpointIntegration {
             tool_discovery: snapshot
                 .tool_discovery_state
                 .as_ref()
-                .and_then(|v| serde_json::from_value::<ToolDiscoveryState>(v.clone()).ok())
+                .map(|v| match serde_json::from_value::<ToolDiscoveryState>(v.clone()) {
+                    Ok(state) => state,
+                    Err(e) => {
+                        // A corrupt discovery state silently reverts the loop to
+                        // "nothing discovered yet"; surface the loss.
+                        tracing::warn!(
+                            error = %e,
+                            "checkpoint tool_discovery_state unparseable; restored with empty discovery"
+                        );
+                        ToolDiscoveryState::default()
+                    }
+                })
                 .unwrap_or_default(),
             pending_tool_calls: snapshot
                 .pending_tool_call_ids
@@ -515,7 +529,7 @@ impl AgentCheckpointIntegration {
             (
                 state.current_iteration(),
                 state.tool_call_count(),
-                format!("{:?}", state.status()),
+                state.status().as_str().to_string(),
                 state.pending_tool_calls().len() as u64,
             )
         };
@@ -601,7 +615,7 @@ impl AgentCheckpointIntegration {
 
         AgentStateSnapshot {
             agent_loop_id: entity.id().to_string(),
-            status: format!("{:?}", state.status()),
+            status: state.status().as_str().to_string(),
             current_iteration: state.current_iteration(),
             tool_call_count: state.tool_call_count(),
             conversation_snapshot: messages,
@@ -676,19 +690,52 @@ impl AgentCheckpointIntegration {
     }
 }
 
-/// Parse the persisted status string (Debug form of `ExecutionStatus`, e.g.
-/// "Running", or lowercase wire forms) back into the runtime status.
+/// Deserialize a persisted record array, logging every entry that fails to
+/// parse so a partial restore is visible instead of silently shortened.
+fn parse_snapshot_records<T>(values: Option<&[serde_json::Value]>, kind: &str) -> Vec<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let Some(values) = values else {
+        return Vec::new();
+    };
+    let mut records = Vec::with_capacity(values.len());
+    for value in values {
+        match serde_json::from_value::<T>(value.clone()) {
+            Ok(record) => records.push(record),
+            Err(e) => tracing::warn!(
+                record = %kind,
+                error = %e,
+                "checkpoint snapshot record unparseable; dropped from restore"
+            ),
+        }
+    }
+    records
+}
+
+/// Parse the persisted status string (the serde form written by
+/// `ExecutionStatus::as_str`) back into the runtime status.
 ///
 /// A restored snapshot is always re-driven, and the state machine only
 /// accepts a start from a non-terminal state — so terminal statuses and
-/// unknown values normalize to `Running`. The snapshot blob itself keeps the
-/// recorded terminal status for audit; only the runtime re-drive starts
+/// unrecognized values normalize to `Running`. The snapshot blob itself keeps
+/// the recorded terminal status for audit; only the runtime re-drive starts
 /// fresh. `Paused` / `Created` stay as-is: both may legally transition to
 /// `Running` on start.
 fn parse_runtime_status(status: &str) -> ExecutionStatus {
-    match status.to_ascii_lowercase().as_str() {
-        "created" => ExecutionStatus::Created,
-        "paused" => ExecutionStatus::Paused,
+    let parsed = serde_json::from_value::<ExecutionStatus>(serde_json::Value::String(
+        status.to_string(),
+    ))
+    .unwrap_or_else(|e| {
+        tracing::warn!(
+            status = %status,
+            error = %e,
+            "unrecognized checkpoint status; resuming as Running"
+        );
+        ExecutionStatus::Running
+    });
+    match parsed {
+        ExecutionStatus::Created | ExecutionStatus::Paused | ExecutionStatus::Running => parsed,
         _ => ExecutionStatus::Running,
     }
 }

@@ -750,15 +750,19 @@ pub async fn drive_session(
     loop {
         if entity.cancellation.is_cancelled() {
             entity.set_status(ExecutionStatus::Cancelled).await;
-            return Err(WorkflowError::Internal(
-                "interactive session was cancelled".to_string(),
-            ));
+            return Err(WorkflowError::NodeFailure {
+                node_id: driver.node_id.clone(),
+                category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                detail: "interactive session was cancelled".to_string(),
+            });
         }
         if std::time::Instant::now() >= session_deadline {
             entity.set_status(ExecutionStatus::Failed).await;
-            return Err(WorkflowError::Internal(
-                "interactive session exceeded its total timeout".to_string(),
-            ));
+            return Err(WorkflowError::NodeFailure {
+                node_id: driver.node_id.clone(),
+                category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                detail: "interactive session exceeded its total timeout".to_string(),
+            });
         }
 
         let session = shell.get(&session_id).ok_or_else(|| {
@@ -1082,18 +1086,25 @@ async fn await_external_input(
 
 async fn fail_wait(
     entity: &InteractiveScriptSessionEntity,
+    node_id: &str,
     outcome: ExternalWaitOutcome,
     config: &InteractiveScriptSessionConfig,
 ) -> WorkflowError {
     entity.set_status(ExecutionStatus::Failed).await;
     match outcome {
-        ExternalWaitOutcome::Cancelled => {
-            WorkflowError::Internal("interaction waiter was cancelled".to_string())
-        }
-        ExternalWaitOutcome::TimedOut => WorkflowError::Internal(format!(
-            "interaction round timed out after {} ms",
-            config.round_timeout_ms
-        )),
+        ExternalWaitOutcome::Cancelled => WorkflowError::NodeFailure {
+            node_id: node_id.to_string(),
+            category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+            detail: "interaction waiter was cancelled".to_string(),
+        },
+        ExternalWaitOutcome::TimedOut => WorkflowError::NodeFailure {
+            node_id: node_id.to_string(),
+            category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+            detail: format!(
+                "interaction round timed out after {} ms",
+                config.round_timeout_ms
+            ),
+        },
         ExternalWaitOutcome::Answered(_) => {
             WorkflowError::Internal("interaction wait misrouted an answer".to_string())
         }
@@ -1109,7 +1120,7 @@ async fn wait_for_external_input(
 ) -> WorkflowResult<Value> {
     match await_external_input(driver, pattern, config, suggestion).await {
         ExternalWaitOutcome::Answered(value) => Ok(value),
-        outcome => Err(fail_wait(entity, outcome, config).await),
+        outcome => Err(fail_wait(entity, &driver.node_id, outcome, config).await),
     }
 }
 
@@ -1154,7 +1165,7 @@ async fn resolve_model_round(
                     Ok((Value::String(text), InteractionSource::External))
                 }
             },
-            outcome => Err(fail_wait(entity, outcome, config).await),
+            outcome => Err(fail_wait(entity, &driver.node_id, outcome, config).await),
         }
     } else {
         *autonomous_rounds += 1;
@@ -1195,7 +1206,7 @@ async fn resolve_hybrid_round(
             Value::String(suggestion),
             InteractionSource::HybridConfirmed,
         )),
-        outcome => Err(fail_wait(entity, outcome, config).await),
+        outcome => Err(fail_wait(entity, &driver.node_id, outcome, config).await),
     }
 }
 

@@ -352,7 +352,9 @@ impl ExecutionCallback for AgentLoopExecutor {
             .ok_or_else(|| ToolError::NotFound(format!("execution {} not found", execution_id)))?;
         let state = entity.state.read().await;
         let status = state.status();
-        // Terminal executions hand over their stored output once.
+        // Terminal executions hand over their stored output once. A failed
+        // run has no stored output; the settled error string is handed over
+        // instead so the failure reason reaches the polling caller.
         let result = if matches!(
             status,
             wf_execution_shared::types::execution_entity::ExecutionStatus::Completed
@@ -363,6 +365,11 @@ impl ExecutionCallback for AgentLoopExecutor {
             self.agent_registry
                 .take_result(&id)
                 .map(|output| output.result)
+                .or_else(|| {
+                    state
+                        .error()
+                        .map(|e| serde_json::json!({ "error": e }))
+                })
         } else {
             None
         };

@@ -14,6 +14,11 @@ pub enum AgentError {
     #[error("Execution timeout: {0}")]
     ExecutionTimeout(String),
 
+    /// The run was cancelled (host shutdown / explicit cancellation request),
+    /// distinct from a wall-clock timeout and from a failure.
+    #[error("Execution cancelled: {0}")]
+    Cancelled(String),
+
     #[error("Coordinator error: {0}")]
     CoordinatorError(String),
 

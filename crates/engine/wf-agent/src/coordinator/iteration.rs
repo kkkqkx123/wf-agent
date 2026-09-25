@@ -60,6 +60,9 @@ pub struct IterationResult {
     pub content: Value,
     pub completion_data: Option<Value>,
     pub tool_call_count: u32,
+    /// Terminal classification when this result ends the loop (`should_continue
+    /// == false`); the content string stays a human-readable summary.
+    pub finish_reason: wf_tools::callback::LoopFinishReason,
 }
 
 /// Abstraction over a single agent iteration so the execution coordinator
@@ -939,6 +942,7 @@ impl AgentIterationCoordinator {
             content: Value::String("Execution interrupted".to_string()),
             completion_data: None,
             tool_call_count,
+            finish_reason: wf_tools::callback::LoopFinishReason::Interrupted,
         })
     }
 
@@ -989,6 +993,7 @@ impl AgentIterationCoordinator {
             content: Value::String(content),
             completion_data,
             tool_call_count,
+            finish_reason: wf_tools::callback::LoopFinishReason::Completed,
         })
     }
 
@@ -1353,25 +1358,21 @@ impl AgentIterationCoordinator {
                 .await?;
             }
 
-            let msg = match self
+            let (msg, failure) = match self
                 .tool_coordinator
                 .approve_single_for_stream(entity, tc)
                 .await
             {
-                Some(rejection) => rejection,
+                Some((rejection, reason)) => (rejection, Some(reason)),
                 None => {
-                    self.tool_coordinator
+                    let (msg, error) = self
+                        .tool_coordinator
                         .execute_single_tool_for_stream(entity, tc)
-                        .await
+                        .await;
+                    (msg, error.map(|e| e.to_string()))
                 }
             };
             let result_text = text_of(&msg.content);
-            let success = !result_text.contains("\"error\"");
-            let error = if success {
-                None
-            } else {
-                extract_error_reason(&result_text)
-            };
 
             if let Some(ref sink) = self.event_sink {
                 sink.emit(
@@ -1379,9 +1380,9 @@ impl AgentIterationCoordinator {
                     AgentStreamEvent::ToolEnd {
                         tool_call_id: tc.id.clone(),
                         tool_name: tc.function.name.clone(),
-                        success,
+                        success: failure.is_none(),
                         result: result_text.clone(),
-                        error,
+                        error: failure,
                     },
                 )
                 .await?;
@@ -1420,22 +1421,6 @@ fn text_of(content: &MessageContentValue) -> String {
     match content {
         MessageContentValue::Text(t) => t.clone(),
         MessageContentValue::Rich(_) => String::new(),
-    }
-}
-
-/// Extract the structured rejection/execution reason from a failed tool
-/// result. Rejections and policy denials write `{"error": reason}` (or a
-/// nested `{"error": {"message": ...}}`); non-JSON or reason-less results
-/// yield `None`.
-fn extract_error_reason(result_text: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(result_text).ok()?;
-    match value.get("error")? {
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Object(obj) => match obj.get("message") {
-            Some(serde_json::Value::String(s)) => Some(s.clone()),
-            _ => serde_json::to_string(obj).ok(),
-        },
-        other => Some(other.to_string()),
     }
 }
 

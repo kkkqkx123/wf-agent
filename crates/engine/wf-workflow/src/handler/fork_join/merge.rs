@@ -37,10 +37,7 @@ pub fn merge_outputs(outputs: &[Value]) -> Value {
 /// (`{ results: [...] }` or legacy `{ outputs: [...] }`) or a plain array.
 pub fn collect_branch_records(input: &Value) -> Vec<BranchResult> {
     if let Some(results) = input.get("results").and_then(|v| v.as_array()) {
-        return results
-            .iter()
-            .filter_map(|entry| serde_json::from_value::<BranchResult>(entry.clone()).ok())
-            .collect();
+        return parse_branch_records(results, "results");
     }
     // Legacy `outputs` shape: `[{ branch_id, output, success }]`.
     if let Some(outputs) = input.get("outputs").and_then(|v| v.as_array()) {
@@ -75,12 +72,26 @@ pub fn collect_branch_records(input: &Value) -> Vec<BranchResult> {
             .collect();
     }
     if let Some(arr) = input.as_array() {
-        return arr
-            .iter()
-            .filter_map(|entry| serde_json::from_value::<BranchResult>(entry.clone()).ok())
-            .collect();
+        return parse_branch_records(arr, "array");
     }
     Vec::new()
+}
+
+/// Deserialize branch records, logging every entry that fails so a merge
+/// never silently loses a branch's result.
+fn parse_branch_records(entries: &[Value], shape: &str) -> Vec<BranchResult> {
+    let mut records = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match serde_json::from_value::<BranchResult>(entry.clone()) {
+            Ok(record) => records.push(record),
+            Err(e) => tracing::warn!(
+                shape = %shape,
+                error = %e,
+                "fork output entry unparseable; branch dropped from merge"
+            ),
+        }
+    }
+    records
 }
 
 /// Merge branch variables into the parent scope. A `variable_outputs`

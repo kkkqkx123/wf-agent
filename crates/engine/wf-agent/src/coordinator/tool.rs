@@ -363,15 +363,15 @@ impl ToolExecutionCoordinator {
 
     /// Approval gate for the streaming tool path: exposure gate first,
     /// then approval through the same batch pipeline as the sequential
-    /// executor. Returns the rejection message when the call is denied,
-    /// `None` when it may execute.
+    /// executor. Returns the rejection message plus its reason when the
+    /// call is denied, `None` when it may execute.
     pub async fn approve_single_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
-    ) -> Option<Message> {
+    ) -> Option<(Message, String)> {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
-            return Some(self.build_rejection_message(tc, &reason));
+            return Some((self.build_rejection_message(tc, &reason), reason));
         }
         let outcomes = self
             .approval
@@ -379,7 +379,7 @@ impl ToolExecutionCoordinator {
             .await;
         match outcomes.first() {
             Some(ApprovalOutcome::Rejected { reason }) => {
-                Some(self.build_rejection_message(tc, reason))
+                Some((self.build_rejection_message(tc, reason), reason.clone()))
             }
             _ => None,
         }
@@ -582,7 +582,13 @@ impl ToolExecutionCoordinator {
                                 event_bus.as_deref(),
                             )
                             .await;
-                            return (idx, TaskOutcome::Failed(reason));
+                            return (
+                                idx,
+                                TaskOutcome::Failed(wf_tools::error::ToolError::ExecutionFailed {
+                                    tool_id: tool_call.function.name.clone(),
+                                    reason,
+                                }),
+                            );
                         }
 
                         let result = tokio::select! {
@@ -593,7 +599,9 @@ impl ToolExecutionCoordinator {
                                 &entity_state,
                             ) => res,
                             _ = task_cancellation.cancelled() => Err(
-                                "Tool execution was cancelled".to_string()
+                                wf_tools::error::ToolError::Cancelled {
+                                    tool_id: tool_call.function.name.clone(),
+                                }
                             ),
                         };
 
@@ -628,7 +636,11 @@ impl ToolExecutionCoordinator {
                         messages[idx] = Some(msg);
                     }
                     TaskOutcome::Failed(reason) => {
-                        messages[idx] = Some(error_message(&reason, None, None));
+                        messages[idx] = Some(error_message(
+                            &reason.to_string(),
+                            Some(&tool_calls[idx].id),
+                            Some(&tool_calls[idx].function.name),
+                        ));
                         if self.cancel_on_failure {
                             set.abort_all();
                             aborted = true;
@@ -691,22 +703,33 @@ impl ToolExecutionCoordinator {
         Ok(messages.into_iter().flatten().collect())
     }
 
-    /// Single-tool execution used by the streaming driver; exposure denials
-    /// and execution errors surface as tool error messages rather than
-    /// failures.
+    /// Single-tool execution used by the streaming driver. Returns the tool
+    /// message (always error-carrying on failure, never a raised error) plus
+    /// the typed failure when the call did not succeed, so streaming events
+    /// report honest success flags without sniffing the payload text.
     pub async fn execute_single_tool_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
-    ) -> Message {
+    ) -> (Message, Option<wf_tools::error::ToolError>) {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
-            return self.build_rejection_message(tc, &reason);
+            return (
+                self.build_rejection_message(tc, &reason),
+                Some(wf_tools::error::ToolError::ExecutionFailed {
+                    tool_id: tc.function.name.clone(),
+                    reason,
+                }),
+            );
         }
-        self.execute_single_tool(entity, tc)
-            .await
-            .unwrap_or_else(|e| {
-                error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))
-            })
+        let mut ctx = self.run_ctx();
+        ctx.cancellation = Some(self.batch_cancellation(entity));
+        match run_tool(&ctx, tc, entity.id(), &entity.state).await {
+            Ok(msg) => (msg, None),
+            Err(e) => (
+                error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name)),
+                Some(e),
+            ),
+        }
     }
 
     async fn execute_single_tool(
@@ -718,7 +741,13 @@ impl ToolExecutionCoordinator {
         ctx.cancellation = Some(self.batch_cancellation(entity));
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
-            .unwrap_or_else(|reason| error_message(&reason, Some(&tc.id), Some(&tc.function.name))))
+            .unwrap_or_else(|e| {
+                error_message(
+                    &e.to_string(),
+                    Some(&tc.id),
+                    Some(&tc.function.name),
+                )
+            }))
     }
 
     /// Combine the entity abort signal with an optional external cancellation

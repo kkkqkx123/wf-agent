@@ -177,7 +177,7 @@ impl GeneralToolContext {
 
         match outcome {
             Ok(msg) => content_to_value(&msg.content),
-            Err(reason) => serde_json::json!({"error": reason}),
+            Err(e) => serde_json::json!({"error": e.to_string()}),
         }
     }
 

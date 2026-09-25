@@ -402,7 +402,7 @@ mod tests {
     /// Run the nested-agent trigger action with a recording executor and
     /// return the child `checkpoint_message_interval` the runner forwarded.
     async fn forwarded_interval(action: TriggerAction) -> Option<u32> {
-        use wf_tools::callback::AgentLoopOutput;
+        use wf_tools::callback::{AgentLoopOutput, LoopFinishReason};
         use wf_types::events::EventType;
 
         let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
@@ -416,6 +416,7 @@ mod tests {
                     agent_loop_id: Id::from("child-1"),
                     result: serde_json::Value::Null,
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })
@@ -508,7 +509,7 @@ mod tests {
     async fn cold_start_agent_forwards_checkpoint_message_interval() {
         // Cold-start children run fire-and-forget on a spawned task; poll
         // briefly for the recording instead of asserting synchronously.
-        use wf_tools::callback::AgentLoopOutput;
+        use wf_tools::callback::{AgentLoopOutput, LoopFinishReason};
         use wf_types::events::EventType;
 
         let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
@@ -522,6 +523,7 @@ mod tests {
                     agent_loop_id: Id::from("child-1"),
                     result: serde_json::Value::Null,
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })

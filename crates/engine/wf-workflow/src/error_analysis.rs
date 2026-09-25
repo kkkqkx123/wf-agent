@@ -17,7 +17,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::CoordinatorError(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
@@ -25,7 +24,13 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
+        },
+        WorkflowError::ExecutionTimeout(_) => ErrorAnalysis {
+            kind: ErrorKind::Execution,
+            error_type: ErrorType::Timeout,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
         },
         WorkflowError::GraphError(_) | WorkflowError::VariableError(_) => ErrorAnalysis {
             kind: ErrorKind::Validation,
@@ -33,7 +38,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::HandlerNotFound { .. } => ErrorAnalysis {
             kind: ErrorKind::NotFound,
@@ -41,15 +45,17 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
+        // Terminal node failure: transient retries are spent inside the
+        // handler, so by the time this reaches the coordinator nothing in
+        // the engine re-runs it. Claiming `Retry` here would advertise a
+        // recovery the executor never performs.
         WorkflowError::NodeExecutionFailed { .. } => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Internal,
-            retryable: true,
-            recovery_action: RecoveryAction::Retry,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::NodeFailure { .. } => ErrorAnalysis {
             kind: ErrorKind::Execution,
@@ -57,7 +63,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::ForkJoinError(_)
         | WorkflowError::SubgraphError(_)
@@ -67,7 +72,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::StateTransitionError(_) => ErrorAnalysis {
             kind: ErrorKind::StateManagement,
@@ -75,15 +79,17 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
+        // OperationError / LoopError sites are predominantly config and
+        // wiring misuse (missing registry, unregistered tool, bad node
+        // settings); re-running cannot fix them, so the honest advice is
+        // manual intervention, not a retry.
         WorkflowError::OperationError(_) | WorkflowError::LoopError(_) => ErrorAnalysis {
             kind: ErrorKind::General,
             error_type: ErrorType::Internal,
-            retryable: true,
-            recovery_action: RecoveryAction::Retry,
+            retryable: false,
+            recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::ConfigError { .. } => ErrorAnalysis {
             kind: ErrorKind::Validation,
@@ -91,7 +97,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::ToolError(te) => tool_error_analysis(te),
         WorkflowError::CoreError(_) | WorkflowError::Internal(_) => ErrorAnalysis {
@@ -100,7 +105,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         WorkflowError::SharedError(se) => shared_error_analysis(se),
         WorkflowError::AgentError(ae) => analyze_error(ae),
@@ -128,30 +132,6 @@ pub fn workflow_error_record(
     record
 }
 
-/// Build a persisted ErrorRecord linked to a parent error, forming an error
-/// chain across retries / cascading failures. The parent's `error_chain` is
-/// extended, `root_cause_id` is preserved and `parent_error_id` points at the
-/// parent. The retry attempt index is attached to the cause for context.
-pub fn chained_workflow_error_record(
-    e: &WorkflowError,
-    execution_id: &str,
-    node_id: &str,
-    retry_attempt: u32,
-    parent: &ErrorRecord,
-) -> ErrorRecord {
-    let analysis = analyze_workflow_error(e);
-    let mut record =
-        analysis.to_chained_error_record(execution_id, Some(node_id.to_string()), parent);
-    record.caused_by = Some(ErrorCause {
-        reason: e.to_string(),
-        handling_attempt: Some(format!("retry_{}", retry_attempt)),
-    });
-    if retry_attempt > 0 {
-        record.error = format!("{} (retry attempt {})", e, retry_attempt);
-    }
-    record
-}
-
 /// Aggregate error information across an execution's error records: total,
 /// affected nodes, most common error type, presence of recoverable errors and
 /// the most frequently recommended recovery action.
@@ -168,7 +148,8 @@ pub struct WorkflowErrorPattern {
 /// execution, so recovery can be recommended at a workflow granularity.
 pub fn analyze_workflow_error_pattern(records: &[ErrorRecord]) -> WorkflowErrorPattern {
     let mut affected_nodes: Vec<String> = Vec::new();
-    let mut type_dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut type_dist: std::collections::HashMap<ErrorType, usize> =
+        std::collections::HashMap::new();
     let mut recovery_action_count: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     let mut has_recoverable = false;
@@ -180,7 +161,7 @@ pub fn analyze_workflow_error_pattern(records: &[ErrorRecord]) -> WorkflowErrorP
             }
         }
         if let Some(ref error_type) = record.error_type {
-            *type_dist.entry(format!("{:?}", error_type)).or_insert(0) += 1;
+            *type_dist.entry(error_type.clone()).or_insert(0) += 1;
         }
         if record.is_recoverable {
             has_recoverable = true;
@@ -192,19 +173,10 @@ pub fn analyze_workflow_error_pattern(records: &[ErrorRecord]) -> WorkflowErrorP
         }
     }
 
-    let most_common_type =
-        type_dist
-            .iter()
-            .max_by_key(|(_, count)| *count)
-            .and_then(|(name, _)| match name.as_str() {
-                "ToolError" => Some(ErrorType::ToolError),
-                "LlmError" => Some(ErrorType::LlmError),
-                "Timeout" => Some(ErrorType::Timeout),
-                "Validation" => Some(ErrorType::Validation),
-                "Internal" => Some(ErrorType::Internal),
-                "Interruption" => Some(ErrorType::Interruption),
-                _ => None,
-            });
+    let most_common_type = type_dist
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(error_type, _)| error_type.clone());
 
     WorkflowErrorPattern {
         total_errors: records.len(),
@@ -221,14 +193,14 @@ mod tests {
     use wf_types::errors::RecoveryAction;
 
     #[test]
-    fn node_execution_failed_is_retryable() {
+    fn node_execution_failed_is_terminal_abort() {
         let analysis = analyze_workflow_error(&WorkflowError::NodeExecutionFailed {
             node_id: "n1".to_string(),
             reason: "boom".to_string(),
         });
         assert_eq!(analysis.kind, ErrorKind::Execution);
-        assert!(analysis.retryable);
-        assert_eq!(analysis.recovery_action, RecoveryAction::Retry);
+        assert!(!analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
     }
 
     #[test]
@@ -249,11 +221,12 @@ mod tests {
     }
 
     #[test]
-    fn operation_error_is_retryable_general() {
+    fn operation_error_is_not_retryable() {
         let analysis =
-            analyze_workflow_error(&WorkflowError::OperationError("transient".to_string()));
+            analyze_workflow_error(&WorkflowError::OperationError("bad wiring".to_string()));
         assert_eq!(analysis.kind, ErrorKind::General);
-        assert!(analysis.retryable);
+        assert!(!analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::ManualIntervention);
     }
 
     #[test]
@@ -266,8 +239,13 @@ mod tests {
 
     #[test]
     fn record_carries_retry_attempt() {
+        // A tool timeout is genuinely retryable, so the record stays
+        // marked recoverable.
         let record = workflow_error_record(
-            &WorkflowError::OperationError("transient".to_string()),
+            &WorkflowError::ToolError(wf_tools::error::ToolError::Timeout {
+                tool_id: "t".to_string(),
+                timeout_ms: 1000,
+            }),
             "exec-1",
             "n-7",
             2,

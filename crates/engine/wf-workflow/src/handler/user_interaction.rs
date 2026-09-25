@@ -213,10 +213,16 @@ impl UserInteractionHandler {
                         (Some(value), Some(interaction_id), true)
                     }
                     Ok(Err(_)) | Err(_) => {
-                        let reason = if wait_result.is_err() {
-                            "timeout"
+                        let (reason, category) = if wait_result.is_err() {
+                            (
+                                "timeout",
+                                wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                            )
                         } else {
-                            "cancelled"
+                            (
+                                "cancelled",
+                                wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                            )
                         };
                         emit_interaction_event(
                             ctx.event_bus.as_deref(),
@@ -230,10 +236,14 @@ impl UserInteractionHandler {
                                 ("reason".to_string(), Value::String(reason.to_string())),
                             ]),
                         );
-                        return Err(WorkflowError::OperationError(format!(
-                            "User interaction {} after {}ms",
-                            reason, timeout_ms
-                        )));
+                        // Typed category so error-branch routing sees a
+                        // timeout as a transport timeout and a dropped wait
+                        // as an interruption, not a generic operation error.
+                        return Err(WorkflowError::NodeFailure {
+                            node_id: ctx.node_id.clone(),
+                            category,
+                            detail: format!("User interaction {reason} after {timeout_ms}ms"),
+                        });
                     }
                 }
             }

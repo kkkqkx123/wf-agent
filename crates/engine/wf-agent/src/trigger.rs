@@ -466,6 +466,7 @@ fn assistant_message_from_result(result: &Value) -> Message {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use wf_tools::callback::LoopFinishReason;
     use wf_types::Id;
 
     /// Shared hook-type log captured by the test hook receivers.
@@ -510,6 +511,7 @@ mod tests {
                     agent_loop_id: Id::from("child".to_string()),
                     result,
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })
@@ -605,6 +607,7 @@ mod tests {
                     agent_loop_id: Id::from("child".to_string()),
                     result: Value::Null,
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })
@@ -658,6 +661,7 @@ mod tests {
                     agent_loop_id: Id::from("child".to_string()),
                     result: Value::Null,
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })
@@ -755,6 +759,7 @@ mod tests {
                     agent_loop_id: Id::from("child".to_string()),
                     result: Value::from("child ok"),
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })
@@ -1115,6 +1120,7 @@ mod tests {
                     agent_loop_id: Id::from("child".to_string()),
                     result: Value::from("async child ok"),
                     iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
                     conversation: Vec::new(),
                 })
             })

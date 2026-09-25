@@ -12,6 +12,12 @@ pub enum WorkflowError {
     #[error("Coordinator error: {0}")]
     CoordinatorError(String),
 
+    /// Wall-clock (`max_execution_time`) exhaustion of a whole execution.
+    /// Kept distinct from `CoordinatorError` so callers and the classifier
+    /// see a timeout, not a generic coordinator failure.
+    #[error("Execution timeout: {0}")]
+    ExecutionTimeout(String),
+
     #[error("Graph error: {0}")]
     GraphError(String),
 

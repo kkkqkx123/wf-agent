@@ -27,27 +27,34 @@ pub async fn build_workflow_execution(
     options: &WorkflowExecutionOptions,
     output: Option<Value>,
 ) -> WorkflowExecution {
-    let snapshot = entity
-        .state
-        .read()
-        .await
-        .create_snapshot()
-        .await
-        .unwrap_or_else(|_| crate::state::WorkflowExecutionStateSnapshot {
-            status: wf_execution_shared::types::execution_entity::ExecutionStatus::Created,
-            current_node_id: None,
-            completed_nodes: Vec::new(),
-            node_execution_history: Vec::new(),
-            start_time: wf_common::now(),
-            end_time: None,
-            error: None,
-            error_records: Vec::new(),
-            operation_state: None,
-            interruption_records: Vec::new(),
-            event_records: Vec::new(),
-            timeout_count: 0,
-            error_suspend: None,
-        });
+    // A snapshot failure degrades the persisted record to a bare `Created`
+    // state; that loss must be loud, because history/analysis APIs will read
+    // an execution that actually progressed as if it never started.
+    let snapshot = match entity.state.read().await.create_snapshot().await {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            tracing::error!(
+                execution_id = %entity.id(),
+                error = %e,
+                "execution state snapshot failed; persisting a bare Created record"
+            );
+            crate::state::WorkflowExecutionStateSnapshot {
+                status: wf_execution_shared::types::execution_entity::ExecutionStatus::Created,
+                current_node_id: None,
+                completed_nodes: Vec::new(),
+                node_execution_history: Vec::new(),
+                start_time: wf_common::now(),
+                end_time: None,
+                error: None,
+                error_records: Vec::new(),
+                operation_state: None,
+                interruption_records: Vec::new(),
+                event_records: Vec::new(),
+                timeout_count: 0,
+                error_suspend: None,
+            }
+        }
+    };
     let status: WorkflowExecutionStatus = snapshot.status.clone().into();
 
     let variables = entity

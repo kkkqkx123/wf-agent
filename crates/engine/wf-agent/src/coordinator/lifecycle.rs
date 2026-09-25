@@ -50,15 +50,24 @@ enum SettleKind {
     Fail,
 }
 
-/// Decide the terminal settle for a run error. When the host runtime is
-/// closing (`active_shutdown`), an in-flight run must not be turned into a
-/// spurious `Failed`: cancel it so no failure is dispatched or persisted for
-/// an execution the user deliberately left.
+/// Decide the terminal settle for a run error. A cancelled run (explicit
+/// cancellation error, or an in-flight provider/tool cancellation) settles as
+/// `Cancelled`, never `Failed`. When the host runtime is closing
+/// (`active_shutdown`), an in-flight run must not be turned into a spurious
+/// `Failed`: cancel it so no failure is dispatched or persisted for an
+/// execution the user deliberately left.
 fn settle_kind(err: &AgentError, active_shutdown: bool) -> SettleKind {
     if active_shutdown {
         SettleKind::Cancel
     } else if matches!(err, AgentError::ExecutionTimeout(_)) {
         SettleKind::Timeout
+    } else if matches!(
+        err,
+        AgentError::Cancelled(_)
+            | AgentError::LlmError(wf_llm::error::LlmError::Cancelled)
+            | AgentError::ToolError(wf_tools::error::ToolError::Cancelled { .. })
+    ) {
+        SettleKind::Cancel
     } else {
         SettleKind::Fail
     }
@@ -688,6 +697,10 @@ impl AgentLoopCoordinator {
                     Value::Number(iterations.into()),
                 );
                 hook_data.insert("success".to_string(), Value::Bool(true));
+                hook_data.insert(
+                    "finish_reason".to_string(),
+                    Value::String(result.finish_reason.as_str().to_string()),
+                );
                 AgentHookEmitter::fire_agent_point_with_checkpoint(
                     &entity,
                     "AFTER_AGENT",
@@ -703,6 +716,7 @@ impl AgentLoopCoordinator {
                     agent_loop_id: entity.id().clone(),
                     result: result.content,
                     iterations,
+                    finish_reason: result.finish_reason,
                     conversation,
                 })
             }
@@ -712,22 +726,25 @@ impl AgentLoopCoordinator {
                 // a terminal state through the entity's `stop()`; a wall-clock
                 // or pause timeout lands on `Timeout`; an active host shutdown
                 // cancels instead of failing; everything else fails.
+                // A settle failure is logged, never propagated: replacing the
+                // run error with a state-transition error would hide the root
+                // cause from every downstream consumer.
                 let status = entity.state.read().await.status();
                 if !status.is_terminal() {
-                    match settle_kind(&e, wf_common::shutdown::is_active_shutdown()) {
+                    let settle = match settle_kind(&e, wf_common::shutdown::is_active_shutdown()) {
                         SettleKind::Timeout => {
                             AgentLoopStateTransitor::timeout_agent_loop(
                                 &entity,
                                 self.event_bus.as_deref(),
                             )
-                            .await?
+                            .await
                         }
                         SettleKind::Cancel => {
                             AgentLoopStateTransitor::cancel_agent_loop(
                                 &entity,
                                 self.event_bus.as_deref(),
                             )
-                            .await?
+                            .await
                         }
                         SettleKind::Fail => {
                             AgentLoopStateTransitor::fail_agent_loop(
@@ -735,8 +752,13 @@ impl AgentLoopCoordinator {
                                 e.to_string(),
                                 self.event_bus.as_deref(),
                             )
-                            .await?
+                            .await
                         }
+                    };
+                    if let Err(settle_err) = settle {
+                        tracing::error!(
+                            "failed to settle terminal state after run error '{e}': {settle_err}"
+                        );
                     }
                 }
                 // Snapshot the settled terminal status with a trigger that

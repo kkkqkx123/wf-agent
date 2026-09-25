@@ -146,12 +146,38 @@ pub struct AgentLoopInput {
     pub conversation: Vec<wf_types::message::Message>,
 }
 
+/// Why an agent loop run ended. Machine-readable terminal classification that
+/// consumers must not have to recover from the result content string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopFinishReason {
+    /// The model produced a final answer (or `attempt_completion`).
+    Completed,
+    /// The iteration budget was exhausted without a final answer.
+    MaxIterationsReached,
+    /// The run stopped early on an interruption (pause/cancel race) rather
+    /// than on model output.
+    Interrupted,
+}
+
+impl LoopFinishReason {
+    /// Stable wire name for payloads and logs.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::MaxIterationsReached => "max_iterations_reached",
+            Self::Interrupted => "interrupted",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentLoopOutput {
     /// Per-run agent loop id (independent of the agent definition id).
     pub agent_loop_id: Id,
     pub result: Value,
     pub iterations: u32,
+    /// Terminal classification of the run (see `LoopFinishReason`).
+    pub finish_reason: LoopFinishReason,
     /// Final conversation exported from the agent session.
     pub conversation: Vec<wf_types::message::Message>,
 }

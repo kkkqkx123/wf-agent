@@ -176,8 +176,16 @@ fn spawn_non_blocking(
             .unwrap_or("path")
             .to_string();
         let run_ctx = runtime.branch_run_context(child_execution_timeout);
+        let log_id = path_id.clone();
         let handle = tokio::spawn(async move {
-            let _ = run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await;
+            let result = run_branch(idx, path, branch_execution_id, run_ctx).await;
+            if !result.success {
+                tracing::warn!(
+                    branch = %log_id,
+                    error = ?result.error,
+                    "fire-and-forget fork branch ended with failure"
+                );
+            }
         });
         if let Some(registry) = &runtime.fork_registry {
             registry.register_handle(&path_id, handle);

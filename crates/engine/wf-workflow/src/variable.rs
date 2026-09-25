@@ -447,13 +447,27 @@ where
     match (x.as_i64(), y.as_i64()) {
         (Some(a), Some(b)) => match int_op(a, b) {
             Some(i) => Value::Number(i.into()),
-            None => Value::Null,
+            None => {
+                tracing::warn!(
+                    operand_a = %x,
+                    operand_b = %y,
+                    "integer expression overflowed or divided by zero; expression degraded to null"
+                );
+                Value::Null
+            }
         },
         _ => match (x.as_f64(), y.as_f64()) {
             (Some(a), Some(b)) => float_op(a, b)
                 .and_then(serde_json::Number::from_f64)
                 .map(Value::Number)
-                .unwrap_or(Value::Null),
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        operand_a = %x,
+                        operand_b = %y,
+                        "float expression produced a non-finite value; expression degraded to null"
+                    );
+                    Value::Null
+                }),
             _ => Value::Null,
         },
     }
@@ -674,10 +688,17 @@ pub fn evaluate_expression(
             // legitimately contain operator characters in its literal text
             // (e.g. `${variables.step1}-done`). When the expression parse
             // fails, fall back to plain interpolation for such templates.
-            Err(_e) if trimmed.contains("${") => Ok(VariableResolver::resolve(
-                &Value::String(expression.to_string()),
-                variables,
-            )),
+            Err(e) if trimmed.contains("${") => {
+                tracing::debug!(
+                    expression = trimmed,
+                    error = %e,
+                    "expression parse failed on a template literal; degraded to plain interpolation"
+                );
+                Ok(VariableResolver::resolve(
+                    &Value::String(expression.to_string()),
+                    variables,
+                ))
+            }
             Err(e) => Err(e),
         }
     } else {

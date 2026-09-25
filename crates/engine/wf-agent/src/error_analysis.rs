@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use wf_common::error_chain::{ErrorMetadata, ErrorRecord};
+use wf_common::error_chain::{ErrorPattern, ErrorRecord};
 use wf_execution_shared::error::ExecutionSharedError;
 use wf_llm::error::LlmError;
 use wf_tools::error::ToolError;
-use wf_types::errors::{ErrorCause, ErrorKind, ErrorType, RecoveryAction};
+use wf_types::errors::{ErrorKind, ErrorType, RecoveryAction};
 
 use crate::error::AgentError;
 
@@ -17,12 +17,12 @@ pub struct ErrorAnalysis {
     pub retryable: bool,
     pub recovery_action: RecoveryAction,
     pub message: String,
-    pub cause: Option<ErrorCause>,
 }
 
 impl ErrorAnalysis {
-    /// Build an ErrorRecord for persistence into entity state / snapshots.
-    /// When no parent record is provided, this is treated as the root error.
+    /// Build a root ErrorRecord for persistence into entity state /
+    /// snapshots. Callers that need chain context (caused_by, parent links)
+    /// fill those fields on the returned record.
     pub fn to_error_record(&self, execution_id: &str, node_id: Option<String>) -> ErrorRecord {
         let id = wf_common::generate_id();
         ErrorRecord {
@@ -35,44 +35,7 @@ impl ErrorAnalysis {
             parent_error_id: None,
             error_chain: vec![id.clone()],
             root_cause_id: id,
-            caused_by: self.cause.clone(),
-            is_recoverable: self.retryable,
-            recovery_action: Some(self.recovery_action.clone()),
-        }
-    }
-
-    /// Build an ErrorRecord linked to a parent error, forming an error chain.
-    /// The parent's `error_chain` is extended, `root_cause_id` is preserved,
-    /// and `parent_error_id` points to the parent.
-    pub fn to_chained_error_record(
-        &self,
-        execution_id: &str,
-        node_id: Option<String>,
-        parent: &ErrorRecord,
-    ) -> ErrorRecord {
-        let id = wf_common::generate_id();
-        let mut error_chain = parent.error_chain.clone();
-        error_chain.push(id.clone());
-        ErrorRecord {
-            id,
-            execution_id: execution_id.to_string(),
-            error: self.message.clone(),
-            error_type: Some(self.error_type.clone()),
-            timestamp: wf_common::now(),
-            node_id,
-            parent_error_id: Some(parent.id.clone()),
-            error_chain,
-            root_cause_id: parent.root_cause_id.clone(),
-            caused_by: self.cause.clone(),
-            is_recoverable: self.retryable,
-            recovery_action: Some(self.recovery_action.clone()),
-        }
-    }
-
-    pub fn to_error_metadata(&self) -> ErrorMetadata {
-        ErrorMetadata {
-            error_type: Some(self.error_type.clone()),
-            caused_by: self.cause.clone(),
+            caused_by: None,
             is_recoverable: self.retryable,
             recovery_action: Some(self.recovery_action.clone()),
         }
@@ -166,11 +129,14 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             false,
             RecoveryAction::Abort,
         ),
+        // Remaining variants (ExecutionFailed, RetryExhausted, McpError,
+        // Serialization, Io, CallbackNotRegistered, Internal, ExecutionError)
+        // are terminal failures; retrying them only burns budget.
         _ => (
             ErrorKind::Tool,
             ErrorType::ToolError,
-            true,
-            RecoveryAction::Retry,
+            false,
+            RecoveryAction::Abort,
         ),
     };
     ErrorAnalysis {
@@ -179,12 +145,20 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
         retryable,
         recovery_action,
         message: e.to_string(),
-        cause: None,
     }
 }
 
 pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
     let (kind, error_type, retryable, recovery_action) = match e {
+        // Payload overflow: the retry loop publishes a forced compression
+        // before this analysis runs, so one retry lets compression catch up.
+        // This is a resource budget failure, not a transient network fault.
+        _ if e.is_context_length_exceeded() => (
+            ErrorKind::Resource,
+            ErrorType::LlmError,
+            true,
+            RecoveryAction::Retry,
+        ),
         LlmError::Timeout(_) => (
             ErrorKind::Timeout,
             ErrorType::Timeout,
@@ -213,10 +187,26 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
             None => (
                 ErrorKind::Network,
                 ErrorType::LlmError,
-                true,
-                RecoveryAction::Retry,
+                e.is_retryable(),
+                if e.is_retryable() {
+                    RecoveryAction::Retry
+                } else {
+                    RecoveryAction::ManualIntervention
+                },
             ),
         },
+        // Provider / stream transport failures defer retryability to the
+        // wf-llm classification (5xx / 429 / connect resets are transient).
+        LlmError::ProviderError(_) | LlmError::StreamError(_) => (
+            ErrorKind::Network,
+            ErrorType::LlmError,
+            e.is_retryable(),
+            if e.is_retryable() {
+                RecoveryAction::Retry
+            } else {
+                RecoveryAction::ManualIntervention
+            },
+        ),
         LlmError::AuthError(_) => (
             ErrorKind::AuthError,
             ErrorType::LlmError,
@@ -235,11 +225,13 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
             false,
             RecoveryAction::Abort,
         ),
+        // Configuration, codec, serialization and malformed-response errors
+        // are deterministic failures; retrying reproduces the same outcome.
         _ => (
-            ErrorKind::Network,
+            ErrorKind::General,
             ErrorType::LlmError,
-            true,
-            RecoveryAction::Retry,
+            e.is_retryable(),
+            RecoveryAction::ManualIntervention,
         ),
     };
     ErrorAnalysis {
@@ -248,7 +240,6 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
         retryable,
         recovery_action,
         message: e.to_string(),
-        cause: None,
     }
 }
 
@@ -260,7 +251,6 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         ExecutionSharedError::ToolError(te) => tool_error_analysis(te),
         _ => ErrorAnalysis {
@@ -269,7 +259,6 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
     }
 }
@@ -284,7 +273,6 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         AgentError::StateError(_) | AgentError::IllegalStateTransition(_) => ErrorAnalysis {
             kind: ErrorKind::StateManagement,
@@ -292,7 +280,6 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
         AgentError::CoordinatorError(_) | AgentError::Internal(_) => ErrorAnalysis {
             kind: ErrorKind::General,
@@ -300,15 +287,23 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
         },
+        // The catch-all string bucket (validation failures, dropped stream
+        // receivers, stopped-with-status) and the wall-clock stop both end
+        // the run; a retry re-pays the whole iteration budget.
         AgentError::ExecutionError(_) | AgentError::ExecutionTimeout(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Internal,
-            retryable: true,
-            recovery_action: RecoveryAction::Retry,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
-            cause: None,
+        },
+        AgentError::Cancelled(_) => ErrorAnalysis {
+            kind: ErrorKind::Execution,
+            error_type: ErrorType::Interruption,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
         },
         AgentError::ExecutionLimitReached(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
@@ -316,7 +311,6 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
-            cause: None,
         },
         AgentError::HookError(_) => ErrorAnalysis {
             kind: ErrorKind::EventSystem,
@@ -324,7 +318,6 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
-            cause: None,
         },
         AgentError::ToolError(te) => tool_error_analysis(te),
         AgentError::LlmError(le) => llm_error_analysis(le),
@@ -334,7 +327,6 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             retryable: false,
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
-            cause: None,
         },
         AgentError::SharedError(se) => shared_error_analysis(se),
     }
@@ -369,17 +361,37 @@ pub fn get_error_chain(records: &[ErrorRecord]) -> Vec<&ErrorRecord> {
     chain
 }
 
+/// Count record entries by a key extractor.
+fn count_by<K, F>(records: &[ErrorRecord], extract: F) -> HashMap<K, usize>
+where
+    K: Clone + Eq + std::hash::Hash,
+    F: Fn(&ErrorRecord) -> Option<&K>,
+{
+    let mut counts: HashMap<K, usize> = HashMap::new();
+    for record in records {
+        if let Some(key) = extract(record) {
+            *counts.entry(key.clone()).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
+/// Highest-count entry of a typed aggregate.
+fn most_common<K>(counts: &HashMap<K, usize>) -> Option<K>
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    counts.iter().max_by_key(|(_, count)| **count).map(|(k, _)| k.clone())
+}
+
 /// Analyze error patterns from a list of error records.
 pub fn analyze_error_pattern(records: &[ErrorRecord]) -> ErrorPattern {
-    let mut type_dist: HashMap<String, usize> = HashMap::new();
-    let mut affected_nodes: Vec<String> = Vec::new();
-    let mut recovery_count: HashMap<String, usize> = HashMap::new();
-    let mut has_recoverable = false;
+    let type_dist = count_by(records, |r| r.error_type.as_ref());
+    let recovery_count = count_by(records, |r| r.recovery_action.as_ref());
 
+    let mut affected_nodes: Vec<String> = Vec::new();
+    let mut has_recoverable = false;
     for record in records {
-        if let Some(ref error_type) = record.error_type {
-            *type_dist.entry(format!("{:?}", error_type)).or_insert(0) += 1;
-        }
         if let Some(ref node_id) = record.node_id {
             if !affected_nodes.contains(node_id) {
                 affected_nodes.push(node_id.clone());
@@ -388,56 +400,32 @@ pub fn analyze_error_pattern(records: &[ErrorRecord]) -> ErrorPattern {
         if record.is_recoverable {
             has_recoverable = true;
         }
-        if let Some(ref action) = record.recovery_action {
-            *recovery_count.entry(format!("{:?}", action)).or_insert(0) += 1;
-        }
     }
-
-    let most_common_type =
-        type_dist
-            .iter()
-            .max_by_key(|(_, count)| *count)
-            .and_then(|(name, _)| match name.as_str() {
-                "ToolError" => Some(ErrorType::ToolError),
-                "LlmError" => Some(ErrorType::LlmError),
-                "Timeout" => Some(ErrorType::Timeout),
-                "Validation" => Some(ErrorType::Validation),
-                "Internal" => Some(ErrorType::Internal),
-                "Interruption" => Some(ErrorType::Interruption),
-                _ => None,
-            });
 
     ErrorPattern {
         total_errors: records.len(),
-        type_distribution: type_dist,
+        type_distribution: type_dist
+            .iter()
+            .map(|(t, c)| (format!("{:?}", t), *c))
+            .collect(),
         affected_nodes,
-        most_common_type,
+        most_common_type: most_common(&type_dist),
         has_recoverable,
-        recovery_action_count: recovery_count,
+        recovery_action_count: recovery_count
+            .iter()
+            .map(|(a, c)| (format!("{:?}", a), *c))
+            .collect(),
     }
 }
 
 /// Get the recommended recovery action based on error pattern analysis.
 pub fn get_recommended_recovery_action(records: &[ErrorRecord]) -> RecoveryAction {
-    let pattern = analyze_error_pattern(records);
-    if !pattern.has_recoverable {
+    if !records.iter().any(|r| r.is_recoverable) {
         return RecoveryAction::Abort;
     }
-    pattern
-        .recovery_action_count
-        .iter()
-        .max_by_key(|(_, count)| *count)
-        .and_then(|(name, _)| match name.as_str() {
-            "Retry" => Some(RecoveryAction::Retry),
-            "Fallback" => Some(RecoveryAction::Fallback),
-            "ManualIntervention" => Some(RecoveryAction::ManualIntervention),
-            "Abort" => Some(RecoveryAction::Abort),
-            _ => None,
-        })
-        .unwrap_or(RecoveryAction::Abort)
+    let counts = count_by(records, |r| r.recovery_action.as_ref());
+    most_common(&counts).unwrap_or(RecoveryAction::Abort)
 }
-
-use wf_common::error_chain::ErrorPattern;
 
 #[cfg(test)]
 mod tests {

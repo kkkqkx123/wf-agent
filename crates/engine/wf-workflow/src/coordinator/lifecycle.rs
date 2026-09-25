@@ -263,9 +263,18 @@ impl WorkflowLifecycleCoordinator {
                 })
             }
             Err(e) => {
-                wf_state
-                    .fail(e.to_string())
-                    .map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
+                // Settle the failure only when the run has not already reached
+                // a terminal state on its own (wall-clock timeout, stop,
+                // cancel). A settle failure is logged, never propagated:
+                // replacing the root error with a state-transition error
+                // would hide what actually ended the run.
+                if !wf_state.is_terminal() {
+                    if let Err(settle_err) = wf_state.fail(e.to_string()) {
+                        tracing::error!(
+                            "failed to settle terminal state after workflow error '{e}': {settle_err}"
+                        );
+                    }
+                }
                 if let Some(ref metrics) = self.metrics {
                     metrics.workflow().record_execution_complete(
                         &workflow_id_metrics,

@@ -85,10 +85,18 @@ impl SyncHandler {
         if wait_for_completion {
             if let Some(registry) = &registry {
                 if !registry.wait_for(&source_path_id, timeout).await {
-                    return Err(WorkflowError::CoordinatorError(format!(
-                        "SYNC node '{}' timed out waiting for source branch '{}'",
-                        ctx.node_id, source_path_id
-                    )));
+                    // Typed transport timeout: the wait was bounded and
+                    // expired, so error-branch routing sees a timeout rather
+                    // than a generic coordinator failure.
+                    return Err(WorkflowError::NodeFailure {
+                        node_id: ctx.node_id.clone(),
+                        category:
+                            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                        detail: format!(
+                            "SYNC node '{}' timed out waiting for source branch '{}'",
+                            ctx.node_id, source_path_id
+                        ),
+                    });
                 }
             }
         }

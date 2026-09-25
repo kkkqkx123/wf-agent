@@ -1,6 +1,9 @@
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use serde_json::Value;
 use wf_common::now;
 use wf_core::condition::ConditionEvaluator;
@@ -39,6 +42,17 @@ use crate::error_branch::{
 /// from the fallback because they carry their own budgets; see
 /// `StaticNodeType::is_long_running`.
 pub const DEFAULT_NODE_TIMEOUT_MS: u64 = 30_000;
+
+/// Human-readable message from a `catch_unwind` panic payload.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
 
 /// Resolve the wall-clock budget wrapping one node execution.
 /// Priority: node-level `timeout_seconds` (seconds) > global options
@@ -912,7 +926,7 @@ impl WorkflowCoordinator {
                 if let Some(ref mut cp) = self.checkpoint {
                     cp.on_timeout(entity).await;
                 }
-                return Err(WorkflowError::CoordinatorError(format!(
+                return Err(WorkflowError::ExecutionTimeout(format!(
                     "Workflow execution exceeded max_execution_time ({}ms)",
                     max_execution_time
                 )));
@@ -1061,6 +1075,17 @@ impl WorkflowCoordinator {
             &self.hooks,
             self.ctx.hook_handler_registry.as_deref(),
         );
+        // Panic isolation: a panicking handler must surface as a routed node
+        // failure instead of aborting the whole execution task.
+        let guarded = AssertUnwindSafe(fut).catch_unwind();
+        let panic_failure = |payload: Box<dyn Any + Send>| {
+            tracing::error!(node_id = %node_id, "node handler panicked");
+            WorkflowError::NodeFailure {
+                node_id: node_id.to_string(),
+                category: wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
+                detail: format!("node handler panicked: {}", panic_message(&payload)),
+            }
+        };
 
         match timeout_dur {
             Some(tout_dur) => {
@@ -1074,14 +1099,16 @@ impl WorkflowCoordinator {
                     );
                 }
                 let node_start = wf_common::now();
-                let result = tokio::time::timeout(tout_dur, fut).await.map_err(|_| {
-                    WorkflowError::NodeFailure {
-                        node_id: node_id.to_string(),
-                        category:
-                            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
-                        detail: format!("timed out after {:?}", tout_dur),
-                    }
-                });
+                let result = tokio::time::timeout(tout_dur, guarded)
+                    .await
+                    .map_err(|_| {
+                        WorkflowError::NodeFailure {
+                            node_id: node_id.to_string(),
+                            category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                            detail: format!("timed out after {:?}", tout_dur),
+                        }
+                    })
+                    .and_then(|handler_result| handler_result.map_err(panic_failure));
                 match &result {
                     Err(_) => {
                         if let Some(ref metrics) = timeout_metrics {
@@ -1100,7 +1127,7 @@ impl WorkflowCoordinator {
                 }
                 result?
             }
-            None => fut.await,
+            None => guarded.await.map_err(panic_failure)?,
         }
     }
 
@@ -1603,7 +1630,19 @@ impl WorkflowCoordinator {
                 }
                 match ConditionEvaluator::evaluate(condition, &context_map) {
                     Ok(true) => return Ok(Some(edge.target_node_id.clone())),
-                    _ => continue,
+                    // An unevaluable edge keeps the "do not take this edge"
+                    // semantics, but the defect is logged so broken edge
+                    // conditions stay discoverable.
+                    Ok(false) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            edge_from = %current_id,
+                            edge_to = %edge.target_node_id,
+                            error = %e,
+                            "edge condition failed to evaluate; edge skipped"
+                        );
+                        continue;
+                    }
                 }
             } else {
                 return Ok(Some(edge.target_node_id.clone()));
@@ -1746,8 +1785,17 @@ impl WorkflowCoordinator {
                 }
                 match ConditionEvaluator::evaluate(condition, &context_map) {
                     Ok(true) => return Ok(Some(edge.target_node_id.clone())),
+                    // An unevaluable edge keeps the "do not take this edge"
+                    // semantics, but the defect is logged so broken edge
+                    // conditions stay discoverable.
                     Ok(false) => continue,
-                    Err(_) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "edge condition failed to evaluate; edge skipped"
+                        );
+                        continue;
+                    }
                 }
             } else {
                 return Ok(Some(edge.target_node_id.clone()));

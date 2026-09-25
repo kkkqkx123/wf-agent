@@ -15,6 +15,12 @@ use crate::error::{WorkflowError, WorkflowResult};
 /// a context-length-exceeded error (the local estimate undercounted), a
 /// forced CONTEXT_COMPRESSION_REQUESTED is published over the real request
 /// messages so the compression chain still fires.
+///
+/// Transport semantics survive as a typed `NodeFailure` category: a provider
+/// timeout routes as `TransportTimeout` and a cancellation as
+/// `CancelledInterrupted`, so error-branch routing does not have to guess
+/// from the message text. Everything else stays a plain handler error and
+/// routes as a business failure.
 pub async fn call_llm(
     ctx: &NodeExecutionContext,
     gateway: &wf_llm::LlmGateway,
@@ -22,11 +28,24 @@ pub async fn call_llm(
 ) -> WorkflowResult<wf_types::llm::LlmResult> {
     match gateway.generate(request, ctx.cancellation.clone()).await {
         Ok(result) => Ok(result),
-        Err(e) if e.is_context_length_exceeded() => {
-            publish_forced_compression(ctx, request).await;
-            Err(WorkflowError::Internal(format!("LLM call failed: {}", e)))
+        Err(e) => {
+            if e.is_context_length_exceeded() {
+                publish_forced_compression(ctx, request).await;
+            }
+            Err(match e {
+                wf_llm::error::LlmError::Timeout(ms) => WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                    detail: format!("LLM call timed out after {ms}ms"),
+                },
+                wf_llm::error::LlmError::Cancelled => WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: "LLM call cancelled".to_string(),
+                },
+                other => WorkflowError::Internal(format!("LLM call failed: {other}")),
+            })
         }
-        Err(e) => Err(WorkflowError::Internal(format!("LLM call failed: {}", e))),
     }
 }
 
@@ -110,7 +129,24 @@ pub async fn execute_tool_call(
     batch: Option<&LlmToolCallBatch>,
 ) -> Message {
     let tool_name = call.function.name.clone();
-    let args: Value = serde_json::from_str(&call.function.arguments).unwrap_or(Value::Null);
+    // Malformed arguments fail the call visibly instead of silently
+    // executing the tool with null parameters; an absent argument string
+    // legitimately means "no arguments".
+    let args: Value = if call.function.arguments.trim().is_empty() {
+        Value::Null
+    } else {
+        match serde_json::from_str(&call.function.arguments) {
+            Ok(args) => args,
+            Err(e) => {
+                return tool_result_message(
+                    &call.id,
+                    &tool_name,
+                    format!("malformed tool arguments: {e}"),
+                    true,
+                )
+            }
+        }
+    };
 
     // Runtime visibility gate (aligned with the AGENT_LOOP path): tools
     // blocked by TOOL_VISIBILITY nodes are rejected here, before the
@@ -133,13 +169,24 @@ pub async fn execute_tool_call(
             .with_cancellation(ctx.cancellation.clone());
     if let Some(manager) = file_checkpoint {
         let parent = ctx.parent_execution_id.as_ref().map(|id| id.to_string());
-        let session = wf_checkpoint::CheckpointSession::new(
+        // A write-capable tool must not run untracked: when the session
+        // cannot be built the call fails visibly instead of executing
+        // without file-checkpoint attribution.
+        match wf_checkpoint::CheckpointSession::new(
             manager.clone(),
             &ctx.execution_id.to_string(),
             parent.as_deref(),
-        )
-        .expect("failed to build checkpoint session");
-        tool_ctx = tool_ctx.with_checkpoint_session(Some(session));
+        ) {
+            Ok(session) => tool_ctx = tool_ctx.with_checkpoint_session(Some(session)),
+            Err(e) => {
+                return tool_result_message(
+                    &call.id,
+                    &tool_name,
+                    format!("failed to build checkpoint session: {e}"),
+                    true,
+                )
+            }
+        }
     }
 
     // Tool-level approval gate (pre-execution side-effect guard, mirroring

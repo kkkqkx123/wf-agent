@@ -45,8 +45,8 @@ pub use coordinator::{
 pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
 pub use error_analysis::{
-    analyze_workflow_error, analyze_workflow_error_pattern, chained_workflow_error_record,
-    workflow_error_record, WorkflowErrorPattern,
+    analyze_workflow_error, analyze_workflow_error_pattern, workflow_error_record,
+    WorkflowErrorPattern,
 };
 pub use execution_callback::WorkflowExecutionCallback;
 pub use execution_context::{ExecutionContextRegistry, WriteBackError};

@@ -137,9 +137,12 @@ impl AgentTimeoutManager {
                 }
                 if *paused_rx.borrow() {
                     if paused_rx.changed().await.is_err() {
-                        return;
+                        tracing::warn!(
+                            "timeout pause controller dropped while paused; resuming countdown to preserve the timeout guard"
+                        );
+                    } else {
+                        continue;
                     }
-                    continue;
                 }
                 let start = Instant::now();
                 tokio::select! {

@@ -92,7 +92,16 @@ pub fn stack(variables: &VariableStore) -> Vec<LoopState> {
 }
 
 fn set_stack(variables: &VariableStore, stack: &[LoopState]) {
-    let value = serde_json::to_value(stack).unwrap_or(Value::Array(Vec::new()));
+    let value = match serde_json::to_value(stack) {
+        Ok(value) => value,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "failed to serialize loop state stack; persisting an empty stack"
+            );
+            Value::Array(Vec::new())
+        }
+    };
     variables.insert(LOOP_STATE_STACK_KEY.to_string(), value);
 }
 

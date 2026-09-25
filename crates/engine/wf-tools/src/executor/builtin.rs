@@ -267,6 +267,7 @@ mod tests {
                 agent_loop_id: wf_types::Id::from("sync-run".to_string()),
                 result: serde_json::json!({"synced": true}),
                 iterations: 1,
+                finish_reason: crate::callback::LoopFinishReason::Completed,
                 conversation: Vec::new(),
             })
         }

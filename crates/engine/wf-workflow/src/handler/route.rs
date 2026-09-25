@@ -51,7 +51,19 @@ impl RouteHandler {
                         next_nodes.push(target.to_string());
                         break;
                     }
-                    _ => continue,
+                    // A failed evaluation keeps the "do not take this edge"
+                    // semantics, but the expression defect is logged so
+                    // misconfiguration stays discoverable.
+                    Ok(false) => continue,
+                    Err(e) => {
+                        tracing::warn!(
+                            node = %ctx.node_id,
+                            expression = %expression,
+                            error = %e,
+                            "route condition failed to evaluate; edge skipped"
+                        );
+                        continue;
+                    }
                 }
             }
         }

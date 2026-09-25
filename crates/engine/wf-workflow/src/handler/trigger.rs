@@ -94,6 +94,9 @@ impl ScriptRunner for SandboxScriptRunner {
 pub struct TriggerContext {
     pub execution_id: Id,
     pub workflow_id: Id,
+    /// Graph node whose execution owns this trigger (empty for the
+    /// trigger-listener path, which runs outside any node).
+    pub node_id: String,
     pub variables: Arc<DashMap<String, Value>>,
     pub event_bus: Option<Arc<EventBus>>,
     /// Typed signal bus for internal workflow/agent signals
@@ -139,6 +142,7 @@ impl TriggerContext {
         Self {
             execution_id,
             workflow_id,
+            node_id: String::new(),
             variables: Arc::new(DashMap::new()),
             event_bus: None,
             signal_bus: None,
@@ -631,7 +635,13 @@ impl TriggerCoordinator {
                         }
                     }
                     None => {
-                        let _ = subworkflow.await;
+                        if let Err(e) = subworkflow.await {
+                            tracing::warn!(
+                                execution_id = %execution_id,
+                                error = %e,
+                                "fire-and-forget triggered sub-workflow ended with failure"
+                            );
+                        }
                     }
                 }
             });
@@ -1056,9 +1066,13 @@ impl TriggerCoordinator {
                         &format!("trigger_script_failed:{script_name}"),
                     )
                     .await;
-                    Err(WorkflowError::TriggerError(format!(
-                        "Script '{script_name}' timed out after {timeout}ms"
-                    )))
+                    Err(WorkflowError::NodeFailure {
+                        node_id: ctx.node_id.clone(),
+                        category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                        detail: format!(
+                            "Script '{script_name}' timed out after {timeout}ms"
+                        ),
+                    })
                 }
             }
         } else {

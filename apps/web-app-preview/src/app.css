@@ -144,6 +144,7 @@
 	--text-caption: calc(0.8125rem * var(--font-scale));
 	--text-small: calc(0.75rem * var(--font-scale));
 	--text-micro: calc(0.6875rem * var(--font-scale));
+	--text-nano: calc(0.625rem * var(--font-scale));
 }
 
 @theme inline {
@@ -174,6 +175,7 @@
 	--color-border: hsl(var(--border));
 	--color-input: hsl(var(--input));
 	--color-ring: hsl(var(--ring));
+	--color-overlay: hsl(var(--overlay));
 	--color-sidebar: hsl(var(--sidebar));
 	--color-sidebar-foreground: hsl(var(--sidebar-foreground));
 	--color-sidebar-accent: hsl(var(--sidebar-accent));
@@ -203,6 +205,7 @@
 	--text-caption: var(--text-caption);
 	--text-small: var(--text-small);
 	--text-micro: var(--text-micro);
+	--text-nano: var(--text-nano);
 
 	--shadow-frost: var(--shadow-frost);
 	--shadow-popover: var(--shadow-popover);
@@ -375,4 +378,14 @@
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
 	}
+}
+
+/* Same treatment for the explicit "always reduce motion" setting, which has to
+   win even when the OS reports no preference. */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.01ms !important;
 }

@@ -2,18 +2,23 @@ import { browser } from '$app/environment';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
+export type ChatFont = 'sans' | 'mono';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
+export const INSPECTOR_WIDTH_MIN = 260;
+export const INSPECTOR_WIDTH_MAX = 620;
 
 const STORAGE_KEY = 'wf-ui-preferences';
 
 interface PersistedPreferences {
 	theme?: ThemeMode;
 	density?: Density;
+	chatFont?: ChatFont;
 	sidebarCollapsed?: boolean;
 	sidebarWidth?: number;
 	inspectorPinned?: boolean;
+	inspectorWidth?: number;
 }
 
 const DENSITY_SCALE: Record<Density, number> = {
@@ -35,9 +40,11 @@ function read(): PersistedPreferences {
 class PreferencesStore {
 	theme = $state<ThemeMode>('system');
 	density = $state<Density>('default');
+	chatFont = $state<ChatFont>('sans');
 	sidebarCollapsed = $state(false);
 	sidebarWidth = $state(240);
-	inspectorPinned = $state(false);
+	inspectorPinned = $state(true);
+	inspectorWidth = $state(360);
 
 	constructor() {
 		const stored = read();
@@ -55,6 +62,9 @@ class PreferencesStore {
 		) {
 			this.density = stored.density;
 		}
+		if (stored.chatFont === 'sans' || stored.chatFont === 'mono') {
+			this.chatFont = stored.chatFont;
+		}
 		if (typeof stored.sidebarCollapsed === 'boolean') {
 			this.sidebarCollapsed = stored.sidebarCollapsed;
 		}
@@ -66,6 +76,12 @@ class PreferencesStore {
 		}
 		if (typeof stored.inspectorPinned === 'boolean') {
 			this.inspectorPinned = stored.inspectorPinned;
+		}
+		if (
+			typeof stored.inspectorWidth === 'number' &&
+			Number.isFinite(stored.inspectorWidth)
+		) {
+			this.inspectorWidth = clampInspectorWidth(stored.inspectorWidth);
 		}
 	}
 
@@ -80,6 +96,11 @@ class PreferencesStore {
 
 	setDensity(density: Density): void {
 		this.density = density;
+		this.persist();
+	}
+
+	setChatFont(font: ChatFont): void {
+		this.chatFont = font;
 		this.persist();
 	}
 
@@ -98,6 +119,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setInspectorWidth(width: number): void {
+		this.inspectorWidth = clampInspectorWidth(width);
+		this.persist();
+	}
+
 	private persist(): void {
 		if (!browser) return;
 		try {
@@ -106,9 +132,11 @@ class PreferencesStore {
 				JSON.stringify({
 					theme: this.theme,
 					density: this.density,
+					chatFont: this.chatFont,
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,
 					inspectorPinned: this.inspectorPinned,
+					inspectorWidth: this.inspectorWidth,
 				} satisfies PersistedPreferences),
 			);
 		} catch {
@@ -121,6 +149,13 @@ function clampSidebarWidth(width: number): number {
 	return Math.min(
 		SIDEBAR_WIDTH_MAX,
 		Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)),
+	);
+}
+
+function clampInspectorWidth(width: number): number {
+	return Math.min(
+		INSPECTOR_WIDTH_MAX,
+		Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)),
 	);
 }
 

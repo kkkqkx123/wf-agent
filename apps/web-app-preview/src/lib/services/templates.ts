@@ -1,131 +1,87 @@
 import { client } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
 import type { Template, TemplateKind } from '$lib/types/models';
 
 interface TemplateDto {
 	id?: string;
 	name?: string;
 	kind?: string;
-	category?: string;
-	description?: string;
-	usage?: number;
-	used?: number;
-	featured?: boolean;
-	tags?: string[];
-	popular?: boolean;
+	category?: string | null;
+	description?: string | null;
+	usage_count?: number;
+	tags?: string[] | null;
 }
 
-const KIND_MAP: Record<string, TemplateKind | undefined> = {
-	node: 'node',
-	'node-template': 'node',
-	trigger: 'trigger',
-	'trigger-template': 'trigger',
-	agent: 'agent',
-	'agent-template': 'agent',
-	'agent-trigger': 'trigger',
-	workflow: 'workflow',
-	'workflow-template': 'workflow',
-};
+const KINDS: readonly TemplateKind[] = ['node', 'trigger', 'agent', 'workflow'];
 
 function normalizeKind(raw: unknown): TemplateKind | undefined {
 	if (typeof raw !== 'string') return undefined;
-	return KIND_MAP[raw.toLowerCase()];
+	const lower = raw.toLowerCase();
+	return KINDS.find((kind) => kind === lower);
 }
 
-function toTemplate(d: TemplateDto, fallbackKind?: TemplateKind): Template {
-	const kind = normalizeKind(d.kind) ?? fallbackKind ?? 'node';
+function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 	return {
 		id: d.id ?? d.name ?? '',
 		name: d.name ?? '',
-		kind,
+		kind: normalizeKind(d.kind) ?? fallbackKind,
 		category: d.category ?? '',
 		description: d.description ?? '',
-		usage: d.usage ?? d.used ?? 0,
-		featured: d.featured ?? false,
+		usage: d.usage_count ?? 0,
 		tags: d.tags ?? [],
 	};
 }
 
 /**
- * List templates filtered by kind. Uses the `/api/v1/templates/library`
- * aggregator endpoint which accepts a `kind` query param. Falls back to
- * per-kind routes when the aggregator returns nothing.
+ * Browse one kind of the template library.
+ *
+ * The `/templates/library` aggregator only understands the workflow and agent
+ * registries, so the node and trigger kinds fall back to their own registry
+ * routes, which are paged.
  */
-export async function listTemplates(params?: {
-	kind?: TemplateKind | 'all';
-	featuredOnly?: boolean;
-	limit?: number;
-	offset?: number;
+export async function listTemplates(params: {
+	kind: 'all' | TemplateKind;
 }): Promise<Template[]> {
-	const all: Template[] = [];
-	const kind = params?.kind ?? 'all';
-	const limit = params?.limit ?? 50;
-	const offset = params?.offset ?? 0;
-
-	const fetchOne = async (query?: Record<string, unknown>, fallback?: TemplateKind) => {
+	const { kind } = params;
+	const pageQuery = { params: { query: { limit: 100 } } };
+	if (kind === 'node' || kind === 'trigger') {
 		const data = await call<unknown>(
-			client.GET('/api/v1/templates/library', {
-				params: { query },
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any),
+			kind === 'node'
+				? client.GET('/api/v1/templates/node', pageQuery)
+				: client.GET('/api/v1/templates/trigger', pageQuery),
 		);
-		if (Array.isArray(data)) {
-			for (const item of data as TemplateDto[]) {
-				all.push(toTemplate(item, fallback));
-			}
-		} else if (data && typeof data === 'object') {
-			const page = extractPage<TemplateDto>(data);
-			for (const item of page.items) {
-				all.push(toTemplate(item, fallback));
-			}
-		}
-	};
-
-	if (kind === 'all') {
-		// Aggregator endpoint, no kind filter
-		await fetchOne({ limit, offset });
-	} else {
-		await fetchOne({ kind, limit, offset }, kind);
+		return extractPage<TemplateDto>(data).items.map((d) => toTemplate(d, kind));
 	}
-
-	// Apply featuredOnly filter client-side when needed
-	if (params?.featuredOnly) {
-		return all.filter((t) => t.featured);
-	}
-	return all;
+	const data = await call<unknown>(
+		client.GET('/api/v1/templates/library', {
+			params: { query: kind === 'all' ? {} : { kind } },
+		}),
+	);
+	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
+		toTemplate(d, kind === 'all' ? 'workflow' : kind),
+	);
 }
 
+/** Public and enabled templates, most used first. */
 export async function listFeaturedTemplates(): Promise<Template[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/templates/library/featured'),
 	);
-	if (Array.isArray(data)) {
-		return (data as TemplateDto[]).map((d) => toTemplate(d));
-	}
-	return [];
+	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
+		toTemplate(d, 'workflow'),
+	);
 }
 
-export async function listPopularTemplates(): Promise<Template[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/templates/library/popular'),
+/** Copy a workflow or agent template into a new editable entry. */
+export async function cloneTemplate(
+	id: string,
+	kind: TemplateKind,
+	newName: string,
+): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/templates/library/{id}/clone', {
+			params: { path: { id } },
+			body: { kind, new_name: newName },
+		}),
 	);
-	if (Array.isArray(data)) {
-		return (data as TemplateDto[]).map((d) => toTemplate(d));
-	}
-	return [];
-}
-
-export async function listNodeTemplates(params?: {
-	limit?: number;
-	offset?: number;
-}): Promise<PageResult<Template>> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/templates/node', {
-			params: { query: params ?? {} },
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any),
-	);
-	const page = extractPage<TemplateDto>(data);
-	return { ...page, items: page.items.map((d) => toTemplate(d, 'node')) };
 }

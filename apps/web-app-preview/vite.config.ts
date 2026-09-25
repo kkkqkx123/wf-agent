@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite';
+import { loadEnv } from 'vite';
+import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 
@@ -16,6 +17,9 @@ export default defineConfig(({ mode }) => {
 				'/api-docs': { target: backendTarget, changeOrigin: true },
 				'/ws': { target: backendTarget, ws: true, changeOrigin: true },
 			},
+		},
+		test: {
+			include: ['{src,tests}/**/*.{test,spec}.{js,ts}'],
 		},
 	};
 });

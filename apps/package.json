@@ -4,16 +4,17 @@
   "private": true,
   "description": "Application modules for Modular Agent Framework",
   "workspaces": [
-    "web-app"
+    "web-app",
+    "web-app-preview"
   ],
   "scripts": {
-    "build": "echo \"Build script for apps coming soon\"",
-    "dev": "echo \"Dev script for apps coming soon\"",
-    "test": "echo \"Test script for apps coming soon\"",
-    "format": "turbo run format",
-    "format:check": "turbo run format:check"
-  },
-  "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.10"
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace web-app",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "format:check": "npm run format:check --workspaces --if-present"
   }
 }

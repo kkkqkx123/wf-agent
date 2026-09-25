@@ -75,6 +75,17 @@ export function formatPercent(
 	return `${(value * 100).toFixed(digits)}%`;
 }
 
+/**
+ * `done/total nodes` reading for a run. Either half being unknown means the
+ * payload cannot support the metric, so the label disappears instead of lying.
+ */
+export function nodeCount(
+	done: number | null,
+	total: number | null,
+): string | null {
+	return done === null || total === null ? null : `${done}/${total} nodes`;
+}
+
 export function truncate(value: string, max = 48): string {
 	if (value.length <= max) return value;
 	return `${value.slice(0, Math.max(0, max - 1))}…`;

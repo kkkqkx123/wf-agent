@@ -4,101 +4,166 @@
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import type { Column } from '$lib/components/ui/table';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
-	import { getAgentLoop } from '$lib/services/agent-loops';
-	import { listCheckpointsByEntity } from '$lib/services/checkpoints';
-	import type { AgentLoopDetail, Checkpoint, LoopMessage, LoopVariable } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
 	import {
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-	} from '$lib/utils/format';
+		cancelAgentLoop,
+		createAgentLoopCheckpoint,
+		getAgentLoop,
+		pauseAgentLoop,
+		resumeAgentLoop,
+		restoreAgentLoopCheckpoint,
+	} from '$lib/services/agent-loops';
+	import type { Checkpoint } from '$lib/types/models';
+	import { createResource } from '$lib/stores/collection.svelte';
+	import { sessions } from '$lib/stores/sessions.svelte';
+	import {
+		DETAIL_TABS,
+		isSessionTab,
+		type SessionTab,
+	} from '$lib/config/session-tabs';
+	import { toasts } from '$lib/stores/toast.svelte';
+	import { formatNumber } from '$lib/utils/format';
+	import { appPath, gotoWithParams, parseListParams } from '$lib/utils/route';
 
-	const TABS = [
-		{ id: 'messages', label: 'Messages' },
-		{ id: 'variables', label: 'Variables' },
-		{ id: 'graph', label: 'Graph' },
-		{ id: 'analysis', label: 'Analysis' },
-		{ id: 'checkpoints', label: 'Checkpoints' },
-	];
+	const TERMINAL = ['completed', 'failed', 'cancelled'];
 
-	let tab = $state('messages');
-	let draft = $state('');
-	let detail = $state<AgentLoopDetail | null>(null);
+	const id = $derived(page.params.id as string);
 
-	const safeDetail = $derived(detail ?? ({
-		...({} as AgentLoopDetail),
-		graph: { nodes: [], edges: [] },
-		variables: [],
-		messages: [],
-		iterations: [],
-		analysis: { rootCause: null, errorChain: [], recoveryHints: [], toolFrequency: [] },
-	} as AgentLoopDetail));
-	let checkpoints = $state<Checkpoint[]>([]);
+	const initial = parseListParams(page.url);
+	let tab = $state<SessionTab>(isSessionTab(initial.tab) ?? 'messages');
+	let revision = $state(0);
+	let busy = $state(false);
 
-	const loop = $derived(safeDetail);
-	const loopVariables = $derived((detail?.variables ?? []) as LoopVariable[]);
-	const loopMessages = $derived((detail?.messages ?? []) as LoopMessage[]);
+	const loop = createResource(() => getAgentLoop(id));
+	const status = $derived(loop.data?.status ?? '');
 
-	const variableColumns: Column<(typeof loopVariables)[number]>[] = [
-		{ key: 'key', header: 'Key', text: (row) => row.key },
-		{ key: 'type', header: 'Type', text: (row) => row.type },
-		{ key: 'value', header: 'Value', text: (row) => row.value },
-		{ key: 'scope', header: 'Scope', text: (row) => row.scope },
-		{
-			key: 'updated',
-			header: 'Updated',
-			text: (row) => formatDateTime(row.updatedAt),
-		},
-	];
+	function reload(): void {
+		revision += 1;
+		void loop.reload();
+	}
 
-	onMount(async () => {
-		const id = page.params.id as string;
-		const [detailRes, cpRes] = await Promise.allSettled([
-			getAgentLoop(id),
-			listCheckpointsByEntity(id),
-		]);
-		if (detailRes.status === 'fulfilled') detail = detailRes.value;
-		if (cpRes.status === 'fulfilled') checkpoints = cpRes.value;
+	onMount(() => {
+		void loop.reload();
+	});
+
+	async function step(action: 'pause' | 'resume'): Promise<void> {
+		busy = true;
+		try {
+			if (action === 'pause') await pauseAgentLoop(id);
+			else await resumeAgentLoop(id);
+			reload();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Action failed');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function recordCheckpoint(): Promise<void> {
+		busy = true;
+		try {
+			await createAgentLoopCheckpoint(id);
+			toasts.success('Checkpoint recorded');
+			reload();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Checkpoint failed');
+		} finally {
+			busy = false;
+		}
+	}
+
+	// Both remaining mutations discard in-flight work, so they are confirm-gated.
+	let target = $state<
+		{ kind: 'cancel' } | { kind: 'restore'; checkpoint: Checkpoint } | null
+	>(null);
+	let confirming = $state(false);
+
+	function ask(
+		action: { kind: 'cancel' } | { kind: 'restore'; checkpoint: Checkpoint },
+	): void {
+		target = action;
+		confirming = true;
+	}
+
+	const confirmCopy = $derived.by(() => {
+		if (!target) return { title: '', detail: '' };
+		return target.kind === 'cancel'
+			? {
+					title: 'Cancel agent loop',
+					detail: `Loop ${id} stops at its next safe point and stays cancelled.`,
+				}
+			: {
+					title: 'Restore checkpoint',
+					detail: `Loop ${id} is rewound to ${target.checkpoint.kind}; later state is discarded.`,
+				};
+	});
+
+	async function runConfirmed(): Promise<void> {
+		const action = target;
+		busy = true;
+		try {
+			if (action?.kind === 'cancel') {
+				await cancelAgentLoop(id);
+				toasts.success(`Cancelled loop ${id}`);
+			} else if (action?.kind === 'restore') {
+				await restoreAgentLoopCheckpoint(id, action.checkpoint.id);
+				toasts.success('Checkpoint restored');
+			}
+			confirming = false;
+			target = null;
+			reload();
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Action failed');
+		} finally {
+			busy = false;
+		}
+	}
+
+	$effect(() => {
+		gotoWithParams(page.url, {
+			tab: tab === 'messages' ? '' : tab,
+		});
 	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={loop.name} description={safeDetail.summary}>
+	<PageHeader title={sessions.label(id)} description="Agent loop session">
 		{#snippet meta()}
-			<StatusBadge status={loop.status} />
-			<Badge variant="outline"
-				>iteration {loop.iteration}/{loop.maxIterations}</Badge
-			>
-			<span class="font-mono text-caption text-muted-foreground">{loop.id}</span
-			>
-			<span class="text-caption text-muted-foreground">{loop.model}</span>
+			{#if loop.data}
+				<StatusBadge status={loop.data.status} />
+				<Badge variant="outline"
+					>iteration {formatNumber(loop.data.iteration)}</Badge
+				>
+				<Badge variant="outline"
+					>{formatNumber(loop.data.toolCalls)} tool calls</Badge
+				>
+				<span class="font-mono text-caption text-muted-foreground">{id}</span>
+			{/if}
 		{/snippet}
 		{#snippet actions()}
+			<IconButton icon="refresh" label="Refresh loop" onclick={reload} />
 			<IconButton
 				icon="pause"
 				label="Pause loop"
-				onclick={() => toasts.warning('Pause queued')}
+				disabled={busy || status !== 'running'}
+				onclick={() => void step('pause')}
 			/>
 			<IconButton
-				icon="refresh"
+				icon="play"
 				label="Resume loop"
-				onclick={() => toasts.info('Resume queued')}
+				disabled={busy || !['paused', 'queued'].includes(status)}
+				onclick={() => void step('resume')}
 			/>
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.success('Checkpoint created')}
+				disabled={busy}
+				onclick={recordCheckpoint}
 			>
 				<Icon name="archive" size={13} />
 				Checkpoint
@@ -106,185 +171,62 @@
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.error('Cancel requires confirmation')}
+				disabled={busy || TERMINAL.includes(status)}
+				onclick={() => ask({ kind: 'cancel' })}
 			>
 				<Icon name="square" size={13} />
 				Cancel
 			</Button>
+			<Button variant="outline" size="sm" href={appPath(`/chat?id=${id}`)}>
+				<Icon name="sparkles" size={13} />
+				Open in chat
+			</Button>
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
-
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if tab === 'messages'}
-			<div class="mx-auto flex max-w-3xl flex-col gap-3">
-				{#each loopMessages as message (message.id)}
-					<MessageBubble {message} />
-				{/each}
-			</div>
-
-			<div
-				class="mx-auto mt-4 max-w-3xl rounded-lg border border-border bg-card p-2"
-			>
-				<Textarea
-					bind:value={draft}
-					placeholder="Send a follow-up to this loop…"
-					class="min-h-16 border-0"
-				/>
-				<div class="mt-2 flex items-center justify-between">
-					<span class="text-micro text-muted-foreground"
-						>Enter sends · Shift+Enter adds a line</span
-					>
-					<div class="flex items-center gap-2">
-						<Button variant="ghost" size="sm" onclick={() => (draft = '')}
-							>Clear</Button
-						>
-						<Button
-							size="sm"
-							disabled={draft.trim().length === 0}
-							onclick={() => {
-								toasts.success('Message queued');
-								draft = '';
-							}}
-						>
-							<Icon name="arrow-up" size={13} />
-							Send
-						</Button>
-					</div>
-				</div>
-			</div>
-		{:else if tab === 'variables'}
-			<Card title="Variables" bodyClass="p-0">
-				<DataTable
-					columns={variableColumns}
-					rows={loopVariables}
-					rowKey={(row) => row.key}
-				/>
-			</Card>
-		{:else if tab === 'graph'}
-			<WorkflowGraph graph={safeDetail.graph} class="max-h-[26rem]" />
-			<Card title="Iterations" class="mt-3">
-				<ul class="space-y-2">
-					{#each safeDetail.iterations as iteration (iteration.index)}
-						<li
-							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
-						>
-							<div class="min-w-0">
-								<p class="text-caption">
-									<span class="font-mono text-muted-foreground"
-										>#{iteration.index}</span
-									>
-									<span class="ml-2">{iteration.summary}</span>
-								</p>
-							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								<span class="text-micro tabular-nums text-muted-foreground">
-									{formatDuration(iteration.durationMs)}
-								</span>
-								<StatusBadge status={iteration.status} size="sm" dot={false} />
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</Card>
-		{:else if tab === 'analysis'}
-			<div class="grid gap-3 lg:grid-cols-2">
-				<Card title="Error analysis">
-					<p class="text-caption">
-						Root cause:
-						<span class="text-foreground">
-							{safeDetail.analysis.rootCause ?? 'None recorded'}
-						</span>
-					</p>
-					{#if safeDetail.analysis.errorChain.length > 0}
-						<ol class="mt-2 space-y-1">
-							{#each safeDetail.analysis.errorChain as link, index (index)}
-								<li class="text-caption text-destructive">{link}</li>
-							{/each}
-						</ol>
-					{:else}
-						<p class="mt-2 text-caption text-muted-foreground">
-							No error chain for this loop.
-						</p>
-					{/if}
-				</Card>
-				<Card title="Recovery hints">
-					<ul class="space-y-1.5">
-						{#each safeDetail.analysis.recoveryHints as hint, index (index)}
-							<li class="flex items-start gap-1.5 text-caption">
-								<Icon
-									name="sparkles"
-									size={12}
-									class="mt-0.5 shrink-0 text-info"
-								/>
-								<span>{hint}</span>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-				<Card title="Tool frequency" class="lg:col-span-2">
-					<ul class="space-y-2">
-						{#each safeDetail.analysis.toolFrequency as item (item.tool)}
-							<li class="flex items-center gap-3">
-								<span class="w-28 shrink-0 truncate font-mono text-caption"
-									>{item.tool}</span
-								>
-								<span
-									class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-								>
-									<span
-										class="block h-full rounded-full bg-info"
-										style:width="{(item.count /
-											Math.max(
-												...safeDetail.analysis.toolFrequency.map(
-													(entry) => entry.count,
-												),
-											)) *
-											100}%"
-									></span>
-								</span>
-								<span
-									class="w-8 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
-								>
-									{formatNumber(item.count)}
-								</span>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-			</div>
-		{:else}
-			<div class="space-y-2">
-				{#each checkpoints as checkpoint (checkpoint.id)}
-					<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
-						{#snippet actions()}
-							<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
-								{checkpoint.restorable ? 'restorable' : 'locked'}
-							</Badge>
-						{/snippet}
-						<p class="text-caption text-muted-foreground">{checkpoint.note}</p>
-						<p class="mt-1 text-micro text-muted-foreground">
-							{checkpoint.actor} · {formatDateTime(checkpoint.createdAt)}
-						</p>
-						{#snippet footer()}
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => toasts.info('Restore queued')}
-							>
-								Restore
-							</Button>
-						{/snippet}
-					</Card>
-				{:else}
-					<Card>
-						<p class="text-caption text-muted-foreground">
-							No checkpoints recorded for this loop.
-						</p>
-					</Card>
-				{/each}
-			</div>
-		{/if}
-	</div>
+	{#if loop.error}
+		<ErrorState
+			title="Failed to load agent loop"
+			description={loop.error}
+			onretry={reload}
+			class="min-h-0 flex-1 rounded-lg border border-border bg-card"
+		>
+			{#snippet actions()}
+				<Button variant="link" size="sm" href="/agent-loops"
+					>Back to agent loops</Button
+				>
+			{/snippet}
+		</ErrorState>
+	{:else}
+		<SessionInspector
+			sessionId={id}
+			bind:tab
+			tabs={DETAIL_TABS}
+			{revision}
+			{busy}
+			onrestore={(checkpoint) => ask({ kind: 'restore', checkpoint })}
+			class="min-h-0 flex-1"
+		/>
+	{/if}
 </div>
+
+<Dialog
+	bind:open={confirming}
+	title={confirmCopy.title}
+	description={confirmCopy.detail}
+	onclose={() => (target = null)}
+>
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (confirming = false)}
+			>Keep running</Button
+		>
+		<Button
+			variant="destructive"
+			size="sm"
+			disabled={!target || busy}
+			onclick={() => void runConfirmed()}
+		>
+			{target?.kind === 'restore' ? 'Restore' : 'Cancel loop'}
+		</Button>
+	{/snippet}
+</Dialog>

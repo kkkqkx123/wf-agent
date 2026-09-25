@@ -8,7 +8,12 @@ export class ApiHttpError extends Error {
 	public readonly code: string;
 	public readonly envelopeError?: ApiErrorBody;
 
-	constructor(status: number, code: string, message: string, envelopeError?: ApiErrorBody) {
+	constructor(
+		status: number,
+		code: string,
+		message: string,
+		envelopeError?: ApiErrorBody,
+	) {
 		super(message);
 		this.name = 'ApiHttpError';
 		this.status = status;
@@ -33,42 +38,33 @@ export interface CappedResult<T> {
 }
 
 /**
- * Await an openapi-fetch client call, extract `data` from the envelope,
- * and throw a typed ApiHttpError on any failure path.
+ * Await an openapi-fetch client call and return the payload.
  *
- * openapi-fetch already unwraps one level of the envelope (its `data`
- * property is the envelope's `data` field), but we still need to
- * handle both the HTTP error case and the `success:false` envelope case.
+ * openapi-fetch resolves to `{ response, data }` on 2xx and to
+ * `{ response, error }` otherwise, where `error` is the `ErrorResponse` body.
+ * Success payloads are wrapped in `{ success, data }`, so the inner `data`
+ * is what the services actually consume.
  */
 export async function call<T>(
-	promise: Promise<{ data?: unknown; error?: unknown }>,
+	promise: Promise<{
+		data?: unknown;
+		error?: unknown;
+		response?: Response;
+	}>,
 ): Promise<T> {
 	const res = await promise;
 
-	// HTTP error branch — openapi-fetch populates error on 4xx/5xx
 	if (res.error) {
-		const e = res.error as { status?: number; body?: ApiErrorBody; message?: string };
-		const body = e.body;
-		const message = body?.message ?? e.message ?? 'HTTP request failed';
-		throw new ApiHttpError(e.status ?? 0, body?.code ?? 'HTTP_ERROR', message, body);
+		const body = (res.error as { error?: ApiErrorBody }).error;
+		throw new ApiHttpError(
+			res.response?.status ?? 0,
+			body?.code ?? 'HTTP_ERROR',
+			body?.message ?? 'HTTP request failed',
+			body,
+		);
 	}
 
-	// Envelope-level success:false — backend returned business error with 2xx
-	const data = res.data as
-		| { success: boolean; error?: ApiErrorBody; data?: T }
-		| undefined;
-	if (data && typeof data === 'object' && 'success' in data) {
-		if (data.success === false) {
-			const body = data.error;
-			const message = body?.message ?? 'Backend business error';
-			throw new ApiHttpError(0, body?.code ?? 'BUSINESS_ERROR', message, body);
-		}
-		// Envelope is transparent; openapi-fetch already returned the inner data
-		return (data as unknown) as T;
-	}
-
-	// No envelope wrapper — raw value returned
-	return data as T;
+	return (res.data as { data?: T } | undefined)?.data as T;
 }
 
 /**

@@ -4,12 +4,15 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		preferences,
+		type ChatFont,
 		type Density,
 		type ThemeMode,
 	} from '$lib/stores/preferences.svelte';
+	import { behavior } from '$lib/stores/behavior.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '$lib/utils/cn';
 
@@ -34,17 +37,28 @@
 		{ value: 'comfortable', label: 'Comfortable' },
 	];
 
+	const CHAT_FONT_OPTIONS = [
+		{ value: 'sans', label: 'Sans' },
+		{ value: 'mono', label: 'Mono' },
+	];
+
 	const PAGE_SIZE_OPTIONS = [
 		{ value: '25', label: '25' },
 		{ value: '50', label: '50' },
 		{ value: '100', label: '100' },
 	];
 
-	let pageSize = $state('50');
-	let autoRefresh = $state(true);
-	let streamFollow = $state(true);
-	let toastSound = $state(false);
-	let reducedMotionHint = $state(false);
+	async function saveSettings(): Promise<void> {
+		await behavior.save();
+		if (behavior.error) toasts.error(behavior.error);
+		else toasts.success('Preferences saved');
+	}
+
+	async function restoreSettings(): Promise<void> {
+		await behavior.restoreDefaults();
+		if (behavior.error) toasts.error(behavior.error);
+		else toasts.success('Defaults restored');
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -56,12 +70,17 @@
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.info('Defaults restored')}
+				disabled={behavior.saving}
+				onclick={() => void restoreSettings()}
 			>
 				<Icon name="history" size={13} />
 				Restore defaults
 			</Button>
-			<Button size="sm" onclick={() => toasts.success('Preferences saved')}>
+			<Button
+				size="sm"
+				disabled={behavior.saving}
+				onclick={() => void saveSettings()}
+			>
 				<Icon name="check" size={13} />
 				Save
 			</Button>
@@ -142,34 +161,64 @@
 							Current scale {preferences.fontScale.toFixed(2)}×
 						</p>
 					</Card>
+
+					<Card
+						title="Conversation font"
+						description="Typeface for the chat timeline and composer."
+					>
+						<Select
+							value={preferences.chatFont}
+							options={CHAT_FONT_OPTIONS}
+							placeholder="Conversation font"
+							class="w-56"
+							onchange={(value) => preferences.setChatFont(value as ChatFont)}
+						/>
+					</Card>
 				</div>
 			{:else if section === 'execution'}
 				<div class="space-y-3">
+					<p class="text-caption text-muted-foreground">
+						These defaults are stored in the server preference document, so they
+						follow the user across browsers. Press Save to write them.
+					</p>
+					{#if behavior.error}
+						<ErrorState
+							title="Execution defaults could not be read from the server"
+							description={behavior.error}
+							onretry={() => void behavior.load()}
+							class="rounded-lg border border-destructive/40 bg-destructive/10 py-6"
+						/>
+					{/if}
 					<Card
 						title="Paging"
-						description="Cursor pages have no total; this sets the requested page size."
+						description="Requested page size for every offset-paginated list."
 					>
 						<Select
-							bind:value={pageSize}
+							value={String(behavior.pageSize)}
 							options={PAGE_SIZE_OPTIONS}
 							placeholder="Page size"
 							class="w-40"
+							onchange={(value) => (behavior.pageSize = Number(value))}
 						/>
 					</Card>
 					<Card title="Live updates">
-						<Switch bind:checked={autoRefresh} label="Auto refresh lists" />
 						<Switch
-							bind:checked={streamFollow}
-							label="Follow stream tail"
+							checked={behavior.autoRefresh}
+							label="Auto refresh lists on live events"
+							onchange={(checked) => (behavior.autoRefresh = checked)}
+						/>
+						<Switch
+							checked={behavior.streamFollow}
+							label="Prepend streamed events"
 							class="mt-2"
+							onchange={(checked) => (behavior.streamFollow = checked)}
 						/>
 					</Card>
 				</div>
 			{:else if section === 'notifications'}
 				<div class="space-y-3">
-					<Card title="Toasts">
-						<Switch bind:checked={toastSound} label="Play a sound for errors" />
-						<div class="mt-3 flex gap-2">
+					<Card title="Toasts" description="Feed the toast stack with samples.">
+						<div class="flex gap-2">
 							<Button
 								variant="outline"
 								size="sm"
@@ -188,8 +237,9 @@
 					</Card>
 					<Card title="Accessibility">
 						<Switch
-							bind:checked={reducedMotionHint}
+							checked={behavior.reduceMotion}
 							label="Always reduce motion"
+							onchange={(checked) => (behavior.reduceMotion = checked)}
 						/>
 						<p class="mt-2 text-caption text-muted-foreground">
 							The OS reduced-motion preference is honoured automatically.
@@ -223,7 +273,7 @@
 									preferences.setSidebarWidth(
 										Number((event.currentTarget as HTMLInputElement).value),
 									)}
-								class="w-full accent-[hsl(var(--primary))]"
+								class="w-full accent-primary"
 							/>
 							<span
 								class="w-12 shrink-0 text-right text-caption tabular-nums text-muted-foreground"

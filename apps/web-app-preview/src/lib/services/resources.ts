@@ -1,7 +1,14 @@
-import { client } from '$lib/api/client';
+import { client, request } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type { ModelProfile, Provider, Tool, Script, Skill } from '$lib/types/models';
+import type {
+	ModelProfile,
+	Provider,
+	Tool,
+	ToolRun,
+	Script,
+	Skill,
+} from '$lib/types/models';
 
 /**
  * DTO shapes are local interfaces — the backend schemas in schema.d.ts
@@ -81,7 +88,7 @@ function toProvider(d: LlmProviderDto): Provider {
 			? d.models
 			: Array.isArray(d.models)
 				? d.models.length
-				: d.model_count ?? 0;
+				: (d.model_count ?? 0);
 	return {
 		id: d.id ?? d.name ?? '',
 		name: d.name ?? '',
@@ -126,18 +133,14 @@ function toSkill(d: SkillDto): Skill {
 }
 
 export async function listModelProfiles(): Promise<ModelProfile[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/llm/profiles'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/llm/profiles'));
 	// llm/profiles wraps in PageView
 	const page = extractPage<LlmProfileDto>(data);
 	return page.items.map(toModelProfile);
 }
 
 export async function listProviders(): Promise<Provider[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/llm/providers'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/llm/providers'));
 	// providers returns ApiEnvelope_Value (bare array or object)
 	if (Array.isArray(data)) {
 		return (data as LlmProviderDto[]).map(toProvider);
@@ -173,42 +176,88 @@ export async function listScripts(params?: {
 }
 
 export async function listSkills(): Promise<Skill[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/skills'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/skills'));
 	if (Array.isArray(data)) {
 		return (data as SkillDto[]).map(toSkill);
 	}
 	return [];
 }
 
-export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
-	const path = enabled
-		? '/api/v1/skills/{name}/enable'
-		: '/api/v1/skills/{name}/disable';
+export async function setSkillEnabled(
+	name: string,
+	enabled: boolean,
+): Promise<void> {
+	const init = { params: { path: { name } } };
 	await call<unknown>(
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			client.POST(path as any, {
-			params: { path: { name } },
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any),
+		enabled
+			? client.POST('/api/v1/skills/{name}/enable', init)
+			: client.POST('/api/v1/skills/{name}/disable', init),
 	);
 }
 
-export async function setToolEnabled(toolId: string, enabled: boolean): Promise<void> {
-	// Backend exposes per-tool enable/disable routes when available.
-	// Fallback: emit a no-op if the route is missing — the UI will
-	// still show the toggle but this keeps the service resilient.
-	const path = enabled ? '/api/v1/tools/{id}/enable' : '/api/v1/tools/{id}/disable';
-	try {
-		await call<unknown>(
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			client.POST(path as any, {
-				params: { path: { id: toolId } },
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			} as any),
-		);
-	} catch {
-		// Route may not yet exist — tolerate and log at the page level.
-	}
+export async function setToolEnabled(
+	toolId: string,
+	enabled: boolean,
+): Promise<void> {
+	const init = { params: { path: { id: toolId } } };
+	await call<unknown>(
+		enabled
+			? client.POST('/api/v1/tools/{id}/enable', init)
+			: client.POST('/api/v1/tools/{id}/disable', init),
+	);
+}
+
+interface ToolRunDto {
+	success?: boolean;
+	result?: unknown;
+	error?: string | null;
+	execution_time?: number;
+	retry_count?: number;
+}
+
+function toToolRun(d: ToolRunDto): ToolRun {
+	return {
+		success: d.success ?? false,
+		output:
+			d.result === undefined || d.result === null
+				? ''
+				: JSON.stringify(d.result, null, 2),
+		error: d.error ?? '',
+		durationMs: d.execution_time ?? 0,
+		retries: d.retry_count ?? 0,
+	};
+}
+
+/** Reject reasons for a candidate parameter object; empty means valid. */
+export async function validateToolParams(
+	toolId: string,
+	parameters: Record<string, unknown>,
+): Promise<string[]> {
+	const data = await call<{ errors?: string[] }>(
+		client.POST('/api/v1/tools/validate-params', {
+			body: { tool_id: toolId, parameters },
+		}),
+	);
+	return data?.errors ?? [];
+}
+
+export async function executeTool(
+	toolId: string,
+	parameters: Record<string, unknown>,
+): Promise<ToolRun> {
+	// handle_execute_tool is one of the utoipa names shared by several routes.
+	const data = await call<ToolRunDto>(
+		request('POST', '/api/v1/tools/execute', {
+			body: { tool_id: toolId, parameters },
+		}),
+	);
+	return toToolRun(data);
+}
+
+export async function getSkillContent(name: string): Promise<string> {
+	return call<string>(
+		client.GET('/api/v1/skills/{name}/content', {
+			params: { path: { name } },
+		}),
+	);
 }

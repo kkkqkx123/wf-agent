@@ -28,7 +28,7 @@ scripts/sync-web-app-preview.sh
  
 | 路径模式 | 来源 | 说明 |
 |---------|------|------|
-| 顶层配置 | `apps/web-app/` → `apps/web-app-preview/` | `.gitignore`、`.prettierrc*`、`eslint.config.js`、`svelte.config.js`、`tsconfig.json`、`tsconfig.test.json`、`vite.config.ts`、`vitest.config.ts` |
+| 顶层配置 | `apps/web-app/` → `apps/web-app-preview/` | `.gitignore`、`.prettierrc*`、`eslint.config.js`、`svelte.config.js`、`tsconfig.json`、`tsconfig.test.json`、`vite.config.ts`（含 Vitest test 配置） |
 | SvelteKit 入口 | `src/app.html`、`src/app.css` | HTML 模板 + Tailwind 全局样式 |
 | API 模块 | `src/lib/api/envelope.ts` | 信封拆包逻辑（`schema.d.ts` 不再同步，见下方排除项） |
 | 组件 | `src/lib/components/**/*` | `domain` / `layout` / `ui` / `icons` 全部 |
@@ -48,7 +48,7 @@ package.json 不参与 rsync 镜像，而是由独立的 jq 合并步骤构建�
 | `name` / `version` / `description` | **保留 preview 身份**（首次运行时若不存在，脚本会初始化 `@wf-agent/web-app-preview` / `0.1.0`） |
 | `scripts` / `engines` | 跟随 web-app（新增脚本自动同步） |
 | `devDependencies` / `dependencies` | 完整采用 web-app 的（新增依赖自动同步） |
-| `type` / `main` | 跟随 web-app |
+| `type` | 跟随 web-app |
 | `keywords` / `author` / `license` | 优先 preview 自身，preview 未定义时回退到 web-app |
  
 ### Preview 专属文件（不被覆盖）

@@ -110,7 +110,7 @@
 						x={(a.x + b.x) / 2}
 						y={(a.y + b.y) / 2 - 6}
 						text-anchor="middle"
-						class="fill-[hsl(var(--muted-foreground))] text-[10px]"
+						class="fill-muted-foreground text-[10px]"
 					>
 						{edge.label}
 					</text>
@@ -139,13 +139,13 @@
 					class={cn(
 						'stroke-1.5 transition-colors',
 						TONE_FILL[tone],
-						selectedId === node.id && 'stroke-[hsl(var(--ring))] stroke-2',
+						selectedId === node.id && 'stroke-ring stroke-2',
 					)}
 				/>
 				<text
 					x={node.x + 12}
 					y={node.y + 20}
-					class="fill-[hsl(var(--foreground))] text-[11px] font-medium"
+					class="fill-foreground text-[11px] font-medium"
 				>
 					{node.label}
 				</text>

@@ -95,19 +95,7 @@ export async function listEvents(params?: {
 	const data = await call<unknown>(
 		client.GET('/api/v1/events', {
 			params: { query: params ?? {} },
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any),
-	);
-	const page = extractPage<EventDto>(data);
-	return { ...page, items: page.items.map(toEvent) };
-}
-
-export async function searchEvents(query: string): Promise<PageResult<EventRecord>> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/events/search', {
-			params: { query: { q: query, limit: 50 } },
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any),
+		}),
 	);
 	const page = extractPage<EventDto>(data);
 	return { ...page, items: page.items.map(toEvent) };
@@ -122,10 +110,27 @@ export async function getEventSize(): Promise<number> {
 	return 0;
 }
 
-export async function listDependencies(): Promise<Dependency[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/dependencies/audit'),
+/** Purges the whole event store (the only deletion granularity the API offers). */
+export async function deleteAllEvents(): Promise<void> {
+	await call<unknown>(
+		client.DELETE('/api/v1/events', {
+			params: { query: { force: true } },
+		}),
 	);
+}
+
+/** Liveness probe for the sidebar indicator. */
+export async function getHealth(): Promise<boolean> {
+	try {
+		const data = await call<{ ready?: boolean }>(client.GET('/health'));
+		return data?.ready !== false;
+	} catch {
+		return false;
+	}
+}
+
+export async function listDependencies(): Promise<Dependency[]> {
+	const data = await call<unknown>(client.GET('/api/v1/dependencies/audit'));
 	if (Array.isArray(data)) {
 		return (data as DependencyDto[]).map(toDependency);
 	}

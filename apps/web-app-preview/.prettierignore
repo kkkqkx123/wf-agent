@@ -5,3 +5,4 @@ coverage
 .svelte-kit
 openapi.json
 src/lib/api/schema.d.ts
+pnpm-lock.yaml

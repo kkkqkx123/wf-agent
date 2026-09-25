@@ -10,7 +10,8 @@
 		width?: string;
 		class?: string;
 		onclose?: () => void;
-		children: Snippet;
+		/** Confirmation dialogs carry everything in title and description. */
+		children?: Snippet;
 		footer?: Snippet;
 	}
 
@@ -46,7 +47,7 @@
 		<button
 			type="button"
 			aria-label="Close dialog"
-			class="animate-overlay-in absolute inset-0 bg-[hsl(var(--overlay))] backdrop-blur-[2px]"
+			class="animate-overlay-in absolute inset-0 bg-overlay backdrop-blur-[2px]"
 			onclick={close}
 		></button>
 		<div
@@ -73,7 +74,9 @@
 				<IconButton icon="x" label="Close" compact onclick={close} />
 			</header>
 			<div class="max-h-[60vh] overflow-y-auto px-4 py-3">
-				{@render children()}
+				{#if children}
+					{@render children()}
+				{/if}
 			</div>
 			{#if footer}
 				<footer

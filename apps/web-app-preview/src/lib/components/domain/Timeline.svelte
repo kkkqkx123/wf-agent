@@ -32,7 +32,7 @@
 		<li class="relative">
 			<span
 				class={cn(
-					'absolute -left-3.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-[hsl(var(--card))]',
+					'absolute -left-3.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-card',
 					TONE_DOT[tone],
 					tone === 'running' && 'animate-pulse-dot',
 				)}

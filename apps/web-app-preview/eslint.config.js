@@ -26,6 +26,6 @@ export default defineConfig(
 		},
 	},
 	{
-		ignores: ['.svelte-kit/**', 'dist/**', 'build/**'],
+		ignores: ['.svelte-kit/**', 'build/**'],
 	},
 );

@@ -7,15 +7,10 @@
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,
 		"skipLibCheck": true,
-		"sourceMap": true,
-		"strict": true,
-		"outDir": "./dist",
-		"rootDir": "."
+		"strict": true
 	},
 	"exclude": [
 		"node_modules",
-		"dist",
-		"test",
 		"tests",
 		"**/*.test.ts",
 		"**/*.test.js",

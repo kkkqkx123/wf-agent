@@ -153,7 +153,6 @@ description:     ($description // $d.description // $s.description),
  
 # Structural fields follow source
 type:            ($s.type            // $d.type),
-main:            ($s.main            // $d.main),
 scripts:         ($s.scripts         // $d.scripts),
 engines:         ($s.engines         // $d.engines),
  
@@ -180,7 +179,7 @@ echo
 echo "Mirrored from apps/web-app:"
 echo "  - package.json                (deps & scripts synced; name/version/description preserved)"
 echo "  - .gitignore, .prettierrc*, eslint.config.js"
-echo "  - svelte.config.js, tsconfig*.json, vite.config.ts, vitest.config.ts"
+echo "  - svelte.config.js, tsconfig*.json, vite.config.ts (test config included)"
 echo "  - src/app.html, src/app.css"
 echo "  - src/lib/api/envelope.ts"
 echo "  - src/lib/components/**/*  src/lib/config/**/*  src/lib/services/**/*"

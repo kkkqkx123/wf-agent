@@ -10,12 +10,14 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
+	import Timeline from '$lib/components/domain/Timeline.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
 	import {
@@ -23,12 +25,18 @@
 		listWorkflowDrafts,
 		validateWorkflowDraft,
 		promoteWorkflowDraft,
-		executeWorkflow,
 		rollbackWorkflow,
 		exportWorkflow,
 	} from '$lib/services/workflows';
+	import { streamWorkflowExecution } from '$lib/services/streaming';
+	import type { StreamNodeUpdate } from '$lib/services/streaming';
 	import { listExecutions } from '$lib/services/executions';
-	import type { Execution, WorkflowVersion } from '$lib/types/models';
+	import type {
+		Execution,
+		TimelineEntry,
+		WorkflowGraph as WorkflowGraphModel,
+		WorkflowVersion,
+	} from '$lib/types/models';
 	import {
 		createCollection,
 		createResource,
@@ -39,6 +47,7 @@
 		formatDuration,
 		formatNumber,
 		formatPercent,
+		nodeCount,
 	} from '$lib/utils/format';
 	import { appPath } from '$lib/utils/route';
 
@@ -55,6 +64,44 @@
 	let graphNodeId = $state<string | null>(null);
 	let selectedVersion = $state<number | null>(null);
 	let busy = $state(false);
+
+	/** Live view of the run started from this page, fed by the execute stream. */
+	let nodeStatus = $state<Record<string, string>>({});
+	let runTimeline = $state<TimelineEntry[]>([]);
+	let runExecutionId = $state('');
+	let runError = $state<string | null>(null);
+	let runRetryAfterMs = $state<number | null>(null);
+	let runStopped = $state(false);
+	let running = $state(false);
+	let stopRun: (() => void) | null = null;
+
+	function appendNodeEvent(node: StreamNodeUpdate): void {
+		nodeStatus = { ...nodeStatus, [node.id]: node.status };
+		runTimeline = [
+			...runTimeline,
+			{
+				id: `${node.id}#${runTimeline.length}`,
+				at: node.at,
+				kind: 'node',
+				title: node.name,
+				detail:
+					node.error ??
+					(node.durationMs === null ? '' : formatDuration(node.durationMs)),
+				status: node.status,
+			},
+		];
+	}
+
+	function withLiveStatus(graph: WorkflowGraphModel): WorkflowGraphModel {
+		if (Object.keys(nodeStatus).length === 0) return graph;
+		return {
+			...graph,
+			nodes: graph.nodes.map((node) => ({
+				...node,
+				status: nodeStatus[node.id] ?? node.status,
+			})),
+		};
+	}
 
 	const detail = createResource(() => getWorkflow(id));
 	// A draft is stored under the id of the workflow it edits, so there is at most one.
@@ -114,7 +161,7 @@
 			key: 'nodes',
 			header: 'Nodes',
 			align: 'right',
-			text: (row) => `${row.tasksDone}/${row.tasksTotal}`,
+			text: (row) => nodeCount(row.nodesDone, row.nodesTotal) ?? '—',
 		},
 	];
 
@@ -127,16 +174,55 @@
 	onMount(reloadAll);
 
 	async function run(): Promise<void> {
-		busy = true;
-		try {
-			const executionId = await executeWorkflow(id);
-			toasts.success(`Started execution ${executionId.slice(0, 12)}`);
-			await goto(resolve(appPath(`/executions/${executionId}`)));
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Run failed');
-		} finally {
-			busy = false;
+		tab = 'graph';
+		nodeStatus = {};
+		runTimeline = [];
+		runError = null;
+		runRetryAfterMs = null;
+		runStopped = false;
+		runExecutionId = '';
+		running = true;
+		const controller = new AbortController();
+		stopRun = () => controller.abort();
+		let terminal: 'completed' | 'failed' | null = null;
+		await streamWorkflowExecution(
+			id,
+			{ input: null },
+			{
+				onExecution: (executionId) => (runExecutionId = executionId),
+				onNode: appendNodeEvent,
+				onCompleted: () => (terminal = 'completed'),
+				onFailed: (message) => {
+					terminal = 'failed';
+					runError = message;
+				},
+				onInterrupted: (reason) => {
+					terminal = 'failed';
+					runError = reason;
+				},
+				onError: (failure) => {
+					terminal = 'failed';
+					runError = failure.message;
+					runRetryAfterMs = failure.retryAfterMs;
+				},
+			},
+			controller.signal,
+		);
+		const outcome = terminal;
+		if (outcome) {
+			// Bus forwarding drops overflow, so the outcome frame is what
+			// settles a node whose completion never arrived.
+			nodeStatus = Object.fromEntries(
+				Object.entries(nodeStatus).map(([nodeId, status]) =>
+					status === 'running' ? [nodeId, outcome] : [nodeId, status],
+				),
+			);
 		}
+		stopRun = null;
+		runStopped = controller.signal.aborted;
+		running = false;
+		void detail.reload();
+		void runs.reload();
 	}
 
 	async function download(): Promise<void> {
@@ -247,10 +333,17 @@
 				<Icon name="download" size={13} />
 				Export
 			</Button>
-			<Button size="sm" disabled={busy} onclick={() => void run()}>
-				<Icon name="play" size={13} />
-				Run
-			</Button>
+			{#if running}
+				<Button variant="outline" size="sm" onclick={() => stopRun?.()}>
+					<Icon name="square" size={13} />
+					Stop
+				</Button>
+			{:else}
+				<Button size="sm" onclick={() => void run()}>
+					<Icon name="play" size={13} />
+					Run
+				</Button>
+			{/if}
 		{/snippet}
 	</PageHeader>
 
@@ -263,23 +356,23 @@
 				<Skeleton shape="block" height="120px" class="rounded-lg" />
 			</div>
 		{:else if detail.error}
-			<EmptyState
-				icon="alert-triangle"
+			<ErrorState
 				title="Failed to load workflow"
 				description={detail.error}
 				class="rounded-lg border border-border bg-card"
 			>
 				{#snippet actions()}
-					<Button variant="link" size="sm" onclick={() => detail.reload()}
-						>Retry</Button
+					<Button variant="link" size="sm" href="/workflows"
+						>Back to workflows</Button
 					>
 				{/snippet}
-			</EmptyState>
+			</ErrorState>
 		{:else if detail.data}
 			{@const safeDetail = detail.data}
 			{#if tab === 'graph'}
+				{@const liveGraph = withLiveStatus(safeDetail.graph)}
 				<WorkflowGraph
-					graph={safeDetail.graph}
+					graph={liveGraph}
 					selectedId={graphNodeId}
 					onselect={(id) => (graphNodeId = id)}
 					class="max-h-[26rem]"
@@ -287,7 +380,7 @@
 				<div class="mt-3 grid gap-3 lg:grid-cols-2">
 					<Card title="Nodes">
 						<ul class="space-y-1.5">
-							{#each safeDetail.graph.nodes as node (node.id)}
+							{#each liveGraph.nodes as node (node.id)}
 								<li
 									class="flex items-center justify-between gap-2 text-caption"
 								>
@@ -319,6 +412,43 @@
 						</ul>
 					</Card>
 				</div>
+				{#if running || runTimeline.length > 0}
+					<Card title="Live run" class="mt-3">
+						{#snippet actions()}
+							{#if runExecutionId}
+								<Button
+									variant="link"
+									size="sm"
+									href={appPath(`/executions/${runExecutionId}`)}
+								>
+									Open execution
+								</Button>
+							{/if}
+						{/snippet}
+						{#if runError}
+							<p class="text-caption text-destructive">
+								{runError}
+								{#if runRetryAfterMs !== null}
+									<span class="mt-0.5 block text-muted-foreground">
+										Rate limited — retry in
+										{formatDuration(runRetryAfterMs)}.
+									</span>
+								{/if}
+							</p>
+						{:else if runStopped}
+							<p class="text-caption text-muted-foreground">
+								Stopped with {formatNumber(runTimeline.length)} node events kept.
+							</p>
+						{:else if runTimeline.length === 0}
+							<p class="text-caption text-muted-foreground">
+								Waiting for the first node event…
+							</p>
+						{/if}
+						{#if runTimeline.length > 0}
+							<Timeline entries={runTimeline} class="mt-3" />
+						{/if}
+					</Card>
+				{/if}
 			{:else if tab === 'versions'}
 				<Card title="Version history" bodyClass="p-0">
 					<DataTable
@@ -348,18 +478,12 @@
 				{#if draft.loading && !draft.data}
 					<Skeleton shape="block" height="120px" class="rounded-lg" />
 				{:else if draft.error}
-					<EmptyState
-						icon="alert-triangle"
+					<ErrorState
 						title="Failed to load draft"
 						description={draft.error}
+						onretry={() => draft.reload()}
 						class="rounded-lg border border-border bg-card"
-					>
-						{#snippet actions()}
-							<Button variant="link" size="sm" onclick={() => draft.reload()}
-								>Retry</Button
-							>
-						{/snippet}
-					</EmptyState>
+					/>
 				{:else if draft.data}
 					{@const currentDraft = draft.data}
 					<Card title={currentDraft.name}>
@@ -431,18 +555,12 @@
 						{/each}
 					</div>
 				{:else if runs.error}
-					<EmptyState
-						icon="alert-triangle"
+					<ErrorState
 						title="Failed to load runs"
 						description={runs.error}
+						onretry={() => runs.reload()}
 						class="rounded-lg border border-border bg-card"
-					>
-						{#snippet actions()}
-							<Button variant="link" size="sm" onclick={() => runs.reload()}
-								>Retry</Button
-							>
-						{/snippet}
-					</EmptyState>
+					/>
 				{:else}
 					<Card title="Executions" bodyClass="p-0">
 						<DataTable

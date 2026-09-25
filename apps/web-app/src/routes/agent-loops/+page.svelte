@@ -6,24 +6,21 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
+	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Progress from '$lib/components/ui/Progress.svelte';
-	import { listAgentLoops, getAgentLoop } from '$lib/services/agent-loops';
-	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
-	import {
-		createCollection,
-		createResource,
-	} from '$lib/stores/collection.svelte';
-	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { listAgentLoops } from '$lib/services/agent-loops';
+	import type { AgentLoop } from '$lib/types/models';
+	import { createCollection } from '$lib/stores/collection.svelte';
+	import { sessions } from '$lib/stores/sessions.svelte';
+	import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
+	import { formatDuration, formatNumber } from '$lib/utils/format';
+	import { appPath, gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const STATUS_OPTIONS = [
 		{ value: 'running', label: 'Running' },
@@ -39,43 +36,37 @@
 	let query = $state(initial.q ?? '');
 	let status = $state(initial.status ?? '');
 	let selectedId = $state<string | null>(initial.id ?? null);
+	let tab = $state<SessionTab>(isSessionTab(initial.tab) ?? 'overview');
 
 	const list = createCollection((params) => listAgentLoops(params));
-	const detail = createResource<AgentLoopDetail | null>(async () => {
-		if (!selectedId) return null;
-		return getAgentLoop(selectedId);
-	});
 
+	// Loop rows carry no name, so the filter searches the local session label.
 	const filtered = $derived(
 		list.items.filter((loop) => {
 			const matchesStatus = !status || loop.status === status;
 			const needle = query.trim().toLowerCase();
 			return (
-				matchesStatus && (!needle || loop.name.toLowerCase().includes(needle))
+				matchesStatus &&
+				(!needle ||
+					sessions.label(loop.id).toLowerCase().includes(needle) ||
+					loop.id.toLowerCase().includes(needle))
 			);
 		}),
 	);
-
-	$effect(() => {
-		if (selectedId) void detail.reload();
-	});
-
-	$effect(() => {
-		if (!selectedId && list.loaded > 0 && !list.loading) {
-			selectedId = list.items[0].id;
-		}
-	});
 
 	$effect(() => {
 		gotoWithParams(page.url, {
 			q: query,
 			status,
 			id: selectedId ?? '',
+			tab: tab === 'overview' ? '' : tab,
 			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
 		});
 	});
 
-	onMount(() => void list.loadPages(Number(initial.page) || 1));
+	onMount(() => {
+		void list.loadPages(Number(initial.page) || 1);
+	});
 </script>
 
 <SplitView
@@ -93,10 +84,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => {
-						list.reload();
-						if (selectedId) detail.reload();
-					}}
+					onclick={() => void list.reload()}
 				/>
 			{/snippet}
 		</PageHeader>
@@ -106,7 +94,7 @@
 				bind:query
 				bind:status
 				statusOptions={STATUS_OPTIONS}
-				placeholder="Filter by name or tag…"
+				placeholder="Filter by session title or id…"
 				class="mb-3"
 			>
 				{#snippet trailing()}
@@ -125,25 +113,19 @@
 					</div>
 				</Card>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load agent loops"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				{#snippet loopName(loop: AgentLoop)}
-					<span class="flex items-center gap-1.5">
-						{#if loop.starred}
+					<span class="flex min-w-0 items-center gap-1.5">
+						{#if sessions.isStarred(loop.id)}
 							<Icon name="star" size={12} class="shrink-0 text-warning" />
 						{/if}
-						<span class="truncate">{loop.name}</span>
+						<span class="truncate">{sessions.label(loop.id)}</span>
 					</span>
 				{/snippet}
 				{#snippet loopStatus(loop: AgentLoop)}
@@ -151,20 +133,33 @@
 				{/snippet}
 				{#snippet loopIterations(loop: AgentLoop)}
 					<span class="text-caption tabular-nums text-muted-foreground">
-						{loop.iteration}/{loop.maxIterations}
+						{formatNumber(loop.iteration)} · {formatNumber(loop.toolCalls)} calls
 					</span>
 				{/snippet}
-				{#snippet loopModel(loop: AgentLoop)}
-					<span class="font-mono text-caption">{loop.model}</span>
+				{#snippet loopProfile(loop: AgentLoop)}
+					<span class="font-mono text-caption">
+						{loop.profileId ?? '—'}
+					</span>
 				{/snippet}
-				{#snippet loopTokens(loop: AgentLoop)}
+				{#snippet loopDuration(loop: AgentLoop)}
 					<span class="text-caption tabular-nums text-muted-foreground">
-						{formatNumber(loop.tokens)}
+						{formatDuration(loop.durationMs)}
 					</span>
 				{/snippet}
-				{#snippet loopUpdated(loop: AgentLoop)}
-					<span class="text-caption text-muted-foreground">
-						{formatRelativeTime(loop.updatedAt)}
+				{#snippet loopLinks(loop: AgentLoop)}
+					<span class="flex items-center justify-end gap-1">
+						<Button
+							variant="link"
+							size="sm"
+							href={appPath(`/chat?id=${loop.id}`)}
+							class="px-1">Chat</Button
+						>
+						<Button
+							variant="link"
+							size="sm"
+							href={appPath(`/agent-loops/${loop.id}`)}
+							class="px-1">Detail</Button
+						>
 					</span>
 				{/snippet}
 				<Card bodyClass="p-0">
@@ -175,25 +170,25 @@
 						onrowclick={(row) => (selectedId = row.id)}
 						emptyTitle="No loops match"
 						columns={[
-							{ key: 'name', header: 'Loop', cell: loopName },
+							{ key: 'name', header: 'Session', cell: loopName },
 							{ key: 'status', header: 'Status', cell: loopStatus },
 							{
 								key: 'iteration',
-								header: 'Iteration',
+								header: 'Progress',
 								cell: loopIterations,
 							},
-							{ key: 'model', header: 'Model', cell: loopModel },
+							{ key: 'profile', header: 'Profile', cell: loopProfile },
 							{
-								key: 'tokens',
-								header: 'Tokens',
+								key: 'duration',
+								header: 'Duration',
 								align: 'right',
-								cell: loopTokens,
+								cell: loopDuration,
 							},
 							{
-								key: 'updated',
-								header: 'Updated',
+								key: 'links',
+								header: 'Open',
 								align: 'right',
-								cell: loopUpdated,
+								cell: loopLinks,
 							},
 						]}
 					/>
@@ -212,103 +207,6 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if detail.loading && !detail.data}
-			<div class="space-y-3 p-4">
-				<Skeleton lines={2} />
-				<Skeleton shape="block" height="120px" class="rounded-lg" />
-				<Skeleton lines={4} />
-			</div>
-		{:else if detail.error}
-			<EmptyState
-				icon="alert-triangle"
-				title="Failed to load detail"
-				description={detail.error}
-				class="m-4"
-			>
-				{#snippet actions()}
-					<Button variant="link" size="sm" onclick={() => detail.reload()}
-						>Retry</Button
-					>
-				{/snippet}
-			</EmptyState>
-		{:else if detail.data}
-			{@const selected = detail.data}
-			<div class="flex h-full min-h-0 flex-col">
-				<div class="border-b border-border px-3 py-3">
-					<div class="flex items-start justify-between gap-2">
-						<div class="min-w-0">
-							<h2 class="truncate text-title font-semibold">{selected.name}</h2>
-							<p class="mt-0.5 font-mono text-micro text-muted-foreground">
-								{selected.id}
-							</p>
-						</div>
-						<StatusBadge status={selected.status} />
-					</div>
-					<p class="mt-2 text-caption text-muted-foreground">
-						{selected.summary}
-					</p>
-					<div class="mt-3">
-						<div
-							class="flex items-center justify-between text-micro text-muted-foreground"
-						>
-							<span>Iterations</span>
-							<span class="tabular-nums"
-								>{selected.iteration}/{selected.maxIterations}</span
-							>
-						</div>
-						<Progress
-							value={selected.iteration / Math.max(1, selected.maxIterations)}
-							tone="running"
-							class="mt-1"
-						/>
-					</div>
-				</div>
-
-				<div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-					<Card title="Run facts">
-						<KeyValueList
-							items={[
-								{ key: 'model', value: selected.model },
-								{ key: 'tokens', value: formatNumber(selected.tokens) },
-								{
-									key: 'checkpoints',
-									value: formatNumber(selected.checkpoints),
-								},
-								{ key: 'errors', value: formatNumber(selected.errors) },
-								{
-									key: 'started',
-									value: formatRelativeTime(selected.startedAt),
-								},
-								{
-									key: 'updated',
-									value: formatRelativeTime(selected.updatedAt),
-								},
-							]}
-							dense
-						/>
-					</Card>
-
-					<Card title="Tags">
-						<div class="flex flex-wrap gap-1.5">
-							{#each selected.tags as tag (tag)}
-								<Badge variant="outline" size="sm">{tag}</Badge>
-							{:else}
-								<span class="text-caption text-muted-foreground">No tags</span>
-							{/each}
-						</div>
-					</Card>
-
-					<Button
-						variant="outline"
-						size="sm"
-						href="/agent-loops/{selected.id}"
-						class="w-full"
-					>
-						<Icon name="arrow-right" size={13} />
-						Open full detail
-					</Button>
-				</div>
-			</div>
-		{/if}
+		<SessionInspector sessionId={selectedId ?? ''} bind:tab class="h-full" />
 	{/snippet}
 </SplitView>

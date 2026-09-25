@@ -6,7 +6,7 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
@@ -23,6 +23,7 @@
 	import { live } from '$lib/stores/live.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
+	import { loadWorkflowTitles } from '$lib/stores/workflow-titles.svelte';
 
 	interface ExecutionBundle {
 		detail: Awaited<ReturnType<typeof getExecution>>;
@@ -80,6 +81,7 @@
 	}
 
 	onMount(() => {
+		void loadWorkflowTitles();
 		void bundle.reload();
 		let pending: ReturnType<typeof setTimeout> | null = null;
 		const unsubscribe = live.subscribe((event) => {
@@ -100,21 +102,23 @@
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={bundle.data?.detail.workflowName ?? 'Execution detail'}
+		title="Execution detail"
 		description="Full execution detail with state, timeline and analysis."
 	>
 		{#snippet meta()}
 			{#if bundle.data}
 				<StatusBadge status={bundle.data.detail.status} />
-				<Badge variant="outline"
-					>{formatDuration(bundle.data.detail.durationMs)}</Badge
-				>
+				{#if bundle.data.detail.durationMs !== null}
+					<Badge variant="outline"
+						>{formatDuration(bundle.data.detail.durationMs)}</Badge
+					>
+				{/if}
 				<span class="font-mono text-caption text-muted-foreground"
 					>{bundle.data.detail.id}</span
 				>
-				{#if bundle.data.detail.trigger}
+				{#if bundle.data.detail.executionType}
 					<span class="text-caption text-muted-foreground"
-						>{bundle.data.detail.trigger}</span
+						>{bundle.data.detail.executionType}</span
 					>
 				{/if}
 			{/if}
@@ -157,18 +161,17 @@
 				<Skeleton shape="block" height="240px" class="flex-1 rounded-md" />
 			</div>
 		{:else if bundle.error}
-			<EmptyState
-				icon="alert-triangle"
+			<ErrorState
 				title="Failed to load execution"
 				description={bundle.error}
 				class="h-full rounded-lg border border-border bg-card"
 			>
 				{#snippet actions()}
-					<Button variant="link" size="sm" onclick={() => bundle.reload()}
-						>Retry</Button
+					<Button variant="link" size="sm" href="/executions"
+						>Back to executions</Button
 					>
 				{/snippet}
-			</EmptyState>
+			</ErrorState>
 		{:else if bundle.data}
 			<div
 				class="h-full overflow-hidden rounded-lg border border-border bg-card"

@@ -8,7 +8,6 @@ use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
@@ -23,7 +22,7 @@ use crate::paged::{
     fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_TIMELINE_ENTRIES,
 };
 use crate::router::ApiState;
-use crate::sse::sse_response;
+use crate::sse::{execution_frames, sse_response};
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         // ── agent loops ──
@@ -485,22 +484,7 @@ pub(crate) async fn handle_stream_loop(
     )
     .await
     {
-        Ok(stream) => {
-            let events = futures::stream::unfold(stream, |mut stream| async move {
-                match stream.next().await {
-                    Some(event) => {
-                        let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".into());
-                        let frame = format!("data: {payload}\n\n");
-                        Some((
-                            Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(frame)),
-                            stream,
-                        ))
-                    }
-                    None => None,
-                }
-            });
-            sse_response(events)
-        }
+        Ok(stream) => sse_response(execution_frames(stream)),
         Err(e) => error_response(e),
     }
 }

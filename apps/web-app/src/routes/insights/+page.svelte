@@ -9,6 +9,7 @@
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import type { Column } from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -238,18 +239,12 @@
 			{#if audit.loading && !audit.data}
 				<Skeleton shape="block" height="160px" class="rounded-lg" />
 			{:else if audit.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load audit reports"
 					description={audit.error}
+					onretry={() => audit.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => audit.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				<Card title="Audit reports" bodyClass="p-0">
 					<DataTable
@@ -285,18 +280,12 @@
 			{#if errors.loading && !errors.data}
 				<Skeleton shape="block" height="160px" class="rounded-lg" />
 			{:else if errors.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load error analysis"
 					description={errors.error}
+					onretry={() => errors.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => errors.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				<Card title="Error analysis" bodyClass="p-0">
 					<DataTable
@@ -332,18 +321,12 @@
 			{#if perf.loading && !perf.data}
 				<Skeleton shape="block" height="160px" class="rounded-lg" />
 			{:else if perf.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load performance"
 					description={perf.error}
+					onretry={() => perf.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => perf.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if perfNodes.length === 0}
 				<EmptyState
 					icon="chart"

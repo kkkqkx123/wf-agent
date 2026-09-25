@@ -9,6 +9,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
@@ -198,18 +199,12 @@
 					</div>
 				</Card>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load events"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				<Card bodyClass="p-0">
 					<ul class="divide-y divide-border">
@@ -286,18 +281,12 @@
 					<Skeleton lines={5} />
 				</Card>
 			{:else if deps.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load dependencies"
 					description={deps.error}
+					onretry={() => deps.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => deps.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				<Card title="Callers and impact">
 					<ul class="divide-y divide-border">
@@ -345,20 +334,12 @@
 					{/each}
 				</div>
 			{:else if diagnostics.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load diagnostics"
 					description={diagnostics.error}
+					onretry={() => diagnostics.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button
-							variant="link"
-							size="sm"
-							onclick={() => diagnostics.reload()}>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else}
 				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
 					{#each diagnostics.data ?? [] as diagnostic (diagnostic.name)}

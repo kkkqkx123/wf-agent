@@ -4,6 +4,7 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		preferences,
@@ -181,11 +182,12 @@
 						follow the user across browsers. Press Save to write them.
 					</p>
 					{#if behavior.error}
-						<p
-							class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-caption text-destructive"
-						>
-							{behavior.error}
-						</p>
+						<ErrorState
+							title="Execution defaults could not be read from the server"
+							description={behavior.error}
+							onretry={() => void behavior.load()}
+							class="rounded-lg border border-destructive/40 bg-destructive/10 py-6"
+						/>
 					{/if}
 					<Card
 						title="Paging"

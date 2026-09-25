@@ -17,11 +17,11 @@ export interface SubAgentNote {
 }
 
 /**
- * One active run per composer: frames only append to pending buffers and a
- * fixed tick merges them into the rendered state, so high-frequency deltas
- * never trigger a parse per frame.
+ * One active streamed run: frames only append to pending buffers and a fixed
+ * tick merges them into the rendered state, so high-frequency deltas never
+ * trigger a parse per frame. Each surface keeps its own instance.
  */
-class ChatStreamStore {
+export class StreamRunStore {
 	sessionKey = $state<string | null>(null);
 	active = $state(false);
 	answer = $state('');
@@ -32,6 +32,10 @@ class ChatStreamStore {
 	iteration = $state<number | null>(null);
 	done = $state(false);
 	error = $state<string | null>(null);
+	/** Set when the server asked for a wait before the next attempt. */
+	retryAfterMs = $state<number | null>(null);
+	/** The run ended because it was stopped, not because it finished. */
+	cancelled = $state(false);
 
 	private pending = '';
 	private reasoningPending = '';
@@ -54,6 +58,8 @@ class ChatStreamStore {
 		this.iteration = null;
 		this.done = false;
 		this.error = null;
+		this.retryAfterMs = null;
+		this.cancelled = false;
 		this.pending = '';
 		this.reasoningPending = '';
 		this.controller = new AbortController();
@@ -130,9 +136,10 @@ class ChatStreamStore {
 		this.clearTimer();
 	}
 
-	fail(message: string): void {
+	fail(message: string, retryAfterMs: number | null = null): void {
 		this.flush();
 		this.error = message;
+		this.retryAfterMs = retryAfterMs;
 		this.active = false;
 		this.clearTimer();
 	}
@@ -144,6 +151,7 @@ class ChatStreamStore {
 		if (this.active) {
 			this.flush();
 			this.active = false;
+			this.cancelled = true;
 		}
 	}
 
@@ -166,4 +174,4 @@ class ChatStreamStore {
 	}
 }
 
-export const chatStream = new ChatStreamStore();
+export const chatStream = new StreamRunStore();

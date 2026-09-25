@@ -111,12 +111,6 @@ export async function listPerformanceNodes(): Promise<PerfNode[]> {
 	return [];
 }
 
-/** Aggregate usage stats across the system. */
-export async function getAnalysisStats(): Promise<Record<string, unknown>> {
-	const data = await call<unknown>(client.GET('/api/v1/analysis/stats'));
-	return (data as Record<string, unknown>) ?? {};
-}
-
 /** Run a query export and trigger a browser download of the result file. */
 export async function exportQuery(params: {
 	expressions: Record<string, unknown>[];

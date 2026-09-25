@@ -7,11 +7,13 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import {
 		listModelProfiles,
 		listProviders,
@@ -32,8 +34,11 @@
 		Skill,
 	} from '$lib/types/models';
 	import { createResource } from '$lib/stores/collection.svelte';
+	import { StreamRunStore } from '$lib/stores/stream-run.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { streamGeneration } from '$lib/services/streaming';
 	import {
+		formatDuration,
 		formatNumber,
 		formatPercent,
 		formatRelativeTime,
@@ -107,6 +112,44 @@
 	const allFailed = $derived(
 		registry.data !== null && failed.length === GROUPS.length,
 	);
+
+	/** Buffered state of the try-generation panel; one run at a time. */
+	const genStream = new StreamRunStore();
+	let genProfile = $state('');
+	let genPrompt = $state('');
+
+	const genOptions = $derived(
+		modelProfiles.map((profile) => ({
+			value: profile.id,
+			label: profile.name,
+		})),
+	);
+
+	/** Start from the profile the server marks default. */
+	$effect(() => {
+		if (genProfile) return;
+		const preferred =
+			modelProfiles.find((profile) => profile.isDefault) ?? modelProfiles[0];
+		if (preferred) genProfile = preferred.id;
+	});
+
+	async function runGeneration(): Promise<void> {
+		const prompt = genPrompt.trim();
+		if (!genProfile || !prompt || genStream.active) return;
+		const signal = genStream.start(genProfile);
+		await streamGeneration(
+			{ profileId: genProfile, prompt },
+			{
+				onDelta: (delta) => genStream.appendDelta(delta),
+				onError: (failure) =>
+					genStream.fail(failure.message, failure.retryAfterMs),
+			},
+			signal,
+		);
+		if (!genStream.error && !genStream.done) genStream.complete();
+	}
+
+	$effect(() => () => genStream.stop());
 
 	async function toggle(
 		kind: 'tool' | 'skill',
@@ -227,22 +270,12 @@
 				{/each}
 			</div>
 		{:else if allFailed}
-			<EmptyState
-				icon="alert-circle"
+			<ErrorState
 				title="Resource registry unreachable"
 				description={failed.join(', ')}
+				onretry={() => void registry.reload()}
 				class="rounded-lg border border-border bg-card"
-			>
-				{#snippet actions()}
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void registry.reload()}
-					>
-						Retry
-					</Button>
-				{/snippet}
-			</EmptyState>
+			/>
 		{:else}
 			{#if failed.length > 0}
 				<p
@@ -316,6 +349,76 @@
 								},
 							]}
 						/>
+					</Card>
+
+					<Card title="Try a generation">
+						{#snippet actions()}
+							{#if genStream.active}
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => genStream.stop()}
+								>
+									Stop
+								</Button>
+							{:else}
+								<Button
+									size="sm"
+									disabled={!genProfile || !genPrompt.trim()}
+									onclick={() => void runGeneration()}
+								>
+									Generate
+								</Button>
+							{/if}
+						{/snippet}
+						<div class="flex flex-wrap items-center gap-2">
+							<Select
+								bind:value={genProfile}
+								options={genOptions}
+								size="sm"
+								placeholder="Profile"
+							/>
+							<span class="text-micro text-muted-foreground">
+								Only the profile is sent; model parameters stay server-side.
+							</span>
+						</div>
+						<Textarea
+							bind:value={genPrompt}
+							rows={3}
+							class="mt-2"
+							placeholder="Prompt"
+						/>
+						{#if genStream.error}
+							<p
+								class="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive"
+							>
+								{genStream.error}
+								{#if genStream.retryAfterMs !== null}
+									<span class="mt-1 block text-muted-foreground">
+										Rate limited — retry in
+										{formatDuration(genStream.retryAfterMs)}.
+									</span>
+								{/if}
+							</p>
+						{:else if genStream.cancelled}
+							<p class="mt-2 text-caption text-muted-foreground">
+								Generation stopped.
+							</p>
+						{/if}
+						{#if genStream.answer}
+							<div
+								class="mt-2 max-h-72 overflow-y-auto rounded-md border border-border bg-muted/40 px-3 py-2"
+							>
+								<StreamMarkdown
+									content={genStream.answer}
+									done={!genStream.active}
+								/>
+							</div>
+						{:else if genStream.active}
+							<p class="mt-2 text-caption text-muted-foreground">
+								Waiting for the first delta…
+							</p>
+						{/if}
 					</Card>
 
 					<Card title="Providers">

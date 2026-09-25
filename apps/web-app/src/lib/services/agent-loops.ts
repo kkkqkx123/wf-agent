@@ -1,100 +1,234 @@
 import { client, request } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { call, extractCapped, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	AgentLoop,
-	AgentLoopDetail,
+	LoopIteration,
 	LoopMessage,
+	LoopVariable,
+	TimelineEntry,
+	ToolCallEntry,
 	WorkflowGraph,
 } from '$lib/types/models';
 
-interface AgentLoopDto {
+interface SummaryDto {
 	id?: string;
-	name?: string;
 	status?: string;
-	iteration?: number;
-	max_iterations?: number;
-	model?: string;
-	tokens?: number;
-	started_at?: string;
-	updated_at?: string;
-	checkpoints?: number;
-	errors?: number;
-	starred?: boolean;
-	tags?: string[];
+	current_iteration?: number;
+	tool_call_count?: number;
+	start_time?: number | null;
+	end_time?: number | null;
+	execution_time?: number | null;
+	profile_id?: string | null;
 }
 
-interface LoopMessageDto {
+interface MessageContentPartDto {
+	type?: string;
+	text?: string;
+	thinking?: string;
+	tool_result?: { content?: string };
+	tool_use?: { name?: string; input?: unknown };
+}
+
+interface MessageDto {
 	id?: string;
 	role?: string;
-	content?: string;
-	created_at?: string;
-	tokens?: number | null;
-	tool_name?: string;
+	content?: string | MessageContentPartDto[];
+	timestamp?: number;
+	tool_name?: string | null;
+	thinking?: string | null;
 }
 
-interface GraphNodeDto {
+interface ToolCallDto {
+	name?: string;
+	arguments?: unknown;
+	result?: unknown;
+	error?: string | null;
+	tool_call_id?: string | null;
+	duration_ms?: number;
+	success?: boolean;
+}
+
+interface IterationDto {
+	iteration?: number;
+	start_time?: number;
+	end_time?: number;
+	duration?: number;
+	tool_calls?: ToolCallDto[];
+	response_content?: string | null;
+}
+
+interface TimelineDto {
 	id?: string;
-	label?: string;
-	kind?: string;
-	status?: string;
-	x?: number;
-	y?: number;
+	timestamp?: number;
+	type?: string;
+	description?: string;
+	error_severity?: string | null;
 }
 
-interface GraphEdgeDto {
-	id?: string;
-	from?: string;
-	to?: string;
-	label?: string;
+interface DecisionNodeDto {
+	node_id?: string;
+	type?: string;
+	description?: string;
+	iteration?: number;
 }
 
-function toAgentLoop(d: AgentLoopDto): AgentLoop {
+interface DecisionEdgeDto {
+	edge_id?: string;
+	from_node_id?: string;
+	to_node_id?: string;
+	reason?: string | null;
+	condition?: string | null;
+}
+
+function toIso(value: number | null | undefined): string {
+	return value === null || value === undefined
+		? ''
+		: new Date(value).toISOString();
+}
+
+function toLoop(d: SummaryDto): AgentLoop {
 	return {
 		id: d.id ?? '',
-		name: d.name ?? '',
 		status: d.status ?? '',
-		iteration: d.iteration ?? 0,
-		maxIterations: d.max_iterations ?? 0,
-		model: d.model ?? '',
-		tokens: d.tokens ?? 0,
-		startedAt: d.started_at ?? '',
-		updatedAt: d.updated_at ?? '',
-		checkpoints: d.checkpoints ?? 0,
-		errors: d.errors ?? 0,
-		starred: d.starred ?? false,
-		tags: d.tags ?? [],
+		iteration: d.current_iteration ?? 0,
+		toolCalls: d.tool_call_count ?? 0,
+		durationMs: d.execution_time ?? null,
+		profileId: d.profile_id ?? null,
+		startedAt: toIso(d.start_time),
+		endedAt: d.end_time ? toIso(d.end_time) : null,
 	};
 }
 
-function toMessage(d: LoopMessageDto): LoopMessage {
+/** Rich content parts collapse to the text the transcript can show. */
+function flattenContent(
+	content: string | MessageContentPartDto[] | undefined,
+): string {
+	if (typeof content === 'string') return content;
+	if (!Array.isArray(content)) return '';
+	return content
+		.map((part) => {
+			if (part.type === 'text') return part.text ?? '';
+			if (part.type === 'tool_result') return part.tool_result?.content ?? '';
+			if (part.type === 'tool_use') return part.tool_use?.name ?? '';
+			return '';
+		})
+		.filter(Boolean)
+		.join('\n');
+}
+
+function toMessage(d: MessageDto): LoopMessage {
 	return {
 		id: d.id ?? '',
 		role: (d.role ?? 'assistant') as LoopMessage['role'],
-		content: d.content ?? '',
-		createdAt: d.created_at ?? '',
-		tokens: d.tokens ?? null,
-		toolName: d.tool_name,
+		content: flattenContent(d.content),
+		thinking: d.thinking ?? null,
+		createdAt: toIso(d.timestamp),
+		toolName: d.tool_name ?? null,
+	} satisfies LoopMessage;
+}
+
+function toToolCall(d: ToolCallDto, iteration: IterationDto): ToolCallEntry {
+	return {
+		id: d.tool_call_id ?? `${iteration.iteration ?? 0}-${d.name ?? ''}`,
+		name: d.name ?? '',
+		kind: '',
+		status: d.success ? 'completed' : 'failed',
+		startedAt: toIso(iteration.start_time),
+		durationMs: d.duration_ms ?? 0,
+		input: stringify(d.arguments),
+		output: d.error ?? stringify(d.result),
 	};
 }
 
-function toGraph(
-	d: { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] } | undefined,
-): WorkflowGraph {
+function stringify(value: unknown): string {
+	if (value === null || value === undefined) return '';
+	return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function toIteration(d: IterationDto): LoopIteration {
 	return {
-		nodes: (d?.nodes ?? []).map((n) => ({
-			id: n.id ?? '',
-			label: n.label ?? n.id ?? '',
-			kind: n.kind ?? 'task',
-			status: n.status,
-			x: n.x ?? 0,
-			y: n.y ?? 0,
-		})),
-		edges: (d?.edges ?? []).map((e) => ({
-			id: e.id ?? `${e.from ?? ''}-${e.to ?? ''}`,
-			from: e.from ?? '',
-			to: e.to ?? '',
-			label: e.label,
+		index: d.iteration ?? 0,
+		startedAt: toIso(d.start_time),
+		durationMs: d.duration !== undefined && d.duration >= 0 ? d.duration : null,
+		summary: d.response_content ?? '',
+		toolCalls: (d.tool_calls ?? []).map((call) => toToolCall(call, d)),
+	};
+}
+
+/**
+ * The timeline enum carries the outcome in the entry type, so the badge reads
+ * off that rather than off a status field the payload never has.
+ */
+function timelineStatus(
+	type: string,
+	severity: string | null | undefined,
+): string {
+	if (
+		type.endsWith('_failed') ||
+		type === 'error' ||
+		type === 'execution_timeout'
+	) {
+		return severity ?? 'failed';
+	}
+	if (type === 'execution_completed') return 'completed';
+	if (type === 'iteration_end') return 'completed';
+	if (type === 'iteration_start') return 'running';
+	if (type === 'interruption_pause') return 'paused';
+	if (type === 'execution_cancelled' || type === 'execution_stopped') {
+		return 'cancelled';
+	}
+	return 'started';
+}
+
+function toTimelineEntry(d: TimelineDto): TimelineEntry {
+	const type = d.type ?? '';
+	return {
+		id: d.id ?? '',
+		at: toIso(d.timestamp),
+		kind: type,
+		title: type.replace(/_/g, ' '),
+		detail: d.description ?? '',
+		status: timelineStatus(type, d.error_severity),
+	};
+}
+
+/**
+ * The decision graph has no coordinates, so nodes are laid out in one column
+ * per iteration and the canvas keeps the run order readable.
+ */
+function toGraph(
+	view:
+		| {
+				nodes?: DecisionNodeDto[];
+				edges?: DecisionEdgeDto[];
+				error_node_ids?: string[];
+		  }
+		| undefined,
+): WorkflowGraph {
+	const errorIds = new Set(view?.error_node_ids ?? []);
+	const COLUMN = 190;
+	const ROW = 62;
+	const byIteration = new Map<number, number>();
+	return {
+		nodes: (view?.nodes ?? []).map((node) => {
+			const iteration = node.iteration ?? 0;
+			const row = byIteration.get(iteration) ?? 0;
+			byIteration.set(iteration, row + 1);
+			return {
+				id: node.node_id ?? '',
+				label: node.description ?? node.node_id ?? '',
+				kind: node.type ?? 'decision',
+				status: errorIds.has(node.node_id ?? '') ? 'failed' : undefined,
+				x: 24 + iteration * COLUMN,
+				y: 24 + row * ROW,
+			};
+		}),
+		edges: (view?.edges ?? []).map((edge) => ({
+			id: edge.edge_id ?? `${edge.from_node_id ?? ''}-${edge.to_node_id ?? ''}`,
+			from: edge.from_node_id ?? '',
+			to: edge.to_node_id ?? '',
+			label: edge.reason ?? edge.condition ?? undefined,
 		})),
 	};
 }
@@ -102,81 +236,92 @@ function toGraph(
 export async function listAgentLoops(params?: {
 	limit?: number;
 	offset?: number;
+	status?: string;
 }): Promise<PageResult<AgentLoop>> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/agent-loops', {
+		client.GET('/api/v1/agent-loops/summaries', {
 			params: { query: params ?? {} },
 		}),
 	);
-	const page = extractPage<AgentLoopDto>(data);
-	return { ...page, items: page.items.map(toAgentLoop) };
+	const page = extractPage<SummaryDto>(data);
+	return { ...page, items: page.items.map(toLoop) };
 }
 
-export async function getAgentLoop(id: string): Promise<AgentLoopDetail> {
-	const data = await call<AgentLoopDto>(
-		client.GET('/api/v1/agent-loops/{id}', {
+export async function getAgentLoop(id: string): Promise<AgentLoop> {
+	const data = await call<SummaryDto>(
+		client.GET('/api/v1/agent-loops/{id}/summary', {
 			params: { path: { id } },
 		}),
 	);
-	const loop = toAgentLoop(data);
+	return toLoop(data);
+}
 
-	const [summaryRes, messagesRes, graphRes] = await Promise.allSettled([
-		call<{ summary?: string }>(
-			client.GET('/api/v1/agent-loops/{id}/summary', {
-				params: { path: { id } },
-			}),
-		),
-		call<unknown>(
-			client.GET('/api/v1/agent-loops/{id}/conversation', {
-				params: { path: { id } },
-			}),
-		),
-		call<unknown>(
-			client.GET('/api/v1/agent-loops/{id}/graph', {
-				params: { path: { id } },
-			}),
-		),
-	]);
+export async function listLoopMessages(
+	id: string,
+	params?: { limit?: number; offset?: number },
+): Promise<PageResult<LoopMessage>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-loops/{id}/conversation', {
+			params: { path: { id }, query: { limit: 500, ...params } },
+		}),
+	);
+	const page = extractPage<MessageDto>(data);
+	return { ...page, items: page.items.map(toMessage) };
+}
 
-	const summary =
-		summaryRes.status === 'fulfilled'
-			? ((summaryRes.value as { summary?: string })?.summary ?? '')
-			: '';
-	const messages =
-		messagesRes.status === 'fulfilled'
-			? (Array.isArray(messagesRes.value)
-					? messagesRes.value
-					: extractPage<LoopMessageDto>(messagesRes.value).items
-				).map((m) => toMessage(m as LoopMessageDto))
-			: [];
-	const graph =
-		graphRes.status === 'fulfilled'
-			? toGraph(
-					graphRes.value as { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] },
-				)
-			: { nodes: [], edges: [] };
+export async function listLoopIterations(
+	id: string,
+	params?: { limit?: number; offset?: number },
+): Promise<PageResult<LoopIteration>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-loops/{id}/iteration-history', {
+			params: { path: { id }, query: params ?? {} },
+		}),
+	);
+	const page = extractPage<IterationDto>(data);
+	return { ...page, items: page.items.map(toIteration) };
+}
 
-	return {
-		...loop,
-		summary,
-		variables: [],
-		messages,
-		iterations: [],
-		graph,
-		analysis: {
-			rootCause: null,
-			errorChain: [],
-			recoveryHints: [],
-			toolFrequency: [],
-		},
-	};
+export async function getLoopGraph(id: string): Promise<WorkflowGraph> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-loops/{id}/graph', { params: { path: { id } } }),
+	);
+	return toGraph(
+		data as
+			| {
+					nodes?: DecisionNodeDto[];
+					edges?: DecisionEdgeDto[];
+					error_node_ids?: string[];
+			  }
+			| undefined,
+	);
+}
+
+export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-loops/{id}/timeline', {
+			params: { path: { id } },
+		}),
+	);
+	return extractCapped<TimelineDto>(data).items.map(toTimelineEntry);
+}
+
+/** The loop variable endpoint answers with `[name, value]` pairs. */
+export async function listLoopVariables(id: string): Promise<LoopVariable[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-loops/{id}/variables', {
+			params: { path: { id }, query: { limit: 200 } },
+		}),
+	);
+	return extractPage<[string, unknown]>(data).items.map(([key, value]) => ({
+		key,
+		value: stringify(value),
+	}));
 }
 
 export async function pauseAgentLoop(id: string): Promise<void> {
 	await call<unknown>(
-		client.POST('/api/v1/agent-loops/{id}/pause', {
-			params: { path: { id } },
-		}),
+		client.POST('/api/v1/agent-loops/{id}/pause', { params: { path: { id } } }),
 	);
 }
 

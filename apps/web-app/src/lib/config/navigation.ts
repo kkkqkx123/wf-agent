@@ -27,12 +27,6 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'sparkles',
 				description: 'Dialogue-first agent IDE with sessions and composer',
 			},
-			{
-				href: '/agent-loops',
-				label: 'Agent Loops',
-				icon: 'loop',
-				description: 'Loop runs, messages, variables and checkpoints',
-			},
 		],
 	},
 	{
@@ -44,6 +38,12 @@ export const NAV_GROUPS: NavGroup[] = [
 				label: 'Workbench',
 				icon: 'activity',
 				description: 'Execution list, status and live detail',
+			},
+			{
+				href: '/agent-loops',
+				label: 'Agent Loops',
+				icon: 'loop',
+				description: 'Loop runs, messages, variables and checkpoints',
 			},
 		],
 	},

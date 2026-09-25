@@ -6,6 +6,7 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
@@ -130,17 +131,12 @@
 				{/each}
 			</div>
 		{:else if registry.error}
-			<Card class="border-destructive/40">
-				<p class="text-body text-destructive">{registry.error}</p>
-				<Button
-					variant="outline"
-					size="sm"
-					class="mt-2"
-					onclick={() => void registry.reload()}
-				>
-					Retry
-				</Button>
-			</Card>
+			<ErrorState
+				title="Failed to load templates"
+				description={registry.error}
+				onretry={() => void registry.reload()}
+				class="rounded-lg border border-border bg-card"
+			/>
 		{:else if templates.length === 0}
 			<EmptyState
 				icon="template"

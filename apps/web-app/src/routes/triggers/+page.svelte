@@ -9,6 +9,7 @@
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
@@ -110,18 +111,12 @@
 					</div>
 				</Card>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load trigger records"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if list.loaded === 0}
 				<EmptyState
 					icon="zap"
@@ -186,7 +181,12 @@
 							{/each}
 						</div>
 					{:else if hooks.error}
-						<p class="text-caption text-destructive">{hooks.error}</p>
+						<ErrorState
+							title="Failed to load hooks"
+							description={hooks.error}
+							onretry={() => hooks.reload()}
+							class="py-6"
+						/>
 					{:else if !hooks.data || hooks.data.length === 0}
 						<EmptyState
 							icon="link"

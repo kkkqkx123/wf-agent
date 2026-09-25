@@ -21,7 +21,7 @@ use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
-use crate::sse::sse_response;
+use crate::sse::{execution_frames, sse_response};
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         // ── execution trigger + stream ──
@@ -124,17 +124,9 @@ pub(crate) async fn handle_execute_stream(
     let first = Ok::<_, Infallible>(Bytes::from(format!(
         "event: metadata\ndata: {metadata}\n\n"
     )));
-    let events = futures::stream::unfold(stream, |mut stream| async move {
-        match stream.next().await {
-            Some(event) => {
-                let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
-                let frame = format!("data: {payload}\n\n");
-                Some((Ok::<_, Infallible>(Bytes::from(frame)), stream))
-            }
-            None => None,
-        }
-    });
-    sse_response(futures::stream::once(futures::future::ready(first)).chain(events))
+    sse_response(
+        futures::stream::once(futures::future::ready(first)).chain(execution_frames(stream)),
+    )
 }
 
 #[derive(Deserialize, IntoParams)]

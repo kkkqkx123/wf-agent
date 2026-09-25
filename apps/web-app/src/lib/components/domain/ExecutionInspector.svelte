@@ -1,21 +1,21 @@
 <script lang="ts">
 	import type { ExecutionDetail } from '$lib/types/models';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import Icon from '$lib/components/icons/Icon.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import Timeline from './Timeline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
+	import { streamErrorAnalysis } from '$lib/services/streaming';
+	import type { ErrorRecord } from '$lib/services/streaming';
 
-	import {
-		formatBytes,
-		formatDateTime,
-		formatDuration,
-		formatNumber,
-		shortId,
-	} from '$lib/utils/format';
+	import { formatDateTime, formatDuration, nodeCount } from '$lib/utils/format';
 	import { statusTone } from '$lib/utils/status';
+	import { workflowTitle } from '$lib/stores/workflow-titles.svelte';
 	import { cn } from '$lib/utils/cn';
 
 	import type { ToolCallEntry, TimelineEntry } from '$lib/types/models';
@@ -54,6 +54,40 @@
 					? 'running'
 					: 'default',
 	);
+	const nodes = $derived(nodeCount(execution.nodesDone, execution.nodesTotal));
+	const failedNodes = $derived(execution.nodesFailed ?? 0);
+
+	/** Error chain of this execution, filled frame by frame on demand. */
+	let errorRecords = $state<ErrorRecord[]>([]);
+	let analyzing = $state(false);
+	let analysisError = $state<string | null>(null);
+	let analysisRetryMs = $state<number | null>(null);
+	let stopAnalysis: (() => void) | null = null;
+
+	async function analyzeErrors(): Promise<void> {
+		errorRecords = [];
+		analysisError = null;
+		analysisRetryMs = null;
+		const controller = new AbortController();
+		stopAnalysis = () => controller.abort();
+		analyzing = true;
+		await streamErrorAnalysis(
+			execution.id,
+			{
+				onRecord: (record) => (errorRecords = [...errorRecords, record]),
+				onError: (failure) => {
+					analysisError = failure.message;
+					analysisRetryMs = failure.retryAfterMs;
+				},
+			},
+			controller.signal,
+		);
+		stopAnalysis = null;
+		analyzing = false;
+	}
+
+	// Leaving the page abandons the analysis stream rather than orphaning it.
+	$effect(() => () => stopAnalysis?.());
 </script>
 
 <div class={cn('flex h-full min-h-0 flex-col', className)}>
@@ -61,7 +95,7 @@
 		<div class="flex items-start justify-between gap-2">
 			<div class="min-w-0">
 				<h2 class="truncate text-title font-semibold">
-					{execution.workflowName}
+					{workflowTitle(execution.workflowId)}
 				</h2>
 				<p class="mt-0.5 font-mono text-micro text-muted-foreground">
 					{execution.id}
@@ -70,17 +104,17 @@
 			<StatusBadge status={execution.status} />
 		</div>
 
-		<div class="mt-3 space-y-1.5">
-			<div
-				class="flex items-center justify-between text-micro text-muted-foreground"
-			>
-				<span>Progress</span>
-				<span class="tabular-nums"
-					>{execution.tasksDone}/{execution.tasksTotal} tasks</span
+		{#if execution.progress !== null}
+			<div class="mt-3 space-y-1.5">
+				<div
+					class="flex items-center justify-between text-micro text-muted-foreground"
 				>
+					<span>Progress</span>
+					<span class="tabular-nums">{nodes}</span>
+				</div>
+				<Progress value={execution.progress} tone={progressTone} />
 			</div>
-			<Progress value={execution.progress} tone={progressTone} />
-		</div>
+		{/if}
 
 		<dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
 			<div>
@@ -89,22 +123,26 @@
 					{formatDateTime(execution.startedAt)}
 				</dd>
 			</div>
-			<div>
-				<dt class="text-micro text-muted-foreground">Duration</dt>
-				<dd class="text-caption tabular-nums">
-					{formatDuration(execution.durationMs)}
-				</dd>
-			</div>
-			<div>
-				<dt class="text-micro text-muted-foreground">Memory peak</dt>
-				<dd class="text-caption tabular-nums">
-					{formatBytes(execution.memoryPeakBytes)}
-				</dd>
-			</div>
-			<div>
-				<dt class="text-micro text-muted-foreground">Trigger</dt>
-				<dd class="truncate text-caption">{execution.trigger ?? '—'}</dd>
-			</div>
+			{#if execution.durationMs !== null}
+				<div>
+					<dt class="text-micro text-muted-foreground">Duration</dt>
+					<dd class="text-caption tabular-nums">
+						{formatDuration(execution.durationMs)}
+					</dd>
+				</div>
+			{/if}
+			{#if execution.progress === null && nodes}
+				<div>
+					<dt class="text-micro text-muted-foreground">Nodes</dt>
+					<dd class="text-caption tabular-nums">{nodes}</dd>
+				</div>
+			{/if}
+			{#if execution.executionType}
+				<div>
+					<dt class="text-micro text-muted-foreground">Type</dt>
+					<dd class="truncate text-caption">{execution.executionType}</dd>
+				</div>
+			{/if}
 		</dl>
 	</div>
 
@@ -113,35 +151,41 @@
 	<div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
 		{#if tab === 'overview'}
 			<div class="space-y-3">
-				<Card title="Context">
-					<KeyValueList items={execution.context} dense />
-				</Card>
+				{#if execution.errorMessage}
+					<Card title="Failure">
+						<p class="text-caption text-destructive">
+							{execution.errorMessage}
+						</p>
+					</Card>
+				{/if}
 				<Card title="Current position">
-					<p class="text-body">{execution.currentNode ?? 'No active node'}</p>
-					<p class="mt-1 text-caption text-muted-foreground">
-						{execution.failedNodes} failed nodes across {formatNumber(
-							execution.tasksTotal,
-						)} tasks
+					<p class="font-mono text-body">
+						{execution.currentNodeId ?? 'No active node'}
 					</p>
+					{#if nodes}
+						<p class="mt-1 text-caption text-muted-foreground">
+							{nodes} recorded
+							{#if failedNodes > 0}· {failedNodes} failed{/if}
+						</p>
+					{/if}
 				</Card>
-				<Card title="Status migration">
-					<ol class="space-y-1.5">
-						{#each execution.migration as entry, index (index)}
-							<li class="flex items-start gap-2 text-caption">
-								<time class="shrink-0 tabular-nums text-muted-foreground">
-									{formatDateTime(entry.at)}
-								</time>
-								<span class="min-w-0">
-									<span class="text-foreground">{entry.from}</span>
-									<span class="mx-1 text-muted-foreground">→</span>
-									<span class="text-foreground">{entry.to}</span>
-									<span class="block text-micro text-muted-foreground"
-										>{entry.reason}</span
-									>
-								</span>
-							</li>
-						{/each}
-					</ol>
+				<Card title="Input">
+					{#if execution.input}
+						<pre
+							class="max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro whitespace-pre-wrap break-all">{execution.input}</pre>
+					{:else}
+						<p class="text-caption text-muted-foreground">No input recorded.</p>
+					{/if}
+				</Card>
+				<Card title="Output">
+					{#if execution.output}
+						<pre
+							class="max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro whitespace-pre-wrap break-all">{execution.output}</pre>
+					{:else}
+						<p class="text-caption text-muted-foreground">
+							No output recorded.
+						</p>
+					{/if}
 				</Card>
 			</div>
 		{:else if tab === 'timeline'}
@@ -154,102 +198,105 @@
 			</div>
 		{:else if tab === 'analysis'}
 			<div class="space-y-3">
-				<Card title="Slow nodes">
-					<ul class="space-y-1.5">
-						{#each execution.analysis.slowNodes as node (node.node)}
-							<li class="flex items-center justify-between gap-2 text-caption">
-								<span class="truncate font-mono">{node.node}</span>
-								<span class="shrink-0 tabular-nums text-muted-foreground">
-									{formatDuration(node.durationMs)}
-								</span>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-				<Card title="Critical path">
-					<ol class="flex flex-wrap items-center gap-1.5">
-						{#each execution.analysis.criticalPath as node, index (node)}
-							<li class="flex items-center gap-1.5">
-								<span
-									class="rounded border border-border px-1.5 py-0.5 font-mono text-micro"
-								>
-									{node}
-								</span>
-								{#if index < execution.analysis.criticalPath.length - 1}
-									<span class="text-micro text-muted-foreground">→</span>
-								{/if}
-							</li>
-						{/each}
-					</ol>
-				</Card>
-				<Card title="Decision points">
-					<div class="flex flex-wrap gap-1.5">
-						{#each execution.analysis.decisionPoints as node (node)}
-							<span
-								class="rounded-full border border-border px-2 py-0.5 font-mono text-micro"
+				{#if execution.failures.length > 0}
+					<Card title="Node failures">
+						<ul class="space-y-1.5">
+							{#each execution.failures as message, index (index)}
+								<li class="text-caption text-destructive">{message}</li>
+							{/each}
+						</ul>
+					</Card>
+				{/if}
+				<Card title="Error chain">
+					{#snippet actions()}
+						{#if analyzing}
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => stopAnalysis?.()}
 							>
-								{node}
-							</span>
-						{/each}
-					</div>
-					<p class="mt-2 text-caption text-muted-foreground">
-						{formatNumber(execution.analysis.iterations)} iterations recorded
-					</p>
+								<Icon name="square" size={13} />
+								Stop
+							</Button>
+						{:else}
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => void analyzeErrors()}
+							>
+								<Icon name="search" size={13} />
+								Analyze
+							</Button>
+						{/if}
+					{/snippet}
+					{#if analysisError}
+						<p
+							class="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive"
+						>
+							{analysisError}
+							{#if analysisRetryMs !== null}
+								<span class="mt-1 block text-muted-foreground">
+									Rate limited — retry in {formatDuration(analysisRetryMs)}.
+								</span>
+							{/if}
+						</p>
+					{:else if errorRecords.length > 0}
+						<ol class="space-y-2">
+							{#each errorRecords as record (record.id)}
+								<li
+									class="border-b border-border/60 pb-2 last:border-0 last:pb-0"
+								>
+									<div class="flex items-center justify-between gap-2">
+										<span class="truncate font-mono text-caption">
+											{record.nodeId ?? record.id}
+										</span>
+										<span
+											class="flex shrink-0 items-center gap-1.5 text-micro text-muted-foreground"
+										>
+											{#if record.id === record.rootCauseId}
+												<Badge variant="danger" size="sm">root</Badge>
+											{/if}
+											{record.errorType ?? ''}
+										</span>
+									</div>
+									<p class="mt-1 text-caption">{record.error}</p>
+									<p class="mt-0.5 text-micro text-muted-foreground">
+										{formatDateTime(record.at)}
+										{#if record.recoveryAction}
+											· {record.recoveryAction}
+										{:else if !record.isRecoverable}
+											· not recoverable
+										{/if}
+									</p>
+								</li>
+							{/each}
+						</ol>
+						{#if analyzing}
+							<p class="mt-2 text-caption text-muted-foreground">
+								Streaming more records…
+							</p>
+						{/if}
+					{:else if analyzing}
+						<p class="text-caption text-muted-foreground">
+							Waiting for the root cause…
+						</p>
+					{:else}
+						<p class="text-caption text-muted-foreground">
+							Run the analysis to read the error chain from its root cause.
+						</p>
+					{/if}
 				</Card>
 			</div>
 		{:else}
 			<div class="space-y-3">
 				<Card title="Variables">
-					<KeyValueList
-						items={execution.variables.map((item) => ({
-							key: item.key,
-							value: item.value,
-						}))}
-						dense
-					/>
-				</Card>
-				<Card title="Call stack">
-					<ol class="space-y-2">
-						{#each execution.callStack as frame (frame.node)}
-							<li
-								class="flex items-start justify-between gap-2 border-b border-border/60 pb-2 last:border-0 last:pb-0"
-							>
-								<span class="min-w-0">
-									<span class="block truncate font-mono text-caption"
-										>{frame.node}</span
-									>
-									<span class="text-micro text-muted-foreground">
-										depth {frame.depth} · {formatDateTime(frame.enteredAt)}
-									</span>
-								</span>
-								<StatusBadge status={frame.status} size="sm" dot={false} />
-							</li>
-						{/each}
-					</ol>
-				</Card>
-				<Card title="Memory">
-					<div class="space-y-2">
-						<div>
-							<div class="flex items-center justify-between text-caption">
-								<span class="text-muted-foreground">Current</span>
-								<span class="tabular-nums"
-									>{formatBytes(execution.memory.currentBytes)}</span
-								>
-							</div>
-							<Progress
-								value={execution.memory.currentBytes /
-									Math.max(1, execution.memory.peakBytes)}
-								tone="default"
-								class="mt-1"
-							/>
-						</div>
+					{#if execution.variables.length > 0}
+						<KeyValueList items={execution.variables} dense />
+					{:else}
 						<p class="text-caption text-muted-foreground">
-							Peak {formatBytes(execution.memory.peakBytes)} · snapshot {shortId(
-								execution.id,
-								10,
-							)}
+							No variables recorded.
 						</p>
-					</div>
+					{/if}
 				</Card>
 			</div>
 		{/if}

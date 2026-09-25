@@ -19,7 +19,7 @@ export function appPath(path: string): AppPath {
 }
 
 /** Query keys that carry list-page state, so a URL alone reproduces the view. */
-export const LIST_KEYS = ['q', 'status', 'page', 'id', 'tab'] as const;
+export const LIST_KEYS = ['q', 'status', 'page', 'id', 'tab', 'panel'] as const;
 
 export type ListKey = (typeof LIST_KEYS)[number];
 

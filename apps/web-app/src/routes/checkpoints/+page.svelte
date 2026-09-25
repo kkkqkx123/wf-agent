@@ -9,6 +9,7 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
@@ -159,12 +160,12 @@
 		return pending.kind === 'restore'
 			? {
 					title: 'Restore checkpoint',
-					detail: `Execution ${target.executionId} is rolled back to checkpoint #${target.sequence}.`,
+					detail: `${target.entityType} ${target.entityId} is rolled back to position ${target.chainPosition ?? '?'}.`,
 					verb: 'Restore',
 				}
 			: {
 					title: 'Resume from checkpoint',
-					detail: `Execution ${target.executionId} restarts from checkpoint #${target.sequence} and re-runs the remaining nodes.`,
+					detail: `${target.entityType} ${target.entityId} restarts from position ${target.chainPosition ?? '?'} and re-runs the remaining nodes.`,
 					verb: 'Resume',
 				};
 	});
@@ -184,10 +185,10 @@
 					toasts.success(`Deleted checkpoint ${target.id}`);
 				} else if (action.kind === 'restore') {
 					await restoreCheckpoint(target.id);
-					toasts.success(`Restored checkpoint #${target.sequence}`);
+					toasts.success(`Restored checkpoint ${target.id}`);
 				} else {
 					await resumeFromCheckpoint(target.id);
-					toasts.success(`Resumed execution ${target.executionId}`);
+					toasts.success(`Resumed ${target.entityType} ${target.entityId}`);
 				}
 			}
 			const wasRollback = action.kind === 'rollback';
@@ -319,18 +320,12 @@
 					{/each}
 				</div>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load checkpoints"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if list.loaded === 0}
 				<EmptyState
 					icon="history"
@@ -341,28 +336,35 @@
 			{:else}
 				<div class="space-y-2">
 					{#each list.items as checkpoint (checkpoint.id)}
-						<Card title="{checkpoint.kind} checkpoint · #{checkpoint.sequence}">
+						<Card
+							title="{checkpoint.kind} · position {checkpoint.chainPosition ??
+								'?'}"
+						>
 							{#snippet actions()}
-								<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
-									{checkpoint.restorable ? 'restorable' : 'locked'}
-								</Badge>
+								<StatusBadge status={checkpoint.status} size="sm" dot={false} />
 							{/snippet}
 							<div
 								class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground"
 							>
 								<span class="font-mono">{checkpoint.id}</span>
-								<span>{checkpoint.actor}</span>
+								<span>{checkpoint.entityType} {checkpoint.entityId}</span>
 								<span class="tabular-nums"
 									>{formatBytes(checkpoint.sizeBytes)}</span
 								>
 								<span>{formatRelativeTime(checkpoint.createdAt)}</span>
 							</div>
-							<p class="mt-1.5 text-body">{checkpoint.note}</p>
+							{#if checkpoint.tags.length > 0}
+								<div class="mt-1.5 flex flex-wrap gap-1.5">
+									{#each checkpoint.tags as tag (tag)}
+										<Badge variant="outline" size="sm">{tag}</Badge>
+									{/each}
+								</div>
+							{/if}
 							{#snippet footer()}
 								<div class="flex flex-wrap items-center gap-2">
 									<Button
 										size="sm"
-										disabled={!checkpoint.restorable || busy}
+										disabled={busy}
 										onclick={() => ask({ kind: 'restore', checkpoint })}
 									>
 										Restore
@@ -370,7 +372,7 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										disabled={!checkpoint.restorable || busy}
+										disabled={busy}
 										onclick={() => ask({ kind: 'resume', checkpoint })}
 									>
 										Resume from here
@@ -398,18 +400,12 @@
 					{/each}
 				</div>
 			{:else if actors.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load the file workspace"
 					description={actors.error}
+					onretry={() => actors.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => actors.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if !actorId}
 				<EmptyState
 					icon="folder"
@@ -438,9 +434,11 @@
 								{/each}
 							</div>
 						{:else if stagedChanges.error}
-							<p class="text-caption text-destructive">
-								{stagedChanges.error}
-							</p>
+							<ErrorState
+								title="Failed to load staged changes"
+								description={stagedChanges.error}
+								onretry={() => stagedChanges.reload()}
+							/>
 						{:else if changes.length === 0}
 							<p class="text-caption text-muted-foreground">
 								Workspace matches the staged partition.
@@ -559,18 +557,12 @@
 					{/each}
 				</div>
 			{:else if approvals.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load approvals"
 					description={approvals.error}
+					onretry={() => approvals.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => approvals.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if !approvals.data || approvals.data.length === 0}
 				<EmptyState
 					icon="check"

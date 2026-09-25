@@ -1,11 +1,22 @@
 import { API_BASE_URL, resolveApiKey } from '$lib/api/client';
 
+/**
+ * Why a stream stopped. `status` and `retryAfterMs` are filled when the
+ * handshake was rejected, so a 429 stays distinguishable from a mid-stream
+ * break instead of collapsing into one error string.
+ */
+export interface StreamFailure {
+	message: string;
+	status: number | null;
+	retryAfterMs: number | null;
+}
+
 export interface PostStreamOptions {
 	path: string;
 	body: unknown;
 	signal: AbortSignal;
 	onFrame: (event: string, data: unknown) => void;
-	onError: (message: string) => void;
+	onError: (failure: StreamFailure) => void;
 }
 
 export interface GetStreamOptions {
@@ -13,7 +24,11 @@ export interface GetStreamOptions {
 	query?: Record<string, string>;
 	signal: AbortSignal;
 	onFrame: (event: string, data: unknown) => void;
-	onError: (message: string) => void;
+	onError: (failure: StreamFailure) => void;
+}
+
+function transportError(message: string): StreamFailure {
+	return { message, status: null, retryAfterMs: null };
 }
 
 function dispatchFrame(
@@ -40,10 +55,10 @@ async function pump(
 	response: Response,
 	signal: AbortSignal,
 	onFrame: (event: string, data: unknown) => void,
-	onError: (message: string) => void,
+	onError: (failure: StreamFailure) => void,
 ): Promise<void> {
 	if (!response.body) {
-		onError('Stream has no body');
+		onError(transportError('Stream has no body'));
 		return;
 	}
 	const reader = response.body.getReader();
@@ -61,25 +76,45 @@ async function pump(
 				boundary = buffer.indexOf('\n\n');
 			}
 		}
+		// A stream the caller walked away from is released, not left half-read.
+		if (signal.aborted) await reader.cancel();
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(e instanceof Error ? e.message : 'Stream interrupted');
+			onError(
+				transportError(e instanceof Error ? e.message : 'Stream interrupted'),
+			);
 		}
 	} finally {
 		reader.releaseLock();
 	}
 }
 
-async function readError(response: Response): Promise<string> {
+/** `Retry-After` arrives as delta seconds or as an HTTP date. */
+function retryAfterMs(response: Response): number | null {
+	const header = response.headers.get('retry-after');
+	if (!header) return null;
+	const seconds = Number(header);
+	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+	const at = Date.parse(header);
+	return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
+}
+
+/** Describe a rejected handshake, keeping the 429 wait hint structured. */
+async function handshakeFailure(response: Response): Promise<StreamFailure> {
+	let message = `Stream failed (HTTP ${response.status})`;
 	try {
 		const payload = (await response.json()) as {
 			error?: { message?: string };
 		};
-		if (payload.error?.message) return payload.error.message;
+		if (payload.error?.message) message = payload.error.message;
 	} catch {
-		// Fall through to the status detail below.
+		// Keep the status-derived message.
 	}
-	return `Stream failed (HTTP ${response.status})`;
+	return {
+		message,
+		status: response.status,
+		retryAfterMs: response.status === 429 ? retryAfterMs(response) : null,
+	};
 }
 
 /**
@@ -106,12 +141,16 @@ export async function openPostStream(
 		});
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(e instanceof Error ? e.message : 'Stream request failed');
+			onError(
+				transportError(
+					e instanceof Error ? e.message : 'Stream request failed',
+				),
+			);
 		}
 		return;
 	}
 	if (!response.ok) {
-		onError(await readError(response));
+		onError(await handshakeFailure(response));
 		return;
 	}
 	await pump(response, signal, onFrame, onError);
@@ -136,12 +175,16 @@ export async function openGetStream(options: GetStreamOptions): Promise<void> {
 		});
 	} catch (e) {
 		if (!signal.aborted) {
-			onError(e instanceof Error ? e.message : 'Stream request failed');
+			onError(
+				transportError(
+					e instanceof Error ? e.message : 'Stream request failed',
+				),
+			);
 		}
 		return;
 	}
 	if (!response.ok) {
-		onError(await readError(response));
+		onError(await handshakeFailure(response));
 		return;
 	}
 	await pump(response, signal, onFrame, onError);

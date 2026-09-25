@@ -199,17 +199,6 @@ export async function promoteWorkflowDraft(id: string): Promise<void> {
 	);
 }
 
-/** Runs the workflow to completion and reports the execution it created. */
-export async function executeWorkflow(id: string): Promise<string> {
-	const data = await call<{ execution_id?: string; result?: unknown }>(
-		client.POST('/api/v1/workflows/{id}/execute', {
-			params: { path: { id } },
-			body: { input: null },
-		}),
-	);
-	return data?.execution_id ?? '';
-}
-
 /** Re-point the formal definition at a stored version. */
 export async function rollbackWorkflow(
 	id: string,

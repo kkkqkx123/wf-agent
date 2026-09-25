@@ -2,51 +2,44 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
-	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import SessionList from '$lib/components/domain/SessionList.svelte';
+	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
+	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
 	import Composer from '$lib/components/chat/Composer.svelte';
-	import { getAgentLoop, listAgentLoops } from '$lib/services/agent-loops';
+	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
+	import {
+		listLoopMessages,
+		type RunLoopMessage,
+	} from '$lib/services/agent-loops';
 	import { streamLoopRun } from '$lib/services/streaming';
-	import { listCheckpointsByEntity } from '$lib/services/checkpoints';
 	import { listModelProfiles } from '$lib/services/resources';
-	import { removeFavorite, setFavorite } from '$lib/services/favorites';
+	import type { CommandAction } from '$lib/config/commands';
 	import type {
-		AgentLoopDetail,
-		Checkpoint,
+		LoopMessage,
+		MessageAttachment,
+		OutgoingMessage,
 		ToolCallEntry,
 	} from '$lib/types/models';
-	import {
-		createCollection,
-		createResource,
-	} from '$lib/stores/collection.svelte';
-	import { chatStream } from '$lib/stores/chat-stream.svelte';
-	import type { LiveToolCall } from '$lib/stores/chat-stream.svelte';
+	import { splitAttachments, withAttachments } from '$lib/utils/attachments';
+	import { createResource } from '$lib/stores/collection.svelte';
+	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import type { LiveToolCall } from '$lib/stores/stream-run.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import { ui } from '$lib/stores/ui.svelte';
+	import { NEW_SESSION, sessions } from '$lib/stores/sessions.svelte';
+	import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
+	import { formatDuration, formatNumber } from '$lib/utils/format';
 	import { appPath, gotoWithParams, parseListParams } from '$lib/utils/route';
-
-	const PANEL_TABS = [
-		{ id: 'overview', label: 'Overview' },
-		{ id: 'graph', label: 'Graph' },
-		{ id: 'checkpoints', label: 'Checkpoints' },
-	];
 
 	const SUGGESTIONS = [
 		'Summarize the current workspace state',
@@ -54,78 +47,47 @@
 		'Draft a plan before making changes',
 	];
 
-	function isPanelTab(value: string | undefined): boolean {
-		return PANEL_TABS.some((tab) => tab.id === value);
-	}
-
-	const initial = parseListParams(page.url);
-
-	let query = $state(initial.q ?? '');
-	let selectedId = $state<string | null>(initial.id ?? null);
-	let panelTab = $state(
-		initial.tab && isPanelTab(initial.tab) ? initial.tab : 'overview',
-	);
-
-	const list = createCollection((params) => listAgentLoops(params));
-	const detail = createResource<AgentLoopDetail | null>(async () => {
-		if (!selectedId) return null;
-		return getAgentLoop(selectedId);
-	});
-	const checkpointList = createResource<Checkpoint[]>(async () => {
-		if (!selectedId) return [];
-		return listCheckpointsByEntity(selectedId);
-	});
-	const checkpoints = $derived(checkpointList.data ?? []);
+	/** Selection lives in the address, so the sidebar and this page share it. */
+	const selectedId = $derived(page.url.searchParams.get('id'));
 
 	let model = $state('');
-	let timeline: HTMLDivElement | null = $state(null);
+	let revision = $state(0);
+
+	const initial = parseListParams(page.url);
+	let tab = $state<SessionTab>(isSessionTab(initial.tab) ?? 'overview');
+	let panelOpen = $state(initial.panel !== 'closed');
+
+	const transcript = createResource<LoopMessage[]>(async () => {
+		if (!selectedId) return [];
+		return (await listLoopMessages(selectedId)).items;
+	});
+
+	const bubbles = $derived(transcript.data ?? []);
+
+	/** Content counter the transcript viewport follows while pinned to the tail. */
+	const activity = $derived(
+		bubbles.length +
+			chatStream.answer.length +
+			chatStream.reasoning.length +
+			chatStream.tools.length,
+	);
 
 	const showLive = $derived(
-		chatStream.sessionKey === (selectedId ?? 'new') &&
+		chatStream.sessionKey === (selectedId ?? NEW_SESSION) &&
 			(chatStream.active ||
 				chatStream.done ||
+				chatStream.cancelled ||
 				chatStream.error !== null ||
 				chatStream.answer !== ''),
 	);
 
-	function draftKey(): string {
-		return `wf-chat-draft:${selectedId ?? 'new'}`;
-	}
+	const showTranscript = $derived(bubbles.length > 0 || showLive);
 
-	function scrollTimeline(): void {
-		if (!timeline) return;
-		timeline.scrollTo({ top: timeline.scrollHeight });
-	}
-
-	function select(id: string): void {
-		chatStream.stop();
-		selectedId = id;
-		const session = list.items.find((item) => item.id === id);
-		ui.recordVisit(`/chat?id=${id}`, session?.name || id);
-	}
-
-	async function toggleStar(id: string, starred: boolean): Promise<void> {
-		try {
-			if (starred) await setFavorite('agent_loop', id, {});
-			else await removeFavorite('agent_loop', id);
-			await list.reload();
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Star update failed');
-		}
-	}
-
-	function startDraft(): void {
-		chatStream.stop();
-		selectedId = null;
-	}
-
-	function reloadActive(): void {
-		void list.reload();
-		if (selectedId) {
-			void detail.reload();
-			void checkpointList.reload();
-		}
-	}
+	const session = $derived(
+		selectedId
+			? (sessions.list.items.find((item) => item.id === selectedId) ?? null)
+			: null,
+	);
 
 	function toLiveEntry(tool: LiveToolCall): ToolCallEntry {
 		return {
@@ -140,33 +102,26 @@
 		};
 	}
 
-	function adoptNewest(baseline: Set<string>, startedAt: string): void {
-		const fresh = list.items
-			.filter((item) => !baseline.has(item.id) && item.startedAt >= startedAt)
-			.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
-		const fallback = list.items
-			.filter((item) => !baseline.has(item.id))
-			.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-		const next = fresh[0] ?? fallback[0];
-		if (next) selectedId = next.id;
-	}
-
-	function sendText(text: string): boolean {
-		const content = text.trim();
-		if (!content || chatStream.active) return false;
+	function sendText(message: OutgoingMessage): boolean {
+		const text = message.text.trim();
+		if (!text && message.attachments.length === 0) return false;
+		if (chatStream.active) return false;
 		if (!model.trim()) {
 			toasts.error('Choose a model before sending');
 			return false;
 		}
-		void runStream(content);
+		void runStream(text, message.attachments);
 		return true;
 	}
 
+	function sendPrompt(text: string): boolean {
+		return sendText({ text, attachments: [] });
+	}
+
 	function retryLast(): void {
-		const messages = detail.data?.messages ?? [];
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			if (messages[index].role === 'user') {
-				sendText(messages[index].content);
+		for (let index = bubbles.length - 1; index >= 0; index -= 1) {
+			if (bubbles[index].role === 'user') {
+				sendText(splitAttachments(bubbles[index].content));
 				return;
 			}
 		}
@@ -178,27 +133,34 @@
 		else toasts.info('Feedback recorded, will improve');
 	}
 
-	function runCommand(command: string): void {
-		if (command === 'new') startDraft();
-		else if (command === 'retry') retryLast();
-		else if (command === 'continue') sendText('Continue');
-	}
+	/** Every slash command maps to one action here; the table owns the vocabulary. */
+	const COMMANDS: Record<CommandAction, (arg: string) => void> = {
+		new: () => sessions.startDraft(),
+		retry: () => retryLast(),
+		continue: (arg) => sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
+	};
 
-	async function runStream(content: string): Promise<void> {
-		const sessionKey = selectedId ?? 'new';
-		const baseline = new Set(list.items.map((item) => item.id));
+	async function runStream(
+		content: string,
+		files: MessageAttachment[],
+	): Promise<void> {
+		const draft = !selectedId;
+		const baseline = new Set(sessions.list.items.map((item) => item.id));
 		const startedAt = new Date().toISOString();
-		const signal = chatStream.start(sessionKey);
-		const history = (detail.data?.messages ?? []).map((message) => ({
+		const history: RunLoopMessage[] = bubbles.map((message) => ({
 			id: message.id,
 			role: message.role,
 			content: message.content,
 			timestamp: Date.parse(message.createdAt) || Date.now(),
 		}));
-		scrollTimeline();
+		const signal = chatStream.start(selectedId ?? NEW_SESSION);
 		await streamLoopRun(
-			selectedId ?? 'new',
-			{ model: model.trim(), message: content, conversation: history },
+			selectedId ?? NEW_SESSION,
+			{
+				model: model.trim(),
+				message: withAttachments(content, files),
+				conversation: history,
+			},
 			{
 				onDelta: (delta) => chatStream.appendDelta(delta),
 				onReasoning: (delta) => chatStream.appendReasoning(delta),
@@ -225,38 +187,46 @@
 				onCompleted: () => chatStream.complete(),
 				onFailed: (message) => chatStream.fail(message),
 				onInterrupted: (reason) => chatStream.fail(reason),
-				onError: (message) => chatStream.fail(message),
+				onError: (failure) =>
+					chatStream.fail(failure.message, failure.retryAfterMs),
 			},
 			signal,
 		);
 		if (!chatStream.error && !chatStream.done) chatStream.complete();
-		await list.reload();
-		if (!selectedId) adoptNewest(baseline, startedAt);
-		if (selectedId) {
-			await detail.reload();
-			await checkpointList.reload();
+		await sessions.refresh();
+		if (draft) {
+			const fresh = sessions.sessions.filter((row) => !baseline.has(row.id));
+			const adopted =
+				fresh.find((row) => row.startedAt >= startedAt) ?? fresh[0];
+			if (adopted) {
+				sessions.recordTitle(adopted.id, content);
+				sessions.open(adopted.id);
+			}
 		}
-		scrollTimeline();
+		revision += 1;
+		if (selectedId) await transcript.reload();
 	}
 
+	// The address is the source of truth for which session is open.
 	$effect(() => {
-		if (selectedId) {
-			void detail.reload();
-			void checkpointList.reload();
+		const id = selectedId;
+		if (!id) {
+			transcript.data = [];
+			return;
 		}
+		sessions.touch(id);
+		void transcript.reload();
 	});
 
 	$effect(() => {
 		gotoWithParams(page.url, {
-			q: query,
 			id: selectedId ?? '',
-			tab: panelTab === 'overview' ? '' : panelTab,
-			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
+			tab: tab === 'overview' ? '' : tab,
+			panel: panelOpen ? '' : 'closed',
 		});
 	});
 
 	onMount(() => {
-		void list.loadPages(Number(initial.page) || 1);
 		void listModelProfiles()
 			.then((profiles) => {
 				const preferred =
@@ -271,281 +241,208 @@
 
 <SplitView
 	inspectorTitle="Session panel"
-	inspectorOpen={selectedId !== null}
-	oninspectorclose={() => (panelTab = 'overview')}
+	inspectorOpen={panelOpen && selectedId !== null}
+	oninspectorclose={() => (panelOpen = false)}
 	class="h-full"
 >
-	<div class="flex h-full min-h-0 flex-col md:flex-row">
-		<SessionList
-			sessions={list.items}
-			{selectedId}
-			loading={list.loading}
-			bind:query
-			onselect={select}
-			onnew={startDraft}
-			onstar={(id, starred) => void toggleStar(id, starred)}
-			class="max-h-52 shrink-0 border-b border-border md:max-h-none md:w-64 md:border-b-0 md:border-r"
-		/>
-
-		<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-			<div
-				class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3"
-			>
-				<div class="min-w-0 flex-1">
-					{#if detail.data}
-						<div class="flex min-w-0 items-center gap-2">
-							<h1 class="truncate text-title font-semibold">
-								{detail.data.name || detail.data.id}
-							</h1>
-							<StatusBadge status={detail.data.status} size="sm" />
-							<Badge variant="outline">
-								iteration {detail.data.iteration}/{detail.data.maxIterations}
-							</Badge>
-						</div>
-					{:else}
-						<h1 class="truncate text-title font-semibold">New session</h1>
-					{/if}
-				</div>
-				<IconButton icon="refresh" label="Refresh" onclick={reloadActive} />
-				{#if selectedId}
-					<Button
-						variant="outline"
-						size="sm"
-						href={appPath(`/agent-loops/${selectedId}`)}
-					>
-						<Icon name="arrow-right" size={13} />
-						Full detail
-					</Button>
+	<div class="flex h-full min-h-0 flex-col">
+		<div
+			class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3"
+		>
+			<div class="min-w-0 flex-1">
+				{#if session}
+					<div class="flex min-w-0 items-center gap-2">
+						<h1 class="truncate text-title font-semibold">
+							{sessions.label(session.id)}
+						</h1>
+						<StatusBadge status={session.status} size="sm" />
+						<Badge variant="outline">
+							iteration {formatNumber(session.iteration)}
+						</Badge>
+					</div>
+				{:else}
+					<h1 class="truncate text-title font-semibold">New session</h1>
 				{/if}
 			</div>
-
-			<div bind:this={timeline} class="min-h-0 flex-1 overflow-y-auto">
-				<div
-					class="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4 {preferences.chatFont ===
-					'mono'
-						? 'font-mono'
-						: ''}"
+			{#if selectedId}
+				<IconButton
+					icon="star"
+					label={sessions.isStarred(selectedId)
+						? 'Unstar session'
+						: 'Star session'}
+					onclick={() => void sessions.toggleStar(selectedId)}
+				/>
+			{/if}
+			<IconButton
+				icon="refresh"
+				label="Refresh session"
+				onclick={() => {
+					revision += 1;
+					void transcript.reload();
+				}}
+			/>
+			{#if selectedId}
+				<Button
+					variant="outline"
+					size="sm"
+					href={appPath(`/agent-loops/${selectedId}`)}
 				>
-					{#if detail.loading && !detail.data && selectedId}
+					<Icon name="arrow-right" size={13} />
+					Full detail
+				</Button>
+			{/if}
+		</div>
+
+		{#if showTranscript}
+			<TranscriptScroller
+				items={bubbles}
+				itemKey={(message) => message.id}
+				{activity}
+				resetKey={selectedId ?? NEW_SESSION}
+				contentClass="mx-auto max-w-3xl px-4 py-4 {preferences.chatFont ===
+				'mono'
+					? 'font-mono'
+					: ''}"
+				class="min-h-0 flex-1"
+			>
+				{#snippet renderItem(message: LoopMessage)}
+					<MessageBubble
+						{message}
+						onretry={retryLast}
+						oncontinue={() => sendPrompt('Continue')}
+						onfeedback={recordFeedback}
+					/>
+				{/snippet}
+				{#snippet tail()}
+					{#if showLive}
+						{#if chatStream.reasoning}
+							<ReasoningBlock
+								content={chatStream.reasoning}
+								streaming={chatStream.active}
+							/>
+						{/if}
+						{#each chatStream.tools as tool (tool.id)}
+							<ToolCallCard entry={toLiveEntry(tool)} />
+						{/each}
+						{#if chatStream.answer}
+							<article class="flex gap-2.5">
+								<div
+									class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground"
+								>
+									<Icon name="sparkles" size={13} />
+								</div>
+								<div
+									class="min-w-0 max-w-[min(46rem,88%)] rounded-lg border border-border bg-card px-3 py-2 text-card-foreground"
+								>
+									<StreamMarkdown
+										content={chatStream.answer}
+										done={!chatStream.active}
+									/>
+									{#if chatStream.usage}
+										<p
+											class="mt-1.5 border-t border-border/60 pt-1 text-micro tabular-nums text-muted-foreground"
+										>
+											{formatNumber(chatStream.usage.promptTokens)} prompt ·
+											{formatNumber(chatStream.usage.completionTokens)}
+											completion
+											{#if chatStream.usage.cost !== null}
+												· ${chatStream.usage.cost.toFixed(4)}
+											{/if}
+										</p>
+									{/if}
+								</div>
+							</article>
+						{/if}
+						{#if chatStream.error}
+							<div
+								class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-caption text-destructive"
+							>
+								{chatStream.error}
+								{#if chatStream.retryAfterMs !== null}
+									<span class="mt-1 block text-muted-foreground">
+										Rate limited — retry in
+										{formatDuration(chatStream.retryAfterMs)}.
+									</span>
+								{/if}
+							</div>
+						{:else if chatStream.cancelled}
+							<p class="text-caption text-muted-foreground">
+								Run stopped before it finished.
+							</p>
+						{/if}
+						{#if chatStream.active}
+							<div class="flex items-center gap-2">
+								<p
+									class="flex items-center gap-2 text-caption text-muted-foreground"
+								>
+									<Icon name="loader" size={13} class="animate-spin" />
+									Running{#if chatStream.iteration !== null}
+										· iteration {chatStream.iteration}{/if}…
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => chatStream.stop()}
+								>
+									<Icon name="square" size={12} />
+									Stop
+								</Button>
+							</div>
+						{/if}
+					{/if}
+				{/snippet}
+			</TranscriptScroller>
+		{:else}
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				<div class="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
+					{#if transcript.loading && !transcript.data && selectedId}
 						<Skeleton shape="block" height="72px" class="rounded-lg" />
 						<Skeleton shape="block" height="72px" class="rounded-lg" />
 						<Skeleton shape="block" height="72px" class="rounded-lg" />
-					{:else if detail.error}
+					{:else if transcript.error}
 						<ErrorState
 							title="Failed to load session"
-							description={detail.error}
-							onretry={() => detail.reload()}
-							class="rounded-lg border border-border bg-card"
-						/>
-					{:else if (detail.data?.messages.length ?? 0) === 0 && !selectedId}
-						<EmptyState
-							icon="sparkles"
-							title="Start a conversation"
-							description="Ask anything. The first send creates a tracked agent loop for this session."
+							description={transcript.error}
+							onretry={() => transcript.reload()}
 							class="rounded-lg border border-border bg-card"
 						/>
 					{:else}
-						{#each detail.data?.messages ?? [] as message (message.id)}
-							<MessageBubble
-								{message}
-								onretry={retryLast}
-								oncontinue={() => sendText('Continue')}
-								onfeedback={recordFeedback}
-							/>
-						{/each}
-						{#if (detail.data?.messages.length ?? 0) === 0 && !showLive}
-							<p class="text-caption text-muted-foreground">
-								No messages recorded for this session yet.
-							</p>
-						{/if}
-						{#if showLive}
-							{#if chatStream.reasoning}
-								<ReasoningBlock
-									content={chatStream.reasoning}
-									streaming={chatStream.active}
-								/>
-							{/if}
-							{#each chatStream.tools as tool (tool.id)}
-								<ToolCallCard entry={toLiveEntry(tool)} />
-							{/each}
-							{#if chatStream.answer}
-								<article class="flex gap-2.5">
-									<div
-										class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground"
-									>
-										<Icon name="sparkles" size={13} />
-									</div>
-									<div
-										class="min-w-0 max-w-[min(46rem,88%)] rounded-lg border border-border bg-card px-3 py-2 text-card-foreground"
-									>
-										<StreamMarkdown
-											content={chatStream.answer}
-											done={!chatStream.active}
-										/>
-										{#if chatStream.usage}
-											<p
-												class="mt-1.5 border-t border-border/60 pt-1 text-micro tabular-nums text-muted-foreground"
-											>
-												{formatNumber(chatStream.usage.promptTokens)} prompt ·
-												{formatNumber(chatStream.usage.completionTokens)}
-												completion
-												{#if chatStream.usage.cost !== null}
-													· ${chatStream.usage.cost.toFixed(4)}
-												{/if}
-											</p>
-										{/if}
-									</div>
-								</article>
-							{/if}
-							{#if chatStream.error}
-								<div
-									class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-caption text-destructive"
-								>
-									{chatStream.error}
-								</div>
-							{/if}
-							{#if chatStream.active}
-								<div class="flex items-center gap-2">
-									<p
-										class="flex items-center gap-2 text-caption text-muted-foreground"
-									>
-										<Icon name="loader" size={13} class="animate-spin" />
-										Running{#if chatStream.iteration !== null}
-											· iteration {chatStream.iteration}{/if}…
-									</p>
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => chatStream.stop()}
-									>
-										<Icon name="square" size={12} />
-										Stop
-									</Button>
-								</div>
-							{/if}
-						{/if}
+						<EmptyState
+							icon="sparkles"
+							title={selectedId ? 'No messages yet' : 'Start a conversation'}
+							description={selectedId
+								? 'This session has no recorded messages.'
+								: 'Ask anything. The first send creates a tracked agent loop for this session.'}
+							class="rounded-lg border border-border bg-card"
+						/>
 					{/if}
 				</div>
 			</div>
+		{/if}
 
-			<div class="shrink-0 border-t border-border px-3 py-2.5">
-				<div class="mx-auto max-w-3xl">
-					<Composer
-						bind:model
-						busy={chatStream.active}
-						draftKey={draftKey()}
-						suggestions={SUGGESTIONS}
-						showSuggestions={(detail.data?.messages.length ?? 0) === 0}
-						onsend={sendText}
-						onstop={() => chatStream.stop()}
-						oncommand={runCommand}
-					/>
-				</div>
+		<div class="shrink-0 border-t border-border px-3 py-2.5">
+			<div class="mx-auto max-w-3xl">
+				<Composer
+					bind:model
+					busy={chatStream.active}
+					draftKey={selectedId ?? NEW_SESSION}
+					suggestions={SUGGESTIONS}
+					showSuggestions={bubbles.length === 0}
+					onsend={sendText}
+					onstop={() => chatStream.stop()}
+					oncommand={(action, arg) => COMMANDS[action](arg)}
+				/>
 			</div>
 		</div>
 	</div>
 
 	{#snippet inspector()}
-		<div class="flex h-full min-h-0 flex-col">
-			<Segmented items={PANEL_TABS} bind:value={panelTab} class="px-3 pt-2" />
-			<div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-				{#if !detail.data}
-					<p class="text-caption text-muted-foreground">
-						Select a session to inspect its graph and checkpoints.
-					</p>
-				{:else if panelTab === 'graph'}
-					<WorkflowGraph graph={detail.data.graph} class="max-h-80" />
-					<Card title="Iterations" class="mt-3">
-						{#if detail.data.iterations.length === 0}
-							<p class="text-caption text-muted-foreground">
-								No iteration records for this session.
-							</p>
-						{:else}
-							<ul class="space-y-2">
-								{#each detail.data.iterations as iteration (iteration.index)}
-									<li
-										class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
-									>
-										<p class="min-w-0 text-caption">
-											<span class="font-mono text-muted-foreground">
-												#{iteration.index}
-											</span>
-											<span class="ml-2">{iteration.summary}</span>
-										</p>
-										<StatusBadge
-											status={iteration.status}
-											size="sm"
-											dot={false}
-										/>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					</Card>
-				{:else if panelTab === 'checkpoints'}
-					{#if checkpointList.loading && !checkpointList.data}
-						<div class="space-y-2">
-							<Skeleton shape="block" height="96px" class="rounded-lg" />
-							<Skeleton shape="block" height="96px" class="rounded-lg" />
-						</div>
-					{:else if checkpointList.error}
-						<ErrorState
-							title="Failed to load checkpoints"
-							description={checkpointList.error}
-							onretry={() => checkpointList.reload()}
-						/>
-					{:else if checkpoints.length === 0}
-						<p class="text-caption text-muted-foreground">
-							No checkpoints recorded for this session.
-						</p>
-					{:else}
-						<div class="space-y-2">
-							{#each checkpoints as checkpoint (checkpoint.id)}
-								<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
-									{#snippet actions()}
-										<Badge
-											variant={checkpoint.restorable ? 'success' : 'neutral'}
-										>
-											{checkpoint.restorable ? 'restorable' : 'locked'}
-										</Badge>
-									{/snippet}
-									<p class="text-caption text-muted-foreground">
-										{checkpoint.note}
-									</p>
-								</Card>
-							{/each}
-						</div>
-					{/if}
-				{:else}
-					<Card title="Run facts">
-						<KeyValueList
-							items={[
-								{ key: 'model', value: detail.data.model },
-								{ key: 'tokens', value: formatNumber(detail.data.tokens) },
-								{
-									key: 'checkpoints',
-									value: formatNumber(detail.data.checkpoints),
-								},
-								{ key: 'errors', value: formatNumber(detail.data.errors) },
-								{
-									key: 'updated',
-									value: formatRelativeTime(detail.data.updatedAt),
-								},
-							]}
-							dense
-						/>
-					</Card>
-					<Card title="Tags" class="mt-3">
-						<div class="flex flex-wrap gap-1.5">
-							{#each detail.data.tags as tag (tag)}
-								<Badge variant="outline" size="sm">{tag}</Badge>
-							{:else}
-								<span class="text-caption text-muted-foreground">No tags</span>
-							{/each}
-						</div>
-					</Card>
-				{/if}
-			</div>
-		</div>
+		<SessionInspector
+			sessionId={selectedId ?? ''}
+			bind:tab
+			{revision}
+			busy={chatStream.active}
+			class="h-full"
+		/>
 	{/snippet}
 </SplitView>

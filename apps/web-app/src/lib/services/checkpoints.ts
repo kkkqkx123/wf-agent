@@ -11,28 +11,31 @@ import type {
 
 interface CheckpointDto {
 	id?: string;
-	execution_id?: string;
-	sequence?: number;
-	kind?: string;
-	actor?: string;
-	created_at?: string;
-	size_bytes?: number;
-	size?: number;
-	note?: string;
-	restorable?: boolean;
+	entity_type?: string;
+	entity_id?: string;
+	checkpoint_type?: string;
+	timestamp?: number;
+	status?: string;
+	previous_checkpoint_id?: string | null;
+	base_checkpoint_id?: string | null;
+	chain_root_id?: string | null;
+	chain_position?: number | null;
+	blob_size?: number | null;
+	tags?: string[] | null;
 }
 
 function toCheckpoint(d: CheckpointDto): Checkpoint {
 	return {
 		id: d.id ?? '',
-		executionId: d.execution_id ?? '',
-		sequence: d.sequence ?? 0,
-		kind: d.kind ?? 'state',
-		actor: d.actor ?? '',
-		createdAt: d.created_at ?? '',
-		sizeBytes: d.size_bytes ?? d.size ?? 0,
-		note: d.note ?? '',
-		restorable: d.restorable ?? true,
+		entityId: d.entity_id ?? '',
+		entityType: d.entity_type ?? '',
+		kind: d.checkpoint_type ?? '',
+		status: d.status ?? '',
+		createdAt: d.timestamp ? new Date(d.timestamp).toISOString() : '',
+		sizeBytes: d.blob_size ?? null,
+		chainPosition: d.chain_position ?? null,
+		chainRootId: d.chain_root_id ?? null,
+		tags: d.tags ?? [],
 	};
 }
 
@@ -49,19 +52,23 @@ export async function listCheckpoints(params?: {
 	return { ...page, items: page.items.map(toCheckpoint) };
 }
 
-export async function listCheckpointsByEntity(
+/**
+ * Checkpoints of one agent loop. utoipa shares the
+ * `handle_list_checkpoints` operation name across routes, so the untyped
+ * `request()` helper carries the path parameter instead.
+ */
+export async function listLoopCheckpoints(
 	entityId: string,
 ): Promise<Checkpoint[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/checkpoints/entity/{entityId}', {
-			params: { path: { entityId } },
+		request('GET', '/api/v1/agent-loops/{id}/checkpoints', {
+			params: { path: { id: entityId }, query: { limit: 100 } },
 		}),
 	);
 	if (Array.isArray(data)) {
 		return (data as CheckpointDto[]).map(toCheckpoint);
 	}
-	const page = extractPage<CheckpointDto>(data);
-	return page.items.map(toCheckpoint);
+	return extractPage<CheckpointDto>(data).items.map(toCheckpoint);
 }
 
 interface PendingApprovalDto {

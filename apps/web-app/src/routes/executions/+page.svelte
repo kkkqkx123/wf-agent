@@ -5,6 +5,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
@@ -33,7 +34,11 @@
 	} from '$lib/stores/collection.svelte';
 	import { behavior } from '$lib/stores/behavior.svelte';
 	import { live } from '$lib/stores/live.svelte';
-	import { formatDateTime } from '$lib/utils/format';
+	import { formatDateTime, nodeCount } from '$lib/utils/format';
+	import {
+		loadWorkflowTitles,
+		workflowTitle,
+	} from '$lib/stores/workflow-titles.svelte';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const STATUS_OPTIONS = [
@@ -78,7 +83,7 @@
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
 				!needle ||
-				execution.workflowName.toLowerCase().includes(needle) ||
+				workflowTitle(execution.workflowId).toLowerCase().includes(needle) ||
 				execution.id.toLowerCase().includes(needle);
 			return matchesStatus && matchesQuery;
 		}),
@@ -108,6 +113,7 @@
 	});
 
 	onMount(() => {
+		void loadWorkflowTitles();
 		void list.loadPages(Number(initial.page) || 1);
 		// Live execution-state events trigger a throttled reload; no inline
 		// row splicing since the list is offset-paginated.
@@ -185,18 +191,12 @@
 					{/each}
 				</div>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load executions"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if filtered.length === 0}
 				<EmptyState
 					icon="activity"
@@ -228,7 +228,7 @@
 				{/snippet}
 				{#snippet executionTasks(execution: Execution)}
 					<span class="text-caption tabular-nums text-muted-foreground">
-						{execution.tasksDone}/{execution.tasksTotal}
+						{nodeCount(execution.nodesDone, execution.nodesTotal) ?? '—'}
 					</span>
 				{/snippet}
 				<Card bodyClass="p-0">
@@ -242,7 +242,7 @@
 							{
 								key: 'workflow',
 								header: 'Workflow',
-								text: (row) => row.workflowName,
+								text: (row) => workflowTitle(row.workflowId),
 							},
 							{ key: 'status', header: 'Status', cell: executionStatus },
 							{ key: 'started', header: 'Started', cell: executionStarted },
@@ -276,18 +276,12 @@
 				<Skeleton lines={4} />
 			</div>
 		{:else if detail.error}
-			<EmptyState
-				icon="alert-triangle"
+			<ErrorState
 				title="Failed to load detail"
 				description={detail.error}
+				onretry={() => detail.reload()}
 				class="m-4"
-			>
-				{#snippet actions()}
-					<Button variant="link" size="sm" onclick={() => detail.reload()}
-						>Retry</Button
-					>
-				{/snippet}
-			</EmptyState>
+			/>
 		{:else if detail.data}
 			<ExecutionInspector
 				execution={detail.data.execution}

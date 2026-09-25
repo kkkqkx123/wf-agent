@@ -21,7 +21,7 @@ A modular agent framework that unifies graph-based workflow orchestration with a
 
 Top level contains `apps/`, `Cargo.toml`, `rust-toolchain.toml`, `crates/`, `package.json`, `pnpm-workspace.yaml`, `turbo.json`.
 
-`apps/` contains `vscode-app`, `web-app`.
+`apps/` contains `web-app`.
 
 `crates/` contains four layers: `foundation/`, `infra/`, `engine/`, `app/`.
 

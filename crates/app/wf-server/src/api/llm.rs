@@ -136,10 +136,13 @@ pub(crate) async fn handle_generate_stream(
                 Some((Ok::<_, Infallible>(Bytes::from(frame)), stream))
             }
             Some(Err(err)) => {
-                let frame = format!(
-                    "data: {{\"event_type\":\"error\",\"error\":\"{}\"}}\n\n",
-                    err
-                );
+                // A transport failure is reported as an in-band error frame, so
+                // the message has to stay valid JSON.
+                let payload = serde_json::json!({
+                    "event_type": "error",
+                    "error": err.to_string(),
+                });
+                let frame = format!("data: {payload}\n\n");
                 Some((Ok::<_, Infallible>(Bytes::from(frame)), stream))
             }
             None => None,

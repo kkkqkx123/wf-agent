@@ -1,34 +1,47 @@
 <script lang="ts">
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import {
+		commandLabel,
+		matchCommands,
+		parseCommand,
+		SLASH_COMMANDS,
+		type CommandAction,
+	} from '$lib/config/commands';
+	import { unifiedSearch, type SearchHit } from '$lib/services/search';
+	import { sessions } from '$lib/stores/sessions.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
+	import { mentionRef } from '$lib/utils/mentions';
 
 	/** Largest inlined attachment per file; larger files are truncated. */
 	const ATTACHMENT_LIMIT = 64_000;
-	const DRAFTS_KEY = 'wf-chat-drafts';
 
-	const MENTION_KINDS = ['file', 'skill', 'workflow', 'model', 'tool'];
-	const SLASH_COMMANDS = ['/new', '/retry', '/continue'];
+	/** Entity kinds the mention picker resolves through the search channel. */
+	const MENTION_KINDS = [
+		'workflow',
+		'agent_loop',
+		'message',
+		'execution',
+		'checkpoint',
+		'task',
+		'event',
+	];
 
-	interface Attachment {
-		name: string;
-		content: string;
-	}
+	const MENTION_DEBOUNCE_MS = 200;
 
 	interface Props {
-		draft?: string;
 		model?: string;
 		busy?: boolean;
 		draftKey?: string;
 		suggestions?: string[];
 		showSuggestions?: boolean;
-		onsend?: (text: string) => boolean;
+		onsend?: (message: OutgoingMessage) => boolean;
 		onstop?: () => void;
-		oncommand?: (command: string) => void;
+		oncommand?: (action: CommandAction, arg: string) => void;
 	}
 
 	let {
-		draft = $bindable(''),
 		model = $bindable(''),
 		busy = false,
 		draftKey = 'new',
@@ -39,36 +52,21 @@
 		oncommand,
 	}: Props = $props();
 
-	let attachments = $state<Attachment[]>([]);
-	let queue = $state<string[]>([]);
+	let draft = $state('');
+	let attachments = $state<MessageAttachment[]>([]);
+	let queue = $state<OutgoingMessage[]>([]);
 	let box: HTMLTextAreaElement | null = $state(null);
 	let activeKey = $state('');
+	let candidates = $state<SearchHit[]>([]);
+	let searching = $state(false);
 
-	function readDrafts(): Record<string, string> {
-		try {
-			const raw = localStorage.getItem(DRAFTS_KEY);
-			return raw ? (JSON.parse(raw) as Record<string, string>) : {};
-		} catch {
-			return {};
-		}
-	}
-
-	function persistDrafts(next: Record<string, string>): void {
-		try {
-			localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
-		} catch {
-			// Storage may be unavailable; the composer still works in memory.
-		}
-	}
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let latestRequest = 0;
 
 	function switchDraft(nextKey: string): void {
-		const drafts = readDrafts();
-		if (draft !== (drafts[activeKey] ?? '') || draft !== '') {
-			drafts[activeKey] = draft;
-			persistDrafts(drafts);
-		}
+		if (activeKey) sessions.setDraft(activeKey, draft);
 		activeKey = nextKey;
-		draft = drafts[nextKey] ?? '';
+		draft = sessions.draft(nextKey);
 		attachments = [];
 	}
 
@@ -80,34 +78,26 @@
 		if (!busy && queue.length > 0) sendNext();
 	});
 
-	function withAttachments(text: string): string {
-		if (attachments.length === 0) return text;
-		const blocks = attachments.map(
-			(file) =>
-				`<attachment name="${file.name}">\n${file.content}\n</attachment>`,
-		);
-		return `${text}\n\n${blocks.join('\n\n')}`;
+	function clearEditor(): void {
+		draft = '';
+		attachments = [];
+		sessions.setDraft(activeKey, '');
 	}
 
-	function submit(text: string): void {
-		const full = withAttachments(text);
-		if (!onsend?.(full)) return;
-		if (text === draft) draft = '';
-		attachments = [];
-		const drafts = readDrafts();
-		drafts[activeKey] = '';
-		persistDrafts(drafts);
+	function submit(message: OutgoingMessage, current: boolean): void {
+		if (!onsend?.(message)) return;
+		// A queued message leaving the editor must not clear what the user typed
+		// while it waited.
+		if (!current) return;
+		clearEditor();
 		box?.focus();
 	}
 
 	function sendNext(): void {
 		const next = queue.shift();
-		if (next === undefined) {
-			if (draft.trim()) submit(draft);
-			return;
-		}
+		if (next === undefined) return;
 		queue = [...queue];
-		submit(next);
+		submit(next, false);
 	}
 
 	function onSubmit(): void {
@@ -116,20 +106,19 @@
 			if (queue.length > 0 && !busy) sendNext();
 			return;
 		}
-		if (text.startsWith('/')) {
-			const token = text.split(/\s/, 1)[0];
-			if ((SLASH_COMMANDS as string[]).includes(token)) {
-				draft = '';
-				oncommand?.(token.slice(1));
-				return;
-			}
-		}
-		if (busy) {
-			queue = [...queue, draft];
-			draft = '';
+		const parsed = parseCommand(text);
+		if (parsed) {
+			clearEditor();
+			oncommand?.(parsed.command.action, parsed.arg);
 			return;
 		}
-		submit(draft);
+		const message: OutgoingMessage = { text: draft, attachments };
+		if (busy) {
+			queue = [...queue, message];
+			clearEditor();
+			return;
+		}
+		submit(message, true);
 	}
 
 	function onKey(event: KeyboardEvent): void {
@@ -140,9 +129,7 @@
 	}
 
 	function onInput(): void {
-		const drafts = readDrafts();
-		drafts[activeKey] = draft;
-		persistDrafts(drafts);
+		sessions.setDraft(activeKey, draft);
 	}
 
 	async function addFiles(files: FileList | File[]): Promise<void> {
@@ -178,24 +165,71 @@
 		}
 	}
 
-	const mentionQuery = $derived.by(() => {
+	/** The `@…` fragment the caret sits behind, split into kind and term. */
+	const mention = $derived.by(() => {
 		const cursor = box?.selectionStart ?? draft.length;
-		const before = draft.slice(0, cursor);
-		const match = /@([\w-]*)$/.exec(before);
-		return match ? match[1] : null;
+		const match = /@([\w.:-]*)$/.exec(draft.slice(0, cursor));
+		if (!match) return null;
+		const separator = match[1].indexOf(':');
+		if (separator < 0) return { kind: '', term: match[1] };
+		return {
+			kind: match[1].slice(0, separator),
+			term: match[1].slice(separator + 1),
+		};
 	});
 
-	const mentionHints = $derived(
-		mentionQuery === null
-			? []
-			: MENTION_KINDS.filter((kind) => kind.startsWith(mentionQuery)),
+	/** A typed kind narrows the search to that entity kind. */
+	const mentionTypes = $derived(
+		mention?.kind
+			? MENTION_KINDS.filter((kind) => kind === mention.kind)
+			: MENTION_KINDS,
 	);
 
-	function insertMention(kind: string): void {
+	/** Category chips help before a term exists; they never stand in for hits. */
+	const kindHints = $derived(
+		mention && mention.term === '' && mention.kind === '' ? MENTION_KINDS : [],
+	);
+
+	const commandHints = $derived(
+		draft.startsWith('/') ? matchCommands(draft.slice(1).split(/\s+/)[0]) : [],
+	);
+
+	// Candidates come from the shared search channel, so the newest query wins.
+	$effect(() => {
+		const term = mention?.term ?? '';
+		const types = mentionTypes.join(',');
+		if (timer) clearTimeout(timer);
+		if (!term) {
+			candidates = [];
+			searching = false;
+			return;
+		}
+		const request = (latestRequest += 1);
+		searching = true;
+		timer = setTimeout(() => {
+			void unifiedSearch({ q: term, types, limit: 8 })
+				.then((outcome) => {
+					if (request !== latestRequest) return;
+					candidates = outcome.items;
+					searching = false;
+				})
+				.catch(() => {
+					if (request !== latestRequest) return;
+					candidates = [];
+					searching = false;
+				});
+		}, MENTION_DEBOUNCE_MS);
+		return () => {
+			if (timer) clearTimeout(timer);
+		};
+	});
+
+	function insertReference(reference: string): void {
 		const cursor = box?.selectionStart ?? draft.length;
-		const before = draft.slice(0, cursor).replace(/@[\w-]*$/, `@${kind}:`);
-		draft = before + draft.slice(cursor);
+		const before = draft.slice(0, cursor).replace(/@[\w.:-]*$/, reference);
+		draft = `${before} ${draft.slice(cursor)}`;
 		box?.focus();
+		box?.setSelectionRange(before.length + 1, before.length + 1);
 	}
 </script>
 
@@ -224,7 +258,12 @@
 					class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-2 py-1 text-caption text-muted-foreground"
 				>
 					<span class="font-mono text-micro">#{index + 1}</span>
-					<span class="min-w-0 flex-1 truncate">{item}</span>
+					<span class="min-w-0 flex-1 truncate">{item.text}</span>
+					{#if item.attachments.length > 0}
+						<span class="shrink-0 font-mono text-micro">
+							+{item.attachments.length} file
+						</span>
+					{/if}
 					<button
 						type="button"
 						aria-label="Remove queued message"
@@ -260,19 +299,60 @@
 		</div>
 	{/if}
 
-	{#if mentionHints.length > 0}
-		<div
-			class="mb-2 flex flex-wrap gap-1.5"
-			role="listbox"
-			aria-label="Mentions"
-		>
-			{#each mentionHints as kind (kind)}
+	{#if mention !== null}
+		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Mentions">
+			{#each candidates as hit (`${hit.type}-${hit.id}`)}
 				<button
 					type="button"
-					onclick={() => insertMention(kind)}
-					class="rounded-full border border-border bg-card px-2.5 py-1 font-mono text-micro text-info transition-colors hover:bg-accent"
+					onclick={() => insertReference(mentionRef(hit.type, hit.label))}
+					class="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent"
 				>
-					@{kind}
+					<span class="min-w-0 flex-1 truncate text-foreground"
+						>{hit.label}</span
+					>
+					<span class="shrink-0 font-mono text-micro text-info">{hit.type}</span
+					>
+				</button>
+			{/each}
+			{#if searching}
+				<p class="px-2 text-micro text-muted-foreground">Searching…</p>
+			{:else if kindHints.length > 0}
+				<div class="flex flex-wrap gap-1.5">
+					{#each kindHints as kind (kind)}
+						<button
+							type="button"
+							onclick={() => insertReference(`@${kind}:`)}
+							class="rounded-full border border-border bg-card px-2.5 py-1 font-mono text-micro text-info transition-colors hover:bg-accent"
+						>
+							@{kind}
+						</button>
+					{/each}
+				</div>
+			{:else if mention.term && candidates.length === 0}
+				<p class="px-2 text-micro text-muted-foreground">
+					No {mention.kind || 'matching'} results for “{mention.term}”.
+				</p>
+			{/if}
+		</div>
+	{/if}
+
+	{#if commandHints.length > 0}
+		<div class="mb-2 flex flex-col gap-1" role="listbox" aria-label="Commands">
+			{#each commandHints as command (command.name)}
+				<button
+					type="button"
+					onclick={() => {
+						draft = `/${command.name}${command.arg ? ' ' : ''}`;
+						box?.focus();
+					}}
+					class="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-left text-caption transition-colors hover:bg-accent"
+				>
+					<span class="font-mono text-micro text-info">
+						{commandLabel(command)}
+					</span>
+					<span class="min-w-0 flex-1 truncate text-muted-foreground">
+						{command.description}
+					</span>
 				</button>
 			{/each}
 		</div>
@@ -318,7 +398,8 @@
 	</div>
 	<p class="mt-1 text-micro text-muted-foreground">
 		Enter sends{#if busy}
-			· sending queues next{/if} · /new /retry /continue · @mentions files, skills,
-		workflows, models, tools · paste or drop files to attach
+			· sending queues next{/if} · {SLASH_COMMANDS.map(
+			(command) => `/${command.name}`,
+		).join(' ')} · @mentions resolve through search · paste or drop files to attach
 	</p>
 </div>

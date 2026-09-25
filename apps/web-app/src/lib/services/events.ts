@@ -101,18 +101,6 @@ export async function listEvents(params?: {
 	return { ...page, items: page.items.map(toEvent) };
 }
 
-export async function searchEvents(
-	query: string,
-): Promise<PageResult<EventRecord>> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/events/search', {
-			params: { query: { q: query, limit: 50 } },
-		}),
-	);
-	const page = extractPage<EventDto>(data);
-	return { ...page, items: page.items.map(toEvent) };
-}
-
 export async function getEventSize(): Promise<number> {
 	const data = await call<unknown>(client.GET('/api/v1/events/size'));
 	if (typeof data === 'number') return data;

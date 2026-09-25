@@ -1,7 +1,7 @@
 <script lang="ts" generics="T">
 	import type { Column } from './table';
-	import { VIRTUALIZE_THRESHOLD } from './table';
 	import EmptyState from './EmptyState.svelte';
+	import { VIRTUALIZE_THRESHOLD } from '$lib/config/virtualization';
 	import { cn } from '$lib/utils/cn';
 
 	interface Props {

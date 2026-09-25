@@ -4,9 +4,11 @@
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import { statusTone } from '$lib/utils/status';
+	import { workflowTitle } from '$lib/stores/workflow-titles.svelte';
 	import {
 		formatDuration,
 		formatRelativeTime,
+		nodeCount,
 		shortId,
 	} from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -35,6 +37,7 @@
 					? 'running'
 					: 'default',
 	);
+	const nodes = $derived(nodeCount(execution.nodesDone, execution.nodesTotal));
 </script>
 
 <button
@@ -50,7 +53,7 @@
 >
 	<div class="flex items-center justify-between gap-2">
 		<span class="truncate text-body font-medium text-foreground"
-			>{execution.workflowName}</span
+			>{workflowTitle(execution.workflowId)}</span
 		>
 		<StatusBadge status={execution.status} size="sm" />
 	</div>
@@ -65,25 +68,27 @@
 		{/if}
 	</div>
 
-	<div class="mt-2">
-		<Progress value={execution.progress} tone={progressTone} />
-	</div>
+	{#if execution.progress !== null}
+		<div class="mt-2">
+			<Progress value={execution.progress} tone={progressTone} />
+		</div>
+	{/if}
 
 	<div
 		class="mt-1.5 flex items-center justify-between gap-2 text-micro text-muted-foreground"
 	>
-		<span class="tabular-nums">
-			{execution.tasksDone}/{execution.tasksTotal} tasks
-		</span>
+		{#if nodes}
+			<span class="tabular-nums">{nodes}</span>
+		{/if}
 		<span class="flex min-w-0 items-center gap-1.5">
-			{#if execution.failedNodes > 0}
+			{#if (execution.nodesFailed ?? 0) > 0}
 				<span class="flex items-center gap-1 text-destructive">
 					<Icon name="alert-triangle" size={11} />
-					{execution.failedNodes} failed
+					{execution.nodesFailed} failed
 				</span>
 			{/if}
-			{#if execution.currentNode}
-				<span class="truncate font-mono">{execution.currentNode}</span>
+			{#if execution.currentNodeId}
+				<span class="truncate font-mono">{execution.currentNodeId}</span>
 			{/if}
 		</span>
 	</div>

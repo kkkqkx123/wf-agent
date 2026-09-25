@@ -5,6 +5,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -159,18 +160,12 @@
 					{/each}
 				</div>
 			{:else if list.error}
-				<EmptyState
-					icon="alert-triangle"
+				<ErrorState
 					title="Failed to load workflows"
 					description={list.error}
+					onretry={() => list.reload()}
 					class="rounded-lg border border-border bg-card"
-				>
-					{#snippet actions()}
-						<Button variant="link" size="sm" onclick={() => list.reload()}
-							>Retry</Button
-						>
-					{/snippet}
-				</EmptyState>
+				/>
 			{:else if filtered.length === 0}
 				<EmptyState
 					icon="workflow"
@@ -209,18 +204,12 @@
 				<Skeleton lines={4} />
 			</div>
 		{:else if detail.error}
-			<EmptyState
-				icon="alert-triangle"
+			<ErrorState
 				title="Failed to load detail"
 				description={detail.error}
+				onretry={() => detail.reload()}
 				class="m-4"
-			>
-				{#snippet actions()}
-					<Button variant="link" size="sm" onclick={() => detail.reload()}
-						>Retry</Button
-					>
-				{/snippet}
-			</EmptyState>
+			/>
 		{:else if detail.data}
 			{@const selected = detail.data}
 			<div class="flex h-full min-h-0 flex-col">

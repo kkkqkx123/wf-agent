@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<script>
+			// Applied before first paint so a restored theme never flashes.
+			(function () {
+				try {
+					var root = document.documentElement;
+					var stored = localStorage.getItem('wf-ui-preferences');
+					var prefs = stored ? JSON.parse(stored) : {};
+					var theme =
+						prefs.theme === 'light' || prefs.theme === 'dark'
+							? prefs.theme
+							: 'system';
+					var dark =
+						theme === 'dark' ||
+						(theme === 'system' &&
+							window.matchMedia('(prefers-color-scheme: dark)').matches);
+					root.classList.toggle('dark', dark);
+					root.style.colorScheme = dark ? 'dark' : 'light';
+					var scale =
+						{ compact: 0.94, default: 1, comfortable: 1.06 }[prefs.density] ||
+						1;
+					root.style.setProperty('--font-scale', String(scale));
+					var meta = document.createElement('meta');
+					meta.name = 'theme-color';
+					meta.content = dark ? '#16181d' : '#ffffff';
+					document.head.appendChild(meta);
+				} catch (error) {
+					// Preferences are best effort; the defaults already render a valid theme.
+				}
+			})();
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

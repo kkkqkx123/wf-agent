@@ -7,6 +7,7 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		preferences,
+		type ChatFont,
 		type Density,
 		type ThemeMode,
 	} from '$lib/stores/preferences.svelte';
@@ -33,6 +34,11 @@
 		{ value: 'compact', label: 'Compact' },
 		{ value: 'default', label: 'Default' },
 		{ value: 'comfortable', label: 'Comfortable' },
+	];
+
+	const CHAT_FONT_OPTIONS = [
+		{ value: 'sans', label: 'Sans' },
+		{ value: 'mono', label: 'Mono' },
 	];
 
 	const PAGE_SIZE_OPTIONS = [
@@ -153,6 +159,19 @@
 						<p class="mt-2 text-caption text-muted-foreground">
 							Current scale {preferences.fontScale.toFixed(2)}×
 						</p>
+					</Card>
+
+					<Card
+						title="Conversation font"
+						description="Typeface for the chat timeline and composer."
+					>
+						<Select
+							value={preferences.chatFont}
+							options={CHAT_FONT_OPTIONS}
+							placeholder="Conversation font"
+							class="w-56"
+							onchange={(value) => preferences.setChatFont(value as ChatFont)}
+						/>
 					</Card>
 				</div>
 			{:else if section === 'execution'}

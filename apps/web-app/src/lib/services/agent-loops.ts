@@ -223,3 +223,55 @@ export async function restoreAgentLoopCheckpoint(
 		}),
 	);
 }
+
+export interface RunLoopMessage {
+	id: string;
+	role: string;
+	content: string;
+	timestamp: number;
+}
+
+export interface RunLoopInput {
+	model: string;
+	message: string;
+	conversation?: RunLoopMessage[];
+}
+
+export interface AgentRunResult {
+	agentLoopId: string;
+	result: unknown;
+	iterations: number;
+}
+
+interface AgentRunViewDto {
+	agent_loop_id?: string;
+	result?: unknown;
+	iterations?: number;
+}
+
+/**
+ * Start a loop run. The route keeps the `{id}` segment but the handler runs
+ * from the body, so a draft composer passes `new` and adopts the returned
+ * loop id as its session.
+ */
+export async function runAgentLoop(
+	id: string,
+	input: RunLoopInput,
+): Promise<AgentRunResult> {
+	const data = await call<AgentRunViewDto>(
+		request('POST', '/api/v1/agent-loops/{id}/run', {
+			params: { path: { id } },
+			body: {
+				model: input.model,
+				message: input.message,
+				tool_call_protocol: { format: 'json' },
+				conversation: input.conversation ?? [],
+			},
+		}),
+	);
+	return {
+		agentLoopId: data.agent_loop_id ?? '',
+		result: data.result,
+		iterations: data.iterations ?? 0,
+	};
+}

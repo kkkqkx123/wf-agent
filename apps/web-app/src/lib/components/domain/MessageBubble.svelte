@@ -1,16 +1,27 @@
 <script lang="ts">
 	import type { LoopMessage } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
+	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { formatDateTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
 
 	interface Props {
 		message: LoopMessage;
 		class?: string;
+		onretry?: () => void;
+		oncontinue?: () => void;
+		onfeedback?: (kind: 'up' | 'down') => void;
 	}
 
-	let { message, class: className = '' }: Props = $props();
+	let {
+		message,
+		class: className = '',
+		onretry,
+		oncontinue,
+		onfeedback,
+	}: Props = $props();
 
 	const ROLE_ICON: Record<LoopMessage['role'], IconName> = {
 		user: 'user',
@@ -20,6 +31,10 @@
 	};
 
 	const isUser = $derived(message.role === 'user');
+	const isAssistant = $derived(message.role === 'assistant');
+	const showActions = $derived(
+		isAssistant && (onretry || oncontinue || onfeedback),
+	);
 </script>
 
 <article class={cn('flex gap-2.5', isUser && 'flex-row-reverse', className)}>
@@ -52,8 +67,46 @@
 					{message.toolName}
 				</p>
 			{/if}
-			<p class="whitespace-pre-wrap break-words">{message.content}</p>
+			{#if isAssistant}
+				<StreamMarkdown content={message.content} done />
+			{:else}
+				<p class="whitespace-pre-wrap break-words">{message.content}</p>
+			{/if}
 		</div>
+		{#if showActions}
+			<div class="mt-1 flex items-center gap-0.5 {isUser ? 'justify-end' : ''}">
+				{#if onretry}
+					<IconButton
+						icon="refresh"
+						label="Retry this answer"
+						compact
+						onclick={onretry}
+					/>
+				{/if}
+				{#if oncontinue}
+					<IconButton
+						icon="arrow-right"
+						label="Continue this answer"
+						compact
+						onclick={oncontinue}
+					/>
+				{/if}
+				{#if onfeedback}
+					<IconButton
+						icon="check"
+						label="Helpful"
+						compact
+						onclick={() => onfeedback('up')}
+					/>
+					<IconButton
+						icon="x"
+						label="Not helpful"
+						compact
+						onclick={() => onfeedback('down')}
+					/>
+				{/if}
+			</div>
+		{/if}
 		<p
 			class="mt-0.5 flex items-center gap-2 text-micro text-muted-foreground {isUser
 				? 'justify-end'

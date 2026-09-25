@@ -5,9 +5,8 @@
 	import type { IconName } from '$lib/components/icons/paths';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import { NAV_ITEMS } from '$lib/config/navigation';
-	import { listExecutions } from '$lib/services/executions';
-	import { listWorkflows } from '$lib/services/workflows';
-	import { listAgentLoops } from '$lib/services/agent-loops';
+	import { unifiedSearch, type SearchHit } from '$lib/services/search';
+	import { appPath } from '$lib/utils/route';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '$lib/utils/cn';
 
@@ -20,75 +19,101 @@
 		run: () => void;
 	}
 
+	const TYPE_ICON: Record<string, IconName> = {
+		workflow: 'workflow',
+		execution: 'activity',
+		agent_loop: 'loop',
+		message: 'sparkles',
+		checkpoint: 'archive',
+	};
+
 	let query = $state('');
 	let rawIndex = $state(0);
-	let executions = $state<Awaited<ReturnType<typeof listExecutions>>['items']>(
-		[],
-	);
-	let workflows = $state<Awaited<ReturnType<typeof listWorkflows>>['items']>(
-		[],
-	);
-	let agentLoops = $state<Awaited<ReturnType<typeof listAgentLoops>>['items']>(
-		[],
-	);
+	let searching = $state(false);
+	let hits = $state<SearchHit[]>([]);
+
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let latest = 0;
+
+	function navigate(href: string, label: string): void {
+		ui.setCommandOpen(false);
+		ui.recordVisit(href, label);
+		// The rule cannot see that the path half of `href` is already resolved.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		void goto(href);
+	}
+
+	function hitHref(hit: SearchHit): string | null {
+		switch (hit.type) {
+			case 'workflow':
+				return resolve('/workflows/[id]', { id: hit.id });
+			case 'execution':
+				return resolve('/executions/[id]', { id: hit.id });
+			case 'agent_loop':
+				return appPath(`/chat?id=${hit.id}`);
+			case 'message':
+				return hit.agentLoopId ? appPath(`/chat?id=${hit.agentLoopId}`) : null;
+			case 'checkpoint':
+				return hit.executionId
+					? resolve('/executions/[id]', { id: hit.executionId })
+					: resolve('/checkpoints');
+			default:
+				return null;
+		}
+	}
+
+	function hitIcon(type: string): IconName {
+		return TYPE_ICON[type] ?? 'search';
+	}
 
 	const items = $derived.by<CommandItem[]>(() => {
-		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
+		const needle = query.trim().toLowerCase();
+		const nav: CommandItem[] = NAV_ITEMS.filter(
+			(item) =>
+				!needle ||
+				item.label.toLowerCase().includes(needle) ||
+				item.description.toLowerCase().includes(needle),
+		).map((item) => ({
 			id: `nav:${item.href}`,
 			label: item.label,
 			group: 'Navigate',
 			icon: item.icon,
 			hint: item.description,
-			run: () => {
-				ui.setCommandOpen(false);
-				void goto(resolve(item.href));
-			},
+			run: () => navigate(resolve(item.href), item.label),
 		}));
 
-		const execs: CommandItem[] = executions.map((execution) => ({
-			id: `exec:${execution.id}`,
-			label: execution.workflowName,
-			group: 'Executions',
-			icon: 'activity',
-			hint: `${execution.id} · ${execution.status}`,
-			run: () => {
-				ui.setCommandOpen(false);
-				void goto(resolve('/executions/[id]', { id: execution.id }));
-			},
-		}));
+		const recent: CommandItem[] = ui.recent
+			.filter(
+				(entry) =>
+					!needle ||
+					entry.label.toLowerCase().includes(needle) ||
+					entry.href.toLowerCase().includes(needle),
+			)
+			.map((entry) => ({
+				id: `recent:${entry.href}`,
+				label: entry.label,
+				group: 'Recent',
+				icon: 'history',
+				hint: entry.href,
+				run: () => navigate(entry.href, entry.label),
+			}));
 
-		const flows: CommandItem[] = workflows.map((workflow) => ({
-			id: `wf:${workflow.id}`,
-			label: workflow.name,
-			group: 'Workflows',
-			icon: 'workflow',
-			hint: `v${workflow.version} · ${workflow.category}`,
-			run: () => {
-				ui.setCommandOpen(false);
-				void goto(resolve('/workflows/[id]', { id: workflow.id }));
-			},
-		}));
+		const results: CommandItem[] = [];
+		for (const hit of hits) {
+			const href = hitHref(hit);
+			if (!href) continue;
+			results.push({
+				id: `hit:${hit.type}:${hit.id}`,
+				label: hit.label,
+				group: 'Results',
+				icon: hitIcon(hit.type),
+				hint: `${hit.type} · ${hit.matches[0] ?? hit.id}`,
+				run: () => navigate(href, hit.label),
+			});
+		}
 
-		const loops: CommandItem[] = agentLoops.map((loop) => ({
-			id: `loop:${loop.id}`,
-			label: loop.name,
-			group: 'Agent loops',
-			icon: 'loop',
-			hint: `${loop.id} · ${loop.status}`,
-			run: () => {
-				ui.setCommandOpen(false);
-				void goto(resolve('/agent-loops/[id]', { id: loop.id }));
-			},
-		}));
-
-		const all = [...nav, ...execs, ...flows, ...loops];
-		const needle = query.trim().toLowerCase();
-		if (!needle) return all.filter((item) => item.group === 'Navigate');
-		return all.filter(
-			(item) =>
-				item.label.toLowerCase().includes(needle) ||
-				item.hint.toLowerCase().includes(needle),
-		);
+		if (!needle) return [...nav, ...recent];
+		return [...results, ...nav];
 	});
 
 	const grouped = $derived.by(() => {
@@ -136,18 +161,35 @@
 		if (!ui.commandOpen) {
 			query = '';
 			rawIndex = 0;
-		} else {
-			// Refresh command data whenever the palette opens.
-			void Promise.allSettled([
-				listExecutions({ limit: 20 }),
-				listWorkflows({ limit: 20 }),
-				listAgentLoops({ limit: 20 }),
-			]).then(([exRes, wfRes, loopRes]) => {
-				if (exRes.status === 'fulfilled') executions = exRes.value.items;
-				if (wfRes.status === 'fulfilled') workflows = wfRes.value.items;
-				if (loopRes.status === 'fulfilled') agentLoops = loopRes.value.items;
-			});
+			hits = [];
+			searching = false;
+			return;
 		}
+		const needle = query.trim();
+		if (timer) clearTimeout(timer);
+		if (!needle) {
+			hits = [];
+			searching = false;
+			return;
+		}
+		searching = true;
+		const request = (latest += 1);
+		timer = setTimeout(() => {
+			void unifiedSearch({ q: needle, limit: 12 })
+				.then((outcome) => {
+					if (request !== latest) return;
+					hits = outcome.items;
+					searching = false;
+				})
+				.catch(() => {
+					if (request !== latest) return;
+					hits = [];
+					searching = false;
+				});
+		}, 200);
+		return () => {
+			if (timer) clearTimeout(timer);
+		};
 	});
 </script>
 
@@ -156,7 +198,7 @@
 <Dialog
 	bind:open={ui.commandOpen}
 	title="Command palette"
-	description="Search navigation, executions, workflows and loops"
+	description="Search navigation, sessions, workflows and executions"
 	width="34rem"
 >
 	<div {onkeydown} role="presentation">
@@ -177,7 +219,7 @@
 		<div class="mt-2 max-h-80 overflow-y-auto">
 			{#if flat.length === 0}
 				<p class="px-2 py-6 text-center text-caption text-muted-foreground">
-					No matches
+					{searching ? 'Searching…' : 'No matches'}
 				</p>
 			{:else}
 				{#each grouped as group (group.name)}

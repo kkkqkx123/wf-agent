@@ -7,3 +7,6 @@ export * from './executions.js';
 export * from './agent-loops.js';
 export * from './checkpoints.js';
 export * from './triggers.js';
+export * from './search.js';
+export * from './favorites.js';
+export * from './streaming.js';

@@ -2,6 +2,8 @@
 	import type { ToolCallEntry } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -14,6 +16,7 @@
 	let { entry, class: className = '' }: Props = $props();
 
 	let open = $state(false);
+	let fullResult = $state(false);
 
 	const KIND_ICON: Record<string, IconName> = {
 		bash: 'terminal',
@@ -86,7 +89,26 @@
 				</p>
 				<pre
 					class="max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-foreground">{entry.output}</pre>
+				<Button
+					variant="link"
+					size="sm"
+					class="mt-1 px-0"
+					onclick={() => (fullResult = true)}
+				>
+					Full result
+				</Button>
 			</div>
 		</div>
 	{/if}
 </article>
+
+<Dialog
+	bind:open={fullResult}
+	title={entry.name}
+	description="Complete tool result"
+	width="40rem"
+>
+	<pre
+		class="overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-caption text-foreground">{entry.output ||
+			'No output recorded'}</pre>
+</Dialog>

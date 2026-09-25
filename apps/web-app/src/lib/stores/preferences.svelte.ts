@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
+export type ChatFont = 'sans' | 'mono';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
@@ -13,6 +14,7 @@ const STORAGE_KEY = 'wf-ui-preferences';
 interface PersistedPreferences {
 	theme?: ThemeMode;
 	density?: Density;
+	chatFont?: ChatFont;
 	sidebarCollapsed?: boolean;
 	sidebarWidth?: number;
 	inspectorPinned?: boolean;
@@ -38,6 +40,7 @@ function read(): PersistedPreferences {
 class PreferencesStore {
 	theme = $state<ThemeMode>('system');
 	density = $state<Density>('default');
+	chatFont = $state<ChatFont>('sans');
 	sidebarCollapsed = $state(false);
 	sidebarWidth = $state(240);
 	inspectorPinned = $state(true);
@@ -58,6 +61,9 @@ class PreferencesStore {
 			stored.density === 'comfortable'
 		) {
 			this.density = stored.density;
+		}
+		if (stored.chatFont === 'sans' || stored.chatFont === 'mono') {
+			this.chatFont = stored.chatFont;
 		}
 		if (typeof stored.sidebarCollapsed === 'boolean') {
 			this.sidebarCollapsed = stored.sidebarCollapsed;
@@ -93,6 +99,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setChatFont(font: ChatFont): void {
+		this.chatFont = font;
+		this.persist();
+	}
+
 	toggleSidebar(): void {
 		this.sidebarCollapsed = !this.sidebarCollapsed;
 		this.persist();
@@ -121,6 +132,7 @@ class PreferencesStore {
 				JSON.stringify({
 					theme: this.theme,
 					density: this.density,
+					chatFont: this.chatFont,
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,
 					inspectorPinned: this.inspectorPinned,

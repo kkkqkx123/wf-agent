@@ -18,6 +18,24 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
+		id: 'conversation',
+		label: 'Conversation',
+		items: [
+			{
+				href: '/chat',
+				label: 'Chat',
+				icon: 'sparkles',
+				description: 'Dialogue-first agent IDE with sessions and composer',
+			},
+			{
+				href: '/agent-loops',
+				label: 'Agent Loops',
+				icon: 'loop',
+				description: 'Loop runs, messages, variables and checkpoints',
+			},
+		],
+	},
+	{
 		id: 'execution',
 		label: 'Execution',
 		items: [
@@ -26,12 +44,6 @@ export const NAV_GROUPS: NavGroup[] = [
 				label: 'Workbench',
 				icon: 'activity',
 				description: 'Execution list, status and live detail',
-			},
-			{
-				href: '/agent-loops',
-				label: 'Agent Loops',
-				icon: 'loop',
-				description: 'Loop runs, messages, variables and checkpoints',
 			},
 		],
 	},

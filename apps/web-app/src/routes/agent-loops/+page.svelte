@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -11,12 +13,17 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import { listAgentLoops, getAgentLoop } from '$lib/services/agent-loops';
 	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
+	import {
+		createCollection,
+		createResource,
+	} from '$lib/stores/collection.svelte';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const STATUS_OPTIONS = [
 		{ value: 'running', label: 'Running' },
@@ -27,56 +34,54 @@
 		{ value: 'cancelled', label: 'Cancelled' },
 	];
 
-	let query = $state('');
-	let status = $state('');
-	let selectedId = $state<string | null>(null);
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	let loading = $state(true);
-	let agentLoops = $state<AgentLoop[]>([]);
-	let selected = $state<AgentLoopDetail | null>(null);
+	const initial = parseListParams(page.url);
+
+	let query = $state(initial.q ?? '');
+	let status = $state(initial.status ?? '');
+	let selectedId = $state<string | null>(initial.id ?? null);
+
+	const list = createCollection((params) => listAgentLoops(params));
+	const detail = createResource<AgentLoopDetail | null>(async () => {
+		if (!selectedId) return null;
+		return getAgentLoop(selectedId);
+	});
 
 	const filtered = $derived(
-		agentLoops.filter((loop) => {
+		list.items.filter((loop) => {
 			const matchesStatus = !status || loop.status === status;
 			const needle = query.trim().toLowerCase();
-			// ... rest is identical to original
-			return matchesStatus && (!needle || loop.name.toLowerCase().includes(needle));
+			return (
+				matchesStatus && (!needle || loop.name.toLowerCase().includes(needle))
+			);
 		}),
 	);
 
-	async function loadAll() {
-		loading = true;
-		try {
-			const page = await listAgentLoops({ limit: 50 });
-			agentLoops = page.items;
-			selectedId = agentLoops[0]?.id ?? null;
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function loadSelected(id: string) {
-		try {
-			selected = await getAgentLoop(id);
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Failed to load agent loop');
-			selected = null;
-		}
-	}
-
-	onMount(async () => {
-		await loadAll();
-		if (selectedId) await loadSelected(selectedId);
+	$effect(() => {
+		if (selectedId) void detail.reload();
 	});
 
 	$effect(() => {
-		if (selectedId) loadSelected(selectedId);
+		if (!selectedId && list.loaded > 0 && !list.loading) {
+			selectedId = list.items[0].id;
+		}
 	});
+
+	$effect(() => {
+		gotoWithParams(page.url, {
+			q: query,
+			status,
+			id: selectedId ?? '',
+			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
+		});
+	});
+
+	onMount(() => void list.loadPages(Number(initial.page) || 1));
 </script>
 
 <SplitView
 	inspectorTitle="Loop detail"
 	inspectorOpen={selectedId !== null}
+	oninspectorclose={() => (selectedId = null)}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
@@ -88,12 +93,11 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
+					onclick={() => {
+						list.reload();
+						if (selectedId) detail.reload();
+					}}
 				/>
-				<Button size="sm" onclick={() => toasts.success('Loop started')}>
-					<Icon name="play" size={13} />
-					Start loop
-				</Button>
 			{/snippet}
 		</PageHeader>
 
@@ -112,102 +116,123 @@
 				{/snippet}
 			</FilterBar>
 
-			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Loop</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Status</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Iteration</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Model</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Tokens</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Updated</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each filtered as loop (loop.id)}
-								<tr
-									class={cn(
-										'cursor-pointer border-b border-border/60 transition-colors last:border-0',
-										selectedId === loop.id
-											? 'bg-accent/70'
-											: 'hover:bg-accent/40',
-									)}
-									onclick={() => (selectedId = loop.id)}
-								>
-									<td class="px-3 py-2.5">
-										<span class="flex items-center gap-1.5">
-											{#if loop.starred}
-												<Icon
-													name="star"
-													size={12}
-													class="shrink-0 text-warning"
-												/>
-											{/if}
-											<span class="truncate">{loop.name}</span>
-										</span>
-									</td>
-									<td class="px-3 py-2.5"
-										><StatusBadge status={loop.status} size="sm" /></td
-									>
-									<td
-										class="px-3 py-2.5 tabular-nums text-caption text-muted-foreground"
-									>
-										{loop.iteration}/{loop.maxIterations}
-									</td>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{loop.model}</td
-									>
-									<td
-										class="px-3 py-2.5 text-right tabular-nums text-caption text-muted-foreground"
-									>
-										{formatNumber(loop.tokens)}
-									</td>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-									>
-										{formatRelativeTime(loop.updatedAt)}
-									</td>
-								</tr>
-							{:else}
-								<tr>
-									<td colspan="6">
-										<EmptyState
-											icon="loop"
-											title="No loops match"
-											class="py-6"
-										/>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</Card>
+			{#if list.loading && list.loaded === 0}
+				<Card bodyClass="p-0">
+					<div class="space-y-2 p-3">
+						{#each Array.from({ length: 5 }, (_, position) => position) as index (index)}
+							<Skeleton shape="block" height="38px" class="rounded-md" />
+						{/each}
+					</div>
+				</Card>
+			{:else if list.error}
+				<EmptyState
+					icon="alert-triangle"
+					title="Failed to load agent loops"
+					description={list.error}
+					class="rounded-lg border border-border bg-card"
+				>
+					{#snippet actions()}
+						<Button variant="link" size="sm" onclick={() => list.reload()}
+							>Retry</Button
+						>
+					{/snippet}
+				</EmptyState>
+			{:else}
+				{#snippet loopName(loop: AgentLoop)}
+					<span class="flex items-center gap-1.5">
+						{#if loop.starred}
+							<Icon name="star" size={12} class="shrink-0 text-warning" />
+						{/if}
+						<span class="truncate">{loop.name}</span>
+					</span>
+				{/snippet}
+				{#snippet loopStatus(loop: AgentLoop)}
+					<StatusBadge status={loop.status} size="sm" />
+				{/snippet}
+				{#snippet loopIterations(loop: AgentLoop)}
+					<span class="text-caption tabular-nums text-muted-foreground">
+						{loop.iteration}/{loop.maxIterations}
+					</span>
+				{/snippet}
+				{#snippet loopModel(loop: AgentLoop)}
+					<span class="font-mono text-caption">{loop.model}</span>
+				{/snippet}
+				{#snippet loopTokens(loop: AgentLoop)}
+					<span class="text-caption tabular-nums text-muted-foreground">
+						{formatNumber(loop.tokens)}
+					</span>
+				{/snippet}
+				{#snippet loopUpdated(loop: AgentLoop)}
+					<span class="text-caption text-muted-foreground">
+						{formatRelativeTime(loop.updatedAt)}
+					</span>
+				{/snippet}
+				<Card bodyClass="p-0">
+					<DataTable
+						rows={filtered}
+						rowKey={(row) => row.id}
+						selectedKey={selectedId}
+						onrowclick={(row) => (selectedId = row.id)}
+						emptyTitle="No loops match"
+						columns={[
+							{ key: 'name', header: 'Loop', cell: loopName },
+							{ key: 'status', header: 'Status', cell: loopStatus },
+							{
+								key: 'iteration',
+								header: 'Iteration',
+								cell: loopIterations,
+							},
+							{ key: 'model', header: 'Model', cell: loopModel },
+							{
+								key: 'tokens',
+								header: 'Tokens',
+								align: 'right',
+								cell: loopTokens,
+							},
+							{
+								key: 'updated',
+								header: 'Updated',
+								align: 'right',
+								cell: loopUpdated,
+							},
+						]}
+					/>
+				</Card>
+			{/if}
+
+			<LoadMorePager
+				shown={list.loaded}
+				hasMore={list.hasMore}
+				loading={list.loading}
+				pageSize={list.pageSize}
+				onloadmore={() => list.loadMore()}
+				class="mt-3 rounded-lg border border-border bg-card"
+			/>
 		</div>
 	</div>
 
 	{#snippet inspector()}
-		{#if selected}
+		{#if detail.loading && !detail.data}
+			<div class="space-y-3 p-4">
+				<Skeleton lines={2} />
+				<Skeleton shape="block" height="120px" class="rounded-lg" />
+				<Skeleton lines={4} />
+			</div>
+		{:else if detail.error}
+			<EmptyState
+				icon="alert-triangle"
+				title="Failed to load detail"
+				description={detail.error}
+				class="m-4"
+			>
+				{#snippet actions()}
+					<Button variant="link" size="sm" onclick={() => detail.reload()}
+						>Retry</Button
+					>
+				{/snippet}
+			</EmptyState>
+		{:else if detail.data}
+			{@const selected = detail.data}
 			<div class="flex h-full min-h-0 flex-col">
 				<div class="border-b border-border px-3 py-3">
 					<div class="flex items-start justify-between gap-2">
@@ -266,7 +291,7 @@
 					<Card title="Tags">
 						<div class="flex flex-wrap gap-1.5">
 							{#each selected.tags as tag (tag)}
-								<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+								<Badge variant="outline" size="sm">{tag}</Badge>
 							{:else}
 								<span class="text-caption text-muted-foreground">No tags</span>
 							{/each}

@@ -1,22 +1,20 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Tooltip from '$lib/components/ui/Tooltip.svelte';
-	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
+	import NavList from './NavList.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
+	import { health } from '$lib/stores/health.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '$lib/utils/cn';
 
 	const RAIL_WIDTH = '3.5rem';
 
-	const activeItem = $derived(navItemFor(page.url.pathname));
-
-	function isActive(href: string): boolean {
-		const item = activeItem;
-		return !!item && (item.href === href || item.href.startsWith(href));
-	}
+	$effect(() => {
+		void health.refresh();
+		const timer = setInterval(() => void health.refresh(), 30_000);
+		return () => clearInterval(timer);
+	});
 
 	function navigate(): void {
 		ui.closeMobileNav();
@@ -39,58 +37,16 @@
 			/>
 		</div>
 
-		<nav
+		<NavList
+			variant="icons"
+			onnavigate={navigate}
 			class="flex flex-1 flex-col items-center gap-1 overflow-y-auto py-2 scrollbar-none"
-		>
-			{#each NAV_GROUPS as group (group.id)}
-				<div class="mb-1 w-full px-1.5">
-					<div class="mb-1 h-px bg-sidebar-border"></div>
-					{#each group.items as item (item.href)}
-						<Tooltip text={item.label} class="w-full">
-							<a
-								href={resolve(item.href)}
-								onclick={navigate}
-								aria-current={isActive(item.href) ? 'page' : undefined}
-								class={cn(
-									'flex h-8 w-full items-center justify-center rounded-md transition-colors',
-									isActive(item.href)
-										? 'bg-sidebar-accent text-foreground'
-										: 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-foreground',
-								)}
-							>
-								<Icon name={item.icon} size={17} />
-							</a>
-						</Tooltip>
-					{/each}
-				</div>
-			{/each}
-		</nav>
+		/>
 
 		<div
 			class="invisible absolute left-full top-0 z-40 ml-1 hidden h-full w-60 rounded-r-lg border border-border bg-popover p-2 shadow-popover group-hover/rail:visible lg:group-hover/rail:block"
 		>
-			{#each NAV_GROUPS as group (group.id)}
-				<p
-					class="px-2 py-1 text-micro uppercase tracking-wide text-muted-foreground"
-				>
-					{group.label}
-				</p>
-				{#each group.items as item (item.href)}
-					<a
-						href={resolve(item.href)}
-						onclick={navigate}
-						class={cn(
-							'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
-							isActive(item.href)
-								? 'bg-accent text-accent-foreground'
-								: 'text-foreground hover:bg-accent',
-						)}
-					>
-						<Icon name={item.icon} size={15} />
-						<span class="truncate">{item.label}</span>
-					</a>
-				{/each}
-			{/each}
+			<NavList tone="popover" onnavigate={navigate} />
 		</div>
 	</aside>
 {:else}
@@ -123,40 +79,23 @@
 			/>
 		</div>
 
-		<nav class="flex-1 overflow-y-auto px-2 py-2">
-			{#each NAV_GROUPS as group (group.id)}
-				<div class="mb-3">
-					<p
-						class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
-					>
-						{group.label}
-					</p>
-					<div class="space-y-0.5">
-						{#each group.items as item (item.href)}
-							<a
-								href={resolve(item.href)}
-								onclick={navigate}
-								aria-current={isActive(item.href) ? 'page' : undefined}
-								class={cn(
-									'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
-									isActive(item.href)
-										? 'bg-sidebar-accent font-medium text-foreground'
-										: 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-foreground',
-								)}
-							>
-								<Icon name={item.icon} size={15} class="shrink-0" />
-								<span class="truncate">{item.label}</span>
-							</a>
-						{/each}
-					</div>
-				</div>
-			{/each}
-		</nav>
+		<NavList onnavigate={navigate} class="flex-1 overflow-y-auto px-2 py-2" />
 
 		<div class="border-t border-sidebar-border px-3 py-2">
 			<div class="flex items-center gap-2 text-micro text-muted-foreground">
-				<span class="h-1.5 w-1.5 rounded-full bg-success"></span>
-				<span>API reachable</span>
+				<span
+					class={cn(
+						'h-1.5 w-1.5 rounded-full',
+						health.status === 'reachable' && 'bg-success',
+						health.status === 'unreachable' && 'bg-destructive',
+						health.status === 'checking' && 'bg-muted-foreground',
+					)}
+				></span>
+				<span
+					>{health.status === 'checking'
+						? 'checking API'
+						: `API ${health.status}`}</span
+				>
 			</div>
 		</div>
 	</aside>

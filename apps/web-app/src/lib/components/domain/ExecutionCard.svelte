@@ -43,7 +43,7 @@
 	class={cn(
 		'w-full rounded-lg border px-3 py-2.5 text-left transition-colors duration-150',
 		selected
-			? 'border-[hsl(var(--ring))] bg-accent'
+			? 'border-ring bg-accent'
 			: 'border-border bg-card hover:border-ring/40 hover:bg-accent/40',
 		className,
 	)}

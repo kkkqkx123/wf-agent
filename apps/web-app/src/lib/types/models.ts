@@ -75,12 +75,11 @@ export interface WorkflowVersion {
 	current: boolean;
 }
 
+/** A stored draft edits the workflow whose id it shares. */
 export interface WorkflowDraft {
 	id: string;
 	name: string;
 	updatedAt: string;
-	valid: boolean;
-	issues: string[];
 }
 
 export interface Workflow {
@@ -102,8 +101,6 @@ export interface Workflow {
 export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
 	versions: WorkflowVersion[];
-	drafts: WorkflowDraft[];
-	neighbors: Array<{ id: string; label: string; reachable: boolean }>;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -172,17 +169,29 @@ export interface Checkpoint {
 	restorable: boolean;
 }
 
-export type FileChangeType = 'added' | 'modified' | 'deleted' | 'renamed';
-
+/** One file differing between an actor workspace and the staged partition. */
 export interface FileChange {
-	id: string;
 	path: string;
-	changeType: FileChangeType;
-	actor: string;
-	at: string;
+	kind: 'added' | 'modified' | 'deleted';
 	additions: number;
 	deletions: number;
-	session: string;
+	/** Unified diff text; null when the content is binary. */
+	diff: string | null;
+}
+
+/** An actor partition of the file-checkpoint store. */
+export interface FileActor {
+	actor: string;
+	kind: string;
+	historyLen: number;
+}
+
+/** A persisted edit session that can be rolled back as a unit. */
+export interface EditSession {
+	id: string;
+	label: string;
+	createdAt: string;
+	changeCount: number;
 }
 
 export interface Approval {
@@ -244,6 +253,15 @@ export interface Tool {
 	successRate: number | null;
 }
 
+/** Outcome of an ad-hoc tool invocation. */
+export interface ToolRun {
+	success: boolean;
+	output: string;
+	error: string;
+	durationMs: number;
+	retries: number;
+}
+
 export interface Script {
 	id: string;
 	name: string;
@@ -271,7 +289,6 @@ export interface Template {
 	category: string;
 	description: string;
 	usage: number;
-	featured: boolean;
 	tags: string[];
 }
 

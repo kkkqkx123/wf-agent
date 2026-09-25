@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -7,11 +6,21 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Input from '$lib/components/ui/Input.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import { listTemplates } from '$lib/services/templates';
+	import {
+		cloneTemplate,
+		listFeaturedTemplates,
+		listTemplates,
+	} from '$lib/services/templates';
 	import type { Template, TemplateKind } from '$lib/types/models';
+	import { createResource } from '$lib/stores/collection.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import { page } from '$app/state';
 
 	const TABS = [
 		{ id: 'all', label: 'All' },
@@ -21,39 +30,31 @@
 		{ id: 'workflow', label: 'Workflow' },
 	];
 
-	let kind = $state<'all' | TemplateKind>('all');
+	const initial = parseListParams(page.url);
+	let kind = $state<'all' | TemplateKind>(
+		(initial.tab as TemplateKind | undefined) ?? 'all',
+	);
 	let featuredOnly = $state(false);
 
-	let loading = $state(true);
-	let error = $state<string | null>(null);
-	let templates = $state<Template[]>([]);
-
-	async function load() {
-		loading = true;
-		error = null;
-		try {
-			templates = await listTemplates({
-				kind: kind === 'all' ? undefined : kind,
-			});
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Unknown error';
-		} finally {
-			loading = false;
-		}
-	}
-
-	// Reload on kind change — debounced by user interaction
-	$effect(() => {
-		// Skip on first run (onMount handles initial load)
+	const registry = createResource<Template[]>(async () => {
+		if (!featuredOnly) return listTemplates({ kind });
+		const featured = await listFeaturedTemplates();
+		return kind === 'all' ? featured : featured.filter((t) => t.kind === kind);
 	});
 
-	const filtered = $derived(
-		templates.filter((template) => {
-			const matchesKind = kind === 'all' || template.kind === kind;
-			const matchesFeatured = !featuredOnly || template.featured;
-			return matchesKind && matchesFeatured;
-		}),
-	);
+	$effect(() => {
+		gotoWithParams(page.url, { tab: kind === 'all' ? '' : kind });
+	});
+
+	// Both filters are applied by the endpoint or right after it, so every
+	// change refetches.
+	$effect(() => {
+		void kind;
+		void featuredOnly;
+		void registry.reload();
+	});
+
+	const templates = $derived(registry.data ?? []);
 
 	const KIND_ICON: Record<
 		TemplateKind,
@@ -65,7 +66,32 @@
 		workflow: 'workflow',
 	};
 
-	onMount(load);
+	let cloneTarget = $state<Template | null>(null);
+	let cloneOpen = $state(false);
+	let cloneName = $state('');
+	let cloning = $state(false);
+
+	function openClone(template: Template): void {
+		cloneTarget = template;
+		cloneName = `${template.name} copy`;
+		cloneOpen = true;
+	}
+
+	async function submitClone(): Promise<void> {
+		const target = cloneTarget;
+		if (!target) return;
+		cloning = true;
+		try {
+			await cloneTemplate(target.id, target.kind, cloneName.trim());
+			await registry.reload();
+			cloneOpen = false;
+			toasts.success(`Cloned ${target.name}`);
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Clone failed');
+		} finally {
+			cloning = false;
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -77,26 +103,9 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={load}
-				disabled={loading}
+				onclick={() => void registry.reload()}
+				disabled={registry.loading}
 			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => toasts.info('Import pending')}
-				disabled
-			>
-				<Icon name="upload" size={13} />
-				Import
-			</Button>
-			<Button
-				size="sm"
-				onclick={() => toasts.success('Template editor pending')}
-				disabled
-			>
-				<Icon name="plus" size={13} />
-				New template
-			</Button>
 		{/snippet}
 	</PageHeader>
 
@@ -114,16 +123,25 @@
 	</Segmented>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if loading}
-			<div class="flex h-full items-center justify-center text-muted-foreground">
-				Loading templates…
+		{#if registry.loading && !registry.data}
+			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+				{#each Array.from({ length: 6 }, (_, position) => position) as index (index)}
+					<Skeleton class="h-[168px] rounded-lg" />
+				{/each}
 			</div>
-		{:else if error}
-			<div class="flex h-full flex-col items-center justify-center gap-3">
-				<p class="text-destructive">{error}</p>
-				<Button variant="outline" size="sm" onclick={load}>Retry</Button>
-			</div>
-		{:else if filtered.length === 0}
+		{:else if registry.error}
+			<Card class="border-destructive/40">
+				<p class="text-body text-destructive">{registry.error}</p>
+				<Button
+					variant="outline"
+					size="sm"
+					class="mt-2"
+					onclick={() => void registry.reload()}
+				>
+					Retry
+				</Button>
+			</Card>
+		{:else if templates.length === 0}
 			<EmptyState
 				icon="template"
 				title="No templates match"
@@ -132,16 +150,8 @@
 			/>
 		{:else}
 			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-				{#each filtered as template (template.id)}
+				{#each templates as template (template.id)}
 					<Card title={template.name}>
-						{#snippet actions()}
-							{#if template.featured}
-								<Badge variant="warning" class="text-[0.625rem]">
-									<Icon name="star" size={10} />
-									featured
-								</Badge>
-							{/if}
-						{/snippet}
 						<p class="text-caption text-muted-foreground">
 							{template.description}
 						</p>
@@ -158,7 +168,7 @@
 						</div>
 						<div class="mt-2 flex flex-wrap gap-1">
 							{#each template.tags as tag (tag)}
-								<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+								<Badge variant="outline" size="sm">{tag}</Badge>
 							{/each}
 						</div>
 						{#snippet footer()}
@@ -166,22 +176,15 @@
 								<span class="tabular-nums"
 									>{formatNumber(template.usage)} uses</span
 								>
-								<div class="flex items-center gap-1">
+								{#if template.kind === 'workflow' || template.kind === 'agent'}
 									<Button
 										variant="ghost"
 										size="sm"
-										onclick={() => toasts.info('Clone pending')}
+										onclick={() => openClone(template)}
 									>
 										Clone
 									</Button>
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={() => toasts.success('Template applied')}
-									>
-										Use
-									</Button>
-								</div>
+								{/if}
 							</div>
 						{/snippet}
 					</Card>
@@ -190,3 +193,28 @@
 		{/if}
 	</div>
 </div>
+
+{#if cloneTarget}
+	<Dialog
+		bind:open={cloneOpen}
+		title="Clone {cloneTarget.name}"
+		description="The registry stores the copy as a new editable template."
+	>
+		<label class="text-caption text-muted-foreground" for="clone-name">
+			New name
+		</label>
+		<Input id="clone-name" bind:value={cloneName} class="mt-1" />
+		{#snippet footer()}
+			<Button variant="ghost" size="sm" onclick={() => (cloneOpen = false)}
+				>Cancel</Button
+			>
+			<Button
+				size="sm"
+				disabled={cloning || cloneName.trim() === ''}
+				onclick={() => void submitClone()}
+			>
+				Clone
+			</Button>
+		{/snippet}
+	</Dialog>
+{/if}

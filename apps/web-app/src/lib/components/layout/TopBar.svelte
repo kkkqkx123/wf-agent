@@ -66,7 +66,7 @@
 			<Icon name="search" size={13} />
 			<span>Search</span>
 			<kbd
-				class="ml-1 rounded border border-border bg-muted px-1 font-mono text-[0.625rem] text-muted-foreground"
+				class="ml-1 rounded border border-border bg-muted px-1 font-mono text-nano text-muted-foreground"
 			>
 				⌘K
 			</kbd>

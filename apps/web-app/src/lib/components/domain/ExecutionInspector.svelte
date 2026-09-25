@@ -8,7 +8,6 @@
 	import Timeline from './Timeline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 
-
 	import {
 		formatBytes,
 		formatDateTime,
@@ -28,7 +27,12 @@
 		class?: string;
 	}
 
-	let { execution, toolCalls = [], timeline = [], class: className = '' }: Props = $props();
+	let {
+		execution,
+		toolCalls = [],
+		timeline = [],
+		class: className = '',
+	}: Props = $props();
 
 	const TABS = [
 		{ id: 'overview', label: 'Overview' },

@@ -8,6 +8,8 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import type { Column } from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
@@ -16,8 +18,14 @@
 		listAuditReports,
 		listErrorAnalyses,
 		listPerformanceNodes,
+		exportQuery,
 	} from '$lib/services/insights';
-	import type { QueryResult, AuditReport, ErrorAnalysis, PerfNode } from '$lib/types/models';
+	import type {
+		QueryResult,
+		AuditReport,
+		ErrorAnalysis,
+	} from '$lib/types/models';
+	import { createResource } from '$lib/stores/collection.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -34,7 +42,8 @@
 	];
 
 	let tab = $state('query');
-	let statement = $state("");
+	let statement = $state('');
+	let exporting = $state(false);
 
 	// Query tab state
 	let queryLoading = $state(false);
@@ -46,10 +55,13 @@
 		truncated: false,
 	});
 
-	// Audit / errors / performance state (populated on mount)
-	let auditReports = $state<AuditReport[]>([]);
-	let errorAnalyses = $state<ErrorAnalysis[]>([]);
-	let perfNodes = $state<PerfNode[]>([]);
+	const audit = createResource(() => listAuditReports());
+	const errors = createResource(() => listErrorAnalyses());
+	const perf = createResource(() => listPerformanceNodes());
+
+	const auditReports = $derived(audit.data ?? []);
+	const errorAnalyses = $derived(errors.data ?? []);
+	const perfNodes = $derived(perf.data ?? []);
 
 	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
 		queryResult.columns.map((column) => ({
@@ -62,19 +74,56 @@
 	const auditColumns: Column<AuditReport>[] = [
 		{ key: 'execution', header: 'Execution', text: (row) => row.executionId },
 		{ key: 'status', header: 'Status', text: (row) => row.status },
-		{ key: 'nodes', header: 'Nodes', align: 'right', text: (row) => formatNumber(row.nodes) },
-		{ key: 'duration', header: 'Duration', align: 'right', text: (row) => formatDuration(row.durationMs) },
-		{ key: 'tools', header: 'Tool calls', align: 'right', text: (row) => formatNumber(row.toolCalls) },
-		{ key: 'llm', header: 'LLM calls', align: 'right', text: (row) => formatNumber(row.llmCalls) },
-		{ key: 'generated', header: 'Generated', text: (row) => formatRelativeTime(row.generatedAt) },
+		{
+			key: 'nodes',
+			header: 'Nodes',
+			align: 'right',
+			text: (row) => formatNumber(row.nodes),
+		},
+		{
+			key: 'duration',
+			header: 'Duration',
+			align: 'right',
+			text: (row) => formatDuration(row.durationMs),
+		},
+		{
+			key: 'tools',
+			header: 'Tool calls',
+			align: 'right',
+			text: (row) => formatNumber(row.toolCalls),
+		},
+		{
+			key: 'llm',
+			header: 'LLM calls',
+			align: 'right',
+			text: (row) => formatNumber(row.llmCalls),
+		},
+		{
+			key: 'generated',
+			header: 'Generated',
+			text: (row) => formatRelativeTime(row.generatedAt),
+		},
 	];
 
 	const errorColumns: Column<ErrorAnalysis>[] = [
 		{ key: 'category', header: 'Category', text: (row) => row.category },
 		{ key: 'rootCause', header: 'Root cause', text: (row) => row.rootCause },
-		{ key: 'count', header: 'Count', align: 'right', text: (row) => formatNumber(row.occurrences) },
-		{ key: 'first', header: 'First seen', text: (row) => formatDateTime(row.firstSeen) },
-		{ key: 'last', header: 'Last seen', text: (row) => formatRelativeTime(row.lastSeen) },
+		{
+			key: 'count',
+			header: 'Count',
+			align: 'right',
+			text: (row) => formatNumber(row.occurrences),
+		},
+		{
+			key: 'first',
+			header: 'First seen',
+			text: (row) => formatDateTime(row.firstSeen),
+		},
+		{
+			key: 'last',
+			header: 'Last seen',
+			text: (row) => formatRelativeTime(row.lastSeen),
+		},
 		{ key: 'status', header: 'State', text: (row) => row.status },
 	];
 
@@ -98,21 +147,26 @@
 		}
 	}
 
-	async function loadBackground() {
-		// Background aggregation for audit / errors / performance.
-		// Backend currently exposes only per-execution endpoints for these,
-		// so the lists are empty until a global aggregator lands (Batch 2).
-		const [audit, errs, perf] = await Promise.allSettled([
-			listAuditReports(),
-			listErrorAnalyses(),
-			listPerformanceNodes(),
-		]);
-		if (audit.status === 'fulfilled') auditReports = audit.value;
-		if (errs.status === 'fulfilled') errorAnalyses = errs.value;
-		if (perf.status === 'fulfilled') perfNodes = perf.value;
+	async function runExport(): Promise<void> {
+		exporting = true;
+		try {
+			await exportQuery({
+				expressions: statement.trim() ? [{ sql: statement.trim() }] : [],
+				format: 'csv',
+			});
+			toasts.success('Export downloaded');
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Export failed');
+		} finally {
+			exporting = false;
+		}
 	}
 
-	onMount(loadBackground);
+	onMount(() => {
+		void audit.reload();
+		void errors.reload();
+		void perf.reload();
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -124,15 +178,20 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={loadBackground}
+				onclick={() => {
+					audit.reload();
+					errors.reload();
+					perf.reload();
+				}}
 			/>
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.success('Export queued')}
+				disabled={exporting}
+				onclick={runExport}
 			>
 				<Icon name="download" size={13} />
-				Export
+				{exporting ? 'Exporting…' : 'Export'}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -176,13 +235,30 @@
 				</Card>
 			</div>
 		{:else if tab === 'audit'}
-			<Card title="Audit reports" bodyClass="p-0">
-				<DataTable
-					columns={auditColumns}
-					rows={auditReports}
-					rowKey={(row) => row.id}
-				/>
-			</Card>
+			{#if audit.loading && !audit.data}
+				<Skeleton shape="block" height="160px" class="rounded-lg" />
+			{:else if audit.error}
+				<EmptyState
+					icon="alert-triangle"
+					title="Failed to load audit reports"
+					description={audit.error}
+					class="rounded-lg border border-border bg-card"
+				>
+					{#snippet actions()}
+						<Button variant="link" size="sm" onclick={() => audit.reload()}
+							>Retry</Button
+						>
+					{/snippet}
+				</EmptyState>
+			{:else}
+				<Card title="Audit reports" bodyClass="p-0">
+					<DataTable
+						columns={auditColumns}
+						rows={auditReports}
+						rowKey={(row) => row.id}
+					/>
+				</Card>
+			{/if}
 			<div class="mt-3 flex flex-wrap gap-2">
 				{#each auditReports.slice(0, 3) as report (report.id)}
 					<Card class="min-w-56 flex-1" title={report.executionId}>
@@ -206,13 +282,30 @@
 				{/each}
 			</div>
 		{:else if tab === 'errors'}
-			<Card title="Error analysis" bodyClass="p-0">
-				<DataTable
-					columns={errorColumns}
-					rows={errorAnalyses}
-					rowKey={(row) => row.id}
-				/>
-			</Card>
+			{#if errors.loading && !errors.data}
+				<Skeleton shape="block" height="160px" class="rounded-lg" />
+			{:else if errors.error}
+				<EmptyState
+					icon="alert-triangle"
+					title="Failed to load error analysis"
+					description={errors.error}
+					class="rounded-lg border border-border bg-card"
+				>
+					{#snippet actions()}
+						<Button variant="link" size="sm" onclick={() => errors.reload()}
+							>Retry</Button
+						>
+					{/snippet}
+				</EmptyState>
+			{:else}
+				<Card title="Error analysis" bodyClass="p-0">
+					<DataTable
+						columns={errorColumns}
+						rows={errorAnalyses}
+						rowKey={(row) => row.id}
+					/>
+				</Card>
+			{/if}
 			<div class="mt-3 grid gap-3 lg:grid-cols-2">
 				{#each errorAnalyses.slice(0, 2) as error (error.id)}
 					<Card title={error.category}>
@@ -224,7 +317,7 @@
 							{#if error.similar.length > 0}
 								<span class="text-micro text-muted-foreground">similar:</span>
 								{#each error.similar as id (id)}
-									<Badge variant="outline" class="text-[0.625rem]">{id}</Badge>
+									<Badge variant="outline" size="sm">{id}</Badge>
 								{/each}
 							{:else}
 								<span class="text-micro text-muted-foreground"
@@ -236,37 +329,63 @@
 				{/each}
 			</div>
 		{:else}
-			<Card title="Node performance">
-				<ul class="space-y-3">
-					{#each perfNodes as node (node.node)}
-						<li>
-							<div class="flex items-center justify-between gap-3 text-caption">
-								<span class="truncate font-mono">{node.node}</span>
-								<span class="shrink-0 tabular-nums text-muted-foreground">
-									{formatDuration(node.avgMs)} avg · {formatDuration(
-										node.p95Ms,
-									)} p95
-								</span>
-							</div>
-							<div class="mt-1 flex items-center gap-2">
-								<span
-									class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+			{#if perf.loading && !perf.data}
+				<Skeleton shape="block" height="160px" class="rounded-lg" />
+			{:else if perf.error}
+				<EmptyState
+					icon="alert-triangle"
+					title="Failed to load performance"
+					description={perf.error}
+					class="rounded-lg border border-border bg-card"
+				>
+					{#snippet actions()}
+						<Button variant="link" size="sm" onclick={() => perf.reload()}
+							>Retry</Button
+						>
+					{/snippet}
+				</EmptyState>
+			{:else if perfNodes.length === 0}
+				<EmptyState
+					icon="chart"
+					title="No performance data"
+					description="Node stats appear once executions are analysed."
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<Card title="Node performance">
+					<ul class="space-y-3">
+						{#each perfNodes as node (node.node)}
+							<li>
+								<div
+									class="flex items-center justify-between gap-3 text-caption"
 								>
+									<span class="truncate font-mono">{node.node}</span>
+									<span class="shrink-0 tabular-nums text-muted-foreground">
+										{formatDuration(node.avgMs)} avg · {formatDuration(
+											node.p95Ms,
+										)} p95
+									</span>
+								</div>
+								<div class="mt-1 flex items-center gap-2">
 									<span
-										class="block h-full rounded-full bg-chart-1"
-										style:width="{node.share * 100}%"
-									></span>
-								</span>
-								<span
-									class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
-								>
-									{Math.round(node.share * 100)}%
-								</span>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</Card>
+										class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+									>
+										<span
+											class="block h-full rounded-full bg-chart-1"
+											style:width="{node.share * 100}%"
+										></span>
+									</span>
+									<span
+										class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
+									>
+										{Math.round(node.share * 100)}%
+									</span>
+								</div>
+							</li>
+						{/each}
+					</ul>
+				</Card>
+			{/if}
 		{/if}
 	</div>
 </div>

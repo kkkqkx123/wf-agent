@@ -22,9 +22,15 @@
 
 	let query = $state('');
 	let rawIndex = $state(0);
-	let executions = $state<Awaited<ReturnType<typeof listExecutions>>["items"]>([]);
-	let workflows = $state<Awaited<ReturnType<typeof listWorkflows>>["items"]>([]);
-	let agentLoops = $state<Awaited<ReturnType<typeof listAgentLoops>>["items"]>([]);
+	let executions = $state<Awaited<ReturnType<typeof listExecutions>>['items']>(
+		[],
+	);
+	let workflows = $state<Awaited<ReturnType<typeof listWorkflows>>['items']>(
+		[],
+	);
+	let agentLoops = $state<Awaited<ReturnType<typeof listAgentLoops>>['items']>(
+		[],
+	);
 
 	const items = $derived.by<CommandItem[]>(() => {
 		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
@@ -164,7 +170,7 @@
 				bind:value={query}
 				placeholder="Type to search…"
 				aria-label="Command palette search"
-				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]"
+				class="h-9 w-full rounded-md border border-input bg-card pl-8 pr-2 text-body text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
 			/>
 		</div>
 

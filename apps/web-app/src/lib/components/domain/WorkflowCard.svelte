@@ -27,7 +27,7 @@
 	class={cn(
 		'flex h-full flex-col rounded-lg border px-3 py-2.5 text-left transition-colors duration-150',
 		selected
-			? 'border-[hsl(var(--ring))] bg-accent'
+			? 'border-ring bg-accent'
 			: 'border-border bg-card hover:border-ring/40 hover:bg-accent/40',
 		className,
 	)}
@@ -45,7 +45,7 @@
 
 	<div class="mt-2 flex flex-wrap items-center gap-1">
 		{#each workflow.tags.slice(0, 3) as tag (tag)}
-			<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
+			<Badge variant="outline" size="sm">{tag}</Badge>
 		{/each}
 		{#if workflow.tags.length > 3}
 			<span class="text-micro text-muted-foreground"

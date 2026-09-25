@@ -1,10 +1,13 @@
-import { client } from '$lib/api/client';
+import { client, request, downloadFile } from '$lib/api/client';
 import { call } from '$lib/api/envelope';
-import type { QueryResult, AuditReport, ErrorAnalysis, PerfNode } from '$lib/types/models';
+import type {
+	QueryResult,
+	AuditReport,
+	ErrorAnalysis,
+	PerfNode,
+} from '$lib/types/models';
 
 type QueryRow = Record<string, string | number | null>;
-
-
 
 interface PerfNodeDto {
 	node?: string;
@@ -40,10 +43,7 @@ export async function runQuery(params: {
 		limit: params.limit ?? 50,
 		offset: params.offset ?? 0,
 	};
-	const data = await call<unknown>(
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		client.POST('/api/v1/query', { body } as any),
-	);
+	const data = await call<unknown>(request('POST', '/api/v1/query', { body }));
 
 	if (data && typeof data === 'object') {
 		const d = data as Record<string, unknown>;
@@ -113,8 +113,27 @@ export async function listPerformanceNodes(): Promise<PerfNode[]> {
 
 /** Aggregate usage stats across the system. */
 export async function getAnalysisStats(): Promise<Record<string, unknown>> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/analysis/stats'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/analysis/stats'));
 	return (data as Record<string, unknown>) ?? {};
+}
+
+/** Run a query export and trigger a browser download of the result file. */
+export async function exportQuery(params: {
+	expressions: Record<string, unknown>[];
+	format?: 'json' | 'csv';
+	limit?: number;
+}): Promise<void> {
+	const format = params.format ?? 'csv';
+	await downloadFile(
+		'/api/v1/query/export?download=true',
+		`query-export.${format}`,
+		{
+			method: 'POST',
+			body: {
+				expressions: params.expressions,
+				format,
+				limit: params.limit,
+			},
+		},
+	);
 }

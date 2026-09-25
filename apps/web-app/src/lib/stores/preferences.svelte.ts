@@ -5,6 +5,8 @@ export type Density = 'compact' | 'default' | 'comfortable';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
+export const INSPECTOR_WIDTH_MIN = 260;
+export const INSPECTOR_WIDTH_MAX = 620;
 
 const STORAGE_KEY = 'wf-ui-preferences';
 
@@ -14,6 +16,7 @@ interface PersistedPreferences {
 	sidebarCollapsed?: boolean;
 	sidebarWidth?: number;
 	inspectorPinned?: boolean;
+	inspectorWidth?: number;
 }
 
 const DENSITY_SCALE: Record<Density, number> = {
@@ -37,7 +40,8 @@ class PreferencesStore {
 	density = $state<Density>('default');
 	sidebarCollapsed = $state(false);
 	sidebarWidth = $state(240);
-	inspectorPinned = $state(false);
+	inspectorPinned = $state(true);
+	inspectorWidth = $state(360);
 
 	constructor() {
 		const stored = read();
@@ -66,6 +70,12 @@ class PreferencesStore {
 		}
 		if (typeof stored.inspectorPinned === 'boolean') {
 			this.inspectorPinned = stored.inspectorPinned;
+		}
+		if (
+			typeof stored.inspectorWidth === 'number' &&
+			Number.isFinite(stored.inspectorWidth)
+		) {
+			this.inspectorWidth = clampInspectorWidth(stored.inspectorWidth);
 		}
 	}
 
@@ -98,6 +108,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setInspectorWidth(width: number): void {
+		this.inspectorWidth = clampInspectorWidth(width);
+		this.persist();
+	}
+
 	private persist(): void {
 		if (!browser) return;
 		try {
@@ -109,6 +124,7 @@ class PreferencesStore {
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,
 					inspectorPinned: this.inspectorPinned,
+					inspectorWidth: this.inspectorWidth,
 				} satisfies PersistedPreferences),
 			);
 		} catch {
@@ -121,6 +137,13 @@ function clampSidebarWidth(width: number): number {
 	return Math.min(
 		SIDEBAR_WIDTH_MAX,
 		Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)),
+	);
+}
+
+function clampInspectorWidth(width: number): number {
+	return Math.min(
+		INSPECTOR_WIDTH_MAX,
+		Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)),
 	);
 }
 

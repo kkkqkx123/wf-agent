@@ -4,6 +4,7 @@
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import Toaster from '$lib/components/layout/Toaster.svelte';
+	import { behavior } from '$lib/stores/behavior.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
 		applyFontScale,
@@ -24,6 +25,17 @@
 	});
 
 	$effect(() => listenToSystemTheme());
+
+	$effect(() => {
+		void behavior.load();
+	});
+
+	$effect(() => {
+		document.documentElement.classList.toggle(
+			'reduce-motion',
+			behavior.reduceMotion,
+		);
+	});
 </script>
 
 <AppShell>

@@ -3,7 +3,7 @@ import { cn } from '$lib/utils/cn';
 export type Size = 'sm' | 'md' | 'lg';
 
 const BASE_FOCUS =
-	'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))]';
+	'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring';
 
 const BUTTON_VARIANT = {
 	default: 'bg-primary text-primary-foreground hover:bg-primary/90',
@@ -49,19 +49,28 @@ const BADGE_VARIANT = {
 
 export type BadgeVariant = keyof typeof BADGE_VARIANT;
 
+const BADGE_SIZE = {
+	sm: 'px-1.5 py-0 text-nano leading-4',
+	md: 'px-2 py-0.5 text-micro leading-5',
+} as const;
+
+export type BadgeSize = keyof typeof BADGE_SIZE;
+
 export function badgeClass(
 	variant: BadgeVariant = 'neutral',
+	size: BadgeSize = 'md',
 	extra?: string,
 ): string {
 	return cn(
-		'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-micro font-medium leading-5',
+		'inline-flex items-center gap-1 rounded-full font-medium',
+		BADGE_SIZE[size],
 		BADGE_VARIANT[variant],
 		extra,
 	);
 }
 
 export const INPUT_BASE =
-	'w-full rounded-md border border-input bg-card px-2.5 text-body text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60';
+	'w-full rounded-md border border-input bg-card px-2.5 text-body text-foreground placeholder:text-muted-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60';
 
 export const SURFACE_PANEL =
 	'rounded-lg border border-border bg-card text-card-foreground shadow-sm';

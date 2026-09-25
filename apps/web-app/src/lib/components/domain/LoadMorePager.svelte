@@ -8,7 +8,7 @@
 		shown: number;
 		hasMore: boolean;
 		loading?: boolean;
-		pageSize?: number;
+		pageSize: number;
 		class?: string;
 		onloadmore?: () => void;
 	}
@@ -17,7 +17,7 @@
 		shown,
 		hasMore,
 		loading = false,
-		pageSize = 50,
+		pageSize,
 		class: className = '',
 		onloadmore,
 	}: Props = $props();
@@ -31,7 +31,7 @@
 >
 	<p class="text-caption text-muted-foreground">
 		<!-- The contract exposes `has_more` instead of a total, so no page count is rendered. -->
-		{formatNumber(shown)} loaded · cursor paging (no total)
+		{formatNumber(shown)} loaded
 	</p>
 	<div class="flex items-center gap-2">
 		{#if loading}

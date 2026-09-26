@@ -1,0 +1,1151 @@
+use super::*;
+use serde_json::Value;
+use std::collections::HashMap;
+use wf_execution_shared::hooks::types::HookDefinition;
+use wf_types::node::StaticNodeType;
+use wf_types::workflow::EdgeType;
+use wf_types::workflow_execution::{
+    WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
+};
+
+use crate::checkpoint::strategy::NodeCheckpointStrategy;
+use crate::handler::{HandlerRegistry, NodeHandler};
+
+fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
+    WorkflowNode {
+        id: id.to_string(),
+        name: Some(id.to_string()),
+        node_type: node_type.to_string(),
+        inner,
+    }
+}
+
+fn edge(source: &str, target: &str) -> WorkflowEdge {
+    WorkflowEdge {
+        id: format!("{}-{}", source, target),
+        source_node_id: source.to_string(),
+        target_node_id: target.to_string(),
+        r#type: EdgeType::Default,
+        condition: None,
+        label: None,
+        description: None,
+        error_route: None,
+    }
+}
+
+fn make_graph() -> WorkflowGraphStructure {
+    WorkflowGraphStructure {
+        nodes: vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "v1",
+                "VARIABLE",
+                serde_json::json!({
+                    "variable_name": "mid",
+                    "expression": "${input.greeting}"
+                }),
+            ),
+            node(
+                "v2",
+                "VARIABLE",
+                serde_json::json!({
+                    "variable_name": "final",
+                    "expression": "${mid}"
+                }),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+        error_default: None,
+    }
+}
+
+fn make_handlers() -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+    let mut reg = HandlerRegistry::new();
+    reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
+    reg.into_arc()
+}
+
+fn make_lifecycle(store: Arc<StorageBackend>) -> WorkflowLifecycleCoordinator {
+    WorkflowLifecycleCoordinator::with_store(None, store)
+        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node())
+}
+
+/// Instance strategy with the master switch on but an empty trigger
+/// list: no automatic node checkpoint fires, while explicit opt-ins
+/// (hook `create_checkpoint`, node force flags) still do. This is the
+/// shape the opt-in tests need; `never()` is the kill switch (master
+/// switch off) and suppresses even explicit opt-ins, same as the agent
+/// engine gate.
+fn triggerless_strategy() -> NodeCheckpointStrategy {
+    NodeCheckpointStrategy::from_policy(&wf_types::checkpoint::UnifiedCheckpointPolicy {
+        enabled: true,
+        triggers: Vec::new(),
+        content: None,
+        retention: None,
+        error_handling: None,
+    })
+}
+
+#[tokio::test]
+async fn test_execute_then_resume() {
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = make_lifecycle(store.clone());
+    let workflow_id = wf_types::Id::from("wf-resume-1".to_string());
+    let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+
+    let handlers = make_handlers();
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-resume-1".to_string()),
+        workflow_id: workflow_id.clone(),
+        graph: make_graph(),
+        options: WorkflowExecutionOptions {
+            input: Some(serde_json::json!({"greeting": "hello"})),
+            max_steps: Some(2),
+            timeout: None,
+            max_execution_time: None,
+            enable_checkpoints: Some(true),
+            node_timeout: None,
+            max_pause_duration: None,
+            max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
+        },
+        handlers: handlers.clone(),
+        tool_registry: tool_registry.clone(),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+
+    let first = lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("first run should complete");
+    assert_eq!(first.execution_id, "exec-resume-1");
+
+    // Snapshot must have captured variables written by v1
+    use wf_checkpoint::state::CheckpointStateManager;
+    let sm = wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone());
+    let latest = sm
+        .get_latest("exec-resume-1")
+        .await
+        .expect("checkpoint exists");
+    assert!(latest.is_some(), "checkpoint should be persisted");
+    assert!(latest.is_some(), "checkpoint should be persisted");
+
+    let resumed = lifecycle
+        .resume_workflow(
+            "exec-resume-1",
+            workflow_id,
+            make_graph(),
+            handlers,
+            tool_registry,
+            Vec::new(),
+        )
+        .await
+        .expect("resume should complete the workflow");
+    assert_eq!(resumed.execution_id, "exec-resume-1");
+
+    // Single end node -> final output is the end node's output directly.
+    assert_eq!(resumed.result, serde_json::json!({"greeting": "hello"}));
+
+    // The resumed run must have continued checkpointing; the new
+    // snapshot proves v2 ran with the restored "mid" variable.
+    let resumed_cp = sm
+        .get_latest("exec-resume-1")
+        .await
+        .expect("checkpoint exists")
+        .expect("checkpoint persisted");
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    let coord = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
+        wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone()),
+    );
+    let restored = coord.restore(&resumed_cp.id).await.expect("restore ok");
+    let vars = &restored.snapshot.variable_state.variables;
+    assert_eq!(vars.get("mid"), Some(&serde_json::json!("hello")));
+    assert_eq!(vars.get("final"), Some(&serde_json::json!("hello")));
+}
+
+#[tokio::test]
+async fn test_resume_without_checkpoint_fails() {
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = make_lifecycle(store.clone());
+
+    let err = lifecycle
+        .resume_workflow(
+            "exec-missing",
+            wf_types::Id::from("wf-x".to_string()),
+            make_graph(),
+            make_handlers(),
+            Arc::new(wf_tools::registry::ToolRegistry::new()),
+            Vec::new(),
+        )
+        .await
+        .expect_err("resume without checkpoint must fail");
+    assert!(err.to_string().contains("no checkpoint"));
+}
+
+#[tokio::test]
+async fn test_checkpoints_disabled_execution_skips_checkpointing() {
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = make_lifecycle(store.clone());
+    let handlers = make_handlers();
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-no-cp".to_string()),
+        workflow_id: wf_types::Id::from("wf-no-cp".to_string()),
+        graph: make_graph(),
+        options: WorkflowExecutionOptions {
+            input: Some(serde_json::json!({"greeting": "hello"})),
+            max_steps: Some(2),
+            timeout: None,
+            max_execution_time: None,
+            // Sub-workflows pass enable_checkpoints=false; the strategy is
+            // configured but must be skipped.
+            enable_checkpoints: Some(false),
+            node_timeout: None,
+            max_pause_duration: None,
+            max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
+        },
+        handlers,
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+
+    let output = lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("execution should complete without checkpoints");
+    assert_eq!(output.execution_id, "exec-no-cp");
+
+    use wf_checkpoint::state::CheckpointStateManager;
+    let sm = wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone());
+    let latest = sm.get_latest("exec-no-cp").await.expect("query ok");
+    assert!(latest.is_none(), "no checkpoint created when disabled");
+}
+
+fn options_with(input: Option<Value>) -> WorkflowExecutionOptions {
+    WorkflowExecutionOptions {
+        input,
+        max_steps: None,
+        timeout: None,
+        max_execution_time: None,
+        enable_checkpoints: Some(true),
+        node_timeout: None,
+        max_pause_duration: None,
+        max_navigation_multiplier: None,
+        loop_max_iterations_cap: None,
+    }
+}
+
+#[tokio::test]
+async fn test_workflow_hooks_publish_events_per_node() {
+    use wf_core::EventBus;
+    use wf_execution_shared::hooks::types::HookDefinition;
+    use wf_types::events::EventType;
+
+    let bus = Arc::new(EventBus::new(32));
+    let hooks = vec![
+        HookDefinition {
+            id: "h-before".to_string(),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            priority: 1,
+            condition: None,
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
+        },
+        HookDefinition {
+            id: "h-after".to_string(),
+            hook_type: "AFTER_EXECUTE".to_string(),
+            priority: 1,
+            condition: None,
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
+        },
+    ];
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store);
+
+    let mut sub = bus.subscribe();
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-hooks-1".to_string()),
+        workflow_id: wf_types::Id::from("wf-hooks-1".to_string()),
+        graph: make_graph(),
+        options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+        handlers: make_handlers(),
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks,
+    };
+
+    let output = lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("workflow with hooks should complete");
+    assert_eq!(output.result, serde_json::json!({"greeting": "hello"}));
+
+    let mut hook_types: Vec<String> = Vec::new();
+    for _ in 0..64 {
+        match sub.try_recv() {
+            Ok(event) if event.r#type == EventType::HookTriggered => {
+                assert_eq!(
+                    event.execution_id.as_deref(),
+                    Some("exec-hooks-1"),
+                    "hook events are routable by execution id"
+                );
+                let t = event
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("hook_type"))
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                hook_types.push(t);
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    // 4 nodes (start, v1, v2, end) x 2 hook types, one event per batch.
+    assert_eq!(hook_types.len(), 8);
+    assert_eq!(
+        hook_types.iter().filter(|t| *t == "BEFORE_EXECUTE").count(),
+        4
+    );
+    assert_eq!(
+        hook_types.iter().filter(|t| *t == "AFTER_EXECUTE").count(),
+        4
+    );
+}
+
+#[tokio::test]
+async fn test_workflow_scope_and_error_hooks_fire() {
+    use async_trait::async_trait;
+    use wf_execution_shared::context::NodeExecutionContext;
+    use wf_execution_shared::hooks::types::HookDefinition;
+
+    // A handler that always fails, registered for a node type used in
+    // the failing graph below (the ON_ERROR hook must fire for it).
+    struct FailingHandler;
+    #[async_trait]
+    impl NodeHandler for FailingHandler {
+        fn node_type(&self) -> StaticNodeType {
+            StaticNodeType::Variable
+        }
+        async fn execute(
+            &self,
+            _ctx: &mut NodeExecutionContext,
+        ) -> wf_execution_shared::error::ExecutionSharedResult<crate::handler::NodeHandlerResult>
+        {
+            Err(crate::error::WorkflowError::VariableError("boom".to_string()).into())
+        }
+    }
+
+    let bus = Arc::new(wf_core::EventBus::new(32));
+    let hooks: Vec<HookDefinition> = [
+        "WORKFLOW_BEFORE",
+        "WORKFLOW_AFTER",
+        "ON_ERROR",
+        "BEFORE_EXECUTE",
+        "AFTER_EXECUTE",
+    ]
+    .iter()
+    .map(|hook_type| HookDefinition {
+        id: format!("h-{}", hook_type),
+        hook_type: hook_type.to_string(),
+        priority: 1,
+        condition: None,
+        enabled: true,
+        payload: None,
+        handler: None,
+        create_checkpoint: None,
+        checkpoint_description: None,
+    })
+    .collect();
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store);
+
+    let mut sub = bus.subscribe();
+
+    // A valid graph whose middle node fails at runtime (failing handler),
+    // so ON_ERROR fires and the run still returns an error.
+    let graph = WorkflowGraphStructure {
+        nodes: vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "boom",
+                "VARIABLE",
+                serde_json::json!({ "variable_name": "x", "expression": "1" }),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        edges: vec![edge("start", "boom"), edge("boom", "end")],
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+        error_default: None,
+    };
+
+    let mut handlers = HandlerRegistry::new();
+    handlers.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
+    handlers.register(Box::new(FailingHandler));
+    let handlers = handlers.into_arc();
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-scope-hooks".to_string()),
+        workflow_id: wf_types::Id::from("wf-scope-hooks".to_string()),
+        graph,
+        options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+        handlers,
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks,
+    };
+
+    let result = lifecycle.execute_workflow(params).await;
+    assert!(result.is_err(), "the node failure must propagate");
+
+    let mut hook_types: Vec<String> = Vec::new();
+    for _ in 0..32 {
+        match sub.try_recv() {
+            Ok(event) if event.r#type == wf_types::events::EventType::HookTriggered => {
+                let t = event
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.get("hook_type"))
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                hook_types.push(t);
+            }
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    assert!(hook_types.iter().any(|t| t == "WORKFLOW_BEFORE"));
+    assert!(hook_types.iter().any(|t| t == "WORKFLOW_AFTER"));
+    assert!(hook_types.iter().any(|t| t == "ON_ERROR"));
+    // The failing node still ran its node-level hooks.
+    assert!(hook_types.iter().any(|t| t == "BEFORE_EXECUTE"));
+    assert!(hook_types.iter().any(|t| t == "AFTER_EXECUTE"));
+}
+
+fn linear_graph_with_count(n: u32) -> WorkflowGraphStructure {
+    let mut nodes = vec![node("start", "START", serde_json::json!({}))];
+    for i in 0..n {
+        nodes.push(node(
+            &format!("v{}", i),
+            "VARIABLE",
+            serde_json::json!({ "variable_name": "v", "expression": "1" }),
+        ));
+    }
+    nodes.push(node("end", "END", serde_json::json!({})));
+
+    let mut edges = vec![edge("start", "v0")];
+    for i in 0..n - 1 {
+        edges.push(edge(&format!("v{}", i), &format!("v{}", i + 1)));
+    }
+    edges.push(edge(&format!("v{}", n - 1), "end"));
+
+    WorkflowGraphStructure {
+        nodes,
+        edges,
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+        error_default: None,
+    }
+}
+
+#[tokio::test]
+async fn test_max_execution_timeout_interrupts_workflow() {
+    use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+    use wf_core::EventBus;
+    use wf_types::events::EventType;
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let event_bus = Arc::new(EventBus::new(64));
+    let mut sub = event_bus.subscribe();
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(event_bus), store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node());
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-timeout-1".to_string()),
+        workflow_id: wf_types::Id::from("wf-timeout-1".to_string()),
+        graph: linear_graph_with_count(50),
+        options: WorkflowExecutionOptions {
+            max_execution_time: Some(1),
+            ..options_with(None)
+        },
+        handlers: make_handlers(),
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+
+    let err = lifecycle
+        .execute_workflow(params)
+        .await
+        .expect_err("wall-clock timeout must fail the workflow");
+    assert!(
+        err.to_string().contains("max_execution_time"),
+        "unexpected error: {}",
+        err
+    );
+
+    let mut saw_cancelled = false;
+    while let Ok(ev) = sub.try_recv() {
+        if ev.r#type == EventType::WorkflowExecutionCancelled {
+            saw_cancelled = true;
+        }
+    }
+    assert!(saw_cancelled, "cancelled event must be published");
+
+    // Interruption checkpoint persisted with the timeout status: the
+    // coordinator records wall-clock timeout as ExecutionStatus::Timeout
+    // instead of collapsing it into Failed. Several checkpoints may share
+    // the same millisecond, so scan rather than relying on get_latest
+    // (tie-breaking is arbitrary).
+    let sm = WorkflowCheckpointStateManager::new(store.clone());
+    let all = sm
+        .list_by_entity("exec-timeout-1")
+        .await
+        .expect("checkpoints listed");
+    assert!(!all.is_empty(), "at least the start checkpoint must exist");
+    let mut found_timeout = false;
+    for meta in &all {
+        let coord =
+            WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(store.clone()));
+        let restored = coord.restore(&meta.id).await.expect("restore ok");
+        if restored.snapshot.status == "Timeout" {
+            found_timeout = true;
+            break;
+        }
+    }
+    assert!(
+        found_timeout,
+        "interruption checkpoint with timeout status must exist"
+    );
+}
+
+#[tokio::test]
+async fn test_before_node_checkpoint_persisted() {
+    use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::always());
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-before-1".to_string()),
+        workflow_id: wf_types::Id::from("wf-before-1".to_string()),
+        graph: make_graph(),
+        options: WorkflowExecutionOptions {
+            max_steps: Some(2),
+            ..options_with(None)
+        },
+        handlers: make_handlers(),
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+
+    lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("workflow should complete");
+
+    let sm = WorkflowCheckpointStateManager::new(store.clone());
+    let all = sm
+        .list_by_entity("exec-before-1")
+        .await
+        .expect("checkpoints listed");
+    assert!(
+        all.len() >= 4,
+        "expected start + node checkpoints, got {}",
+        all.len()
+    );
+
+    let coord =
+        WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(store.clone()));
+    let mut found_before_v1 = false;
+    let mut found_after_v1 = false;
+    for meta in &all {
+        let restored = coord.restore(&meta.id).await.expect("restore ok");
+        let snap = restored.snapshot;
+        if snap.current_node_id.as_deref() == Some("v1") {
+            let has_v1 = snap
+                .node_results
+                .as_ref()
+                .is_some_and(|m| m.contains_key("v1"));
+            if !has_v1 {
+                found_before_v1 = true;
+            } else {
+                found_after_v1 = true;
+            }
+        }
+    }
+    assert!(found_before_v1, "BeforeNode checkpoint for v1 must exist");
+    assert!(found_after_v1, "AfterNode checkpoint for v1 must exist");
+}
+
+#[tokio::test]
+async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
+    use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+    async fn checkpointed_nodes(
+        store: &Arc<StorageBackend>,
+        execution_id: &str,
+    ) -> Vec<Option<String>> {
+        let sm = WorkflowCheckpointStateManager::new(store.clone());
+        let all = sm
+            .list_by_entity(execution_id)
+            .await
+            .expect("checkpoints listed");
+        let coord =
+            WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(store.clone()));
+        let mut nodes = Vec::new();
+        for meta in &all {
+            let restored = coord.restore(&meta.id).await.expect("restore ok");
+            nodes.push(restored.snapshot.current_node_id.clone());
+        }
+        nodes
+    }
+
+    fn run_params(execution_id: &str, hooks: Vec<HookDefinition>) -> WorkflowExecutionParams {
+        WorkflowExecutionParams {
+            execution_id: wf_types::Id::from(execution_id.to_string()),
+            workflow_id: wf_types::Id::from("wf-hook-opt-in".to_string()),
+            graph: make_graph(),
+            options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+            handlers: make_handlers(),
+            tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+            resource_registries: None,
+            input: None,
+            hooks,
+        }
+    }
+
+    let opt_in = vec![HookDefinition {
+        id: wf_types::Id::from("h-before-opt-in".to_string()),
+        hook_type: "BEFORE_EXECUTE".to_string(),
+        priority: 0,
+        condition: None,
+        enabled: true,
+        payload: None,
+        handler: None,
+        create_checkpoint: Some(true),
+        checkpoint_description: Some("hook forced".to_string()),
+    }];
+
+    // A BEFORE_EXECUTE opt-in forces per-node checkpoints even though
+    // the instance strategy carries no automatic triggers. The master
+    // switch stays on: opt-ins ignore the trigger list, never the kill
+    // switch (`never()` would suppress even this fire).
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(triggerless_strategy());
+    lifecycle
+        .execute_workflow(run_params("exec-hook-opt-in", opt_in.clone()))
+        .await
+        .expect("workflow should complete");
+    let nodes = checkpointed_nodes(&store, "exec-hook-opt-in").await;
+    assert!(
+        nodes.iter().any(|n| n.as_deref() == Some("v1")),
+        "hook opt-in must force a node checkpoint, got {nodes:?}"
+    );
+
+    // Control: the same triggerless strategy without opt-in leaves no
+    // node snapshots (only the workflow start/end checkpoints).
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(triggerless_strategy());
+    lifecycle
+        .execute_workflow(run_params("exec-hook-control", Vec::new()))
+        .await
+        .expect("workflow should complete");
+    let nodes = checkpointed_nodes(&store, "exec-hook-control").await;
+    assert!(
+        nodes
+            .iter()
+            .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
+        "no node checkpoint without opt-in, got {nodes:?}"
+    );
+
+    // Kill switch: `never()` (master switch off) suppresses even the
+    // opted-in hook fire, matching the agent engine gate.
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+    lifecycle
+        .execute_workflow(run_params("exec-hook-killed", opt_in))
+        .await
+        .expect("workflow should complete");
+    let nodes = checkpointed_nodes(&store, "exec-hook-killed").await;
+    assert!(
+        nodes
+            .iter()
+            .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
+        "kill switch must suppress even an opted-in hook fire, got {nodes:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
+    use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+    // Only v2 carries the force flags; v1 and the control nodes do not.
+    fn force_graph() -> WorkflowGraphStructure {
+        WorkflowGraphStructure {
+            nodes: vec![
+                node("start", "START", serde_json::json!({})),
+                node(
+                    "v1",
+                    "VARIABLE",
+                    serde_json::json!({
+                        "variable_name": "mid",
+                        "expression": "${input.greeting}"
+                    }),
+                ),
+                node(
+                    "v2",
+                    "VARIABLE",
+                    serde_json::json!({
+                        "variable_name": "final",
+                        "expression": "${mid}",
+                        "checkpoint_before_execute": true,
+                        "checkpoint_after_execute": true
+                    }),
+                ),
+                node("end", "END", serde_json::json!({})),
+            ],
+            edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
+            adjacency_list: HashMap::new(),
+            reverse_adjacency_list: HashMap::new(),
+            start_node_id: Some("start".to_string()),
+            end_node_ids: vec!["end".to_string()],
+            error_default: None,
+        }
+    }
+
+    fn force_params(execution_id: &str) -> WorkflowExecutionParams {
+        WorkflowExecutionParams {
+            execution_id: wf_types::Id::from(execution_id.to_string()),
+            workflow_id: wf_types::Id::from("wf-node-force".to_string()),
+            graph: force_graph(),
+            options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+            handlers: make_handlers(),
+            tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+            resource_registries: None,
+            input: None,
+            hooks: Vec::new(),
+        }
+    }
+
+    // Classify restored snapshots by node: (current_node_id, has_result).
+    async fn snapshots(
+        store: &Arc<StorageBackend>,
+        execution_id: &str,
+    ) -> Vec<(Option<String>, bool)> {
+        let sm = WorkflowCheckpointStateManager::new(store.clone());
+        let all = sm
+            .list_by_entity(execution_id)
+            .await
+            .expect("checkpoints listed");
+        let coord =
+            WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(store.clone()));
+        let mut out = Vec::new();
+        for meta in &all {
+            let restored = coord.restore(&meta.id).await.expect("restore ok");
+            let snap = restored.snapshot;
+            let has_result = snap.node_results.as_ref().is_some_and(|m| {
+                snap.current_node_id
+                    .as_deref()
+                    .is_some_and(|n| m.contains_key(n))
+            });
+            out.push((snap.current_node_id.clone(), has_result));
+        }
+        out
+    }
+
+    // Triggerless strategy (master on, no automatic triggers): only the
+    // forced node snapshots, before and after v2, plus the unconditional
+    // workflow start/end checkpoints.
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(triggerless_strategy());
+    lifecycle
+        .execute_workflow(force_params("exec-node-force"))
+        .await
+        .expect("workflow should complete");
+    let snaps = snapshots(&store, "exec-node-force").await;
+    assert!(
+        snaps
+            .iter()
+            .any(|(n, has)| n.as_deref() == Some("v2") && !has),
+        "forced before-checkpoint for v2 must exist, got {snaps:?}"
+    );
+    assert!(
+        snaps
+            .iter()
+            .any(|(n, has)| n.as_deref() == Some("v2") && *has),
+        "forced after-checkpoint for v2 must exist, got {snaps:?}"
+    );
+    assert!(
+        snaps.iter().all(|(n, _)| n.as_deref() != Some("v1")),
+        "unflagged v1 must leave no snapshot, got {snaps:?}"
+    );
+
+    // No duplication: under every_node the strategy already snapshots
+    // after v2, so the force flag must not add a second after-checkpoint
+    // (exactly one before + one after for v2).
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node());
+    lifecycle
+        .execute_workflow(force_params("exec-node-force-dedupe"))
+        .await
+        .expect("workflow should complete");
+    let snaps = snapshots(&store, "exec-node-force-dedupe").await;
+    let v2: Vec<_> = snaps
+        .iter()
+        .filter(|(n, _)| n.as_deref() == Some("v2"))
+        .collect();
+    assert_eq!(
+        v2.len(),
+        2,
+        "strategy hit plus force must collapse to one before + one after, got {snaps:?}"
+    );
+
+    // Kill switch: `never()` suppresses even forced node checkpoints.
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+    lifecycle
+        .execute_workflow(force_params("exec-node-force-killed"))
+        .await
+        .expect("workflow should complete");
+    let snaps = snapshots(&store, "exec-node-force-killed").await;
+    assert!(
+        snaps
+            .iter()
+            .all(|(n, _)| !matches!(n.as_deref(), Some("v1" | "v2"))),
+        "kill switch must suppress forced node checkpoints, got {snaps:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
+    use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node());
+
+    // v2 opts out of node-level checkpoints while v1 keeps the workflow
+    // policy (snapshot after every node).
+    let graph = WorkflowGraphStructure {
+        nodes: vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "v1",
+                "VARIABLE",
+                serde_json::json!({
+                    "variable_name": "mid",
+                    "expression": "${input.greeting}"
+                }),
+            ),
+            node(
+                "v2",
+                "VARIABLE",
+                serde_json::json!({
+                    "variable_name": "final",
+                    "expression": "${mid}",
+                    "checkpoint": {"enabled": false}
+                }),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+        error_default: None,
+    };
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-node-cp-1".to_string()),
+        workflow_id: wf_types::Id::from("wf-node-cp-1".to_string()),
+        graph: graph.clone(),
+        options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+        handlers: make_handlers(),
+        tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+
+    lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("workflow should complete");
+
+    let sm = WorkflowCheckpointStateManager::new(store.clone());
+    let all = sm
+        .list_by_entity("exec-node-cp-1")
+        .await
+        .expect("checkpoints listed");
+    let coord =
+        WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(store.clone()));
+    let mut after_v1 = false;
+    let mut saw_v2 = false;
+    for meta in &all {
+        let restored = coord.restore(&meta.id).await.expect("restore ok");
+        let snap = restored.snapshot;
+        match snap.current_node_id.as_deref() {
+            Some("v1") => {
+                if snap
+                    .node_results
+                    .as_ref()
+                    .is_some_and(|m| m.contains_key("v1"))
+                {
+                    after_v1 = true;
+                }
+            }
+            Some("v2") => {
+                saw_v2 = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(after_v1, "AfterNode checkpoint for v1 must exist");
+    assert!(!saw_v2, "v2 snapshot must be suppressed by node config");
+    // Manual + After(start) + After(v1) + After(end) + OnComplete; v2
+    // contributes no checkpoint to the chain.
+    assert_eq!(all.len(), 5, "disabled node must not appear in the chain");
+}
+
+#[tokio::test]
+async fn test_resume_from_before_node_checkpoint() {
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+    use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let strategy = NodeCheckpointStrategy::from_policy(&UnifiedCheckpointPolicy {
+        enabled: true,
+        triggers: vec![CheckpointTiming::BeforeExecute],
+        content: None,
+        retention: None,
+        error_handling: None,
+    });
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(strategy);
+    let workflow_id = wf_types::Id::from("wf-before-2".to_string());
+    let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    let handlers = make_handlers();
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-before-2".to_string()),
+        workflow_id: workflow_id.clone(),
+        graph: make_graph(),
+        options: WorkflowExecutionOptions {
+            max_steps: Some(2),
+            ..options_with(Some(serde_json::json!({"greeting": "hello"})))
+        },
+        handlers: handlers.clone(),
+        tool_registry: tool_registry.clone(),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+    lifecycle
+        .execute_workflow(params)
+        .await
+        .expect("first run should complete");
+
+    let sm = WorkflowCheckpointStateManager::new(store.clone());
+    let count_before_resume = sm
+        .list_by_entity("exec-before-2")
+        .await
+        .expect("checkpoints listed")
+        .len();
+    assert_eq!(
+        count_before_resume, 4,
+        "Manual + Before(start) + Before(v1) + OnComplete expected"
+    );
+
+    let resumed = lifecycle
+        .resume_workflow(
+            "exec-before-2",
+            workflow_id,
+            make_graph(),
+            handlers,
+            tool_registry,
+            Vec::new(),
+        )
+        .await
+        .expect("resume should complete the workflow");
+    assert_eq!(
+        resumed.result,
+        serde_json::json!({"greeting": "hello"}),
+        "completed nodes must not re-execute; their outputs feed downstream"
+    );
+
+    // Resume run adds between 4 and 6 checkpoints depending on which
+    // same-millisecond checkpoint is selected as the resume source:
+    // Manual + one Before(node) per re-executed node + OnComplete. Nodes
+    // recorded as completed in the selected snapshot are never
+    // re-executed, keeping the total within this range.
+    let count_after = sm
+        .list_by_entity("exec-before-2")
+        .await
+        .expect("checkpoints listed")
+        .len();
+    assert!(
+        (8..=10).contains(&count_after),
+        "completed nodes must not re-execute after resume, got {}",
+        count_after
+    );
+}
+
+#[tokio::test]
+async fn test_resume_from_before_node_checkpoint_reruns_incomplete_node() {
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_checkpoint::state::WorkflowCheckpointStateManager;
+    use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let strategy = NodeCheckpointStrategy::from_policy(&UnifiedCheckpointPolicy {
+        enabled: true,
+        triggers: vec![CheckpointTiming::BeforeExecute],
+        content: None,
+        retention: None,
+        error_handling: None,
+    });
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(strategy);
+    let workflow_id = wf_types::Id::from("wf-before-3".to_string());
+    let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    let handlers = make_handlers();
+
+    // v1 always fails (read-only assignment); node failures abort
+    // the run, so run 1 ends with an error and no OnComplete checkpoint.
+    let graph = WorkflowGraphStructure {
+        nodes: vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "v1",
+                "VARIABLE",
+                serde_json::json!({
+                    "variable_name": "__forbidden",
+                    "expression": "1"
+                }),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        edges: vec![edge("start", "v1"), edge("v1", "end")],
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+        error_default: None,
+    };
+
+    let params = WorkflowExecutionParams {
+        execution_id: wf_types::Id::from("exec-before-3".to_string()),
+        workflow_id: workflow_id.clone(),
+        graph: graph.clone(),
+        options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+        handlers: handlers.clone(),
+        tool_registry: tool_registry.clone(),
+        resource_registries: None,
+        input: None,
+        hooks: Vec::new(),
+    };
+    lifecycle
+        .execute_workflow(params)
+        .await
+        .expect_err("run 1 must fail at v1");
+
+    let sm = WorkflowCheckpointStateManager::new(store.clone());
+    let count_before_resume = sm
+        .list_by_entity("exec-before-3")
+        .await
+        .expect("checkpoints listed")
+        .len();
+    assert_eq!(
+        count_before_resume, 3,
+        "Manual + Before(start) + Before(v1), no OnComplete on failure"
+    );
+
+    // Resume from the Before(v1) checkpoint: v1 never completed, so it
+    // must execute again and fail again with the same structured error.
+    let err = lifecycle
+        .resume_workflow(
+            "exec-before-3",
+            workflow_id,
+            graph,
+            handlers,
+            tool_registry,
+            Vec::new(),
+        )
+        .await
+        .expect_err("incomplete node must re-execute and fail");
+    assert!(err.to_string().contains("read-only"), "unexpected: {}", err);
+
+    let count_after = sm
+        .list_by_entity("exec-before-3")
+        .await
+        .expect("checkpoints listed")
+        .len();
+    // Resume adds Manual + one Before(node) per re-executed node: 2 if
+    // resumed from Before(v1), 3 if a start-level snapshot is selected.
+    assert!(
+        (5..=6).contains(&count_after),
+        "start must not re-execute beyond the selected snapshot, got {}",
+        count_after
+    );
+}

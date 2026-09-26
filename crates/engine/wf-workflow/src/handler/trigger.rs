@@ -314,7 +314,10 @@ impl TriggerCoordinator {
                 let message = action
                     .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
                     .unwrap_or_else(|| {
-                        format!("{} is not executable in message nodes", action.action_name())
+                        format!(
+                            "{} is not executable in message nodes",
+                            action.action_name()
+                        )
                     });
                 Err(WorkflowError::ConfigError {
                     node_id: ctx.node_id.clone(),
@@ -329,7 +332,10 @@ impl TriggerCoordinator {
                 let message = action
                     .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
                     .unwrap_or_else(|| {
-                        format!("{} is not executable in message nodes", action.action_name())
+                        format!(
+                            "{} is not executable in message nodes",
+                            action.action_name()
+                        )
                     });
                 Err(WorkflowError::ConfigError {
                     node_id: ctx.node_id.clone(),
@@ -1119,10 +1125,9 @@ impl TriggerCoordinator {
                     .await;
                     Err(WorkflowError::NodeFailure {
                         node_id: ctx.node_id.clone(),
-                        category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
-                        detail: format!(
-                            "Script '{script_name}' timed out after {timeout}ms"
-                        ),
+                        category:
+                            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                        detail: format!("Script '{script_name}' timed out after {timeout}ms"),
                     })
                 }
             }

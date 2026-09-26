@@ -40,7 +40,8 @@ pub async fn call_llm(
                 },
                 wf_llm::error::LlmError::Cancelled => WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
-                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    category:
+                        wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: "LLM call cancelled".to_string(),
                 },
                 other => WorkflowError::Internal(format!("LLM call failed: {other}")),

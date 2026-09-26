@@ -224,10 +224,6 @@ pub struct CheckpointRetentionConfig {
 pub struct CheckpointErrorHandlingConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fail_on_checkpoint_error: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry_on_failure: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,8 +1,8 @@
 use crate::error::ConfigResult;
 use crate::validator::validate_min;
 use wf_types::checkpoint::base::{
-    CheckpointContentConfig, CheckpointErrorHandlingConfig, CheckpointRetentionConfig,
-    CheckpointTiming, CompressionStrategy, UnifiedCheckpointPolicy,
+    CheckpointContentConfig, CheckpointRetentionConfig, CheckpointTiming, CompressionStrategy,
+    UnifiedCheckpointPolicy,
 };
 
 pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
@@ -25,16 +25,7 @@ pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> Unified
             max_age: None,
             compression: Some(CompressionStrategy::Auto),
         })),
-        error_handling: user
-            .error_handling
-            .clone()
-            .or(Some(CheckpointErrorHandlingConfig {
-                // checkpoint write failures are visible by default —
-                // silently swallowed checkpoint errors hide history gaps.
-                fail_on_checkpoint_error: Some(true),
-                retry_on_failure: Some(true),
-                max_retries: Some(3),
-            })),
+        error_handling: user.error_handling.clone(),
     }
 }
 
@@ -44,17 +35,13 @@ pub fn validate_checkpoint_config(config: &UnifiedCheckpointPolicy) -> ConfigRes
             validate_min(max as u64, 1, "checkpoint.retention.max_checkpoints")?;
         }
     }
-    if let Some(ref error_handling) = config.error_handling {
-        if let Some(max) = error_handling.max_retries {
-            validate_min(max as u64, 0, "checkpoint.error_handling.max_retries")?;
-        }
-    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_types::checkpoint::base::CheckpointErrorHandlingConfig;
 
     #[test]
     fn test_merge_checkpoint_with_defaults() {
@@ -70,7 +57,9 @@ mod tests {
         assert_eq!(merged.triggers.len(), 2);
         assert!(merged.content.is_some());
         assert!(merged.retention.is_some());
-        assert!(merged.error_handling.is_some());
+        // unconfigured error handling stays absent: the handler default
+        // (swallow with a warning) applies.
+        assert!(merged.error_handling.is_none());
         assert_eq!(merged.retention.as_ref().unwrap().max_checkpoints, Some(10));
     }
 
@@ -99,9 +88,7 @@ mod tests {
                 compression: None,
             }),
             error_handling: Some(CheckpointErrorHandlingConfig {
-                fail_on_checkpoint_error: None,
-                retry_on_failure: None,
-                max_retries: Some(3),
+                fail_on_checkpoint_error: Some(true),
             }),
         };
         assert!(validate_checkpoint_config(&config).is_ok());

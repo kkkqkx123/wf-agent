@@ -1,6 +1,6 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, restored_status,
+    publish_persisted, restored_status, status_or_warn_running,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::CheckpointLoader;
@@ -818,12 +818,12 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 entity_id,
                 &err,
             );
-            // Route through the checkpoint error handler: non-fatal
-            // strategies (warn/silent) swallow the failure so the execution
+            // Route through the checkpoint error handler: the default
+            // handler warns and swallows the failure so the execution
             // continues without a checkpoint.
-            let context =
-                self.error_handler
-                    .context("create", Some(checkpoint.id.clone()), None, 0);
+            let context = self
+                .error_handler
+                .context("create", Some(checkpoint.id.clone()), None);
             let outcome = self.error_handler.decide(&context, &err);
             if outcome.should_rethrow {
                 return Err(err);
@@ -945,7 +945,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 .and_then(|h| h.parent_execution_id.clone());
             registry.register_with_parent(
                 &entity.execution_id,
-                ExecutionStatus::from_wire(&entity.status),
+                status_or_warn_running(&entity.status),
                 parent.as_deref(),
             );
 

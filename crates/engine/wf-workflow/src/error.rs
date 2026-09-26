@@ -69,11 +69,12 @@ pub enum WorkflowError {
 
 pub type WorkflowResult<T> = Result<T, WorkflowError>;
 
-/// Bridge into the shared handler boundary. A category-tagged `NodeFailure`
-/// is forwarded as a `NodeFailure` on the shared side and a wall-clock
-/// execution timeout as a typed timeout error, so error-branch routing never
-/// downgrades them to `BusinessFailure`. Everything else surfaces as a
-/// `HandlerError` carrying the full message.
+/// Bridge into the shared handler boundary. Failures whose nature the engine
+/// already knows (`NodeFailure`, a bare node execution failure, a wall-clock
+/// timeout, a variable or state failure) keep their typed shared-side shape,
+/// so error-branch routing never downgrades them to `BusinessFailure` and the
+/// agent-side analysis can read them structurally. Everything else surfaces
+/// as a `HandlerError` carrying the full message.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
         use wf_execution_shared::error::ExecutionSharedError as Shared;
@@ -87,7 +88,14 @@ impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
                 category,
                 detail,
             },
+            WorkflowError::NodeExecutionFailed { node_id, reason } => Shared::NodeFailure {
+                node_id,
+                category: NodeErrorCategory::BusinessFailure,
+                detail: reason,
+            },
             WorkflowError::ExecutionTimeout(detail) => Shared::TimeoutError(detail),
+            WorkflowError::VariableError(detail) => Shared::VariableError(detail),
+            WorkflowError::StateTransitionError(detail) => Shared::StateError(detail),
             other => Shared::HandlerError(other.to_string()),
         }
     }

@@ -548,16 +548,13 @@ impl WorkflowCheckpointIntegration {
             // Active views first, then archived history (append-only).
             for (key, value) in vars.iter() {
                 if let Some(context_id) = key.strip_prefix(prefix) {
-                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
-                    {
+                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
                         Ok(messages) => {
                             let version = vars
                                 .get(ledger_key)
                                 .and_then(|v| {
-                                    serde_json::from_value::<wf_types::llm::TokenLedger>(
-                                        v.clone(),
-                                    )
-                                    .ok()
+                                    serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone())
+                                        .ok()
                                 })
                                 .map(|l| l.version(context_id))
                                 .unwrap_or(0);
@@ -582,12 +579,13 @@ impl WorkflowCheckpointIntegration {
                 if let Some(context_id) = key.strip_prefix(history_prefix) {
                     match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
                         Ok(messages) => {
-                            let entry = contexts.entry(context_id.to_string()).or_insert_with(
-                                || wf_types::checkpoint::workflow::MessageContextSnapshot {
-                                    messages: Vec::new(),
-                                    version: 0,
-                                },
-                            );
+                            let entry =
+                                contexts.entry(context_id.to_string()).or_insert_with(|| {
+                                    wf_types::checkpoint::workflow::MessageContextSnapshot {
+                                        messages: Vec::new(),
+                                        version: 0,
+                                    }
+                                });
                             let known: std::collections::HashSet<String> =
                                 entry.messages.iter().map(|m| m.id.clone()).collect();
                             for message in messages {

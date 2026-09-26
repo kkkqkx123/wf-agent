@@ -403,12 +403,30 @@ pub async fn drain_persistence_handles(
 ///
 /// Shared by the agent-loop and workflow coordinators so both resolve the
 /// status field identically. Returns `None` when the payload carries no
-/// usable status string, letting the caller apply its own default.
+/// usable status string (absent or unrecognized — unrecognized is surfaced
+/// with a warn, never silently rewritten), letting the caller apply its own
+/// display default.
 pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
-    value
-        .get("status")
-        .and_then(|status| status.as_str())
-        .map(ExecutionStatus::from_wire)
+    let raw = value.get("status").and_then(|status| status.as_str())?;
+    match raw.parse::<ExecutionStatus>() {
+        Ok(status) => Some(status),
+        Err(e) => {
+            tracing::warn!(status = %raw, error = %e, "restored checkpoint carries an unrecognized status");
+            None
+        }
+    }
+}
+
+/// Strict parse for registry bookkeeping: unknown values keep the historic
+/// `Running` display default but surface the damage with a warn.
+pub fn status_or_warn_running(status: &str) -> ExecutionStatus {
+    match status.parse::<ExecutionStatus>() {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            tracing::warn!(status = %status, error = %e, "checkpoint entity carries an unrecognized status; registered as Running");
+            ExecutionStatus::Running
+        }
+    }
 }
 
 /// Extract the checkpoint id for event/metadata correlation. Serialization

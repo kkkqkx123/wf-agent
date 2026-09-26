@@ -304,7 +304,7 @@ impl Entity for wf_types::TriggerExecutionStorageMetadata {
             "executionId": self.execution_id,
             "workflowId": self.workflow_id,
             "triggeredAt": self.triggered_at,
-            "success": self.success,
+            "outcome": self.outcome.as_str(),
         })
     }
 }

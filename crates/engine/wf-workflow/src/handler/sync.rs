@@ -224,8 +224,7 @@ impl SyncHandler {
                     source_context_id
                 );
                 if let Some(value) = source_vars.get(&key) {
-                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
-                    {
+                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
                         Ok(messages) => crate::message_context::register_context(
                             &ctx.variables,
                             internal_name,

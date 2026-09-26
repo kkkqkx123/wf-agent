@@ -250,9 +250,9 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
 }
 
 pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
-    // Interruption/timeout keep the same reading the workflow routing gives
-    // them (`classify_error` maps them to CancelledInterrupted /
-    // TransportTimeout), so records and routes never disagree.
+    // Interruption/timeout/category-tagged failures read through the single
+    // `NodeErrorCategory` projection in wf-types, so records and workflow
+    // routing can never disagree by maintaining two hand-written mappings.
     let (kind, error_type, recovery_action) = match e {
         ExecutionSharedError::StateError(_) => (
             ErrorKind::StateManagement,
@@ -267,6 +267,16 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
         ExecutionSharedError::TimeoutError(_) => (
             ErrorKind::Timeout,
             ErrorType::Timeout,
+            RecoveryAction::Abort,
+        ),
+        ExecutionSharedError::VariableError(_) => (
+            ErrorKind::Validation,
+            ErrorType::Validation,
+            RecoveryAction::Abort,
+        ),
+        ExecutionSharedError::NodeFailure { category, .. } => (
+            category.error_kind(),
+            category.error_type(),
             RecoveryAction::Abort,
         ),
         ExecutionSharedError::ToolError(te) => {
@@ -525,12 +535,30 @@ mod tests {
 
     #[test]
     fn test_shared_interruption_matches_routing_reading() {
+        use wf_types::workflow::error_branch::NodeErrorCategory;
         let analysis = shared_error_analysis(&ExecutionSharedError::InterruptionError(
             "stopped".to_string(),
         ));
         assert_eq!(analysis.error_type, ErrorType::Interruption);
-        let analysis = shared_error_analysis(&ExecutionSharedError::TimeoutError("slow".to_string()));
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&analysis.error_type),
+            NodeErrorCategory::CancelledInterrupted
+        );
+        let analysis =
+            shared_error_analysis(&ExecutionSharedError::TimeoutError("slow".to_string()));
         assert_eq!(analysis.error_type, ErrorType::Timeout);
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&analysis.error_type),
+            NodeErrorCategory::TransportTimeout
+        );
+        // A category-tagged failure projects back through the same mapping.
+        let analysis = shared_error_analysis(&ExecutionSharedError::NodeFailure {
+            node_id: "n".to_string(),
+            category: NodeErrorCategory::Resource,
+            detail: "rate limited".to_string(),
+        });
+        assert_eq!(analysis.error_type, ErrorType::ServiceUnavailable);
+        assert_eq!(analysis.kind, ErrorKind::Resource);
     }
 
     #[test]

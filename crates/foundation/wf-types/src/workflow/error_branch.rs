@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::errors::{ErrorKind, ErrorType};
+
 /// Node-level config key marking a node as an error suspend point: entering
 /// it through an error route parks the execution for external handling
 /// instead of continuing immediately.
@@ -48,6 +50,43 @@ impl NodeErrorCategory {
             Self::CancelledInterrupted => "cancelled_interrupted",
             Self::CompressionFailure => "compression_failure",
             Self::Resource => "resource",
+        }
+    }
+
+    /// Lossy projection of the shared error taxonomy onto the routing
+    /// category. This is the single mapping both engines route and record by:
+    /// quota/upstream pressure collapses into `Resource`, and every type
+    /// without a dedicated category stays a business failure.
+    pub fn from_error_type(error_type: &ErrorType) -> Self {
+        match error_type {
+            ErrorType::Interruption => Self::CancelledInterrupted,
+            ErrorType::Timeout => Self::TransportTimeout,
+            ErrorType::RateLimited | ErrorType::ServiceUnavailable => Self::Resource,
+            _ => Self::BusinessFailure,
+        }
+    }
+
+    /// Reverse projection used to persist structured error records for a
+    /// routed failure. `Resource` reads back as `ServiceUnavailable` (its
+    /// dominant upstream-pressure shape); compression has no dedicated
+    /// `ErrorType` yet and records as `Internal`.
+    pub fn error_type(&self) -> ErrorType {
+        match self {
+            Self::TransportTimeout => ErrorType::Timeout,
+            Self::CancelledInterrupted => ErrorType::Interruption,
+            Self::Resource => ErrorType::ServiceUnavailable,
+            Self::BusinessFailure | Self::CompressionFailure => ErrorType::Internal,
+        }
+    }
+
+    /// Kind bucket matching the `error_type()` projection above.
+    pub fn error_kind(&self) -> ErrorKind {
+        match self {
+            Self::TransportTimeout => ErrorKind::Timeout,
+            Self::Resource => ErrorKind::Resource,
+            Self::BusinessFailure
+            | Self::CancelledInterrupted
+            | Self::CompressionFailure => ErrorKind::Execution,
         }
     }
 }
@@ -195,8 +234,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn category_roundtrip_is_strict() {
+    fn error_type_category_projection_is_consistent() {
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&ErrorType::Interruption),
+            NodeErrorCategory::CancelledInterrupted
+        );
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&ErrorType::Timeout),
+            NodeErrorCategory::TransportTimeout
+        );
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&ErrorType::RateLimited),
+            NodeErrorCategory::Resource
+        );
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&ErrorType::ServiceUnavailable),
+            NodeErrorCategory::Resource
+        );
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&ErrorType::LlmError),
+            NodeErrorCategory::BusinessFailure
+        );
+        // Categories that survive a round trip keep their routing semantics;
+        // compression intentionally records as Internal until it owns an
+        // ErrorType.
         for category in [
+            NodeErrorCategory::TransportTimeout,
+            NodeErrorCategory::CancelledInterrupted,
+            NodeErrorCategory::Resource,
+        ] {
+            assert_eq!(NodeErrorCategory::from_error_type(&category.error_type()), category);
+        }
+        assert_eq!(
+            NodeErrorCategory::Resource.error_type(),
+            ErrorType::ServiceUnavailable
+        );
+        assert_eq!(NodeErrorCategory::Resource.error_kind(), ErrorKind::Resource);
+        assert_eq!(
+            NodeErrorCategory::TransportTimeout.error_kind(),
+            ErrorKind::Timeout
+        );
+    }
+
+    #[test]
+    fn category_roundtrip_is_strict() {        for category in [
             NodeErrorCategory::TransportTimeout,
             NodeErrorCategory::BusinessFailure,
             NodeErrorCategory::CancelledInterrupted,

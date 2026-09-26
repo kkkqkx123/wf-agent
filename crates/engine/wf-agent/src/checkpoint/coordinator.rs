@@ -334,7 +334,7 @@ impl AgentCheckpointIntegration {
         let snapshot = entity.snapshot;
         Ok(RestoredAgentLoop {
             agent_loop_id: snapshot.agent_loop_id.clone(),
-            state: Self::runtime_state_from_snapshot(&snapshot),
+            state: Self::runtime_state_from_snapshot(&snapshot)?,
             conversation: Self::conversation_state_from_snapshot(&snapshot),
             source_checkpoint_id: checkpoint_id.to_string(),
         })
@@ -427,12 +427,14 @@ impl AgentCheckpointIntegration {
     }
 
     /// Translate a persisted `AgentStateSnapshot` into the runtime state
-    /// snapshot. The status string is the Debug form of `ExecutionStatus`
-    /// (e.g. "Running"); parsed case-insensitively with a `Running` fallback
-    /// so forward/older snapshots still resume. `completed_tool_results` is
-    /// rebuilt from the iteration trail: a tool call recorded as successful
-    /// with an LLM call id is served from the cache on replay.
-    fn runtime_state_from_snapshot(snapshot: &AgentStateSnapshot) -> AgentLoopStateSnapshot {
+    /// snapshot. Only a corrupt status string fails the translation; the
+    /// remaining fields backfill deterministically (see the per-field notes).
+    /// `completed_tool_results` is rebuilt from the iteration trail: a tool
+    /// call recorded as successful with an LLM call id is served from the
+    /// cache on replay.
+    fn runtime_state_from_snapshot(
+        snapshot: &AgentStateSnapshot,
+    ) -> Result<AgentLoopStateSnapshot, CheckpointError> {
         let iteration_history: Vec<IterationRecord> =
             parse_snapshot_records(snapshot.iteration_history.as_deref(), "iteration_record");
 
@@ -450,8 +452,8 @@ impl AgentCheckpointIntegration {
             }
         }
 
-        AgentLoopStateSnapshot {
-            status: parse_runtime_status(&snapshot.status),
+        Ok(AgentLoopStateSnapshot {
+            status: parse_runtime_status(&snapshot.status)?,
             current_iteration: snapshot.current_iteration,
             tool_call_count: snapshot.tool_call_count,
             iteration_history,
@@ -502,7 +504,7 @@ impl AgentCheckpointIntegration {
                 .unwrap_or_default(),
             locked_tool_call_protocol: None,
             timeout_count: 0,
-        }
+        })
     }
 
     /// Agent loop end hook: apply the configured file-checkpoint approval
@@ -716,28 +718,29 @@ where
 /// Parse the persisted status string (the serde form written by
 /// `ExecutionStatus::as_str`) back into the runtime status.
 ///
-/// A restored snapshot is always re-driven, and the state machine only
-/// accepts a start from a non-terminal state — so terminal statuses and
-/// unrecognized values normalize to `Running`. The snapshot blob itself keeps
-/// the recorded terminal status for audit; only the runtime re-drive starts
-/// fresh. `Paused` / `Created` stay as-is: both may legally transition to
+/// An unrecognized status means a corrupt or foreign snapshot and aborts the
+/// restore — data damage is never masked by a fallback. A recorded terminal
+/// status normalizes to `Running`: a restored snapshot is always re-driven,
+/// in-place resume exists exactly to recover error-interrupted runs, and the
+/// registry liveness guard (see lifecycle resume) keeps two writers off the
+/// same id. The snapshot blob itself keeps the recorded terminal status for
+/// audit. `Paused` / `Created` stay as-is: both may legally transition to
 /// `Running` on start.
-fn parse_runtime_status(status: &str) -> ExecutionStatus {
-    let parsed = serde_json::from_value::<ExecutionStatus>(serde_json::Value::String(
-        status.to_string(),
-    ))
-    .unwrap_or_else(|e| {
-        tracing::warn!(
-            status = %status,
-            error = %e,
-            "unrecognized checkpoint status; resuming as Running"
+fn parse_runtime_status(status: &str) -> Result<ExecutionStatus, CheckpointError> {
+    let parsed: ExecutionStatus =
+        serde_json::from_value(serde_json::Value::String(status.to_string())).map_err(|e| {
+            CheckpointError::Validation {
+                reason: format!("unrecognized checkpoint status '{status}': {e}"),
+            }
+        })?;
+    if parsed.is_terminal() {
+        tracing::info!(
+            status,
+            "checkpoint recorded a terminal status; re-driving as Running"
         );
-        ExecutionStatus::Running
-    });
-    match parsed {
-        ExecutionStatus::Created | ExecutionStatus::Paused | ExecutionStatus::Running => parsed,
-        _ => ExecutionStatus::Running,
+        return Ok(ExecutionStatus::Running);
     }
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -748,6 +751,34 @@ mod tests {
 
     fn make_integration() -> AgentCheckpointIntegration {
         AgentCheckpointIntegration::new(Arc::new(StorageBackend::new_memory()))
+    }
+
+    #[test]
+    fn unknown_status_aborts_translation() {
+        let err = parse_runtime_status("not-a-status").expect_err("corrupt status must fail");
+        assert!(matches!(err, CheckpointError::Validation { .. }));
+    }
+
+    #[test]
+    fn live_statuses_pass_through_and_terminal_re_drives() {
+        assert_eq!(
+            parse_runtime_status("Paused").expect("paused is restorable"),
+            ExecutionStatus::Paused
+        );
+        assert_eq!(
+            parse_runtime_status("Created").expect("created is restorable"),
+            ExecutionStatus::Created
+        );
+        assert_eq!(
+            parse_runtime_status("Running").expect("running is restorable"),
+            ExecutionStatus::Running
+        );
+        // A recorded terminal status is an explicit re-drive, not damage:
+        // it translates to Running (the info log keeps the audit trail).
+        assert_eq!(
+            parse_runtime_status("Failed").expect("terminal re-drives"),
+            ExecutionStatus::Running
+        );
     }
 
     fn make_entity(id: &str) -> AgentLoopEntity {

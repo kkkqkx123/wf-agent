@@ -12,7 +12,7 @@ pub struct TriggerExecutionListOptions {
     pub trigger_name_filter: Option<String>,
     pub execution_id_filter: Option<String>,
     pub workflow_id_filter: Option<String>,
-    pub success_filter: Option<bool>,
+    pub outcome_filter: Option<wf_types::TriggerExecutionOutcome>,
 }
 
 impl From<TriggerExecutionListOptions> for QueryFilter {
@@ -33,8 +33,8 @@ impl From<TriggerExecutionListOptions> for QueryFilter {
         if let Some(value) = opts.workflow_id_filter {
             filter.add_op(FilterOp::Eq("workflowId".into(), value));
         }
-        if let Some(value) = opts.success_filter {
-            filter.add_op(FilterOp::Eq("success".into(), value.to_string()));
+        if let Some(value) = opts.outcome_filter {
+            filter.add_op(FilterOp::Eq("outcome".into(), value.as_str().into()));
         }
         filter
     }

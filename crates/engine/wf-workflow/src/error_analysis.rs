@@ -5,22 +5,10 @@ use wf_types::workflow::error_branch::NodeErrorCategory;
 
 use crate::error::WorkflowError;
 
-/// Routing category for a terminal error whose nature is already known at the
-/// handler boundary: cancellation and exhausted timeouts keep their transport
-/// semantics, quota/upstream-pressure failures route as resource exhaustion,
-/// everything else routes as a business failure.
-pub fn error_type_category(error_type: &ErrorType) -> NodeErrorCategory {
-    match error_type {
-        ErrorType::Interruption => NodeErrorCategory::CancelledInterrupted,
-        ErrorType::Timeout => NodeErrorCategory::TransportTimeout,
-        ErrorType::RateLimited | ErrorType::ServiceUnavailable => NodeErrorCategory::Resource,
-        _ => NodeErrorCategory::BusinessFailure,
-    }
-}
-
 /// Project a nested agent-loop failure into a typed `NodeFailure` so both the
 /// sync and the streamed agent node path route by category instead of
-/// collapsing into an untyped handler error.
+/// collapsing into an untyped handler error. The category comes from the
+/// single `wf_types` mapping shared with the agent-side analysis.
 pub fn agent_failure_node_failure(
     node_id: &str,
     error_type: ErrorType,
@@ -28,7 +16,7 @@ pub fn agent_failure_node_failure(
 ) -> WorkflowError {
     WorkflowError::NodeFailure {
         node_id: node_id.to_string(),
-        category: error_type_category(&error_type),
+        category: NodeErrorCategory::from_error_type(&error_type),
         detail,
     }
 }
@@ -66,10 +54,6 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        // Terminal node failure: transient retries are spent inside the
-        // handler, so by the time this reaches the coordinator nothing in
-        // the engine re-runs it. Claiming `Retry` here would advertise a
-        // recovery the executor never performs.
         WorkflowError::NodeExecutionFailed { .. } => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Internal,
@@ -77,9 +61,15 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        WorkflowError::NodeFailure { .. } => ErrorAnalysis {
-            kind: ErrorKind::Execution,
-            error_type: ErrorType::Internal,
+        // Terminal node failure: transient retries are spent inside the
+        // handler, so by the time this reaches the coordinator nothing in
+        // the engine re-runs it. Claiming `Retry` here would advertise a
+        // recovery the executor never performs. The recorded type and kind
+        // follow the routing category, so a terminal timeout or quota failure
+        // never persists as a generic internal error.
+        WorkflowError::NodeFailure { category, .. } => ErrorAnalysis {
+            kind: category.error_kind(),
+            error_type: category.error_type(),
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
@@ -272,36 +262,72 @@ mod tests {
     }
 
     #[test]
-    fn error_type_categories_keep_transport_semantics() {
-        assert_eq!(
-            error_type_category(&ErrorType::Interruption),
-            NodeErrorCategory::CancelledInterrupted
-        );
-        assert_eq!(
-            error_type_category(&ErrorType::Timeout),
-            NodeErrorCategory::TransportTimeout
-        );
-        assert_eq!(
-            error_type_category(&ErrorType::RateLimited),
-            NodeErrorCategory::Resource
-        );
-        assert_eq!(
-            error_type_category(&ErrorType::ServiceUnavailable),
-            NodeErrorCategory::Resource
-        );
-        assert_eq!(
-            error_type_category(&ErrorType::LlmError),
-            NodeErrorCategory::BusinessFailure
-        );
+    fn node_failure_records_follow_the_routing_category() {
+        let timeout = analyze_workflow_error(&WorkflowError::NodeFailure {
+            node_id: "x".to_string(),
+            category: NodeErrorCategory::TransportTimeout,
+            detail: "child wall clock exceeded".to_string(),
+        });
+        assert_eq!(timeout.error_type, ErrorType::Timeout);
+        assert_eq!(timeout.kind, ErrorKind::Timeout);
+
+        let cancelled = analyze_workflow_error(&WorkflowError::NodeFailure {
+            node_id: "x".to_string(),
+            category: NodeErrorCategory::CancelledInterrupted,
+            detail: "stopped".to_string(),
+        });
+        assert_eq!(cancelled.error_type, ErrorType::Interruption);
+
+        let resource = analyze_workflow_error(&WorkflowError::NodeFailure {
+            node_id: "x".to_string(),
+            category: NodeErrorCategory::Resource,
+            detail: "rate limited".to_string(),
+        });
+        assert_eq!(resource.kind, ErrorKind::Resource);
+        assert_eq!(resource.error_type, ErrorType::ServiceUnavailable);
     }
 
     #[test]
-    fn execution_timeout_keeps_typed_timeout_across_handler_boundary() {
+    fn agent_terminal_errors_route_by_category_through_the_node_boundary() {
+        use crate::error_branch::classify_error;
+        // The exact chain the agent-node handler runs: AgentError analysis →
+        // typed NodeFailure → coordinator routing. A timeout and a
+        // cancellation must keep transport semantics, never collapse to
+        // `BusinessFailure`.
+        for (agent_error, expected) in [
+            (
+                wf_agent::error::AgentError::ExecutionTimeout("budget".to_string()),
+                NodeErrorCategory::TransportTimeout,
+            ),
+            (
+                wf_agent::error::AgentError::Cancelled("stopped".to_string()),
+                NodeErrorCategory::CancelledInterrupted,
+            ),
+        ] {
+            let analysis = wf_agent::error_analysis::analyze_error(&agent_error);
+            let projected = agent_failure_node_failure(
+                "agent-node",
+                analysis.error_type.clone(),
+                analysis.message,
+            );
+            assert_eq!(classify_error(&projected), expected, "{agent_error}");
+        }
+    }
+
+    #[test]
+    fn node_execution_failed_keeps_its_category_across_the_shared_boundary() {
         let shared: wf_execution_shared::error::ExecutionSharedError =
-            WorkflowError::ExecutionTimeout("wall clock".to_string()).into();
+            WorkflowError::NodeExecutionFailed {
+                node_id: "n1".to_string(),
+                reason: "script exited with code 1".to_string(),
+            }
+            .into();
         assert!(matches!(
             shared,
-            wf_execution_shared::error::ExecutionSharedError::TimeoutError(_)
+            wf_execution_shared::error::ExecutionSharedError::NodeFailure {
+                category: NodeErrorCategory::BusinessFailure,
+                ..
+            }
         ));
     }
 }

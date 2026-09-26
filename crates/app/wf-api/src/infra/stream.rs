@@ -158,7 +158,7 @@ impl ExecutionEventStream {
                     AgentStreamEvent::Completed { result, iterations } => {
                         ExecutionStreamEvent::Completed { result, iterations }
                     }
-                    AgentStreamEvent::Failed { error } => ExecutionStreamEvent::Failed { error },
+                    AgentStreamEvent::Failed { error, .. } => ExecutionStreamEvent::Failed { error },
                     AgentStreamEvent::ReasoningDelta { content } => {
                         ExecutionStreamEvent::ReasoningDelta { content }
                     }

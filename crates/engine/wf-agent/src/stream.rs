@@ -54,8 +54,12 @@ pub enum AgentStreamEvent {
         result: serde_json::Value,
         iterations: u32,
     },
+    /// Terminal failure of the run. `error_type` is the structured
+    /// classification of the underlying error, so stream consumers can keep
+    /// cancel/timeout semantics without parsing the message.
     Failed {
         error: String,
+        error_type: wf_types::errors::ErrorType,
     },
     Interrupted {
         reason: String,
@@ -181,13 +185,14 @@ impl AgentEventSink {
     }
 
     /// Send a structural event (iteration/tool boundaries). A dropped
-    /// receiver fails the iteration, mirroring the pre-unification driver.
+    /// receiver means the consuming host is gone: the run ends as a
+    /// cancellation, not a business failure.
     pub async fn emit(&self, agent_loop_id: &str, event: AgentStreamEvent) -> AgentResult<()> {
         publish_to_bus(self.event_bus.as_deref(), agent_loop_id, &event);
         self.tx
             .send(event)
             .await
-            .map_err(|_| AgentError::ExecutionError("stream receiver dropped".to_string()))
+            .map_err(|_| AgentError::Cancelled("stream receiver dropped".to_string()))
     }
 
     /// Send a content delta; a dropped receiver is tolerated (best effort).

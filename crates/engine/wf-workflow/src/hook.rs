@@ -6,6 +6,7 @@ use wf_execution_shared::hooks::{
     fire, fire::FireSummary, hook_checkpoint_description, hook_opted_in, HookContext,
     HookDefinition, HookHandlerRegistry,
 };
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_types::checkpoint::CheckpointTiming;
 
 use crate::checkpoint::WorkflowCheckpointIntegration;
@@ -50,6 +51,7 @@ impl WorkflowHookEmitter {
                 execution_id: entity.id().clone(),
                 hook_type: hook_type.to_string(),
                 data,
+                cancellation: entity.get_abort_signal(),
             },
             event_bus,
         )

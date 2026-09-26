@@ -400,15 +400,29 @@ async fn loop_start_break_condition_is_symmetric() {
         ),
         None,
     );
+    // The break condition is evaluated on the very first LOOP_START entry,
+    // so the counter it reads must exist before the loop starts: a condition
+    // over an unset variable is an evaluation error, not a silent false.
+    g.nodes.insert(
+        1,
+        node(
+            "init",
+            "VARIABLE",
+            serde_json::json!({"variable_name": "n", "expression": "${input.n0}"}),
+        ),
+    );
     g.edges = vec![
-        default_edge("start", "ls"),
+        default_edge("start", "init"),
+        default_edge("init", "ls"),
         default_edge("ls", "body"),
         default_edge("body", "le"),
         loop_back_edge("le", "ls"),
         default_edge("le", "end"),
     ];
+    let mut opts = options();
+    opts.input = Some(serde_json::json!({"n0": 0}));
 
-    run_workflow(g, recording_handlers(recorded.clone()), options())
+    run_workflow(g, recording_handlers(recorded.clone()), opts)
         .await
         .expect("loop with LOOP_START break condition must complete");
     let runs = recorded.lock().unwrap().clone();
@@ -418,7 +432,7 @@ async fn loop_start_break_condition_is_symmetric() {
 #[tokio::test]
 async fn loop_body_failure_aborts_run() {
     let g = loop_graph(
-        serde_json::json!({"loop_id": "l1", "max_iterations": 5, "on_iteration_failure": "fail"}),
+        serde_json::json!({"loop_id": "l1", "max_iterations": 5}),
         node(
             "body",
             "SCRIPT",

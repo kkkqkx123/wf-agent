@@ -1,23 +1,43 @@
-use wf_agent::error_analysis::{
-    analyze_error, shared_error_analysis, tool_error_analysis, ErrorAnalysis,
-};
+use wf_agent::error_analysis::{shared_error_analysis, ErrorAnalysis};
 use wf_common::error_chain::ErrorRecord;
-use wf_types::errors::{ErrorCause, ErrorKind, ErrorType, RecoveryAction};
+use wf_types::errors::{ErrorKind, ErrorType, RecoveryAction};
+use wf_types::workflow::error_branch::NodeErrorCategory;
 
 use crate::error::WorkflowError;
+
+/// Routing category for a terminal error whose nature is already known at the
+/// handler boundary: cancellation and exhausted timeouts keep their transport
+/// semantics, quota/upstream-pressure failures route as resource exhaustion,
+/// everything else routes as a business failure.
+pub fn error_type_category(error_type: &ErrorType) -> NodeErrorCategory {
+    match error_type {
+        ErrorType::Interruption => NodeErrorCategory::CancelledInterrupted,
+        ErrorType::Timeout => NodeErrorCategory::TransportTimeout,
+        ErrorType::RateLimited | ErrorType::ServiceUnavailable => NodeErrorCategory::Resource,
+        _ => NodeErrorCategory::BusinessFailure,
+    }
+}
+
+/// Project a nested agent-loop failure into a typed `NodeFailure` so both the
+/// sync and the streamed agent node path route by category instead of
+/// collapsing into an untyped handler error.
+pub fn agent_failure_node_failure(
+    node_id: &str,
+    error_type: ErrorType,
+    detail: String,
+) -> WorkflowError {
+    WorkflowError::NodeFailure {
+        node_id: node_id.to_string(),
+        category: error_type_category(&error_type),
+        detail,
+    }
+}
 
 /// Classify a workflow error into a structured analysis, reusing the
 /// agent-side classifiers for shared error types so workflow and agent
 /// executions produce comparable error records.
 pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
     match e {
-        WorkflowError::EntityError(_) | WorkflowError::StateError(_) => ErrorAnalysis {
-            kind: ErrorKind::StateManagement,
-            error_type: ErrorType::Internal,
-            retryable: false,
-            recovery_action: RecoveryAction::Abort,
-            message: e.to_string(),
-        },
         WorkflowError::CoordinatorError(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Internal,
@@ -98,38 +118,28 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        WorkflowError::ToolError(te) => tool_error_analysis(te),
-        WorkflowError::CoreError(_) | WorkflowError::Internal(_) => ErrorAnalysis {
+        WorkflowError::SharedError(se) => shared_error_analysis(se),
+        WorkflowError::Internal(_) => ErrorAnalysis {
             kind: ErrorKind::General,
             error_type: ErrorType::Internal,
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        WorkflowError::SharedError(se) => shared_error_analysis(se),
-        WorkflowError::AgentError(ae) => analyze_error(ae),
     }
 }
 
-/// Build a persisted ErrorRecord for one failed node attempt. The retry
-/// attempt index is attached to the cause so the record carries the retry
-/// context; chain links are filled by the caller from prior records.
+/// Build a persisted ErrorRecord for one failed node attempt. Chain links are
+/// filled by the caller from prior records. Engine-level retries are invisible
+/// here (they are spent inside handlers and never re-run by the coordinator),
+/// so the record carries no retry context.
 pub fn workflow_error_record(
     e: &WorkflowError,
     execution_id: &str,
     node_id: &str,
-    retry_attempt: u32,
 ) -> ErrorRecord {
     let analysis = analyze_workflow_error(e);
-    let mut record = analysis.to_error_record(execution_id, Some(node_id.to_string()));
-    record.caused_by = Some(ErrorCause {
-        reason: e.to_string(),
-        handling_attempt: Some(format!("retry_{}", retry_attempt)),
-    });
-    if retry_attempt > 0 {
-        record.error = format!("{} (retry attempt {})", e, retry_attempt);
-    }
-    record
+    analysis.to_error_record(execution_id, Some(node_id.to_string()))
 }
 
 /// Aggregate error information across an execution's error records: total,
@@ -230,48 +240,68 @@ mod tests {
     }
 
     #[test]
-    fn state_error_aborts() {
-        let analysis = analyze_workflow_error(&WorkflowError::StateError("corrupt".to_string()));
+    fn state_transition_error_aborts() {
+        let analysis = analyze_workflow_error(&WorkflowError::StateTransitionError(
+            "corrupt".to_string(),
+        ));
         assert_eq!(analysis.kind, ErrorKind::StateManagement);
         assert!(!analysis.retryable);
         assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
     }
 
     #[test]
-    fn record_carries_retry_attempt() {
+    fn shared_tool_timeout_stays_retryable() {
         // A tool timeout is genuinely retryable, so the record stays
-        // marked recoverable.
+        // marked recoverable through the shared wrapper.
         let record = workflow_error_record(
-            &WorkflowError::ToolError(wf_tools::error::ToolError::Timeout {
-                tool_id: "t".to_string(),
-                timeout_ms: 1000,
-            }),
+            &WorkflowError::SharedError(
+                wf_execution_shared::error::ExecutionSharedError::ToolError(
+                    wf_tools::error::ToolError::Timeout {
+                        tool_id: "t".to_string(),
+                        timeout_ms: 1000,
+                    },
+                ),
+            ),
             "exec-1",
             "n-7",
-            2,
         );
         assert_eq!(record.node_id.as_deref(), Some("n-7"));
         assert_eq!(record.execution_id, "exec-1");
-        assert!(record.error.contains("retry attempt 2"));
-        assert!(matches!(
-            record.caused_by,
-            Some(ref cause)
-                if cause.handling_attempt.as_deref() == Some("retry_2")
-        ));
         assert!(record.is_recoverable);
+        assert!(record.caused_by.is_none());
     }
 
     #[test]
-    fn record_first_attempt_has_no_retry_suffix() {
-        let record = workflow_error_record(
-            &WorkflowError::NodeExecutionFailed {
-                node_id: "n-7".to_string(),
-                reason: "boom".to_string(),
-            },
-            "exec-1",
-            "n-7",
-            0,
+    fn error_type_categories_keep_transport_semantics() {
+        assert_eq!(
+            error_type_category(&ErrorType::Interruption),
+            NodeErrorCategory::CancelledInterrupted
         );
-        assert!(!record.error.contains("retry attempt"));
+        assert_eq!(
+            error_type_category(&ErrorType::Timeout),
+            NodeErrorCategory::TransportTimeout
+        );
+        assert_eq!(
+            error_type_category(&ErrorType::RateLimited),
+            NodeErrorCategory::Resource
+        );
+        assert_eq!(
+            error_type_category(&ErrorType::ServiceUnavailable),
+            NodeErrorCategory::Resource
+        );
+        assert_eq!(
+            error_type_category(&ErrorType::LlmError),
+            NodeErrorCategory::BusinessFailure
+        );
+    }
+
+    #[test]
+    fn execution_timeout_keeps_typed_timeout_across_handler_boundary() {
+        let shared: wf_execution_shared::error::ExecutionSharedError =
+            WorkflowError::ExecutionTimeout("wall clock".to_string()).into();
+        assert!(matches!(
+            shared,
+            wf_execution_shared::error::ExecutionSharedError::TimeoutError(_)
+        ));
     }
 }

@@ -4,6 +4,11 @@ pub struct BranchResult {
     pub success: bool,
     pub output: serde_json::Value,
     pub error: Option<String>,
+    /// Routing category of the terminal failure that ended the branch, kept
+    /// typed across the child-coordinator boundary so business consumers can
+    /// distinguish cancellation and timeout from plain business failures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<wf_types::workflow::error_branch::NodeErrorCategory>,
     /// Snapshot of the branch's public variables (non-internal) taken when
     /// the branch settled. `None` for branches that expose no variables or
     /// failed before the snapshot.
@@ -18,6 +23,7 @@ impl BranchResult {
             success: true,
             output,
             error: None,
+            error_category: None,
             variables: None,
         }
     }
@@ -32,6 +38,7 @@ impl BranchResult {
             success: true,
             output,
             error: None,
+            error_category: None,
             variables: Some(variables),
         }
     }
@@ -42,8 +49,17 @@ impl BranchResult {
             success: false,
             output: serde_json::Value::Null,
             error: Some(error.into()),
+            error_category: None,
             variables: None,
         }
+    }
+
+    pub fn with_category(
+        mut self,
+        category: wf_types::workflow::error_branch::NodeErrorCategory,
+    ) -> Self {
+        self.error_category = Some(category);
+        self
     }
 }
 

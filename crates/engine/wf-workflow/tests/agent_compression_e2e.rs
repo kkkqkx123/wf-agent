@@ -192,6 +192,7 @@ fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
         execution_id: wf_types::Id::from("agent-1".to_string()),
         hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
+        cancellation: tokio_util::sync::CancellationToken::new(),
     }
 }
 

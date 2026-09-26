@@ -48,8 +48,9 @@ pub enum HookOutcome {
     Continue,
     /// Deny the guarded step. `reason` is surfaced on the audit event and,
     /// at gate points, becomes the failure reason (node error / tool
-    /// rejection). Timeouts and unresolvable handlers still resolve to
-    /// `Continue`: gates fail open, so gate handlers must be fast and local.
+    /// rejection). Unresolvable handlers still resolve to `Continue`:
+    /// gates fail open on configuration gaps; a handler that wants to deny
+    /// on its own slow path returns a `Veto` itself.
     Veto {
         reason: String,
     },
@@ -71,12 +72,23 @@ impl HookOutcome {
 }
 
 /// The context a handler observes at a hook point: the execution id, the
-/// named hook point and the parsed payload data.
+/// named hook point, the parsed payload data, and the owning execution's
+/// cancellation signal.
 #[derive(Debug, Clone)]
 pub struct HookContext {
     pub execution_id: Id,
     pub hook_type: String,
     pub data: HashMap<String, Value>,
+    /// Abort signal of the owning execution. The pipeline imposes no
+    /// time budget of its own — pacing is the handler's business — but a
+    /// handler must never outlive the execution: every wait inside a
+    /// handler races this token so cancellation abandons it. A long-work
+    /// handler additionally applies its own deadline policy (e.g. an LLM
+    /// approval handler bounds its call through the client's timeout and
+    /// decides Continue/Veto on expiry); unbounded human interaction does
+    /// not belong in a hook handler at all, it belongs to the approval and
+    /// suspend mechanisms.
+    pub cancellation: tokio_util::sync::CancellationToken,
 }
 
 impl From<&wf_types::hook::HookPointConfig> for HookDefinition {

@@ -64,6 +64,7 @@ pub fn classify_error(error: &WorkflowError) -> NodeErrorCategory {
     use wf_execution_shared::error::ExecutionSharedError;
     match error {
         WorkflowError::NodeFailure { category, .. } => *category,
+        WorkflowError::ExecutionTimeout(_) => NodeErrorCategory::TransportTimeout,
         WorkflowError::SharedError(inner) => match inner {
             ExecutionSharedError::NodeFailure { category, .. } => *category,
             ExecutionSharedError::InterruptionError(_) => NodeErrorCategory::CancelledInterrupted,
@@ -328,6 +329,24 @@ mod tests {
         assert_eq!(
             classify_error(&wrapped),
             NodeErrorCategory::CompressionFailure
+        );
+
+        // A child execution timeout propagated through the shared wrapper
+        // keeps transport semantics instead of collapsing to business.
+        let child_timeout = WorkflowError::SharedError(
+            wf_execution_shared::error::ExecutionSharedError::TimeoutError(
+                "subgraph wall clock exceeded".to_string(),
+            ),
+        );
+        assert_eq!(
+            classify_error(&child_timeout),
+            NodeErrorCategory::TransportTimeout
+        );
+
+        // The bare workflow-level timeout is typed as well.
+        assert_eq!(
+            classify_error(&WorkflowError::ExecutionTimeout("wall clock".to_string())),
+            NodeErrorCategory::TransportTimeout
         );
 
         // A tool-bubbled transport failure (no tag) is business, not timeout.

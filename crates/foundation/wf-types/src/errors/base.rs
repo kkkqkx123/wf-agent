@@ -7,6 +7,11 @@ pub enum ErrorType {
     ToolError,
     LlmError,
     Timeout,
+    /// HTTP 429 style quota exhaustion: transient, needs backoff not a
+    /// plain timeout re-run.
+    RateLimited,
+    /// HTTP 5xx style upstream failure: transient, retried with backoff.
+    ServiceUnavailable,
     Validation,
     Internal,
     Interruption,

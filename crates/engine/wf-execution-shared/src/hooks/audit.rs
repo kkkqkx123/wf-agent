@@ -42,27 +42,6 @@ pub fn evaluate_hook_condition(
     }
 }
 
-/// Log level for an empty hook fire (no matched definitions or handlers).
-///
-/// Level rules (read-only, no execution effect):
-/// - observable hook, empty: DEBUG — zero subscribers are legal, the skip
-///   is routine and no audit event is published (except handler-less
-///   `BEFORE_*` definitions, which the config validator already flags as
-///   write-only audit);
-/// - request / mutated hook, empty: WARN — a sync handler is required for
-///   the point to take effect (async trigger rules never substitute for
-///   synchronous handling), so the miss must stay visible;
-/// - any non-empty fire: the `HOOK_TRIGGERED` audit event is published and
-///   no empty-fire log applies (INFO-level visibility comes from the event
-///   itself, not an extra log line).
-pub fn empty_fire_log_level(hook_type: &str) -> tracing::Level {
-    if wf_types::hook::hook_requires_handler(hook_type) {
-        tracing::Level::WARN
-    } else {
-        tracing::Level::DEBUG
-    }
-}
-
 /// Whether any enabled hook definition of `hook_type` opts in via
 /// `create_checkpoint`.
 pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
@@ -282,6 +261,7 @@ mod tests {
             execution_id: Id::from(execution_id.to_string()),
             hook_type: "test".to_string(),
             data,
+            cancellation: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -341,6 +321,7 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "BEFORE_EXECUTE".to_string(),
             data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
         };
         let mut sub = bus.subscribe();
 
@@ -446,27 +427,11 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "CONTEXT_COMPRESSION_REQUESTED".to_string(),
             data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
         };
         assert_eq!(
             publish_hook_audit_event(Some(&bus), &ctx, &[], &[], &[], 0),
             0
-        );
-    }
-
-    #[test]
-    fn test_empty_fire_log_levels() {
-        assert_eq!(
-            empty_fire_log_level("BEFORE_TOOL_CALL"),
-            tracing::Level::DEBUG
-        );
-        assert_eq!(
-            empty_fire_log_level("CONTEXT_COMPRESSION_REQUESTED"),
-            tracing::Level::WARN
-        );
-        assert_eq!(empty_fire_log_level("ON_ERROR"), tracing::Level::WARN);
-        assert_eq!(
-            empty_fire_log_level("SOME_FUTURE_HOOK"),
-            tracing::Level::DEBUG
         );
     }
 }

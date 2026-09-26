@@ -14,8 +14,11 @@ use crate::hooks::types::{HookContext, HookOutcome};
 ///
 /// `name` is the stable identifier used for registration dedup, unregister
 /// and resolution from `HookDefinition.handler`; `on_point` is invoked
-/// synchronously by the engine at the hook point and must be fast (per-call
-/// timeout and cancellation are guarded by the registry).
+/// synchronously by the engine at the hook point. The pipeline guards the
+/// call against panics but imposes no time budget: the handler owns its
+/// pacing (a handler doing slow work applies its own deadline policy) and
+/// must race every wait it performs against [`HookContext::cancellation`]
+/// so it can never outlive the owning execution.
 #[async_trait]
 pub trait HookHandler: Send + Sync {
     /// Stable handler name (registration dedup / unregister / resolution).

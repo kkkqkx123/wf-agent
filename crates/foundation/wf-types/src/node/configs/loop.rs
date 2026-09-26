@@ -26,10 +26,6 @@ pub struct LoopStartNodeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_source: Option<DataSource>,
     pub max_iterations: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_iteration_failure: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_consecutive_failures: Option<u32>,
     /// Optional break condition evaluated at LOOP_START (symmetric with the
     /// LOOP_END break_condition); when it evaluates to true the loop stops.
     #[serde(skip_serializing_if = "Option::is_none")]

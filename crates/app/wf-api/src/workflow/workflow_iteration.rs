@@ -788,7 +788,6 @@ mod tests {
                 error: None,
                 input: Some(serde_json::json!({"prompt": "think"})),
                 output: Some(serde_json::json!({"content": "the answer is 42"})),
-                retry_count: 0,
             }]),
             errors: None,
             error: None,

@@ -24,9 +24,8 @@ pub struct HandlerResult {
     pub name: String,
     pub outcome: HookOutcome,
     pub duration_ms: i64,
-    /// Timeout / unresolvable handler description; `None` on success.
-    pub error: Option<String>,
-}
+    /// Panic / unresolvable handler description; `None` on success.
+    pub error: Option<String>,}
 
 /// Aggregate result of one fire: everything the audit trail needs
 /// (payloads, per-handler results, duration) plus the aggregated outcome.
@@ -73,11 +72,12 @@ impl FireSummary {
 /// 3. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
 ///    per-handler results. The aggregated outcome is `Veto` when at least
 ///    one notified handler vetoed; only gate points act on it (`Continue`
-///    otherwise, including timeouts and unresolvable handlers: gates fail
-///    open, so gate handlers must be fast and local).
+///    otherwise, including panicking and unresolvable handlers: gates fail
+///    open on infrastructure gaps; a handler that wants to deny on its own
+///    slow path returns the `Veto` itself).
 ///
-/// Ordering guarantee: every handler settles (each guarded by the registry
-/// timeout) before the audit event is published, so a trigger template
+/// Ordering guarantee: every handler settles (panics are contained by the
+/// registry) before the audit event is published, so a trigger template
 /// matching the audit event always starts after the synchronous handlers.
 /// The engine awaits the handler barrier but never waits for trigger
 /// execution: trigger completion is unordered relative to the engine's next
@@ -217,14 +217,26 @@ pub async fn fire(
         duration_ms,
     );
 
-    FireSummary {
+    let summary = FireSummary {
         hook_type: hook_type.to_string(),
         payloads,
         priorities,
         handler_results,
         duration_ms,
         outcome,
+    };
+    // A veto only takes effect at gate points; at every other point it is
+    // recorded and ignored, so surface the likely misconfiguration loudly.
+    if !wf_types::hook::is_gate_hook(hook_type) {
+        if let HookOutcome::Veto { reason } = &summary.outcome {
+            warn!(
+                hook_type,
+                reason = %reason,
+                "hook veto at a non-gate point: recorded and ignored"
+            );
+        }
     }
+    summary
 }
 
 #[cfg(test)]
@@ -260,6 +272,7 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "TEST".to_string(),
             data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -452,6 +465,7 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "TEST".to_string(),
             data,
+            cancellation: tokio_util::sync::CancellationToken::new(),
         };
         let allowed = fire(&registry, &[], "TEST", &allowed_ctx, None).await;
         assert_eq!(allowed.handler_results.len(), 1);
@@ -459,27 +473,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn timeout_handler_does_not_block_engine() {
-        let registry =
-            HookHandlerRegistry::new().with_timeout(std::time::Duration::from_millis(20));
+    async fn handler_panic_is_contained_as_error_result() {
+        let registry = HookHandlerRegistry::new();
+        struct PanickingHandler;
+        #[async_trait::async_trait]
+        impl HookHandler for PanickingHandler {
+            fn name(&self) -> &str {
+                "boom"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                panic!("handler blew up");
+            }
+        }
+        registry.register("TEST", Arc::new(PanickingHandler), 1);
 
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
+        assert_eq!(summary.handler_results.len(), 1);
+        assert!(summary.handler_results[0]
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("handler blew up")));
+        assert_eq!(
+            summary.outcome,
+            HookOutcome::Continue,
+            "a panicking handler never vetoes and never aborts the fire"
+        );
+    }
+
+    #[tokio::test]
+    async fn handler_bounds_itself_with_context_cancellation() {
+        // The pipeline has no timeout: a slow handler is expected to race
+        // its own work against `ctx.cancellation`, so cancelling the
+        // execution settles the fire instead of hanging it.
+        let registry = HookHandlerRegistry::new();
         struct SlowHandler;
         #[async_trait::async_trait]
         impl HookHandler for SlowHandler {
             fn name(&self) -> &str {
                 "slow"
             }
-            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                HookOutcome::Continue
+            async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => HookOutcome::Continue,
+                    _ = ctx.cancellation.cancelled() => HookOutcome::Veto { reason: "execution cancelled mid-handler".to_string() },
+                }
             }
         }
-
         registry.register("TEST", Arc::new(SlowHandler), 1);
-        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
-        assert_eq!(summary.handler_results.len(), 1);
-        assert!(summary.handler_results[0].error.is_some());
-        assert_eq!(summary.outcome, HookOutcome::Continue);
+
+        let ctx = ctx();
+        ctx.cancellation.cancel();
+        let summary = fire(&registry, &[], "TEST", &ctx, None).await;
+        assert!(summary.outcome.is_veto());
     }
 
     #[tokio::test]
@@ -519,6 +564,7 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "TEST".to_string(),
             data,
+            cancellation: tokio_util::sync::CancellationToken::new(),
         };
 
         fire(&registry, &hooks, "TEST", &ctx, Some(&bus)).await;

@@ -2,40 +2,33 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AgentError {
-    #[error("Entity error: {0}")]
-    EntityError(String),
-
-    #[error("State error: {0}")]
-    StateError(String),
-
     #[error("Illegal state transition: {0}")]
     IllegalStateTransition(String),
+
+    /// Deterministic caller/config misuse: rejected validation, resume-mode
+    /// id conflicts, iteration budget above the hard cap. Retrying reproduces
+    /// the same rejection.
+    #[error("Validation error: {0}")]
+    Validation(String),
 
     #[error("Execution timeout: {0}")]
     ExecutionTimeout(String),
 
-    /// The run was cancelled (host shutdown / explicit cancellation request),
-    /// distinct from a wall-clock timeout and from a failure.
+    /// The run was cancelled (host shutdown / explicit cancellation request /
+    /// dropped stream consumer), distinct from a wall-clock timeout and from
+    /// a failure.
     #[error("Execution cancelled: {0}")]
     Cancelled(String),
 
-    #[error("Coordinator error: {0}")]
-    CoordinatorError(String),
+    /// The concurrent-execution gate is momentarily full (or a resume target
+    /// is still live): transient saturation that a later attempt may pass.
+    #[error("Concurrency saturated: {0}")]
+    ConcurrencySaturated(String),
 
-    #[error("Execution error: {0}")]
-    ExecutionError(String),
-
-    /// Concurrency / hierarchy capacity gate rejected an execution spawn:
-    /// either the global concurrent execution limit was reached or a
-    /// nested agent loop exceeded the maximum sub-agent depth.
-    #[error("Execution limit reached: {0}")]
-    ExecutionLimitReached(String),
-
-    #[error("Hook error: {0}")]
-    HookError(String),
-
-    #[error("Tool error: {0}")]
-    ToolError(#[from] wf_tools::error::ToolError),
+    /// A spawn exceeded the sub-agent depth policy: a hierarchy misuse that
+    /// only a configuration or call-graph change can fix.
+    #[error("Sub-agent hierarchy limit reached: {0}")]
+    HierarchyLimitReached(String),
 
     #[error("LLM error: {0}")]
     LlmError(#[from] wf_llm::error::LlmError),

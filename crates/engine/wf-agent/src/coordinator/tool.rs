@@ -8,12 +8,12 @@ use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
-use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
+use wf_types::message::{LlmToolCall, Message};
 use wf_types::tool::approval::ToolApprovalOptions;
 
 use crate::approval::RejectionMessageBuilder;
 use crate::entity::AgentLoopEntity;
-use crate::error::AgentResult;
+use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookEmitter;
 
 mod approval;
@@ -24,7 +24,7 @@ mod test;
 mod types;
 
 use approval::ToolApprovalGate;
-use runner::{build_hook_data, error_message, run_tool};
+use runner::{build_hook_data, error_message, rejection_message, run_tool};
 use types::{ApprovalOutcome, TaskOutcome, ToolRunCtx};
 
 // Facade re-exports: `coordinator::tool` stays the single public path for
@@ -336,20 +336,7 @@ impl ToolExecutionCoordinator {
     }
 
     fn build_rejection_message(&self, tc: &LlmToolCall, reason: &str) -> Message {
-        Message {
-            id: wf_types::Id::new(),
-            role: MessageRole::Tool,
-            content: MessageContentValue::Text(serde_json::json!({
-                "error": self.rejection_builder.build_rejection_message(&tc.function.name, Some(reason))
-            })
-            .to_string()),
-            timestamp: wf_common::now(),
-            tool_call_id: Some(tc.id.clone()),
-            tool_name: Some(tc.function.name.clone()),
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        }
+        rejection_message(&self.rejection_builder, tc, reason)
     }
 
     /// Apply approval-edited parameters to a tool call copy.
@@ -426,7 +413,15 @@ impl ToolExecutionCoordinator {
                 messages.push(self.build_rejection_message(tc, reason));
                 continue;
             }
-            let outcome = allowed_iter.next().expect("allowed outcomes align");
+            // The approval handler must return exactly one outcome per
+            // allowed call; a short list is a handler bug, surfaced as an
+            // error instead of a panic on the hot path.
+            let Some(outcome) = allowed_iter.next() else {
+                return Err(AgentError::Internal(format!(
+                    "approval returned fewer outcomes than the {} allowed tool calls",
+                    allowed.len()
+                )));
+            };
             match outcome {
                 ApprovalOutcome::Rejected { reason } => {
                     // The call never executes, so it has no tool lifecycle:
@@ -508,39 +503,42 @@ impl ToolExecutionCoordinator {
             .approve_tool_calls(entity, &allowed, &self.tool_registry)
             .await;
         let mut allowed_iter = allowed_outcomes.into_iter();
-        // Align approval outcomes back to the original order; gated calls
-        // already carry their rejection reason.
-        let mut outcomes: Vec<Option<ApprovalOutcome>> = Vec::with_capacity(tool_calls.len());
-        for gate_rejection in gate_rejections.iter().take(tool_calls.len()) {
-            if gate_rejection.is_some() {
-                outcomes.push(None);
-            } else {
-                outcomes.push(Some(allowed_iter.next().expect("allowed outcomes align")));
-            }
-        }
         let mut messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
         let mut run_ctx = self.run_ctx();
         run_ctx.cancellation = Some(self.batch_cancellation(entity));
         let batch_cancellation = self.batch_cancellation(entity);
 
+        let mut executed_any = false;
         let mut set = tokio::task::JoinSet::new();
         for (idx, tc) in tool_calls.iter().enumerate() {
             if let Some(reason) = &gate_rejections[idx] {
                 messages[idx] = Some(self.build_rejection_message(tc, reason));
                 continue;
             }
-            match outcomes[idx].as_ref().expect("allowed outcome present") {
+            // The approval handler must return exactly one outcome per
+            // allowed call; a short list is a handler bug, surfaced as an
+            // error instead of a panic on the hot path.
+            let Some(outcome) = allowed_iter.next() else {
+                return Err(AgentError::Internal(format!(
+                    "approval returned fewer outcomes than the {} allowed tool calls",
+                    allowed.len()
+                )));
+            };
+            match &outcome {
                 ApprovalOutcome::Rejected { reason } => {
                     messages[idx] = Some(self.build_rejection_message(tc, reason));
                 }
                 ApprovalOutcome::Execute { edited_parameters } => {
+                    executed_any = true;
                     let tool_call = Self::apply_edited_parameters(tc, edited_parameters);
                     let run_ctx = run_ctx.clone();
                     let event_bus = self.event_bus.clone();
                     let hook_handler_registry = self.hook_handler_registry.clone();
+                    let rejection_builder = self.rejection_builder.clone();
                     let entity_state = entity.state.clone();
                     let entity_hooks = entity.hooks().to_vec();
                     let entity_id = entity.id().clone();
+                    let hook_cancellation = entity.get_abort_signal();
                     let task_cancellation = batch_cancellation.child_token();
 
                     set.spawn(async move {
@@ -549,6 +547,7 @@ impl ToolExecutionCoordinator {
                             execution_id: entity_id.clone(),
                             hook_type: "BEFORE_TOOL_CALL".to_string(),
                             data: hook_data.clone(),
+                            cancellation: hook_cancellation.clone(),
                         };
 
                         let before = AgentHookEmitter::fire_point(
@@ -562,9 +561,10 @@ impl ToolExecutionCoordinator {
 
                         // BEFORE_TOOL_CALL is a gate point: a veto denies
                         // the call without running it. The denial surfaces
-                        // as a task failure (same channel as execution
-                        // errors) with an error-carrying AFTER fire, mirroring
-                        // the sequential path's rejection handling.
+                        // as a rejection message identical to the sequential
+                        // path (error-carrying AFTER fire included), and
+                        // never counts as an execution failure for
+                        // cancel_on_failure.
                         if let Some(reason) = before.vetoed_reason() {
                             let reason = format!("hook veto at BEFORE_TOOL_CALL: {reason}");
                             let mut hook_data = hook_data;
@@ -573,6 +573,7 @@ impl ToolExecutionCoordinator {
                                 execution_id: entity_id.clone(),
                                 hook_type: "AFTER_TOOL_CALL".to_string(),
                                 data: hook_data,
+                                cancellation: hook_cancellation.clone(),
                             };
                             AgentHookEmitter::fire_point(
                                 &entity_hooks,
@@ -584,10 +585,11 @@ impl ToolExecutionCoordinator {
                             .await;
                             return (
                                 idx,
-                                TaskOutcome::Failed(wf_tools::error::ToolError::ExecutionFailed {
-                                    tool_id: tool_call.function.name.clone(),
-                                    reason,
-                                }),
+                                TaskOutcome::Rejected(rejection_message(
+                                    &rejection_builder,
+                                    &tool_call,
+                                    &reason,
+                                )),
                             );
                         }
 
@@ -609,6 +611,7 @@ impl ToolExecutionCoordinator {
                             execution_id: entity_id.clone(),
                             hook_type: "AFTER_TOOL_CALL".to_string(),
                             data: hook_data,
+                            cancellation: hook_cancellation,
                         };
                         AgentHookEmitter::fire_point(
                             &entity_hooks,
@@ -632,7 +635,7 @@ impl ToolExecutionCoordinator {
         while let Some(joined) = set.join_next().await {
             match joined {
                 Ok((idx, outcome)) => match outcome {
-                    TaskOutcome::Ok(msg) => {
+                    TaskOutcome::Ok(msg) | TaskOutcome::Rejected(msg) => {
                         messages[idx] = Some(msg);
                     }
                     TaskOutcome::Failed(reason) => {
@@ -680,9 +683,6 @@ impl ToolExecutionCoordinator {
         // strategy-gated checkpoint per hook type settles here where the
         // entity is available. Only when at least one call was approved for
         // execution; gate/approval rejections alone never snapshot.
-        let executed_any = outcomes
-            .iter()
-            .any(|o| matches!(o, Some(ApprovalOutcome::Execute { .. })));
         if executed_any {
             AgentHookEmitter::maybe_hook_checkpoint(
                 entity.hooks(),

@@ -35,6 +35,9 @@ pub enum NodeErrorCategory {
     CancelledInterrupted,
     /// Compression failures (existing compression failure event wording).
     CompressionFailure,
+    /// Resource/quota exhaustion after the retry channel is exhausted:
+    /// rate limiting, upstream service overload, context-capacity pressure.
+    Resource,
 }
 
 impl NodeErrorCategory {
@@ -44,6 +47,7 @@ impl NodeErrorCategory {
             Self::BusinessFailure => "business_failure",
             Self::CancelledInterrupted => "cancelled_interrupted",
             Self::CompressionFailure => "compression_failure",
+            Self::Resource => "resource",
         }
     }
 }
@@ -197,6 +201,7 @@ mod tests {
             NodeErrorCategory::BusinessFailure,
             NodeErrorCategory::CancelledInterrupted,
             NodeErrorCategory::CompressionFailure,
+            NodeErrorCategory::Resource,
         ] {
             let text = serde_json::to_value(category).expect("serialize");
             let back: NodeErrorCategory = serde_json::from_value(text).expect("deserialize");
@@ -213,6 +218,7 @@ mod tests {
         assert!(catch_all.matches(NodeErrorCategory::BusinessFailure));
         assert!(catch_all.matches(NodeErrorCategory::TransportTimeout));
         assert!(catch_all.matches(NodeErrorCategory::CompressionFailure));
+        assert!(catch_all.matches(NodeErrorCategory::Resource));
         assert!(!catch_all.matches(NodeErrorCategory::CancelledInterrupted));
 
         let empty_list = ErrorRouteConfig {

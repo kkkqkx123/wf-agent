@@ -62,6 +62,10 @@ pub trait ToolCheckpointHandler: Send + Sync {
 /// Per-task outcome produced by the parallel execution path.
 pub(crate) enum TaskOutcome {
     Ok(Message),
+    /// Gate rejection surfaced as a rejection message (same shape as the
+    /// sequential path), not an execution failure: it never triggers the
+    /// batch abort of sibling tasks.
+    Rejected(Message),
     Failed(wf_tools::error::ToolError),
 }
 

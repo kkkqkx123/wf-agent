@@ -129,7 +129,7 @@ impl From<AgentStreamEvent> for UnifiedEvent {
             AgentStreamEvent::Completed { result, iterations } => {
                 Self::Completed { result, iterations }
             }
-            AgentStreamEvent::Failed { error } => Self::Failed { error },
+            AgentStreamEvent::Failed { error, .. } => Self::Failed { error },
             AgentStreamEvent::Interrupted { reason } => Self::Interrupted { reason },
             AgentStreamEvent::ReasoningDelta { content } => Self::ReasoningDelta { content },
             AgentStreamEvent::Usage {
@@ -273,6 +273,7 @@ mod tests {
             (
                 AgentStreamEvent::Failed {
                     error: "boom".to_string(),
+                    error_type: wf_types::errors::ErrorType::LlmError,
                 },
                 UnifiedEvent::Failed {
                     error: "boom".to_string(),

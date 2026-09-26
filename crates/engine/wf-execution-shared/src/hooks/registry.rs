@@ -3,11 +3,12 @@
 //! Handlers register under a stable name, optionally bound to a hook type
 //! (dynamic registration) and prioritized. Fire ([`fire`]) resolves
 //! static `HookDefinition.handler` names through this registry and
-//! notifies type-bound handlers; every notification is guarded by a timeout
-//! so a slow handler never blocks the engine.
+//! notifies type-bound handlers; each notification is panic-guarded so a
+//! panicking handler never takes down the engine. The registry imposes no
+//! time budget: pacing is the handler's own policy, bounded at least by
+//! the execution cancellation carried on every [`HookContext`].
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use dashmap::DashMap;
 use tracing::warn;
@@ -34,8 +35,6 @@ pub struct HookHandlerRegistry {
     named: Arc<DashMap<String, Arc<dyn HookHandler>>>,
     /// hook_type -> handlers sorted by priority descending.
     per_type: Arc<DashMap<String, Vec<RegisteredHandler>>>,
-    /// Per-handler notification timeout; a timeout skips the handler.
-    timeout: Duration,
 }
 
 impl Default for HookHandlerRegistry {
@@ -49,7 +48,6 @@ impl HookHandlerRegistry {
         Self {
             named: Arc::new(DashMap::new()),
             per_type: Arc::new(DashMap::new()),
-            timeout: Duration::from_secs(3),
         }
     }
 
@@ -59,12 +57,6 @@ impl HookHandlerRegistry {
     pub fn fallback() -> &'static Self {
         static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
         DEFAULT.get_or_init(HookHandlerRegistry::new)
-    }
-
-    /// Override the per-handler notification timeout (default 3s).
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
     }
 
     /// Register `handler` for `hook_type` with `priority`. Registration is
@@ -157,38 +149,45 @@ impl HookHandlerRegistry {
         missing
     }
 
-    /// Per-handler notification timeout.
-    pub fn timeout(&self) -> Duration {
-        self.timeout
-    }
-
-    /// Notify one handler with the timeout guard. A timeout or missing
-    /// cancellation is reported as an error result and never blocks the
-    /// engine; the outcome is treated as `Continue`.
+    /// Notify one handler. The call is panic-guarded: a panicking handler
+    /// is reported as an error result and treated as `Continue`, never
+    /// taking down the engine task. The pipeline applies no timeout — a
+    /// handler bounds its own work and must honor `ctx.cancellation` so it
+    /// can never outlive the owning execution.
     pub async fn notify(
         &self,
         ctx: &HookContext,
         handler: &RegisteredHandler,
     ) -> crate::hooks::fire::HandlerResult {
+        use futures::FutureExt;
         let started = wf_common::now();
-        match tokio::time::timeout(self.timeout, handler.handler.on_point(ctx)).await {
+        let outcome = std::panic::AssertUnwindSafe(handler.handler.on_point(ctx))
+            .catch_unwind()
+            .await;
+        let duration_ms = wf_common::now() - started;
+        match outcome {
             Ok(outcome) => crate::hooks::fire::HandlerResult {
                 name: handler.name.clone(),
                 outcome,
-                duration_ms: wf_common::now() - started,
+                duration_ms,
                 error: None,
             },
-            Err(_) => {
+            Err(payload) => {
+                let detail = payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "unknown panic".to_string());
                 warn!(
                     handler = %handler.name,
-                    timeout_ms = self.timeout.as_millis(),
-                    "hook handler timed out, skipping"
+                    panic = %detail,
+                    "hook handler panicked, treated as continue"
                 );
                 crate::hooks::fire::HandlerResult {
                     name: handler.name.clone(),
                     outcome: HookOutcome::Continue,
-                    duration_ms: wf_common::now() - started,
-                    error: Some("handler timed out".to_string()),
+                    duration_ms,
+                    error: Some(format!("handler panicked: {detail}")),
                 }
             }
         }
@@ -236,6 +235,7 @@ mod tests {
             execution_id: Id::from("exec-1".to_string()),
             hook_type: "TEST".to_string(),
             data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
         }
     }
 
@@ -295,25 +295,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn slow_handler_times_out_and_is_reported() {
-        let registry = HookHandlerRegistry::new().with_timeout(Duration::from_millis(20));
+    async fn panicking_handler_is_reported_as_continue_with_error() {
+        let registry = HookHandlerRegistry::new();
 
-        struct SlowHandler;
+        struct PanickingHandler;
         #[async_trait::async_trait]
-        impl HookHandler for SlowHandler {
+        impl HookHandler for PanickingHandler {
             fn name(&self) -> &str {
-                "slow"
+                "boom"
             }
             async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                HookOutcome::Continue
+                panic!("handler blew up");
             }
         }
 
-        registry.register("A", Arc::new(SlowHandler), 1);
+        registry.register("A", Arc::new(PanickingHandler), 1);
         let registered = registry.for_type("A").remove(0);
         let result = registry.notify(&ctx(), &registered).await;
-        assert_eq!(result.name, "slow");
+        assert_eq!(result.name, "boom");
         assert_eq!(result.outcome, HookOutcome::Continue);
         assert!(result.error.is_some());
     }

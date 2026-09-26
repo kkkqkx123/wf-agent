@@ -117,8 +117,15 @@ fn ledger(variables: &DashMap<String, Value>) -> TokenLedger {
 }
 
 fn store_ledger(variables: &DashMap<String, Value>, ledger: &TokenLedger) {
-    if let Ok(value) = serde_json::to_value(ledger) {
-        variables.insert(LEDGER_PREFIX.to_string(), value);
+    match serde_json::to_value(ledger) {
+        Ok(value) => {
+            variables.insert(LEDGER_PREFIX.to_string(), value);
+        }
+        Err(e) => tracing::error!(
+            key = LEDGER_PREFIX,
+            error = %e,
+            "failed to serialize token ledger; the stored estimate stays at the last good version"
+        ),
     }
 }
 

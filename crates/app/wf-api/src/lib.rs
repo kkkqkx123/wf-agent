@@ -328,7 +328,7 @@ pub use wf_workflow::interaction::{
 };
 pub use wf_workflow::loop_state::{
     current_item, current_loop, enter_loop, exit_loop, find_loop, iterable_len, loop_condition_met,
-    mark_iteration_failed, update_loop, LoopState, MAX_ITERATIONS_CAP,
+    update_loop, LoopState, MAX_ITERATIONS_CAP,
 };
 pub use wf_workflow::message_context::{
     append_context, archived_history, get_context, get_context_history, has_context,

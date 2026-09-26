@@ -6,7 +6,7 @@ use wf_llm::LlmGateway;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_types::node::StaticNodeType;
 
-use crate::error::{WorkflowError, WorkflowResult};
+use crate::error::WorkflowResult;
 use crate::handler::NodeHandler;
 
 pub(crate) mod conversation;
@@ -165,7 +165,11 @@ impl AgentLoopHandler {
                     metadata,
                 })
             }
-            Err(e) => Err(WorkflowError::AgentError(e)),
+            Err(e) => Err(crate::error_analysis::agent_failure_node_failure(
+                &ctx.node_id,
+                wf_agent::error_analysis::analyze_error(&e).error_type,
+                e.to_string(),
+            )),
         }
     }
 }

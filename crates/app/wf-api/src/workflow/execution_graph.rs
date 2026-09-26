@@ -818,7 +818,6 @@ mod tests {
                     error: None,
                     started_at: Some(1000),
                     completed_at: Some(1100),
-                    retry_count: 0,
                 },
                 wf_types::workflow_execution::NodeExecutionResult {
                     node_id: "route".into(),
@@ -828,7 +827,6 @@ mod tests {
                     error: None,
                     started_at: Some(1100),
                     completed_at: Some(1200),
-                    retry_count: 0,
                 },
                 wf_types::workflow_execution::NodeExecutionResult {
                     node_id: "b".into(),
@@ -838,7 +836,6 @@ mod tests {
                     error: None,
                     started_at: Some(1200),
                     completed_at: Some(1500),
-                    retry_count: 1,
                 },
                 wf_types::workflow_execution::NodeExecutionResult {
                     node_id: "b".into(),
@@ -848,7 +845,6 @@ mod tests {
                     error: None,
                     started_at: Some(1500),
                     completed_at: Some(3500),
-                    retry_count: 0,
                 },
                 wf_types::workflow_execution::NodeExecutionResult {
                     node_id: "end".into(),
@@ -858,7 +854,6 @@ mod tests {
                     error: None,
                     started_at: Some(3500),
                     completed_at: Some(3600),
-                    retry_count: 0,
                 },
             ]),
             errors: None,

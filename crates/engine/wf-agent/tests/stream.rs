@@ -172,7 +172,7 @@ async fn stream_failure_emits_failed_event() {
 
     let mut failed = None;
     while let Some(event) = stream.next().await {
-        if let wf_agent::AgentStreamEvent::Failed { error } = &event {
+        if let wf_agent::AgentStreamEvent::Failed { error, .. } = &event {
             failed = Some(error.clone());
         }
     }

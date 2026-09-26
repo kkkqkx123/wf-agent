@@ -89,7 +89,6 @@ pub async fn build_workflow_execution(
                 error: record.and_then(|r| r.error.clone()),
                 started_at: record.map(|r| r.start_time),
                 completed_at: record.and_then(|r| r.end_time),
-                retry_count: 0,
             }
         })
         .collect();

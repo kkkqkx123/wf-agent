@@ -474,6 +474,21 @@ pub(crate) fn error_message(
     }
 }
 
+/// Rejection message for approval/gate-hook denials: the templated
+/// rejection text carried in the standard error-message shape. Shared by
+/// the sequential and parallel paths so both surface identical denials.
+pub(crate) fn rejection_message(
+    builder: &crate::approval::RejectionMessageBuilder,
+    tc: &LlmToolCall,
+    reason: &str,
+) -> Message {
+    error_message(
+        &builder.build_rejection_message(&tc.function.name, Some(reason)),
+        Some(&tc.id),
+        Some(&tc.function.name),
+    )
+}
+
 pub(crate) fn build_hook_data(tc: &LlmToolCall) -> HashMap<String, Value> {
     let mut data = HashMap::new();
     data.insert("tool_call_id".to_string(), Value::String(tc.id.clone()));

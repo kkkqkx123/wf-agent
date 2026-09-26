@@ -343,7 +343,7 @@ impl TriggeredAgentExecutionManager {
                     Ok(result) => result,
                     Err(_) => {
                         parent.unregister_child(child_entity.id()).await;
-                        return Err(AgentError::ExecutionError(format!(
+                        return Err(AgentError::ExecutionTimeout(format!(
                             "Triggered agent execution '{}' timed out after {}ms",
                             child_entity.id(),
                             ms
@@ -520,7 +520,7 @@ mod tests {
 
     fn failing_executor() -> AgentExecutorCallback {
         Arc::new(|_config, _input| {
-            Box::pin(async move { Err(AgentError::ExecutionError("child boom".to_string())) })
+            Box::pin(async move { Err(AgentError::Internal("child boom".to_string())) })
         })
     }
 

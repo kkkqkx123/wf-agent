@@ -112,6 +112,7 @@ mod tests {
             execution_id: wf_types::Id::from("run-1".to_string()),
             hook_type: "AFTER_AGENT".to_string(),
             data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
         }
     }
 

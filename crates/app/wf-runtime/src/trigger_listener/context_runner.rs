@@ -154,6 +154,9 @@ impl TriggerActionRunner for ContextTriggerRunner {
                     "ContextTriggerRunner timed out after {:?}",
                     timeout
                 )),
+                error_category: Some(
+                    wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                ),
                 execution_time: 0,
             }
         });

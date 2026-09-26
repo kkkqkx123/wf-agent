@@ -302,7 +302,7 @@ impl AgentExecutionCoordinator {
     async fn stopped_error(entity: &AgentLoopEntity) -> AgentError {
         let status = entity.state.read().await.status();
         if status.is_terminal() {
-            AgentError::ExecutionError(format!("Agent loop stopped with status {:?}", status))
+            AgentError::Cancelled(format!("Agent loop stopped with status {:?}", status))
         } else if wf_common::shutdown::is_active_shutdown() {
             AgentError::Cancelled("Agent loop cancelled by runtime shutdown".to_string())
         } else {

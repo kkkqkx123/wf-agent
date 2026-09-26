@@ -1629,6 +1629,7 @@ mod tests {
             execution_id: Id::from("wf-run".to_string()),
             hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
+            cancellation: tokio_util::sync::CancellationToken::new(),
         };
 
         // Fire returns as soon as the summary sub-workflow is spawned,
@@ -1721,6 +1722,7 @@ mod tests {
             execution_id: Id::from("retry-run".to_string()),
             hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
+            cancellation: tokio_util::sync::CancellationToken::new(),
         }
     }
 

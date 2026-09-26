@@ -479,24 +479,33 @@ impl TriggerActionRunner for SubworkflowActionRunner {
 
         let start = wf_common::now();
         let result = if wait {
-            let outcome = tokio::time::timeout(
-                std::time::Duration::from_millis(timeout_ms),
-                self.run_subworkflow(
-                    triggered_workflow_id,
-                    input,
-                    event,
-                    &target_context_id,
-                    expected_version,
-                    token_limit,
-                ),
-            )
-            .await;
-            match outcome {
-                Ok(result) => result,
-                Err(_) => Err(WorkflowError::TriggerError(format!(
-                    "Triggered subworkflow '{}' timed out after {}ms",
-                    triggered_workflow_id, timeout_ms
-                ))),
+            // The synchronous wait races listener shutdown exactly like the
+            // fire-and-forget branch, and keeps the abandonment typed as an
+            // interruption instead of surfacing a generic trigger error.
+            tokio::select! {
+                _ = self.shutdown.cancelled() => Err(WorkflowError::SharedError(
+                    wf_execution_shared::error::ExecutionSharedError::InterruptionError(format!(
+                        "Triggered subworkflow '{}' abandoned at listener shutdown",
+                        triggered_workflow_id
+                    )),
+                )),
+                elapsed = tokio::time::timeout(
+                    std::time::Duration::from_millis(timeout_ms),
+                    self.run_subworkflow(
+                        triggered_workflow_id,
+                        input,
+                        event,
+                        &target_context_id,
+                        expected_version,
+                        token_limit,
+                    ),
+                ) => match elapsed {
+                    Ok(result) => result,
+                    Err(_) => Err(WorkflowError::TriggerError(format!(
+                        "Triggered subworkflow '{}' timed out after {}ms",
+                        triggered_workflow_id, timeout_ms
+                    ))),
+                },
             }
         } else {
             // Fire-and-forget: the emitting execution must not wait. Aborted

@@ -7,6 +7,7 @@ use wf_execution_shared::hooks::fire::FireSummary;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::{HookContext, HookHandlerRegistry};
 use wf_execution_shared::interruption::execute_with_interruption_handling;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::entity::WorkflowExecutionEntity;
@@ -26,6 +27,22 @@ fn typed_failure_parts(
         WorkflowError::SharedError(ExecutionSharedError::NodeFailure {
             category, detail, ..
         }) => Some((*category, detail.clone())),
+        // A typed interruption/timeout that surfaced through the shared
+        // wrapper keeps its routing semantics instead of collapsing into an
+        // untyped business failure (e.g. a child execution timeout propagated
+        // by the subgraph handler).
+        WorkflowError::SharedError(ExecutionSharedError::TimeoutError(detail)) => Some((
+            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+            detail.clone(),
+        )),
+        WorkflowError::SharedError(ExecutionSharedError::InterruptionError(detail)) => Some((
+            wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+            detail.clone(),
+        )),
+        WorkflowError::ExecutionTimeout(detail) => Some((
+            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+            detail.clone(),
+        )),
         _ => None,
     }
 }
@@ -391,6 +408,7 @@ impl NodeCoordinator {
                 execution_id: entity.id().clone(),
                 hook_type: hook_type.to_string(),
                 data,
+                cancellation: entity.get_abort_signal(),
             },
             hook_handler_registry,
             event_bus,

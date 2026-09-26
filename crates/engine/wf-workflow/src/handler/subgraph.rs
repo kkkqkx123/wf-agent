@@ -14,6 +14,25 @@ use crate::coordinator::WorkflowCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
+
+/// RAII cascade fuse around a child execution's await: if the parent
+/// abandons this future early (node timeout, outer cancellation), dropping
+/// the guard cancels the child entity's token so child work that shares the
+/// signal observes the abandonment instead of outliving the SUBGRAPH node.
+/// Disarmed once the child settles on its own.
+struct ChildCancelOnDrop {
+    token: tokio_util::sync::CancellationToken,
+    settled: bool,
+}
+
+impl Drop for ChildCancelOnDrop {
+    fn drop(&mut self) {
+        if !self.settled {
+            self.token.cancel();
+        }
+    }
+}
 
 pub struct SubgraphHandler;
 
@@ -74,9 +93,12 @@ pub(crate) async fn execute_subgraph(
         input: Some(ctx.input.clone()),
         max_steps: None,
         timeout: None,
-        max_execution_time: None,
+        // Inherit the parent's wall-clock fuses (same reading as the TRIGGER
+        // path): a child must not outlive the budget the caller granted the
+        // outer execution.
+        max_execution_time: ctx.parent_max_execution_time_ms,
         enable_checkpoints: Some(false),
-        node_timeout: None,
+        node_timeout: ctx.parent_node_timeout_ms,
         max_pause_duration: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
@@ -91,6 +113,9 @@ pub(crate) async fn execute_subgraph(
         .with_parent_execution_id(ctx.execution_id.clone())
         .with_ancestors(vec![ctx.execution_id.clone()])
         .with_hierarchy_depth(ctx.depth + 1);
+    // Capture the child's cancellation signal before the entity moves into
+    // the coordinator.
+    let child_cancellation = entity.get_abort_signal();
 
     let event_bus = ctx.event_bus.clone();
     let tool_registry = ctx
@@ -161,7 +186,16 @@ pub(crate) async fn execute_subgraph(
             }
         };
 
-    let output = match coordinator.execute().await {
+    let exec_result = {
+        let mut child_guard = ChildCancelOnDrop {
+            token: child_cancellation,
+            settled: false,
+        };
+        let result = coordinator.execute().await;
+        child_guard.settled = true;
+        result
+    };
+    let output = match exec_result {
         Ok(output) => {
             crate::handler::variable_mapping::apply_variable_outputs(
                 config,

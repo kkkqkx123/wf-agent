@@ -511,10 +511,19 @@ impl WorkflowCheckpointIntegration {
         let state = entity.state.read().await;
         let interruption_records = state.interruption_records().to_vec();
         let event_records = state.event_records().to_vec();
+        // Data that cannot enter the snapshot is recorded and surfaced as a
+        // degradation event, never dropped silently.
+        let mut degraded: Vec<String> = Vec::new();
         let error_record_values: Vec<serde_json::Value> = state
             .error_records()
             .iter()
-            .filter_map(|r| serde_json::to_value(r).ok())
+            .filter_map(|r| match serde_json::to_value(r) {
+                Ok(value) => Some(value),
+                Err(e) => {
+                    degraded.push(format!("error record dropped: {e}"));
+                    None
+                }
+            })
             .collect();
         let vars: HashMap<String, Value> = entity
             .variables()
@@ -539,52 +548,76 @@ impl WorkflowCheckpointIntegration {
             // Active views first, then archived history (append-only).
             for (key, value) in vars.iter() {
                 if let Some(context_id) = key.strip_prefix(prefix) {
-                    if let Ok(messages) =
-                        serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
+                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
                     {
-                        let version = vars
-                            .get(ledger_key)
-                            .and_then(|v| {
-                                serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone()).ok()
-                            })
-                            .map(|l| l.version(context_id))
-                            .unwrap_or(0);
-                        contexts
-                            .entry(context_id.to_string())
-                            .or_insert_with(|| {
-                                wf_types::checkpoint::workflow::MessageContextSnapshot {
-                                    messages: Vec::new(),
-                                    version,
-                                }
-                            })
-                            .messages
-                            .extend(messages);
+                        Ok(messages) => {
+                            let version = vars
+                                .get(ledger_key)
+                                .and_then(|v| {
+                                    serde_json::from_value::<wf_types::llm::TokenLedger>(
+                                        v.clone(),
+                                    )
+                                    .ok()
+                                })
+                                .map(|l| l.version(context_id))
+                                .unwrap_or(0);
+                            contexts
+                                .entry(context_id.to_string())
+                                .or_insert_with(|| {
+                                    wf_types::checkpoint::workflow::MessageContextSnapshot {
+                                        messages: Vec::new(),
+                                        version,
+                                    }
+                                })
+                                .messages
+                                .extend(messages);
+                        }
+                        Err(e) => {
+                            degraded.push(format!("message context '{context_id}' dropped: {e}"))
+                        }
                     }
                 }
             }
             for (key, value) in vars.iter() {
                 if let Some(context_id) = key.strip_prefix(history_prefix) {
-                    if let Ok(messages) =
-                        serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
-                    {
-                        let entry = contexts.entry(context_id.to_string()).or_insert_with(|| {
-                            wf_types::checkpoint::workflow::MessageContextSnapshot {
-                                messages: Vec::new(),
-                                version: 0,
-                            }
-                        });
-                        let known: std::collections::HashSet<String> =
-                            entry.messages.iter().map(|m| m.id.clone()).collect();
-                        for message in messages {
-                            if !known.contains(&message.id) {
-                                entry.messages.push(message);
+                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone()) {
+                        Ok(messages) => {
+                            let entry = contexts.entry(context_id.to_string()).or_insert_with(
+                                || wf_types::checkpoint::workflow::MessageContextSnapshot {
+                                    messages: Vec::new(),
+                                    version: 0,
+                                },
+                            );
+                            let known: std::collections::HashSet<String> =
+                                entry.messages.iter().map(|m| m.id.clone()).collect();
+                            for message in messages {
+                                if !known.contains(&message.id) {
+                                    entry.messages.push(message);
+                                }
                             }
                         }
+                        Err(e) => degraded.push(format!(
+                            "archived message context '{context_id}' dropped: {e}"
+                        )),
                     }
                 }
             }
             (!contexts.is_empty()).then_some(contexts)
         };
+        if !degraded.is_empty() {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                drops = %degraded.join("; "),
+                "checkpoint snapshot built with dropped data"
+            );
+            crate::degradation::emit_data_degradation(
+                self.event_bus.as_deref(),
+                Some(entity.workflow_id().clone()),
+                &entity.id().clone(),
+                "checkpoint_snapshot",
+                &degraded.join("; "),
+            );
+        }
         let node_results: Option<HashMap<String, Value>> = {
             let map = entity
                 .node_results()

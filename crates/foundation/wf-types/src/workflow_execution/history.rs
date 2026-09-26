@@ -11,5 +11,4 @@ pub struct NodeExecutionResult {
     pub error: Option<String>,
     pub started_at: Option<Timestamp>,
     pub completed_at: Option<Timestamp>,
-    pub retry_count: u32,
 }

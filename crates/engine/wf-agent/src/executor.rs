@@ -70,7 +70,7 @@ impl AgentLoopExecutor {
 
     /// Maximum sub-agent recursion depth (root = depth 0). A nested spawn
     /// whose resolved depth would exceed the limit is rejected with
-    /// `AgentError::ExecutionLimitReached`.
+    /// `AgentError::ConcurrencySaturated`.
     pub fn with_max_sub_agent_depth(mut self, max: u32) -> Self {
         self.max_sub_agent_depth = max;
         self.agent_registry.set_max_sub_agent_depth(max);
@@ -138,7 +138,7 @@ impl AgentLoopExecutor {
                     .map(|e| format!("{}: {}", e.field, e.message))
                     .collect::<Vec<_>>()
                     .join("; ");
-                Err(AgentError::ExecutionError(format!(
+                Err(AgentError::Validation(format!(
                     "agent config validation failed ({} error(s)): {}",
                     errors.len(),
                     detail
@@ -220,7 +220,7 @@ impl AgentLoopExecutor {
                 .map(|p| p.get_hierarchy_depth())
                 .unwrap_or(0);
             if !self.agent_registry.depth_allowed(parent_depth) {
-                return Err(AgentError::ExecutionLimitReached(format!(
+                return Err(AgentError::HierarchyLimitReached(format!(
                     "sub-agent depth {} exceeds max {}",
                     parent_depth.saturating_add(1),
                     self.agent_registry.max_sub_agent_depth()
@@ -311,6 +311,21 @@ fn status_string(status: &wf_execution_shared::types::execution_entity::Executio
     }
 }
 
+/// Map a typed agent error onto the tool-error channel so the agent-as-tool
+/// path keeps cancellation, timeout and validation semantics distinguishable
+/// instead of collapsing everything into one string bucket.
+fn agent_error_to_tool_error(error: AgentError, tool_id: String, timeout_ms: u64) -> ToolError {
+    match error {
+        AgentError::Cancelled(_) => ToolError::Cancelled { tool_id },
+        AgentError::ExecutionTimeout(_) => ToolError::Timeout {
+            tool_id,
+            timeout_ms,
+        },
+        AgentError::Validation(reason) => ToolError::ValidationFailed(reason),
+        other => ToolError::ExecutionError(other.to_string()),
+    }
+}
+
 #[async_trait]
 impl ExecutionCallback for AgentLoopExecutor {
     async fn execute_agent_loop(
@@ -318,9 +333,11 @@ impl ExecutionCallback for AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> ToolResult<AgentLoopOutput> {
-        self.execute(config, input)
-            .await
-            .map_err(|e| wf_tools::error::ToolError::ExecutionError(e.to_string()))
+        let tool_id = config.agent_id.to_string();
+        let timeout_ms = config.max_execution_time.unwrap_or(0);
+        self.execute(config, input).await.map_err(|e| {
+            agent_error_to_tool_error(e, tool_id.clone(), timeout_ms)
+        })
     }
 
     async fn spawn_agent_loop(
@@ -328,9 +345,11 @@ impl ExecutionCallback for AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> ToolResult<SpawnedAgentLoop> {
-        self.spawn_agent_loop(config, input)
-            .await
-            .map_err(|e| wf_tools::error::ToolError::ExecutionError(e.to_string()))
+        let tool_id = config.agent_id.to_string();
+        let timeout_ms = config.max_execution_time.unwrap_or(0);
+        self.spawn_agent_loop(config, input).await.map_err(|e| {
+            agent_error_to_tool_error(e, tool_id.clone(), timeout_ms)
+        })
     }
 
     async fn execute_workflow(
@@ -878,8 +897,8 @@ mod tests {
             .await
             .expect_err("depth 2 must be rejected");
         assert!(
-            matches!(err, AgentError::ExecutionLimitReached(_)),
-            "depth overflow must surface as ExecutionLimitReached: {err}"
+            matches!(err, AgentError::HierarchyLimitReached(_)),
+            "depth overflow must surface as HierarchyLimitReached: {err}"
         );
 
         // A root-parent depth (0 -> child depth 1) is within the limit.
@@ -914,8 +933,8 @@ mod tests {
             .await
             .expect_err("second spawn must hit the capacity gate");
         assert!(
-            matches!(err, AgentError::ExecutionLimitReached(_)),
-            "overflow must surface as ExecutionLimitReached: {err}"
+            matches!(err, AgentError::ConcurrencySaturated(_)),
+            "overflow must surface as ConcurrencySaturated: {err}"
         );
     }
 
@@ -938,7 +957,7 @@ mod tests {
             .execute(agent_config("agent-sync-1"), agent_input("run", None))
             .await
             .expect_err("in-flight slot holder must reject a new run");
-        assert!(matches!(err, AgentError::ExecutionLimitReached(_)));
+        assert!(matches!(err, AgentError::ConcurrencySaturated(_)));
 
         // Releasing the holder frees capacity for the next run.
         executor

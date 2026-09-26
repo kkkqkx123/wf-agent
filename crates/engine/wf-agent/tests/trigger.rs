@@ -68,7 +68,7 @@ fn success_executor(result: serde_json::Value) -> wf_agent::trigger::AgentExecut
 fn failing_executor() -> wf_agent::trigger::AgentExecutorCallback {
     Arc::new(|_config, _input| {
         Box::pin(async move {
-            Err(wf_agent::error::AgentError::ExecutionError(
+            Err(wf_agent::error::AgentError::Internal(
                 "child boom".to_string(),
             ))
         })

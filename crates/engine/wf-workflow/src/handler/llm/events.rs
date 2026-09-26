@@ -190,6 +190,7 @@ pub async fn dispatch_compression_signal(
         ctx.event_bus.as_deref(),
         &ctx.execution_id,
         None,
+        ctx.cancellation.clone().unwrap_or_default(),
         request,
     )
     .await

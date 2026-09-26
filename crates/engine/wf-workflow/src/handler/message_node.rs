@@ -75,7 +75,17 @@ async fn execute_action(
     let tctx = build_trigger_context(ctx)?;
     let result = TriggerCoordinator::execute(action, "node_trigger", &tctx).await;
     if let Some(err) = &result.error {
-        return Err(WorkflowError::TriggerError(err.clone()));
+        // Rebuild the typed failure from the category the coordinator
+        // recorded, so timeouts and cancellations keep their routing
+        // semantics instead of collapsing into an untyped trigger error.
+        return Err(match result.error_category {
+            Some(category) => WorkflowError::NodeFailure {
+                node_id: ctx.node_id.clone(),
+                category,
+                detail: err.clone(),
+            },
+            None => WorkflowError::TriggerError(err.clone()),
+        });
     }
 
     if let TriggerAction::SkipNode { node_id } = action {

@@ -63,9 +63,7 @@ fn settle_kind(err: &AgentError, active_shutdown: bool) -> SettleKind {
         SettleKind::Timeout
     } else if matches!(
         err,
-        AgentError::Cancelled(_)
-            | AgentError::LlmError(wf_llm::error::LlmError::Cancelled)
-            | AgentError::ToolError(wf_tools::error::ToolError::Cancelled { .. })
+        AgentError::Cancelled(_) | AgentError::LlmError(wf_llm::error::LlmError::Cancelled)
     ) {
         SettleKind::Cancel
     } else {
@@ -365,7 +363,7 @@ impl AgentLoopCoordinator {
         let restore = self.restore_checkpoint(checkpoint_id).await?;
         if let Some(ref forced_id) = self.agent_loop_id {
             if forced_id.as_str() == restore.agent_loop_id.as_str() {
-                return Err(AgentError::ExecutionError(
+                return Err(AgentError::Validation(
                     "branch resume requires a fresh execution id; reusing the source execution id is rejected".to_string(),
                 ));
             }
@@ -420,7 +418,7 @@ impl AgentLoopCoordinator {
             if let Some(live) = registry.get(&restore.agent_loop_id) {
                 let state = live.state.read().await;
                 if !state.status().is_terminal() {
-                    return Err(AgentError::ExecutionError(format!(
+                    return Err(AgentError::ConcurrencySaturated(format!(
                         "in-place resume rejected: execution {} is still live ({:?})",
                         restore.agent_loop_id,
                         state.status(),
@@ -430,7 +428,7 @@ impl AgentLoopCoordinator {
         }
         if let Some(ref forced_id) = self.agent_loop_id {
             if forced_id.as_str() != restore.agent_loop_id.as_str() {
-                return Err(AgentError::ExecutionError(
+                return Err(AgentError::Validation(
                     "in-place resume requires the coordinator id to match the source execution id"
                         .to_string(),
                 ));
@@ -615,8 +613,7 @@ impl AgentLoopCoordinator {
                 manager.clone(),
                 &entity.id().to_string(),
                 parent.as_deref(),
-            )
-            .expect("failed to build checkpoint session");
+            )?;
             coordinator = coordinator.with_checkpoint_session(Some(session));
         }
         if let Some(ref bus) = self.event_bus {
@@ -655,7 +652,7 @@ impl AgentLoopCoordinator {
 
         let max_iterations = config.max_iterations.unwrap_or(self.default_max_iterations);
         if max_iterations > self.max_iterations_cap {
-            return Err(AgentError::ExecutionLimitReached(format!(
+            return Err(AgentError::Validation(format!(
                 "max_iterations ({max_iterations}) exceeds the configured hard limit ({})",
                 self.max_iterations_cap
             )));
@@ -1103,6 +1100,7 @@ impl AgentLoopCoordinator {
                 Err(e) => {
                     let _ = tx
                         .send(AgentStreamEvent::Failed {
+                            error_type: crate::error_analysis::analyze_error(&e).error_type,
                             error: e.to_string(),
                         })
                         .await;
@@ -1131,6 +1129,7 @@ impl AgentLoopCoordinator {
                 Err(e) => {
                     let _ = tx
                         .send(AgentStreamEvent::Failed {
+                            error_type: crate::error_analysis::analyze_error(&e).error_type,
                             error: e.to_string(),
                         })
                         .await;
@@ -1148,7 +1147,7 @@ mod tests {
 
     #[test]
     fn settle_kind_fails_on_generic_errors_when_running() {
-        let err = AgentError::ExecutionError("boom".to_string());
+        let err = AgentError::Internal("boom".to_string());
         assert_eq!(settle_kind(&err, false), SettleKind::Fail);
     }
 
@@ -1163,7 +1162,7 @@ mod tests {
 
     #[test]
     fn settle_kind_cancels_every_error_during_active_shutdown() {
-        let err = AgentError::ExecutionError("teardown".to_string());
+        let err = AgentError::Internal("teardown".to_string());
         assert_eq!(settle_kind(&err, true), SettleKind::Cancel);
     }
 }

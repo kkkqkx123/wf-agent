@@ -67,7 +67,7 @@ pub struct AgentLoopRegistry {
     /// itself on completion.
     tasks: DashMap<Id, tokio::task::JoinHandle<()>>,
     /// Capacity gate: `register` acquires a permit and rejects beyond
-    /// `max_concurrent` with `AgentError::ExecutionLimitReached`. The permit
+    /// `max_concurrent` with `AgentError::ConcurrencySaturated`. The permit
     /// lives in the entity and is released when the execution reaches a
     /// terminal state.
     gate: Arc<AgentCapacityGate>,
@@ -144,7 +144,7 @@ impl AgentLoopRegistry {
     }
 
     /// Register an execution under the capacity gate: registering beyond
-    /// `max_concurrent` returns `AgentError::ExecutionLimitReached`. Replacing
+    /// `max_concurrent` returns `AgentError::ConcurrencySaturated`. Replacing
     /// an already-registered id (spawn placeholder → real entity) moves the
     /// existing permit so the replacement neither consumes a new slot nor
     /// releases early.
@@ -173,7 +173,7 @@ impl AgentLoopRegistry {
         }
         let max = self.max_concurrent();
         let permit = self.gate.try_acquire().map_err(|_| {
-            AgentError::ExecutionLimitReached(format!("concurrent execution limit {max} reached"))
+            AgentError::ConcurrencySaturated(format!("concurrent execution limit {max} reached"))
         })?;
         entity.set_gate_permit(Some(permit));
         self.entities.insert(id, entity);
@@ -501,7 +501,7 @@ mod tests {
     }
 
     /// Registering beyond the concurrent limit is rejected with
-    /// `ExecutionLimitReached`; re-registering an existing id (spawn
+    /// `ConcurrencySaturated`; re-registering an existing id (spawn
     /// placeholder → real entity) does not consume a second slot.
     #[tokio::test]
     async fn test_capacity_gate_rejects_overflow_and_permits_replace() {
@@ -517,8 +517,8 @@ mod tests {
             .register(make_entity("r3", ExecutionStatus::Running).await)
             .unwrap_err();
         assert!(
-            matches!(err, AgentError::ExecutionLimitReached(_)),
-            "overflow must surface as ExecutionLimitReached: {err}"
+            matches!(err, AgentError::ConcurrencySaturated(_)),
+            "overflow must surface as ConcurrencySaturated: {err}"
         );
 
         // Replacing an existing id is not an overflow.

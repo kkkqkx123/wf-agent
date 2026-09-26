@@ -14,8 +14,6 @@ pub enum CoreError {
     Timeout(String),
     #[error("condition error: {0}")]
     ConditionError(String),
-    #[error("hook error: {0}")]
-    HookError(String),
     #[error("interruption error: {0}")]
     InterruptionError(String),
     #[error("state error: {0}")]

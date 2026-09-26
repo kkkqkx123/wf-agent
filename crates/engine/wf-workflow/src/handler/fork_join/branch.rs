@@ -107,7 +107,8 @@ pub async fn run_branch(
                     "fork branch '{}' exceeded child_execution_timeout ({}ms)",
                     path_id, child_execution_timeout
                 ),
-            ),
+            )
+            .with_category(wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout),
         }
     } else {
         run.await
@@ -191,7 +192,8 @@ async fn run_branch_inner(
                         .await
                         {
                             Ok(output) => output,
-                            Err(e) => BranchResult::failure(&path_id, e.to_string()),
+                            Err(e) => BranchResult::failure(&path_id, e.to_string())
+                                .with_category(crate::error_branch::classify_error(&e)),
                         }
                     }
                 }
@@ -277,9 +279,13 @@ async fn execute_branch(
         Some(token) => tokio::select! {
             result = run => result,
             _ = token.cancelled() => {
-                Err(WorkflowError::CoordinatorError(
-                    "fork branch cancelled by parent".to_string(),
-                ))
+                // Parent cancellation keeps its interruption category so the
+                // settled branch result is not mistaken for a business failure.
+                Err(WorkflowError::NodeFailure {
+                    node_id: branch_id.to_string(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: "fork branch cancelled by parent".to_string(),
+                })
             }
         },
         None => run.await,
@@ -291,7 +297,8 @@ async fn execute_branch(
             output,
             public_variables(&branch_variables),
         )),
-        Err(e) => Ok(BranchResult::failure(branch_id, e.to_string())),
+        Err(e) => Ok(BranchResult::failure(branch_id, e.to_string())
+            .with_category(crate::error_branch::classify_error(&e))),
     }
 }
 

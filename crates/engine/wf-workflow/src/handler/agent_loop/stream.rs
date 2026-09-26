@@ -7,7 +7,7 @@ use serde_json::Value;
 use wf_agent::{AgentEventStream, AgentStreamEvent};
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 
-use crate::error::{WorkflowError, WorkflowResult};
+use crate::error::WorkflowResult;
 
 /// Drain the agent-loop event stream, republishing each event on the workflow
 /// bus and capturing the terminal `Completed`/`Failed` outcome. A `Failed`
@@ -19,7 +19,7 @@ pub(crate) async fn run_streaming(
 ) -> WorkflowResult<NodeExecutionResult> {
     let mut final_result = Value::Null;
     let mut iterations = 0u32;
-    let mut last_error: Option<String> = None;
+    let mut last_failure: Option<(String, wf_types::errors::ErrorType)> = None;
     while let Some(event) = stream.next().await {
         if let Some(ref bus) = ctx.event_bus {
             let event_type = match &event {
@@ -77,16 +77,18 @@ pub(crate) async fn run_streaming(
                 final_result = result;
                 iterations = it;
             }
-            AgentStreamEvent::Failed { error } => {
-                last_error = Some(error);
+            AgentStreamEvent::Failed { error, error_type } => {
+                last_failure = Some((error, error_type));
             }
             _ => {}
         }
     }
 
-    if let Some(error) = last_error {
-        return Err(WorkflowError::AgentError(
-            wf_agent::AgentError::ExecutionError(error),
+    if let Some((error, error_type)) = last_failure {
+        return Err(crate::error_analysis::agent_failure_node_failure(
+            &ctx.node_id,
+            error_type,
+            error,
         ));
     }
 

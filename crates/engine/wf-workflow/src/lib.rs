@@ -3,6 +3,7 @@ pub mod barrier;
 pub mod checkpoint;
 pub mod config_parse;
 pub mod coordinator;
+pub mod degradation;
 pub mod entity;
 pub mod error;
 pub mod error_analysis;
@@ -42,6 +43,7 @@ pub use checkpoint::{
 pub use coordinator::{
     NodeCoordinator, WorkflowCoordinator, WorkflowExecutionParams, WorkflowLifecycleCoordinator,
 };
+pub use degradation::{emit_data_degradation, DATA_DEGRADED_EVENT};
 pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
 pub use error_analysis::{
@@ -81,7 +83,7 @@ pub use interaction::{
 };
 pub use loop_state::{
     current_item, current_loop, enter_loop, exit_loop, find_loop, iterable_len, loop_condition_met,
-    mark_iteration_failed, update_loop, LoopState, MAX_ITERATIONS_CAP,
+    update_loop, LoopState, MAX_ITERATIONS_CAP,
 };
 pub use message_context::{
     append_context, archived_history, get_context, get_context_history, has_context,

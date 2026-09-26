@@ -40,18 +40,6 @@ pub struct LoopState {
     pub iteration_count: u32,
     /// Loop variable receiving the current item; `None` for counting loops.
     pub variable_name: Option<String>,
-    /// Consecutive failed iterations (reset by a clean iteration).
-    pub consecutive_failures: u32,
-    /// Total failed iterations over the loop's lifetime.
-    pub total_failures: u32,
-    /// Failure flag of the current iteration; set by the coordinator when a
-    /// node failure is absorbed inside the loop, consumed by LOOP_END.
-    pub iteration_failed: bool,
-    /// `on_iteration_failure` strategy (fail/skip/continue), resolved at
-    /// LOOP_START and evaluated at LOOP_END.
-    pub on_iteration_failure: String,
-    /// `max_consecutive_failures` threshold resolved at LOOP_START.
-    pub max_consecutive_failures: u32,
     /// Variable names imported via `variable_inputs`; removed when the loop
     /// exits (scope cleanup).
     pub imported_variables: Vec<String>,
@@ -149,16 +137,6 @@ pub fn update_loop(variables: &VariableStore, state: LoopState) {
     set_stack(variables, &current);
 }
 
-/// Record an iteration failure on the innermost active loop (called by the
-/// coordinator when a node failure is absorbed during the loop body).
-pub fn mark_iteration_failed(variables: &VariableStore) {
-    let mut current = stack(variables);
-    if let Some(top) = current.last_mut() {
-        top.iteration_failed = true;
-        set_stack(variables, &current);
-    }
-}
-
 /// Record a completed node on the innermost active loop's current iteration
 /// (called by the coordinator after a loop node completes). Loop control
 /// nodes (LOOP_START/LOOP_END) are not recorded; the coordinator always
@@ -245,11 +223,6 @@ mod tests {
             max_iterations: max,
             iteration_count: 0,
             variable_name: None,
-            consecutive_failures: 0,
-            total_failures: 0,
-            iteration_failed: false,
-            on_iteration_failure: "fail".to_string(),
-            max_consecutive_failures: 0,
             imported_variables: vec![],
             iteration_started: false,
             iteration_nodes: vec![],
@@ -284,16 +257,6 @@ mod tests {
         update_loop(&vars, inner);
         assert_eq!(find_loop(&vars, "l2").unwrap().iteration_count, 2);
         assert_eq!(find_loop(&vars, "l1").unwrap().iteration_count, 0);
-    }
-
-    #[test]
-    fn mark_iteration_failed_targets_innermost_loop() {
-        let vars = store();
-        enter_loop(&vars, state("outer", Value::Null, 3));
-        enter_loop(&vars, state("inner", Value::Null, 3));
-        mark_iteration_failed(&vars);
-        assert!(find_loop(&vars, "inner").unwrap().iteration_failed);
-        assert!(!find_loop(&vars, "outer").unwrap().iteration_failed);
     }
 
     #[test]

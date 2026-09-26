@@ -33,6 +33,7 @@ use crate::registry::{lookup_graph, lookup_script, ScriptRegistry};
 use crate::trigger::internal;
 use crate::WorkflowExecutionEntity;
 use wf_execution_shared::context::ExecutorContext;
+use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::script_router::ScriptRouter;
 use wf_tools::registry::ToolRegistry;
 use wf_types::script::sandbox::{SandboxConfig, ScriptExecutionResult};
@@ -312,8 +313,14 @@ impl TriggerCoordinator {
             TriggerAction::ExecuteTriggeredAgentExecution { .. } => {
                 let message = action
                     .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
-                    .expect("nested agent execution is unsupported in message nodes");
-                Err(WorkflowError::TriggerError(message))
+                    .unwrap_or_else(|| {
+                        format!("{} is not executable in message nodes", action.action_name())
+                    });
+                Err(WorkflowError::ConfigError {
+                    node_id: ctx.node_id.clone(),
+                    field: "action".to_string(),
+                    detail: message,
+                })
             }
             // Cold-start actions need the triggering event (or rather its
             // absence): message nodes always run inside an execution and
@@ -321,14 +328,27 @@ impl TriggerCoordinator {
             TriggerAction::ExecuteWorkflow { .. } | TriggerAction::ExecuteAgent { .. } => {
                 let message = action
                     .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
-                    .expect("cold-start actions are unsupported in message nodes");
-                Err(WorkflowError::TriggerError(message))
+                    .unwrap_or_else(|| {
+                        format!("{} is not executable in message nodes", action.action_name())
+                    });
+                Err(WorkflowError::ConfigError {
+                    node_id: ctx.node_id.clone(),
+                    field: "action".to_string(),
+                    detail: message,
+                })
             }
         };
 
-        let (result_val, error_val) = match result {
-            Ok(val) => (Some(val), None),
-            Err(e) => (None, Some(e.to_string())),
+        let (result_val, error_val, error_category) = match result {
+            Ok(val) => (Some(val), None, None),
+            // Keep the routing category next to the message so callers
+            // (e.g. the message-node handler) can rebuild a typed failure
+            // instead of collapsing every error into a trigger string.
+            Err(e) => (
+                None,
+                Some(e.to_string()),
+                Some(crate::error_branch::classify_error(&e)),
+            ),
         };
 
         TriggerExecutionResult {
@@ -337,6 +357,7 @@ impl TriggerCoordinator {
             execution_id: Some(ctx.execution_id.clone()),
             result: result_val,
             error: error_val,
+            error_category,
             execution_time: wf_common::now() - start,
         }
     }
@@ -626,23 +647,31 @@ impl TriggerCoordinator {
             let exec_id = execution_id.clone();
             tokio::spawn(async move {
                 let subworkflow = Self::run_triggered_subworkflow(&tctx, run);
-                match cancellation {
+                tokio::pin!(subworkflow);
+                let outcome = match cancellation {
                     Some(token) => {
-                        // A cancelled parent aborts the background sub-workflow.
+                        // A cancelled parent aborts the background
+                        // sub-workflow; the abandonment is recorded instead
+                        // of silently dropping the child.
                         tokio::select! {
-                            _ = subworkflow => {}
-                            _ = token.cancelled() => {}
+                            res = &mut subworkflow => res,
+                            _ = token.cancelled() => {
+                                tracing::warn!(
+                                    execution_id = %execution_id,
+                                    "fire-and-forget triggered sub-workflow abandoned: parent execution cancelled"
+                                );
+                                return;
+                            }
                         }
                     }
-                    None => {
-                        if let Err(e) = subworkflow.await {
-                            tracing::warn!(
-                                execution_id = %execution_id,
-                                error = %e,
-                                "fire-and-forget triggered sub-workflow ended with failure"
-                            );
-                        }
-                    }
+                    None => subworkflow.await,
+                };
+                if let Err(e) = outcome {
+                    tracing::warn!(
+                        execution_id = %execution_id,
+                        error = %e,
+                        "fire-and-forget triggered sub-workflow ended with failure"
+                    );
                 }
             });
             return Ok(serde_json::json!({
@@ -662,7 +691,29 @@ impl TriggerCoordinator {
             output_mapping,
             timeout,
         };
-        match Self::run_triggered_subworkflow(ctx, run).await {
+        // Synchronous wait races the parent's cancellation so an external
+        // stop abandons the child instead of blocking the node until the
+        // sub-workflow finishes. The interruption keeps its typed category
+        // so the node failure routes as cancelled, not business.
+        let outcome = {
+            let subworkflow = Self::run_triggered_subworkflow(ctx, run);
+            tokio::pin!(subworkflow);
+            match &ctx.cancellation {
+                Some(token) => {
+                    tokio::select! {
+                        res = &mut subworkflow => res,
+                        _ = token.cancelled() => Err(WorkflowError::SharedError(
+                            ExecutionSharedError::InterruptionError(
+                                "triggered sub-workflow abandoned: parent execution cancelled"
+                                    .to_string(),
+                            ),
+                        )),
+                    }
+                }
+                None => subworkflow.await,
+            }
+        };
+        match outcome {
             Ok(result) => Ok(serde_json::json!({
                 "submitted": true,
                 "workflow_id": triggered_workflow_id,

@@ -673,6 +673,7 @@ impl AgentIterationCoordinator {
                                 self.event_bus.as_deref(),
                                 entity.id(),
                                 Some(entity.id()),
+                                entity.get_abort_signal(),
                                 &request,
                             )
                             .await;
@@ -1053,6 +1054,7 @@ impl AgentIterationCoordinator {
             self.event_bus.as_deref(),
             entity.id(),
             Some(entity.id()),
+            entity.get_abort_signal(),
             &compression_request,
         )
         .await;

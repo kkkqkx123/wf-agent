@@ -53,6 +53,22 @@ pub fn http_status_to_kind(status: u16) -> ErrorKind {
     }
 }
 
+fn http_status_retryable(status: u16) -> bool {
+    matches!(status, 429 | 500..=599)
+}
+
+/// 429/5xx failures keep their own `ErrorType` instead of masquerading as
+/// `Timeout`, so aggregate pattern analysis does not count throttling and
+/// upstream outages as plain timeouts. `plain` is the source's own type used
+/// for the remaining statuses.
+fn http_error_type(status: u16, plain: ErrorType) -> ErrorType {
+    match status {
+        429 => ErrorType::RateLimited,
+        500..=599 => ErrorType::ServiceUnavailable,
+        _ => plain,
+    }
+}
+
 pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
     let (kind, error_type, retryable, recovery_action) = match e {
         ToolError::NotFound(_) => (
@@ -75,14 +91,10 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
         ),
         ToolError::RestError { status, .. } => {
             let kind = http_status_to_kind(*status);
-            let retryable = matches!(*status, 429 | 500..=599);
+            let retryable = http_status_retryable(*status);
             (
                 kind,
-                if retryable {
-                    ErrorType::Timeout
-                } else {
-                    ErrorType::ToolError
-                },
+                http_error_type(*status, ErrorType::ToolError),
                 retryable,
                 if retryable {
                     RecoveryAction::Retry
@@ -93,15 +105,12 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
         }
         ToolError::HttpError(e) => match e.status() {
             Some(s) => {
-                let kind = http_status_to_kind(s.as_u16());
-                let retryable = matches!(s.as_u16(), 429 | 500..=599);
+                let status = s.as_u16();
+                let kind = http_status_to_kind(status);
+                let retryable = http_status_retryable(status);
                 (
                     kind,
-                    if retryable {
-                        ErrorType::Timeout
-                    } else {
-                        ErrorType::ToolError
-                    },
+                    http_error_type(status, ErrorType::ToolError),
                     retryable,
                     if retryable {
                         RecoveryAction::Retry
@@ -125,7 +134,7 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
         ),
         ToolError::Cancelled { .. } => (
             ErrorKind::Execution,
-            ErrorType::ToolError,
+            ErrorType::Interruption,
             false,
             RecoveryAction::Abort,
         ),
@@ -167,15 +176,12 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
         ),
         LlmError::HttpError(h) => match h.status() {
             Some(s) => {
-                let kind = http_status_to_kind(s.as_u16());
-                let retryable = matches!(s.as_u16(), 429 | 500..=599);
+                let status = s.as_u16();
+                let kind = http_status_to_kind(status);
+                let retryable = http_status_retryable(status);
                 (
                     kind,
-                    if retryable {
-                        ErrorType::Timeout
-                    } else {
-                        ErrorType::LlmError
-                    },
+                    http_error_type(status, ErrorType::LlmError),
                     retryable,
                     if retryable {
                         RecoveryAction::Retry
@@ -244,22 +250,41 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
 }
 
 pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
-    match e {
-        ExecutionSharedError::StateError(_) => ErrorAnalysis {
-            kind: ErrorKind::StateManagement,
-            error_type: ErrorType::Internal,
-            retryable: false,
-            recovery_action: RecoveryAction::Abort,
-            message: e.to_string(),
-        },
-        ExecutionSharedError::ToolError(te) => tool_error_analysis(te),
-        _ => ErrorAnalysis {
-            kind: ErrorKind::Execution,
-            error_type: ErrorType::Internal,
-            retryable: false,
-            recovery_action: RecoveryAction::Abort,
-            message: e.to_string(),
-        },
+    // Interruption/timeout keep the same reading the workflow routing gives
+    // them (`classify_error` maps them to CancelledInterrupted /
+    // TransportTimeout), so records and routes never disagree.
+    let (kind, error_type, recovery_action) = match e {
+        ExecutionSharedError::StateError(_) => (
+            ErrorKind::StateManagement,
+            ErrorType::Internal,
+            RecoveryAction::Abort,
+        ),
+        ExecutionSharedError::InterruptionError(_) => (
+            ErrorKind::Execution,
+            ErrorType::Interruption,
+            RecoveryAction::Abort,
+        ),
+        ExecutionSharedError::TimeoutError(_) => (
+            ErrorKind::Timeout,
+            ErrorType::Timeout,
+            RecoveryAction::Abort,
+        ),
+        ExecutionSharedError::ToolError(te) => {
+            let analysis = tool_error_analysis(te);
+            return analysis;
+        }
+        _ => (
+            ErrorKind::Execution,
+            ErrorType::Internal,
+            RecoveryAction::Abort,
+        ),
+    };
+    ErrorAnalysis {
+        kind,
+        error_type,
+        retryable: false,
+        recovery_action,
+        message: e.to_string(),
     }
 }
 
@@ -267,33 +292,27 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
 /// branches.
 pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
     match e {
-        AgentError::EntityError(_) => ErrorAnalysis {
+        AgentError::IllegalStateTransition(_) => ErrorAnalysis {
             kind: ErrorKind::StateManagement,
             error_type: ErrorType::Internal,
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        AgentError::StateError(_) | AgentError::IllegalStateTransition(_) => ErrorAnalysis {
-            kind: ErrorKind::StateManagement,
-            error_type: ErrorType::Internal,
+        // Deterministic caller/config misuse: the same request reproduces the
+        // same rejection, so only the request itself can change.
+        AgentError::Validation(_) => ErrorAnalysis {
+            kind: ErrorKind::Validation,
+            error_type: ErrorType::Validation,
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        AgentError::CoordinatorError(_) | AgentError::Internal(_) => ErrorAnalysis {
-            kind: ErrorKind::General,
-            error_type: ErrorType::Internal,
-            retryable: false,
-            recovery_action: RecoveryAction::Abort,
-            message: e.to_string(),
-        },
-        // The catch-all string bucket (validation failures, dropped stream
-        // receivers, stopped-with-status) and the wall-clock stop both end
-        // the run; a retry re-pays the whole iteration budget.
-        AgentError::ExecutionError(_) | AgentError::ExecutionTimeout(_) => ErrorAnalysis {
+        // Whole-execution timeouts end the run; a retry re-pays the entire
+        // iteration budget, so the engine does not offer one.
+        AgentError::ExecutionTimeout(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
-            error_type: ErrorType::Internal,
+            error_type: ErrorType::Timeout,
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
@@ -305,21 +324,22 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        AgentError::ExecutionLimitReached(_) => ErrorAnalysis {
-            kind: ErrorKind::Execution,
+        // A full gate (or a still-live resume target) is transient saturation:
+        // the same admission succeeds once in-flight executions drain.
+        AgentError::ConcurrencySaturated(_) => ErrorAnalysis {
+            kind: ErrorKind::Resource,
+            error_type: ErrorType::Internal,
+            retryable: true,
+            recovery_action: RecoveryAction::Retry,
+            message: e.to_string(),
+        },
+        AgentError::HierarchyLimitReached(_) => ErrorAnalysis {
+            kind: ErrorKind::Resource,
             error_type: ErrorType::Internal,
             retryable: false,
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
         },
-        AgentError::HookError(_) => ErrorAnalysis {
-            kind: ErrorKind::EventSystem,
-            error_type: ErrorType::Internal,
-            retryable: false,
-            recovery_action: RecoveryAction::ManualIntervention,
-            message: e.to_string(),
-        },
-        AgentError::ToolError(te) => tool_error_analysis(te),
         AgentError::LlmError(le) => llm_error_analysis(le),
         AgentError::CheckpointError(_) => ErrorAnalysis {
             kind: ErrorKind::AgentCheckpoint,
@@ -329,6 +349,13 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             message: e.to_string(),
         },
         AgentError::SharedError(se) => shared_error_analysis(se),
+        AgentError::Internal(_) => ErrorAnalysis {
+            kind: ErrorKind::General,
+            error_type: ErrorType::Internal,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
+        },
     }
 }
 
@@ -452,10 +479,10 @@ mod tests {
 
     #[test]
     fn test_tool_timeout_retryable() {
-        let analysis = analyze_error(&AgentError::ToolError(ToolError::Timeout {
+        let analysis = tool_error_analysis(&ToolError::Timeout {
             tool_id: "read_file".to_string(),
             timeout_ms: 30,
-        }));
+        });
         assert_eq!(analysis.kind, ErrorKind::Timeout);
         assert!(analysis.retryable);
         assert_eq!(analysis.recovery_action, RecoveryAction::Retry);
@@ -463,26 +490,47 @@ mod tests {
 
     #[test]
     fn test_tool_not_found_abort() {
-        let analysis = analyze_error(&AgentError::ToolError(ToolError::NotFound(
-            "missing".to_string(),
-        )));
+        let analysis = tool_error_analysis(&ToolError::NotFound("missing".to_string()));
         assert_eq!(analysis.kind, ErrorKind::NotFound);
         assert!(!analysis.retryable);
         assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
     }
 
     #[test]
-    fn test_state_error_abort() {
-        let analysis = analyze_error(&AgentError::StateError("corrupt".to_string()));
-        assert_eq!(analysis.kind, ErrorKind::StateManagement);
-        assert!(!analysis.retryable);
+    fn test_tool_rate_limited_keeps_own_error_type() {
+        let analysis = tool_error_analysis(&ToolError::RestError {
+            url: "https://api.example.com".to_string(),
+            status: 429,
+        });
+        assert_eq!(analysis.kind, ErrorKind::RateLimited);
+        assert_eq!(analysis.error_type, ErrorType::RateLimited);
+        assert!(analysis.retryable);
     }
 
     #[test]
-    fn test_hook_error_manual() {
-        let analysis = analyze_error(&AgentError::HookError("hook failed".to_string()));
-        assert_eq!(analysis.kind, ErrorKind::EventSystem);
-        assert_eq!(analysis.recovery_action, RecoveryAction::ManualIntervention);
+    fn test_validation_abort() {
+        let analysis = analyze_error(&AgentError::Validation("bad cap".to_string()));
+        assert_eq!(analysis.kind, ErrorKind::Validation);
+        assert!(!analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
+    }
+
+    #[test]
+    fn test_concurrency_saturated_is_retryable() {
+        let analysis = analyze_error(&AgentError::ConcurrencySaturated("gate full".to_string()));
+        assert_eq!(analysis.kind, ErrorKind::Resource);
+        assert!(analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::Retry);
+    }
+
+    #[test]
+    fn test_shared_interruption_matches_routing_reading() {
+        let analysis = shared_error_analysis(&ExecutionSharedError::InterruptionError(
+            "stopped".to_string(),
+        ));
+        assert_eq!(analysis.error_type, ErrorType::Interruption);
+        let analysis = shared_error_analysis(&ExecutionSharedError::TimeoutError("slow".to_string()));
+        assert_eq!(analysis.error_type, ErrorType::Timeout);
     }
 
     #[test]

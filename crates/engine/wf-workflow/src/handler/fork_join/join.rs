@@ -83,13 +83,23 @@ impl JoinHandler {
             let fork_output = fork_id
                 .as_ref()
                 .and_then(|id| ctx.get_variable(&format!("__fork_outputs_{}", id)));
-            if let Some(output) = &fork_output {
+            let (records, dropped) = if let Some(output) = &fork_output {
                 collect_branch_records(output)
             } else if ctx.input_shape == NodeInputShape::Merged {
                 collect_branch_records(&ctx.input)
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
+            };
+            if !dropped.is_empty() {
+                crate::degradation::emit_data_degradation(
+                    ctx.event_bus.as_deref(),
+                    None,
+                    &ctx.execution_id,
+                    "join_branch_records",
+                    &dropped.join("; "),
+                );
             }
+            records
         };
 
         let success_records: Vec<BranchResult> =
@@ -200,16 +210,24 @@ async fn collect_from_registry(
             ok = wait => ok,
             _ = token.cancelled() => {
                 registry.abort_all();
-                false
+                return Err(WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: format!("JOIN node '{}' wait cancelled", ctx.node_id),
+                });
             }
         },
         None => wait.await,
     };
     if !ok {
-        return Err(WorkflowError::ForkJoinError(format!(
-            "JOIN node '{}' timed out waiting for fork branches to settle",
-            ctx.node_id
-        )));
+        return Err(WorkflowError::NodeFailure {
+            node_id: ctx.node_id.clone(),
+            category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+            detail: format!(
+                "JOIN node '{}' timed out waiting for fork branches to settle",
+                ctx.node_id
+            ),
+        });
     }
     Ok(registry
         .records(path_ids)

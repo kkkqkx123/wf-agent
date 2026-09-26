@@ -33,7 +33,7 @@ pub use execution_state::ExecutionStateManager;
 pub use fork::{BranchRecord, BranchStatus, ForkRegistry};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
-    empty_fire_log_level, evaluate_hook_condition, filter_and_sort_hooks, fire,
+    evaluate_hook_condition, filter_and_sort_hooks, fire,
     publish_hook_audit_event, HandlerResult, HookContext, HookHandler, HookHandlerRegistry,
     HookOutcome,
 };

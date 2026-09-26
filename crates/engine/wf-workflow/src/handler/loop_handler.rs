@@ -61,15 +61,6 @@ impl LoopStartHandler {
             )));
         }
 
-        let on_iteration_failure = config
-            .get("on_iteration_failure")
-            .and_then(|v| v.as_str())
-            .unwrap_or("fail")
-            .to_string();
-        let max_consecutive_failures = config
-            .get("max_consecutive_failures")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
         let break_condition = config.get("break_condition").and_then(|c| c.as_str());
 
         // First visit: resolve the iterable, import variable_inputs and push
@@ -105,11 +96,6 @@ impl LoopStartHandler {
                     max_iterations,
                     iteration_count: 0,
                     variable_name,
-                    consecutive_failures: 0,
-                    total_failures: 0,
-                    iteration_failed: false,
-                    on_iteration_failure,
-                    max_consecutive_failures,
                     imported_variables,
                     iteration_started: false,
                     iteration_nodes: Vec::new(),
@@ -130,7 +116,7 @@ impl LoopStartHandler {
         // loop terminates and the flow routes to the loop's LOOP_END (the
         // exit point), which forwards through its outgoing edges.
         if let Some(cond) = break_condition {
-            if evaluate_condition(ctx, cond) {
+            if evaluate_condition(ctx, cond)? {
                 exit_loop(&ctx.variables, &loop_id);
                 let next = find_loop_end_node(ctx, &loop_id).map(|id| vec![id]);
                 return Ok(NodeExecutionResult {
@@ -210,47 +196,10 @@ impl LoopEndHandler {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         };
 
-        // Failure bookkeeping of the finished iteration.
-        let iteration_failed = state.iteration_failed;
-        if iteration_failed {
-            state.consecutive_failures += 1;
-            state.total_failures += 1;
-        } else {
-            state.consecutive_failures = 0;
-        }
-        state.iteration_failed = false;
-
-        // Iteration failure strategy (evaluated here).
         let mut terminate = false;
-        if iteration_failed {
-            match state.on_iteration_failure.as_str() {
-                "fail" => {
-                    exit_loop(&ctx.variables, &loop_id);
-                    return Err(WorkflowError::LoopError(format!(
-                        "Loop '{}' terminated after a failed iteration (on_iteration_failure=fail); total failures: {}",
-                        loop_id, state.total_failures
-                    )));
-                }
-                "skip" => {
-                    terminate = true;
-                }
-                _ => {
-                    // continue: keep iterating unless the consecutive
-                    // failure threshold is reached.
-                    if state.max_consecutive_failures > 0
-                        && state.consecutive_failures >= state.max_consecutive_failures
-                    {
-                        terminate = true;
-                    }
-                }
-            }
-        }
-
-        if !terminate {
-            if let Some(cond) = break_condition {
-                if evaluate_condition(ctx, cond) {
-                    terminate = true;
-                }
+        if let Some(cond) = break_condition {
+            if evaluate_condition(ctx, cond)? {
+                terminate = true;
             }
         }
         if !terminate && !loop_condition_met(&state) {
@@ -262,10 +211,6 @@ impl LoopEndHandler {
         metadata.insert(
             "iteration".to_string(),
             Value::Number(state.iteration_count.into()),
-        );
-        metadata.insert(
-            "total_failures".to_string(),
-            Value::Number(state.total_failures.into()),
         );
 
         if terminate {
@@ -381,25 +326,21 @@ fn resolve_expression(path: &str, ctx: &NodeExecutionContext) -> WorkflowResult<
     Ok(resolved)
 }
 
-/// Evaluate a break condition string against the execution variables.
-/// Evaluation errors are non-fatal (a failing condition does not break);
-/// a failing condition does not break the loop.
-fn evaluate_condition(ctx: &NodeExecutionContext, condition: &str) -> bool {
+/// Evaluate a break condition string against the execution variables. An
+/// evaluation failure is a broken condition (config/misuse), not a "does not
+/// break" answer: it surfaces as a loop error instead of silently spinning
+/// the loop to its iteration cap.
+fn evaluate_condition(ctx: &NodeExecutionContext, condition: &str) -> WorkflowResult<bool> {
     let mut vars = HashMap::new();
     for entry in ctx.variables.iter() {
         vars.insert(entry.key().clone(), entry.value().clone());
     }
-    match wf_core::condition::ConditionEvaluator::evaluate(condition, &vars) {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::warn!(
-                "break_condition '{}' evaluation failed (treated as false): {}",
-                condition,
-                e
-            );
-            false
-        }
-    }
+    wf_core::condition::ConditionEvaluator::evaluate(condition, &vars).map_err(|e| {
+        WorkflowError::LoopError(format!(
+            "break_condition '{}' evaluation failed: {}",
+            condition, e
+        ))
+    })
 }
 
 /// Locate the LOOP_END node of `loop_id` in the execution graph (used as the

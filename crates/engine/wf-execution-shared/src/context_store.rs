@@ -84,6 +84,7 @@ pub async fn dispatch_compression_signal(
     bus: Option<&EventBus>,
     execution_id: &Id,
     agent_loop_id: Option<&Id>,
+    cancellation: tokio_util::sync::CancellationToken,
     request: &crate::ContextCompressionRequest<'_>,
 ) -> bool {
     let Some(registry) = registry else {
@@ -110,6 +111,7 @@ pub async fn dispatch_compression_signal(
             execution_id: execution_id.clone(),
             hook_type: crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
+            cancellation,
         },
         bus,
     )

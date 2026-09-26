@@ -279,7 +279,7 @@ impl wf_tools::general::GeneralToolInvoker for GeneralToolContext {
             }
         }
         if results.len() == 1 {
-            Ok(results.pop().expect("len checked above"))
+            Ok(results.remove(0))
         } else {
             Ok(serde_json::Value::Array(results))
         }

@@ -224,8 +224,6 @@ impl NodeBuilder<NoType> {
             variable_inputs: None,
             data_source: None,
             max_iterations: 1,
-            on_iteration_failure: None,
-            max_consecutive_failures: None,
             break_condition: None,
         };
         Self::new(id)

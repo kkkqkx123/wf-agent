@@ -224,14 +224,31 @@ impl SyncHandler {
                     source_context_id
                 );
                 if let Some(value) = source_vars.get(&key) {
-                    if let Ok(messages) =
-                        serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
+                    match serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
                     {
-                        crate::message_context::register_context(
+                        Ok(messages) => crate::message_context::register_context(
                             &ctx.variables,
                             internal_name,
                             messages,
-                        );
+                        ),
+                        Err(e) => {
+                            tracing::warn!(
+                                node_id = %ctx.node_id,
+                                context_id = %source_context_id,
+                                error = %e,
+                                "SYNC message context failed to parse; registering nothing"
+                            );
+                            crate::degradation::emit_data_degradation(
+                                ctx.event_bus.as_deref(),
+                                None,
+                                &ctx.execution_id,
+                                "sync_message_inputs",
+                                &format!(
+                                    "message context '{}' failed to parse: {}",
+                                    source_context_id, e
+                                ),
+                            );
+                        }
                     }
                 } else if required {
                     return Err(WorkflowError::ForkJoinError(format!(

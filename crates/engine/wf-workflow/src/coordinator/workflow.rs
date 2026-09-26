@@ -512,7 +512,7 @@ impl WorkflowCoordinator {
         node_id: &str,
     ) {
         let mut state = entity.state.write().await;
-        let mut record = workflow_error_record(error, entity.id(), node_id, 0);
+        let mut record = workflow_error_record(error, entity.id(), node_id);
         record.error_chain = vec![record.id.clone()];
         record.root_cause_id = record.id.clone();
         state.add_error_record(record);
@@ -1346,6 +1346,9 @@ impl WorkflowCoordinator {
                 .node()
                 .record_error(failed_node_id, node_type_str, category.as_str());
         }
+        // `attempts` counts this node's recorded terminal failures (error
+        // records), not engine-level retries: transport retries inside the
+        // LLM/script layers are invisible to the coordinator.
         let attempts = entity
             .state
             .read()

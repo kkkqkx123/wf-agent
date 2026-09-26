@@ -3,12 +3,6 @@ use wf_types::workflow::error_branch::NodeErrorCategory;
 
 #[derive(Debug, Error)]
 pub enum WorkflowError {
-    #[error("Entity error: {0}")]
-    EntityError(String),
-
-    #[error("State error: {0}")]
-    StateError(String),
-
     #[error("Coordinator error: {0}")]
     CoordinatorError(String),
 
@@ -66,17 +60,8 @@ pub enum WorkflowError {
     #[error("State transition error: {0}")]
     StateTransitionError(String),
 
-    #[error("Tool error: {0}")]
-    ToolError(#[from] wf_tools::error::ToolError),
-
-    #[error("Core error: {0}")]
-    CoreError(#[from] wf_core::error::CoreError),
-
     #[error("Shared error: {0}")]
     SharedError(#[from] wf_execution_shared::error::ExecutionSharedError),
-
-    #[error("Agent error: {0}")]
-    AgentError(#[from] wf_agent::error::AgentError),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -84,26 +69,26 @@ pub enum WorkflowError {
 
 pub type WorkflowResult<T> = Result<T, WorkflowError>;
 
-/// Bridge into the shared handler boundary: workflow-internal errors surface
-/// to the shared `NodeHandler` trait as a `HandlerError` carrying the full
-/// message. A category-tagged `NodeFailure` is forwarded as a `NodeFailure` on
-/// the shared side so the terminal-failure routing category survives the trait
-/// boundary instead of collapsing into a string.
+/// Bridge into the shared handler boundary. A category-tagged `NodeFailure`
+/// is forwarded as a `NodeFailure` on the shared side and a wall-clock
+/// execution timeout as a typed timeout error, so error-branch routing never
+/// downgrades them to `BusinessFailure`. Everything else surfaces as a
+/// `HandlerError` carrying the full message.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
+        use wf_execution_shared::error::ExecutionSharedError as Shared;
         match value {
             WorkflowError::NodeFailure {
                 node_id,
                 category,
                 detail,
-            } => wf_execution_shared::error::ExecutionSharedError::NodeFailure {
+            } => Shared::NodeFailure {
                 node_id,
                 category,
                 detail,
             },
-            other => {
-                wf_execution_shared::error::ExecutionSharedError::HandlerError(other.to_string())
-            }
+            WorkflowError::ExecutionTimeout(detail) => Shared::TimeoutError(detail),
+            other => Shared::HandlerError(other.to_string()),
         }
     }
 }

@@ -15,6 +15,31 @@ pub struct StreamOutcome {
     pub aggregated_content: Option<String>,
 }
 
+/// Transport semantics survive as typed `NodeFailure` categories (mirroring
+/// the non-stream call path): a provider timeout routes as `TransportTimeout`
+/// and a cancellation as `CancelledInterrupted`; everything else stays a
+/// plain handler error and routes as a business failure.
+fn llm_stream_failure(
+    node_id: &str,
+    e: &wf_llm::error::LlmError,
+    detail: String,
+) -> WorkflowError {
+    use wf_types::workflow::error_branch::NodeErrorCategory;
+    let category = match e {
+        wf_llm::error::LlmError::Timeout(_) => Some(NodeErrorCategory::TransportTimeout),
+        wf_llm::error::LlmError::Cancelled => Some(NodeErrorCategory::CancelledInterrupted),
+        _ => None,
+    };
+    match category {
+        Some(category) => WorkflowError::NodeFailure {
+            node_id: node_id.to_string(),
+            category,
+            detail,
+        },
+        None => WorkflowError::Internal(detail),
+    }
+}
+
 /// Run the streaming request path: forward chunks as events, accumulate
 /// token usage, and synthesize the final response. Errors and aborts
 /// publish termination events and map to workflow errors.
@@ -35,7 +60,8 @@ pub async fn run_streaming_request(
             if e.is_context_length_exceeded() {
                 publish_forced_compression(ctx, request).await;
             }
-            return Err(WorkflowError::Internal(format!("LLM stream failed: {}", e)));
+            let detail = format!("LLM stream failed: {}", e);
+            return Err(llm_stream_failure(&ctx.node_id, &e, detail));
         }
     };
     let mut content_parts: Vec<String> = Vec::new();
@@ -123,10 +149,11 @@ pub async fn run_streaming_request(
                     true,
                     &abort.reason,
                 );
-                return Err(WorkflowError::Internal(format!(
-                    "LLM stream aborted: {}",
-                    abort.reason
-                )));
+                return Err(WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: format!("LLM stream aborted: {}", abort.reason),
+                });
             }
             Some(Ok(_)) => {}
             Some(Err(e)) => {
@@ -140,7 +167,8 @@ pub async fn run_streaming_request(
                 if e.is_context_length_exceeded() {
                     publish_forced_compression(ctx, request).await;
                 }
-                return Err(WorkflowError::Internal(format!("LLM stream error: {}", e)));
+                let detail = format!("LLM stream error: {}", e);
+                return Err(llm_stream_failure(&ctx.node_id, &e, detail));
             }
             None => break,
         }

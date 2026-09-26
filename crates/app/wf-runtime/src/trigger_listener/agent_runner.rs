@@ -120,8 +120,8 @@ impl AgentTriggerRunner {
 impl TriggerActionRunner for AgentTriggerRunner {
     async fn run(&self, template: &TriggerTemplate, event: &BaseEvent) -> WorkflowResult<()> {
         // Cold-start agent: no parent loop, no conversation anchor, no
-        // write-back. Always fire-and-forget; the spawned task logs failures
-        // and only the submission is recorded in the ledger.
+        // write-back. Always fire-and-forget; the ledger entry is recorded
+        // by the spawned task when the run settles, with its real outcome.
         if let Some(TriggerAction::ExecuteAgent { .. }) = &template.action {
             return self.run_cold(template, event).await;
         }
@@ -259,21 +259,37 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 };
                 let executor = self.executor.clone();
                 let shutdown = self.shutdown.clone();
-
-                let callback = async move {
+                let storage = self.storage.clone();
+                let ledger_template = template.clone();
+                let ledger_event = event.clone();
+                // The ledger entry travels with the real outcome (same
+                // discipline as the cold-start path): recording happens when
+                // the run settles, and a shutdown-abandoned run writes no
+                // entry at all — never a false success at submission time.
+                tokio::spawn(async move {
                     let run = executor(child_config, child_input);
-                    tokio::select! {
-                        output = run => {
-                            if let Err(e) = output {
-                                warn!("Triggered agent execution failed: {}", e);
-                            }
-                        }
-                        _ = shutdown.cancelled() => {}
-                    }
-                };
-
-                tokio::spawn(callback);
-                (true, None)
+                    let outcome: Result<(), String> = tokio::select! {
+                        output = run => output.map(|_| ()).map_err(|e| {
+                            warn!("Triggered agent execution failed: {}", e);
+                            e.to_string()
+                        }),
+                        _ = shutdown.cancelled() => return,
+                    };
+                    record_trigger_execution(
+                        &storage,
+                        &ledger_template,
+                        &ledger_event,
+                        TriggerOutcome {
+                            action_type,
+                            success: outcome.is_ok(),
+                            error: outcome.err(),
+                            execution_time_ms: wf_common::now() - start,
+                            child_execution_id: None,
+                        },
+                    )
+                    .await;
+                });
+                return Ok(());
             }
         };
 
@@ -349,48 +365,60 @@ impl AgentTriggerRunner {
         };
         let executor = self.executor.clone();
         let shutdown = self.shutdown.clone();
+        let storage = self.storage.clone();
+        let template = template.clone();
+        let event = event.clone();
         let agent_id = agent_id.to_string();
+        // The ledger entry travels with the real outcome: recording happens
+        // when the run settles (failure and timeout included), not at
+        // submission, so a cold-started child never leaves a false success.
         tokio::spawn(async move {
             let run = executor(child_config, child_input);
-            match timeout {
+            let outcome: Result<(), String> = match timeout {
                 Some(ms) => {
-                    let outcome = tokio::select! {
+                    let elapsed = tokio::select! {
                         output = tokio::time::timeout(std::time::Duration::from_millis(ms), run) => output,
                         _ = shutdown.cancelled() => return,
                     };
-                    match outcome {
-                        Ok(Ok(_)) => {}
-                        Ok(Err(e)) => warn!("Cold-started agent '{}' failed: {}", agent_id, e),
+                    match elapsed {
+                        Ok(Ok(_)) => Ok(()),
+                        Ok(Err(e)) => {
+                            warn!("Cold-started agent '{}' failed: {}", agent_id, e);
+                            Err(e.to_string())
+                        }
                         Err(_) => {
-                            warn!("Cold-started agent '{}' timed out after {}ms", agent_id, ms)
+                            warn!("Cold-started agent '{}' timed out after {}ms", agent_id, ms);
+                            Err(format!("timed out after {}ms", ms))
                         }
                     }
                 }
                 None => {
                     tokio::select! {
-                        output = run => {
-                            if let Err(e) = output {
+                        output = run => match output {
+                            Ok(_) => Ok(()),
+                            Err(e) => {
                                 warn!("Cold-started agent '{}' failed: {}", agent_id, e);
+                                Err(e.to_string())
                             }
-                        }
-                        _ = shutdown.cancelled() => {}
+                        },
+                        _ = shutdown.cancelled() => return,
                     }
                 }
-            }
+            };
+            record_trigger_execution(
+                &storage,
+                &template,
+                &event,
+                TriggerOutcome {
+                    action_type: "execute_agent",
+                    success: outcome.is_ok(),
+                    error: outcome.err(),
+                    execution_time_ms: wf_common::now() - start,
+                    child_execution_id: None,
+                },
+            )
+            .await;
         });
-        record_trigger_execution(
-            &self.storage,
-            template,
-            event,
-            TriggerOutcome {
-                action_type: "execute_agent",
-                success: true,
-                error: None,
-                execution_time_ms: wf_common::now() - start,
-                child_execution_id: None,
-            },
-        )
-        .await;
         Ok(())
     }
 }

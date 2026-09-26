@@ -19,10 +19,10 @@ use wf_types::events::BaseEvent;
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::{TriggerAction, TriggerTemplate};
 use wf_types::workflow::WorkflowTemplate;
-use wf_types::TriggerExecutionOutcome;
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
+use wf_types::TriggerExecutionOutcome;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
@@ -515,11 +515,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                 Err(_) => TriggerExecutionOutcome::Failed,
             };
             if let Some(registry) = self.trigger_states() {
-                registry.record_end(
-                    &execution_id,
-                    &event.id.to_string(),
-                    outcome.as_str(),
-                );
+                registry.record_end(&execution_id, &event.id.to_string(), outcome.as_str());
             }
             record_trigger_execution(
                 &self.ledger,
@@ -598,14 +594,11 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                         )
                     }
                 };
-                if let Some(registry) =
-                    ledger.as_ref().and_then(|l| l.trigger_state_registry.clone())
+                if let Some(registry) = ledger
+                    .as_ref()
+                    .and_then(|l| l.trigger_state_registry.clone())
                 {
-                    registry.record_end(
-                        &parent_execution_id,
-                        &event_id,
-                        outcome.as_str(),
-                    );
+                    registry.record_end(&parent_execution_id, &event_id, outcome.as_str());
                 }
                 record_trigger_execution(
                     &ledger,

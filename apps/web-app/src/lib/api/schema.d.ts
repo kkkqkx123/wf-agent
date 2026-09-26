@@ -6472,6 +6472,12 @@ export interface components {
             success: boolean;
         };
         ApiErrorBody: {
+            /**
+             * @description Stable engine-error category (`validation`, `not_found`, ...).
+             *     Absent for transport-layer errors (auth middleware, rate limiting,
+             *     local parameter parsing) that carry no engine classification.
+             */
+            category?: string | null;
             code: string;
             message: string;
         };
@@ -35846,7 +35852,8 @@ export interface operations {
                 trigger_name?: string;
                 execution_id?: string;
                 workflow_id?: string;
-                success?: boolean;
+                /** @description Outcome filter: `completed` | `failed` | `abandoned`. */
+                outcome?: string;
             };
             header?: never;
             path?: never;

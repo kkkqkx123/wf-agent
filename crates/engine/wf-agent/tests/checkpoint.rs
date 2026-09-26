@@ -114,18 +114,18 @@ fn input(message: &str) -> AgentLoopInput {
     }
 }
 
-#[tokio::test]
-async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
+/// Drive an agent loop to failure: iteration 1 records an `echo` tool call,
+/// the second LLM call fails with a non-retryable auth error. The coordinator
+/// and mock come back so the test can script the resume on top of the
+/// checkpoint history the interrupted run left behind.
+async fn interrupted_run(
+    loop_id: &str,
+    store: Arc<StorageBackend>,
+    registry: Arc<ToolRegistry>,
+) -> (AgentLoopCoordinator, Arc<MockLlmClient>) {
     use wf_agent::AgentCheckpointStrategy;
-    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-    use wf_checkpoint::state::CheckpointStateManager;
     use wf_types::Id;
 
-    let echo_runs = Arc::new(AtomicUsize::new(0));
-    let registry = counting_registry(echo_runs.clone());
-    let store = Arc::new(StorageBackend::new_memory());
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -134,15 +134,11 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
     )]));
     mock.script_error(LlmError::AuthError("interrupted".to_string()));
 
-    let coordinator = AgentLoopCoordinator::with_store(
-        gateway_with(mock.clone()),
-        registry.clone(),
-        store.clone(),
-    )
-    .with_agent_loop_id(Id::from("restore-loop"))
-    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
-        1, true, false, false, None,
-    ));
+    let coordinator = AgentLoopCoordinator::with_store(gateway_with(mock.clone()), registry, store)
+        .with_agent_loop_id(Id::from(loop_id.to_string()))
+        .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
+            1, true, false, false, None,
+        ));
 
     let err = coordinator
         .execute(config(5), input("first run"))
@@ -152,14 +148,45 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
         err.to_string().contains("interrupted"),
         "first run must be interrupted: {err}"
     );
-    assert_eq!(echo_runs.load(Ordering::SeqCst), 1, "echo executed once");
+    (coordinator, mock)
+}
+
+/// The two snapshots an interrupted run is resumed from: the error boundary
+/// (taken while the loop was still running, the last live snapshot) and the
+/// settle snapshot recorded after the loop settled. `resume` continues only
+/// the former, so tests select by trigger tag instead of list position.
+async fn resume_sources(store: &Arc<StorageBackend>, entity_id: &str) -> (String, String) {
+    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+    use wf_checkpoint::state::CheckpointStateManager;
 
     let sm = AgentCheckpointStateManager::new(store.clone());
-    let meta = sm
-        .get_latest("restore-loop")
-        .await
-        .unwrap()
-        .expect("interrupted run left a checkpoint");
+    let rows = sm.list_by_entity(entity_id).await.expect("checkpoint list");
+    let tagged = |tag: &str| {
+        rows.iter()
+            .find(|row| {
+                row.tags
+                    .as_ref()
+                    .is_some_and(|tags| tags.iter().any(|t| t == tag))
+            })
+            .map(|row| row.id.to_string())
+    };
+    let live = tagged("trigger:ON_ERROR").expect("error boundary snapshot exists");
+    let settle = tagged("trigger:ON_FAILURE").expect("settle snapshot exists");
+    (live, settle)
+}
+
+#[tokio::test]
+async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let echo_runs = Arc::new(AtomicUsize::new(0));
+    let registry = counting_registry(echo_runs.clone());
+    let store = Arc::new(StorageBackend::new_memory());
+    let (coordinator, mock) =
+        interrupted_run("restore-loop", store.clone(), registry.clone()).await;
+    assert_eq!(echo_runs.load(Ordering::SeqCst), 1, "echo executed once");
+
+    let (live, _) = resume_sources(&store, "restore-loop").await;
 
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "call_1",
@@ -169,7 +196,7 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
     mock.script(LlmResponseSpec::text("recovered"));
 
     let output = coordinator
-        .resume_from_checkpoint_in_place(&meta.id, config(5), input("continue"))
+        .resume_from_checkpoint_in_place(&live, config(5), input("continue"))
         .await
         .unwrap();
     assert_eq!(output.result, serde_json::json!("recovered"));
@@ -265,39 +292,11 @@ async fn in_place_resume_continues_under_source_execution_id() {
     let echo_runs = Arc::new(AtomicUsize::new(0));
     let registry = counting_registry(echo_runs.clone());
     let store = Arc::new(StorageBackend::new_memory());
-    let mock = Arc::new(MockLlmClient::new());
-    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
-        "call_1",
-        "echo",
-        r#"{"text":"ping"}"#,
-    )]));
-    mock.script_error(LlmError::AuthError("interrupted".to_string()));
-
-    let coordinator = AgentLoopCoordinator::with_store(
-        gateway_with(mock.clone()),
-        registry.clone(),
-        store.clone(),
-    )
-    .with_agent_loop_id(Id::from("inplace-loop"))
-    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
-        1, true, false, false, None,
-    ));
-
-    let err = coordinator
-        .execute(config(5), input("first run"))
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("interrupted"),
-        "first run must be interrupted: {err}"
-    );
+    let (coordinator, mock) =
+        interrupted_run("inplace-loop", store.clone(), registry.clone()).await;
 
     let sm = AgentCheckpointStateManager::new(store.clone());
-    let meta = sm
-        .get_latest("inplace-loop")
-        .await
-        .unwrap()
-        .expect("interrupted run left a checkpoint");
+    let (live, _) = resume_sources(&store, "inplace-loop").await;
     let count_before = sm.count_by_entity("inplace-loop").await.unwrap();
 
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
@@ -307,7 +306,7 @@ async fn in_place_resume_continues_under_source_execution_id() {
     )]));
     mock.script(LlmResponseSpec::text("recovered"));
     let output = coordinator
-        .resume_from_checkpoint_in_place(&meta.id, config(5), input("continue"))
+        .resume_from_checkpoint_in_place(&live, config(5), input("continue"))
         .await
         .unwrap();
     assert_eq!(output.agent_loop_id, "inplace-loop");
@@ -340,7 +339,7 @@ async fn in_place_resume_continues_under_source_execution_id() {
         1, true, false, false, None,
     ));
     let branch_output = branch_coordinator
-        .resume_from_checkpoint(&meta.id, config(5), input("branch off"))
+        .resume_from_checkpoint(&live, config(5), input("branch off"))
         .await
         .unwrap();
     assert_eq!(branch_output.agent_loop_id, "branch-loop");
@@ -350,7 +349,7 @@ async fn in_place_resume_continues_under_source_execution_id() {
     );
 
     let same_id_err = coordinator
-        .resume_from_checkpoint(&meta.id, config(5), input("bad branch"))
+        .resume_from_checkpoint(&live, config(5), input("bad branch"))
         .await
         .unwrap_err();
     assert!(
@@ -367,11 +366,50 @@ async fn in_place_resume_continues_under_source_execution_id() {
         1, true, false, false, None,
     ));
     let mismatch_err = other
-        .resume_from_checkpoint_in_place(&meta.id, config(5), input("bad inplace"))
+        .resume_from_checkpoint_in_place(&live, config(5), input("bad inplace"))
         .await
         .unwrap_err();
     assert!(
         mismatch_err.to_string().contains("match the source"),
         "in-place resume must reject a conflicting coordinator id: {mismatch_err}"
+    );
+}
+
+/// The settle snapshot records how the run ended; resuming it must fail
+/// loudly instead of silently re-driving a settled run.
+#[tokio::test]
+async fn resume_rejects_terminal_snapshot() {
+    use wf_agent::error::AgentError;
+    use wf_types::Id;
+
+    let registry = registry_with_echo();
+    let store = Arc::new(StorageBackend::new_memory());
+    let (coordinator, mock) =
+        interrupted_run("terminal-loop", store.clone(), registry.clone()).await;
+
+    let (_, terminal) = resume_sources(&store, "terminal-loop").await;
+
+    let in_place_err = coordinator
+        .resume_from_checkpoint_in_place(&terminal, config(5), input("restart"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&in_place_err, AgentError::IllegalStateTransition(_)),
+        "in-place resume must reject a terminal snapshot: {in_place_err}"
+    );
+    assert!(
+        in_place_err.to_string().contains("terminal"),
+        "the rejection must name the recorded status: {in_place_err}"
+    );
+
+    let branch = AgentLoopCoordinator::with_store(gateway_with(mock), registry, store.clone())
+        .with_agent_loop_id(Id::from("terminal-branch"));
+    let branch_err = branch
+        .resume_from_checkpoint(&terminal, config(5), input("restart"))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&branch_err, AgentError::IllegalStateTransition(_)),
+        "branch resume must reject a terminal snapshot: {branch_err}"
     );
 }

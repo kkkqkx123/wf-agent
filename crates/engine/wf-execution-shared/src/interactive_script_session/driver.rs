@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use async_trait::async_trait;
 use serde_json::Value;
 use wf_core::EventBus;
-use crate::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_script::{InteractionMode, RiskEvaluator};
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::Id;
@@ -20,13 +20,14 @@ use crate::error::{ExecutionSharedError, ExecutionSharedResult};
 use crate::interaction::InteractionRegistry;
 
 use super::config::{
-    InteractionRecord, InteractiveScriptSessionConfig, InteractiveScriptSessionSnapshot,
-    InteractionSource, SessionPhase,
+    InteractionRecord, InteractionSource, InteractiveScriptSessionConfig,
+    InteractiveScriptSessionSnapshot, SessionPhase,
 };
 use super::detect::detect_prompt;
 use super::entity::InteractiveScriptSessionEntity;
 use super::input::{
-    await_external_input, fail_wait, wait_for_external_input, ConfirmationAction, parse_confirmation,
+    await_external_input, fail_wait, parse_confirmation, wait_for_external_input,
+    ConfirmationAction,
 };
 
 /// Minimal driver context: the workflow coordinates used for interaction
@@ -122,10 +123,9 @@ impl SuggestionProvider for LlmSuggestionProvider {
             protocol_auto_converted: None,
             timeout_ms: None,
         };
-        let outcome =
-            crate::single_shot::generate_text_once(&self.gateway, &request, None)
-                .await
-                .ok()?;
+        let outcome = crate::single_shot::generate_text_once(&self.gateway, &request, None)
+            .await
+            .ok()?;
         let reply = outcome.content.or(match outcome.message.content {
             wf_types::message::MessageContentValue::Text(text) => Some(text),
             wf_types::message::MessageContentValue::Rich(_) => None,
@@ -481,7 +481,9 @@ pub async fn drive_session(
             };
             shell
                 .send_input(&session_id, &answer_text, true)
-                .map_err(|e| ExecutionSharedError::Internal(format!("failed to send input: {e}")))?;
+                .map_err(|e| {
+                    ExecutionSharedError::Internal(format!("failed to send input: {e}"))
+                })?;
             consumed_len = output.len();
             {
                 let mut state = entity.state.write().await;
@@ -581,14 +583,16 @@ async fn resolve_model_round(
     };
     if RiskEvaluator::evaluate(&suggestion).rank() >= wf_script::ScriptRiskLevel::High.rank() {
         match await_external_input(driver, pattern, config, Some(&suggestion)).await {
-            super::input::ExternalWaitOutcome::Answered(value) => match parse_confirmation(&value) {
-                ConfirmationAction::Confirm => {
-                    Ok((Value::String(suggestion), InteractionSource::Model))
+            super::input::ExternalWaitOutcome::Answered(value) => {
+                match parse_confirmation(&value) {
+                    ConfirmationAction::Confirm => {
+                        Ok((Value::String(suggestion), InteractionSource::Model))
+                    }
+                    ConfirmationAction::Edit(text) => {
+                        Ok((Value::String(text), InteractionSource::External))
+                    }
                 }
-                ConfirmationAction::Edit(text) => {
-                    Ok((Value::String(text), InteractionSource::External))
-                }
-            },
+            }
             outcome => Err(fail_wait(entity, &driver.node_id, outcome, config).await),
         }
     } else {
@@ -622,12 +626,16 @@ async fn resolve_hybrid_round(
                 Value::String(suggestion),
                 InteractionSource::HybridConfirmed,
             )),
-            ConfirmationAction::Edit(text) => Ok((Value::String(text), InteractionSource::HybridEdited)),
+            ConfirmationAction::Edit(text) => {
+                Ok((Value::String(text), InteractionSource::HybridEdited))
+            }
         },
-        super::input::ExternalWaitOutcome::TimedOut if config.hybrid_fallback_to_suggestion => Ok((
-            Value::String(suggestion),
-            InteractionSource::HybridConfirmed,
-        )),
+        super::input::ExternalWaitOutcome::TimedOut if config.hybrid_fallback_to_suggestion => {
+            Ok((
+                Value::String(suggestion),
+                InteractionSource::HybridConfirmed,
+            ))
+        }
         outcome => Err(fail_wait(entity, &driver.node_id, outcome, config).await),
     }
 }

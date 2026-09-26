@@ -335,9 +335,9 @@ impl ExecutionCallback for AgentLoopExecutor {
     ) -> ToolResult<AgentLoopOutput> {
         let tool_id = config.agent_id.to_string();
         let timeout_ms = config.max_execution_time.unwrap_or(0);
-        self.execute(config, input).await.map_err(|e| {
-            agent_error_to_tool_error(e, tool_id.clone(), timeout_ms)
-        })
+        self.execute(config, input)
+            .await
+            .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
     }
 
     async fn spawn_agent_loop(
@@ -347,9 +347,9 @@ impl ExecutionCallback for AgentLoopExecutor {
     ) -> ToolResult<SpawnedAgentLoop> {
         let tool_id = config.agent_id.to_string();
         let timeout_ms = config.max_execution_time.unwrap_or(0);
-        self.spawn_agent_loop(config, input).await.map_err(|e| {
-            agent_error_to_tool_error(e, tool_id.clone(), timeout_ms)
-        })
+        self.spawn_agent_loop(config, input)
+            .await
+            .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
     }
 
     async fn execute_workflow(
@@ -384,11 +384,7 @@ impl ExecutionCallback for AgentLoopExecutor {
             self.agent_registry
                 .take_result(&id)
                 .map(|output| output.result)
-                .or_else(|| {
-                    state
-                        .error()
-                        .map(|e| serde_json::json!({ "error": e }))
-                })
+                .or_else(|| state.error().map(|e| serde_json::json!({ "error": e })))
         } else {
             None
         };

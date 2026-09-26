@@ -194,6 +194,7 @@ fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStat
         started_at: Some(wf_common::now()),
         completed_at: None,
         error_records: None,
+        retry_totals: None,
         interruption_records: None,
         event_records: None,
         iteration_history: None,
@@ -247,6 +248,7 @@ pub async fn restore(
                 end_time: snapshot.completed_at,
                 error: snapshot.error,
                 error_records: Vec::new(),
+                retry_totals: snapshot.retry_totals.unwrap_or_default(),
                 variable_snapshots: snapshot
                     .variable_snapshots
                     .unwrap_or_default()

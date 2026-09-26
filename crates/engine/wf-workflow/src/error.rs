@@ -73,8 +73,12 @@ pub type WorkflowResult<T> = Result<T, WorkflowError>;
 /// already knows (`NodeFailure`, a bare node execution failure, a wall-clock
 /// timeout, a variable or state failure) keep their typed shared-side shape,
 /// so error-branch routing never downgrades them to `BusinessFailure` and the
-/// agent-side analysis can read them structurally. Everything else surfaces
-/// as a `HandlerError` carrying the full message.
+/// agent-side analysis can read them structurally. Engine-level diagnostics
+/// that are plain strings (`SubgraphError`, `TriggerError`, `GraphError`,
+/// `CoordinatorError`) surface as a `HandlerError` carrying the full message:
+/// they all project to a business failure anyway, and the node boundary — the
+/// one place that knows the real node id — re-derives their category from the
+/// shared taxonomy rather than this conversion inventing a placeholder id.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
         use wf_execution_shared::error::ExecutionSharedError as Shared;

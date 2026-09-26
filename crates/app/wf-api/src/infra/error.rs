@@ -1,8 +1,73 @@
 use std::time::Duration;
 
 use wf_storage::error::StorageError;
+use wf_types::errors::{ErrorKind, ErrorType};
 
 pub type ApiResult<T> = Result<T, ApiError>;
+
+/// Stable machine-readable category of an engine failure. Transports render
+/// status codes from this instead of branching on message text, so the same
+/// engine error always surfaces the same HTTP status and code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiErrorCategory {
+    Validation,
+    NotFound,
+    Conflict,
+    Cancelled,
+    Timeout,
+    BusinessFailure,
+    Resource,
+    ServiceUnavailable,
+    Internal,
+}
+
+impl ApiErrorCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Validation => "validation",
+            Self::NotFound => "not_found",
+            Self::Conflict => "conflict",
+            Self::Cancelled => "cancelled",
+            Self::Timeout => "timeout",
+            Self::BusinessFailure => "business_failure",
+            Self::Resource => "resource",
+            Self::ServiceUnavailable => "service_unavailable",
+            Self::Internal => "internal",
+        }
+    }
+
+    /// Project the shared error taxonomy onto the transport category.
+    /// Actionable kinds pin the category directly; anything else falls back
+    /// to the error type, and unknown combinations stay internal so only
+    /// genuine server-side failures ever report a 500.
+    pub fn from_taxonomy(kind: ErrorKind, error_type: &ErrorType) -> Self {
+        if *error_type == ErrorType::Interruption {
+            return Self::Cancelled;
+        }
+        match kind {
+            ErrorKind::Validation | ErrorKind::AuthError => Self::Validation,
+            ErrorKind::NotFound => Self::NotFound,
+            ErrorKind::StateManagement => Self::Conflict,
+            ErrorKind::Timeout => Self::Timeout,
+            ErrorKind::BusinessLogic | ErrorKind::Tool => Self::BusinessFailure,
+            ErrorKind::RateLimited | ErrorKind::Resource => Self::Resource,
+            ErrorKind::ServiceUnavailable | ErrorKind::Network => Self::ServiceUnavailable,
+            _ => match error_type {
+                ErrorType::Timeout => Self::Timeout,
+                ErrorType::Validation => Self::Validation,
+                ErrorType::RateLimited => Self::Resource,
+                ErrorType::ServiceUnavailable => Self::ServiceUnavailable,
+                _ => Self::Internal,
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for ApiErrorCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// Unified error type of the application-facing API layer.
 ///
@@ -22,6 +87,8 @@ pub enum ApiError {
     #[error("Execution error: {message}")]
     Execution {
         message: String,
+        /// Stable category of the failure for transport rendering.
+        category: ApiErrorCategory,
         /// The typed engine error that caused the failure, retained so callers
         /// can inspect the cause without string parsing.
         #[source]
@@ -61,6 +128,7 @@ impl ApiError {
     pub fn execution(message: impl Into<String>) -> Self {
         ApiError::Execution {
             message: message.into(),
+            category: ApiErrorCategory::Internal,
             source: None,
         }
     }
@@ -72,7 +140,17 @@ impl ApiError {
     {
         ApiError::Execution {
             message: err.to_string(),
+            category: ApiErrorCategory::Internal,
             source: Some(Box::new(err)),
+        }
+    }
+
+    /// Execution failure with an explicit transport category and no cause.
+    pub fn execution_categorized(message: impl Into<String>, category: ApiErrorCategory) -> Self {
+        ApiError::Execution {
+            message: message.into(),
+            category,
+            source: None,
         }
     }
 }
@@ -101,6 +179,27 @@ pub(crate) fn not_found(entity_type: &str, id: &str) -> ApiError {
     ApiError::not_found(entity_type, id)
 }
 
+/// Category of a shared handler-boundary error. A business-failure node
+/// failure pins the category directly: its reverse taxonomy projection is
+/// `Execution`/`Internal`, which would otherwise read as a generic internal
+/// error. Every other variant flows through the shared analysis so records
+/// and transports classify identically.
+fn shared_error_category(e: &wf_execution_shared::error::ExecutionSharedError) -> ApiErrorCategory {
+    use wf_execution_shared::error::ExecutionSharedError;
+    use wf_types::workflow::error_branch::NodeErrorCategory;
+    match e {
+        ExecutionSharedError::NodeFailure { category, .. }
+            if *category == NodeErrorCategory::BusinessFailure =>
+        {
+            ApiErrorCategory::BusinessFailure
+        }
+        _ => {
+            let analysis = wf_agent::error_analysis::shared_error_analysis(e);
+            ApiErrorCategory::from_taxonomy(analysis.kind, &analysis.error_type)
+        }
+    }
+}
+
 impl From<wf_config::error::ConfigError> for ApiError {
     fn from(e: wf_config::error::ConfigError) -> Self {
         match e {
@@ -113,25 +212,79 @@ impl From<wf_config::error::ConfigError> for ApiError {
 
 impl From<wf_workflow::error::WorkflowError> for ApiError {
     fn from(e: wf_workflow::error::WorkflowError) -> Self {
-        ApiError::execution_with_source(e)
+        use wf_types::workflow::error_branch::NodeErrorCategory;
+        use wf_workflow::error::WorkflowError;
+        let message = e.to_string();
+        let category = match &e {
+            WorkflowError::NodeExecutionFailed { .. } => ApiErrorCategory::BusinessFailure,
+            WorkflowError::NodeFailure { category, .. }
+                if *category == NodeErrorCategory::BusinessFailure =>
+            {
+                ApiErrorCategory::BusinessFailure
+            }
+            WorkflowError::SharedError(se) => shared_error_category(se),
+            _ => {
+                let analysis = wf_workflow::error_analysis::analyze_workflow_error(&e);
+                ApiErrorCategory::from_taxonomy(analysis.kind, &analysis.error_type)
+            }
+        };
+        ApiError::Execution {
+            message,
+            category,
+            source: Some(Box::new(e)),
+        }
     }
 }
 
 impl From<wf_agent::error::AgentError> for ApiError {
     fn from(e: wf_agent::error::AgentError) -> Self {
-        ApiError::execution_with_source(e)
+        use wf_agent::error::AgentError;
+        let message = e.to_string();
+        let category = match &e {
+            AgentError::ErrorPatternTripped(_) => ApiErrorCategory::BusinessFailure,
+            AgentError::SharedError(se) => shared_error_category(se),
+            _ => {
+                let analysis = wf_agent::error_analysis::analyze_error(&e);
+                ApiErrorCategory::from_taxonomy(analysis.kind, &analysis.error_type)
+            }
+        };
+        ApiError::Execution {
+            message,
+            category,
+            source: Some(Box::new(e)),
+        }
     }
 }
 
 impl From<wf_execution_shared::error::ExecutionSharedError> for ApiError {
     fn from(e: wf_execution_shared::error::ExecutionSharedError) -> Self {
-        ApiError::execution_with_source(e)
+        let message = e.to_string();
+        let category = shared_error_category(&e);
+        ApiError::Execution {
+            message,
+            category,
+            source: Some(Box::new(e)),
+        }
     }
 }
 
 impl From<wf_core::error::CoreError> for ApiError {
     fn from(e: wf_core::error::CoreError) -> Self {
-        ApiError::execution_with_source(e)
+        use wf_core::error::CoreError;
+        let message = e.to_string();
+        let category = match &e {
+            CoreError::Timeout(_) => ApiErrorCategory::Timeout,
+            CoreError::InvalidStateTransition { .. } | CoreError::TaskConflict(_) => {
+                ApiErrorCategory::Conflict
+            }
+            CoreError::InterruptionError(_) => ApiErrorCategory::Cancelled,
+            _ => ApiErrorCategory::Internal,
+        };
+        ApiError::Execution {
+            message,
+            category,
+            source: Some(Box::new(e)),
+        }
     }
 }
 
@@ -143,23 +296,24 @@ impl From<wf_core::error::EventError> for ApiError {
 
 impl From<wf_tools::error::ToolError> for ApiError {
     fn from(e: wf_tools::error::ToolError) -> Self {
-        ApiError::execution_with_source(e)
+        let message = e.to_string();
+        let analysis = wf_agent::error_analysis::tool_error_analysis(&e);
+        ApiError::Execution {
+            message,
+            category: ApiErrorCategory::from_taxonomy(analysis.kind, &analysis.error_type),
+            source: Some(Box::new(e)),
+        }
     }
 }
 
 impl From<wf_llm::error::LlmError> for ApiError {
     fn from(e: wf_llm::error::LlmError) -> Self {
-        use wf_llm::error::LlmError;
-        match e {
-            LlmError::ProfileNotFound(id) => ApiError::NotFound {
-                entity_type: "profile".into(),
-                id,
-            },
-            LlmError::ConfigError(msg) => ApiError::Validation(msg),
-            LlmError::Timeout(ms) => {
-                ApiError::Timeout(format!("LLM request timed out after {ms}ms"))
-            }
-            other => ApiError::execution_with_source(other),
+        let message = e.to_string();
+        let analysis = wf_agent::error_analysis::llm_error_analysis(&e);
+        ApiError::Execution {
+            message,
+            category: ApiErrorCategory::from_taxonomy(analysis.kind, &analysis.error_type),
+            source: Some(Box::new(e)),
         }
     }
 }

@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
+use crate::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use async_trait::async_trait;
 use wf_core::interruption::InterruptionState;
-use crate::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_types::Id;
 
 use super::config::{
@@ -158,17 +158,17 @@ impl ExecutionEntity for InteractiveScriptSessionEntity {
     }
 
     async fn pause(&self) -> Result<(), crate::error::ExecutionSharedError> {
-        self.interruption.pause().map_err(|e| {
-            crate::error::ExecutionSharedError::StateError(e.to_string())
-        })?;
+        self.interruption
+            .pause()
+            .map_err(|e| crate::error::ExecutionSharedError::StateError(e.to_string()))?;
         self.set_status(ExecutionStatus::Paused).await;
         Ok(())
     }
 
     async fn resume(&self) -> Result<(), crate::error::ExecutionSharedError> {
-        self.interruption.resume().map_err(|e| {
-            crate::error::ExecutionSharedError::StateError(e.to_string())
-        })?;
+        self.interruption
+            .resume()
+            .map_err(|e| crate::error::ExecutionSharedError::StateError(e.to_string()))?;
         self.set_status(ExecutionStatus::Running).await;
         Ok(())
     }
@@ -177,9 +177,9 @@ impl ExecutionEntity for InteractiveScriptSessionEntity {
         if self.status().is_terminal() {
             return Ok(());
         }
-        self.interruption.stop().map_err(|e| {
-            crate::error::ExecutionSharedError::StateError(e.to_string())
-        })?;
+        self.interruption
+            .stop()
+            .map_err(|e| crate::error::ExecutionSharedError::StateError(e.to_string()))?;
         self.cancellation.cancel();
         self.set_status(ExecutionStatus::Stopped).await;
         Ok(())
@@ -220,8 +220,7 @@ impl crate::types::state_manager::StateManager<InteractiveScriptSessionSnapshot>
 
     async fn create_snapshot(
         &self,
-    ) -> Result<InteractiveScriptSessionSnapshot, crate::error::ExecutionSharedError>
-    {
+    ) -> Result<InteractiveScriptSessionSnapshot, crate::error::ExecutionSharedError> {
         let state = self.state.read().await;
         Ok(InteractiveScriptSessionSnapshot {
             session_id: self.id.to_string(),

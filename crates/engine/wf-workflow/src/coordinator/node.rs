@@ -68,12 +68,15 @@ struct NodeRef<'a> {
 }
 
 /// Everything the shared node-failure path needs to describe one failure: the
-/// human-readable reason, the optional veto source, and the optional routing
-/// category carried by a typed handler error.
+/// human-readable reason, the optional veto source and the routing category.
+/// The category is never absent: a typed handler error carries its own, and an
+/// untyped one is projected through the shared taxonomy, so a failure is never
+/// re-read as a generic business failure just because a handler forgot to tag
+/// it.
 struct NodeFailureInfo<'a> {
     reason: &'a str,
     rejection_source: Option<&'a str>,
-    category: Option<wf_types::workflow::error_branch::NodeErrorCategory>,
+    category: wf_types::workflow::error_branch::NodeErrorCategory,
 }
 
 impl<'a> NodeRef<'a> {
@@ -164,7 +167,11 @@ impl NodeCoordinator {
                 NodeFailureInfo {
                     reason: &veto_reason,
                     rejection_source: Some("hook_veto"),
-                    category: None,
+                    // A veto is the node's own business-level rejection: it
+                    // carries no transport or interruption semantics, and the
+                    // veto source travels separately for consumers that need
+                    // to tell it apart from a handler failure.
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
                 },
             )
             .await;
@@ -231,24 +238,23 @@ impl NodeCoordinator {
                 })
             }
             Err(e) => {
-                let detail;
-                let failure = match typed_failure_parts(e) {
-                    Some((category, msg)) => {
-                        detail = msg;
-                        NodeFailureInfo {
-                            reason: &detail,
-                            rejection_source: None,
-                            category: Some(category),
-                        }
-                    }
-                    None => {
-                        detail = e.to_string();
-                        NodeFailureInfo {
-                            reason: &detail,
-                            rejection_source: None,
-                            category: None,
-                        }
-                    }
+                let (category, detail) = match typed_failure_parts(e) {
+                    Some((category, msg)) => (category, msg),
+                    // An untyped handler failure still names a category: the
+                    // shared taxonomy turns its `ErrorType` into the routing
+                    // category, so a tool timeout or quota failure keeps its
+                    // semantics instead of collapsing to a business failure.
+                    None => (
+                        wf_types::workflow::error_branch::NodeErrorCategory::from_error_type(
+                            &crate::error_analysis::analyze_workflow_error(e).error_type,
+                        ),
+                        e.to_string(),
+                    ),
+                };
+                let failure = NodeFailureInfo {
+                    reason: &detail,
+                    rejection_source: None,
+                    category,
                 };
                 Self::fail_node(
                     hooks,
@@ -268,7 +274,7 @@ impl NodeCoordinator {
     /// `failure.rejection_source` marks veto-driven failures
     /// (`Some("hook_veto")`) so subscribers can distinguish them from handler
     /// errors (`None`); it travels on the ON_ERROR hook payload and on the
-    /// NodeFailed event metadata. A typed `failure.category` is preserved on
+    /// NodeFailed event metadata. The `failure.category` is always carried on
     /// the returned error so routing reads it by type, not by message.
     async fn fail_node(
         hooks: &[HookDefinition],
@@ -310,16 +316,10 @@ impl NodeCoordinator {
         )
         .await;
 
-        Err(match category {
-            Some(category) => WorkflowError::NodeFailure {
-                node_id: node.id.to_string(),
-                category,
-                detail: reason.to_string(),
-            },
-            None => WorkflowError::NodeExecutionFailed {
-                node_id: node.id.to_string(),
-                reason: reason.to_string(),
-            },
+        Err(WorkflowError::NodeFailure {
+            node_id: node.id.to_string(),
+            category,
+            detail: reason.to_string(),
         })
     }
 

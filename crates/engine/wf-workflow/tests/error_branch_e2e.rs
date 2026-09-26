@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_tools::registry::ToolRegistry;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::error_branch::{ErrorRouteConfig, NodeErrorCategory};
@@ -197,9 +198,11 @@ struct StubWorld {
     seen: Arc<std::sync::Mutex<HashMap<String, serde_json::Value>>>,
 }
 
-fn stub_world() -> StubWorld {
-    let runs = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let seen = Arc::new(std::sync::Mutex::new(HashMap::new()));
+/// Handlers every test world shares; the agent test adds its own on top.
+fn base_handlers(
+    runs: &Arc<std::sync::Mutex<Vec<String>>>,
+    seen: &Arc<std::sync::Mutex<HashMap<String, serde_json::Value>>>,
+) -> HashMap<StaticNodeType, Box<dyn NodeHandler>> {
     let mut map: HashMap<StaticNodeType, Box<dyn NodeHandler>> = HashMap::new();
     map.insert(StaticNodeType::Start, Box::new(wf_workflow::StartHandler));
     map.insert(StaticNodeType::End, Box::new(wf_workflow::EndHandler));
@@ -211,8 +214,14 @@ fn stub_world() -> StubWorld {
             seen: seen.clone(),
         }),
     );
+    map
+}
+
+fn stub_world() -> StubWorld {
+    let runs = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::new(std::sync::Mutex::new(HashMap::new()));
     StubWorld {
-        handlers: Arc::new(map),
+        handlers: Arc::new(base_handlers(&runs, &seen)),
         runs,
         seen,
     }
@@ -323,6 +332,92 @@ async fn unmatched_failure_uses_workflow_default() {
     let (result, _) = run_graph(&world, graph).await;
     let output = result.expect("default must continue the execution");
     assert_eq!(output, serde_json::json!({"via": "default"}));
+}
+
+/// An `AGENT_LOOP` node that blows its node budget must route as a typed
+/// transport timeout: the category reaches the routing table by type, so the
+/// explicit `TransportTimeout` route wins over the workflow default.
+#[tokio::test]
+async fn agent_node_timeout_routes_as_transport_timeout() {
+    let runs = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let mut handlers = base_handlers(&runs, &seen);
+
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("too slow").with_delay(2_500));
+    mock.with_stream_delay(2_500);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock);
+    handlers.insert(
+        StaticNodeType::AgentLoop,
+        Box::new(wf_workflow::AgentLoopHandler::new(gateway)),
+    );
+    let world = StubWorld {
+        handlers: Arc::new(handlers),
+        runs: runs.clone(),
+        seen,
+    };
+
+    let mut graph = graph(
+        vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "agent",
+                "AGENT_LOOP",
+                serde_json::json!({
+                    "timeout_seconds": 1,
+                    "inline_definition": {
+                        "id": "agent-1",
+                        "name": "slow agent",
+                        "created_at": 0,
+                        "updated_at": 0,
+                        "config": {
+                            "profile_id": "mock",
+                            "max_iterations": 3,
+                            "available_tools": {"available": []}
+                        }
+                    }
+                }),
+            ),
+            node(
+                "timeout_h",
+                "SCRIPT",
+                serde_json::json!({"output": {"via": "timeout"}}),
+            ),
+            node(
+                "fallback",
+                "SCRIPT",
+                serde_json::json!({"output": {"via": "default"}}),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        vec![
+            edge("start", "agent"),
+            edge("agent", "end"),
+            edge("timeout_h", "end"),
+            edge("fallback", "end"),
+            error_edge(
+                "agent",
+                "timeout_h",
+                ErrorRouteConfig {
+                    categories: Some(vec![NodeErrorCategory::TransportTimeout]),
+                    suspend: None,
+                },
+            ),
+        ],
+    );
+    graph.error_default = Some(wf_types::workflow::error_branch::WorkflowErrorDefault {
+        target_node_id: "fallback".to_string(),
+        suspend: None,
+    });
+    let (result, _) = run_graph(&world, graph).await;
+    let output = result.expect("a node timeout must route instead of failing fast");
+    assert_eq!(output, serde_json::json!({"via": "timeout"}));
+    let runs = world.runs.lock().unwrap().clone();
+    assert!(
+        !runs.contains(&"fallback".to_string()),
+        "the workflow default must not swallow a transport timeout"
+    );
 }
 
 #[tokio::test]

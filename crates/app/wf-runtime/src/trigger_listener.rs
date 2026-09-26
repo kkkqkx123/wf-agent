@@ -138,7 +138,8 @@ impl TriggerLedger {
     }
 
     pub fn write_failures(&self) -> u64 {
-        self.write_failures.load(std::sync::atomic::Ordering::Relaxed)
+        self.write_failures
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -1455,10 +1456,7 @@ mod tests {
             record.action_type.as_deref(),
             Some("execute_triggered_agent_execution")
         );
-        assert_eq!(
-            record.outcome,
-            wf_types::TriggerExecutionOutcome::Completed
-        );
+        assert_eq!(record.outcome, wf_types::TriggerExecutionOutcome::Completed);
 
         stop_trigger_listener(listener).await;
     }
@@ -1534,10 +1532,7 @@ mod tests {
         let _ = wf_core::registry::MutableRegistry::register(
             &registries.trigger_templates,
             "ledger-fail-trigger".to_string(),
-            Arc::new(hook_agent_trigger_template(
-                "ledger-fail-trigger",
-                "mock",
-            )),
+            Arc::new(hook_agent_trigger_template("ledger-fail-trigger", "mock")),
         );
         let contexts = Arc::new(ExecutionContextRegistry::new());
         let agent_executor = Arc::new(wf_agent::executor::AgentLoopExecutor::new(

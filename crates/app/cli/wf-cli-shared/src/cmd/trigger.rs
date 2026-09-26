@@ -94,9 +94,10 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
         } => {
             let outcome_filter = match outcome.as_deref() {
                 None => None,
-                Some(raw) => Some(raw.parse::<wf_types::TriggerExecutionOutcome>().map_err(
-                    |e| CliError::Arguments(e.to_string()),
-                )?),
+                Some(raw) => Some(
+                    raw.parse::<wf_types::TriggerExecutionOutcome>()
+                        .map_err(|e| CliError::Arguments(e.to_string()))?,
+                ),
             };
             let options = wf_api::TriggerExecutionListOptions {
                 offset: *offset,

@@ -28458,11 +28458,12 @@
             }
           },
           {
-            "name": "success",
+            "name": "outcome",
             "in": "query",
+            "description": "Outcome filter: `completed` | `failed` | `abandoned`.",
             "required": false,
             "schema": {
-              "type": "boolean"
+              "type": "string"
             }
           }
         ],
@@ -34466,6 +34467,13 @@
           "message"
         ],
         "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable engine-error category (`validation`, `not_found`, ...).\nAbsent for transport-layer errors (auth middleware, rate limiting,\nlocal parameter parsing) that carry no engine classification."
+          },
           "code": {
             "type": "string"
           },

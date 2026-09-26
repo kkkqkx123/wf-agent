@@ -12,7 +12,7 @@ use crate::checkpoint::AgentCheckpointIntegration;
 use crate::coordinator::iteration::{IterationExecutor, IterationResult};
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::error_analysis::analyze_error;
+use crate::error_analysis::{analyze_error, decide_retry, RetryDecision};
 
 /// Persistence hook invoked after every completed iteration. Lets the
 /// coordinator write the `AgentExecution` record at iteration boundaries so a
@@ -312,6 +312,21 @@ impl AgentExecutionCoordinator {
         }
     }
 
+    /// Persist a failing iteration: the error record just written to the
+    /// state and, on a granted retry, the charged budget must survive a
+    /// crash. Best effort like the rest of the integration: a failed
+    /// checkpoint is logged, never propagated into the outcome.
+    async fn checkpoint_on_error(&self, entity: &AgentLoopEntity) {
+        if let Some(ref cp) = self.checkpoint {
+            cp.create_checkpoint_gated(entity, CheckpointTiming::OnError, None)
+                .await
+                .unwrap_or_else(|ce| {
+                    tracing::warn!("Failed to create error checkpoint: {}", ce);
+                    false
+                });
+        }
+    }
+
     async fn execute_iteration_with_retry(
         &self,
         entity: &AgentLoopEntity,
@@ -326,39 +341,80 @@ impl AgentExecutionCoordinator {
                     // checkpoint taken below contains this failure.
                     let analysis = analyze_error(&e);
                     let record = analysis.to_error_record(entity.id(), None);
-                    entity.state.write().await.record_error(record);
+                    let kind = analysis.kind;
+                    let limit = error_retry_limit(failure_policy);
+                    let per_call_allowed = failure_policy.should_retry(kind, attempt);
+                    // One write guard: record the failure and take the
+                    // cross-iteration decision against the run's history.
+                    let decision = {
+                        let mut state = entity.state.write().await;
+                        state.record_error(record);
+                        decide_retry(
+                            state.error_records(),
+                            &analysis,
+                            state.retry_total(kind),
+                            per_call_allowed,
+                            limit,
+                        )
+                    };
 
-                    if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint_gated(entity, CheckpointTiming::OnError, None)
-                            .await
-                            .unwrap_or_else(|ce| {
-                                tracing::warn!("Failed to create error checkpoint: {}", ce);
-                                false
-                            });
+                    match decision {
+                        RetryDecision::Grant => {
+                            // Charge the grant before the checkpoint so a
+                            // restore never hands back a spent retry.
+                            entity.state.write().await.record_retry(kind);
+                            self.checkpoint_on_error(entity).await;
+                            let delay = failure_policy.next_delay(attempt);
+                            attempt += 1;
+                            tokio::time::sleep(delay).await;
+                            continue;
+                        }
+                        RetryDecision::Stop => {
+                            self.checkpoint_on_error(entity).await;
+                            return Err(e);
+                        }
+                        RetryDecision::Trip {
+                            repeats,
+                            error_type,
+                        } => {
+                            self.checkpoint_on_error(entity).await;
+                            return Err(AgentError::ErrorPatternTripped(format!(
+                                "error type {error_type:?} recurred {repeats} times \
+                                 (limit {limit}); stopping retries: {e}"
+                            )));
+                        }
                     }
-
-                    // The structured classification owns retryability; the
-                    // policy supplies the attempt budget and backoff.
-                    if analysis.retryable && failure_policy.should_retry(analysis.kind, attempt) {
-                        let delay = failure_policy.next_delay(attempt);
-                        attempt += 1;
-                        tokio::time::sleep(delay).await;
-                        continue;
-                    }
-                    return Err(e);
                 }
             }
         }
     }
 }
 
+/// Cross-iteration cap and repeated-error breaker threshold: the failure
+/// policy's retry budget, falling back to the conservative constant when no
+/// retry policy is configured.
+fn error_retry_limit(policy: &FailurePolicyManager) -> u32 {
+    policy
+        .config()
+        .retry_policy
+        .as_ref()
+        .map(|retry| retry.max_retries)
+        .unwrap_or(crate::constants::RETRY_LIMIT_FALLBACK)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
+    use wf_execution_shared::error::ExecutionSharedError;
     use wf_execution_shared::types::execution_entity::ExecutionStatus;
+    use wf_llm::error::LlmError;
+    use wf_tools::error::ToolError;
+    use wf_types::errors::ErrorKind;
+    use wf_types::execution::RetryPolicy;
     use wf_types::Id;
 
     use crate::coordinator::iteration::IterationExecutor;
@@ -441,7 +497,6 @@ mod tests {
             &self,
             _entity: &AgentLoopEntity,
         ) -> AgentResult<IterationResult> {
-            use std::sync::atomic::Ordering;
             let step = self.step.fetch_add(1, Ordering::SeqCst) + 1;
             Ok(IterationResult {
                 should_continue: step < self.total,
@@ -458,8 +513,6 @@ mod tests {
     /// mid-loop must leave a record reflecting real progress).
     #[tokio::test]
     async fn test_iteration_persist_fires_every_iteration() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-
         #[derive(Clone)]
         struct CountingPersist {
             count: Arc<AtomicU32>,
@@ -491,5 +544,154 @@ mod tests {
         assert_eq!(iterations, 3);
         assert!(!result.should_continue);
         assert_eq!(persist.count.load(Ordering::SeqCst), 3);
+    }
+
+    /// Fails the first call of every simulated iteration and succeeds on the
+    /// retry, so exactly one failure reaches each next iteration boundary the
+    /// way a run that keeps hitting the same fault does. `alternate_types`
+    /// switches the failure between two error types that share
+    /// [`ErrorKind::Network`], isolating the cross-iteration budget from the
+    /// repeated-error breaker.
+    struct FlakyIteration {
+        calls: AtomicU32,
+        alternate_types: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl IterationExecutor for FlakyIteration {
+        async fn execute_iteration(
+            &self,
+            _entity: &AgentLoopEntity,
+        ) -> AgentResult<IterationResult> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call.is_multiple_of(2) {
+                let failure = call / 2;
+                let error = if self.alternate_types && failure % 2 == 1 {
+                    AgentError::LlmError(LlmError::ProviderError("HTTP 500 upstream".to_string()))
+                } else {
+                    AgentError::SharedError(ExecutionSharedError::ToolError(
+                        ToolError::TransportError("connection reset".to_string()),
+                    ))
+                };
+                return Err(error);
+            }
+            Ok(IterationResult {
+                should_continue: true,
+                content: serde_json::Value::String("recovered".to_string()),
+                completion_data: None,
+                tool_call_count: 0,
+                finish_reason: wf_tools::callback::LoopFinishReason::Completed,
+            })
+        }
+    }
+
+    /// Retry policy that keeps the same budget as production but without the
+    /// second-long backoff, so the budget tests stay fast.
+    fn fast_failure_policy() -> FailurePolicyManager {
+        FailurePolicyManager::new(FailurePolicyConfig {
+            retry_policy: Some(RetryPolicy {
+                base_delay_ms: 1,
+                jitter: Some(false),
+                ..default_retry_policy()
+            }),
+            fallback_policy: None,
+            non_retryable_errors: None,
+            log_level: None,
+            metrics_enabled: None,
+        })
+    }
+
+    /// The cross-iteration budget, not the per-call one, caps a run that keeps
+    /// failing: the per-call attempt restarts every iteration, so without the
+    /// tally the retries would never stop. Mixed error types under one kind
+    /// keep the breaker silent, and the failure after the cap is terminal.
+    #[tokio::test]
+    async fn cross_iteration_retry_budget_caps_total_retries() {
+        let entity = AgentLoopEntity::new(Id::from("agent-retry-budget".to_string()));
+        entity.state.write().await.start().unwrap();
+
+        let executor = Arc::new(FlakyIteration {
+            calls: AtomicU32::new(0),
+            alternate_types: true,
+        });
+        let coordinator = AgentExecutionCoordinator::new(executor.clone());
+        let policy = fast_failure_policy();
+
+        for iteration in 0..3 {
+            coordinator
+                .execute_iteration_with_retry(&entity, &policy)
+                .await
+                .unwrap_or_else(|e| panic!("iteration {iteration} must recover: {e}"));
+        }
+
+        let err = coordinator
+            .execute_iteration_with_retry(&entity, &policy)
+            .await
+            .expect_err("an exhausted cross-iteration budget must fail terminally");
+        assert!(
+            !matches!(err, AgentError::ErrorPatternTripped(_)),
+            "mixed error types exhaust the budget instead of tripping the breaker: {err}"
+        );
+        assert_eq!(
+            entity.state.read().await.retry_total(ErrorKind::Network),
+            3,
+            "one kind may be granted max_retries retries over the whole run"
+        );
+        assert_eq!(
+            executor.calls.load(Ordering::SeqCst),
+            7,
+            "three recovering iterations plus the one failure that ends the run"
+        );
+    }
+
+    /// The breaker, not the budget, stops a run whose failures keep repeating
+    /// the very same error type: it fires at the threshold while the granted
+    /// retry total still has headroom.
+    #[tokio::test]
+    async fn repeating_error_type_trips_the_circuit_breaker() {
+        let entity = AgentLoopEntity::new(Id::from("agent-error-pattern".to_string()));
+        entity.state.write().await.start().unwrap();
+
+        let executor = Arc::new(FlakyIteration {
+            calls: AtomicU32::new(0),
+            alternate_types: false,
+        });
+        let coordinator = AgentExecutionCoordinator::new(executor.clone());
+        let policy = fast_failure_policy();
+
+        for iteration in 0..2 {
+            coordinator
+                .execute_iteration_with_retry(&entity, &policy)
+                .await
+                .unwrap_or_else(|e| panic!("iteration {iteration} must recover: {e}"));
+        }
+
+        let err = coordinator
+            .execute_iteration_with_retry(&entity, &policy)
+            .await
+            .expect_err("the third identical failure must trip the breaker");
+        let message = err.to_string();
+        assert!(
+            matches!(err, AgentError::ErrorPatternTripped(_)),
+            "a repeating error type must stop as ErrorPatternTripped: {message}"
+        );
+        assert!(
+            message.contains("ToolError recurred 3 times")
+                && message.contains("(limit 3)")
+                && message.contains("stopping retries"),
+            "the breaker error must carry the recurring type, count and limit: {message}"
+        );
+
+        let state = entity.state.read().await;
+        assert_eq!(
+            state.retry_total(ErrorKind::Network),
+            2,
+            "the breaker stops the run while the budget still had headroom"
+        );
+        assert_eq!(
+            state.error_records().len(),
+            3,
+            "every failure of the run is recorded"
+        );
     }
 }

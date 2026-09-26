@@ -1,14 +1,14 @@
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
+use wf_execution_shared::RequestUsage;
 use wf_llm::LlmError;
 use wf_types::llm::{LlmRequest, MessageStreamEvent};
 use wf_types::message::{LlmToolCall, Message};
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use wf_execution_shared::RequestUsage;
 
 use super::llm_call::{build_response_summary, llm_call_record, text_of};
 use super::AgentIterationCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::stream::{AgentStreamEvent};
+use crate::stream::AgentStreamEvent;
 
 /// Publish the stream termination event (error vs abort) for the agent loop's
 /// streaming LLM path. Consumer-layer publishing keeps wf-llm free of the

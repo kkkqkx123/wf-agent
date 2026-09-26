@@ -84,9 +84,9 @@ impl NodeErrorCategory {
         match self {
             Self::TransportTimeout => ErrorKind::Timeout,
             Self::Resource => ErrorKind::Resource,
-            Self::BusinessFailure
-            | Self::CancelledInterrupted
-            | Self::CompressionFailure => ErrorKind::Execution,
+            Self::BusinessFailure | Self::CancelledInterrupted | Self::CompressionFailure => {
+                ErrorKind::Execution
+            }
         }
     }
 }
@@ -263,13 +263,19 @@ mod tests {
             NodeErrorCategory::CancelledInterrupted,
             NodeErrorCategory::Resource,
         ] {
-            assert_eq!(NodeErrorCategory::from_error_type(&category.error_type()), category);
+            assert_eq!(
+                NodeErrorCategory::from_error_type(&category.error_type()),
+                category
+            );
         }
         assert_eq!(
             NodeErrorCategory::Resource.error_type(),
             ErrorType::ServiceUnavailable
         );
-        assert_eq!(NodeErrorCategory::Resource.error_kind(), ErrorKind::Resource);
+        assert_eq!(
+            NodeErrorCategory::Resource.error_kind(),
+            ErrorKind::Resource
+        );
         assert_eq!(
             NodeErrorCategory::TransportTimeout.error_kind(),
             ErrorKind::Timeout
@@ -277,7 +283,8 @@ mod tests {
     }
 
     #[test]
-    fn category_roundtrip_is_strict() {        for category in [
+    fn category_roundtrip_is_strict() {
+        for category in [
             NodeErrorCategory::TransportTimeout,
             NodeErrorCategory::BusinessFailure,
             NodeErrorCategory::CancelledInterrupted,

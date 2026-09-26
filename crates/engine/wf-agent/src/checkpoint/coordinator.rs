@@ -461,6 +461,7 @@ impl AgentCheckpointIntegration {
             end_time: snapshot.completed_at,
             error: snapshot.error.clone(),
             error_records: parse_snapshot_records(snapshot.error_records.as_deref(), "error_record"),
+            retry_totals: snapshot.retry_totals.clone().unwrap_or_default(),
             variable_snapshots: snapshot
                 .variable_snapshots
                 .as_ref()
@@ -638,6 +639,7 @@ impl AgentCheckpointIntegration {
             } else {
                 Some(error_record_values)
             },
+            retry_totals: Some(state.retry_totals().clone()),
             interruption_records: if interruption_records.is_empty() {
                 None
             } else {
@@ -719,28 +721,19 @@ where
 /// `ExecutionStatus::as_str`) back into the runtime status.
 ///
 /// An unrecognized status means a corrupt or foreign snapshot and aborts the
-/// restore — data damage is never masked by a fallback. A recorded terminal
-/// status normalizes to `Running`: a restored snapshot is always re-driven,
-/// in-place resume exists exactly to recover error-interrupted runs, and the
-/// registry liveness guard (see lifecycle resume) keeps two writers off the
-/// same id. The snapshot blob itself keeps the recorded terminal status for
-/// audit. `Paused` / `Created` stay as-is: both may legally transition to
-/// `Running` on start.
+/// restore — data damage is never masked by a fallback. The recorded status
+/// comes back verbatim, terminal included: re-driving a settled run is not a
+/// restore concern, so the resume entry (`restore_checkpoint` in the
+/// lifecycle module) rejects terminal snapshots explicitly while read-only
+/// restore and preview keep the recorded audit value.
+/// `Paused` / `Created` stay as-is: both may legally transition to `Running`
+/// on start.
 fn parse_runtime_status(status: &str) -> Result<ExecutionStatus, CheckpointError> {
-    let parsed: ExecutionStatus =
-        serde_json::from_value(serde_json::Value::String(status.to_string())).map_err(|e| {
-            CheckpointError::Validation {
-                reason: format!("unrecognized checkpoint status '{status}': {e}"),
-            }
-        })?;
-    if parsed.is_terminal() {
-        tracing::info!(
-            status,
-            "checkpoint recorded a terminal status; re-driving as Running"
-        );
-        return Ok(ExecutionStatus::Running);
-    }
-    Ok(parsed)
+    serde_json::from_value(serde_json::Value::String(status.to_string())).map_err(|e| {
+        CheckpointError::Validation {
+            reason: format!("unrecognized checkpoint status '{status}': {e}"),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -756,11 +749,18 @@ mod tests {
     #[test]
     fn unknown_status_aborts_translation() {
         let err = parse_runtime_status("not-a-status").expect_err("corrupt status must fail");
-        assert!(matches!(err, CheckpointError::Validation { .. }));
+        let reason = match err {
+            CheckpointError::Validation { reason } => reason,
+            other => panic!("unexpected error kind: {other:?}"),
+        };
+        assert!(
+            reason.contains("not-a-status") && reason.contains("unrecognized"),
+            "the raw status and the parse failure must both reach the caller: {reason}"
+        );
     }
 
     #[test]
-    fn live_statuses_pass_through_and_terminal_re_drives() {
+    fn statuses_parse_verbatim() {
         assert_eq!(
             parse_runtime_status("Paused").expect("paused is restorable"),
             ExecutionStatus::Paused
@@ -773,11 +773,11 @@ mod tests {
             parse_runtime_status("Running").expect("running is restorable"),
             ExecutionStatus::Running
         );
-        // A recorded terminal status is an explicit re-drive, not damage:
-        // it translates to Running (the info log keeps the audit trail).
+        // A recorded terminal status is kept, not rewritten to Running: the
+        // resume entry rejects it explicitly instead of silently re-driving.
         assert_eq!(
-            parse_runtime_status("Failed").expect("terminal re-drives"),
-            ExecutionStatus::Running
+            parse_runtime_status("Failed").expect("terminal parses verbatim"),
+            ExecutionStatus::Failed
         );
     }
 
@@ -851,5 +851,37 @@ mod tests {
             .unwrap()
             .expect("created checkpoint readable by id");
         assert_eq!(meta.id, first);
+    }
+
+    /// The cross-iteration retry tally travels with the snapshot, so a run
+    /// restored from storage keeps the budget it already spent instead of
+    /// starting over.
+    #[tokio::test]
+    async fn retry_budget_survives_checkpoint_restore() {
+        let integration = make_integration();
+        let entity = make_entity("loop-retry-tally");
+        {
+            let mut state = entity.state.write().await;
+            state.record_retry(wf_types::errors::ErrorKind::Timeout);
+            state.record_retry(wf_types::errors::ErrorKind::Timeout);
+            state.record_retry(wf_types::errors::ErrorKind::Network);
+        }
+        let checkpoint_id = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .expect("checkpoint created");
+
+        let restored = integration
+            .restore_entity(&checkpoint_id)
+            .await
+            .expect("checkpoint restores");
+        assert_eq!(
+            restored.state.retry_totals,
+            HashMap::from([
+                (wf_types::errors::ErrorKind::Timeout, 2),
+                (wf_types::errors::ErrorKind::Network, 1),
+            ]),
+            "a restored run must not be handed a fresh retry budget"
+        );
     }
 }

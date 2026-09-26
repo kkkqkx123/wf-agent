@@ -83,7 +83,7 @@ pub use infra::dependency::{
     DependencyKind, DependentEntry, DependentImpact, ImpactLevel, UpdateImpactReport,
 };
 pub use infra::diagnostics::{StorageDiagnosticReport, StorageDiagnosticsReport, StoreDiagnostic};
-pub use infra::error::{with_timeout, ApiError, ApiResult};
+pub use infra::error::{with_timeout, ApiError, ApiErrorCategory, ApiResult};
 pub use infra::events::{
     event_history_size, event_system_health, event_time_range, execution_listener_stats,
     execution_timeline_summary, EventQueryOptions, EventStats, EventSystemHealth,

@@ -742,11 +742,7 @@ impl ToolExecutionCoordinator {
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
             .unwrap_or_else(|e| {
-                error_message(
-                    &e.to_string(),
-                    Some(&tc.id),
-                    Some(&tc.function.name),
-                )
+                error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))
             }))
     }
 

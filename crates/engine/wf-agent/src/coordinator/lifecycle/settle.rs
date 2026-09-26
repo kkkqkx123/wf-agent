@@ -53,4 +53,13 @@ mod tests {
         let err = AgentError::Internal("teardown".to_string());
         assert_eq!(settle_kind(&err, true), SettleKind::Cancel);
     }
+
+    /// A circuit-breaker exit is a failure of the run, not a timeout or a
+    /// cancellation: it stops on its own terms, so the run must settle as
+    /// failed.
+    #[test]
+    fn settle_kind_fails_on_a_tripped_error_pattern() {
+        let err = AgentError::ErrorPatternTripped("Timeout recurred 3 times".to_string());
+        assert_eq!(settle_kind(&err, false), SettleKind::Fail);
+    }
 }

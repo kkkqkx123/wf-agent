@@ -101,6 +101,10 @@ pub struct AgentLoopStateSnapshot {
     pub end_time: Option<i64>,
     pub error: Option<String>,
     pub error_records: Vec<ErrorRecord>,
+    /// Cross-iteration retry tally per error kind, so a run that keeps
+    /// hitting the same kind of failure is capped across iterations and not
+    /// only within one call.
+    pub retry_totals: HashMap<wf_types::errors::ErrorKind, u32>,
     /// Interruption records for audit and diagnostics.
     #[serde(default)]
     pub interruption_records: Vec<serde_json::Value>,
@@ -137,6 +141,9 @@ pub struct AgentLoopState {
     end_time: Option<i64>,
     error: Option<String>,
     error_records: Vec<ErrorRecord>,
+    /// Cross-iteration retry tally per error kind, mirroring the snapshot
+    /// field of the same name.
+    retry_totals: HashMap<wf_types::errors::ErrorKind, u32>,
     interruption_records: Vec<serde_json::Value>,
     event_records: Vec<serde_json::Value>,
     variable_snapshots: HashMap<String, Value>,
@@ -169,6 +176,7 @@ impl AgentLoopState {
             end_time: None,
             error: None,
             error_records: Vec::new(),
+            retry_totals: HashMap::new(),
             interruption_records: Vec::new(),
             event_records: Vec::new(),
             variable_snapshots: HashMap::new(),
@@ -229,6 +237,23 @@ impl AgentLoopState {
 
     pub fn error_records(&self) -> &[ErrorRecord] {
         &self.error_records
+    }
+
+    /// Retries this run has already been granted for one error kind. The
+    /// per-call attempt budget restarts every iteration, so only this total
+    /// bounds a run that keeps failing the same way.
+    pub fn retry_total(&self, kind: wf_types::errors::ErrorKind) -> u32 {
+        self.retry_totals.get(&kind).copied().unwrap_or(0)
+    }
+
+    /// Tally one granted retry for `kind`.
+    pub fn record_retry(&mut self, kind: wf_types::errors::ErrorKind) {
+        *self.retry_totals.entry(kind).or_insert(0) += 1;
+    }
+
+    /// The full tally, for snapshot capture.
+    pub fn retry_totals(&self) -> &HashMap<wf_types::errors::ErrorKind, u32> {
+        &self.retry_totals
     }
 
     pub fn variable_snapshots(&self) -> &HashMap<String, Value> {
@@ -637,6 +662,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.iteration_history.clear();
         self.error = None;
         self.error_records.clear();
+        self.retry_totals.clear();
         self.variable_snapshots.clear();
         Ok(())
     }
@@ -653,6 +679,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
             end_time: self.end_time,
             error: self.error.clone(),
             error_records: self.error_records.clone(),
+            retry_totals: self.retry_totals.clone(),
             interruption_records: self.interruption_records.clone(),
             event_records: self.event_records.clone(),
             variable_snapshots: self.variable_snapshots.clone(),
@@ -676,6 +703,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.end_time = snapshot.end_time;
         self.error = snapshot.error;
         self.error_records = snapshot.error_records;
+        self.retry_totals = snapshot.retry_totals;
         self.interruption_records = snapshot.interruption_records;
         self.event_records = snapshot.event_records;
         self.variable_snapshots = snapshot.variable_snapshots;
@@ -768,6 +796,29 @@ mod tests {
         let mut restored = AgentLoopState::new();
         restored.restore_from_snapshot(snapshot).await.unwrap();
         assert!(restored.tool_discovery().is_activated("write_file"));
+    }
+
+    /// The cross-iteration retry tally is part of the run state: a restored
+    /// run must not be handed a fresh budget.
+    #[tokio::test]
+    async fn retry_budget_survives_snapshot_roundtrip() {
+        let mut state = AgentLoopState::new();
+        state.start().unwrap();
+        state.record_retry(wf_types::errors::ErrorKind::Timeout);
+        state.record_retry(wf_types::errors::ErrorKind::Timeout);
+        state.record_retry(wf_types::errors::ErrorKind::Network);
+
+        let snapshot = state.create_snapshot().await.unwrap();
+        let mut restored = AgentLoopState::new();
+        restored.restore_from_snapshot(snapshot).await.unwrap();
+        assert_eq!(
+            restored.retry_total(wf_types::errors::ErrorKind::Timeout),
+            2
+        );
+        assert_eq!(
+            restored.retry_total(wf_types::errors::ErrorKind::Network),
+            1
+        );
     }
 
     #[tokio::test]

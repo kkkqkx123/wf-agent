@@ -684,6 +684,12 @@ impl
                     .and_then(|v| (!v.is_null()).then(|| v.clone()))
                     .and_then(|v| v.as_i64());
             }
+            if other.contains_key("retry_totals") {
+                result.retry_totals = other
+                    .get("retry_totals")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
             for key in [
                 "error_records",
                 "interruption_records",
@@ -831,6 +837,12 @@ impl AgentDiffCalculator {
             other.insert(
                 "error_records".to_string(),
                 serde_json::to_value(&current.error_records).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.retry_totals != previous.retry_totals {
+            other.insert(
+                "retry_totals".to_string(),
+                serde_json::to_value(&current.retry_totals).unwrap_or(serde_json::Value::Null),
             );
         }
         if current.interruption_records != previous.interruption_records {
@@ -1311,6 +1323,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             error_records: None,
+            retry_totals: None,
             interruption_records: None,
             event_records: None,
             iteration_history: None,

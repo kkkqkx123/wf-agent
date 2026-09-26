@@ -119,8 +119,8 @@ async fn test_stream_events_text_only() {
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
-    let entity = AgentLoopEntity::new(Id::from("agent-stream-1".to_string()))
-        .with_model("mock".to_string());
+    let entity =
+        AgentLoopEntity::new(Id::from("agent-stream-1".to_string())).with_model("mock".to_string());
     entity.state.write().await.start().unwrap();
 
     let (result, mut rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
@@ -143,9 +143,7 @@ async fn test_stream_events_text_only() {
         } => assert_eq!(*iteration, 1),
         other => panic!("expected IterationStart, got {:?}", other),
     }
-    assert!(
-        matches!(&events[1], AgentStreamEvent::LlmDelta { content } if content == "hello ")
-    );
+    assert!(matches!(&events[1], AgentStreamEvent::LlmDelta { content } if content == "hello "));
     assert!(matches!(&events[2], AgentStreamEvent::LlmDelta { content } if content == "world"));
     // The iteration appended one assistant message: the end boundary
     // anchor reflects the conversation after the iteration.
@@ -182,8 +180,8 @@ async fn test_stream_events_with_tool_call() {
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
-    let entity = AgentLoopEntity::new(Id::from("agent-stream-2".to_string()))
-        .with_model("mock".to_string());
+    let entity =
+        AgentLoopEntity::new(Id::from("agent-stream-2".to_string())).with_model("mock".to_string());
     entity.state.write().await.start().unwrap();
 
     let (result, mut rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
@@ -224,8 +222,8 @@ async fn test_stream_error_propagates() {
         "upstream exploded".to_string(),
     ));
     let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
-    let entity = AgentLoopEntity::new(Id::from("agent-stream-3".to_string()))
-        .with_model("mock".to_string());
+    let entity =
+        AgentLoopEntity::new(Id::from("agent-stream-3".to_string())).with_model("mock".to_string());
     entity.state.write().await.start().unwrap();
 
     let (result, _rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
@@ -276,8 +274,7 @@ async fn test_stream_error_event_published_to_bus() {
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();
 
-    let result =
-        run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
+    let result = run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
     assert!(result.is_err(), "stream error must fail the iteration");
 
     let event = drain_until_type(&mut sub, wf_types::events::EventType::LlmStreamError)
@@ -305,8 +302,7 @@ async fn test_stream_abort_event_published_to_bus() {
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();
 
-    let result =
-        run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
+    let result = run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
     assert!(result.is_err(), "stream abort must fail the iteration");
 
     let event = drain_until_type(&mut sub, wf_types::events::EventType::LlmStreamAborted)

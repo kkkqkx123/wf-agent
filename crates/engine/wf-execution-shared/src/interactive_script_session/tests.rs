@@ -3,15 +3,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::types::execution_entity::ExecutionEntity;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use crate::types::execution_entity::ExecutionEntity;
 use wf_script::InteractionMode;
 use wf_types::Id;
 
 use super::config::{
-    InteractionRecord, InteractiveScriptSessionConfig, InteractiveScriptSessionSnapshot,
-    InteractionSource, SessionPhase,
+    InteractionRecord, InteractionSource, InteractiveScriptSessionConfig,
+    InteractiveScriptSessionSnapshot, SessionPhase,
 };
 use super::detect::detect_prompt;
 use super::driver::{
@@ -216,7 +216,8 @@ async fn test_drive_session_debounce_still_completes() {
     let store = Arc::new(wf_shell::engine::BackgroundShellStore::new(None));
     let mut config = test_config("printf 'name: '; read n; echo \"hi $n\"");
     config.debounce_ms = 150;
-    let entity = InteractiveScriptSessionEntity::new(Id::from("drive-debounce".to_string()), config);
+    let entity =
+        InteractiveScriptSessionEntity::new(Id::from("drive-debounce".to_string()), config);
     let driver = SessionDriverContext {
         execution_id: "exec-debounce".to_string(),
         node_id: "node-debounce".to_string(),

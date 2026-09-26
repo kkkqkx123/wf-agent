@@ -54,24 +54,22 @@ impl ErrorBranchScope {
 /// handler retries and never route, so a retried-then-recovered node behaves
 /// exactly as before and no retry storm is amplified by branching.
 ///
-/// The category is trusted only where the engine tagged it (`NodeFailure` on
-/// either side of the handler boundary) or where the shared error is itself a
-/// typed interruption/timeout. Everything else — tool, core, and plain handler
-/// failures whose transport semantics were lost inside the handler — classifies
-/// as `BusinessFailure`. Substring matching on message text is deliberately
-/// avoided: message wording is not a stable routing signal.
+/// A category the engine already tagged is kept verbatim: the reverse
+/// projection is lossy (`CompressionFailure` has no dedicated `ErrorType`),
+/// so round-tripping it through the taxonomy would downgrade it to a business
+/// failure. Everything else reads through that same taxonomy — the analysis
+/// names the shared `ErrorType` and `NodeErrorCategory::from_error_type` turns
+/// it into a routing category, which is the single mapping both engines route
+/// by. Substring matching on message text is deliberately avoided: message
+/// wording is not a stable routing signal.
 pub fn classify_error(error: &WorkflowError) -> NodeErrorCategory {
     use wf_execution_shared::error::ExecutionSharedError;
     match error {
         WorkflowError::NodeFailure { category, .. } => *category,
-        WorkflowError::ExecutionTimeout(_) => NodeErrorCategory::TransportTimeout,
-        WorkflowError::SharedError(inner) => match inner {
-            ExecutionSharedError::NodeFailure { category, .. } => *category,
-            ExecutionSharedError::InterruptionError(_) => NodeErrorCategory::CancelledInterrupted,
-            ExecutionSharedError::TimeoutError(_) => NodeErrorCategory::TransportTimeout,
-            _ => NodeErrorCategory::BusinessFailure,
-        },
-        _ => NodeErrorCategory::BusinessFailure,
+        WorkflowError::SharedError(ExecutionSharedError::NodeFailure { category, .. }) => *category,
+        other => NodeErrorCategory::from_error_type(
+            &crate::error_analysis::analyze_workflow_error(other).error_type,
+        ),
     }
 }
 

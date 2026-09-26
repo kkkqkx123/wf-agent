@@ -244,6 +244,15 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
             false,
             RecoveryAction::Abort,
         ),
+        // Misconfigured provider/profile/codec: the caller can fix the
+        // configuration, so this classifies as a validation failure rather
+        // than a generic engine error.
+        LlmError::ConfigError(_) => (
+            ErrorKind::Validation,
+            ErrorType::Validation,
+            false,
+            RecoveryAction::ManualIntervention,
+        ),
         // Configuration, codec, serialization and malformed-response errors
         // are deterministic failures; retrying reproduces the same outcome.
         _ => {
@@ -374,6 +383,16 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::ManualIntervention,
             message: e.to_string(),
         },
+        // The circuit breaker already stopped a pattern that repeated up to
+        // the threshold: terminal by construction, a retry cannot change an
+        // error that is not converging.
+        AgentError::ErrorPatternTripped(_) => ErrorAnalysis {
+            kind: ErrorKind::Execution,
+            error_type: ErrorType::Internal,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
+        },
         AgentError::LlmError(le) => llm_error_analysis(le),
         AgentError::CheckpointError(_) => ErrorAnalysis {
             kind: ErrorKind::AgentCheckpoint,
@@ -391,6 +410,69 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             message: e.to_string(),
         },
     }
+}
+
+/// Outcome of the retry decision taken for one failed iteration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetryDecision {
+    /// Every budget permits another attempt: charge the cross-iteration
+    /// budget and retry after the policy backoff.
+    Grant,
+    /// The error is terminal or a budget is spent: surface it as the run's
+    /// failure.
+    Stop,
+    /// The same error type recurred up to the threshold: stop the run with
+    /// the circuit-breaker error instead of retrying a pattern that is not
+    /// converging.
+    Trip {
+        repeats: usize,
+        error_type: ErrorType,
+    },
+}
+
+/// The single production consumer of [`analyze_error_pattern`]: decide for one
+/// failed iteration whether to grant another retry, stop on an exhausted
+/// budget, or trip the repeated-error circuit breaker.
+///
+/// * `kind_retries` — retries already granted for this [`ErrorKind`] during
+///   the run; the per-call attempt budget restarts every iteration, so only
+///   this total bounds a run that keeps failing the same way.
+/// * `per_call_allowed` — the failure policy's per-call attempt budget.
+/// * `limit` — cross-iteration cap and breaker threshold, taken from the
+///   failure policy (`max_retries`), falling back to the conservative
+///   constant when no retry policy is configured.
+pub fn decide_retry(
+    records: &[ErrorRecord],
+    analysis: &ErrorAnalysis,
+    kind_retries: u32,
+    per_call_allowed: bool,
+    limit: u32,
+) -> RetryDecision {
+    if !analysis.retryable {
+        return RetryDecision::Stop;
+    }
+    let repeats = repeat_count(records, &analysis.error_type);
+    // `repeats >= 2` keeps a single occurrence from tripping when a config
+    // sets the threshold below two.
+    if repeats >= 2 && repeats as u32 >= limit {
+        return RetryDecision::Trip {
+            repeats,
+            error_type: analysis.error_type.clone(),
+        };
+    }
+    if !per_call_allowed || kind_retries >= limit {
+        return RetryDecision::Stop;
+    }
+    RetryDecision::Grant
+}
+
+/// Occurrences of `error_type` in the recorded error history.
+fn repeat_count(records: &[ErrorRecord], error_type: &ErrorType) -> usize {
+    analyze_error_pattern(records)
+        .type_distribution
+        .get(&format!("{error_type:?}"))
+        .copied()
+        .unwrap_or(0)
 }
 
 // ── Error chain analysis utilities ──────────────────────────────────────────
@@ -442,7 +524,10 @@ fn most_common<K>(counts: &HashMap<K, usize>) -> Option<K>
 where
     K: Clone + Eq + std::hash::Hash,
 {
-    counts.iter().max_by_key(|(_, count)| **count).map(|(k, _)| k.clone())
+    counts
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(k, _)| k.clone())
 }
 
 /// Analyze error patterns from a list of error records.
@@ -607,5 +692,72 @@ mod tests {
             Some(RecoveryAction::Retry)
         ));
         assert!(matches!(record.error_type, Some(ErrorType::Timeout)));
+    }
+
+    #[test]
+    fn decide_retry_grants_inside_every_budget() {
+        let analysis = analyze_error(&AgentError::LlmError(LlmError::Timeout(100)));
+        let records = vec![analysis.to_error_record("exec-1", None)];
+        assert_eq!(
+            decide_retry(&records, &analysis, 0, true, 3),
+            RetryDecision::Grant
+        );
+    }
+
+    #[test]
+    fn decide_retry_trips_on_a_repeating_error_type() {
+        let analysis = analyze_error(&AgentError::LlmError(LlmError::Timeout(100)));
+        let records: Vec<_> = (0..3)
+            .map(|_| analysis.to_error_record("exec-1", None))
+            .collect();
+        // The breaker fires before the budget: repeats reached the threshold
+        // while the granted-retry total still had headroom.
+        assert_eq!(
+            decide_retry(&records, &analysis, 2, true, 3),
+            RetryDecision::Trip {
+                repeats: 3,
+                error_type: ErrorType::Timeout,
+            }
+        );
+    }
+
+    #[test]
+    fn decide_retry_stops_on_an_exhausted_kind_budget() {
+        let analysis = analyze_error(&AgentError::LlmError(LlmError::Timeout(100)));
+        let records: Vec<_> = (0..2)
+            .map(|_| analysis.to_error_record("exec-1", None))
+            .collect();
+        assert_eq!(
+            decide_retry(&records, &analysis, 3, true, 3),
+            RetryDecision::Stop
+        );
+        // The per-call budget has the same veto.
+        assert_eq!(
+            decide_retry(&records, &analysis, 0, false, 3),
+            RetryDecision::Stop
+        );
+    }
+
+    #[test]
+    fn decide_retry_never_retries_a_terminal_error() {
+        let analysis = analyze_error(&AgentError::Validation("bad request".to_string()));
+        let records: Vec<_> = (0..3)
+            .map(|_| analysis.to_error_record("exec-1", None))
+            .collect();
+        assert_eq!(
+            decide_retry(&records, &analysis, 0, true, 3),
+            RetryDecision::Stop
+        );
+    }
+
+    #[test]
+    fn tripped_pattern_classifies_as_terminal() {
+        let analysis = analyze_error(&AgentError::ErrorPatternTripped(
+            "error type Timeout repeated 3 times".to_string(),
+        ));
+        assert_eq!(analysis.kind, ErrorKind::Execution);
+        assert_eq!(analysis.error_type, ErrorType::Internal);
+        assert!(!analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
     }
 }

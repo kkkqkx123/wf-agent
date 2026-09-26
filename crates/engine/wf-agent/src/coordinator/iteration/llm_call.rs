@@ -14,136 +14,136 @@ use crate::error::AgentResult;
 impl AgentIterationCoordinator {
     /// Publish the LLM_REQUESTED event before the gateway call.
     pub(super) async fn emit_llm_requested(&self, entity: &AgentLoopEntity, request: &LlmRequest) {
-    let Some(ref bus) = self.event_bus else {
-        return;
-    };
-    let _ = bus.publish(wf_execution_shared::build_llm_requested_event(
-        entity.id(),
-        Some(entity.id()),
-        &request.profile_id,
-        request.messages.len(),
-        request.tools.as_ref().map(|tools| tools.len()).unwrap_or(0),
-    ));
-}
-
-/// Single collection point: append the LLM call to the
-/// entity state audit trail and publish the finished/failed event. The
-/// call record carries request/response summaries; the events give the
-/// online timeline the same visibility.
-pub(super) async fn persist_llm_call(
-    &self,
-    entity: &AgentLoopEntity,
-    request: &LlmRequest,
-    call: LlmCallRecord,
-) {
-    entity.state.write().await.record_llm_call(call.clone());
-    let Some(ref bus) = self.event_bus else {
-        return;
-    };
-    if let Some(error) = &call.error {
-        let _ = bus.publish(wf_execution_shared::build_llm_failed_event(
-            entity.id(),
-            Some(entity.id()),
-            error,
-            &request.profile_id,
-        ));
-    } else {
-        let _ = bus.publish(wf_execution_shared::build_llm_responded_event(
+        let Some(ref bus) = self.event_bus else {
+            return;
+        };
+        let _ = bus.publish(wf_execution_shared::build_llm_requested_event(
             entity.id(),
             Some(entity.id()),
             &request.profile_id,
-            call.model.as_deref(),
-            call.prompt_tokens,
-            call.completion_tokens,
+            request.messages.len(),
+            request.tools.as_ref().map(|tools| tools.len()).unwrap_or(0),
         ));
     }
-}
 
-/// Blocking LLM call: one full gateway round trip with the call recorded
-/// on the audit trail in every terminal outcome (success, provider
-/// rejection, context-length rejection with forced compression).
-pub(super) async fn blocking_llm_call(
-    &self,
-    entity: &AgentLoopEntity,
-    request: &LlmRequest,
-) -> AgentResult<(
-    Message,
-    Option<String>,
-    Option<String>,
-    Option<RequestUsage>,
-)> {
-    let started_at = wf_common::now();
-    // Publish the request event before the gateway call.
-    self.emit_llm_requested(entity, request).await;
-    let llm_result = match self
-        .gateway
-        .generate(request, Some(entity.get_abort_signal()))
-        .await
-    {
-        Ok(result) => result,
-        Err(e) if e.is_context_length_exceeded() => {
-            // The failed call stays on the audit trail.
-            self.persist_llm_call(
-                entity,
-                request,
-                llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
-            )
-            .await;
-            // Safety-net path: the provider rejected the
-            // actual request; force a compression event over the
-            // real messages so the chain fires even though the
-            // estimate undercounted.
-            self.publish_forced_compression(entity, request).await;
-            return Err(e.into());
+    /// Single collection point: append the LLM call to the
+    /// entity state audit trail and publish the finished/failed event. The
+    /// call record carries request/response summaries; the events give the
+    /// online timeline the same visibility.
+    pub(super) async fn persist_llm_call(
+        &self,
+        entity: &AgentLoopEntity,
+        request: &LlmRequest,
+        call: LlmCallRecord,
+    ) {
+        entity.state.write().await.record_llm_call(call.clone());
+        let Some(ref bus) = self.event_bus else {
+            return;
+        };
+        if let Some(error) = &call.error {
+            let _ = bus.publish(wf_execution_shared::build_llm_failed_event(
+                entity.id(),
+                Some(entity.id()),
+                error,
+                &request.profile_id,
+            ));
+        } else {
+            let _ = bus.publish(wf_execution_shared::build_llm_responded_event(
+                entity.id(),
+                Some(entity.id()),
+                &request.profile_id,
+                call.model.as_deref(),
+                call.prompt_tokens,
+                call.completion_tokens,
+            ));
         }
-        Err(e) => {
-            // Record the failed call on the audit trail.
-            self.persist_llm_call(
-                entity,
-                request,
-                llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
-            )
-            .await;
-            return Err(e.into());
-        }
-    };
-    let usage = llm_result
-        .usage
-        .as_ref()
-        .map(wf_execution_shared::RequestUsage::from);
-    // Record the completed call (request/response summaries).
-    let content = text_of(&llm_result.message.content);
-    let response_summary = build_response_summary(
-        &content,
-        llm_result.tool_calls.as_deref().unwrap_or_default(),
-        llm_result.finish_reason.clone(),
-    );
-    let model = if llm_result.model.is_empty() {
-        None
-    } else {
-        Some(llm_result.model.clone())
-    };
-    self.persist_llm_call(
-        entity,
-        request,
-        llm_call_record(
+    }
+
+    /// Blocking LLM call: one full gateway round trip with the call recorded
+    /// on the audit trail in every terminal outcome (success, provider
+    /// rejection, context-length rejection with forced compression).
+    pub(super) async fn blocking_llm_call(
+        &self,
+        entity: &AgentLoopEntity,
+        request: &LlmRequest,
+    ) -> AgentResult<(
+        Message,
+        Option<String>,
+        Option<String>,
+        Option<RequestUsage>,
+    )> {
+        let started_at = wf_common::now();
+        // Publish the request event before the gateway call.
+        self.emit_llm_requested(entity, request).await;
+        let llm_result = match self
+            .gateway
+            .generate(request, Some(entity.get_abort_signal()))
+            .await
+        {
+            Ok(result) => result,
+            Err(e) if e.is_context_length_exceeded() => {
+                // The failed call stays on the audit trail.
+                self.persist_llm_call(
+                    entity,
+                    request,
+                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
+                )
+                .await;
+                // Safety-net path: the provider rejected the
+                // actual request; force a compression event over the
+                // real messages so the chain fires even though the
+                // estimate undercounted.
+                self.publish_forced_compression(entity, request).await;
+                return Err(e.into());
+            }
+            Err(e) => {
+                // Record the failed call on the audit trail.
+                self.persist_llm_call(
+                    entity,
+                    request,
+                    llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
+                )
+                .await;
+                return Err(e.into());
+            }
+        };
+        let usage = llm_result
+            .usage
+            .as_ref()
+            .map(wf_execution_shared::RequestUsage::from);
+        // Record the completed call (request/response summaries).
+        let content = text_of(&llm_result.message.content);
+        let response_summary = build_response_summary(
+            &content,
+            llm_result.tool_calls.as_deref().unwrap_or_default(),
+            llm_result.finish_reason.clone(),
+        );
+        let model = if llm_result.model.is_empty() {
+            None
+        } else {
+            Some(llm_result.model.clone())
+        };
+        self.persist_llm_call(
+            entity,
             request,
-            started_at,
-            model,
-            Some(response_summary),
-            usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-            usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
-            None,
-        ),
-    )
-    .await;
-    Ok((
-        llm_result.message.clone(),
-        llm_result.content.clone(),
-        llm_result.finish_reason.clone(),
-        usage,
-    ))
-}
+            llm_call_record(
+                request,
+                started_at,
+                model,
+                Some(response_summary),
+                usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                None,
+            ),
+        )
+        .await;
+        Ok((
+            llm_result.message.clone(),
+            llm_result.content.clone(),
+            llm_result.finish_reason.clone(),
+            usage,
+        ))
+    }
 }
 
 pub(super) fn text_of(content: &MessageContentValue) -> String {

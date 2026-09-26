@@ -30,6 +30,14 @@ pub enum AgentError {
     #[error("Sub-agent hierarchy limit reached: {0}")]
     HierarchyLimitReached(String),
 
+    /// The repeated-error circuit breaker fired: one error type kept recurring
+    /// up to the policy threshold, so the run stops instead of spending more
+    /// retries on a pattern that is not converging. The payload carries the
+    /// recurring type, the observed repeat count and the last underlying
+    /// error.
+    #[error("Repeated error pattern: {0}")]
+    ErrorPatternTripped(String),
+
     #[error("LLM error: {0}")]
     LlmError(#[from] wf_llm::error::LlmError),
 

@@ -1232,6 +1232,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             error_records: None,
+            retry_totals: None,
             interruption_records: None,
             event_records: None,
             iteration_history: None,

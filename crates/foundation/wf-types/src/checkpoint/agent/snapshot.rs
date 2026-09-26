@@ -53,6 +53,12 @@ pub struct AgentStateSnapshot {
     /// Execution error records (Plan C).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_records: Option<Vec<serde_json::Value>>,
+    /// Cross-iteration retry tally per error kind: the per-call attempt
+    /// budget restarts every iteration, so this total is what caps a run
+    /// that keeps hitting the same kind of failure. Absent when no retry
+    /// was granted yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_totals: Option<HashMap<crate::errors::ErrorKind, u32>>,
     /// Execution interruption records (Plan C).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interruption_records: Option<Vec<serde_json::Value>>,

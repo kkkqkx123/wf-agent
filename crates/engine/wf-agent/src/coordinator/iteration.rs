@@ -398,9 +398,7 @@ impl AgentIterationCoordinator {
         }
 
         let (assistant_msg, llm_content, finish_reason, request_usage) = match self.mode {
-            IterationMode::Blocking => {
-                self.blocking_llm_call(entity, &request).await?
-            }
+            IterationMode::Blocking => self.blocking_llm_call(entity, &request).await?,
             IterationMode::Streaming => self.stream_llm_call(entity, &request).await?,
         };
 
@@ -446,11 +444,8 @@ impl AgentIterationCoordinator {
         if has_tool_calls {
             // The assistant message carries the finalized tool-call
             // arguments: snapshot the pre-tool moment.
-            self.boundary_checkpoint(
-                entity,
-                wf_types::checkpoint::CheckpointTiming::ToolBefore,
-            )
-            .await;
+            self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolBefore)
+                .await;
         }
         self.maybe_message_checkpoint(entity).await;
 
@@ -495,11 +490,8 @@ impl AgentIterationCoordinator {
         }
         // Tool results (success or failure) are in the session: snapshot
         // the post-tool moment, then run the message-count backstop.
-        self.boundary_checkpoint(
-            entity,
-            wf_types::checkpoint::CheckpointTiming::ToolAfter,
-        )
-        .await;
+        self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolAfter)
+            .await;
         self.maybe_message_checkpoint(entity).await;
 
         let content = llm_call::text_of(&assistant_msg.content);

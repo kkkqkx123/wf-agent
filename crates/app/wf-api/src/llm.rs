@@ -265,7 +265,13 @@ mod tests {
         let err = generate(&ctx, &request("no-such-profile", "hi"))
             .await
             .unwrap_err();
-        assert!(matches!(err, ApiError::NotFound { .. }));
+        assert!(matches!(
+            err,
+            ApiError::Execution {
+                category: crate::ApiErrorCategory::NotFound,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]

@@ -253,8 +253,11 @@ impl AgentLoopCoordinator {
 
     /// Branch resume from a checkpoint. A fresh execution id is always
     /// allocated and linked to the source execution as its parent; the source
-    /// chain is never mutated or truncated. Use read-only preview APIs for
-    /// replay without execution. For same-id continuation see
+    /// chain is never mutated or truncated. Only a snapshot of a live run is
+    /// resumable: a terminal snapshot is rejected with
+    /// [`AgentError::IllegalStateTransition`] instead of being re-driven, so
+    /// re-running settled work starts a new execution. Use read-only preview
+    /// APIs for replay without execution. For same-id continuation see
     /// [`Self::resume_from_checkpoint_in_place`].
     pub async fn resume_from_checkpoint(
         &self,
@@ -318,10 +321,11 @@ impl AgentLoopCoordinator {
     /// In-place continuation under the source execution id. New checkpoints
     /// append to the same `agent_loop_id` partition (recycled by the
     /// existing retention policy); only a `resume_source_checkpoint` audit
-    /// key is recorded, no parent/branch link. The source execution must be
-    /// terminal or paused, never `Running`, so two writers never share one
-    /// id. A caller-forced `agent_loop_id` conflicting with the source is
-    /// rejected.
+    /// key is recorded, no parent/branch link. The source execution must not
+    /// still be live in the entity registry, so two writers never share one
+    /// id; the snapshot itself must record a live run, so settling the source
+    /// is not a licence to re-drive it. A caller-forced `agent_loop_id`
+    /// conflicting with the source is rejected.
     pub async fn resume_from_checkpoint_in_place(
         &self,
         checkpoint_id: &str,
@@ -332,17 +336,17 @@ impl AgentLoopCoordinator {
         let restore = self.restore_checkpoint(checkpoint_id).await?;
         // Concurrency guard: reject only when the same id is still live
         // and non-terminal in the entity registry (a real second writer).
-        // Snapshot status alone cannot decide: snapshots are normally taken
-        // while running, including the error-interrupted runs in-place
-        // resume exists to recover.
+        // The snapshot status decides a different question — whether the run
+        // may be continued at all — and is enforced on restore, before this.
         if let Some(ref registry) = self.entity_registry {
             if let Some(live) = registry.get(&restore.agent_loop_id) {
                 let state = live.state.read().await;
                 if !state.status().is_terminal() {
-                    return Err(AgentError::IllegalStateTransition(
-                        "in-place resume rejected: execution {} is still live ({:?})"
-                            .to_string(),
-                    ));
+                    return Err(AgentError::IllegalStateTransition(format!(
+                        "in-place resume rejected: execution {} is still live ({:?})",
+                        restore.agent_loop_id,
+                        state.status()
+                    )));
                 }
             }
         }

@@ -83,17 +83,13 @@ pub(crate) async fn handle_list_trigger_executions(
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let outcome_filter = match query.outcome.as_deref() {
         None => None,
-        Some(raw) => {
-            match raw.parse::<wf_types::TriggerExecutionOutcome>() {
-                Ok(outcome) => Some(outcome),
-                Err(e) => {
-                    return crate::envelope::err(crate::envelope::ApiError::validation(
-                        e.to_string(),
-                    ))
+        Some(raw) => match raw.parse::<wf_types::TriggerExecutionOutcome>() {
+            Ok(outcome) => Some(outcome),
+            Err(e) => {
+                return crate::envelope::err(crate::envelope::ApiError::validation(e.to_string()))
                     .into_response()
-                }
             }
-        }
+        },
     };
     let options = TriggerExecutionListOptions {
         offset: Some(offset),

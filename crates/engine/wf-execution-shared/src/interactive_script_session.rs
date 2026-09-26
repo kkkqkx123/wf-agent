@@ -12,8 +12,8 @@ pub mod input;
 mod tests;
 
 pub use config::{
-    InteractionRecord, InteractiveScriptSessionConfig, InteractiveScriptSessionSnapshot,
-    InteractiveScriptSessionState, InteractionSource, SessionPhase,
+    InteractionRecord, InteractionSource, InteractiveScriptSessionConfig,
+    InteractiveScriptSessionSnapshot, InteractiveScriptSessionState, SessionPhase,
 };
 pub use detect::detect_prompt;
 pub use driver::{

@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
+use tokio::sync::RwLock;
+use wf_execution_shared::conversation_session::ConversationSession;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopOutput};
 use wf_types::checkpoint::CheckpointTiming;
-use tokio::sync::RwLock;
-use wf_execution_shared::conversation_session::ConversationSession;
 
 use super::settle::{settle_kind, SettleKind};
 use super::AgentLoopCoordinator;
@@ -395,7 +395,15 @@ impl AgentLoopCoordinator {
     }
 
     /// Reconstruct the runtime state of a checkpointed agent loop from
-    /// storage (via the shared checkpoint integration).
+    /// storage (via the shared checkpoint integration) as a resume source.
+    ///
+    /// Both resume modes funnel through here, so this is where the resume
+    /// contract is enforced: only a snapshot of a live run may be continued.
+    /// A recorded terminal status means the run already settled, and
+    /// re-driving it belongs to an explicit new execution rather than to
+    /// `resume`, so the restore is rejected instead of silently restarted.
+    /// Read-only restore and preview go through `restore_entity` directly and
+    /// keep working for any snapshot, terminal included.
     pub(super) async fn restore_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -404,6 +412,13 @@ impl AgentLoopCoordinator {
             .build_checkpoint_integration_any()
             .restore_entity(checkpoint_id)
             .await?;
+        let status = &restore.state.status;
+        if status.is_terminal() {
+            return Err(AgentError::IllegalStateTransition(format!(
+                "checkpoint {checkpoint_id} records terminal status {status:?}: \
+                 resume only continues a live run, start a new execution to re-drive it"
+            )));
+        }
         Ok(restore)
     }
 }

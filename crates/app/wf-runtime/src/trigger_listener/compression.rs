@@ -586,8 +586,9 @@ impl CompressionService {
             } else {
                 wf_types::TriggerExecutionOutcome::Failed
             };
-            if let Some(registry) =
-                ledger.as_ref().and_then(|ledger| ledger.trigger_state_registry.clone())
+            if let Some(registry) = ledger
+                .as_ref()
+                .and_then(|ledger| ledger.trigger_state_registry.clone())
             {
                 registry.record_end(&execution_id_str, &event_id, ledger_outcome.as_str());
             }

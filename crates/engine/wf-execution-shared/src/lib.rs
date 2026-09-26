@@ -11,9 +11,9 @@ pub mod execution_state;
 pub mod fork;
 pub mod handler;
 pub mod hooks;
+pub mod interaction;
 pub mod interactive_script_session;
 pub mod interruption;
-pub mod interaction;
 pub mod message_ops;
 pub mod messaging_impl;
 pub mod script_router;
@@ -35,9 +35,8 @@ pub use execution_state::ExecutionStateManager;
 pub use fork::{BranchRecord, BranchStatus, ForkRegistry};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
-    evaluate_hook_condition, filter_and_sort_hooks, fire,
-    publish_hook_audit_event, HandlerResult, HookContext, HookHandler, HookHandlerRegistry,
-    HookOutcome,
+    evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,
+    HookContext, HookHandler, HookHandlerRegistry, HookOutcome,
 };
 pub use interruption::{
     check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,

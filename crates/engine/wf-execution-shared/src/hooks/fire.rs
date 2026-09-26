@@ -25,7 +25,8 @@ pub struct HandlerResult {
     pub outcome: HookOutcome,
     pub duration_ms: i64,
     /// Panic / unresolvable handler description; `None` on success.
-    pub error: Option<String>,}
+    pub error: Option<String>,
+}
 
 /// Aggregate result of one fire: everything the audit trail needs
 /// (payloads, per-handler results, duration) plus the aggregated outcome.

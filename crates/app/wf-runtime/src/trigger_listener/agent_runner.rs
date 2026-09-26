@@ -23,7 +23,8 @@ use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger::TriggerActionRunner;
 
-use super::{record_trigger_execution, TriggerExecutionRecorder, TriggerOutcome};
+use super::{record_trigger_execution, TriggerLedger, TriggerOutcome};
+use wf_types::TriggerExecutionOutcome;
 
 /// The nested-agent-execution trigger action: the concrete
 /// [`TriggerActionRunner`] behind `TriggerAction::ExecuteTriggeredAgentExecution`.
@@ -45,7 +46,7 @@ pub struct AgentTriggerRunner {
     executor: AgentExecutorCallback,
     agent_registry: Arc<AgentLoopRegistry>,
     shutdown: CancellationToken,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    ledger: Option<Arc<TriggerLedger>>,
 }
 
 impl AgentTriggerRunner {
@@ -53,14 +54,14 @@ impl AgentTriggerRunner {
         executor: AgentExecutorCallback,
         agent_registry: Arc<AgentLoopRegistry>,
         shutdown: CancellationToken,
-        storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+        ledger: Option<Arc<TriggerLedger>>,
     ) -> Self {
         Self {
             manager: Arc::new(TriggeredAgentExecutionManager::new(executor.clone())),
             executor,
             agent_registry,
             shutdown,
-            storage,
+            ledger,
         }
     }
 
@@ -195,7 +196,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
             );
         }
 
-        let (success, error) = match parent {
+        let (outcome, error) = match parent {
             Some(parent) => {
                 // Child input via the shared helper so the engine and the
                 // runtime never diverge on prefix/full-snapshot semantics.
@@ -236,8 +237,8 @@ impl TriggerActionRunner for AgentTriggerRunner {
                     .submit_triggered_execution(config, child_config, child_input)
                     .await
                 {
-                    Ok(_) => (true, None),
-                    Err(e) => (false, Some(e.to_string())),
+                    Ok(_) => (TriggerExecutionOutcome::Completed, None),
+                    Err(e) => (TriggerExecutionOutcome::Failed, Some(e.to_string())),
                 }
             }
             None => {
@@ -259,30 +260,39 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 };
                 let executor = self.executor.clone();
                 let shutdown = self.shutdown.clone();
-                let storage = self.storage.clone();
+                let ledger = self.ledger.clone();
                 let ledger_template = template.clone();
                 let ledger_event = event.clone();
-                // The ledger entry travels with the real outcome (same
-                // discipline as the cold-start path): recording happens when
-                // the run settles, and a shutdown-abandoned run writes no
-                // entry at all — never a false success at submission time.
+                // The ledger entry travels with the real outcome: recording
+                // happens when the run settles, and a shutdown-abandoned run
+                // is recorded too (outcome `abandoned`), so "triggered but
+                // never completed" stays auditable.
                 tokio::spawn(async move {
                     let run = executor(child_config, child_input);
-                    let outcome: Result<(), String> = tokio::select! {
-                        output = run => output.map(|_| ()).map_err(|e| {
-                            warn!("Triggered agent execution failed: {}", e);
-                            e.to_string()
-                        }),
-                        _ = shutdown.cancelled() => return,
+                    let (outcome, error) = tokio::select! {
+                        output = run => match output {
+                            Ok(_) => (TriggerExecutionOutcome::Completed, None),
+                            Err(e) => {
+                                warn!("Triggered agent execution failed: {}", e);
+                                (
+                                    TriggerExecutionOutcome::Failed,
+                                    Some(e.to_string()),
+                                )
+                            }
+                        },
+                        _ = shutdown.cancelled() => (
+                            TriggerExecutionOutcome::Abandoned,
+                            Some("aborted at listener shutdown".to_string()),
+                        ),
                     };
                     record_trigger_execution(
-                        &storage,
+                        &ledger,
                         &ledger_template,
                         &ledger_event,
                         TriggerOutcome {
                             action_type,
-                            success: outcome.is_ok(),
-                            error: outcome.err(),
+                            outcome,
+                            error,
                             execution_time_ms: wf_common::now() - start,
                             child_execution_id: None,
                         },
@@ -300,19 +310,19 @@ impl TriggerActionRunner for AgentTriggerRunner {
         // returned here, so report `None` instead of a fabricated id that
         // would break the parent linkage.
         record_trigger_execution(
-            &self.storage,
+            &self.ledger,
             template,
             event,
             TriggerOutcome {
                 action_type,
-                success,
+                outcome,
                 error: error.clone(),
                 execution_time_ms: wf_common::now() - start,
                 child_execution_id: None,
             },
         )
         .await;
-        if success {
+        if outcome == TriggerExecutionOutcome::Completed {
             Ok(())
         } else {
             Err(WorkflowError::TriggerError(error.unwrap_or_default()))
@@ -365,54 +375,66 @@ impl AgentTriggerRunner {
         };
         let executor = self.executor.clone();
         let shutdown = self.shutdown.clone();
-        let storage = self.storage.clone();
+        let ledger = self.ledger.clone();
         let template = template.clone();
         let event = event.clone();
         let agent_id = agent_id.to_string();
         // The ledger entry travels with the real outcome: recording happens
-        // when the run settles (failure and timeout included), not at
-        // submission, so a cold-started child never leaves a false success.
+        // when the run settles (failure, timeout and shutdown abandonment
+        // included), not at submission, so a cold-started child never leaves
+        // a false success and never vanishes without a record.
         tokio::spawn(async move {
             let run = executor(child_config, child_input);
-            let outcome: Result<(), String> = match timeout {
+            let (outcome, error) = match timeout {
                 Some(ms) => {
-                    let elapsed = tokio::select! {
-                        output = tokio::time::timeout(std::time::Duration::from_millis(ms), run) => output,
-                        _ = shutdown.cancelled() => return,
-                    };
-                    match elapsed {
-                        Ok(Ok(_)) => Ok(()),
-                        Ok(Err(e)) => {
-                            warn!("Cold-started agent '{}' failed: {}", agent_id, e);
-                            Err(e.to_string())
-                        }
-                        Err(_) => {
-                            warn!("Cold-started agent '{}' timed out after {}ms", agent_id, ms);
-                            Err(format!("timed out after {}ms", ms))
-                        }
+                    tokio::select! {
+                        output = tokio::time::timeout(std::time::Duration::from_millis(ms), run) => match output {
+                            Ok(Ok(_)) => (TriggerExecutionOutcome::Completed, None),
+                            Ok(Err(e)) => {
+                                warn!("Cold-started agent '{}' failed: {}", agent_id, e);
+                                (TriggerExecutionOutcome::Failed, Some(e.to_string()))
+                            }
+                            Err(_) => {
+                                warn!(
+                                    "Cold-started agent '{}' timed out after {}ms",
+                                    agent_id, ms
+                                );
+                                (
+                                    TriggerExecutionOutcome::Failed,
+                                    Some(format!("timed out after {}ms", ms)),
+                                )
+                            }
+                        },
+                        _ = shutdown.cancelled() => (
+                            TriggerExecutionOutcome::Abandoned,
+                            Some("aborted at listener shutdown".to_string()),
+                        ),
                     }
                 }
                 None => {
                     tokio::select! {
                         output = run => match output {
-                            Ok(_) => Ok(()),
+                            Ok(_) => (TriggerExecutionOutcome::Completed, None),
                             Err(e) => {
                                 warn!("Cold-started agent '{}' failed: {}", agent_id, e);
-                                Err(e.to_string())
+                                (TriggerExecutionOutcome::Failed, Some(e.to_string()))
                             }
                         },
-                        _ = shutdown.cancelled() => return,
+                        _ = shutdown.cancelled() => (
+                            TriggerExecutionOutcome::Abandoned,
+                            Some("aborted at listener shutdown".to_string()),
+                        ),
                     }
                 }
             };
             record_trigger_execution(
-                &storage,
+                &ledger,
                 &template,
                 &event,
                 TriggerOutcome {
                     action_type: "execute_agent",
-                    success: outcome.is_ok(),
-                    error: outcome.err(),
+                    outcome,
+                    error,
                     execution_time_ms: wf_common::now() - start,
                     child_execution_id: None,
                 },

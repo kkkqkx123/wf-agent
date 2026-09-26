@@ -64,7 +64,8 @@ pub(crate) struct ListTriggerExecutionsQuery {
     trigger_name: Option<String>,
     execution_id: Option<String>,
     workflow_id: Option<String>,
-    success: Option<bool>,
+    /// Outcome filter: `completed` | `failed` | `abandoned`.
+    outcome: Option<String>,
 }
 
 #[utoipa::path(
@@ -80,13 +81,27 @@ pub(crate) async fn handle_list_trigger_executions(
     Query(query): Query<ListTriggerExecutionsQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
+    let outcome_filter = match query.outcome.as_deref() {
+        None => None,
+        Some(raw) => {
+            match raw.parse::<wf_types::TriggerExecutionOutcome>() {
+                Ok(outcome) => Some(outcome),
+                Err(e) => {
+                    return crate::envelope::err(crate::envelope::ApiError::validation(
+                        e.to_string(),
+                    ))
+                    .into_response()
+                }
+            }
+        }
+    };
     let options = TriggerExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
         trigger_name_filter: query.trigger_name,
         execution_id_filter: query.execution_id,
         workflow_id_filter: query.workflow_id,
-        success_filter: query.success,
+        outcome_filter,
     };
     match wf_api::trigger::execution::list_trigger_executions(&state.ctx.storage, Some(options))
         .await

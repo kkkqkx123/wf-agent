@@ -20,7 +20,7 @@ use wf_types::workflow::CompressionFallbackMode;
 use wf_types::Id;
 
 use super::workflow_runner::SubworkflowActionRunner;
-use super::{handle_subworkflow_output, ExecutionContextRegistry, TriggerExecutionRecorder};
+use super::{handle_subworkflow_output, ExecutionContextRegistry, TriggerLedger};
 use wf_workflow::trigger::SubworkflowRunner;
 
 pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
@@ -206,10 +206,10 @@ pub struct CompressionService {
     policy: CompressionPolicy,
     /// Shutdown token; in-flight summary sub-workflows race against it.
     shutdown: CancellationToken,
-    /// Optional durable trigger-execution ledger (management surface).
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    /// Optional trigger runtime state registry (checkpoint audit).
-    trigger_states: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    /// Optional durable ledger: compression runs are recorded for the
+    /// management surface and the ledger's trigger-state registry feeds the
+    /// checkpoint audit.
+    ledger: Option<Arc<TriggerLedger>>,
 }
 
 impl CompressionService {
@@ -220,31 +220,30 @@ impl CompressionService {
         summary_workflow_id: String,
         shutdown: CancellationToken,
     ) -> Self {
-        Self::with_storage(bus, runner, contexts, summary_workflow_id, shutdown, None)
+        Self::with_ledger(bus, runner, contexts, summary_workflow_id, shutdown, None)
     }
 
-    pub fn with_storage(
+    pub fn with_ledger(
         bus: Arc<EventBus>,
         runner: Arc<dyn SubworkflowRunner>,
         contexts: Arc<ExecutionContextRegistry>,
         summary_workflow_id: String,
         shutdown: CancellationToken,
-        storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+        ledger: Option<Arc<TriggerLedger>>,
     ) -> Self {
         Self {
-            inner: Arc::new(SubworkflowActionRunner::with_storage(
+            inner: Arc::new(SubworkflowActionRunner::with_ledger(
                 bus,
                 runner,
                 contexts,
                 shutdown.clone(),
-                storage.clone(),
+                ledger.clone(),
             )),
             summary_workflow_id,
             handled: Arc::new(DashMap::new()),
             policy: CompressionPolicy::default(),
             shutdown,
-            storage,
-            trigger_states: None,
+            ledger,
         }
     }
 
@@ -253,14 +252,11 @@ impl CompressionService {
         self
     }
 
-    pub fn with_trigger_state_registry(
-        mut self,
-        registry: Arc<wf_workflow::TriggerStateRegistry>,
-    ) -> Self {
-        let inner = Arc::unwrap_or_clone(self.inner).with_trigger_state_registry(registry.clone());
-        self.inner = Arc::new(inner);
-        self.trigger_states = Some(registry);
-        self
+    /// The checkpoint trigger-state registry, when the ledger carries one.
+    fn trigger_states(&self) -> Option<Arc<wf_workflow::TriggerStateRegistry>> {
+        self.ledger
+            .as_ref()
+            .and_then(|ledger| ledger.trigger_state_registry.clone())
     }
 
     /// Bound the dedup table (never evicts the just-claimed key).
@@ -346,7 +342,7 @@ impl CompressionService {
         // Trigger runtime state (checkpoint audit): the signal fired for the
         // emitting execution and its summary run is now in flight.
         let event_id = wf_common::generate_id();
-        if let Some(registry) = &self.trigger_states {
+        if let Some(registry) = self.trigger_states() {
             registry.record_start(
                 &execution_id.to_string(),
                 wf_workflow::TriggerStateRecord::running(
@@ -365,8 +361,7 @@ impl CompressionService {
         let contexts = self.inner.contexts().clone();
         let bus = self.inner.bus().clone();
         let shutdown = self.shutdown.clone();
-        let storage = self.storage.clone();
-        let trigger_states = self.trigger_states.clone();
+        let ledger = self.ledger.clone();
         let policy = self.policy.clone();
         let workflow_id = self.summary_workflow_id.clone();
         let agent_loop_id = signal.agent_loop_id.clone();
@@ -483,7 +478,7 @@ impl CompressionService {
             let mut success = matches!(status, ChainStatus::Completed);
             let mut error = match &status {
                 ChainStatus::Failed(e) => Some(e.clone()),
-                ChainStatus::Aborted => Some("aborted at shutdown".to_string()),
+                ChainStatus::Aborted => Some("aborted at listener shutdown".to_string()),
                 ChainStatus::Completed => None,
             };
             // Terminal-failure handling, decided by the summary workflow
@@ -581,17 +576,25 @@ impl CompressionService {
                 );
                 let _ = bus.publish(failed);
             }
-            if let Some(registry) = &trigger_states {
-                registry.record_end(
-                    &execution_id_str,
-                    &event_id,
-                    if success { "completed" } else { "failed" },
-                );
+            // Ledger outcome: a shutdown abort is an abandonment, not an
+            // execution failure; a degraded partial-window write-back counts
+            // as completed.
+            let ledger_outcome = if matches!(status, ChainStatus::Aborted) {
+                wf_types::TriggerExecutionOutcome::Abandoned
+            } else if success {
+                wf_types::TriggerExecutionOutcome::Completed
+            } else {
+                wf_types::TriggerExecutionOutcome::Failed
+            };
+            if let Some(registry) =
+                ledger.as_ref().and_then(|ledger| ledger.trigger_state_registry.clone())
+            {
+                registry.record_end(&execution_id_str, &event_id, ledger_outcome.as_str());
             }
             record_compression_execution(
-                &storage,
+                &ledger,
                 &execution_id_str,
-                success,
+                ledger_outcome,
                 error,
                 wf_common::now() - start,
                 start,
@@ -604,17 +607,21 @@ impl CompressionService {
 }
 
 /// Record a compression-service run in the optional durable ledger
-/// (management surface). Best-effort: storage failures are logged, never
-/// propagated.
+/// (management surface). Best-effort: a storage failure never propagates to
+/// the emitter, but it is logged at `error` level and counted on the shared
+/// ledger so a broken audit trail stays observable.
 async fn record_compression_execution(
-    storage: &Option<Arc<dyn TriggerExecutionRecorder>>,
+    ledger: &Option<Arc<TriggerLedger>>,
     execution_id: &str,
-    success: bool,
+    outcome: wf_types::TriggerExecutionOutcome,
     error: Option<String>,
     execution_time_ms: i64,
     triggered_at: i64,
 ) {
-    let Some(storage) = storage else {
+    let Some(ledger) = ledger.as_ref() else {
+        return;
+    };
+    let Some(storage) = ledger.storage.as_ref() else {
         return;
     };
     let metadata = wf_types::TriggerExecutionStorageMetadata {
@@ -624,7 +631,7 @@ async fn record_compression_execution(
         event: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         execution_id: Some(Id::from(execution_id.to_string())),
         workflow_id: None,
-        success,
+        outcome,
         result: None,
         error,
         action_type: Some("context_compression".to_string()),
@@ -632,9 +639,13 @@ async fn record_compression_execution(
         triggered_at,
     };
     if let Err(e) = storage.record(metadata).await {
-        warn!(
+        ledger
+            .write_failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::error!(
             "Failed to record compression execution for {}: {}",
-            execution_id, e
+            execution_id,
+            e
         );
     }
 }

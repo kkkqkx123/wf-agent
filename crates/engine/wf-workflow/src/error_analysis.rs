@@ -123,11 +123,7 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
 /// filled by the caller from prior records. Engine-level retries are invisible
 /// here (they are spent inside handlers and never re-run by the coordinator),
 /// so the record carries no retry context.
-pub fn workflow_error_record(
-    e: &WorkflowError,
-    execution_id: &str,
-    node_id: &str,
-) -> ErrorRecord {
+pub fn workflow_error_record(e: &WorkflowError, execution_id: &str, node_id: &str) -> ErrorRecord {
     let analysis = analyze_workflow_error(e);
     analysis.to_error_record(execution_id, Some(node_id.to_string()))
 }
@@ -231,9 +227,8 @@ mod tests {
 
     #[test]
     fn state_transition_error_aborts() {
-        let analysis = analyze_workflow_error(&WorkflowError::StateTransitionError(
-            "corrupt".to_string(),
-        ));
+        let analysis =
+            analyze_workflow_error(&WorkflowError::StateTransitionError("corrupt".to_string()));
         assert_eq!(analysis.kind, ErrorKind::StateManagement);
         assert!(!analysis.retryable);
         assert_eq!(analysis.recovery_action, RecoveryAction::Abort);

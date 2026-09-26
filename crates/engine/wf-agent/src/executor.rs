@@ -70,7 +70,7 @@ impl AgentLoopExecutor {
 
     /// Maximum sub-agent recursion depth (root = depth 0). A nested spawn
     /// whose resolved depth would exceed the limit is rejected with
-    /// `AgentError::ConcurrencySaturated`.
+    /// `AgentError::HierarchyLimitReached`.
     pub fn with_max_sub_agent_depth(mut self, max: u32) -> Self {
         self.max_sub_agent_depth = max;
         self.agent_registry.set_max_sub_agent_depth(max);

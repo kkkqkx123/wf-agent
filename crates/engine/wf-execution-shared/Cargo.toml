@@ -13,6 +13,7 @@ wf-resource = { path = "../wf-resource" }
 wf-script = { path = "../../infra/wf-script" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
+wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-storage = { path = "../../infra/wf-storage" }
 
@@ -33,3 +34,9 @@ regex.workspace = true
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
+
+[features]
+default = []
+# Test-only surface for cross-crate tests that touch the process-global
+# interaction registry.
+test-util = []

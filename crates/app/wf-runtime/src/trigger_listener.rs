@@ -110,31 +110,68 @@ where
     }
 }
 
+/// Durable-ledger collaborators shared by every trigger-action runner: the
+/// optional execution recorder and the checkpoint trigger-state registry.
+/// Wrapped in an `Arc` so all runners and the listener handle observe one
+/// shared write-failure count.
+#[derive(Default)]
+pub struct TriggerLedger {
+    pub storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    /// Ledger write failures (recorder present but the durable write
+    /// errored). The ledger stays best-effort — a failed write never blocks
+    /// the emitter — but the count makes "the fallback itself is broken"
+    /// observable through the listener handle.
+    write_failures: std::sync::atomic::AtomicU64,
+}
+
+impl TriggerLedger {
+    pub fn new(
+        storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+        trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    ) -> Self {
+        Self {
+            storage,
+            trigger_state_registry,
+            write_failures: std::sync::atomic::AtomicU64::default(),
+        }
+    }
+
+    pub fn write_failures(&self) -> u64 {
+        self.write_failures.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// Result of one trigger-action execution, recorded to the durable ledger.
 pub(crate) struct TriggerOutcome<'a> {
     action_type: &'a str,
-    success: bool,
+    outcome: wf_types::TriggerExecutionOutcome,
     error: Option<String>,
     execution_time_ms: i64,
     child_execution_id: Option<Id>,
 }
 
 /// Record a trigger execution in the optional durable ledger (management
-/// surface). Best-effort: storage failures are logged, never propagated.
+/// surface). Best-effort: storage failures never propagate to the emitter,
+/// but each failed write is logged at `error` level and counted on the
+/// ledger.
 pub(crate) async fn record_trigger_execution(
-    storage: &Option<Arc<dyn TriggerExecutionRecorder>>,
+    ledger: &Option<Arc<TriggerLedger>>,
     template: &TriggerTemplate,
     event: &BaseEvent,
     outcome: TriggerOutcome<'_>,
 ) {
     let TriggerOutcome {
         action_type,
-        success,
+        outcome,
         error,
         execution_time_ms,
         child_execution_id,
     } = outcome;
-    let Some(storage) = storage else {
+    let Some(ledger) = ledger.as_ref() else {
+        return;
+    };
+    let Some(storage) = ledger.storage.as_ref() else {
         return;
     };
     let metadata = wf_types::TriggerExecutionStorageMetadata {
@@ -144,7 +181,7 @@ pub(crate) async fn record_trigger_execution(
         event: event.r#type.as_str().to_string(),
         execution_id: child_execution_id.or_else(|| event.execution_id.clone()),
         workflow_id: event.workflow_id.clone(),
-        success,
+        outcome,
         result: None,
         error,
         action_type: Some(action_type.to_string()),
@@ -152,9 +189,14 @@ pub(crate) async fn record_trigger_execution(
         triggered_at: event.timestamp,
     };
     if let Err(e) = storage.record(metadata).await {
-        warn!(
+        ledger
+            .write_failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::error!(
             "Failed to record trigger execution '{}' ({}): {}",
-            template.name, action_type, e
+            template.name,
+            action_type,
+            e
         );
     }
 }
@@ -315,6 +357,18 @@ pub struct TriggerListenerHandle {
     /// Runtime mount table of execution-scoped timers, shared with the
     /// scheduler background task spawned alongside the listener.
     pub timer_bindings: Arc<TimerBindingRegistry>,
+    /// Durable ledger shared with every action runner (`None` when the
+    /// wiring does not persist trigger runs).
+    pub ledger: Option<Arc<TriggerLedger>>,
+}
+
+impl TriggerListenerHandle {
+    /// Cumulative durable-ledger write failures. Non-zero means the
+    /// last-resort trigger audit trail is itself broken; the runs continue
+    /// (best-effort ledger) but the records are being lost.
+    pub fn ledger_write_failures(&self) -> Option<u64> {
+        self.ledger.as_ref().map(|ledger| ledger.write_failures())
+    }
 }
 
 /// Wire the listener traits together and spawn the listener loop.
@@ -352,8 +406,7 @@ pub fn start_trigger_listener_with_skills(
         tool_registry: None,
         sandbox: None,
         agent_executor: None,
-        storage: None,
-        trigger_state_registry: None,
+        ledger: None,
         hook_handler_registry: None,
         signal_bus: None,
         timer_bindings: None,
@@ -367,9 +420,8 @@ pub fn start_trigger_listener_with_skills(
 /// runtime for every triggered sub-workflow run.
 ///
 /// `agent_executor`, when present, wires the nested-agent-execution trigger
-/// action ([`AgentTriggerRunner`]); `storage` records trigger executions in
-/// the durable management ledger; `trigger_state_registry` feeds the
-/// checkpoint `trigger_states` audit field.
+/// action ([`AgentTriggerRunner`]); `ledger` carries the durable management
+/// ledger and the checkpoint `trigger_states` audit registry.
 pub fn start_trigger_listener_with_registry(
     event_bus: Arc<EventBus>,
     registries: Arc<ResourceRegistries>,
@@ -381,8 +433,7 @@ pub fn start_trigger_listener_with_registry(
         tool_registry,
         sandbox,
         agent_executor,
-        storage,
-        trigger_state_registry,
+        ledger,
     } = options;
     let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
         registries.clone(),
@@ -401,8 +452,7 @@ pub fn start_trigger_listener_with_registry(
         tool_registry,
         sandbox,
         agent_executor,
-        storage,
-        trigger_state_registry,
+        ledger,
         hook_handler_registry: None,
         signal_bus: None,
         timer_bindings: None,
@@ -422,15 +472,14 @@ pub(crate) fn start_trigger_listener_with_parts(deps: ListenerDeps) -> TriggerLi
 
 /// Optional engine collaborators for [`start_trigger_listener_with_registry`]:
 /// the shared tool registry / sandbox used to build the sub-workflow runner,
-/// plus the nested-agent executor and durable-ledger components. Every field
+/// plus the nested-agent executor and the durable ledger. Every field
 /// defaults to `None` for the plain wiring.
 #[derive(Default)]
 pub struct ListenerOptions {
     pub tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     pub sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     pub agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
-    pub storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    pub ledger: Option<Arc<TriggerLedger>>,
 }
 
 /// Bundled dependencies for starting the listener loop: the shared buses,
@@ -446,8 +495,7 @@ pub(crate) struct ListenerDeps {
     pub(crate) tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     pub(crate) sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     pub(crate) agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
-    pub(crate) storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    pub(crate) trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    pub(crate) ledger: Option<Arc<TriggerLedger>>,
     pub(crate) hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     pub(crate) signal_bus: Option<Arc<InternalSignalBus>>,
     /// Runtime mount table of execution-scoped timers; a fresh table is
@@ -469,8 +517,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         tool_registry,
         sandbox,
         agent_executor,
-        storage,
-        trigger_state_registry,
+        ledger,
         hook_handler_registry,
         signal_bus,
         timer_bindings,
@@ -479,24 +526,19 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
     } = deps;
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries.clone()));
-    let compression = SubworkflowActionRunner::with_storage(
+    let compression: Arc<dyn TriggerActionRunner> = Arc::new(SubworkflowActionRunner::with_ledger(
         event_bus.clone(),
         runner.clone(),
         contexts.clone(),
         shutdown.clone(),
-        storage.clone(),
-    );
-    let compression = match trigger_state_registry {
-        Some(registry) => Arc::new(compression.with_trigger_state_registry(registry)),
-        None => Arc::new(compression),
-    };
-    let compression: Arc<dyn TriggerActionRunner> = compression;
+        ledger.clone(),
+    ));
     let agent = agent_executor.map(|executor| {
         let runner = AgentTriggerRunner::new(
             agent_callback(executor.clone()),
             executor_agent_registry(&executor),
             shutdown.clone(),
-            storage.clone(),
+            ledger.clone(),
         )
         .with_hook_context(hook_handler_registry.clone(), event_bus.clone());
         Arc::new(runner)
@@ -504,7 +546,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
     let creation = Arc::new(CreationRunner::new(
         runner.clone(),
         shutdown.clone(),
-        storage.clone(),
+        ledger.clone(),
     ));
     let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(TriggerActionRouter::new(
         compression,
@@ -552,6 +594,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         shutdown,
         handle,
         timer_bindings,
+        ledger,
     }
 }
 
@@ -598,15 +641,6 @@ fn executor_agent_registry(
     executor.agent_registry().clone()
 }
 
-/// Durable-ledger collaborators threaded into a trigger-action runner: the
-/// optional execution recorder and the checkpoint trigger-state registry. Both
-/// default to `None` for engine wiring that does not persist trigger runs.
-#[derive(Default)]
-pub struct TriggerLedger {
-    pub storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-}
-
 /// Dependencies of the builtin compression handler registration.
 pub struct CompressionHandlerDeps {
     /// Shared event bus the service publishes COMPLETED / FAILED on.
@@ -619,8 +653,9 @@ pub struct CompressionHandlerDeps {
     pub summary_workflow_id: String,
     /// Listener shutdown token; in-flight summary runs race against it.
     pub shutdown: CancellationToken,
-    /// Optional durable trigger-execution ledger and state registry.
-    pub ledger: TriggerLedger,
+    /// Optional durable trigger-execution ledger and state registry
+    /// (shared `Arc` with the listener so the write-failure count is one).
+    pub ledger: Option<Arc<TriggerLedger>>,
     /// Tail retention policy.
     pub policy: CompressionPolicy,
 }
@@ -645,18 +680,15 @@ pub fn register_compression_handler(
         ledger,
         policy,
     } = deps;
-    let mut service = CompressionService::with_storage(
+    let service = CompressionService::with_ledger(
         event_bus,
         runner,
         contexts,
         summary_workflow_id,
         shutdown,
-        ledger.storage,
+        ledger,
     )
     .with_policy(policy);
-    if let Some(registry) = ledger.trigger_state_registry {
-        service = service.with_trigger_state_registry(registry);
-    }
     let service = Arc::new(service);
     // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
@@ -1138,7 +1170,7 @@ mod tests {
                 summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 policy: CompressionPolicy::default(),
             },
         );
@@ -1375,8 +1407,10 @@ mod tests {
             contexts,
             ListenerOptions {
                 agent_executor: Some(agent_executor.clone()),
-                storage: Some(recorder.clone() as Arc<dyn TriggerExecutionRecorder>),
-                trigger_state_registry: Some(trigger_states.clone()),
+                ledger: Some(Arc::new(TriggerLedger::new(
+                    Some(recorder.clone() as Arc<dyn TriggerExecutionRecorder>),
+                    Some(trigger_states.clone()),
+                ))),
                 ..Default::default()
             },
         );
@@ -1421,9 +1455,200 @@ mod tests {
             record.action_type.as_deref(),
             Some("execute_triggered_agent_execution")
         );
-        assert!(record.success);
+        assert_eq!(
+            record.outcome,
+            wf_types::TriggerExecutionOutcome::Completed
+        );
 
         stop_trigger_listener(listener).await;
+    }
+
+    /// A HOOK_TRIGGERED-matched agent trigger template for the ledger tests.
+    fn hook_agent_trigger_template(name: &str, model: &str) -> TriggerTemplate {
+        let ts = wf_common::now();
+        TriggerTemplate {
+            name: name.to_string(),
+            description: None,
+            condition: Some(wf_types::trigger::TriggerCondition {
+                event_type: "HOOK_TRIGGERED".to_string(),
+                event_name: None,
+                condition: None,
+                metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
+            }),
+            action: Some(TriggerAction::ExecuteTriggeredAgentExecution {
+                agent_id: "child".to_string(),
+                prompt: Some("run".to_string()),
+                model: Some(model.to_string()),
+                result_variable: Some("audited".to_string()),
+                wait_for_completion: Some(true),
+                timeout: Some(5000),
+                input_mode: None,
+                writeback: None,
+                checkpoint_message_interval: None,
+            }),
+            enabled: Some(true),
+            max_triggers: None,
+            priority: Some(10),
+            dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
+            metadata: None,
+            created_at: ts,
+            updated_at: ts,
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        }
+    }
+
+    /// A recorder whose durable write always fails.
+    #[derive(Default)]
+    struct FailingRecorder;
+
+    #[async_trait]
+    impl TriggerExecutionRecorder for FailingRecorder {
+        async fn record(
+            &self,
+            _metadata: wf_types::TriggerExecutionStorageMetadata,
+        ) -> Result<(), wf_storage::error::StorageError> {
+            Err(wf_storage::error::StorageError::General {
+                operation: "record_trigger_execution".to_string(),
+                message: "ledger unavailable".to_string(),
+                source: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn failing_ledger_is_counted_and_never_stops_the_listener() {
+        // Two firing events: the second write failure proves the dispatch
+        // loop survived the first ledger error, and the shared counter on
+        // the handle makes the broken fallback observable.
+        let bus = Arc::new(EventBus::new(64));
+        let registries = Arc::new(ResourceRegistries::new());
+        let gateway = Arc::new(LlmGateway::new());
+        let child_mock = Arc::new(MockLlmClient::new());
+        child_mock.default(LlmResponseSpec::text("child done"));
+        gateway.register_mock("mock", child_mock.clone());
+        let _ = wf_core::registry::MutableRegistry::register(
+            &registries.trigger_templates,
+            "ledger-fail-trigger".to_string(),
+            Arc::new(hook_agent_trigger_template(
+                "ledger-fail-trigger",
+                "mock",
+            )),
+        );
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let agent_executor = Arc::new(wf_agent::executor::AgentLoopExecutor::new(
+            gateway.clone(),
+            Arc::new(wf_tools::create_default_tool_registry()),
+        ));
+        let ledger = Arc::new(TriggerLedger::new(
+            Some(Arc::new(FailingRecorder) as Arc<dyn TriggerExecutionRecorder>),
+            None,
+        ));
+        let listener = start_trigger_listener_with_registry(
+            bus.clone(),
+            registries,
+            gateway,
+            contexts,
+            ListenerOptions {
+                agent_executor: Some(agent_executor.clone()),
+                ledger: Some(ledger.clone()),
+                ..Default::default()
+            },
+        );
+        wait_for_listener(&bus, 1).await;
+
+        let parent = Arc::new(wf_agent::entity::AgentLoopEntity::new(Id::from(
+            "ledger-fail-loop".to_string(),
+        )));
+        let _ = agent_executor.agent_registry().register(parent.clone());
+        for expected in 1..=2 {
+            bus.publish(BaseEvent {
+                id: wf_common::generate_id(),
+                r#type: EventType::HookTriggered,
+                timestamp: wf_common::now(),
+                event_name: None,
+                workflow_id: None,
+                execution_id: Some(Id::from("ledger-fail-loop".to_string())),
+                agent_loop_id: Some(Id::from("ledger-fail-loop".to_string())),
+                metadata: None,
+            })
+            .unwrap();
+            // Sequential: the re-entrancy guard keeps same-key fires from
+            // overlapping. Each settled write counts one failure.
+            wait_until(|| ledger.write_failures() >= expected).await;
+        }
+        assert_eq!(
+            listener.ledger_write_failures(),
+            Some(ledger.write_failures())
+        );
+        stop_trigger_listener(listener).await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_abandoned_trigger_is_recorded_in_ledger() {
+        // A child run without a parent loop executes fire-and-forget and
+        // hangs in its LLM call. Stopping the listener abandons the run, and
+        // the abandonment must land in the ledger as outcome `abandoned`
+        // instead of vanishing with the process.
+        let bus = Arc::new(EventBus::new(64));
+        let registries = Arc::new(ResourceRegistries::new());
+        let gateway = Arc::new(LlmGateway::new());
+        let slow_mock = Arc::new(MockLlmClient::new());
+        slow_mock.default(LlmResponseSpec::text("never").with_delay(60_000));
+        gateway.register_mock("slow", slow_mock);
+        let _ = wf_core::registry::MutableRegistry::register(
+            &registries.trigger_templates,
+            "abandon-trigger".to_string(),
+            Arc::new(hook_agent_trigger_template("abandon-trigger", "slow")),
+        );
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let agent_executor = Arc::new(wf_agent::executor::AgentLoopExecutor::new(
+            gateway.clone(),
+            Arc::new(wf_tools::create_default_tool_registry()),
+        ));
+        let recorder = Arc::new(TestRecorder::default());
+        let listener = start_trigger_listener_with_registry(
+            bus.clone(),
+            registries,
+            gateway,
+            contexts,
+            ListenerOptions {
+                agent_executor: Some(agent_executor),
+                ledger: Some(Arc::new(TriggerLedger::new(
+                    Some(recorder.clone() as Arc<dyn TriggerExecutionRecorder>),
+                    None,
+                ))),
+                ..Default::default()
+            },
+        );
+        wait_for_listener(&bus, 1).await;
+
+        bus.publish(BaseEvent {
+            id: wf_common::generate_id(),
+            r#type: EventType::HookTriggered,
+            timestamp: wf_common::now(),
+            event_name: None,
+            workflow_id: None,
+            execution_id: Some(Id::from("missing-loop".to_string())),
+            agent_loop_id: Some(Id::from("missing-loop".to_string())),
+            metadata: None,
+        })
+        .unwrap();
+        // Let the dispatch enter the in-flight run before stopping.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        stop_trigger_listener(listener).await;
+
+        wait_until(|| {
+            recorder.records.lock().unwrap().iter().any(|r| {
+                r.trigger_name == "abandon-trigger"
+                    && r.outcome == wf_types::TriggerExecutionOutcome::Abandoned
+            })
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -1491,7 +1716,7 @@ mod tests {
                 summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 policy: CompressionPolicy::default(),
             },
         );
@@ -1608,7 +1833,7 @@ mod tests {
                 summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 policy: CompressionPolicy::default(),
             },
         );
@@ -1796,7 +2021,7 @@ mod tests {
                 contexts,
                 summary_workflow_id: "stub/llm-summary".to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 policy: stub_compression_policy(
                     1,
                     5_000,
@@ -1830,7 +2055,7 @@ mod tests {
                 contexts,
                 summary_workflow_id: "stub/llm-summary".to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 // A hung attempt must be cut at 300ms, not stall the chain.
                 policy: stub_compression_policy(
                     1,
@@ -1866,7 +2091,7 @@ mod tests {
                 contexts,
                 summary_workflow_id: "stub/llm-summary".to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 // `fail` (the default mode): a terminal failure publishes
                 // FAILED for external handling instead of landing a
                 // degraded window.
@@ -1914,7 +2139,7 @@ mod tests {
                 contexts,
                 summary_workflow_id: "stub/llm-summary".to_string(),
                 shutdown: CancellationToken::new(),
-                ledger: TriggerLedger::default(),
+                ledger: None,
                 policy: stub_compression_policy(
                     0,
                     5_000,

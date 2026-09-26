@@ -19,6 +19,7 @@ use wf_types::events::BaseEvent;
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::{TriggerAction, TriggerTemplate};
 use wf_types::workflow::WorkflowTemplate;
+use wf_types::TriggerExecutionOutcome;
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
@@ -28,8 +29,8 @@ use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTempla
 use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
 use super::{
-    handle_subworkflow_output, record_trigger_execution, ExecutionContextRegistry,
-    TriggerExecutionRecorder, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
+    handle_subworkflow_output, record_trigger_execution, ExecutionContextRegistry, TriggerLedger,
+    TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 /// Trigger template registry backed by the wf-resource registrar.
@@ -327,12 +328,11 @@ pub struct SubworkflowActionRunner {
     /// Listener shutdown token; fire-and-forget sub-workflows race against
     /// it so in-flight runs are stopped at shutdown.
     shutdown: CancellationToken,
-    /// Optional durable trigger-execution ledger: every triggered
-    /// sub-workflow run is recorded here for the management surface.
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    /// Optional trigger runtime state registry: records the
-    /// fired trigger and its in-flight status, captured into checkpoints.
-    trigger_states: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    /// Optional durable ledger: every triggered sub-workflow run is recorded
+    /// for the management surface, and the trigger-state registry inside the
+    /// ledger records the fired trigger and its in-flight status for
+    /// checkpoint capture.
+    ledger: Option<Arc<TriggerLedger>>,
 }
 
 impl SubworkflowActionRunner {
@@ -342,32 +342,30 @@ impl SubworkflowActionRunner {
         contexts: Arc<ExecutionContextRegistry>,
         shutdown: CancellationToken,
     ) -> Self {
-        Self::with_storage(bus, runner, contexts, shutdown, None)
+        Self::with_ledger(bus, runner, contexts, shutdown, None)
     }
 
-    pub fn with_storage(
+    pub fn with_ledger(
         bus: Arc<EventBus>,
         runner: Arc<dyn SubworkflowRunner>,
         contexts: Arc<ExecutionContextRegistry>,
         shutdown: CancellationToken,
-        storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+        ledger: Option<Arc<TriggerLedger>>,
     ) -> Self {
         Self {
             bus,
             runner,
             contexts,
             shutdown,
-            storage,
-            trigger_states: None,
+            ledger,
         }
     }
 
-    pub fn with_trigger_state_registry(
-        mut self,
-        registry: Arc<wf_workflow::TriggerStateRegistry>,
-    ) -> Self {
-        self.trigger_states = Some(registry);
-        self
+    /// The checkpoint trigger-state registry, when the ledger carries one.
+    fn trigger_states(&self) -> Option<Arc<wf_workflow::TriggerStateRegistry>> {
+        self.ledger
+            .as_ref()
+            .and_then(|ledger| ledger.trigger_state_registry.clone())
     }
 }
 
@@ -465,7 +463,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
 
         // Trigger runtime state (checkpoint audit): the trigger fired for the
         // emitting execution and its run is now in flight.
-        if let Some(registry) = &self.trigger_states {
+        if let Some(registry) = self.trigger_states() {
             registry.record_start(
                 &execution_id,
                 wf_workflow::TriggerStateRecord::running(
@@ -482,7 +480,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             // The synchronous wait races listener shutdown exactly like the
             // fire-and-forget branch, and keeps the abandonment typed as an
             // interruption instead of surfacing a generic trigger error.
-            tokio::select! {
+            let result = tokio::select! {
                 _ = self.shutdown.cancelled() => Err(WorkflowError::SharedError(
                     wf_execution_shared::error::ExecutionSharedError::InterruptionError(format!(
                         "Triggered subworkflow '{}' abandoned at listener shutdown",
@@ -506,16 +504,47 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                         triggered_workflow_id, timeout_ms
                     ))),
                 },
+            };
+            // One ledger reading of the wait outcome: the shutdown-arm
+            // interruption is an abandonment, not an execution failure.
+            let outcome = match &result {
+                Ok(()) => TriggerExecutionOutcome::Completed,
+                Err(WorkflowError::SharedError(
+                    wf_execution_shared::error::ExecutionSharedError::InterruptionError(_),
+                )) => TriggerExecutionOutcome::Abandoned,
+                Err(_) => TriggerExecutionOutcome::Failed,
+            };
+            if let Some(registry) = self.trigger_states() {
+                registry.record_end(
+                    &execution_id,
+                    &event.id.to_string(),
+                    outcome.as_str(),
+                );
             }
+            record_trigger_execution(
+                &self.ledger,
+                template,
+                event,
+                TriggerOutcome {
+                    action_type: "execute_triggered_subworkflow",
+                    outcome,
+                    error: result.as_ref().err().map(|e| e.to_string()),
+                    execution_time_ms: wf_common::now() - start,
+                    child_execution_id: None,
+                },
+            )
+            .await;
+            result
         } else {
-            // Fire-and-forget: the emitting execution must not wait. Aborted
-            // at listener shutdown so in-flight sub-workflows are stopped.
+            // Fire-and-forget: the emitting execution must not wait. The
+            // ledger entry is written by the spawned task with the real
+            // outcome (abandonment at shutdown included), never at
+            // submission time.
             let runner = self.runner.clone();
             let contexts = self.contexts.clone();
             let bus = self.bus.clone();
             let shutdown = self.shutdown.clone();
-            let storage = self.storage.clone();
-            let trigger_states = self.trigger_states.clone();
+            let ledger = self.ledger.clone();
             let parent_execution_id = execution_id.clone();
             let event_id = event.id.to_string();
             let workflow_id = triggered_workflow_id.clone();
@@ -526,7 +555,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
 
             let callback = async move {
                 let run = runner.run(&workflow_id, input);
-                let (success, error) = tokio::select! {
+                let (outcome, error) = tokio::select! {
                     output = run => {
                         match output {
                             Ok(output) => {
@@ -550,36 +579,41 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                         "Triggered subworkflow '{}' completed but write-back failed: {}",
                                         workflow_id, e
                                     );
-                                    (false, Some(e.to_string()))
+                                    (TriggerExecutionOutcome::Failed, Some(e.to_string()))
                                 } else {
-                                    (true, None)
+                                    (TriggerExecutionOutcome::Completed, None)
                                 }
                             }
                             Err(e) => {
                                 warn!("Triggered subworkflow '{}' failed: {}", workflow_id, e);
-                                (false, Some(e.to_string()))
+                                (TriggerExecutionOutcome::Failed, Some(e.to_string()))
                             }
                         }
                     }
                     _ = shutdown.cancelled() => {
                         debug!("Triggered subworkflow '{}' aborted at shutdown", workflow_id);
-                        (false, Some("aborted at listener shutdown".to_string()))
+                        (
+                            TriggerExecutionOutcome::Abandoned,
+                            Some("aborted at listener shutdown".to_string()),
+                        )
                     }
                 };
-                if let Some(registry) = &trigger_states {
+                if let Some(registry) =
+                    ledger.as_ref().and_then(|l| l.trigger_state_registry.clone())
+                {
                     registry.record_end(
                         &parent_execution_id,
                         &event_id,
-                        if success { "completed" } else { "failed" },
+                        outcome.as_str(),
                     );
                 }
                 record_trigger_execution(
-                    &storage,
+                    &ledger,
                     &template,
                     &event,
                     TriggerOutcome {
                         action_type,
-                        success,
+                        outcome,
                         error,
                         execution_time_ms: wf_common::now() - start,
                         child_execution_id: None,
@@ -591,34 +625,6 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             tokio::spawn(callback);
             Ok(())
         };
-        if let Some(registry) = &self.trigger_states {
-            registry.record_end(
-                &execution_id,
-                &event.id.to_string(),
-                if result.is_ok() {
-                    "completed"
-                } else {
-                    "failed"
-                },
-            );
-        }
-        let (success, error) = match &result {
-            Ok(()) => (true, None),
-            Err(e) => (false, Some(e.to_string())),
-        };
-        record_trigger_execution(
-            &self.storage,
-            template,
-            event,
-            TriggerOutcome {
-                action_type: "execute_triggered_subworkflow",
-                success,
-                error,
-                execution_time_ms: wf_common::now() - start,
-                child_execution_id: None,
-            },
-        )
-        .await;
         result
     }
 }

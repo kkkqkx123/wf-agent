@@ -1514,9 +1514,9 @@ pub enum TriggerSub {
         /// Filter by workflow id.
         #[arg(long, value_name = "ID")]
         workflow: Option<String>,
-        /// Filter by success flag.
-        #[arg(long)]
-        success: Option<bool>,
+        /// Filter by outcome (completed | failed | abandoned).
+        #[arg(long, value_name = "OUTCOME")]
+        outcome: Option<String>,
         /// Maximum number of results.
         #[arg(long, value_name = "N")]
         limit: Option<u64>,

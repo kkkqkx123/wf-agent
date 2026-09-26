@@ -35,4 +35,5 @@ regex.workspace = true
 lua = ["wf-sandbox/lua"]
 
 [dev-dependencies]
+wf-execution-shared = { path = "../wf-execution-shared", features = ["test-util"] }
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

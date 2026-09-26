@@ -235,6 +235,12 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
             .unwrap_or(240_000),
         fallback: compression_fallback,
     };
+    // One ledger shared by the listener runners and the compression
+    // handler, so ledger write failures are counted once per process.
+    let ledger = Arc::new(TriggerLedger::new(
+        storage,
+        Some(trigger_state_registry.clone()),
+    ));
     let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger::SubworkflowRunner> =
         std::sync::Arc::new(
             WorkflowRunner::with_tool_registry(
@@ -257,8 +263,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         tool_registry: Some(tool_registry.clone()),
         sandbox: Some(sandbox_runtime.clone()),
         agent_executor: Some(agent_executor.clone()),
-        storage: storage.clone(),
-        trigger_state_registry: Some(trigger_state_registry.clone()),
+        ledger: Some(ledger.clone()),
         hook_handler_registry: Some(hook_handler_registry.clone()),
         signal_bus: Some(signal_bus.clone()),
         timer_bindings: None,
@@ -279,10 +284,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
             contexts: execution_contexts.clone(),
             summary_workflow_id,
             shutdown: trigger_shutdown,
-            ledger: TriggerLedger {
-                storage,
-                trigger_state_registry: Some(trigger_state_registry.clone()),
-            },
+            ledger: Some(ledger),
             policy: compression_policy,
         },
     );

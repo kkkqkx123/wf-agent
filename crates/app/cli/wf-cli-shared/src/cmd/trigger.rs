@@ -88,17 +88,23 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
             trigger,
             execution,
             workflow,
-            success,
+            outcome,
             limit,
             offset,
         } => {
+            let outcome_filter = match outcome.as_deref() {
+                None => None,
+                Some(raw) => Some(raw.parse::<wf_types::TriggerExecutionOutcome>().map_err(
+                    |e| CliError::Arguments(e.to_string()),
+                )?),
+            };
             let options = wf_api::TriggerExecutionListOptions {
                 offset: *offset,
                 limit: *limit,
                 trigger_name_filter: trigger.clone(),
                 execution_id_filter: execution.clone(),
                 workflow_id_filter: workflow.clone(),
-                success_filter: *success,
+                outcome_filter,
             };
             let list =
                 trigger_execution::list_trigger_executions(&ctx.storage, Some(options)).await?;

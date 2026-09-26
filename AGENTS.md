@@ -29,7 +29,7 @@ foundation layer: `wf-types`, `wf-common`, `wf-core`
 
 infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
 
-engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resource management: registries, rendering, custom resources), `wf-execution-shared` (shared execution infrastructure), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
+engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resource management: registries, rendering, custom resources), `wf-execution-shared` (shared execution infrastructure: interaction registry, interactive script session subsystem, single-shot LLM calls), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
 
 app layer: `wf-api` (application-facing API facade), `wf-server` (HTTP transport layer), `wf-runtime` (runtime bootstrap), `cli/` (CLI frontends, peer of a future desktop app), `tui/` (low-level TUI building blocks, no `wf-` prefix)
 
@@ -59,7 +59,7 @@ tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-cloc
 
 `app/tui/` holds the low-level TUI building blocks split out of the former monolithic `wf-tui` crate. These crates carry no `wf-` prefix so both `wf-tui` and `wf-mini` can depend on them directly without implying they are top-level application products. The `tui/*` crates form their own strict DAG (leaf: `tui-clock`; `tui-terminal` may depend on `wf-cli-shared` for the shared `CliResult`/`CliError` types, which does not create a cycle because `wf-cli-shared` has no TUI dependencies).
 
-`infra/checkpoint/` groups the checkpoint subsystem split out of the former monolithic `wf-checkpoint` crate, mirroring `app/cli/` + `app/tui/`. Internal crates carry no `wf-` prefix (`checkpoint-base`, `checkpoint-state`, `checkpoint-file`, `layertwine`); only the externally integrated facade keeps the `wf-` prefix (`wf-checkpoint`). Upper layers (`wf-tools` / `wf-agent` / `wf-workflow` / `wf-api` / `wf-runtime`) depend only on the `wf-checkpoint` facade, never on the internal crates directly. The `checkpoint/*` crates form their own strict DAG (leaf: `checkpoint-base` + `layertwine`; `checkpoint-state` → `checkpoint-base`; `checkpoint-file` → `checkpoint-base`; `wf-checkpoint` → `checkpoint-base` / `checkpoint-state` / `checkpoint-file`).
+`infra/checkpoint/` groups the checkpoint subsystem split out of the former monolithic `wf-checkpoint` crate, mirroring `app/cli/` + `app/tui/`. Internal crates carry no `wf-` prefix (`checkpoint-base`, `checkpoint-state`, `checkpoint-file`, `layertwine`); only the externally integrated facade keeps the `wf-` prefix (`wf-checkpoint`). Upper layers (`wf-tools` / `wf-execution-shared` / `wf-agent` / `wf-workflow` / `wf-api` / `wf-runtime`) depend only on the `wf-checkpoint` facade, never on the internal crates directly. The `checkpoint/*` crates form their own strict DAG (leaf: `checkpoint-base` + `layertwine`; `checkpoint-state` → `checkpoint-base`; `checkpoint-file` → `checkpoint-base`; `wf-checkpoint` → `checkpoint-base` / `checkpoint-state` / `checkpoint-file`).
 
 ## Rust Development Conventions
 

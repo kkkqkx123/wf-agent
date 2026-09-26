@@ -86,7 +86,7 @@ pub async fn execution_history(
         trigger_name_filter: trigger_name.map(ToOwned::to_owned),
         execution_id_filter: Some(execution_id.to_string()),
         workflow_id_filter: None,
-        success_filter: None,
+        outcome_filter: None,
     };
     let mut records = ctx.trigger_execution.list(Some(options)).await?;
     records.sort_by_key(|r| std::cmp::Reverse(r.triggered_at));
@@ -111,12 +111,13 @@ pub async fn delete_trigger_execution(ctx: &StorageContext, id: &str) -> crate::
 mod tests {
     use super::*;
     use serde_json::json;
+    use wf_types::TriggerExecutionOutcome;
 
     fn make_trigger_execution(
         id: &str,
         trigger_name: &str,
         workflow_id: &str,
-        success: bool,
+        outcome: TriggerExecutionOutcome,
         triggered_at: i64,
     ) -> TriggerExecutionStorageMetadata {
         TriggerExecutionStorageMetadata {
@@ -126,7 +127,7 @@ mod tests {
             event: "push".into(),
             execution_id: Some(format!("exec-{}", id)),
             workflow_id: Some(workflow_id.into()),
-            success,
+            outcome,
             result: Some(json!({ "ok": true })),
             error: None,
             action_type: None,
@@ -140,7 +141,13 @@ mod tests {
         let ctx = StorageContext::new_memory();
         save_trigger_execution(
             &ctx,
-            &make_trigger_execution("te-1", "on-push", "wf-1", true, 1000),
+            &make_trigger_execution(
+                "te-1",
+                "on-push",
+                "wf-1",
+                TriggerExecutionOutcome::Completed,
+                1000,
+            ),
         )
         .await
         .unwrap();
@@ -160,19 +167,37 @@ mod tests {
         let ctx = StorageContext::new_memory();
         save_trigger_execution(
             &ctx,
-            &make_trigger_execution("te-1", "on-push", "wf-1", true, 1000),
+            &make_trigger_execution(
+                "te-1",
+                "on-push",
+                "wf-1",
+                TriggerExecutionOutcome::Completed,
+                1000,
+            ),
         )
         .await
         .unwrap();
         save_trigger_execution(
             &ctx,
-            &make_trigger_execution("te-2", "on-push", "wf-2", false, 2000),
+            &make_trigger_execution(
+                "te-2",
+                "on-push",
+                "wf-2",
+                TriggerExecutionOutcome::Failed,
+                2000,
+            ),
         )
         .await
         .unwrap();
         save_trigger_execution(
             &ctx,
-            &make_trigger_execution("te-3", "on-pr", "wf-1", true, 3000),
+            &make_trigger_execution(
+                "te-3",
+                "on-pr",
+                "wf-1",
+                TriggerExecutionOutcome::Abandoned,
+                3000,
+            ),
         )
         .await
         .unwrap();
@@ -190,8 +215,9 @@ mod tests {
         assert_eq!(listed.len(), 3);
 
         let stats = get_trigger_execution_stats(&ctx).await.unwrap();
-        assert_eq!(stats.get("success"), Some(&2));
+        assert_eq!(stats.get("completed"), Some(&1));
         assert_eq!(stats.get("failed"), Some(&1));
+        assert_eq!(stats.get("abandoned"), Some(&1));
 
         // Cleanup removes entries triggered before the cutoff.
         let removed = cleanup_old_trigger_executions(&ctx, 1500).await.unwrap();

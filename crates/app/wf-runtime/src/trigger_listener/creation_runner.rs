@@ -19,27 +19,26 @@ use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner};
 
 use super::scheduler::TRIGGER_INPUT_METADATA_KEY;
-use super::{
-    record_trigger_execution, TriggerExecutionRecorder, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
-};
+use super::{record_trigger_execution, TriggerLedger, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS};
+use wf_types::TriggerExecutionOutcome;
 
 /// Cold-start workflow runner behind `TriggerAction::ExecuteWorkflow`.
 pub struct CreationRunner {
     runner: Arc<dyn SubworkflowRunner>,
     shutdown: CancellationToken,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    ledger: Option<Arc<TriggerLedger>>,
 }
 
 impl CreationRunner {
     pub fn new(
         runner: Arc<dyn SubworkflowRunner>,
         shutdown: CancellationToken,
-        storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+        ledger: Option<Arc<TriggerLedger>>,
     ) -> Self {
         Self {
             runner,
             shutdown,
-            storage,
+            ledger,
         }
     }
 }
@@ -68,23 +67,23 @@ impl TriggerActionRunner for CreationRunner {
         let start = wf_common::now();
 
         let run = self.runner.run(workflow_id, input);
-        let outcome = tokio::select! {
+        let (outcome, error) = tokio::select! {
             output = tokio::time::timeout(
                 std::time::Duration::from_millis(timeout_ms),
                 run,
             ) => match output {
-                Ok(Ok(_)) => (true, None),
-                Ok(Err(e)) => (false, Some(e.to_string())),
-                Err(_) => (false, Some(format!(
+                Ok(Ok(_)) => (TriggerExecutionOutcome::Completed, None),
+                Ok(Err(e)) => (TriggerExecutionOutcome::Failed, Some(e.to_string())),
+                Err(_) => (TriggerExecutionOutcome::Failed, Some(format!(
                     "Cold-started workflow '{}' timed out after {}ms",
                     workflow_id, timeout_ms
                 ))),
             },
-            _ = self.shutdown.cancelled() => {
-                (false, Some("aborted at listener shutdown".to_string()))
-            }
+            _ = self.shutdown.cancelled() => (
+                TriggerExecutionOutcome::Abandoned,
+                Some("aborted at listener shutdown".to_string()),
+            ),
         };
-        let (success, error) = outcome;
         if let Some(error) = &error {
             warn!(
                 "Cold-started workflow '{}' for trigger '{}' failed: {}",
@@ -92,19 +91,19 @@ impl TriggerActionRunner for CreationRunner {
             );
         }
         record_trigger_execution(
-            &self.storage,
+            &self.ledger,
             template,
             event,
             TriggerOutcome {
                 action_type: "execute_workflow",
-                success,
+                outcome,
                 error: error.clone(),
                 execution_time_ms: wf_common::now() - start,
                 child_execution_id: None,
             },
         )
         .await;
-        if success {
+        if outcome == TriggerExecutionOutcome::Completed {
             Ok(())
         } else {
             Err(WorkflowError::TriggerError(error.unwrap_or_else(|| {

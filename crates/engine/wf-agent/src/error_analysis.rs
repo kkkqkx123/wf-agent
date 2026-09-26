@@ -138,9 +138,18 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             false,
             RecoveryAction::Abort,
         ),
-        // Remaining variants (ExecutionFailed, RetryExhausted, McpError,
-        // Serialization, Io, CallbackNotRegistered, Internal, ExecutionError)
-        // are terminal failures; retrying them only burns budget.
+        // MCP and IO failures are usually transient (connection blips,
+        // temporary unavailability): a conservative Retry instead of
+        // dropping them, bounded by the retry budget at the policy layer.
+        ToolError::McpError(_) | ToolError::Io(_) => (
+            ErrorKind::Network,
+            ErrorType::ToolError,
+            true,
+            RecoveryAction::Retry,
+        ),
+        // Remaining variants (ExecutionFailed, RetryExhausted, Serialization,
+        // CallbackNotRegistered, Internal, ExecutionError) are terminal
+        // failures; `RetryExhausted` has already spent its upstream budget.
         _ => (
             ErrorKind::Tool,
             ErrorType::ToolError,
@@ -148,6 +157,10 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             RecoveryAction::Abort,
         ),
     };
+    debug_assert!(
+        !(retryable && recovery_action == RecoveryAction::ManualIntervention),
+        "retryable is the single decision bit: a retryable error must never settle on ManualIntervention"
+    );
     ErrorAnalysis {
         kind,
         error_type,
@@ -233,13 +246,24 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
         ),
         // Configuration, codec, serialization and malformed-response errors
         // are deterministic failures; retrying reproduces the same outcome.
-        _ => (
-            ErrorKind::General,
-            ErrorType::LlmError,
-            e.is_retryable(),
-            RecoveryAction::ManualIntervention,
-        ),
+        _ => {
+            let retryable = e.is_retryable();
+            (
+                ErrorKind::General,
+                ErrorType::LlmError,
+                retryable,
+                if retryable {
+                    RecoveryAction::Retry
+                } else {
+                    RecoveryAction::ManualIntervention
+                },
+            )
+        }
     };
+    debug_assert!(
+        !(retryable && recovery_action == RecoveryAction::ManualIntervention),
+        "retryable is the single decision bit: a retryable error must never settle on ManualIntervention"
+    );
     ErrorAnalysis {
         kind,
         error_type,
@@ -334,8 +358,8 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-        // A full gate (or a still-live resume target) is transient saturation:
-        // the same admission succeeds once in-flight executions drain.
+        // A full gate is transient saturation: the same admission succeeds
+        // once in-flight executions drain.
         AgentError::ConcurrencySaturated(_) => ErrorAnalysis {
             kind: ErrorKind::Resource,
             error_type: ErrorType::Internal,

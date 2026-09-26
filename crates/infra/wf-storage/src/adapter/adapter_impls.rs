@@ -506,16 +506,11 @@ impl<S: Store + StoreExt> TriggerExecutionStorageAdapter for TriggerExecutionSto
         let entries = self.entity_store.list_metadata(None).await?;
         let mut stats = HashMap::new();
         for (_, meta) in &entries {
-            let succeeded = meta
-                .get("success")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let key = if succeeded {
-                "success".to_string()
-            } else {
-                "failed".to_string()
-            };
-            *stats.entry(key).or_insert(0) += 1;
+            let outcome = meta
+                .get("outcome")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            *stats.entry(outcome.to_string()).or_insert(0) += 1;
         }
         Ok(stats)
     }

@@ -352,7 +352,7 @@ fn classify_error(error: &crate::error::LlmError) -> &'static str {
     match error {
         crate::error::LlmError::HttpError(_) => "http_error",
         crate::error::LlmError::SerializationError(_) => "serialization_error",
-        crate::error::LlmError::ProviderError(_) => "provider_error",
+        crate::error::LlmError::ProviderError { .. } => "provider_error",
         crate::error::LlmError::ContextLengthExceeded(_) => "context_length_exceeded",
         crate::error::LlmError::ConfigError(_) => "config_error",
         crate::error::LlmError::StreamError(_) => "stream_error",

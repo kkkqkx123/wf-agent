@@ -99,7 +99,10 @@ impl LlmClientImpl {
         let provisional = match status.as_u16() {
             401 | 403 => LlmError::AuthError(msg),
             408 | 504 => LlmError::Timeout(timeout_ms),
-            _ => LlmError::ProviderError(msg),
+            _ => LlmError::ProviderError {
+                status: Some(status.as_u16()),
+                message: body.to_string(),
+            },
         };
         if provisional.is_context_length_exceeded() {
             return LlmError::ContextLengthExceeded(body.to_string());
@@ -386,7 +389,7 @@ mod tests {
     fn map_http_error_classifies_provider_errors() {
         assert!(matches!(
             LlmClientImpl::map_http_error(reqwest::StatusCode::BAD_REQUEST, "bad", 5000),
-            LlmError::ProviderError(_)
+            LlmError::ProviderError { .. }
         ));
         assert!(matches!(
             LlmClientImpl::map_http_error(
@@ -394,11 +397,11 @@ mod tests {
                 "slow down",
                 5000
             ),
-            LlmError::ProviderError(_)
+            LlmError::ProviderError { .. }
         ));
         assert!(matches!(
             LlmClientImpl::map_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "boom", 5000),
-            LlmError::ProviderError(_)
+            LlmError::ProviderError { .. }
         ));
     }
 

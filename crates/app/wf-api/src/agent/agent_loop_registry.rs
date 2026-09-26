@@ -1129,6 +1129,7 @@ mod tests {
             completed_at: Some(5000),
             error: None,
             context: None,
+            permanently_failed_tools: None,
         };
         storage.agent_execution.save(&record).await.unwrap();
 

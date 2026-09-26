@@ -65,7 +65,7 @@ impl LoopStartHandler {
 
         // First visit: resolve the iterable, import variable_inputs and push
         // the loop state.
-        if find_loop(&ctx.variables, &loop_id).is_none() {
+        if find_loop(&ctx.variables, &loop_id)?.is_none() {
             let iterable = resolve_iterable(config, ctx)?;
             let variable_name = config
                 .get("data_source")
@@ -100,10 +100,10 @@ impl LoopStartHandler {
                     iteration_started: false,
                     iteration_nodes: Vec::new(),
                 },
-            );
+            )?;
         }
 
-        let mut state = find_loop(&ctx.variables, &loop_id)
+        let mut state = find_loop(&ctx.variables, &loop_id)?
             .ok_or_else(|| WorkflowError::LoopError("loop state missing".to_string()))?;
 
         // The current iteration has already been started (retry / checkpoint
@@ -117,7 +117,7 @@ impl LoopStartHandler {
         // exit point), which forwards through its outgoing edges.
         if let Some(cond) = break_condition {
             if evaluate_condition(ctx, cond)? {
-                exit_loop(&ctx.variables, &loop_id);
+                exit_loop(&ctx.variables, &loop_id)?;
                 let next = find_loop_end_node(ctx, &loop_id).map(|id| vec![id]);
                 return Ok(NodeExecutionResult {
                     output: ctx.input.clone(),
@@ -128,7 +128,7 @@ impl LoopStartHandler {
         }
 
         if !loop_condition_met(&state) {
-            exit_loop(&ctx.variables, &loop_id);
+            exit_loop(&ctx.variables, &loop_id)?;
             let next = find_loop_end_node(ctx, &loop_id).map(|id| vec![id]);
             return Ok(NodeExecutionResult {
                 output: ctx.input.clone(),
@@ -153,7 +153,7 @@ impl LoopStartHandler {
         // A new iteration begins: reset the per-iteration completion
         // tracking.
         state.iteration_nodes = Vec::new();
-        update_loop(&ctx.variables, state);
+        update_loop(&ctx.variables, state)?;
 
         Ok(NodeExecutionResult::simple(ctx.input.clone()))
     }
@@ -191,7 +191,7 @@ impl LoopEndHandler {
         let break_condition = config.get("break_condition").and_then(|c| c.as_str());
         let loop_start_node_id = config.get("loop_start_node_id").and_then(|t| t.as_str());
 
-        let Some(mut state) = find_loop(&ctx.variables, &loop_id) else {
+        let Some(mut state) = find_loop(&ctx.variables, &loop_id)? else {
             // No active loop state: nothing to evaluate, flow forward.
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         };
@@ -214,7 +214,7 @@ impl LoopEndHandler {
         );
 
         if terminate {
-            exit_loop(&ctx.variables, &loop_id);
+            exit_loop(&ctx.variables, &loop_id)?;
             metadata.insert("should_continue".to_string(), Value::Bool(false));
             return Ok(NodeExecutionResult {
                 output: ctx.input.clone(),
@@ -226,7 +226,7 @@ impl LoopEndHandler {
         // Continue with the next iteration: acknowledge the consumed
         // iteration so the next LOOP_START visit advances the state.
         state.iteration_started = false;
-        update_loop(&ctx.variables, state);
+        update_loop(&ctx.variables, state)?;
 
         let next_node_ids = if let Some(target) = loop_start_node_id {
             vec![target.to_string()]

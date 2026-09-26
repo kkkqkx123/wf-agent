@@ -37,6 +37,40 @@ impl NodeHandler for CountingScript {
     }
 }
 
+/// A script body that requests a pause through the typed signal bus on its
+/// first attempt and succeeds afterwards. The signal lands after the node
+/// completes, so the run parks through the standard pause path (paused
+/// snapshot, typed pause result) instead of the node-failure path. Later
+/// attempts are plain successes.
+struct PausingScript {
+    count: Arc<std::sync::Mutex<u32>>,
+}
+
+#[async_trait]
+impl NodeHandler for PausingScript {
+    fn node_type(&self) -> StaticNodeType {
+        StaticNodeType::Script
+    }
+
+    async fn execute(
+        &self,
+        ctx: &mut NodeExecutionContext,
+    ) -> wf_execution_shared::error::ExecutionSharedResult<NodeExecutionResult> {
+        let mut count = self.count.lock().unwrap();
+        *count += 1;
+        if *count == 1 {
+            if let Some(ref bus) = ctx.signal_bus {
+                bus.publish(wf_core::internal_signal::InternalSignal::PauseWorkflow {
+                    source: ctx.execution_id.clone(),
+                    target_execution_id: ctx.execution_id.clone(),
+                    reason: Some("pause for resume test".to_string()),
+                });
+            }
+        }
+        Ok(NodeExecutionResult::simple(serde_json::json!({})))
+    }
+}
+
 fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
     WorkflowNode {
         id: id.to_string(),
@@ -103,11 +137,22 @@ fn handlers(
     reg.into_arc()
 }
 
+fn pausing_handlers(
+    count: Arc<std::sync::Mutex<u32>>,
+) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+    let mut reg = HandlerRegistry::new();
+    reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));
+    reg.register(Box::new(PausingScript { count }));
+    reg.into_arc()
+}
+
 #[tokio::test]
 async fn checkpoint_pause_and_resume_completes_linear_workflow() {
     let store = Arc::new(StorageBackend::new_memory());
+    let signal_bus = Arc::new(wf_core::internal_signal::InternalSignalBus::new());
     let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
-        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node());
+        .with_checkpoint_strategy(NodeCheckpointStrategy::every_node())
+        .with_signal_bus(signal_bus);
     let workflow_id = wf_types::Id::from("wf-checkpoint-linear".to_string());
     let tool_registry = Arc::new(ToolRegistry::new());
     let count = Arc::new(std::sync::Mutex::new(0u32));
@@ -115,7 +160,7 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
 
     let first_opts = WorkflowExecutionOptions {
         input: None,
-        max_steps: Some(2),
+        max_steps: None,
         timeout: None,
         max_execution_time: None,
         enable_checkpoints: Some(true),
@@ -124,20 +169,21 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     };
-    lifecycle
+    let err = lifecycle
         .execute_workflow(WorkflowExecutionParams {
             execution_id: wf_types::Id::from("exec-checkpoint-linear".to_string()),
             workflow_id: workflow_id.clone(),
             graph: g.clone(),
             options: first_opts,
-            handlers: handlers(count.clone()),
+            handlers: pausing_handlers(count.clone()),
             tool_registry: tool_registry.clone(),
             resource_registries: None,
             input: None,
             hooks: Vec::new(),
         })
         .await
-        .expect("bounded first run must pause, not fail");
+        .expect_err("first run must pause on the script body");
+    assert!(err.to_string().contains("paused"), "unexpected error: {err}");
 
     let resumed = lifecycle
         .resume_workflow(
@@ -154,7 +200,7 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
     assert_eq!(
         *count.lock().unwrap(),
         1,
-        "body ran exactly once across resume"
+        "body completed before the pause, so the resume must skip it"
     );
 }
 

@@ -57,9 +57,14 @@ pub enum AgentStreamEvent {
     /// Terminal failure of the run. `error_type` is the structured
     /// classification of the underlying error, so stream consumers can keep
     /// cancel/timeout semantics without parsing the message.
+    /// `permanently_failed_tools` names tools whose calls failed
+    /// permanently during the run, so a host can tell a broken tool apart
+    /// from a plain run failure.
     Failed {
         error: String,
         error_type: wf_types::errors::ErrorType,
+        #[serde(default)]
+        permanently_failed_tools: Vec<String>,
     },
     Interrupted {
         reason: String,

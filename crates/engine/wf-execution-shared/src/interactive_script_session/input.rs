@@ -165,6 +165,7 @@ pub(super) async fn fail_wait(
             node_id: node_id.to_string(),
             category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
             detail: "interaction waiter was cancelled".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         },
         ExternalWaitOutcome::TimedOut => ExecutionSharedError::NodeFailure {
             node_id: node_id.to_string(),
@@ -173,6 +174,7 @@ pub(super) async fn fail_wait(
                 "interaction round timed out after {} ms",
                 config.round_timeout_ms
             ),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         },
         ExternalWaitOutcome::Answered(_) => {
             ExecutionSharedError::Internal("interaction wait misrouted an answer".to_string())

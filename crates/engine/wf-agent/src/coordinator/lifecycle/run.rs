@@ -319,7 +319,8 @@ impl AgentLoopCoordinator {
                 // cause from every downstream consumer.
                 let status = entity.state.read().await.status();
                 if !status.is_terminal() {
-                    let settle = match settle_kind(&e, wf_common::shutdown::is_active_shutdown()) {
+                    let shutdown = wf_common::shutdown::is_active_shutdown();
+                    let settle = match settle_kind(&e, shutdown) {
                         SettleKind::Timeout => {
                             AgentLoopStateTransitor::timeout_agent_loop(
                                 &entity,
@@ -328,8 +329,11 @@ impl AgentLoopCoordinator {
                             .await
                         }
                         SettleKind::Cancel => {
-                            AgentLoopStateTransitor::cancel_agent_loop(
+                            // Cancellation only changes the classification. The
+                            // original error stays on the state for audit.
+                            AgentLoopStateTransitor::cancel_agent_loop_with_error(
                                 &entity,
+                                e.to_string(),
                                 self.event_bus.as_deref(),
                             )
                             .await

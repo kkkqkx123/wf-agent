@@ -14,13 +14,10 @@ use crate::trigger::internal;
 /// Parse a TriggerAction from a node config value.
 ///
 /// Accepted layouts:
-/// - `config.trigger` / `config.action` holding the tagged action object
+/// - `config.trigger` holding the tagged action object
 /// - the config itself holding the tagged action object
 pub fn parse_trigger_action(config: &Value) -> Option<TriggerAction> {
-    let candidate = config
-        .get("trigger")
-        .or_else(|| config.get("action"))
-        .unwrap_or(config);
+    let candidate = config.get("trigger").unwrap_or(config);
     candidate.get("action_type")?;
     serde_json::from_value(candidate.clone()).ok()
 }
@@ -83,6 +80,7 @@ async fn execute_action(
                 node_id: ctx.node_id.clone(),
                 category,
                 detail: err.clone(),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
             None => WorkflowError::TriggerError(err.clone()),
         });
@@ -104,30 +102,20 @@ async fn execute_action(
     Ok(Vec::new())
 }
 
-/// Map `message_inputs` (or camelCase `messageInputs`) entries from the node
-/// input object into workflow variables.
+/// Map `message_inputs` entries from the node input object into workflow
+/// variables.
 fn map_message_inputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()> {
     let Some(config) = &ctx.node_config else {
         return Ok(());
     };
-    let Some(inputs) = config
-        .get("message_inputs")
-        .or_else(|| config.get("messageInputs"))
-        .and_then(|v| v.as_array())
-    else {
+    let Some(inputs) = config.get("message_inputs").and_then(|v| v.as_array()) else {
         return Ok(());
     };
 
     let input_obj = ctx.input.as_object().cloned().unwrap_or_default();
     for entry in inputs {
-        let source = entry
-            .get("source_context_id")
-            .or_else(|| entry.get("sourceContextId"))
-            .and_then(|v| v.as_str());
-        let internal = entry
-            .get("internal_name")
-            .or_else(|| entry.get("internalName"))
-            .and_then(|v| v.as_str());
+        let source = entry.get("source_context_id").and_then(|v| v.as_str());
+        let internal = entry.get("internal_name").and_then(|v| v.as_str());
         let required = entry
             .get("required")
             .and_then(|v| v.as_bool())
@@ -160,15 +148,14 @@ fn map_message_inputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()> {
     Ok(())
 }
 
-/// Export `variable_outputs` (or camelCase) entries: copy the named values
-/// from the node input object into workflow variables.
+/// Export `variable_outputs` entries: copy the named values from the node
+/// input object into workflow variables.
 fn export_variable_outputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()> {
     let Some(config) = &ctx.node_config else {
         return Ok(());
     };
     let Some(outputs) = config
         .get("variable_outputs")
-        .or_else(|| config.get("variableOutputs"))
         .and_then(|v| v.as_array())
     else {
         return Ok(());
@@ -176,14 +163,8 @@ fn export_variable_outputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()>
 
     let input_obj = ctx.input.as_object().cloned().unwrap_or_default();
     for entry in outputs {
-        let internal = entry
-            .get("internal_name")
-            .or_else(|| entry.get("internalName"))
-            .and_then(|v| v.as_str());
-        let target = entry
-            .get("target_variable")
-            .or_else(|| entry.get("targetVariable"))
-            .and_then(|v| v.as_str());
+        let internal = entry.get("internal_name").and_then(|v| v.as_str());
+        let target = entry.get("target_variable").and_then(|v| v.as_str());
         if let (Some(internal), Some(target)) = (internal, target) {
             if let Some(value) = input_obj.get(internal) {
                 ctx.set_variable(target, value.clone())?;
@@ -193,23 +174,17 @@ fn export_variable_outputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()>
     Ok(())
 }
 
-/// Export `message_outputs` (or camelCase) entries: expose the named message
-/// context as the node output (serialized `Vec<Message>`), so a triggered
+/// Export `message_outputs` entries: expose the named message context as
+/// the node output (serialized `Vec<Message>`), so a triggered
 /// sub-workflow's final output is the message array (e.g. the compressed
 /// summary) that the event-driven trigger listener writes back. The first
 /// entry with a non-empty context wins.
 fn export_message_outputs(ctx: &mut NodeExecutionContext) -> Option<Value> {
     let config = ctx.node_config.as_ref()?;
-    let outputs = config
-        .get("message_outputs")
-        .or_else(|| config.get("messageOutputs"))
-        .and_then(|v| v.as_array())?;
+    let outputs = config.get("message_outputs").and_then(|v| v.as_array())?;
 
     for entry in outputs {
-        let internal = entry
-            .get("internal_name")
-            .or_else(|| entry.get("internalName"))
-            .and_then(|v| v.as_str())?;
+        let internal = entry.get("internal_name").and_then(|v| v.as_str())?;
         let messages = message_context::get_context(&ctx.variables, internal);
         if messages.is_empty() {
             continue;
@@ -460,9 +435,9 @@ mod tests {
             vars,
         )
         .with_node_config(serde_json::json!({
-            "messageOutputs": [{
-                "internalName": "compressed",
-                "targetContextId": "current"
+            "message_outputs": [{
+                "internal_name": "compressed",
+                "target_context_id": "current"
             }]
         }));
 
@@ -474,6 +449,36 @@ mod tests {
             messages[0].content,
             wf_types::message::MessageContentValue::Text("summary".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn camel_case_message_outputs_are_not_honored() {
+        // The camelCase compat read is gone: only `message_outputs` routes.
+        // A camelCase-only config behaves exactly like an absent one.
+        let vars = std::sync::Arc::new(DashMap::new());
+        crate::message_context::append_context(
+            &vars,
+            "compressed",
+            vec![msg(wf_types::message::MessageRole::Assistant, "summary")],
+        );
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "end-node".to_string(),
+            StaticNodeType::ContinueFromMessage,
+            Value::String("plain".to_string()),
+            vars,
+        )
+        .with_node_config(serde_json::json!({
+            "messageOutputs": [{
+                "internalName": "compressed",
+                "targetContextId": "current"
+            }]
+        }));
+
+        let handler = ContinueFromMessageHandler;
+        let result = handler.execute(&mut ctx).await.unwrap();
+        assert_eq!(result.output, Value::String("plain".to_string()));
     }
 
     #[tokio::test]

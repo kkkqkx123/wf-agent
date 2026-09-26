@@ -18,6 +18,7 @@ pub fn agent_failure_node_failure(
         node_id: node_id.to_string(),
         category: NodeErrorCategory::from_error_type(&error_type),
         detail,
+        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
     }
 }
 
@@ -36,6 +37,16 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
         WorkflowError::ExecutionTimeout(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Timeout,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
+        },
+        // Main-loop pause is control flow, not a malfunction: it reads as
+        // an interruption so routing never mistakes it for a business
+        // failure and transports never report it as an internal error.
+        WorkflowError::ExecutionPaused(_) => ErrorAnalysis {
+            kind: NodeErrorCategory::CancelledInterrupted.error_kind(),
+            error_type: NodeErrorCategory::CancelledInterrupted.error_type(),
             retryable: false,
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
@@ -235,6 +246,19 @@ mod tests {
     }
 
     #[test]
+    fn main_loop_pause_reads_as_interruption() {
+        // The main loop never reports a pause as a coordinator malfunction:
+        // routing and transports see an interruption, not an internal error.
+        let analysis =
+            analyze_workflow_error(&WorkflowError::ExecutionPaused("Execution paused".to_string()));
+        assert_eq!(analysis.error_type, ErrorType::Interruption);
+        assert_eq!(
+            NodeErrorCategory::from_error_type(&analysis.error_type),
+            NodeErrorCategory::CancelledInterrupted
+        );
+    }
+
+    #[test]
     fn shared_tool_timeout_stays_retryable() {
         // A tool timeout is genuinely retryable, so the record stays
         // marked recoverable through the shared wrapper.
@@ -262,6 +286,7 @@ mod tests {
             node_id: "x".to_string(),
             category: NodeErrorCategory::TransportTimeout,
             detail: "child wall clock exceeded".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         });
         assert_eq!(timeout.error_type, ErrorType::Timeout);
         assert_eq!(timeout.kind, ErrorKind::Timeout);
@@ -270,6 +295,7 @@ mod tests {
             node_id: "x".to_string(),
             category: NodeErrorCategory::CancelledInterrupted,
             detail: "stopped".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         });
         assert_eq!(cancelled.error_type, ErrorType::Interruption);
 
@@ -277,6 +303,7 @@ mod tests {
             node_id: "x".to_string(),
             category: NodeErrorCategory::Resource,
             detail: "rate limited".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         });
         assert_eq!(resource.kind, ErrorKind::Resource);
         assert_eq!(resource.error_type, ErrorType::ServiceUnavailable);

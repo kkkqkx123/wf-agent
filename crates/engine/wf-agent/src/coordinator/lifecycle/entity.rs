@@ -200,6 +200,10 @@ impl AgentLoopCoordinator {
                 profile.as_ref().and_then(|p| p.context_window_size),
                 profile.as_ref().and_then(|p| p.metadata.as_ref()),
             );
+            // A zero budget only disables proactive compression checks here;
+            // the fail-loudly termination fires where compression becomes
+            // necessary (a context-length rejection with no window ends the
+            // run as `ContextBudgetExhausted` instead of looping).
             if context_budget == 0 {
                 tracing::warn!(
                     model = %config.model,

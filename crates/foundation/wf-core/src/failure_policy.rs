@@ -64,14 +64,7 @@ fn apply_jitter(delay_ms: u64) -> Duration {
 }
 
 fn is_non_retryable(kind: ErrorKind) -> bool {
-    matches!(
-        kind,
-        ErrorKind::Validation
-            | ErrorKind::NotFound
-            | ErrorKind::BusinessLogic
-            | ErrorKind::StateManagement
-            | ErrorKind::AuthError
-    )
+    kind.is_non_retryable()
 }
 
 pub fn default_retry_policy() -> RetryPolicy {

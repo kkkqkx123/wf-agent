@@ -154,6 +154,7 @@ impl NodeHandler for ScriptStub {
                     node_id: ctx.node_id.clone(),
                     category,
                     detail: message.to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 }
                 .into());
             }

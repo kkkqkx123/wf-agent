@@ -15,8 +15,8 @@ pub const ERROR_MERGE_POINT_KEY: &str = "error_merge_point";
 
 /// Prefix of the read-only error namespace injected while an error branch
 /// runs (`error.message`, `error.category`, `error.source_node`,
-/// `error.attempts`, plus the `error` object itself). This is business-visible
-/// read-only data for branch nodes, not engine machinery.
+/// `error.attempts`, `error.source`, plus the `error` object itself). This
+/// is business-visible read-only data for branch nodes, not engine machinery.
 pub const ERROR_NAMESPACE: &str = "error";
 
 /// Summary characters kept in audit payloads and hook metadata. Error routing
@@ -97,6 +97,37 @@ impl std::fmt::Display for NodeErrorCategory {
     }
 }
 
+/// Origin of a terminal node failure. Hook vetoes and approval rejections
+/// share the business-failure category with handler errors, so the source
+/// travels as its own dimension for error-branch routing.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeFailureSource {
+    /// The node handler itself failed.
+    #[default]
+    Handler,
+    /// A BEFORE hook vetoed the node before the handler ran.
+    HookVeto,
+    /// A tool approval policy rejected the call.
+    Approval,
+}
+
+impl NodeFailureSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Handler => "handler",
+            Self::HookVeto => "hook_veto",
+            Self::Approval => "approval",
+        }
+    }
+}
+
+impl std::fmt::Display for NodeFailureSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Structured config carried by an error edge (`EdgeType::Error`) and reused
 /// by the workflow-level catch-all: which terminal failure categories the
 /// route matches and whether the jump parks at a suspend point.
@@ -143,12 +174,18 @@ pub struct ErrorRouteTarget {
 
 /// Read-only error summary injected into the error namespace on branch
 /// entry. Only summary fields travel to audit and hook payloads.
+/// `attempts` is a coordinator-level count of recorded terminal failures
+/// for the source node; retries spent inside handlers are invisible here.
+/// `source` names the failure origin (handler, hook veto, approval) so
+/// branch scripts can route vetoes apart from handler failures.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ErrorBranchSummary {
     pub message: String,
     pub category: NodeErrorCategory,
     pub source_node_id: String,
     pub attempts: u32,
+    #[serde(default)]
+    pub source: NodeFailureSource,
 }
 
 impl ErrorBranchSummary {
@@ -163,7 +200,13 @@ impl ErrorBranchSummary {
             category,
             source_node_id: source_node_id.into(),
             attempts: attempts.max(1),
+            source: NodeFailureSource::Handler,
         }
+    }
+
+    pub fn with_source(mut self, source: NodeFailureSource) -> Self {
+        self.source = source;
+        self
     }
 
     /// Variable entries injected for the branch (`error` object plus dotted
@@ -174,6 +217,7 @@ impl ErrorBranchSummary {
             "category": self.category.as_str(),
             "source_node": self.source_node_id,
             "attempts": self.attempts,
+            "source": self.source.as_str(),
         });
         vec![
             (ERROR_NAMESPACE.to_string(), object),
@@ -192,6 +236,10 @@ impl ErrorBranchSummary {
             (
                 format!("{ERROR_NAMESPACE}.attempts"),
                 serde_json::Value::Number(self.attempts.into()),
+            ),
+            (
+                format!("{ERROR_NAMESPACE}.source"),
+                serde_json::Value::String(self.source.as_str().to_string()),
             ),
         ]
     }

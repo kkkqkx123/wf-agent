@@ -20,8 +20,8 @@ pub enum AgentError {
     #[error("Execution cancelled: {0}")]
     Cancelled(String),
 
-    /// The concurrent-execution gate is momentarily full (or a resume target
-    /// is still live): transient saturation that a later attempt may pass.
+    /// The concurrent-execution gate is momentarily full: transient
+    /// saturation that a later attempt may pass.
     #[error("Concurrency saturated: {0}")]
     ConcurrencySaturated(String),
 
@@ -37,6 +37,14 @@ pub enum AgentError {
     /// error.
     #[error("Repeated error pattern: {0}")]
     ErrorPatternTripped(String),
+
+    /// The context budget is exhausted: a context-length rejection recurred
+    /// after compression already ran (or no model window exists to compress
+    /// against). Continuing would keep colliding with the same provider
+    /// rejection, so the run ends here instead of tripping the generic
+    /// pattern breaker.
+    #[error("Context budget exhausted: {0}")]
+    ContextBudgetExhausted(String),
 
     #[error("LLM error: {0}")]
     LlmError(#[from] wf_llm::error::LlmError),

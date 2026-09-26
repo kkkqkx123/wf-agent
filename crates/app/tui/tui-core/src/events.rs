@@ -274,6 +274,7 @@ mod tests {
                 AgentStreamEvent::Failed {
                     error: "boom".to_string(),
                     error_type: wf_types::errors::ErrorType::LlmError,
+                    permanently_failed_tools: Vec::new(),
                 },
                 UnifiedEvent::Failed {
                     error: "boom".to_string(),

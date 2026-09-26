@@ -319,7 +319,6 @@ mod tests {
             root_cause_id: String::new(),
             caused_by: Some(ErrorCause {
                 reason: "root".to_string(),
-                handling_attempt: None,
             }),
             is_recoverable: true,
             recovery_action: Some(RecoveryAction::Retry),
@@ -376,6 +375,7 @@ mod tests {
             completed_at: Some(wf_common::now()),
             error: Some("fatal timeout".to_string()),
             context: None,
+            permanently_failed_tools: None,
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
 

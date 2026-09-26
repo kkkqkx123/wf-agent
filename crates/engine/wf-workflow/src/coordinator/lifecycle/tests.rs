@@ -137,7 +137,9 @@ async fn test_execute_then_resume() {
     assert!(latest.is_some(), "checkpoint should be persisted");
     assert!(latest.is_some(), "checkpoint should be persisted");
 
-    let resumed = lifecycle
+    // The completed run left a terminal snapshot: resuming it must fail
+    // instead of implicitly re-driving a finished execution.
+    let err = lifecycle
         .resume_workflow(
             "exec-resume-1",
             workflow_id,
@@ -147,27 +149,11 @@ async fn test_execute_then_resume() {
             Vec::new(),
         )
         .await
-        .expect("resume should complete the workflow");
-    assert_eq!(resumed.execution_id, "exec-resume-1");
-
-    // Single end node -> final output is the end node's output directly.
-    assert_eq!(resumed.result, serde_json::json!({"greeting": "hello"}));
-
-    // The resumed run must have continued checkpointing; the new
-    // snapshot proves v2 ran with the restored "mid" variable.
-    let resumed_cp = sm
-        .get_latest("exec-resume-1")
-        .await
-        .expect("checkpoint exists")
-        .expect("checkpoint persisted");
-    use wf_checkpoint::coordinator::CheckpointCoordinator;
-    let coord = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
-        wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone()),
+        .expect_err("resume of a completed run must fail");
+    assert!(
+        err.to_string().contains("terminal status"),
+        "unexpected error: {err}"
     );
-    let restored = coord.restore(&resumed_cp.id).await.expect("restore ok");
-    let vars = &restored.snapshot.variable_state.variables;
-    assert_eq!(vars.get("mid"), Some(&serde_json::json!("hello")));
-    assert_eq!(vars.get("final"), Some(&serde_json::json!("hello")));
 }
 
 #[tokio::test]
@@ -1017,7 +1003,9 @@ async fn test_resume_from_before_node_checkpoint() {
         "Manual + Before(start) + Before(v1) + OnComplete expected"
     );
 
-    let resumed = lifecycle
+    // The first run completed, so its latest snapshot is terminal:
+    // resuming must refuse instead of re-driving finished nodes.
+    let err = lifecycle
         .resume_workflow(
             "exec-before-2",
             workflow_id,
@@ -1027,27 +1015,10 @@ async fn test_resume_from_before_node_checkpoint() {
             Vec::new(),
         )
         .await
-        .expect("resume should complete the workflow");
-    assert_eq!(
-        resumed.result,
-        serde_json::json!({"greeting": "hello"}),
-        "completed nodes must not re-execute; their outputs feed downstream"
-    );
-
-    // Resume run adds between 4 and 6 checkpoints depending on which
-    // same-millisecond checkpoint is selected as the resume source:
-    // Manual + one Before(node) per re-executed node + OnComplete. Nodes
-    // recorded as completed in the selected snapshot are never
-    // re-executed, keeping the total within this range.
-    let count_after = sm
-        .list_by_entity("exec-before-2")
-        .await
-        .expect("checkpoints listed")
-        .len();
+        .expect_err("resume of a completed run must fail");
     assert!(
-        (8..=10).contains(&count_after),
-        "completed nodes must not re-execute after resume, got {}",
-        count_after
+        err.to_string().contains("terminal status"),
+        "unexpected error: {err}"
     );
 }
 

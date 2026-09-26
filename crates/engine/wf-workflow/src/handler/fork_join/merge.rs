@@ -195,11 +195,7 @@ pub fn aggregate_branch_data_outputs(
     success_records: &[BranchResult],
     aggregated: &mut Value,
 ) {
-    let Some(mappings) = config
-        .get("data_outputs")
-        .or_else(|| config.get("dataOutputs"))
-        .and_then(|v| v.as_array())
-    else {
+    let Some(mappings) = config.get("data_outputs").and_then(|v| v.as_array()) else {
         return;
     };
     let Some(primary) = success_records.first() else {
@@ -212,12 +208,10 @@ pub fn aggregate_branch_data_outputs(
     for mapping in mappings {
         let internal_name = mapping
             .get("internal_name")
-            .or_else(|| mapping.get("internalName"))
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         let output_key = mapping
             .get("output_key")
-            .or_else(|| mapping.get("outputKey"))
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         if internal_name.is_empty() || output_key.is_empty() {
@@ -246,7 +240,7 @@ mod tests {
             "results": [
                 {"branch_id": "b1", "output": {"x": 1}, "success": true},
                 {"branch_id": "b2", "output": {"y": 2}, "success": true},
-                {"branch_id": "b3", "output": {"x": 9}, "success": false, "error": "boom"}
+                {"branch_id": "b3", "output": null, "success": false, "failure": {"category": "business_failure", "detail": "boom"}}
             ]
         });
         let (records, dropped) = collect_branch_records(&input);
@@ -258,7 +252,7 @@ mod tests {
             .collect();
         assert_eq!(outputs.len(), 2);
         assert_eq!(merge_outputs(&outputs), serde_json::json!({"x": 1, "y": 2}));
-        assert_eq!(records[2].error.as_deref(), Some("boom"));
+        assert_eq!(records[2].error_message(), Some("boom"));
     }
 
     #[test]

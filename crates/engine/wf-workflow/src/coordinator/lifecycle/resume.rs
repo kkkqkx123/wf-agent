@@ -63,6 +63,27 @@ impl WorkflowLifecycleCoordinator {
             ))
         })?;
         let snapshot = restored.snapshot;
+        {
+            use std::str::FromStr;
+            use wf_types::execution::status::ExecutionStatus as PersistedStatus;
+            let status = PersistedStatus::from_str(&snapshot.status).map_err(|e| {
+                crate::error::WorkflowError::CoordinatorError(format!(
+                    "checkpoint {} carries unrecognized status '{}': {}",
+                    metadata.id, snapshot.status, e
+                ))
+            })?;
+            use PersistedStatus as S;
+            if matches!(
+                status,
+                S::Completed | S::Failed | S::Cancelled | S::Stopped | S::Timeout
+            ) {
+                return Err(crate::error::WorkflowError::StateTransitionError(format!(
+                    "checkpoint {} records terminal status '{}': \
+                     resume only continues a live run, start a new execution to re-drive it",
+                    metadata.id, snapshot.status
+                )));
+            }
+        }
 
         let entity = WorkflowExecutionEntity::new(
             wf_types::Id::from(snapshot.execution_id.clone()),
@@ -87,31 +108,35 @@ impl WorkflowLifecycleCoordinator {
             }
         }
 
+        // The continuation inherits the frozen budget totals with only the
+        // remainder of the wall-clock budget left; suspend/resume must not
+        // lift the original timeouts.
+        let mut options = crate::execution_budgets::continuation_options(
+            &snapshot.execution_id,
+            snapshot.execution_config.as_ref(),
+        )?;
+        // The input lives in the restored "input" variable; without
+        // it, restarted nodes would compute a Null input.
+        options.input = snapshot.variable_state.variables.get("input").cloned();
         let mut ctx = ExecutorContext::new(
             wf_types::Id::from(snapshot.execution_id.clone()),
             workflow_id,
             self.event_bus.clone(),
             tool_registry,
-            wf_types::workflow_execution::WorkflowExecutionOptions {
-                // The input lives in the restored "input" variable; without
-                // it, restarted nodes would compute a Null input.
-                input: snapshot.variable_state.variables.get("input").cloned(),
-                max_steps: None,
-                timeout: None,
-                max_execution_time: None,
-                // A resumed execution continues checkpointing; sub-workflow
-                // resumes opt out explicitly.
-                enable_checkpoints: Some(true),
-                node_timeout: None,
-                max_pause_duration: None,
-                max_navigation_multiplier: None,
-                loop_max_iterations_cap: None,
-            },
+            options,
         );
         ctx.variables = entity.variables().clone();
         for (name, value) in &snapshot.variable_state.variables {
             ctx.variables.insert(name.clone(), value.clone());
         }
+        // Reseed the cumulative active time so the next checkpoint keeps
+        // accumulating instead of restarting the clock.
+        ctx.variables.insert(
+            crate::execution_budgets::ELAPSED_VAR.to_string(),
+            serde_json::Value::from(crate::execution_budgets::snapshot_elapsed_ms(
+                snapshot.execution_config.as_ref(),
+            )),
+        );
         if let Some(ref bus) = self.signal_bus {
             ctx = ctx.with_signal_bus(bus.clone());
         }

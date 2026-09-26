@@ -78,6 +78,19 @@ impl AgentLoopStateTransitor {
         Ok(())
     }
 
+    pub async fn cancel_agent_loop_with_error(
+        entity: &AgentLoopEntity,
+        error: String,
+        event_bus: Option<&EventBus>,
+    ) -> AgentResult<()> {
+        entity.state.write().await.cancel_with_error(error)?;
+        entity.release_gate_permit();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentCancelled, entity.id().clone());
+        }
+        Ok(())
+    }
+
     pub async fn timeout_agent_loop(
         entity: &AgentLoopEntity,
         event_bus: Option<&EventBus>,

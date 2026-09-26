@@ -52,6 +52,20 @@ pub struct IterationRecord {
     pub llm_calls: Vec<wf_types::agent_execution::LlmCallRecord>,
 }
 
+impl IterationRecord {
+    /// Error-record tag attributing a failure to this iteration. Iteration
+    /// errors carry it as their `node_id` so the persisted per-iteration
+    /// slot and the "which round failed" queries resolve without guessing.
+    pub fn iteration_tag(&self) -> String {
+        iteration_tag(self.iteration)
+    }
+}
+
+/// Error-record tag for iteration `n` (see [`IterationRecord::iteration_tag`]).
+pub fn iteration_tag(iteration: u32) -> String {
+    format!("iteration-{iteration}")
+}
+
 /// Runtime tool-discovery tracking: tools formally activated via
 /// TOOL_VISIBILITY unblock (gated → activated) and tools first invoked
 /// through the `general` tool. Serialized with the agent loop state so
@@ -130,6 +144,10 @@ pub struct AgentLoopStateSnapshot {
     /// Number of timeout events that have occurred.
     #[serde(default)]
     pub timeout_count: u32,
+    /// Tool names that failed permanently during the run (non-retryable
+    /// `ToolError`). Informational terminal reporting, never loop control.
+    #[serde(default)]
+    pub permanently_failed_tools: HashSet<String>,
 }
 
 pub struct AgentLoopState {
@@ -153,6 +171,11 @@ pub struct AgentLoopState {
     completed_tool_results: HashMap<String, Value>,
     locked_tool_call_protocol: Option<wf_types::llm::ToolCallProtocolConfig>,
     timeout_count: u32,
+    /// Tool names whose calls failed permanently (non-retryable `ToolError`)
+    /// during this run. Informational only: it never steers the loop, but
+    /// the terminal failure and the execution record expose it so a host
+    /// can tell a broken tool apart from a plain run failure.
+    permanently_failed_tools: HashSet<String>,
     /// Streaming message buffer: content accumulated while streaming.
     streaming_message_buffer: Option<String>,
     /// Whether the stream is currently active.
@@ -186,6 +209,7 @@ impl AgentLoopState {
             completed_tool_results: HashMap::new(),
             locked_tool_call_protocol: None,
             timeout_count: 0,
+            permanently_failed_tools: HashSet::new(),
             streaming_message_buffer: None,
             is_streaming: false,
         }
@@ -254,6 +278,20 @@ impl AgentLoopState {
     /// The full tally, for snapshot capture.
     pub fn retry_totals(&self) -> &HashMap<wf_types::errors::ErrorKind, u32> {
         &self.retry_totals
+    }
+
+    /// Record a tool as permanently failed for this run. Only callers that
+    /// classified the typed `ToolError` as non-retryable may add names here.
+    pub fn record_permanently_failed_tool(&mut self, tool_name: String) {
+        self.permanently_failed_tools.insert(tool_name);
+    }
+
+    /// Tool names that failed permanently during this run, for terminal
+    /// reporting. Sorted for stable output.
+    pub fn permanently_failed_tools(&self) -> Vec<String> {
+        let mut tools: Vec<String> = self.permanently_failed_tools.iter().cloned().collect();
+        tools.sort();
+        tools
     }
 
     pub fn variable_snapshots(&self) -> &HashMap<String, Value> {
@@ -493,6 +531,12 @@ impl AgentLoopState {
         self.transition(ExecutionStatus::Cancelled)
     }
 
+    pub fn cancel_with_error(&mut self, error: String) -> AgentResult<()> {
+        self.transition(ExecutionStatus::Cancelled)?;
+        self.error = Some(error);
+        Ok(())
+    }
+
     pub fn timeout(&mut self) -> AgentResult<()> {
         self.transition(ExecutionStatus::Timeout)
     }
@@ -688,6 +732,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
             completed_tool_results: self.completed_tool_results.clone(),
             locked_tool_call_protocol: self.locked_tool_call_protocol.clone(),
             timeout_count: self.timeout_count,
+            permanently_failed_tools: self.permanently_failed_tools.clone(),
         })
     }
 
@@ -712,6 +757,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.completed_tool_results = snapshot.completed_tool_results;
         self.locked_tool_call_protocol = snapshot.locked_tool_call_protocol;
         self.timeout_count = snapshot.timeout_count;
+        self.permanently_failed_tools = snapshot.permanently_failed_tools;
         Ok(())
     }
 

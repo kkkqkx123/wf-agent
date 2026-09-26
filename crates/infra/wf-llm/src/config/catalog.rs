@@ -67,11 +67,10 @@ impl ModelCatalog {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
                 if !status.is_success() {
-                    return Err(LlmError::ProviderError(format!(
-                        "HTTP {}: {}",
-                        status.as_u16(),
-                        body
-                    )));
+                    return Err(LlmError::ProviderError {
+                        status: Some(status.as_u16()),
+                        message: body,
+                    });
                 }
                 let json: serde_json::Value = serde_json::from_str(&body)?;
                 Ok(extract_models(
@@ -104,11 +103,10 @@ impl ModelCatalog {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
                 if !status.is_success() {
-                    return Err(LlmError::ProviderError(format!(
-                        "HTTP {}: {}",
-                        status.as_u16(),
-                        body
-                    )));
+                    return Err(LlmError::ProviderError {
+                        status: Some(status.as_u16()),
+                        message: body,
+                    });
                 }
                 let json: serde_json::Value = serde_json::from_str(&body)?;
                 Ok(extract_models(

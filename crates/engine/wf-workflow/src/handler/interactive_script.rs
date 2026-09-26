@@ -258,8 +258,7 @@ impl InteractiveScriptHandler {
             .map(|v| v.min(u64::from(u32::MAX)) as u32);
         let max_output_bytes = config.get("max_output_bytes").and_then(|v| v.as_u64());
         let llm_profile_id = config
-            .get("llm_profile_id")
-            .or_else(|| config.get("profile_id"))
+            .get("profile_id")
             .and_then(|v| v.as_str())
             .map(String::from)
             .or_else(|| self.llm_profile_id.clone());

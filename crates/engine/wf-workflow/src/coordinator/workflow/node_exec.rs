@@ -61,14 +61,18 @@ pub(super) struct ExecutionAttempt<'a> {
 impl WorkflowCoordinator {
     /// Record a node completion on the innermost active loop's current
     /// iteration, so the completed-skip decision can tell iterations apart.
-    pub(super) fn record_loop_iteration_completion(&self, node_id: &str) {
+    pub(super) fn record_loop_iteration_completion(
+        &self,
+        node_id: &str,
+    ) -> crate::error::WorkflowResult<()> {
         let is_loop_control = self
             .traversal
             .get_node(node_id)
             .is_some_and(|n| matches!(n.node_type.as_str(), "LOOP_START" | "LOOP_END"));
         if !is_loop_control {
-            crate::loop_state::record_iteration_completion(&self.ctx.variables, node_id);
+            crate::loop_state::record_iteration_completion(&self.ctx.variables, node_id)?;
         }
+        Ok(())
     }
 
     /// Append one node execution record to the shared entity state.
@@ -163,6 +167,7 @@ impl WorkflowCoordinator {
                 node_id: node_id.to_string(),
                 category: wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
                 detail: format!("node handler panicked: {}", panic_message(&payload)),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             }
         };
 
@@ -185,6 +190,7 @@ impl WorkflowCoordinator {
                         category:
                             wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                         detail: format!("timed out after {:?}", tout_dur),
+                        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                     })
                     .and_then(|handler_result| handler_result.map_err(panic_failure));
                 match &result {
@@ -217,7 +223,7 @@ impl WorkflowCoordinator {
         outcome: &NodeOutcome<'_>,
         node_ctx: &NodeExecutionContext,
         output: &NodeExecutionResult,
-    ) {
+    ) -> crate::error::WorkflowResult<()> {
         let entity = attempt.entity;
         let node_id = attempt.node_id;
         let node_type_str = outcome.node_type_str;
@@ -229,7 +235,7 @@ impl WorkflowCoordinator {
         self.node_outputs
             .insert(node_id.to_string(), output.output.clone());
         self.completed_nodes.push(node_id.to_string());
-        self.record_loop_iteration_completion(node_id);
+        self.record_loop_iteration_completion(node_id)?;
         entity.set_node_result(node_id.to_string(), output.output.clone());
 
         for (k, v) in &output.metadata {
@@ -310,6 +316,7 @@ impl WorkflowCoordinator {
         {
             self.merge_error_scope(entity).await;
         }
+        Ok(())
     }
 
     /// Record a failed node execution: error chain, audit record, metrics and
@@ -328,9 +335,6 @@ impl WorkflowCoordinator {
         let node_start = outcome.start;
         let node_duration_ms = outcome.duration_ms;
         let checkpoint_config = &outcome.checkpoint_config;
-
-        self.node_errors
-            .push(format!("Node {}: {}", node_id, error));
 
         Self::record_workflow_error(entity, error, node_id).await;
 

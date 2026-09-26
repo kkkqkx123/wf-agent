@@ -131,7 +131,7 @@ pub async fn run_branch(
             &path_id,
             result.success,
             result.output.clone(),
-            result.error.clone(),
+            result.error_message().map(|s| s.to_string()),
             result.variables.clone(),
         );
     }
@@ -285,6 +285,7 @@ async fn execute_branch(
                     node_id: branch_id.to_string(),
                     category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: "fork branch cancelled by parent".to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 })
             }
         },

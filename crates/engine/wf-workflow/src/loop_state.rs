@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
+use crate::error::{WorkflowError, WorkflowResult};
+
 /// Hard cap on `max_iterations` configured on LOOP_START nodes. Configs
 /// above the cap are rejected at execution time.
 pub const MAX_ITERATIONS_CAP: u32 = 10_000;
@@ -59,96 +61,97 @@ pub struct LoopState {
 
 type VariableStore = Arc<DashMap<String, Value>>;
 
-/// The current loop state stack (empty when no loop is active).
-pub fn stack(variables: &VariableStore) -> Vec<LoopState> {
-    variables
-        .get(LOOP_STATE_STACK_KEY)
-        .and_then(
-            |v| match serde_json::from_value::<Vec<LoopState>>(v.clone()) {
-                Ok(parsed) => Some(parsed),
-                Err(e) => {
-                    tracing::warn!(
-                        key = LOOP_STATE_STACK_KEY,
-                        error = %e,
-                        "loop state stack is corrupted, degrading to empty stack"
-                    );
-                    None
-                }
-            },
-        )
-        .unwrap_or_default()
+/// The current loop state stack (empty when no loop is active). A stored
+/// value that no longer deserializes is a corrupted execution, not an empty
+/// loop: the error aborts the run so the loop never silently restarts from
+/// the first iteration.
+pub fn try_stack(variables: &VariableStore) -> WorkflowResult<Vec<LoopState>> {
+    match variables.get(LOOP_STATE_STACK_KEY) {
+        None => Ok(Vec::new()),
+        Some(v) => serde_json::from_value::<Vec<LoopState>>(v.clone()).map_err(|e| {
+            WorkflowError::LoopError(format!(
+                "loop state stack under '{LOOP_STATE_STACK_KEY}' is corrupted: {e}"
+            ))
+        }),
+    }
 }
 
-fn set_stack(variables: &VariableStore, stack: &[LoopState]) {
-    let value = match serde_json::to_value(stack) {
-        Ok(value) => value,
-        Err(e) => {
-            tracing::error!(
-                error = %e,
-                "failed to serialize loop state stack; persisting an empty stack"
-            );
-            Value::Array(Vec::new())
-        }
-    };
+fn set_stack(variables: &VariableStore, stack: &[LoopState]) -> WorkflowResult<()> {
+    let value = serde_json::to_value(stack).map_err(|e| {
+        WorkflowError::LoopError(format!("failed to serialize loop state stack: {e}"))
+    })?;
     variables.insert(LOOP_STATE_STACK_KEY.to_string(), value);
+    Ok(())
 }
 
 /// Push a loop onto the stack (LOOP_START entering the loop).
-pub fn enter_loop(variables: &VariableStore, state: LoopState) {
-    let mut current = stack(variables);
+pub fn enter_loop(variables: &VariableStore, state: LoopState) -> WorkflowResult<()> {
+    let mut current = try_stack(variables)?;
     current.push(state);
-    set_stack(variables, &current);
+    set_stack(variables, &current)
 }
 
 /// Pop the state of `loop_id` and clean up its imported variables
 /// (LOOP_END terminating the loop).
-pub fn exit_loop(variables: &VariableStore, loop_id: &str) -> Option<LoopState> {
-    let mut current = stack(variables);
-    let pos = current.iter().rposition(|s| s.loop_id == loop_id)?;
+pub fn exit_loop(
+    variables: &VariableStore,
+    loop_id: &str,
+) -> WorkflowResult<Option<LoopState>> {
+    let mut current = try_stack(variables)?;
+    let Some(pos) = current.iter().rposition(|s| s.loop_id == loop_id) else {
+        return Ok(None);
+    };
     let removed = current.remove(pos);
     for name in &removed.imported_variables {
         variables.remove(name);
     }
-    set_stack(variables, &current);
-    Some(removed)
+    set_stack(variables, &current)?;
+    Ok(Some(removed))
 }
 
 /// The loop at the top of the stack (innermost active loop).
-pub fn current_loop(variables: &VariableStore) -> Option<LoopState> {
-    stack(variables).pop()
+pub fn current_loop(variables: &VariableStore) -> WorkflowResult<Option<LoopState>> {
+    Ok(try_stack(variables)?.pop())
 }
 
 /// Find an active loop's state by id (searching from the innermost loop).
-pub fn find_loop(variables: &VariableStore, loop_id: &str) -> Option<LoopState> {
-    stack(variables)
+pub fn find_loop(
+    variables: &VariableStore,
+    loop_id: &str,
+) -> WorkflowResult<Option<LoopState>> {
+    Ok(try_stack(variables)?
         .into_iter()
         .rev()
-        .find(|s| s.loop_id == loop_id)
+        .find(|s| s.loop_id == loop_id))
 }
 
 /// Persist an updated loop state (matched by id).
-pub fn update_loop(variables: &VariableStore, state: LoopState) {
-    let mut current = stack(variables);
+pub fn update_loop(variables: &VariableStore, state: LoopState) -> WorkflowResult<()> {
+    let mut current = try_stack(variables)?;
     if let Some(existing) = current.iter_mut().find(|s| s.loop_id == state.loop_id) {
         *existing = state;
     } else {
         current.push(state);
     }
-    set_stack(variables, &current);
+    set_stack(variables, &current)
 }
 
 /// Record a completed node on the innermost active loop's current iteration
 /// (called by the coordinator after a loop node completes). Loop control
 /// nodes (LOOP_START/LOOP_END) are not recorded; the coordinator always
 /// re-executes them while the loop is active.
-pub fn record_iteration_completion(variables: &VariableStore, node_id: &str) {
-    let mut current = stack(variables);
+pub fn record_iteration_completion(
+    variables: &VariableStore,
+    node_id: &str,
+) -> WorkflowResult<()> {
+    let mut current = try_stack(variables)?;
     if let Some(top) = current.last_mut() {
         if !top.iteration_nodes.contains(&node_id.to_string()) {
             top.iteration_nodes.push(node_id.to_string());
         }
-        set_stack(variables, &current);
+        set_stack(variables, &current)?;
     }
+    Ok(())
 }
 
 /// Loop continuation condition (bounded by max_iterations and the iterable
@@ -232,41 +235,41 @@ mod tests {
     #[test]
     fn nested_loops_are_isolated() {
         let vars = store();
-        enter_loop(&vars, state("outer", Value::Null, 3));
-        enter_loop(&vars, state("inner", Value::Null, 5));
-        assert_eq!(current_loop(&vars).unwrap().loop_id, "inner");
-        assert_eq!(find_loop(&vars, "outer").unwrap().loop_id, "outer");
+        enter_loop(&vars, state("outer", Value::Null, 3)).unwrap();
+        enter_loop(&vars, state("inner", Value::Null, 5)).unwrap();
+        assert_eq!(current_loop(&vars).unwrap().unwrap().loop_id, "inner");
+        assert_eq!(find_loop(&vars, "outer").unwrap().unwrap().loop_id, "outer");
 
         // Inner loop terminates without touching the outer state.
-        exit_loop(&vars, "inner");
-        let outer = find_loop(&vars, "outer").unwrap();
+        exit_loop(&vars, "inner").unwrap();
+        let outer = find_loop(&vars, "outer").unwrap().unwrap();
         assert_eq!(outer.iteration_count, 0);
-        assert_eq!(current_loop(&vars).unwrap().loop_id, "outer");
+        assert_eq!(current_loop(&vars).unwrap().unwrap().loop_id, "outer");
 
-        exit_loop(&vars, "outer");
-        assert!(stack(&vars).is_empty());
+        exit_loop(&vars, "outer").unwrap();
+        assert!(try_stack(&vars).unwrap().is_empty());
     }
 
     #[test]
     fn update_replaces_by_id() {
         let vars = store();
-        enter_loop(&vars, state("l1", Value::Null, 3));
-        enter_loop(&vars, state("l2", Value::Null, 5));
-        let mut inner = find_loop(&vars, "l2").unwrap();
+        enter_loop(&vars, state("l1", Value::Null, 3)).unwrap();
+        enter_loop(&vars, state("l2", Value::Null, 5)).unwrap();
+        let mut inner = find_loop(&vars, "l2").unwrap().unwrap();
         inner.iteration_count = 2;
-        update_loop(&vars, inner);
-        assert_eq!(find_loop(&vars, "l2").unwrap().iteration_count, 2);
-        assert_eq!(find_loop(&vars, "l1").unwrap().iteration_count, 0);
+        update_loop(&vars, inner).unwrap();
+        assert_eq!(find_loop(&vars, "l2").unwrap().unwrap().iteration_count, 2);
+        assert_eq!(find_loop(&vars, "l1").unwrap().unwrap().iteration_count, 0);
     }
 
     #[test]
     fn iteration_completion_tracks_current_iteration() {
         let vars = store();
-        enter_loop(&vars, state("l1", Value::Null, 3));
-        record_iteration_completion(&vars, "body");
-        record_iteration_completion(&vars, "body");
-        record_iteration_completion(&vars, "branch");
-        let state = find_loop(&vars, "l1").unwrap();
+        enter_loop(&vars, state("l1", Value::Null, 3)).unwrap();
+        record_iteration_completion(&vars, "body").unwrap();
+        record_iteration_completion(&vars, "body").unwrap();
+        record_iteration_completion(&vars, "branch").unwrap();
+        let state = find_loop(&vars, "l1").unwrap().unwrap();
         assert_eq!(state.iteration_nodes, vec!["body", "branch"]);
     }
 
@@ -276,10 +279,22 @@ mod tests {
         vars.insert("name".to_string(), Value::String("alice".to_string()));
         let mut st = state("l1", Value::Null, 3);
         st.imported_variables = vec!["name".to_string()];
-        enter_loop(&vars, st);
+        enter_loop(&vars, st).unwrap();
         assert!(vars.contains_key("name"));
-        exit_loop(&vars, "l1");
+        exit_loop(&vars, "l1").unwrap();
         assert!(!vars.contains_key("name"));
+    }
+
+    #[test]
+    fn corrupted_stack_fails_loudly() {
+        let vars = store();
+        vars.insert(
+            LOOP_STATE_STACK_KEY.to_string(),
+            serde_json::json!({"not": "a stack"}),
+        );
+        let err = try_stack(&vars).expect_err("corrupt stack must fail");
+        assert!(err.to_string().contains("corrupted"), "{err}");
+        assert!(find_loop(&vars, "l1").is_err());
     }
 
     #[test]

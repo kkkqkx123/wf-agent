@@ -453,6 +453,10 @@ impl ToolExecutionCoordinator {
                         let msg = self.build_rejection_message(&tc, &reason);
                         let mut hook_data = build_hook_data(&tc);
                         hook_data.insert("error".to_string(), Value::String(reason.clone()));
+                        hook_data.insert(
+                            "rejection_source".to_string(),
+                            Value::String("hook_veto".to_string()),
+                        );
                         AgentHookEmitter::fire_agent_point_with_checkpoint(
                             entity,
                             "AFTER_TOOL_CALL",

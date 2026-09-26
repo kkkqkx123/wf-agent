@@ -25,7 +25,7 @@ pub mod types;
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 pub use chat::{ChatSession, ChatTemplate};
 pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult, NodeInputShape};
-pub use error::{ExecutionSharedError, ExecutionSharedResult};
+pub use error::{ExecutionSharedError, ExecutionSharedResult, InterruptionKind};
 pub use event_metrics_bridge::EventMetricsBridge;
 pub use execution_loop::{
     is_pause_signal, is_paused, is_stop_signal, is_stopped, wait_for_resume, HasInterruption,

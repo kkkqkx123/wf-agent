@@ -260,7 +260,12 @@ pub(crate) async fn handle_subworkflow_output(
     target: &CompressionWriteBack<'_>,
     output: &serde_json::Value,
 ) -> WorkflowResult<()> {
-    let messages: Vec<Message> = serde_json::from_value(output.clone()).unwrap_or_default();
+    let messages: Vec<Message> =
+        serde_json::from_value(output.clone()).map_err(|e| {
+            WorkflowError::TriggerError(format!(
+                "Compression sub-workflow output failed to parse as messages: {e}"
+            ))
+        })?;
     if messages.is_empty() {
         return Err(WorkflowError::TriggerError(
             "Compression sub-workflow returned no messages".to_string(),

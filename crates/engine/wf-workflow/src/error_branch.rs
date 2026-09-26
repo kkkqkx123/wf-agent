@@ -73,6 +73,23 @@ pub fn classify_error(error: &WorkflowError) -> NodeErrorCategory {
     }
 }
 
+/// Origin of a terminal failure for the error namespace. Typed node
+/// failures carry their source; everything else is a handler failure.
+pub fn failure_source(
+    error: &WorkflowError,
+) -> wf_types::workflow::error_branch::NodeFailureSource {
+    use wf_execution_shared::error::ExecutionSharedError;
+    use wf_types::workflow::error_branch::NodeFailureSource;
+    match error {
+        WorkflowError::NodeFailure { failure_source, .. } => *failure_source,
+        WorkflowError::SharedError(ExecutionSharedError::NodeFailure {
+            failure_source,
+            ..
+        }) => *failure_source,
+        _ => NodeFailureSource::Handler,
+    }
+}
+
 /// One compiled error route: the matching config plus the target node taken
 /// from the edge itself.
 #[derive(Debug, Clone)]
@@ -290,6 +307,7 @@ mod tests {
             node_id: "x".to_string(),
             category: NodeErrorCategory::TransportTimeout,
             detail: "timed out after 30s".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         };
         assert_eq!(
             classify_error(&timeout),
@@ -300,6 +318,7 @@ mod tests {
             node_id: "x".to_string(),
             category: NodeErrorCategory::CancelledInterrupted,
             detail: "stopped by interruption".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         };
         assert_eq!(
             classify_error(&stop),
@@ -310,10 +329,27 @@ mod tests {
             node_id: "llm".to_string(),
             category: NodeErrorCategory::CompressionFailure,
             detail: "context compression failed for 'ctx' at version 3".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         };
         assert_eq!(
             classify_error(&compression),
             NodeErrorCategory::CompressionFailure
+        );
+
+        // A veto source travels on the typed failure into the namespace.
+        let veto = WorkflowError::NodeFailure {
+            node_id: "n".to_string(),
+            category: NodeErrorCategory::BusinessFailure,
+            detail: "hook veto at BEFORE_EXECUTE: denied".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::HookVeto,
+        };
+        assert_eq!(
+            failure_source(&veto),
+            wf_types::workflow::error_branch::NodeFailureSource::HookVeto
+        );
+        assert_eq!(
+            failure_source(&business),
+            wf_types::workflow::error_branch::NodeFailureSource::Handler
         );
 
         // A category-tagged failure survives the handler boundary wrapper.
@@ -322,6 +358,7 @@ mod tests {
                 node_id: "llm".to_string(),
                 category: NodeErrorCategory::CompressionFailure,
                 detail: "compression failed".to_string(),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
         );
         assert_eq!(

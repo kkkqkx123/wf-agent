@@ -169,7 +169,8 @@ impl JoinHandler {
                     .map(|r| {
                         serde_json::json!({
                             "branch_id": r.branch_id,
-                            "error": r.error.clone().unwrap_or_default(),
+                            "error": r.error_message().unwrap_or_default(),
+                            "error_category": r.error_category().map(|c| c.as_str()),
                         })
                     })
                     .collect(),
@@ -214,6 +215,7 @@ async fn collect_from_registry(
                     node_id: ctx.node_id.clone(),
                     category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: format!("JOIN node '{}' wait cancelled", ctx.node_id),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 });
             }
         },
@@ -227,6 +229,7 @@ async fn collect_from_registry(
                 "JOIN node '{}' timed out waiting for fork branches to settle",
                 ctx.node_id
             ),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         });
     }
     Ok(registry
@@ -245,8 +248,14 @@ async fn collect_from_registry(
                     .clone()
                     .unwrap_or_else(|| "branch failed".to_string()),
             ),
-            BranchStatus::Cancelled => BranchResult::failure(path_id, "branch cancelled"),
-            BranchStatus::Running => BranchResult::failure(path_id, "branch still running"),
+            BranchStatus::Cancelled => BranchResult::failure(path_id, "branch cancelled")
+                .with_category(
+                    wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                ),
+            BranchStatus::Running => BranchResult::failure(path_id, "branch still running")
+                .with_category(
+                    wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                ),
         })
         .collect())
 }

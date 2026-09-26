@@ -61,9 +61,11 @@ pub(crate) async fn run_tool(
         match serde_json::from_str(&tc.function.arguments) {
             Ok(params) => params,
             Err(e) => {
-                return Err(ToolError::ValidationFailed(format!(
+                let error = ToolError::ValidationFailed(format!(
                     "arguments for tool '{tool_name}' are not valid JSON: {e}"
-                )));
+                ));
+                note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+                return Err(error);
             }
         }
     };
@@ -83,10 +85,12 @@ pub(crate) async fn run_tool(
     if let Some(ref store) = ctx.visibility_store {
         if !store.is_tool_visible(entity_id, &tool_name).await {
             entity_state.write().await.finish_tool_call(&tc.id, None);
-            return Err(ToolError::ExecutionFailed {
-                tool_id: tool_name,
+            let error = ToolError::ExecutionFailed {
+                tool_id: tool_name.clone(),
                 reason: "tool is not visible in this execution".to_string(),
-            });
+            };
+            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+            return Err(error);
         }
     }
 
@@ -105,7 +109,9 @@ pub(crate) async fn run_tool(
                 .record_tool_call_error(&tool_name, entity_id, "not_found");
         }
         emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-        return Err(ToolError::NotFound(tool_name));
+        let error = ToolError::NotFound(tool_name.clone());
+        note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+        return Err(error);
     };
 
     // Failure protection gate.
@@ -117,10 +123,12 @@ pub(crate) async fn run_tool(
             });
             entity_state.write().await.finish_tool_call(&tc.id, None);
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            return Err(ToolError::ExecutionFailed {
-                tool_id: tool_name,
+            let error = ToolError::ExecutionFailed {
+                tool_id: tool_name.clone(),
                 reason,
-            });
+            };
+            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+            return Err(error);
         }
     }
 
@@ -146,10 +154,12 @@ pub(crate) async fn run_tool(
             {
                 entity_state.write().await.finish_tool_call(&tc.id, None);
                 emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-                return Err(ToolError::ExecutionFailed {
-                    tool_id: tool_name,
+                let error = ToolError::ExecutionFailed {
+                    tool_id: tool_name.clone(),
                     reason: format!("checkpoint failed before execution: {e}"),
-                });
+                };
+                note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+                return Err(error);
             }
         }
     }
@@ -390,10 +400,12 @@ pub(crate) async fn run_tool(
                 fp.record_failure(&tool_name, reason.clone());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
-            Err(ToolError::ExecutionFailed {
-                tool_id: tool_name,
+            let error = ToolError::ExecutionFailed {
+                tool_id: tool_name.clone(),
                 reason,
-            })
+            };
+            note_permanent_tool_failure(entity_state, &tool_name, &error).await;
+            Err(error)
         }
         Ok(Err(e)) => {
             entity_state.write().await.finish_tool_call(&tc.id, None);
@@ -401,6 +413,7 @@ pub(crate) async fn run_tool(
                 fp.record_failure(&tool_name, e.to_string());
             }
             emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+            note_permanent_tool_failure(entity_state, &tool_name, &e).await;
             Err(e)
         }
         Err(_) => {
@@ -450,6 +463,22 @@ pub(crate) fn emit_progress(
             status,
             partial,
         });
+    }
+}
+
+/// Record a tool as permanently failed when its terminal `ToolError` is
+/// non-retryable. Transient failures (timeouts, rate limits, outages) never
+/// land here; the set stays informational and never steers the loop.
+async fn note_permanent_tool_failure(
+    entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
+    tool_name: &str,
+    error: &ToolError,
+) {
+    if !crate::error_analysis::tool_error_analysis(error).retryable {
+        entity_state
+            .write()
+            .await
+            .record_permanently_failed_tool(tool_name.to_string());
     }
 }
 

@@ -182,7 +182,7 @@ fn spawn_non_blocking(
             if !result.success {
                 tracing::warn!(
                     branch = %log_id,
-                    error = ?result.error,
+                    error = ?result.failure,
                     "fire-and-forget fork branch ended with failure"
                 );
             }

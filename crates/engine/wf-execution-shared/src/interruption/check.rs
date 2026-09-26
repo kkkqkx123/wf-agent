@@ -3,6 +3,12 @@ use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use crate::error::ExecutionSharedResult;
 use crate::types::interruption::ExecutionInterruptionCheckResult;
 
+/// In-loop interruption contract: cancellation surfaces as an exit signal,
+/// never as an error — a cancelled iteration is a control-flow fact to its
+/// own loop. Callers that let the fact cross a handler boundary convert it
+/// through `execute_with_interruption_handling` (sibling `handler` module),
+/// which tags the same fact with its interruption kind. The two functions
+/// describe one contract from opposite sides; neither invents its own.
 pub fn check_execution_interruption(
     state: &InterruptionState,
     current_iteration: Option<u32>,

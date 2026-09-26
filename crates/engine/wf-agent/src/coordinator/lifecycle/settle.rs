@@ -8,12 +8,10 @@ pub(super) enum SettleKind {
     Fail,
 }
 
-/// Decide the terminal settle for a run error. A cancelled run (explicit
-/// cancellation error, or an in-flight provider/tool cancellation) settles as
-/// `Cancelled`, never `Failed`. When the host runtime is closing
-/// (`active_shutdown`), an in-flight run must not be turned into a spurious
-/// `Failed`: cancel it so no failure is dispatched or persisted for an
-/// execution the user deliberately left.
+/// Decide the terminal settle for a run error. A cancelled run settles as
+/// `Cancelled`, never `Failed`. During host shutdown an in-flight run also
+/// settles as `Cancelled`; the caller keeps the original error on the state,
+/// so cancellation only changes the classification, never the root cause.
 pub(super) fn settle_kind(err: &AgentError, active_shutdown: bool) -> SettleKind {
     if active_shutdown {
         SettleKind::Cancel

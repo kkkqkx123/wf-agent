@@ -458,7 +458,10 @@ async fn run_workflow(
 #[tokio::test]
 async fn llm_errors_propagate_without_node_retry() {
     let mock = Arc::new(MockLlmClient::new());
-    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    mock.script_error(LlmError::ProviderError {
+        status: Some(500),
+        message: "boom".to_string(),
+    });
     let handlers = llm_handlers(mock.clone());
 
     let g = graph(vec![
@@ -476,7 +479,7 @@ async fn llm_errors_propagate_without_node_retry() {
         .await
         .expect_err("LLM error must fail the node");
     assert!(
-        err.to_string().contains("HTTP 500 boom"),
+        err.to_string().contains("boom"),
         "unexpected error: {err}"
     );
 }

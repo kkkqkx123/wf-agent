@@ -27,3 +27,30 @@ pub struct ErrorRecord {
     pub is_recoverable: bool,
     pub recovery_action: Option<RecoveryAction>,
 }
+
+impl ErrorRecord {
+    pub fn new(
+        execution_id: String,
+        error: String,
+        error_type: Option<ErrorType>,
+        node_id: Option<String>,
+        recovery_action: Option<RecoveryAction>,
+    ) -> Self {
+        let id = crate::generate_id();
+        let is_recoverable = recovery_action.as_ref().is_some_and(|a| a.is_retry());
+        ErrorRecord {
+            id: id.clone(),
+            execution_id,
+            error,
+            error_type,
+            timestamp: crate::now(),
+            node_id,
+            parent_error_id: None,
+            error_chain: vec![id.clone()],
+            root_cause_id: id,
+            caused_by: None,
+            is_recoverable,
+            recovery_action,
+        }
+    }
+}

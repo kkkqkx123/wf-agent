@@ -1,9 +1,15 @@
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 
 use super::check::check_execution_interruption;
-use crate::error::{ExecutionSharedError, ExecutionSharedResult};
+use crate::error::{ExecutionSharedError, ExecutionSharedResult, InterruptionKind};
 use crate::types::interruption::ExecutionInterruptionCheckResult;
 
+/// Boundary conversion of control-flow facts into typed errors. The sibling
+/// `check` module reports cancellation as an in-loop exit signal (`Ok(None)`)
+/// because a cancelled iteration is not an error to its own loop; this
+/// function is the single place that turns the same facts into errors when
+/// they cross a handler boundary, always tagged with the interruption kind
+/// so downstream routing reads the type instead of the message.
 pub async fn execute_with_interruption_handling<T, F, Fut>(
     state: &InterruptionState,
     current_iteration: Option<u32>,
@@ -16,22 +22,22 @@ where
     match check_execution_interruption(state, current_iteration) {
         ExecutionInterruptionCheckResult::Continue => {}
         ExecutionInterruptionCheckResult::Paused { iteration } => {
-            return Err(ExecutionSharedError::InterruptionError(format!(
-                "execution paused at iteration {:?}",
-                iteration
-            )));
+            return Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Pause,
+                detail: format!("execution paused at iteration {iteration:?}"),
+            });
         }
         ExecutionInterruptionCheckResult::Stopped { iteration } => {
-            return Err(ExecutionSharedError::InterruptionError(format!(
-                "execution stopped at iteration {:?}",
-                iteration
-            )));
+            return Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Stop,
+                detail: format!("execution stopped at iteration {iteration:?}"),
+            });
         }
         ExecutionInterruptionCheckResult::Aborted { reason } => {
-            return Err(ExecutionSharedError::InterruptionError(format!(
-                "execution aborted: {}",
-                reason
-            )));
+            return Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Abort,
+                detail: format!("execution aborted: {reason}"),
+            });
         }
     }
 
@@ -48,32 +54,32 @@ where
                 }
             }
         } => {
-            return Err(ExecutionSharedError::InterruptionError(format!(
-                "execution stopped at iteration {:?}",
-                current_iteration
-            )));
+            return Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Stop,
+                detail: format!("execution stopped at iteration {current_iteration:?}"),
+            });
         }
     };
 
     match check_execution_interruption(state, current_iteration) {
         ExecutionInterruptionCheckResult::Continue => Ok(result),
         ExecutionInterruptionCheckResult::Paused { iteration } => {
-            Err(ExecutionSharedError::InterruptionError(format!(
-                "execution paused after operation at iteration {:?}",
-                iteration
-            )))
+            Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Pause,
+                detail: format!("execution paused after operation at iteration {iteration:?}"),
+            })
         }
         ExecutionInterruptionCheckResult::Stopped { iteration } => {
-            Err(ExecutionSharedError::InterruptionError(format!(
-                "execution stopped after operation at iteration {:?}",
-                iteration
-            )))
+            Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Stop,
+                detail: format!("execution stopped after operation at iteration {iteration:?}"),
+            })
         }
         ExecutionInterruptionCheckResult::Aborted { reason } => {
-            Err(ExecutionSharedError::InterruptionError(format!(
-                "execution aborted after operation: {}",
-                reason,
-            )))
+            Err(ExecutionSharedError::InterruptionError {
+                kind: InterruptionKind::Abort,
+                detail: format!("execution aborted after operation: {reason}"),
+            })
         }
     }
 }

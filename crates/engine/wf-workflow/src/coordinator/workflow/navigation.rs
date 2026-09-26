@@ -88,8 +88,7 @@ impl WorkflowCoordinator {
         event_bus: Option<&EventBus>,
         node_id: &str,
     ) -> WorkflowResult<bool> {
-        let top_loop = crate::loop_state::stack(&self.ctx.variables)
-            .pop()
+        let top_loop = crate::loop_state::current_loop(&self.ctx.variables)?
             .filter(|s| !s.loop_id.is_empty());
         let is_loop_control = self
             .traversal

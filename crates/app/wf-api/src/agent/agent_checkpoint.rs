@@ -205,6 +205,7 @@ fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStat
         hierarchy: None,
         messages: None,
         tool_discovery_state: None,
+        permanently_failed_tools: None,
     }
 }
 
@@ -232,18 +233,30 @@ pub async fn restore(
     let snapshot = restored.snapshot;
 
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let status = parse_checkpoint_status(&snapshot.status)?;
+        let iteration_history = snapshot
+            .iteration_history
+            .unwrap_or_default()
+            .into_iter()
+            .map(|value| {
+                serde_json::from_value(value).map_err(|e| {
+                    ApiError::Validation(format!("checkpoint carries corrupt iteration: {e}"))
+                })
+            })
+            .collect::<ApiResult<Vec<_>>>()?;
+        let tool_discovery = match snapshot.tool_discovery_state {
+            None => Default::default(),
+            Some(v) => serde_json::from_value(v).map_err(|e| {
+                ApiError::Validation(format!("checkpoint carries corrupt discovery: {e}"))
+            })?,
+        };
         let mut state = entity.state.write().await;
         state
             .restore_from_snapshot(wf_agent::state::AgentLoopStateSnapshot {
-                status: parse_checkpoint_status(&snapshot.status),
+                status,
                 current_iteration: snapshot.current_iteration,
                 tool_call_count: snapshot.tool_call_count,
-                iteration_history: snapshot
-                    .iteration_history
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|value| serde_json::from_value(value).ok())
-                    .collect(),
+                iteration_history,
                 start_time: snapshot.started_at.unwrap_or(wf_common::now()),
                 end_time: snapshot.completed_at,
                 error: snapshot.error,
@@ -255,10 +268,7 @@ pub async fn restore(
                     .into_iter()
                     .map(|(name, var)| (name, var.value))
                     .collect(),
-                tool_discovery: snapshot
-                    .tool_discovery_state
-                    .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_default(),
+                tool_discovery,
                 pending_tool_calls: snapshot
                     .pending_tool_call_ids
                     .unwrap_or_default()
@@ -269,6 +279,11 @@ pub async fn restore(
                 event_records: snapshot.event_records.unwrap_or_default(),
                 locked_tool_call_protocol: None,
                 timeout_count: 0,
+                permanently_failed_tools: snapshot
+                    .permanently_failed_tools
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
             })
             .await
             .map_err(|e| ApiError::execution(format!("state restore failed: {e}")))?;
@@ -405,18 +420,23 @@ async fn global_checkpoints(ctx: &ApiContext) -> ApiResult<Vec<Checkpoint>> {
 }
 
 /// Parse a checkpoint status string onto the live execution status contract.
+/// Unknown values are a validation failure, never a silent default.
 fn parse_checkpoint_status(
     status: &str,
-) -> wf_execution_shared::types::execution_entity::ExecutionStatus {
-    match status {
-        "created" => wf_execution_shared::types::execution_entity::ExecutionStatus::Created,
-        "running" => wf_execution_shared::types::execution_entity::ExecutionStatus::Running,
-        "paused" => wf_execution_shared::types::execution_entity::ExecutionStatus::Paused,
-        "stopped" => wf_execution_shared::types::execution_entity::ExecutionStatus::Stopped,
-        "completed" => wf_execution_shared::types::execution_entity::ExecutionStatus::Completed,
-        "failed" => wf_execution_shared::types::execution_entity::ExecutionStatus::Failed,
-        "cancelled" => wf_execution_shared::types::execution_entity::ExecutionStatus::Cancelled,
-        _ => wf_execution_shared::types::execution_entity::ExecutionStatus::Created,
+) -> ApiResult<wf_execution_shared::types::execution_entity::ExecutionStatus> {
+    use wf_execution_shared::types::execution_entity::ExecutionStatus as S;
+    match status.trim().to_ascii_lowercase().as_str() {
+        "created" => Ok(S::Created),
+        "running" => Ok(S::Running),
+        "paused" => Ok(S::Paused),
+        "stopped" => Ok(S::Stopped),
+        "completed" => Ok(S::Completed),
+        "failed" => Ok(S::Failed),
+        "cancelled" => Ok(S::Cancelled),
+        "timeout" => Ok(S::Timeout),
+        _ => Err(ApiError::Validation(format!(
+            "checkpoint carries unrecognized status '{status}'"
+        ))),
     }
 }
 

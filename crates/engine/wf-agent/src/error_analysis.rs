@@ -5,6 +5,7 @@ use wf_execution_shared::error::ExecutionSharedError;
 use wf_llm::error::LlmError;
 use wf_tools::error::ToolError;
 use wf_types::errors::{ErrorKind, ErrorType, RecoveryAction};
+use wf_types::workflow::error_branch::NodeErrorCategory;
 
 use crate::error::AgentError;
 
@@ -24,21 +25,17 @@ impl ErrorAnalysis {
     /// snapshots. Callers that need chain context (caused_by, parent links)
     /// fill those fields on the returned record.
     pub fn to_error_record(&self, execution_id: &str, node_id: Option<String>) -> ErrorRecord {
-        let id = wf_common::generate_id();
-        ErrorRecord {
-            id: id.clone(),
-            execution_id: execution_id.to_string(),
-            error: self.message.clone(),
-            error_type: Some(self.error_type.clone()),
-            timestamp: wf_common::now(),
+        debug_assert_eq!(
+            self.retryable,
+            self.recovery_action.is_retry(),
+        );
+        ErrorRecord::new(
+            execution_id.to_string(),
+            self.message.clone(),
+            Some(self.error_type.clone()),
             node_id,
-            parent_error_id: None,
-            error_chain: vec![id.clone()],
-            root_cause_id: id,
-            caused_by: None,
-            is_recoverable: self.retryable,
-            recovery_action: Some(self.recovery_action.clone()),
-        }
+            Some(self.recovery_action.clone()),
+        )
     }
 }
 
@@ -157,9 +154,9 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             RecoveryAction::Abort,
         ),
     };
-    debug_assert!(
-        !(retryable && recovery_action == RecoveryAction::ManualIntervention),
-        "retryable is the single decision bit: a retryable error must never settle on ManualIntervention"
+    debug_assert_eq!(
+        retryable,
+        recovery_action.is_retry(),
     );
     ErrorAnalysis {
         kind,
@@ -216,7 +213,7 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
         },
         // Provider / stream transport failures defer retryability to the
         // wf-llm classification (5xx / 429 / connect resets are transient).
-        LlmError::ProviderError(_) | LlmError::StreamError(_) => (
+        LlmError::ProviderError { .. } | LlmError::StreamError(_) => (
             ErrorKind::Network,
             ErrorType::LlmError,
             e.is_retryable(),
@@ -269,9 +266,9 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
             )
         }
     };
-    debug_assert!(
-        !(retryable && recovery_action == RecoveryAction::ManualIntervention),
-        "retryable is the single decision bit: a retryable error must never settle on ManualIntervention"
+    debug_assert_eq!(
+        retryable,
+        recovery_action.is_retry(),
     );
     ErrorAnalysis {
         kind,
@@ -283,23 +280,23 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
 }
 
 pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
-    // Interruption/timeout/category-tagged failures read through the single
-    // `NodeErrorCategory` projection in wf-types, so records and workflow
-    // routing can never disagree by maintaining two hand-written mappings.
+    // Routed failures read through the single `NodeErrorCategory` projection
+    // in wf-types, so records and workflow routing share one mapping.
+    // State and variable errors have no routing category and stay explicit.
     let (kind, error_type, recovery_action) = match e {
         ExecutionSharedError::StateError(_) => (
             ErrorKind::StateManagement,
             ErrorType::Internal,
             RecoveryAction::Abort,
         ),
-        ExecutionSharedError::InterruptionError(_) => (
-            ErrorKind::Execution,
-            ErrorType::Interruption,
+        ExecutionSharedError::InterruptionError { .. } => (
+            NodeErrorCategory::CancelledInterrupted.error_kind(),
+            NodeErrorCategory::CancelledInterrupted.error_type(),
             RecoveryAction::Abort,
         ),
         ExecutionSharedError::TimeoutError(_) => (
-            ErrorKind::Timeout,
-            ErrorType::Timeout,
+            NodeErrorCategory::TransportTimeout.error_kind(),
+            NodeErrorCategory::TransportTimeout.error_type(),
             RecoveryAction::Abort,
         ),
         ExecutionSharedError::VariableError(_) => (
@@ -322,6 +319,9 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
             RecoveryAction::Abort,
         ),
     };
+    debug_assert!(
+        !recovery_action.is_retry(),
+    );
     ErrorAnalysis {
         kind,
         error_type,
@@ -332,9 +332,9 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
 }
 
 /// Classify an agent error into a structured analysis covering all AgentError
-/// branches.
+/// branches. `retryable` is the single decision bit across every branch.
 pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
-    match e {
+    let analysis = match e {
         AgentError::IllegalStateTransition(_) => ErrorAnalysis {
             kind: ErrorKind::StateManagement,
             error_type: ErrorType::Internal,
@@ -393,6 +393,15 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
+        // The context window is spent: no retry can shrink the actual
+        // payload, only a smaller task or a larger window can.
+        AgentError::ContextBudgetExhausted(_) => ErrorAnalysis {
+            kind: ErrorKind::Resource,
+            error_type: ErrorType::ServiceUnavailable,
+            retryable: false,
+            recovery_action: RecoveryAction::Abort,
+            message: e.to_string(),
+        },
         AgentError::LlmError(le) => llm_error_analysis(le),
         AgentError::CheckpointError(_) => ErrorAnalysis {
             kind: ErrorKind::AgentCheckpoint,
@@ -409,7 +418,12 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             recovery_action: RecoveryAction::Abort,
             message: e.to_string(),
         },
-    }
+    };
+    debug_assert_eq!(
+        analysis.retryable,
+        analysis.recovery_action.is_retry(),
+    );
+    analysis
 }
 
 /// Outcome of the retry decision taken for one failed iteration.
@@ -645,9 +659,10 @@ mod tests {
     #[test]
     fn test_shared_interruption_matches_routing_reading() {
         use wf_types::workflow::error_branch::NodeErrorCategory;
-        let analysis = shared_error_analysis(&ExecutionSharedError::InterruptionError(
-            "stopped".to_string(),
-        ));
+        let analysis = shared_error_analysis(&ExecutionSharedError::InterruptionError {
+            kind: wf_execution_shared::error::InterruptionKind::Stop,
+            detail: "stopped".to_string(),
+        });
         assert_eq!(analysis.error_type, ErrorType::Interruption);
         assert_eq!(
             NodeErrorCategory::from_error_type(&analysis.error_type),
@@ -665,6 +680,7 @@ mod tests {
             node_id: "n".to_string(),
             category: NodeErrorCategory::Resource,
             detail: "rate limited".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         });
         assert_eq!(analysis.error_type, ErrorType::ServiceUnavailable);
         assert_eq!(analysis.kind, ErrorKind::Resource);

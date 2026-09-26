@@ -58,6 +58,7 @@ async fn seed_long_session(ctx: &ApiContext) {
         completed_at: Some(1000 + MESSAGE_COUNT),
         error: None,
         context: None,
+        permanently_failed_tools: None,
     };
     ctx.storage.agent_execution.save(&record).await.unwrap();
 

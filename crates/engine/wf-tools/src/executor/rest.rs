@@ -452,16 +452,12 @@ impl ToolExecutor for RestExecutor {
 
             let should_retry = match &outcome {
                 Ok(result) => {
-                    // Failed HTTP responses carry the classification in the
-                    // error message; keep a coarse signal here for retries.
+                    // Failed HTTP responses carry their retry hint as a
+                    // structured field; the message text stays human-only.
                     if result.success {
                         false
                     } else {
-                        result
-                            .error
-                            .as_deref()
-                            .map(|e| e.contains("[retryable]"))
-                            .unwrap_or(false)
+                        result.retryable.unwrap_or(false)
                     }
                 }
                 Err(e) => {
@@ -566,9 +562,8 @@ impl RestExecutor {
                             cb.record_failure();
                         }
                         let kind = classify_status(status);
-                        let retryable = kind.is_retryable();
                         let message = format!(
-                            "REST request to {} failed with status {} ({}): {}{}",
+                            "REST request to {} failed with status {} ({}): {}",
                             spec.url,
                             status.as_u16(),
                             kind.as_str(),
@@ -577,15 +572,17 @@ impl RestExecutor {
                             } else {
                                 format!(" | {}", error_text)
                             },
-                            if retryable { " [retryable]" } else { "" },
                         );
-                        Ok(BaseExecutor::build_result(
-                            false,
-                            None,
-                            Some(message),
-                            execution_time,
-                            0,
-                        ))
+                        Ok(ToolExecutionResult {
+                            retryable: Some(kind.is_retryable()),
+                            ..BaseExecutor::build_result(
+                                false,
+                                None,
+                                Some(message),
+                                execution_time,
+                                0,
+                            )
+                        })
                     }
                     Err(_) => {
                         if let Some(ref cb) = self.circuit_breaker {
@@ -608,16 +605,19 @@ impl RestExecutor {
                 if let Some(ref cb) = self.circuit_breaker {
                     cb.record_failure();
                 }
-                Ok(BaseExecutor::build_result(
-                    false,
-                    None,
-                    Some(format!(
-                        "Request to {} timed out after {}ms [retryable]",
-                        spec.url, spec.timeout_ms
-                    )),
-                    execution_time,
-                    0,
-                ))
+                Ok(ToolExecutionResult {
+                    retryable: Some(true),
+                    ..BaseExecutor::build_result(
+                        false,
+                        None,
+                        Some(format!(
+                            "Request to {} timed out after {}ms",
+                            spec.url, spec.timeout_ms
+                        )),
+                        execution_time,
+                        0,
+                    )
+                })
             }
         }
     }
@@ -952,6 +952,39 @@ mod tests {
         let msg = result.error.unwrap();
         assert!(msg.contains("server_error"), "msg: {}", msg);
         assert!(msg.contains("503"), "msg: {}", msg);
+        assert_eq!(result.retryable, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_client_error_does_not_retry() {
+        let (addr, _rx) = mock_server("missing", "404 Not Found");
+        let tool = make_rest_tool(
+            "rest_404",
+            serde_json::json!({
+                "base_url": format!("http://{}", addr),
+                "max_retries": 2,
+                "retry_delay": 10,
+            }),
+        );
+        let executor = RestExecutor::new();
+        let ctx = ToolExecutionContext::new("e1".into());
+
+        let result = executor
+            .execute(
+                &tool,
+                &serde_json::json!({ "url": "/api/missing", "method": "GET" }),
+                &make_options(),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert_eq!(result.retry_count, 0, "4xx must not consume retries");
+        assert_eq!(result.retryable, Some(false));
+        let msg = result.error.unwrap();
+        assert!(msg.contains("not_found"), "msg: {}", msg);
+        assert!(!msg.contains("[retryable]"), "message must not carry protocol: {msg}");
     }
 
     #[tokio::test]

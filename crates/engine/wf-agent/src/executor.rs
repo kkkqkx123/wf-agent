@@ -654,7 +654,10 @@ mod tests {
         // Exhaust the retry budget (max_retries = 3): every attempt fails,
         // so the loop must error out instead of falling back to a success.
         for _ in 0..4 {
-            mock.script_error(LlmError::ProviderError("LLM provider exploded".to_string()));
+            mock.script_error(LlmError::ProviderError {
+                status: None,
+                message: "LLM provider exploded".to_string(),
+            });
         }
         gateway.register_mock("mock", mock);
         let tool_registry = Arc::new(wf_tools::create_default_tool_registry());

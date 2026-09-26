@@ -669,7 +669,7 @@ async fn node_name(ctx: &ApiContext, execution_id: &str, node_id: &str) -> Optio
 /// Coarse severity bucket used by the stats view.
 fn severity_of(record: &ErrorRecord) -> ErrorSeverity {
     match &record.recovery_action {
-        Some(RecoveryAction::Retry) | Some(RecoveryAction::Fallback) => ErrorSeverity::Warning,
+        Some(RecoveryAction::Retry) => ErrorSeverity::Warning,
         Some(RecoveryAction::ManualIntervention) | Some(RecoveryAction::Abort) => {
             ErrorSeverity::Critical
         }
@@ -855,7 +855,6 @@ mod tests {
             root_cause_id: "".into(),
             caused_by: Some(ErrorCause {
                 reason: message.to_string(),
-                handling_attempt: None,
             }),
             is_recoverable: true,
             recovery_action: Some(RecoveryAction::Retry),

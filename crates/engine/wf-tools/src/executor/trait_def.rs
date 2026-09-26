@@ -162,6 +162,8 @@ pub trait ToolExecutorExt: ToolExecutor {
                     )),
                     execution_time: start.elapsed().as_millis() as i64,
                     retry_count: 0,
+                    // An executor-level timeout is transient by nature.
+                    retryable: Some(true),
                 }),
             }
         }

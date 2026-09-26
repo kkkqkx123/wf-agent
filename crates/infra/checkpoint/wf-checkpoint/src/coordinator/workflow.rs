@@ -577,7 +577,7 @@ fn register_child(
     parent: Option<&str>,
     fork_path_id: Option<&str>,
 ) {
-    let status = status.unwrap_or(ExecutionStatus::Running);
+    let status = status.unwrap_or(ExecutionStatus::Failed);
     match (parent, fork_path_id) {
         (Some(parent), Some(path)) => {
             registry.register_fork_path(child_id, status, parent, path);

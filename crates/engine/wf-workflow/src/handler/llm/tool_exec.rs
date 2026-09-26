@@ -37,12 +37,14 @@ pub async fn call_llm(
                     node_id: ctx.node_id.clone(),
                     category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                     detail: format!("LLM call timed out after {ms}ms"),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 },
                 wf_llm::error::LlmError::Cancelled => WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
                     category:
                         wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: "LLM call cancelled".to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 },
                 other => WorkflowError::Internal(format!("LLM call failed: {other}")),
             })

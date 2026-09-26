@@ -319,6 +319,7 @@ pub async fn drive_session(
                 node_id: driver.node_id.clone(),
                 category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                 detail: "interactive session was cancelled".to_string(),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             });
         }
         if std::time::Instant::now() >= session_deadline {
@@ -327,6 +328,7 @@ pub async fn drive_session(
                 node_id: driver.node_id.clone(),
                 category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                 detail: "interactive session exceeded its total timeout".to_string(),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             });
         }
 

@@ -96,6 +96,7 @@ impl SyncHandler {
                             "SYNC node '{}' timed out waiting for source branch '{}'",
                             ctx.node_id, source_path_id
                         ),
+                        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                     });
                 }
             }
@@ -194,21 +195,16 @@ impl SyncHandler {
         // 3. Message context sync: copy named message arrays from the source
         // branch's exported variables into the target scope.
         if let (Some(message_inputs), Some(source_vars)) = (
-            config
-                .get("message_inputs")
-                .or_else(|| config.get("messageInputs"))
-                .and_then(|v| v.as_array()),
+            config.get("message_inputs").and_then(|v| v.as_array()),
             source_variables.as_ref(),
         ) {
             for entry in message_inputs {
                 let source_context_id = entry
                     .get("source_context_id")
-                    .or_else(|| entry.get("sourceContextId"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
                 let internal_name = entry
                     .get("internal_name")
-                    .or_else(|| entry.get("internalName"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
                 let required = entry
@@ -261,21 +257,16 @@ impl SyncHandler {
         // 4. Data input mapping: `data_inputs` (`parent_field ->
         // internal_name`) copies values from the workflow input object into
         // variables.
-        if let Some(data_inputs) = config
-            .get("data_inputs")
-            .or_else(|| config.get("dataInputs"))
-            .and_then(|v| v.as_array())
+        if let Some(data_inputs) = config.get("data_inputs").and_then(|v| v.as_array())
         {
             let input_obj = ctx.input.as_object().cloned().unwrap_or_default();
             for entry in data_inputs {
                 let parent_field = entry
                     .get("parent_field")
-                    .or_else(|| entry.get("parentField"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
                 let internal_name = entry
                     .get("internal_name")
-                    .or_else(|| entry.get("internalName"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
                 let required = entry

@@ -154,10 +154,11 @@ pub(crate) async fn handle_execute_subworkflow(
                 tokio::select! {
                     res = &mut subworkflow => res,
                     _ = token.cancelled() => Err(WorkflowError::SharedError(
-                        ExecutionSharedError::InterruptionError(
-                            "triggered sub-workflow abandoned: parent execution cancelled"
+                        ExecutionSharedError::InterruptionError {
+                            kind: wf_execution_shared::error::InterruptionKind::Stop,
+                            detail: "triggered sub-workflow abandoned: parent execution cancelled"
                                 .to_string(),
-                        ),
+                        },
                     )),
                 }
             }

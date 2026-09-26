@@ -58,7 +58,10 @@ async fn falls_back_to_default_when_script_exhausted() {
 #[tokio::test]
 async fn scripted_error_is_returned() {
     let client = MockLlmClient::new();
-    client.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    client.script_error(LlmError::ProviderError {
+        status: Some(500),
+        message: "boom".to_string(),
+    });
     let err = client
         .generate(&request("mock", "hi"), None)
         .await
@@ -274,7 +277,10 @@ async fn generate_stream_skips_text_chunk_for_empty_content() {
 #[tokio::test]
 async fn generate_stream_returns_scripted_error() {
     let client = MockLlmClient::new();
-    client.script_error(LlmError::ProviderError("stream boom".to_string()));
+    client.script_error(LlmError::ProviderError {
+        status: None,
+        message: "stream boom".to_string(),
+    });
     let err = match client.generate_stream(&request("mock", "hi"), None).await {
         Err(e) => e,
         Ok(_) => panic!("scripted error must fail generate_stream"),

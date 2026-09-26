@@ -1593,7 +1593,10 @@ mod tests {
             // Every attempt (including gateway retries) errors: the script
             // queue is consumed per request, so saturate it.
             for _ in 0..16 {
-                mock.script_error(wf_llm::LlmError::ProviderError("provider exploded".into()));
+                mock.script_error(wf_llm::LlmError::ProviderError {
+                    status: None,
+                    message: "provider exploded".into(),
+                });
             }
             adapter.llm_gateway().register_mock("mock", mock);
             let (io, _sink) = run_io(OutputFormat::Text);

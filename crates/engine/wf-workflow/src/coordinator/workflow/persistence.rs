@@ -136,9 +136,15 @@ impl WorkflowCoordinator {
                 if let Some(ref mut cp) = self.checkpoint {
                     cp.on_interruption(entity).await;
                 }
-                return Err(WorkflowError::CoordinatorError(
-                    "Execution stopped by interruption".to_string(),
-                ));
+                // A stop is a typed interruption, not a coordinator
+                // malfunction: routing reads the category (fail-fast, never
+                // swallowed by an error branch) instead of the message.
+                return Err(WorkflowError::NodeFailure {
+                    node_id: node_id.to_string(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                    detail: "Execution stopped by interruption".to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                });
             }
             wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
                 entity
@@ -162,7 +168,7 @@ impl WorkflowCoordinator {
                 if let Some(ref mut cp) = self.checkpoint {
                     cp.on_pause(entity).await;
                 }
-                return Err(WorkflowError::CoordinatorError(
+                return Err(WorkflowError::ExecutionPaused(
                     "Execution paused".to_string(),
                 ));
             }

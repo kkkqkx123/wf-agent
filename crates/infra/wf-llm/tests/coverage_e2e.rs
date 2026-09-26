@@ -311,7 +311,7 @@ async fn count_tokens_provider_error_propagates_without_local_fallback() {
         .await
         .expect_err("provider failure must surface");
     assert!(
-        matches!(err, LlmError::ProviderError(_)),
+        matches!(err, LlmError::ProviderError { .. }),
         "no silent local fallback on provider error: {err:?}"
     );
 }

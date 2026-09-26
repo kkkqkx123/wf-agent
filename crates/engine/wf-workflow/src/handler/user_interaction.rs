@@ -243,6 +243,7 @@ impl UserInteractionHandler {
                             node_id: ctx.node_id.clone(),
                             category,
                             detail: format!("User interaction {reason} after {timeout_ms}ms"),
+                            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                         });
                     }
                 }

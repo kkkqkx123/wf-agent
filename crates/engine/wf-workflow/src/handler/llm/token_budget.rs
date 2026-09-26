@@ -289,6 +289,7 @@ pub async fn await_compression_settle(
                                 node_id: ctx.node_id.clone(),
                                 category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                                 detail: "aborted while waiting for compression".to_string(),
+                                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                             });
                         }
                     }
@@ -323,6 +324,7 @@ fn compression_failure(ctx: &NodeExecutionContext, detail: String) -> crate::err
         node_id: ctx.node_id.clone(),
         category: wf_types::workflow::error_branch::NodeErrorCategory::CompressionFailure,
         detail,
+        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
     }
 }
 

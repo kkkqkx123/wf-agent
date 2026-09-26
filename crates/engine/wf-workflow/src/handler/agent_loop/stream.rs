@@ -77,7 +77,9 @@ pub(crate) async fn run_streaming(
                 final_result = result;
                 iterations = it;
             }
-            AgentStreamEvent::Failed { error, error_type } => {
+            AgentStreamEvent::Failed {
+                error, error_type, ..
+            } => {
                 last_failure = Some((error, error_type));
             }
             _ => {}

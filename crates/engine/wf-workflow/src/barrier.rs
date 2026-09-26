@@ -1,14 +1,17 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BranchFailure {
+    pub category: wf_types::workflow::error_branch::NodeErrorCategory,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BranchResult {
     pub branch_id: String,
     pub success: bool,
     pub output: serde_json::Value,
-    pub error: Option<String>,
-    /// Routing category of the terminal failure that ended the branch, kept
-    /// typed across the child-coordinator boundary so business consumers can
-    /// distinguish cancellation and timeout from plain business failures.
+    /// Single structured failure for a settled branch. `None` on success.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_category: Option<wf_types::workflow::error_branch::NodeErrorCategory>,
+    pub failure: Option<BranchFailure>,
     /// Snapshot of the branch's public variables (non-internal) taken when
     /// the branch settled. `None` for branches that expose no variables or
     /// failed before the snapshot.
@@ -22,8 +25,7 @@ impl BranchResult {
             branch_id: branch_id.into(),
             success: true,
             output,
-            error: None,
-            error_category: None,
+            failure: None,
             variables: None,
         }
     }
@@ -37,19 +39,21 @@ impl BranchResult {
             branch_id: branch_id.into(),
             success: true,
             output,
-            error: None,
-            error_category: None,
+            failure: None,
             variables: Some(variables),
         }
     }
 
-    pub fn failure(branch_id: impl Into<String>, error: impl Into<String>) -> Self {
+    pub fn failure(branch_id: impl Into<String>, detail: impl Into<String>) -> Self {
         Self {
             branch_id: branch_id.into(),
             success: false,
             output: serde_json::Value::Null,
-            error: Some(error.into()),
-            error_category: None,
+            failure: Some(BranchFailure {
+                category:
+                    wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
+                detail: detail.into(),
+            }),
             variables: None,
         }
     }
@@ -58,8 +62,20 @@ impl BranchResult {
         mut self,
         category: wf_types::workflow::error_branch::NodeErrorCategory,
     ) -> Self {
-        self.error_category = Some(category);
+        if let Some(ref mut failure) = self.failure {
+            failure.category = category;
+        }
         self
+    }
+
+    pub fn error_message(&self) -> Option<&str> {
+        self.failure.as_ref().map(|f| f.detail.as_str())
+    }
+
+    pub fn error_category(
+        &self,
+    ) -> Option<wf_types::workflow::error_branch::NodeErrorCategory> {
+        self.failure.as_ref().map(|f| f.category)
     }
 }
 
@@ -90,7 +106,13 @@ impl FailureStrategy {
                     ForkOutcome::Succeeded
                 }
             }
-            FailureStrategy::ContinueOnError => ForkOutcome::Succeeded,
+            FailureStrategy::ContinueOnError => {
+                if failures > 0 {
+                    ForkOutcome::Partial
+                } else {
+                    ForkOutcome::Succeeded
+                }
+            }
             FailureStrategy::FailOnThreshold { threshold } => {
                 if total == 0 {
                     return ForkOutcome::Succeeded;

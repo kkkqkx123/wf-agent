@@ -49,7 +49,7 @@ impl ApiErrorCategory {
             ErrorKind::NotFound => Self::NotFound,
             ErrorKind::StateManagement => Self::Conflict,
             ErrorKind::Timeout => Self::Timeout,
-            ErrorKind::BusinessLogic | ErrorKind::Tool => Self::BusinessFailure,
+            ErrorKind::Tool => Self::BusinessFailure,
             ErrorKind::RateLimited | ErrorKind::Resource => Self::Resource,
             ErrorKind::ServiceUnavailable | ErrorKind::Network => Self::ServiceUnavailable,
             _ => match error_type {

@@ -164,7 +164,7 @@ async fn generate_gives_up_after_retries_exhausted() {
         .generate(&request("hi"), None)
         .await
         .expect_err("must fail");
-    assert!(matches!(err, LlmError::ProviderError(_)));
+    assert!(matches!(err, LlmError::ProviderError { .. }));
     assert_eq!(server.call_count(), 3, "initial + 2 retries");
 }
 
@@ -290,7 +290,7 @@ async fn generate_stream_propagates_http_errors() {
         Ok(_) => panic!("stream must fail"),
         Err(e) => e,
     };
-    assert!(matches!(err, LlmError::ProviderError(_)));
+    assert!(matches!(err, LlmError::ProviderError { .. }));
 }
 
 #[tokio::test]

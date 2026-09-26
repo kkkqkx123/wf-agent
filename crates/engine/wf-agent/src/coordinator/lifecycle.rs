@@ -406,12 +406,14 @@ impl AgentLoopCoordinator {
                         .send(AgentStreamEvent::Failed {
                             error_type: crate::error_analysis::analyze_error(&e).error_type,
                             error: e.to_string(),
+                            permanently_failed_tools: Vec::new(),
                         })
                         .await;
                     return;
                 }
             };
             let sink = AgentEventSink::new(tx.clone(), coordinator.event_bus.clone());
+            let failed_tools_entity = Arc::clone(&entity);
             match coordinator
                 .run_loop(
                     &config,
@@ -435,6 +437,11 @@ impl AgentLoopCoordinator {
                         .send(AgentStreamEvent::Failed {
                             error_type: crate::error_analysis::analyze_error(&e).error_type,
                             error: e.to_string(),
+                            permanently_failed_tools: failed_tools_entity
+                                .state
+                                .read()
+                                .await
+                                .permanently_failed_tools(),
                         })
                         .await;
                 }

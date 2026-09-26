@@ -335,7 +335,7 @@ impl AgentCheckpointIntegration {
         Ok(RestoredAgentLoop {
             agent_loop_id: snapshot.agent_loop_id.clone(),
             state: Self::runtime_state_from_snapshot(&snapshot)?,
-            conversation: Self::conversation_state_from_snapshot(&snapshot),
+            conversation: Self::conversation_state_from_snapshot(&snapshot)?,
             source_checkpoint_id: checkpoint_id.to_string(),
         })
     }
@@ -381,7 +381,10 @@ impl AgentCheckpointIntegration {
 
     fn conversation_state_from_snapshot(
         snapshot: &AgentStateSnapshot,
-    ) -> wf_execution_shared::conversation_session::ConversationState {
+    ) -> Result<
+        wf_execution_shared::conversation_session::ConversationState,
+        CheckpointError,
+    > {
         use wf_execution_shared::conversation_session::ConversationState;
         let messages = snapshot
             .conversation_snapshot
@@ -395,21 +398,20 @@ impl AgentCheckpointIntegration {
             .message_next_seq
             .unwrap_or(start.saturating_add(len));
         let ledger = snapshot.conversation_ledger.clone().unwrap_or_default();
-        let tracker = snapshot.conversation_tracker.clone().and_then(|v| {
-            match serde_json::from_value(v) {
-                Ok(t) => Some(t),
-                Err(e) => {
-                    // Absent tracker is a valid state; a present-but-unparseable
-                    // one silently loses context-tracking continuity.
-                    tracing::warn!(
-                        error = %e,
-                        "checkpoint conversation_tracker present but unparseable; restored without tracker"
-                    );
-                    None
-                }
-            }
-        });
-        ConversationState {
+        // A present-but-unparseable tracker is a corrupted checkpoint, not
+        // an absent one: refuse the restore instead of silently losing
+        // context-tracking continuity.
+        let tracker = snapshot
+            .conversation_tracker
+            .clone()
+            .map(|v| {
+                serde_json::from_value(v).map_err(|e| CheckpointError::Corrupted {
+                    id: snapshot.agent_loop_id.clone(),
+                    reason: format!("checkpoint conversation_tracker unparseable: {e}"),
+                })
+            })
+            .transpose()?;
+        Ok(ConversationState {
             messages,
             seqs,
             next_seq,
@@ -423,7 +425,7 @@ impl AgentCheckpointIntegration {
             // Recomputed once by `restore_state` for snapshots predating
             // the incremental view estimate.
             view_stable_estimate: 0,
-        }
+        })
     }
 
     /// Translate a persisted `AgentStateSnapshot` into the runtime state
@@ -474,18 +476,15 @@ impl AgentCheckpointIntegration {
             tool_discovery: snapshot
                 .tool_discovery_state
                 .as_ref()
-                .map(|v| match serde_json::from_value::<ToolDiscoveryState>(v.clone()) {
-                    Ok(state) => state,
-                    Err(e) => {
-                        // A corrupt discovery state silently reverts the loop to
-                        // "nothing discovered yet"; surface the loss.
-                        tracing::warn!(
-                            error = %e,
-                            "checkpoint tool_discovery_state unparseable; restored with empty discovery"
-                        );
-                        ToolDiscoveryState::default()
-                    }
+                .map(|v| {
+                    serde_json::from_value::<ToolDiscoveryState>(v.clone()).map_err(|e| {
+                        CheckpointError::Corrupted {
+                            id: snapshot.agent_loop_id.clone(),
+                            reason: format!("checkpoint tool_discovery_state unparseable: {e}"),
+                        }
+                    })
                 })
+                .transpose()?
                 .unwrap_or_default(),
             pending_tool_calls: snapshot
                 .pending_tool_call_ids
@@ -505,6 +504,11 @@ impl AgentCheckpointIntegration {
                 .unwrap_or_default(),
             locked_tool_call_protocol: None,
             timeout_count: 0,
+            permanently_failed_tools: snapshot
+                .permanently_failed_tools
+                .as_deref()
+                .map(|tools| tools.iter().cloned().collect())
+                .unwrap_or_default(),
         })
     }
 
@@ -690,6 +694,14 @@ impl AgentCheckpointIntegration {
             hierarchy: None,
             messages: None,
             tool_discovery_state: serde_json::to_value(state.tool_discovery()).ok(),
+            permanently_failed_tools: {
+                let tools = state.permanently_failed_tools();
+                if tools.is_empty() {
+                    None
+                } else {
+                    Some(tools)
+                }
+            },
         }
     }
 }

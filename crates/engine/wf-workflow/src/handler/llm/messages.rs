@@ -19,7 +19,6 @@ pub fn declared_contexts(config: &Value) -> Vec<String> {
     }
     let context_id = config
         .get("context_id")
-        .or_else(|| config.get("contextId"))
         .and_then(|v| v.as_str())
         .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
     vec![context_id.to_string()]

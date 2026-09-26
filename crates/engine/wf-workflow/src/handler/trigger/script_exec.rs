@@ -286,6 +286,7 @@ async fn execute_legacy(
                     node_id: ctx.node_id.clone(),
                     category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                     detail: format!("Script '{script_name}' timed out after {timeout}ms"),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 })
             }
         }

@@ -109,6 +109,19 @@ impl AgentIterationCoordinator {
             "context compression failed at version {version}: {reason}; \
              pausing the loop for external handling"
         );
+        // The pause keeps its product shape, but the failure is recorded
+        // with its compression category so audit and checkpoints tell a
+        // compression-failure pause apart from a user pause.
+        let analysis = crate::error_analysis::shared_error_analysis(
+            &wf_execution_shared::error::ExecutionSharedError::NodeFailure {
+                node_id: entity.id().to_string(),
+                category: wf_types::workflow::error_branch::NodeErrorCategory::CompressionFailure,
+                detail: format!("context compression failed at version {version}: {reason}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+        );
+        let record = analysis.to_error_record(entity.id(), None);
+        entity.state.write().await.record_error(record);
         let _ = entity.interruption().pause();
         self.interrupted(entity, 0).await
     }

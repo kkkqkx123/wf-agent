@@ -81,9 +81,9 @@ impl SubworkflowRunner for SummaryRunner {
                 name: Some("summary-start".to_string()),
                 node_type: "START_FROM_MESSAGE".to_string(),
                 inner: serde_json::json!({
-                    "messageInputs": [{
-                        "sourceContextId": "conversationHistory",
-                        "internalName": "current",
+                    "message_inputs": [{
+                        "source_context_id": "conversationHistory",
+                        "internal_name": "current",
                         "required": true
                     }]
                 }),
@@ -103,7 +103,7 @@ impl SubworkflowRunner for SummaryRunner {
                 name: Some("summary-end".to_string()),
                 node_type: "CONTINUE_FROM_MESSAGE".to_string(),
                 inner: serde_json::json!({
-                    "messageOutputs": [{"internalName": "compressed"}]
+                    "message_outputs": [{"internal_name": "compressed"}]
                 }),
             },
         ];

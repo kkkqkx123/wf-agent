@@ -8,8 +8,11 @@ pub enum LlmError {
     #[error("JSON serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
-    #[error("Provider error: {0}")]
-    ProviderError(String),
+    #[error("Provider error: {message}")]
+    ProviderError {
+        status: Option<u16>,
+        message: String,
+    },
 
     /// The provider rejected the request because the actual payload exceeds
     /// its context window (anthropic `context_length_exceeded`, openai
@@ -54,10 +57,12 @@ impl LlmError {
     pub fn is_retryable(&self) -> bool {
         match self {
             LlmError::HttpError(e) => e.is_timeout() || e.is_connect() || e.is_request(),
-            LlmError::ProviderError(msg) => {
-                // 5xx errors are retryable, 4xx are not
-                msg.starts_with("HTTP 5") || msg.starts_with("HTTP 429")
-            }
+            // Retryability comes from the structured status, never from
+            // parsing the message text.
+            LlmError::ProviderError { status, .. } => matches!(
+                status,
+                Some(429) | Some(500..=599)
+            ),
             LlmError::Timeout(_) | LlmError::StreamError(_) => true,
             LlmError::Cancelled
             | LlmError::SerializationError(_)
@@ -85,7 +90,9 @@ impl LlmError {
         }
         match self {
             LlmError::ContextLengthExceeded(_) => true,
-            LlmError::ProviderError(msg) | LlmError::StreamError(msg) => matches(msg),
+            LlmError::ProviderError { message, .. } | LlmError::StreamError(message) => {
+                matches(message)
+            }
             _ => false,
         }
     }
@@ -113,20 +120,41 @@ mod tests {
 
     #[test]
     fn provider_5xx_is_retryable() {
-        assert!(LlmError::ProviderError("HTTP 500 internal".to_string()).is_retryable());
-        assert!(LlmError::ProviderError("HTTP 503 unavailable".to_string()).is_retryable());
-        assert!(LlmError::ProviderError("HTTP 429 too many".to_string()).is_retryable());
+        for status in [500, 503, 429] {
+            assert!(
+                LlmError::ProviderError {
+                    status: Some(status),
+                    message: "boom".to_string(),
+                }
+                .is_retryable(),
+                "status {status} must be retryable"
+            );
+        }
     }
 
     #[test]
     fn provider_4xx_is_not_retryable() {
-        assert!(!LlmError::ProviderError("HTTP 400 bad request".to_string()).is_retryable());
-        assert!(!LlmError::ProviderError("HTTP 401 unauthorized".to_string()).is_retryable());
+        for status in [400, 401, 404] {
+            assert!(
+                !LlmError::ProviderError {
+                    status: Some(status),
+                    message: "bad".to_string(),
+                }
+                .is_retryable(),
+                "status {status} must not be retryable"
+            );
+        }
     }
 
     #[test]
-    fn provider_error_must_carry_http_prefix() {
-        assert!(!LlmError::ProviderError("500 internal".to_string()).is_retryable());
+    fn provider_error_without_status_is_not_retryable() {
+        assert!(
+            !LlmError::ProviderError {
+                status: None,
+                message: "500 internal".to_string(),
+            }
+            .is_retryable()
+        );
     }
 
     #[test]
@@ -174,7 +202,10 @@ mod tests {
             "context length exceeded while processing the request",
             "Context length exceeded: the request exceeds the limit",
         ] {
-            let err = LlmError::ProviderError(msg.to_string());
+            let err = LlmError::ProviderError {
+                status: Some(400),
+                message: msg.to_string(),
+            };
             assert!(err.is_context_length_exceeded(), "must classify: {msg}");
         }
         let err = LlmError::StreamError("stream failed with context_length_exceeded".to_string());
@@ -183,7 +214,10 @@ mod tests {
 
     #[test]
     fn unrelated_messages_are_not_context_length() {
-        let err = LlmError::ProviderError("HTTP 429 rate limit".to_string());
+        let err = LlmError::ProviderError {
+            status: Some(429),
+            message: "rate limit".to_string(),
+        };
         assert!(!err.is_context_length_exceeded());
         assert!(!LlmError::Timeout(100).is_context_length_exceeded());
         assert!(!LlmError::AuthError("denied".to_string()).is_context_length_exceeded());

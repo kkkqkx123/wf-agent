@@ -37,6 +37,11 @@ pub struct ToolExecutionResult {
     pub error: Option<String>,
     pub execution_time: i64,
     pub retry_count: u32,
+    /// Structured retry hint for a failed result. The human-readable
+    /// `error` text never carries protocol duties; retry loops read this
+    /// field instead of parsing the message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -225,22 +225,14 @@ fn content_to_value(content: &wf_types::message::MessageContentValue) -> serde_j
     }
 }
 
-/// Fallback outer id when the pipeline did not stamp one (direct handler
-/// tests, DevTools one-shots): a deterministic hash of the request body, so
-/// replays of the same body still map to the same inner keys.
-fn fallback_outer_id(request: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    request.hash(&mut hasher);
-    format!("general-{:016x}", hasher.finish())
-}
-
 #[async_trait::async_trait]
 impl wf_tools::general::GeneralToolInvoker for GeneralToolContext {
     async fn invoke_request(&self, request: &str) -> wf_tools::ToolResult<serde_json::Value> {
-        self.invoke_request_with_outer(&fallback_outer_id(request), request)
-            .await
+        // No stamped outer id on this path (direct handler tests, DevTools
+        // one-shots): mint an entity-scoped monotonic key instead of hashing
+        // the body, so concurrent identical bodies never share a replay key.
+        let outer_id = self.entity.next_general_outer_id();
+        self.invoke_request_with_outer(&outer_id, request).await
     }
 
     async fn invoke_request_with_outer(

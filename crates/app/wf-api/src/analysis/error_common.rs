@@ -29,7 +29,6 @@ pub fn record_view(record: &ErrorRecord) -> ExecutionErrorRecord {
 pub fn action_name(action: &RecoveryAction) -> String {
     match action {
         RecoveryAction::Retry => "retry".to_string(),
-        RecoveryAction::Fallback => "fallback".to_string(),
         RecoveryAction::ManualIntervention => "manual_intervention".to_string(),
         RecoveryAction::Abort => "abort".to_string(),
     }

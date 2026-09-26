@@ -39,6 +39,11 @@ pub struct AgentLoopEntity {
     /// see `AgentLoopConfig::history_normalization` for the tradeoff.
     history_normalization: bool,
     timeout_manager: AgentTimeoutManager,
+    timeout_expired: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Entity-scoped monotonic counter for `general`-tool fallback outer
+    /// ids. Combined with the execution id it yields collision-free replay
+    /// keys without hashing.
+    general_outer_seq: std::sync::Arc<std::sync::atomic::AtomicU64>,
     max_pause_duration: Option<u64>,
     pause_timeout_handle: std::sync::RwLock<Option<TimeoutHandle>>,
     timeout_metrics: Option<Arc<TimeoutMetricsCollector>>,
@@ -81,6 +86,8 @@ impl AgentLoopEntity {
             exposure_overrides: Vec::new(),
             history_normalization: false,
             timeout_manager: AgentTimeoutManager::new(),
+            timeout_expired: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            general_outer_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             max_pause_duration: None,
             pause_timeout_handle: std::sync::RwLock::new(None),
             timeout_metrics: None,
@@ -281,6 +288,26 @@ impl AgentLoopEntity {
         &self.timeout_manager
     }
 
+    pub fn timeout_expired(&self) -> bool {
+        self.timeout_expired
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn timeout_flag(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.timeout_expired.clone()
+    }
+
+    /// Collision-free fallback outer id for `general`-tool invocations that
+    /// carry no stamped outer call id. Monotonic within the execution and
+    /// scoped by the execution id, so two inner calls in one run never share
+    /// a replay key.
+    pub fn next_general_outer_id(&self) -> String {
+        let seq = self
+            .general_outer_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("general-{}-{seq}", self.id)
+    }
+
     pub fn max_pause_duration(&self) -> Option<u64> {
         self.max_pause_duration
     }
@@ -456,6 +483,7 @@ impl AgentLoopEntity {
         }
         self.clear_pause_timeout();
         let interruption = self.interruption.clone();
+        let timeout_expired = self.timeout_expired.clone();
         let agent_loop_id = self.id.clone();
         let execution_id = self.id.to_string();
         let metrics = self.timeout_metrics.clone();
@@ -479,6 +507,7 @@ impl AgentLoopEntity {
                         &execution_id,
                     );
                 }
+                timeout_expired.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = interruption.stop();
             },
         );
@@ -506,5 +535,20 @@ impl AgentLoopEntity {
 impl wf_execution_shared::execution_loop::HasInterruption for AgentLoopEntity {
     fn interruption(&self) -> &InterruptionState {
         &self.interruption
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn general_outer_ids_are_unique_within_a_run() {
+        let entity = AgentLoopEntity::new(Id::from("exec-1".to_string()));
+        let first = entity.next_general_outer_id();
+        let second = entity.next_general_outer_id();
+        assert_ne!(first, second);
+        assert!(first.starts_with("general-exec-1-"));
+        assert!(second.starts_with("general-exec-1-"));
     }
 }

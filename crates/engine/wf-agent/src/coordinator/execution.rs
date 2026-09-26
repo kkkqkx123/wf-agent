@@ -96,6 +96,7 @@ impl AgentExecutionCoordinator {
         let timeout_handle = match max_execution_time {
             Some(max) if max > 0 => {
                 let interruption = entity.interruption().clone();
+                let timeout_flag = entity.timeout_flag();
                 let execution_id = entity.id().to_string();
                 if let Some(ref metrics) = timeout_metrics {
                     metrics.record_registration("agent_wall_clock", max as f64, &execution_id);
@@ -117,6 +118,7 @@ impl AgentExecutionCoordinator {
                                 &execution_id,
                             );
                         }
+                        timeout_flag.store(true, std::sync::atomic::Ordering::SeqCst);
                         let _ = interruption.stop();
                     },
                 ))
@@ -296,19 +298,19 @@ impl AgentExecutionCoordinator {
         }
     }
 
-    /// The error for a stopped execution. An explicit `stop()` already settled
-    /// the state machine (terminal status); a stop during host shutdown is a
-    /// cancellation; only a wall-clock / pause-timeout stop is a timeout.
+    /// The error for a stopped execution. A settled state machine and a host
+    /// shutdown are cancellations, as is an explicit stop. Only a stop caused
+    /// by a fired wall-clock or pause timeout is a timeout.
     async fn stopped_error(entity: &AgentLoopEntity) -> AgentError {
         let status = entity.state.read().await.status();
         if status.is_terminal() {
             AgentError::Cancelled(format!("Agent loop stopped with status {:?}", status))
         } else if wf_common::shutdown::is_active_shutdown() {
             AgentError::Cancelled("Agent loop cancelled by runtime shutdown".to_string())
+        } else if entity.timeout_expired() {
+            AgentError::ExecutionTimeout("Agent loop execution time exceeded".to_string())
         } else {
-            AgentError::ExecutionTimeout(
-                "Agent loop execution time exceeded or was force-stopped".to_string(),
-            )
+            AgentError::Cancelled("Agent loop force-stopped".to_string())
         }
     }
 
@@ -338,9 +340,15 @@ impl AgentExecutionCoordinator {
                 Ok(result) => return Ok(Some(result)),
                 Err(e) => {
                     // Record the structured analysis first so the error
-                    // checkpoint taken below contains this failure.
+                    // checkpoint taken below contains this failure. The
+                    // record is tagged with the failing iteration so the
+                    // persisted per-iteration slot resolves to this round.
                     let analysis = analyze_error(&e);
-                    let record = analysis.to_error_record(entity.id(), None);
+                    let iteration = entity.state.read().await.current_iteration();
+                    let record = analysis.to_error_record(
+                        entity.id(),
+                        Some(crate::state::iteration_tag(iteration)),
+                    );
                     let kind = analysis.kind;
                     let limit = error_retry_limit(failure_policy);
                     let per_call_allowed = failure_policy.should_retry(kind, attempt);
@@ -378,6 +386,18 @@ impl AgentExecutionCoordinator {
                             error_type,
                         } => {
                             self.checkpoint_on_error(entity).await;
+                            // A context-length rejection that survived
+                            // forced compression is a spent budget, not a
+                            // generic repeating pattern: end the run with
+                            // the budget terminal instead of the breaker.
+                            if let AgentError::LlmError(le) = &e {
+                                if le.is_context_length_exceeded() {
+                                    return Err(AgentError::ContextBudgetExhausted(format!(
+                                        "context-length rejection recurred {repeats} times \
+                                         after compression (limit {limit}); stopping retries: {e}"
+                                    )));
+                                }
+                            }
                             return Err(AgentError::ErrorPatternTripped(format!(
                                 "error type {error_type:?} recurred {repeats} times \
                                  (limit {limit}); stopping retries: {e}"
@@ -567,7 +587,10 @@ mod tests {
             if call.is_multiple_of(2) {
                 let failure = call / 2;
                 let error = if self.alternate_types && failure % 2 == 1 {
-                    AgentError::LlmError(LlmError::ProviderError("HTTP 500 upstream".to_string()))
+                    AgentError::LlmError(LlmError::ProviderError {
+                        status: Some(500),
+                        message: "upstream".to_string(),
+                    })
                 } else {
                     AgentError::SharedError(ExecutionSharedError::ToolError(
                         ToolError::TransportError("connection reset".to_string()),

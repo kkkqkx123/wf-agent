@@ -33,7 +33,6 @@ pub struct WorkflowCoordinator {
     pub(super) current_node_id: Option<String>,
     pub(super) completed_nodes: Vec<String>,
     pub(super) node_outputs: HashMap<String, Value>,
-    pub(super) node_errors: Vec<String>,
     pub(super) start_time: i64,
     pub(super) hooks: Vec<HookDefinition>,
     /// Navigation counter for detecting non-loop dead cycles (e.g., cycles in
@@ -167,7 +166,6 @@ impl WorkflowCoordinator {
             current_node_id: Some(start_node_id),
             completed_nodes: Vec::new(),
             node_outputs: HashMap::new(),
-            node_errors: Vec::new(),
             start_time: now(),
             hooks: Vec::new(),
             navigation_count: 0,
@@ -434,7 +432,7 @@ impl WorkflowCoordinator {
             match result {
                 Ok(output) => {
                     self.record_node_success(&attempt, &outcome, &node_ctx, &output)
-                        .await;
+                        .await?;
                     self.current_node_id = self.determine_next_node(&output).await?;
                 }
                 Err(e) => {

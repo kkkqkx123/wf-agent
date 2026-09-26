@@ -307,7 +307,8 @@ impl WorkflowCoordinator {
             category,
             failed_node_id,
             attempts,
-        );
+        )
+        .with_source(crate::error_branch::failure_source(error));
         if target.suspend {
             return Ok(self
                 .suspend_error_branch(entity, event_bus, summary, &target.target_node_id)

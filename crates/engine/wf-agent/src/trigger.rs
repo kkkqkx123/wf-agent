@@ -1,3 +1,9 @@
+//! Agent-side trigger target: child execution plus version-checked
+//! write-back. The event-driven `TriggerEventListener` lives in
+//! `wf-workflow` and is assembled in `wf-runtime`; the runtime
+//! `AgentTriggerRunner` resolves the parent loop, slices the parent
+//! conversation via `snapshot_conversation_for_child` and delegates here.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -5,12 +11,6 @@ use dashmap::DashMap;
 use serde_json::Value;
 use tracing::warn;
 
-///
-/// Engine ownership note: the event-driven `TriggerEventListener` lives in
-/// `wf-workflow` and is assembled in `wf-runtime`; this module is only the
-/// agent-side target (child execution + version-checked write-back). The
-/// runtime `AgentTriggerRunner` resolves the parent loop, slices the parent
-/// conversation via `snapshot_conversation_for_child` and delegates here.
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookEmitter;

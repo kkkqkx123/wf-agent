@@ -9,7 +9,7 @@ use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 
 use super::AgentIterationCoordinator;
 use crate::entity::AgentLoopEntity;
-use crate::error::AgentResult;
+use crate::error::{AgentError, AgentResult};
 
 impl AgentIterationCoordinator {
     /// Publish the LLM_REQUESTED event before the gateway call.
@@ -89,6 +89,15 @@ impl AgentIterationCoordinator {
                     llm_call_record(request, started_at, None, None, 0, 0, Some(e.to_string())),
                 )
                 .await;
+                // Without a model window there is nothing to compress
+                // against: forcing compression would loop on the same
+                // rejection, so the run ends on the budget terminal.
+                if entity.conversation().read().await.context_limit() == 0 {
+                    return Err(AgentError::ContextBudgetExhausted(format!(
+                        "provider rejected the request as over-length with no model \
+                         context window to compress against: {e}"
+                    )));
+                }
                 // Safety-net path: the provider rejected the
                 // actual request; force a compression event over the
                 // real messages so the chain fires even though the

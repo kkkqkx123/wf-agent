@@ -669,7 +669,7 @@ fn register_child(
     parent: &str,
     fork_path_id: Option<&str>,
 ) {
-    let status = status.unwrap_or(ExecutionStatus::Running);
+    let status = status.unwrap_or(ExecutionStatus::Failed);
     match fork_path_id {
         Some(path) => registry.register_fork_path(child_id, status, parent, path),
         None => registry.register_with_parent(child_id, status, Some(parent)),
@@ -1243,6 +1243,7 @@ mod tests {
             hierarchy: None,
             messages: None,
             tool_discovery_state: None,
+            permanently_failed_tools: None,
         }
     }
 

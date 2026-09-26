@@ -239,6 +239,7 @@ mod tests {
             node_id: "n".to_string(),
             category,
             detail: "detail".to_string(),
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         }
     }
 
@@ -392,6 +393,7 @@ mod tests {
                     node_id: "n".to_string(),
                     category: NodeErrorCategory::BusinessFailure,
                     detail: "boom".to_string(),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 },
             )),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -415,9 +417,10 @@ mod tests {
     #[test]
     fn provider_503_maps_to_service_unavailable() {
         assert_error(
-            wf_api::ApiError::from(wf_api::LlmError::ProviderError(
-                "HTTP 503 unavailable".to_string(),
-            )),
+            wf_api::ApiError::from(wf_api::LlmError::ProviderError {
+                status: Some(503),
+                message: "unavailable".to_string(),
+            }),
             StatusCode::SERVICE_UNAVAILABLE,
             "SERVICE_UNAVAILABLE",
             "service_unavailable",

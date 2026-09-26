@@ -23,6 +23,10 @@ pub struct AgentExecution {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<AgentRuntimeConfig>,
+    /// Tool names that failed permanently during the run. Informational
+    /// terminal reporting, never loop control.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permanently_failed_tools: Option<Vec<String>>,
 }
 
 impl From<AgentStateSnapshot> for AgentExecution {
@@ -42,6 +46,7 @@ impl From<AgentStateSnapshot> for AgentExecution {
             completed_at: snapshot.completed_at,
             error: snapshot.error,
             context: None,
+            permanently_failed_tools: snapshot.permanently_failed_tools,
         }
     }
 }

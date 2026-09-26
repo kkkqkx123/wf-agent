@@ -56,24 +56,13 @@ impl ConfigError {
     /// not participate in cross-execution chains, so the record carries no
     /// parent linkage.
     pub fn to_error_record(&self, execution_id: String, node_id: Option<String>) -> ErrorRecord {
-        let id = wf_common::generate_id();
-        ErrorRecord {
-            id: id.clone(),
+        ErrorRecord::new(
             execution_id,
-            error: self.to_string(),
-            error_type: Some(self.error_type()),
-            timestamp: wf_common::now(),
+            self.to_string(),
+            Some(self.error_type()),
             node_id,
-            parent_error_id: None,
-            error_chain: vec![id.clone()],
-            root_cause_id: id,
-            caused_by: None,
-            is_recoverable: matches!(
-                self.recovery_action(),
-                RecoveryAction::Retry | RecoveryAction::Fallback
-            ),
-            recovery_action: Some(self.recovery_action()),
-        }
+            Some(self.recovery_action()),
+        )
     }
 }
 

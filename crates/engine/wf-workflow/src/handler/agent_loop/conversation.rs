@@ -28,16 +28,9 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
         }
     }
 
-    if let Some(inputs) = config
-        .get("message_inputs")
-        .or_else(|| config.get("messageInputs"))
-        .and_then(|v| v.as_array())
-    {
+    if let Some(inputs) = config.get("message_inputs").and_then(|v| v.as_array()) {
         for entry in inputs {
-            let source = entry
-                .get("source_context_id")
-                .or_else(|| entry.get("sourceContextId"))
-                .and_then(|v| v.as_str());
+            let source = entry.get("source_context_id").and_then(|v| v.as_str());
             if let Some(source) = source {
                 conversation.extend(message_context::get_context(&ctx.variables, source));
             }
@@ -129,14 +122,10 @@ pub(crate) fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Me
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     if let Some(outputs) = config
         .get("message_outputs")
-        .or_else(|| config.get("messageOutputs"))
         .and_then(|v| v.as_array())
     {
         for entry in outputs {
-            let target = entry
-                .get("target_context_id")
-                .or_else(|| entry.get("targetContextId"))
-                .and_then(|v| v.as_str());
+            let target = entry.get("target_context_id").and_then(|v| v.as_str());
             if let Some(target) = target {
                 message_context::register_context(&ctx.variables, target, conversation.to_vec());
             }

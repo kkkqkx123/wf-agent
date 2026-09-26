@@ -181,6 +181,11 @@ impl WorkflowLifecycleCoordinator {
 
         let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id.clone());
 
+        // Freeze the run's budget totals where checkpoints can reach them
+        // (the entity variable map is snapshotted); resumes recompute the
+        // remainder from these totals instead of inheriting a fresh budget.
+        crate::execution_budgets::persist_totals(entity.variables(), &options);
+
         if let Some(ref input) = options.input {
             entity.set_variable("input", input.clone());
         }

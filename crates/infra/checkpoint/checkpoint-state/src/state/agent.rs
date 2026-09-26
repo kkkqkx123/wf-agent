@@ -148,6 +148,7 @@ mod tests {
             hierarchy: None,
             messages: None,
             tool_discovery_state: None,
+            permanently_failed_tools: None,
         }
     }
 

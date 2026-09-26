@@ -698,7 +698,10 @@ impl WorkflowCheckpointIntegration {
                 Some(event_records)
             },
             hierarchy: None,
-            execution_config: None,
+            execution_config: crate::execution_budgets::snapshot_config(
+                entity.variables(),
+                state.start_time(),
+            ),
             fork_join_aggregation_state: None,
             hook_execution_context: None,
             error_suspend: state.error_suspend().cloned(),

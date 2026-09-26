@@ -12,6 +12,13 @@ pub enum WorkflowError {
     #[error("Execution timeout: {0}")]
     ExecutionTimeout(String),
 
+    /// Main-loop pause signal turned into a typed control-flow result.
+    /// Pausing is not an engine malfunction, so it must never travel as
+    /// `CoordinatorError`; routing and transports read it as an
+    /// interruption, never as a business failure.
+    #[error("Execution paused: {0}")]
+    ExecutionPaused(String),
+
     #[error("Graph error: {0}")]
     GraphError(String),
 
@@ -24,12 +31,16 @@ pub enum WorkflowError {
     /// Terminal node failure carrying its routing category. Raised where the
     /// engine knows the failure kind (coordinator timeout, interruption, the
     /// emitting node's compression failure) so error-branch routing classifies
-    /// by type instead of by message substring.
+    /// by type instead of by message substring. `source` names the failure
+    /// origin (handler, hook veto, approval) for error-branch routing; it
+    /// shares the business category with handler failures, so the source
+    /// travels as its own dimension.
     #[error("Node failure [{category}] {node_id}: {detail}")]
     NodeFailure {
         node_id: String,
         category: NodeErrorCategory,
         detail: String,
+        failure_source: wf_types::workflow::error_branch::NodeFailureSource,
     },
 
     #[error("Fork/Join error: {0}")]
@@ -69,16 +80,12 @@ pub enum WorkflowError {
 
 pub type WorkflowResult<T> = Result<T, WorkflowError>;
 
-/// Bridge into the shared handler boundary. Failures whose nature the engine
-/// already knows (`NodeFailure`, a bare node execution failure, a wall-clock
-/// timeout, a variable or state failure) keep their typed shared-side shape,
-/// so error-branch routing never downgrades them to `BusinessFailure` and the
-/// agent-side analysis can read them structurally. Engine-level diagnostics
-/// that are plain strings (`SubgraphError`, `TriggerError`, `GraphError`,
-/// `CoordinatorError`) surface as a `HandlerError` carrying the full message:
-/// they all project to a business failure anyway, and the node boundary — the
-/// one place that knows the real node id — re-derives their category from the
-/// shared taxonomy rather than this conversion inventing a placeholder id.
+/// Bridge into the shared handler boundary. Typed failures keep their
+/// shared-side shape so routing never downgrades them. Engine diagnostics
+/// without a node context become a categorized `NodeFailure` with a
+/// placeholder id; validation-shaped diagnostics become `VariableError`.
+/// `HandlerError` is reserved for genuinely untyped handler internals.
+/// A nested shared error is unwrapped instead of being stringified twice.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
         use wf_execution_shared::error::ExecutionSharedError as Shared;
@@ -87,20 +94,52 @@ impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
                 node_id,
                 category,
                 detail,
+                failure_source,
             } => Shared::NodeFailure {
                 node_id,
                 category,
                 detail,
+                failure_source,
             },
             WorkflowError::NodeExecutionFailed { node_id, reason } => Shared::NodeFailure {
                 node_id,
                 category: NodeErrorCategory::BusinessFailure,
                 detail: reason,
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
             WorkflowError::ExecutionTimeout(detail) => Shared::TimeoutError(detail),
+            WorkflowError::ExecutionPaused(detail) => {
+                Shared::InterruptionError {
+                    kind: wf_execution_shared::error::InterruptionKind::Pause,
+                    detail,
+                }
+            }
             WorkflowError::VariableError(detail) => Shared::VariableError(detail),
             WorkflowError::StateTransitionError(detail) => Shared::StateError(detail),
-            other => Shared::HandlerError(other.to_string()),
+            WorkflowError::SharedError(inner) => inner,
+            WorkflowError::GraphError(detail) => Shared::VariableError(detail),
+            WorkflowError::ConfigError {
+                node_id,
+                field,
+                detail,
+            } => Shared::VariableError(format!(
+                "node '{node_id}' field '{field}' is invalid: {detail}"
+            )),
+            WorkflowError::HandlerNotFound { node_type } => {
+                Shared::VariableError(format!("Handler not found: {node_type}"))
+            }
+            WorkflowError::CoordinatorError(detail)
+            | WorkflowError::ForkJoinError(detail)
+            | WorkflowError::SubgraphError(detail)
+            | WorkflowError::TriggerError(detail)
+            | WorkflowError::LoopError(detail)
+            | WorkflowError::OperationError(detail)
+            | WorkflowError::Internal(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail,
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
         }
     }
 }

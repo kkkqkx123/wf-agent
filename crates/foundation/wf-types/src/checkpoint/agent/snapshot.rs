@@ -90,6 +90,10 @@ pub struct AgentStateSnapshot {
     /// unblock and tools first invoked through the `general` tool.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_discovery_state: Option<serde_json::Value>,
+    /// Tool names that failed permanently during the run. Informational
+    /// terminal reporting carried across a restore.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permanently_failed_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

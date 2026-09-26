@@ -482,10 +482,13 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             // interruption instead of surfacing a generic trigger error.
             let result = tokio::select! {
                 _ = self.shutdown.cancelled() => Err(WorkflowError::SharedError(
-                    wf_execution_shared::error::ExecutionSharedError::InterruptionError(format!(
-                        "Triggered subworkflow '{}' abandoned at listener shutdown",
-                        triggered_workflow_id
-                    )),
+                    wf_execution_shared::error::ExecutionSharedError::InterruptionError {
+                        kind: wf_execution_shared::error::InterruptionKind::Stop,
+                        detail: format!(
+                            "Triggered subworkflow '{}' abandoned at listener shutdown",
+                            triggered_workflow_id
+                        ),
+                    },
                 )),
                 elapsed = tokio::time::timeout(
                     std::time::Duration::from_millis(timeout_ms),
@@ -510,7 +513,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             let outcome = match &result {
                 Ok(()) => TriggerExecutionOutcome::Completed,
                 Err(WorkflowError::SharedError(
-                    wf_execution_shared::error::ExecutionSharedError::InterruptionError(_),
+                    wf_execution_shared::error::ExecutionSharedError::InterruptionError { .. },
                 )) => TriggerExecutionOutcome::Abandoned,
                 Err(_) => TriggerExecutionOutcome::Failed,
             };

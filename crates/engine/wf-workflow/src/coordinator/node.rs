@@ -35,10 +35,12 @@ fn typed_failure_parts(
             wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
             detail.clone(),
         )),
-        WorkflowError::SharedError(ExecutionSharedError::InterruptionError(detail)) => Some((
-            wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
-            detail.clone(),
-        )),
+        WorkflowError::SharedError(ExecutionSharedError::InterruptionError { detail, .. }) => {
+            Some((
+                wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                detail.clone(),
+            ))
+        }
         WorkflowError::ExecutionTimeout(detail) => Some((
             wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
             detail.clone(),
@@ -188,12 +190,16 @@ impl NodeCoordinator {
             .await
             .map_err(WorkflowError::from);
         let result = match result {
-            Err(WorkflowError::SharedError(ExecutionSharedError::InterruptionError(detail))) => {
+            Err(WorkflowError::SharedError(ExecutionSharedError::InterruptionError {
+                detail,
+                ..
+            })) => {
                 return Err(WorkflowError::NodeFailure {
                     node_id: node_id.clone(),
                     category:
                         wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: format!("Execution interrupted: {}", detail),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 });
             }
             other => other,
@@ -320,6 +326,12 @@ impl NodeCoordinator {
             node_id: node.id.to_string(),
             category,
             detail: reason.to_string(),
+            failure_source: match rejection_source {
+                Some("hook_veto") => {
+                    wf_types::workflow::error_branch::NodeFailureSource::HookVeto
+                }
+                _ => wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
         })
     }
 

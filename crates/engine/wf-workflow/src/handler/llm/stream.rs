@@ -31,6 +31,7 @@ fn llm_stream_failure(node_id: &str, e: &wf_llm::error::LlmError, detail: String
             node_id: node_id.to_string(),
             category,
             detail,
+            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
         },
         None => WorkflowError::Internal(detail),
     }
@@ -150,6 +151,7 @@ pub async fn run_streaming_request(
                     category:
                         wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
                     detail: format!("LLM stream aborted: {}", abort.reason),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 });
             }
             Some(Ok(_)) => {}

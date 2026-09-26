@@ -417,14 +417,15 @@ pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
     }
 }
 
-/// Strict parse for registry bookkeeping: unknown values keep the historic
-/// `Running` display default but surface the damage with a warn.
+/// Strict parse for registry bookkeeping: unknown values surface with an
+/// error log and register as `Failed` so a corrupt record can never be
+/// revived as a live run.
 pub fn status_or_warn_running(status: &str) -> ExecutionStatus {
     match status.parse::<ExecutionStatus>() {
         Ok(parsed) => parsed,
         Err(e) => {
-            tracing::warn!(status = %status, error = %e, "checkpoint entity carries an unrecognized status; registered as Running");
-            ExecutionStatus::Running
+            tracing::error!(status = %status, error = %e, "checkpoint entity carries an unrecognized status; registered as Failed");
+            ExecutionStatus::Failed
         }
     }
 }

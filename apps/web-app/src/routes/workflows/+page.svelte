@@ -1,11 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -15,27 +12,13 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
-	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
-	import {
-		listWorkflows,
-		getWorkflow,
-		importWorkflow,
-	} from '$lib/services/workflows';
-	import type { WorkflowDetail } from '$lib/types/models';
-	import {
-		createCollection,
-		createResource,
-	} from '$lib/stores/collection.svelte';
+	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
 		formatPercent,
 		formatRelativeTime,
 	} from '$lib/utils/format';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const STATUS_OPTIONS = [
 		{ value: 'active', label: 'Active' },
@@ -43,21 +26,13 @@
 		{ value: 'archived', label: 'Archived' },
 	];
 
-	const initial = parseListParams(page.url);
-
-	let query = $state(initial.q ?? '');
-	let status = $state(initial.status ?? '');
-	let selectedId = $state<string | null>(initial.id ?? null);
+	let query = $state('');
+	let status = $state('');
+	let selectedId = $state<string | null>(workflows[0]?.id ?? null);
 	let graphNodeId = $state<string | null>(null);
 
-	const list = createCollection((params) => listWorkflows(params));
-	const detail = createResource<WorkflowDetail | null>(async () => {
-		if (!selectedId) return null;
-		return getWorkflow(selectedId);
-	});
-
 	const filtered = $derived(
-		list.items.filter((workflow) => {
+		workflows.filter((workflow) => {
 			const matchesStatus = !status || workflow.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
@@ -68,53 +43,12 @@
 		}),
 	);
 
-	$effect(() => {
-		if (selectedId) void detail.reload();
-	});
-
-	$effect(() => {
-		if (!selectedId && list.loaded > 0 && !list.loading) {
-			selectedId = list.items[0].id;
-		}
-	});
-
-	$effect(() => {
-		gotoWithParams(page.url, {
-			q: query,
-			status,
-			id: selectedId ?? '',
-			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
-		});
-	});
-
-	onMount(() => void list.loadPages(Number(initial.page) || 1));
-
-	let importOpen = $state(false);
-	let importJson = $state('');
-	let importing = $state(false);
-
-	const importValid = $derived(importJson.trim().startsWith('{'));
-
-	async function submitImport(): Promise<void> {
-		importing = true;
-		try {
-			const newId = await importWorkflow(importJson);
-			importJson = '';
-			importOpen = false;
-			toasts.success(`Imported workflow ${newId.slice(0, 12)}`);
-			await list.reload();
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Import failed');
-		} finally {
-			importing = false;
-		}
-	}
+	const selected = $derived(workflowDetail);
 </script>
 
 <SplitView
 	inspectorTitle="Workflow detail"
 	inspectorOpen={selectedId !== null}
-	oninspectorclose={() => (selectedId = null)}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
@@ -126,14 +60,19 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => {
-						list.reload();
-						if (selectedId) detail.reload();
-					}}
+					onclick={() => toasts.info('Refresh queued')}
 				/>
-				<Button size="sm" onclick={() => (importOpen = true)}>
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => toasts.info('Import dialog pending')}
+				>
 					<Icon name="upload" size={13} />
 					Import
+				</Button>
+				<Button size="sm" onclick={() => toasts.success('Draft created')}>
+					<Icon name="plus" size={13} />
+					New
 				</Button>
 			{/snippet}
 		</PageHeader>
@@ -153,20 +92,7 @@
 				{/snippet}
 			</FilterBar>
 
-			{#if list.loading && list.loaded === 0}
-				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-					{#each Array.from({ length: 6 }, (_, position) => position) as index (index)}
-						<Skeleton shape="block" height="104px" class="rounded-lg" />
-					{/each}
-				</div>
-			{:else if list.error}
-				<ErrorState
-					title="Failed to load workflows"
-					description={list.error}
-					onretry={() => list.reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else if filtered.length === 0}
+			{#if filtered.length === 0}
 				<EmptyState
 					icon="workflow"
 					title="No workflows match"
@@ -184,34 +110,11 @@
 					{/each}
 				</div>
 			{/if}
-
-			<LoadMorePager
-				shown={list.loaded}
-				hasMore={list.hasMore}
-				loading={list.loading}
-				pageSize={list.pageSize}
-				onloadmore={() => list.loadMore()}
-				class="mt-3 rounded-lg border border-border bg-card"
-			/>
 		</div>
 	</div>
 
 	{#snippet inspector()}
-		{#if detail.loading && !detail.data}
-			<div class="space-y-3 p-4">
-				<Skeleton lines={2} />
-				<Skeleton shape="block" height="140px" class="rounded-lg" />
-				<Skeleton lines={4} />
-			</div>
-		{:else if detail.error}
-			<ErrorState
-				title="Failed to load detail"
-				description={detail.error}
-				onretry={() => detail.reload()}
-				class="m-4"
-			/>
-		{:else if detail.data}
-			{@const selected = detail.data}
+		{#if selected}
 			<div class="flex h-full min-h-0 flex-col">
 				<div class="border-b border-border px-3 py-3">
 					<div class="flex items-start justify-between gap-2">
@@ -228,7 +131,7 @@
 					</p>
 					<div class="mt-2 flex flex-wrap items-center gap-1.5">
 						{#each selected.tags as tag (tag)}
-							<Badge variant="outline" size="sm">{tag}</Badge>
+							<Badge variant="outline" class="text-[0.625rem]">{tag}</Badge>
 						{/each}
 					</div>
 				</div>
@@ -276,6 +179,25 @@
 						{/if}
 					</div>
 
+					<Card title="Neighbors">
+						<ul class="space-y-1.5">
+							{#each selected.neighbors as neighbor (neighbor.id)}
+								<li
+									class="flex items-center justify-between gap-2 text-caption"
+								>
+									<span class="truncate">{neighbor.label}</span>
+									<span
+										class={neighbor.reachable
+											? 'text-success'
+											: 'text-muted-foreground'}
+									>
+										{neighbor.reachable ? 'reachable' : 'unreachable'}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					</Card>
+
 					<Button
 						variant="outline"
 						size="sm"
@@ -290,28 +212,3 @@
 		{/if}
 	{/snippet}
 </SplitView>
-
-<Dialog
-	bind:open={importOpen}
-	title="Import workflow"
-	description="Paste a full workflow definition; the server parses, validates and stores it as a new formal workflow."
->
-	<Textarea
-		bind:value={importJson}
-		rows={12}
-		class="font-mono text-caption"
-		placeholder={'{ "id": "…", "name": "…", "nodes": [], "edges": [] }'}
-	/>
-	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (importOpen = false)}
-			>Cancel</Button
-		>
-		<Button
-			size="sm"
-			disabled={importing || !importValid}
-			onclick={() => void submitImport()}
-		>
-			Import
-		</Button>
-	{/snippet}
-</Dialog>

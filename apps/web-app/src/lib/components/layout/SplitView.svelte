@@ -1,74 +1,38 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Sheet from '$lib/components/ui/Sheet.svelte';
-	import {
-		INSPECTOR_WIDTH_MAX,
-		INSPECTOR_WIDTH_MIN,
-		preferences,
-	} from '$lib/stores/preferences.svelte';
+	import Separator from '$lib/components/ui/Separator.svelte';
+	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '$lib/utils/cn';
 
 	interface Props {
 		inspectorTitle?: string;
+		inspectorWidth?: string;
 		inspectorOpen?: boolean;
 		class?: string;
 		children: Snippet;
 		inspector?: Snippet;
-		/** The overlay is the only dismissible inspector, so closing it is the page's job. */
-		oninspectorclose?: () => void;
 	}
 
 	let {
 		inspectorTitle = 'Details',
+		inspectorWidth = '22.5rem',
 		inspectorOpen = false,
 		class: className = '',
 		children,
 		inspector,
-		oninspectorclose,
 	}: Props = $props();
 
-	// Docking is decided in CSS: the pinned inspector sits inline from `lg`
-	// upwards, while the sheet covers everything below that (or every viewport
-	// while unpinned). No resize listener is involved.
-	const pinned = $derived(preferences.inspectorPinned);
+	// Wide viewports dock the inspector; narrower ones overlay it as a sheet.
+	const docked = $derived(ui.inspectorDocked && inspectorOpen);
 
-	let drag: { pointerId: number; startX: number; startWidth: number } | null =
-		$state(null);
-	let dragWidth = $state(0);
-	const widthPx = $derived(drag ? dragWidth : preferences.inspectorWidth);
-	const width = $derived(`${widthPx}px`);
-
-	function onHandleDown(
-		event: PointerEvent & { currentTarget: HTMLDivElement },
-	): void {
-		event.currentTarget.setPointerCapture(event.pointerId);
-		dragWidth = preferences.inspectorWidth;
-		drag = {
-			pointerId: event.pointerId,
-			startX: event.clientX,
-			startWidth: preferences.inspectorWidth,
-		};
-	}
-
-	function onHandleMove(event: PointerEvent): void {
-		const active = drag;
-		if (!active || event.pointerId !== active.pointerId) return;
-		// The inspector is right-aligned, so dragging left widens it.
-		dragWidth = Math.min(
-			INSPECTOR_WIDTH_MAX,
-			Math.max(
-				INSPECTOR_WIDTH_MIN,
-				active.startWidth - (event.clientX - active.startX),
-			),
-		);
-	}
-
-	function onHandleUp(event: PointerEvent): void {
-		const active = drag;
-		if (!active || event.pointerId !== active.pointerId) return;
-		drag = null;
-		preferences.setInspectorWidth(dragWidth);
-	}
+	$effect(() => {
+		if (!inspectorOpen) {
+			ui.closeInspector();
+		} else if (!ui.inspectorDocked) {
+			ui.openInspector(inspectorTitle);
+		}
+	});
 </script>
 
 <div class={cn('flex h-full min-h-0 w-full', className)}>
@@ -76,18 +40,11 @@
 		{@render children()}
 	</div>
 
-	{#if inspector && pinned}
-		<div
-			aria-hidden="true"
-			class="hidden w-1 shrink-0 cursor-col-resize transition-colors hover:bg-ring/60 lg:block"
-			onpointerdown={onHandleDown}
-			onpointermove={onHandleMove}
-			onpointerup={onHandleUp}
-			onpointercancel={onHandleUp}
-		></div>
+	{#if inspector && docked}
+		<Separator orientation="vertical" />
 		<aside
-			style:width
-			class="hidden min-h-0 shrink-0 flex-col overflow-hidden border-l border-border bg-card lg:flex"
+			style:width={inspectorWidth}
+			class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
 		>
 			<div class="flex h-full min-h-0 flex-col">
 				<div
@@ -103,16 +60,14 @@
 	{/if}
 </div>
 
-{#if inspector}
-	<div class={pinned ? 'lg:hidden' : ''}>
-		<Sheet
-			open={inspectorOpen}
-			title={inspectorTitle}
-			side="right"
-			{width}
-			onclose={oninspectorclose}
-		>
-			{@render inspector()}
-		</Sheet>
-	</div>
+{#if inspector && !ui.inspectorDocked}
+	<Sheet
+		open={ui.inspectorOpen}
+		title={inspectorTitle}
+		side="right"
+		width={inspectorWidth}
+		onclose={() => ui.closeInspector()}
+	>
+		{@render inspector()}
+	</Sheet>
 {/if}

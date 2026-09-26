@@ -1,41 +1,49 @@
-/** View models consumed by components. Populated from the backend API. */
+/** View models consumed by components. Populated from fixtures in this stage. */
 
 export interface KeyValue {
 	key: string;
 	value: string;
 }
 
-/**
- * Execution row. Readings the stored execution cannot supply are absent rather
- * than zero-filled, so a view hides the metric instead of showing a fake one.
- */
 export interface Execution {
 	id: string;
-	/** Title comes from the workflow index, not from this payload. */
 	workflowId: string;
+	workflowName: string;
 	status: string;
-	currentNodeId: string | null;
 	startedAt: string;
 	endedAt: string | null;
-	/** Nodes with a recorded result, and the graph's node count. */
-	nodesDone: number | null;
-	nodesTotal: number | null;
-	nodesFailed: number | null;
-	/** Fraction of graph nodes that have a result, null when undecidable. */
-	progress: number | null;
 	durationMs: number | null;
-	/** Terminal failure message of the run itself. */
-	errorMessage: string | null;
+	progress: number;
+	currentNode: string | null;
+	trigger: string | null;
+	tasksTotal: number;
+	tasksDone: number;
+	failedNodes: number;
+	memoryPeakBytes: number | null;
+	starred?: boolean;
+	tags?: string[];
+}
+
+export interface StackFrame {
+	node: string;
+	depth: number;
+	enteredAt: string;
+	status: string;
 }
 
 export interface ExecutionDetail extends Execution {
+	context: KeyValue[];
+	callStack: StackFrame[];
 	variables: KeyValue[];
-	/** Serialized run input and output. */
-	input: string | null;
-	output: string | null;
-	/** Per-node failure messages recorded on the execution. */
-	failures: string[];
-	executionType: string | null;
+	memory: { currentBytes: number; peakBytes: number };
+	migration: Array<{ at: string; from: string; to: string; reason: string }>;
+	analysis: {
+		slowNodes: Array<{ node: string; durationMs: number }>;
+		decisionPoints: string[];
+		failureNodes: string[];
+		criticalPath: string[];
+		iterations: number;
+	};
 }
 
 export interface GraphNode {
@@ -67,11 +75,12 @@ export interface WorkflowVersion {
 	current: boolean;
 }
 
-/** A stored draft edits the workflow whose id it shares. */
 export interface WorkflowDraft {
 	id: string;
 	name: string;
 	updatedAt: string;
+	valid: boolean;
+	issues: string[];
 }
 
 export interface Workflow {
@@ -93,98 +102,87 @@ export interface Workflow {
 export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
 	versions: WorkflowVersion[];
+	drafts: WorkflowDraft[];
+	neighbors: Array<{ id: string; label: string; reachable: boolean }>;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-
-/** A file carried by a composer submission, shown apart from the message body. */
-export interface MessageAttachment {
-	name: string;
-	content: string;
-}
-
-/** What the composer hands to the surface that starts a run. */
-export interface OutgoingMessage {
-	text: string;
-	attachments: MessageAttachment[];
-}
 
 export interface LoopMessage {
 	id: string;
 	role: MessageRole;
 	content: string;
-	thinking: string | null;
 	createdAt: string;
-	toolName: string | null;
+	tokens: number | null;
+	toolName?: string;
 }
 
-/** One named value the loop can read; the endpoint exposes a name → JSON map. */
 export interface LoopVariable {
 	key: string;
+	type: string;
 	value: string;
+	scope: string;
+	updatedAt: string;
 }
 
-/** One loop iteration and the tool calls recorded inside it. */
-export interface LoopIteration {
-	index: number;
-	startedAt: string;
-	durationMs: number | null;
-	summary: string;
-	toolCalls: ToolCallEntry[];
-}
-
-/**
- * Session row: the registry digest of a loop run, live-first and merged with
- * persisted records. It carries no title or star flag, so those come from
- * local session state and the favorites endpoint.
- */
 export interface AgentLoop {
 	id: string;
+	name: string;
 	status: string;
 	iteration: number;
-	toolCalls: number;
-	durationMs: number | null;
-	profileId: string | null;
+	maxIterations: number;
+	model: string;
+	tokens: number;
 	startedAt: string;
-	endedAt: string | null;
+	updatedAt: string;
+	checkpoints: number;
+	errors: number;
+	starred: boolean;
+	tags: string[];
+}
+
+export interface AgentLoopDetail extends AgentLoop {
+	summary: string;
+	variables: LoopVariable[];
+	messages: LoopMessage[];
+	iterations: Array<{
+		index: number;
+		status: string;
+		durationMs: number;
+		summary: string;
+	}>;
+	graph: WorkflowGraph;
+	analysis: {
+		rootCause: string | null;
+		errorChain: string[];
+		recoveryHints: string[];
+		toolFrequency: Array<{ tool: string; count: number }>;
+	};
 }
 
 export interface Checkpoint {
 	id: string;
-	entityId: string;
-	entityType: string;
+	executionId: string;
+	sequence: number;
 	kind: string;
-	status: string;
+	actor: string;
 	createdAt: string;
-	sizeBytes: number | null;
-	chainPosition: number | null;
-	chainRootId: string | null;
-	tags: string[];
+	sizeBytes: number;
+	note: string;
+	restorable: boolean;
 }
 
-/** One file differing between an actor workspace and the staged partition. */
+export type FileChangeType = 'added' | 'modified' | 'deleted' | 'renamed';
+
 export interface FileChange {
+	id: string;
 	path: string;
-	kind: 'added' | 'modified' | 'deleted';
+	changeType: FileChangeType;
+	actor: string;
+	at: string;
 	additions: number;
 	deletions: number;
-	/** Unified diff text; null when the content is binary. */
-	diff: string | null;
-}
-
-/** An actor partition of the file-checkpoint store. */
-export interface FileActor {
-	actor: string;
-	kind: string;
-	historyLen: number;
-}
-
-/** A persisted edit session that can be rolled back as a unit. */
-export interface EditSession {
-	id: string;
-	label: string;
-	createdAt: string;
-	changeCount: number;
+	session: string;
 }
 
 export interface Approval {
@@ -246,15 +244,6 @@ export interface Tool {
 	successRate: number | null;
 }
 
-/** Outcome of an ad-hoc tool invocation. */
-export interface ToolRun {
-	success: boolean;
-	output: string;
-	error: string;
-	durationMs: number;
-	retries: number;
-}
-
 export interface Script {
 	id: string;
 	name: string;
@@ -282,6 +271,7 @@ export interface Template {
 	category: string;
 	description: string;
 	usage: number;
+	featured: boolean;
 	tags: string[];
 }
 

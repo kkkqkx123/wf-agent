@@ -52,7 +52,7 @@
 		<button
 			type="button"
 			aria-label="Close panel"
-			class="animate-overlay-in absolute inset-0 bg-overlay"
+			class="animate-overlay-in absolute inset-0 bg-[hsl(var(--overlay))]"
 			onclick={close}
 		></button>
 		<div

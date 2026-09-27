@@ -1,20 +1,22 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { listAgentLoops, getAgentLoopDetail } from '$lib/services/agentLoops';
+	import { listAgentLoops, getAgentLoopDetail } from '$lib/services/agent-loops';
 	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
-	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
 
@@ -32,12 +34,15 @@
 	let selectedId = $state<string | null>(null);
 	let allLoops = $state<AgentLoop[]>([]);
 	let selected = $state<AgentLoopDetail | null>(null);
+	let listError = $state<string | null>(null);
+	let detailError = $state<string | null>(null);
 
 	onMount(() => {
 		void reload();
 	});
 
 	async function reload(): Promise<void> {
+		listError = null;
 		try {
 			const page = await listAgentLoops();
 			allLoops = page.items;
@@ -45,7 +50,8 @@
 				selectedId = page.items[0].id;
 			}
 		} catch (e) {
-			console.error('Failed to load agent loops:', e);
+			listError = e instanceof Error ? e.message : 'Agent loops failed.';
+			allLoops = [];
 		}
 	}
 
@@ -55,12 +61,14 @@
 			selected = null;
 			return;
 		}
+		detailError = null;
 		void getAgentLoopDetail(id)
 			.then((row) => {
 				selected = row;
 			})
 			.catch((e) => {
-				console.error('Failed to load loop detail:', e);
+				selected = null;
+				detailError = e instanceof Error ? e.message : 'Detail failed.';
 			});
 	});
 
@@ -93,9 +101,9 @@
 					label="Refresh"
 					onclick={() => void reload()}
 				/>
-				<Button size="sm" onclick={() => toasts.success('Loop started')}>
+				<Button size="sm" onclick={() => void goto(resolve('/chat'))}>
 					<Icon name="play" size={13} />
-					Start loop
+					New run
 				</Button>
 			{/snippet}
 		</PageHeader>
@@ -194,11 +202,20 @@
 							{:else}
 								<tr>
 									<td colspan="6">
-										<EmptyState
-											icon="loop"
-											title="No loops match"
-											class="py-6"
-										/>
+										{#if listError}
+											<ErrorState
+												title="Agent loops failed to load"
+												description={listError}
+												onretry={() => void reload()}
+												class="py-6"
+											/>
+										{:else}
+											<EmptyState
+												icon="loop"
+												title="No loops match"
+												class="py-6"
+											/>
+										{/if}
 									</td>
 								</tr>
 							{/each}
@@ -210,7 +227,26 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if selected}
+		{#if detailError && !selected}
+			<ErrorState
+				title="Loop detail failed to load"
+				description={detailError}
+				onretry={() => {
+					if (selectedId) {
+						detailError = null;
+						void getAgentLoopDetail(selectedId)
+							.then((row) => {
+								selected = row;
+							})
+							.catch((e) => {
+								detailError =
+									e instanceof Error ? e.message : 'Detail failed.';
+							});
+					}
+				}}
+				class="m-3 rounded-lg border border-border bg-card"
+			/>
+		{:else if selected}
 			<div class="flex h-full min-h-0 flex-col">
 				<div class="border-b border-border px-3 py-3">
 					<div class="flex items-start justify-between gap-2">

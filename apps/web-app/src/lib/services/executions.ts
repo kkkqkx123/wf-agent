@@ -1,5 +1,5 @@
 import { client } from '$lib/api/client';
-import { call, extractCapped, extractPage } from '$lib/api/envelope';
+import { call, extractCapped, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	Execution,
@@ -99,7 +99,9 @@ export async function listExecutions(params?: {
 			},
 		}),
 	);
-	const page = extractPage<ExecutionDto>(data);
+	const page = extractPage<ExecutionDto>(
+		requireData(data, 'Execution list'),
+	);
 	return { ...page, items: page.items.map((d) => toExecution(d)) };
 }
 
@@ -118,10 +120,13 @@ export async function getExecutionStats(): Promise<Metric[]> {
 
 /** Detailed view of a single execution. */
 export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
-	const data = await call<ExecutionDto>(
-		client.GET('/api/v1/executions/{id}', { params: { path: { id } } }),
+	const data = requireData(
+		await call<ExecutionDto>(
+			client.GET('/api/v1/executions/{id}', { params: { path: { id } } }),
+		),
+		`Execution ${id}`,
 	);
-	const base = toExecution(data ?? {});
+	const base = toExecution(data);
 	return {
 		...base,
 		id,
@@ -143,6 +148,130 @@ export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
 /** Compatibility alias for the detail route. */
 export async function getExecution(id: string): Promise<ExecutionDetail> {
 	return getExecutionDetail(id);
+}
+
+/** Pause a running execution. */
+export async function pauseExecution(id: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/pause', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+/** Resume a paused execution. */
+export async function resumeExecution(id: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/resume', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+/** Cancel a running execution. */
+export async function cancelExecution(id: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/executions/{id}/cancel', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
+
+/** Execution context entries. */
+export async function getExecutionContext(
+	id: string,
+): Promise<Array<{ key: string; value: string }>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/context', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Execution context missing for ${id}`);
+	const rows = Array.isArray(data)
+		? data
+		: isRecord(data) && Array.isArray(data.entries)
+			? data.entries
+			: [];
+	return rows.filter(isRecord).map((row) => ({
+		key: String(row.key ?? row.name ?? ''),
+		value:
+			typeof row.value === 'string'
+				? row.value
+				: JSON.stringify(row.value ?? null),
+	}));
+}
+
+/** Execution variables. */
+export async function getExecutionVariables(
+	id: string,
+): Promise<Array<{ key: string; value: string }>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/variables', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Execution variables missing for ${id}`);
+	const rows = Array.isArray(data)
+		? data
+		: isRecord(data) && Array.isArray(data.variables)
+			? data.variables
+			: [];
+	return rows.filter(isRecord).map((row) => ({
+		key: String(row.key ?? row.name ?? ''),
+		value:
+			typeof row.value === 'string'
+				? row.value
+				: JSON.stringify(row.value ?? null),
+	}));
+}
+
+/** Execution call stack frames. */
+export async function getExecutionCallStack(
+	id: string,
+): Promise<
+	Array<{ node: string; depth: number; enteredAt: string; status: string }>
+> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/call-stack', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Call stack missing for execution ${id}`);
+	const rows = Array.isArray(data) ? data : [];
+	return rows.filter(isRecord).map((row, index) => ({
+		node: typeof row.node === 'string' ? row.node : `frame-${index}`,
+		depth: typeof row.depth === 'number' ? row.depth : index,
+		enteredAt:
+			typeof row.entered_at === 'number'
+				? new Date(row.entered_at).toISOString()
+				: typeof row.enteredAt === 'string'
+					? row.enteredAt
+					: '',
+		status: typeof row.status === 'string' ? row.status : 'unknown',
+	}));
+}
+
+/** Execution memory snapshot. */
+export async function getExecutionMemory(
+	id: string,
+): Promise<{ currentBytes: number; peakBytes: number }> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/memory', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Memory snapshot missing for execution ${id}`);
+	if (!isRecord(data)) return { currentBytes: 0, peakBytes: 0 };
+	const number = (key: string): number =>
+		typeof data[key] === 'number' ? (data[key] as number) : 0;
+	return {
+		currentBytes: number('current_bytes') || number('currentBytes'),
+		peakBytes: number('peak_bytes') || number('peakBytes'),
+	};
 }
 
 interface ToolCallDto {
@@ -205,6 +334,7 @@ export async function getExecutionToolCalls(
 			params: { path: { id: executionId } },
 		}),
 	);
+	requireData(data, `Tool calls missing for execution ${executionId}`);
 	const page = extractPage<ToolCallDto>(data);
 	return page.items.map((d, index) => toToolCall(d, index));
 }
@@ -243,6 +373,7 @@ export async function getExecutionTimeline(
 			params: { path: { executionId } },
 		}),
 	);
+	requireData(data, `Timeline missing for execution ${executionId}`);
 	const capped = extractCapped<TimelineDto>(data);
 	const items =
 		capped.items.length > 0

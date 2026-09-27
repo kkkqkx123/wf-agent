@@ -7,6 +7,8 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -35,7 +37,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     get,
     path = "/api/v1/workflows/drafts",
     tag = "workflow",
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
@@ -68,7 +70,7 @@ pub(crate) async fn handle_save_draft(
     path = "/api/v1/workflows/drafts/{id}",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Draft detail: full workflow definition (free-form; may be incomplete)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_draft(
@@ -99,12 +101,81 @@ pub(crate) async fn handle_delete_draft(
     }
 }
 
+/// One validation issue on a draft: dotted field path plus message.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ValidationIssueDoc {
+    field: String,
+    message: String,
+}
+
+impl From<wf_types::ValidationError> for ValidationIssueDoc {
+    fn from(view: wf_types::ValidationError) -> Self {
+        Self {
+            field: view.field,
+            message: view.message,
+        }
+    }
+}
+
+/// Per-dependent revalidation result of a draft promotion.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct DependentImpactDoc {
+    workflow_id: String,
+    workflow_name: String,
+    node_id: String,
+    field: String,
+    level: String,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
+
+/// Impact report returned when a draft is promoted to formal.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct PromoteReportDoc {
+    resource_kind: String,
+    resource_id: String,
+    dependents: Vec<DependentImpactDoc>,
+    error_count: usize,
+    warning_count: usize,
+    pass_count: usize,
+}
+
+impl From<wf_api::infra::dependency::UpdateImpactReport> for PromoteReportDoc {
+    fn from(report: wf_api::infra::dependency::UpdateImpactReport) -> Self {
+        Self {
+            resource_kind: report.resource_kind.as_str().to_string(),
+            resource_id: report.resource_id,
+            dependents: report
+                .dependents
+                .into_iter()
+                .map(|d| DependentImpactDoc {
+                    workflow_id: d.workflow_id,
+                    workflow_name: d.workflow_name,
+                    node_id: d.node_id,
+                    field: d.field,
+                    level: match d.level {
+                        wf_api::infra::dependency::ImpactLevel::Pass => "pass",
+                        wf_api::infra::dependency::ImpactLevel::Warning => "warning",
+                        wf_api::infra::dependency::ImpactLevel::Error => "error",
+                    }
+                    .to_string(),
+                    errors: d.errors,
+                    warnings: d.warnings,
+                })
+                .collect(),
+            error_count: report.error_count,
+            warning_count: report.warning_count,
+            pass_count: report.pass_count,
+        }
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/workflows/drafts/{id}/promote",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Promotion impact report", body = crate::envelope::ApiEnvelope<PromoteReportDoc>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_promote_draft(
@@ -112,7 +183,7 @@ pub(crate) async fn handle_promote_draft(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::draft::promote_draft(&state.ctx, &path.id).await {
-        Ok(report) => ok(report).into_response(),
+        Ok(report) => ok(PromoteReportDoc::from(report)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -141,7 +212,7 @@ pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl In
     path = "/api/v1/workflows/drafts/{id}/validate",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Draft validation issues (empty when promotable)", body = crate::envelope::ApiEnvelope<Vec<ValidationIssueDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_draft(
@@ -149,7 +220,11 @@ pub(crate) async fn handle_validate_draft(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::draft::validate_draft_complete(&state.ctx, &path.id).await {
-        Ok(warnings) => ok(warnings).into_response(),
+        Ok(warnings) => ok(warnings
+            .into_iter()
+            .map(ValidationIssueDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -7,7 +7,7 @@
 	import { NAV_ITEMS } from '$lib/config/navigation';
 	import { listExecutions } from '$lib/services/executions';
 	import { listWorkflows } from '$lib/services/workflows';
-	import { listAgentLoops } from '$lib/services/agentLoops';
+	import { listAgentLoops } from '$lib/services/agent-loops';
 	import { unifiedSearch, type SearchHit } from '$lib/services/search';
 	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';

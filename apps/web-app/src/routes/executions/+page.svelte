@@ -105,7 +105,11 @@
 				detail = row;
 			})
 			.catch((e) => {
-				console.error('Failed to load execution detail:', e);
+				detail = null;
+				toasts.error(
+					'Execution detail failed',
+					e instanceof Error ? e.message : undefined,
+				);
 			});
 	});
 
@@ -148,12 +152,9 @@
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
 					{view === 'list' ? 'Table' : 'Cards'}
 				</Button>
-				<Button
-					size="sm"
-					onclick={() => toasts.success('Execution request prepared')}
-				>
+				<Button size="sm" href="/workflows">
 					<Icon name="play" size={13} />
-					Start
+					Start from workflow
 				</Button>
 			{/snippet}
 		</PageHeader>

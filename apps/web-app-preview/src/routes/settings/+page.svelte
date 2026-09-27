@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -11,6 +12,7 @@
 		type Density,
 		type ThemeMode,
 	} from '$lib/stores/preferences.svelte';
+	import { behavior } from '$lib/stores/behavior.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '$lib/utils/cn';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
@@ -53,11 +55,29 @@
 		{ value: '100', label: '100' },
 	];
 
-	let pageSize = $state('50');
-	let autoRefresh = $state(true);
-	let streamFollow = $state(true);
-	let toastSound = $state(false);
-	let reducedMotionHint = $state(false);
+	let pageSize = $derived(String(behavior.pageSize));
+
+	onMount(() => {
+		void behavior.load();
+	});
+
+	async function saveBehavior(): Promise<void> {
+		await behavior.save();
+		if (behavior.error) {
+			toasts.error('Preferences failed to save', behavior.error);
+		} else {
+			toasts.success('Preferences saved');
+		}
+	}
+
+	async function restoreBehavior(): Promise<void> {
+		await behavior.restoreDefaults();
+		if (behavior.error) {
+			toasts.error('Restore failed', behavior.error);
+		} else {
+			toasts.success('Defaults restored');
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -69,14 +89,19 @@
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.info('Defaults restored')}
+				disabled={behavior.saving}
+				onclick={() => void restoreBehavior()}
 			>
 				<Icon name="history" size={13} />
 				Restore defaults
 			</Button>
-			<Button size="sm" onclick={() => toasts.success('Preferences saved')}>
+			<Button
+				size="sm"
+				disabled={behavior.saving}
+				onclick={() => void saveBehavior()}
+			>
 				<Icon name="check" size={13} />
-				Save
+				{behavior.saving ? 'Saving…' : 'Save'}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -158,31 +183,48 @@
 				</div>
 			{:else if section === 'execution'}
 				<div class="space-y-3">
+					{#if behavior.error}
+						<p class="text-caption text-destructive">
+							Server preferences unavailable ({behavior.error});
+							edits below still apply once the backend is reachable.
+						</p>
+					{/if}
 					<Card
 						title="Paging"
-						description="Cursor pages have no total; this sets the requested page size."
+						description="Cursor pages have no total; this sets the requested page size. Stored server-side."
 					>
 						<Select
-							bind:value={pageSize}
+							value={pageSize}
 							options={PAGE_SIZE_OPTIONS}
 							placeholder="Page size"
 							class="w-40"
+							onchange={(value) => {
+								behavior.pageSize = Number(value) || 50;
+							}}
 						/>
 					</Card>
-					<Card title="Live updates">
-						<Switch bind:checked={autoRefresh} label="Auto refresh lists" />
+					<Card title="Live updates" description="Stored server-side.">
 						<Switch
-							bind:checked={streamFollow}
+							checked={behavior.autoRefresh}
+							label="Auto refresh lists"
+							onchange={() => {
+								behavior.autoRefresh = !behavior.autoRefresh;
+							}}
+						/>
+						<Switch
+							checked={behavior.streamFollow}
 							label="Follow stream tail"
 							class="mt-2"
+							onchange={() => {
+								behavior.streamFollow = !behavior.streamFollow;
+							}}
 						/>
 					</Card>
 				</div>
 			{:else if section === 'notifications'}
 				<div class="space-y-3">
 					<Card title="Toasts">
-						<Switch bind:checked={toastSound} label="Play a sound for errors" />
-						<div class="mt-3 flex gap-2">
+						<div class="mt-1 flex gap-2">
 							<Button
 								variant="outline"
 								size="sm"
@@ -199,10 +241,13 @@
 							</Button>
 						</div>
 					</Card>
-					<Card title="Accessibility">
+					<Card title="Accessibility" description="Stored server-side.">
 						<Switch
-							bind:checked={reducedMotionHint}
+							checked={behavior.reduceMotion}
 							label="Always reduce motion"
+							onchange={() => {
+								behavior.reduceMotion = !behavior.reduceMotion;
+							}}
 						/>
 						<p class="mt-2 text-caption text-muted-foreground">
 							The OS reduced-motion preference is honoured automatically.

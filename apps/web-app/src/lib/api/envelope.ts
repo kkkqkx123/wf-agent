@@ -68,6 +68,23 @@ export async function call<T>(
 }
 
 /**
+ * Reject a nullish envelope payload with a named error instead of letting
+ * callers fall back to empty collections. Transport and HTTP failures
+ * already throw inside `call`; this covers the remaining hole where a
+ * successful envelope carries no payload and the UI would otherwise render
+ * an empty state that looks like genuine empty data.
+ */
+export function requireData<T>(
+	data: T | null | undefined,
+	what: string,
+): T {
+	if (data === null || data === undefined) {
+		throw new Error(`${what} missing: backend returned no payload`);
+	}
+	return data;
+}
+
+/**
  * Extract a PageView from the call result. Accepts either a bare PageView
  * or an already-unwrapped items array (when the backend omits pagination).
  */

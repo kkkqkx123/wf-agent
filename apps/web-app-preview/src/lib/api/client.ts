@@ -105,6 +105,30 @@ function queryOf(params?: Record<string, unknown>): Record<string, unknown> {
         return q && typeof q === 'object' ? (q as Record<string, unknown>) : {};
 }
 
+/** Wrap a handler result the way the real backend envelope does, so the
+ *  shared `envelope.ts` unwraps an identical shape in both projects. */
+function okEnvelope(data: unknown) {
+        return { data: { success: true, data, error: null } };
+}
+
+/** Unrouted path: surface a 404 the services layer turns into an
+ *  `ApiHttpError`, so missing fixture coverage renders as an explicit
+ *  error state instead of a silent empty view. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function missingRoute(method: string, path: string): any {
+        return {
+                error: {
+                        success: false,
+                        data: null,
+                        error: {
+                                code: 'NOT_FOUND',
+                                message: `No mock route for ${method} ${path}`,
+                        },
+                },
+                response: { status: 404 },
+        };
+}
+
 // ---------------------------------------------------------------------------
 // Path dispatch
 // ---------------------------------------------------------------------------
@@ -199,6 +223,56 @@ router.on('GET', '/api/v1/workflows/{id}/versions', () => {
                 { version: 10, created_at: '', author: 'sre', note: 'Tighten sandbox defaults', current: false },
         ]);
 });
+router.on('GET', '/api/v1/workflows/{id}/graph/nodes', () => {
+        return camelToSnakeDeep(
+                workflowDetail.graph.nodes.map((node) => ({
+                        id: node.id,
+                        name: node.label,
+                        nodeType: node.kind,
+                })),
+        );
+});
+router.on('GET', '/api/v1/workflows/{id}/graph/edges', () => {
+        return camelToSnakeDeep(
+                workflowDetail.graph.edges.map((edge) => ({
+                        id: edge.id,
+                        sourceNodeId: edge.from,
+                        targetNodeId: edge.to,
+                        edgeType: 'default',
+                        condition: edge.label ?? null,
+                })),
+        );
+});
+router.on('GET', '/api/v1/workflows/{id}/graph/summary', () => {
+        const nodes = workflowDetail.graph.nodes;
+        const edges = workflowDetail.graph.edges;
+        const targets = new Set(edges.map((edge) => edge.to));
+        const sources = new Set(edges.map((edge) => edge.from));
+        const nodeCountsByType: Record<string, number> = {};
+        for (const node of nodes) {
+                nodeCountsByType[node.kind] = (nodeCountsByType[node.kind] ?? 0) + 1;
+        }
+        return camelToSnakeDeep({
+                workflowId: workflowDetail.id,
+                nodeCount: nodes.length,
+                edgeCount: edges.length,
+                startNodeId: nodes.find((node) => !targets.has(node.id))?.id ?? null,
+                endNodeIds: nodes.filter((node) => !sources.has(node.id)).map((node) => node.id),
+                nodeCountsByType,
+        });
+});
+router.on('GET', '/api/v1/workflows/{id}/graph/neighbors/{nodeId}', () => {
+        // Path params never reach the mock (preview calls carry the raw
+        // template, not interpolated values), so serve the hub node
+        // neighborhood as representative sample data.
+        const edges = workflowDetail.graph.edges;
+        const nodeId = 'build-bundle';
+        return camelToSnakeDeep({
+                nodeId,
+                predecessors: edges.filter((e) => e.to === nodeId).map((e) => e.from),
+                successors: edges.filter((e) => e.from === nodeId).map((e) => e.to),
+        });
+});
 
 // ---------- executions ----------
 router.on('GET', '/api/v1/executions', (_p, query) => {
@@ -221,6 +295,27 @@ router.on('GET', '/api/v1/events/execution-timeline/{executionId}', () => {
 });
 
 // ---------- agent-loops ----------
+
+/** Backend SummaryDto shape the shared service maps via toLoop. */
+function loopSummary(loop: (typeof agentLoops)[number]) {
+        return {
+                id: loop.id,
+                status: loop.status,
+                current_iteration: loop.iteration,
+                tool_call_count: 0,
+                start_time: Date.parse(loop.startedAt),
+                end_time: Date.parse(loop.updatedAt),
+                execution_time: null,
+                profile_id: null,
+        };
+}
+router.on('GET', '/api/v1/agent-loops/summaries', (_p, query) => {
+        return pageView(
+                agentLoops.map(loopSummary),
+                +(query.limit ?? 50),
+                +(query.offset ?? 0),
+        );
+});
 router.on('GET', '/api/v1/agent-loops', (_p, query) => {
         return pageView(camelToSnakeDeep(agentLoops), +(query.limit ?? 50), +(query.offset ?? 0));
 });
@@ -230,8 +325,11 @@ router.on('GET', '/api/v1/agent-loops/{id}', (params) => {
                 : agentLoops.find((a) => a.id === params.id) ?? agentLoops[0];
         return camelToSnakeDeep(found);
 });
-router.on('GET', '/api/v1/agent-loops/{id}/summary', () => {
-        return camelToSnakeDeep({ summary: loopDetail.summary });
+router.on('GET', '/api/v1/agent-loops/{id}/summary', (params) => {
+        const found = loopDetail.id === params.id
+                ? loopDetail
+                : agentLoops.find((a) => a.id === params.id) ?? agentLoops[0];
+        return loopSummary(found);
 });
 router.on('GET', '/api/v1/agent-loops/{id}/conversation', () => {
         return camelToSnakeDeep(loopMessages);
@@ -273,6 +371,65 @@ router.on('GET', '/api/v1/agent-loops/{id}/checkpoints/chain', () => {
 router.on('GET', '/api/v1/agent-loops/{id}/graph', () => {
         return camelToSnakeDeep(loopDetail.graph);
 });
+router.on('GET', '/api/v1/agent-loops/{id}/graph/nodes', () => {
+        return loopDetail.graph.nodes.map((node, index) => ({
+                node_id: node.id,
+                description: node.label,
+                type: node.kind,
+                iteration: index + 1,
+        }));
+});
+router.on('GET', '/api/v1/agent-loops/{id}/graph/edges', () => {
+        return loopDetail.graph.edges.map((edge) => ({
+                edge_id: edge.id,
+                from_node_id: edge.from,
+                to_node_id: edge.to,
+                reason: edge.label ?? null,
+        }));
+});
+router.on('GET', '/api/v1/agent-loops/{id}/graph/paths/steps', () => {
+        const nodes = loopDetail.graph.nodes;
+        return loopDetail.iterations.map((iteration, index) => ({
+                step_no: iteration.index,
+                node_id: nodes[index % nodes.length]?.id ?? '',
+                node_type: nodes[index % nodes.length]?.kind ?? 'task',
+                description: iteration.summary,
+                iteration: iteration.index,
+                timestamp: FIXTURE_EPOCH,
+                duration: iteration.durationMs ?? 0,
+        }));
+});
+router.on('GET', '/api/v1/agent-loops/{id}/graph/tool-frequency', () => {
+        // Plain { tool: count } map, matching the backend contract the
+        // shared service narrows structurally. Returned raw so tool-name
+        // keys are never case-mangled.
+        const counts: Record<string, number> = {};
+        for (const entry of loopDetail.analysis.toolFrequency) {
+                counts[entry.tool] = entry.count;
+        }
+        return counts;
+});
+router.on('GET', '/api/v1/agent-executions/{id}/errors/chain', () => {
+        return camelToSnakeDeep(loopDetail.analysis.errorChain);
+});
+router.on('GET', '/api/v1/agent-executions/{id}/errors/root-cause', () => {
+        return {
+                root_cause_id: '',
+                error: loopDetail.analysis.rootCause ?? '',
+                chain_length: loopDetail.analysis.errorChain.length,
+                suggested_action: loopDetail.analysis.recoveryHints[0] ?? null,
+        };
+});
+router.on('POST', '/api/v1/agent-loops/{id}/pause', () => ({ ok: true }));
+router.on('POST', '/api/v1/agent-loops/{id}/resume', () => ({ ok: true }));
+router.on('POST', '/api/v1/agent-loops/{id}/cancel', () => ({ ok: true }));
+router.on('POST', '/api/v1/agent-loops/{id}/checkpoints', () => ({ ok: true }));
+router.on('POST', '/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', () => ({ ok: true }));
+router.on('POST', '/api/v1/agent-loops/{id}/run', () => ({
+        agent_loop_id: 'loop-preview-run',
+        result: 'Preview run accepted; connect a live backend to execute.',
+        iterations: 1,
+}));
 
 // ---------- checkpoints ----------
 router.on('GET', '/api/v1/checkpoints', (_p, query) => {
@@ -284,6 +441,11 @@ router.on('GET', '/api/v1/checkpoints/entity/{entityId}', () => {
 router.on('GET', '/api/v1/checkpoints/stats', () => {
         return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
 });
+router.on('GET', '/api/v1/agent-checkpoints/stats', () => {
+        return { total: checkpoints.length, restorable: checkpoints.filter((c) => c.restorable).length };
+});
+router.on('POST', '/api/v1/executions/checkpoints/{cid}/restore', () => ({ ok: true }));
+router.on('POST', '/api/v1/executions/checkpoints/{cid}/resume', () => ({ ok: true }));
 
 // ---------- events ----------
 router.on('GET', '/api/v1/events', (_p, query) => {
@@ -333,7 +495,12 @@ router.on('POST', '/api/v1/tools/{id}/disable', () => ({ ok: true }));
 
 // ---------- templates ----------
 router.on('GET', '/api/v1/templates/library', (_p, query) => {
-        return pageView(camelToSnakeDeep(templates), +(query.limit ?? 50), +(query.offset ?? 0));
+        void query;
+        // The real endpoint answers with a bare array; usage counts use the
+        // backend field name so the shared service maps them directly.
+        return camelToSnakeDeep(
+                templates.map((t) => ({ ...t, usage_count: t.usage })),
+        );
 });
 router.on('GET', '/api/v1/templates/library/featured', () => {
         return camelToSnakeDeep(templates.filter((t) => t.featured));
@@ -345,6 +512,24 @@ router.on('GET', '/api/v1/templates/node', (_p, query) => {
         const nodeTemplates = templates.filter((t) => t.kind === 'node');
         return pageView(camelToSnakeDeep(nodeTemplates), +(query.limit ?? 50), +(query.offset ?? 0));
 });
+router.on('GET', '/api/v1/templates/trigger', (_p, query) => {
+        const triggerTemplates = templates.filter((t) => t.kind === 'trigger');
+        return pageView(camelToSnakeDeep(triggerTemplates), +(query.limit ?? 50), +(query.offset ?? 0));
+});
+// Detail routes: path params never reach the mock, so serve the first
+// fixture of the requested registry as sample data.
+router.on('GET', '/api/v1/templates/node/{id}', () => {
+        return camelToSnakeDeep(templates.find((t) => t.kind === 'node') ?? undefined);
+});
+router.on('GET', '/api/v1/templates/trigger/{id}', () => {
+        return camelToSnakeDeep(templates.find((t) => t.kind === 'trigger') ?? undefined);
+});
+router.on('GET', '/api/v1/templates/library/workflows/{id}', () => {
+        return camelToSnakeDeep(templates.find((t) => t.kind === 'workflow') ?? undefined);
+});
+router.on('GET', '/api/v1/templates/library/agents/{id}', () => {
+        return camelToSnakeDeep(templates.find((t) => t.kind === 'agent') ?? undefined);
+});
 
 // ---------- triggers ----------
 router.on('GET', '/api/v1/triggers/history', (_p, query) => {
@@ -353,10 +538,22 @@ router.on('GET', '/api/v1/triggers/history', (_p, query) => {
 router.on('GET', '/api/v1/trigger-executions', (_p, query) => {
         return pageView(camelToSnakeDeep(triggerRecords), +(query.limit ?? 50), +(query.offset ?? 0));
 });
+router.on('POST', '/api/v1/trigger-executions/cleanup', () => {
+        // The backend answers with a bare removed-count number; the
+        // fixture sandbox reports the fixture size as removed.
+        return triggerRecords.length;
+});
+router.on('POST', '/api/v1/hooks/{name}', () => ({
+        status: 'fired',
+        detail: 'Preview dispatch accepted; no live hook endpoint behind the mock.',
+}));
 
 // ---------- file checkpoint ----------
 router.on('GET', '/api/v1/file-checkpoint/changes', (_p, query) => {
         return pageView(camelToSnakeDeep(fileChanges), +(query.limit ?? 100), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/file-checkpoint/approvals/pending', () => {
+        return pageView(camelToSnakeDeep(approvals));
 });
 router.on('GET', '/api/v1/file-checkpoint/content', (_p, query) => {
         const path = String(query.path ?? fileChanges[0]?.path ?? 'preview.txt');
@@ -482,7 +679,8 @@ export const client: AnyClient = {
                 const query = queryOf(opts?.params);
                 const paramsObj = opts?.params?.path ?? {};
                 const data = router.dispatch('GET', path, query, undefined);
-                return { data };
+                if (data === undefined) return missingRoute('GET', path);
+                return okEnvelope(data);
         },
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -492,7 +690,8 @@ export const client: AnyClient = {
                 const paramsObj = opts?.params?.path ?? {};
                 const body = opts?.body;
                 const data = router.dispatch('POST', path, query, body);
-                return { data };
+                if (data === undefined) return missingRoute('POST', path);
+                return okEnvelope(data);
         },
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -502,7 +701,8 @@ export const client: AnyClient = {
                 const paramsObj = opts?.params?.path ?? {};
                 const body = opts?.body;
                 const data = router.dispatch('PUT', path, query, body);
-                return { data };
+                if (data === undefined) return missingRoute('PUT', path);
+                return okEnvelope(data);
         },
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -511,7 +711,8 @@ export const client: AnyClient = {
                 const query = queryOf(opts?.params);
                 const paramsObj = opts?.params?.path ?? {};
                 const data = router.dispatch('DELETE', path, query, undefined);
-                return { data };
+                if (data === undefined) return missingRoute('DELETE', path);
+                return okEnvelope(data);
         },
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -520,7 +721,8 @@ export const client: AnyClient = {
                 const query = queryOf(opts?.params);
                 const body = opts?.body;
                 const data = router.dispatch('PATCH', path, query, body);
-                return { data };
+                if (data === undefined) return missingRoute('PATCH', path);
+                return okEnvelope(data);
         },
 };
 
@@ -538,7 +740,8 @@ export async function request(
         const query = queryOf(opts?.params);
         const body = opts?.body;
         const data = router.dispatch(method, path, query, body);
-        return { data };
+        if (data === undefined) return missingRoute(method, path);
+        return okEnvelope(data);
 }
 
 export async function downloadFile(

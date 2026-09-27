@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Input from '$lib/components/ui/Input.svelte';
+	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -13,7 +19,13 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
-	import { listWorkflows, getWorkflowDetail } from '$lib/services/workflows';
+	import {
+		createMinimalWorkflow,
+		importWorkflow,
+		listWorkflows,
+		getWorkflowDetail,
+	} from '$lib/services/workflows';
+	import { getGraphNeighbors } from '$lib/services/graph';
 	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
@@ -32,14 +44,32 @@
 	let status = $state('');
 	let selectedId = $state<string | null>(null);
 	let graphNodeId = $state<string | null>(null);
+	let neighborhood = $state<{
+		predecessors: string[];
+		successors: string[];
+	} | null>(null);
+	let neighborhoodLoading = $state(false);
+	let neighborhoodError = $state<string | null>(null);
+	let neighborhoodRequest = 0;
 	let allWorkflows = $state<Workflow[]>([]);
 	let selected = $state<WorkflowDetail | null>(null);
+	let listError = $state<string | null>(null);
+	let detailError = $state<string | null>(null);
+
+	let importOpen = $state(false);
+	let importText = $state('');
+	let importError = $state<string | null>(null);
+	let importBusy = $state(false);
+	let newOpen = $state(false);
+	let newName = $state('');
+	let newBusy = $state(false);
 
 	onMount(() => {
 		void reload();
 	});
 
 	async function reload(): Promise<void> {
+		listError = null;
 		try {
 			const page = await listWorkflows({ limit: 200 });
 			allWorkflows = page.items;
@@ -47,23 +77,99 @@
 				selectedId = page.items[0].id;
 			}
 		} catch (e) {
-			console.error('Failed to load workflows:', e);
+			listError = e instanceof Error ? e.message : 'Workflows failed.';
+			allWorkflows = [];
+		}
+	}
+
+	async function runImport(): Promise<void> {
+		importError = null;
+		try {
+			JSON.parse(importText);
+		} catch (e) {
+			importError = e instanceof Error ? e.message : 'Invalid JSON';
+			return;
+		}
+		importBusy = true;
+		try {
+			const id = await importWorkflow(importText);
+			toasts.success('Workflow imported');
+			importOpen = false;
+			importText = '';
+			await reload();
+			await goto(resolve('/workflows/[id]', { id }));
+		} catch (e) {
+			importError = e instanceof Error ? e.message : 'Import failed.';
+		} finally {
+			importBusy = false;
+		}
+	}
+
+	async function runCreate(): Promise<void> {
+		newBusy = true;
+		try {
+			const workflow = await createMinimalWorkflow(newName);
+			toasts.success('Workflow created');
+			newOpen = false;
+			newName = '';
+			await goto(resolve('/workflows/[id]', { id: workflow.id }));
+		} catch (e) {
+			toasts.error(
+				'Create failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			newBusy = false;
 		}
 	}
 
 	$effect(() => {
 		const id = selectedId;
+		graphNodeId = null;
+		neighborhood = null;
+		neighborhoodError = null;
+		neighborhoodLoading = false;
 		if (!id) {
 			selected = null;
 			return;
 		}
+		detailError = null;
 		void getWorkflowDetail(id)
 			.then((row) => {
 				selected = row;
 			})
 			.catch((e) => {
-				console.error('Failed to load workflow detail:', e);
+				selected = null;
+				detailError = e instanceof Error ? e.message : 'Detail failed.';
 			});
+	});
+
+	async function loadNeighborhood(
+		workflowId: string,
+		nodeId: string,
+	): Promise<void> {
+		const request = ++neighborhoodRequest;
+		neighborhoodLoading = true;
+		neighborhoodError = null;
+		try {
+			const rows = await getGraphNeighbors(workflowId, nodeId);
+			if (request !== neighborhoodRequest) return;
+			neighborhood = rows;
+		} catch (e) {
+			if (request !== neighborhoodRequest) return;
+			neighborhood = null;
+			neighborhoodError =
+				e instanceof Error ? e.message : 'Neighborhood failed.';
+		} finally {
+			if (request === neighborhoodRequest) neighborhoodLoading = false;
+		}
+	}
+
+	$effect(() => {
+		const workflowId = selected?.id;
+		const nodeId = graphNodeId;
+		if (!workflowId || !nodeId) return;
+		void loadNeighborhood(workflowId, nodeId);
 	});
 
 	const filtered = $derived(
@@ -98,12 +204,22 @@
 				<Button
 					variant="outline"
 					size="sm"
-					onclick={() => toasts.info('Import dialog pending')}
+					onclick={() => {
+						importText = '';
+						importError = null;
+						importOpen = true;
+					}}
 				>
 					<Icon name="upload" size={13} />
 					Import
 				</Button>
-				<Button size="sm" onclick={() => toasts.success('Draft created')}>
+				<Button
+					size="sm"
+					onclick={() => {
+						newName = '';
+						newOpen = true;
+					}}
+				>
 					<Icon name="plus" size={13} />
 					New
 				</Button>
@@ -125,7 +241,14 @@
 				{/snippet}
 			</FilterBar>
 
-			{#if filtered.length === 0}
+			{#if listError}
+				<ErrorState
+					title="Workflows failed to load"
+					description={listError}
+					onretry={() => void reload()}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else if filtered.length === 0}
 				<EmptyState
 					icon="workflow"
 					title="No workflows match"
@@ -147,7 +270,26 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if selected}
+		{#if detailError && !selected}
+			<ErrorState
+				title="Detail failed to load"
+				description={detailError}
+				onretry={() => {
+					if (selectedId) {
+						detailError = null;
+						void getWorkflowDetail(selectedId)
+							.then((row) => {
+								selected = row;
+							})
+							.catch((e) => {
+								detailError =
+									e instanceof Error ? e.message : 'Detail failed.';
+							});
+					}
+				}}
+				class="m-3 rounded-lg border border-border bg-card"
+			/>
+		{:else if selected}
 			<div class="flex h-full min-h-0 flex-col">
 				<div class="border-b border-border px-3 py-3">
 					<div class="flex items-start justify-between gap-2">
@@ -213,22 +355,61 @@
 					</div>
 
 					<Card title="Neighbors">
-						<ul class="space-y-1.5">
-							{#each selected.neighbors as neighbor (neighbor.id)}
-								<li
-									class="flex items-center justify-between gap-2 text-caption"
-								>
-									<span class="truncate">{neighbor.label}</span>
-									<span
-										class={neighbor.reachable
-											? 'text-success'
-											: 'text-muted-foreground'}
+						{#if !graphNodeId}
+							<p class="text-caption text-muted-foreground">
+								Select a node in the graph to see its neighborhood.
+							</p>
+						{:else if neighborhoodLoading}
+							<p class="text-caption text-muted-foreground">
+								Loading neighborhood…
+							</p>
+						{:else if neighborhoodError}
+							<p class="text-caption text-destructive">{neighborhoodError}</p>
+							<Button
+								variant="ghost"
+								size="sm"
+								class="mt-2"
+								onclick={() => {
+									const workflowId = selected?.id;
+									if (workflowId && graphNodeId) {
+										void loadNeighborhood(workflowId, graphNodeId);
+									}
+								}}
+							>
+								Retry
+							</Button>
+						{:else if neighborhood}
+							<div class="space-y-2">
+								<div>
+									<p
+										class="text-micro uppercase tracking-wide text-muted-foreground"
 									>
-										{neighbor.reachable ? 'reachable' : 'unreachable'}
-									</span>
-								</li>
-							{/each}
-						</ul>
+										Predecessors · {neighborhood.predecessors.length}
+									</p>
+									<ul class="mt-1 space-y-1">
+										{#each neighborhood.predecessors as id (id)}
+											<li class="truncate font-mono text-caption">{id}</li>
+										{:else}
+											<li class="text-caption text-muted-foreground">—</li>
+										{/each}
+									</ul>
+								</div>
+								<div>
+									<p
+										class="text-micro uppercase tracking-wide text-muted-foreground"
+									>
+										Successors · {neighborhood.successors.length}
+									</p>
+									<ul class="mt-1 space-y-1">
+										{#each neighborhood.successors as id (id)}
+											<li class="truncate font-mono text-caption">{id}</li>
+										{:else}
+											<li class="text-caption text-muted-foreground">—</li>
+										{/each}
+									</ul>
+								</div>
+							</div>
+						{/if}
 					</Card>
 
 					<Button
@@ -245,3 +426,44 @@
 		{/if}
 	{/snippet}
 </SplitView>
+
+<Dialog
+	bind:open={importOpen}
+	title="Import workflow"
+	description="Paste a workflow definition as JSON."
+>
+	<Textarea
+		bind:value={importText}
+		placeholder={'{\n  "id": "my-workflow",\n  …\n}'}
+		class="min-h-48 font-mono text-small"
+	/>
+	{#if importError}
+		<p class="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive">
+			{importError}
+		</p>
+	{/if}
+	{#snippet footer()}
+		<div class="flex items-center justify-end gap-2">
+			<Button variant="ghost" size="sm" onclick={() => (importOpen = false)}>
+				Cancel
+			</Button>
+			<Button size="sm" disabled={importBusy} onclick={() => void runImport()}>
+				{importBusy ? 'Importing…' : 'Import'}
+			</Button>
+		</div>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={newOpen} title="New workflow" description="A minimal start → end definition to extend in the detail view.">
+	<Input bind:value={newName} placeholder="Workflow name" />
+	{#snippet footer()}
+		<div class="flex items-center justify-end gap-2">
+			<Button variant="ghost" size="sm" onclick={() => (newOpen = false)}>
+				Cancel
+			</Button>
+			<Button size="sm" disabled={newBusy} onclick={() => void runCreate()}>
+				{newBusy ? 'Creating…' : 'Create'}
+			</Button>
+		</div>
+	{/snippet}
+</Dialog>

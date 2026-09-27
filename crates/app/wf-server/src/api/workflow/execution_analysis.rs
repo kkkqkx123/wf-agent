@@ -107,7 +107,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     path = "/api/v1/executions/{id}/graph",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Execution graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_graph(
@@ -125,7 +125,7 @@ pub(crate) async fn handle_execution_graph(
     path = "/api/v1/executions/{id}/graph/nodes",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Execution graph nodes", body = crate::envelope::ApiEnvelope<Vec<crate::api::workflow::graphs::GraphNodeDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_graph_nodes(
@@ -133,7 +133,11 @@ pub(crate) async fn handle_execution_graph_nodes(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::execution_graph_nodes(&state.ctx, &path.id).await {
-        Ok(nodes) => ok(nodes).into_response(),
+        Ok(nodes) => ok(nodes
+            .into_iter()
+            .map(crate::api::workflow::graphs::GraphNodeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -143,7 +147,7 @@ pub(crate) async fn handle_execution_graph_nodes(
     path = "/api/v1/executions/{id}/graph/edges",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Execution graph edges", body = crate::envelope::ApiEnvelope<Vec<crate::api::workflow::graphs::GraphEdgeDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_graph_edges(
@@ -151,7 +155,11 @@ pub(crate) async fn handle_execution_graph_edges(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::execution_graph_edges(&state.ctx, &path.id).await {
-        Ok(edges) => ok(edges).into_response(),
+        Ok(edges) => ok(edges
+            .into_iter()
+            .map(crate::api::workflow::graphs::GraphEdgeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -161,7 +169,7 @@ pub(crate) async fn handle_execution_graph_edges(
     path = "/api/v1/executions/{id}/graph/neighbors/{nodeId}",
     tag = "workflow",
     params(IdNodePath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Execution graph node neighbors", body = crate::envelope::ApiEnvelope<crate::api::workflow::graphs::GraphNeighborsDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_graph_neighbors(
@@ -175,7 +183,10 @@ pub(crate) async fn handle_execution_graph_neighbors(
     )
     .await
     {
-        Ok(neighbors) => ok(neighbors).into_response(),
+        Ok(neighbors) => ok(
+            crate::api::workflow::graphs::GraphNeighborsDoc::from(neighbors),
+        )
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -185,7 +196,7 @@ pub(crate) async fn handle_execution_graph_neighbors(
     path = "/api/v1/executions/{id}/graph/path-stats",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Execution path statistics", body = crate::envelope::ApiEnvelope<Vec<crate::api::workflow::graphs::ExecutionPathStatsDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_path_stats(
@@ -193,7 +204,11 @@ pub(crate) async fn handle_execution_path_stats(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::get_execution_path_statistics(&state.ctx, &path.id).await {
-        Ok(stats) => ok(stats).into_response(),
+        Ok(stats) => ok(stats
+            .into_iter()
+            .map(crate::api::workflow::graphs::ExecutionPathStatsDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

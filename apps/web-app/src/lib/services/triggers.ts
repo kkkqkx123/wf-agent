@@ -1,5 +1,5 @@
 import { client, request } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { Hook, TriggerRecord } from '$lib/types/models';
 
@@ -34,6 +34,7 @@ export async function listTriggerHistory(params?: {
 			params: { query: params ?? {} },
 		}),
 	);
+	requireData(data, 'Trigger history');
 	const page = extractPage<TriggerRecordDto>(data);
 	return { ...page, items: page.items.map(toTriggerRecord) };
 }
@@ -47,6 +48,7 @@ export async function listTriggerExecutions(params?: {
 			params: { query: params ?? {} },
 		}),
 	);
+	requireData(data, 'Trigger executions');
 	const page = extractPage<TriggerRecordDto>(data);
 	return { ...page, items: page.items.map(toTriggerRecord) };
 }
@@ -65,15 +67,37 @@ export async function fireHook(
 	name: string,
 	payload: unknown,
 ): Promise<WebhookFireResult> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/hooks/{name}', {
-			params: { path: { name } },
-			body: payload,
-		}),
+	const data = requireData(
+		await call<unknown>(
+			client.POST('/api/v1/hooks/{name}', {
+				params: { path: { name } },
+				body: payload,
+			}),
+		),
+		`Hook dispatch missing for ${name}`,
 	);
-	const d = (data ?? {}) as Record<string, unknown>;
+	const d =
+		typeof data === 'object' ? (data as Record<string, unknown>) : {};
 	return {
 		status: String(d.status ?? 'fired'),
 		detail: String(d.detail ?? d.message ?? JSON.stringify(d).slice(0, 120)),
 	};
+}
+
+/** Delete old trigger execution records, returning the removed count. */
+export async function cleanupTriggerExecutions(
+	olderThanDays = 30,
+): Promise<number> {
+	const data = requireData(
+		await call<unknown>(
+			client.POST('/api/v1/trigger-executions/cleanup', {
+				body: { older_than: Date.now() - olderThanDays * 86400_000 },
+			}),
+		),
+		'Trigger cleanup answered without a payload',
+	);
+	if (typeof data !== 'number') {
+		throw new Error('Trigger cleanup answered with a non-numeric count');
+	}
+	return data;
 }

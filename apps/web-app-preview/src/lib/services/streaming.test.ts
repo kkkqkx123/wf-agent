@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleExecutionFrame, handleGenerationFrame } from './streaming';
-import type { StreamCallbacks } from './streaming';
+import { handleExecutionFrame, handleGenerationFrame } from '$lib/utils/stream-parser';
+import type { StreamCallbacks } from '$lib/utils/stream-parser';
 
 function collect(): { callbacks: StreamCallbacks; calls: string[] } {
 	const calls: string[] = [];

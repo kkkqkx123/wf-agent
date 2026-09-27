@@ -1,8 +1,9 @@
 import { client, request } from '$lib/api/client';
-import { call, extractCapped, extractPage } from '$lib/api/envelope';
+import { call, extractCapped, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	AgentLoop,
+	AgentLoopDetail,
 	LoopIteration,
 	LoopMessage,
 	LoopVariable,
@@ -10,6 +11,12 @@ import type {
 	ToolCallEntry,
 	WorkflowGraph,
 } from '$lib/types/models';
+import {
+	getDecisionGraph,
+	getDecisionSteps,
+	getDecisionToolFrequency,
+	toDecisionGraph,
+} from '$lib/services/graph';
 import {
 	inferToolKind,
 	parseApprovalId,
@@ -70,21 +77,6 @@ interface TimelineDto {
 	type?: string;
 	description?: string;
 	error_severity?: string | null;
-}
-
-interface DecisionNodeDto {
-	node_id?: string;
-	type?: string;
-	description?: string;
-	iteration?: number;
-}
-
-interface DecisionEdgeDto {
-	edge_id?: string;
-	from_node_id?: string;
-	to_node_id?: string;
-	reason?: string | null;
-	condition?: string | null;
 }
 
 function toIso(value: number | null | undefined): string {
@@ -217,43 +209,12 @@ function toTimelineEntry(d: TimelineDto): TimelineEntry {
 }
 
 /**
- * The decision graph has no coordinates, so nodes are laid out in one column
- * per iteration and the canvas keeps the run order readable.
+ * Decision graph mapped onto the shared topology model. Iteration columns
+ * are computed by the canvas; the service only translates field names.
  */
-function toGraph(
-	view:
-		| {
-				nodes?: DecisionNodeDto[];
-				edges?: DecisionEdgeDto[];
-				error_node_ids?: string[];
-		  }
-		| undefined,
-): WorkflowGraph {
-	const errorIds = new Set(view?.error_node_ids ?? []);
-	const COLUMN = 190;
-	const ROW = 62;
-	const byIteration = new Map<number, number>();
-	return {
-		nodes: (view?.nodes ?? []).map((node) => {
-			const iteration = node.iteration ?? 0;
-			const row = byIteration.get(iteration) ?? 0;
-			byIteration.set(iteration, row + 1);
-			return {
-				id: node.node_id ?? '',
-				label: node.description ?? node.node_id ?? '',
-				kind: node.type ?? 'decision',
-				status: errorIds.has(node.node_id ?? '') ? 'failed' : undefined,
-				x: 24 + iteration * COLUMN,
-				y: 24 + row * ROW,
-			};
-		}),
-		edges: (view?.edges ?? []).map((edge) => ({
-			id: edge.edge_id ?? `${edge.from_node_id ?? ''}-${edge.to_node_id ?? ''}`,
-			from: edge.from_node_id ?? '',
-			to: edge.to_node_id ?? '',
-			label: edge.reason ?? edge.condition ?? undefined,
-		})),
-	};
+export async function getLoopGraph(id: string): Promise<WorkflowGraph> {
+	const view = await getDecisionGraph(id);
+	return toDecisionGraph(view);
 }
 
 export async function listAgentLoops(params?: {
@@ -266,15 +227,19 @@ export async function listAgentLoops(params?: {
 			params: { query: params ?? {} },
 		}),
 	);
+	requireData(data, 'Agent loop list');
 	const page = extractPage<SummaryDto>(data);
 	return { ...page, items: page.items.map(toLoop) };
 }
 
 export async function getAgentLoop(id: string): Promise<AgentLoop> {
-	const data = await call<SummaryDto>(
-		client.GET('/api/v1/agent-loops/{id}/summary', {
-			params: { path: { id } },
-		}),
+	const data = requireData(
+		await call<SummaryDto>(
+			client.GET('/api/v1/agent-loops/{id}/summary', {
+				params: { path: { id } },
+			}),
+		),
+		`Agent loop ${id}`,
 	);
 	return toLoop(data);
 }
@@ -288,6 +253,7 @@ export async function listLoopMessages(
 			params: { path: { id }, query: { limit: 500, ...params } },
 		}),
 	);
+	requireData(data, `Conversation missing for loop ${id}`);
 	const page = extractPage<MessageDto>(data);
 	return { ...page, items: page.items.map(toMessage) };
 }
@@ -301,23 +267,9 @@ export async function listLoopIterations(
 			params: { path: { id }, query: params ?? {} },
 		}),
 	);
+	requireData(data, `Iteration history missing for loop ${id}`);
 	const page = extractPage<IterationDto>(data);
 	return { ...page, items: page.items.map(toIteration) };
-}
-
-export async function getLoopGraph(id: string): Promise<WorkflowGraph> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/agent-loops/{id}/graph', { params: { path: { id } } }),
-	);
-	return toGraph(
-		data as
-			| {
-					nodes?: DecisionNodeDto[];
-					edges?: DecisionEdgeDto[];
-					error_node_ids?: string[];
-			  }
-			| undefined,
-	);
 }
 
 export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
@@ -326,6 +278,7 @@ export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
 			params: { path: { id } },
 		}),
 	);
+	requireData(data, `Timeline missing for loop ${id}`);
 	return extractCapped<TimelineDto>(data).items.map(toTimelineEntry);
 }
 
@@ -336,6 +289,7 @@ export async function listLoopVariables(id: string): Promise<LoopVariable[]> {
 			params: { path: { id }, query: { limit: 200 } },
 		}),
 	);
+	requireData(data, `Variables missing for loop ${id}`);
 	return extractPage<[string, unknown]>(data).items.map(([key, value]) => ({
 		key,
 		type: 'string',
@@ -367,10 +321,106 @@ export async function cancelAgentLoop(id: string): Promise<void> {
 	);
 }
 
+export interface LoopErrorRecord {
+	id: string;
+	error: string;
+	errorType: string | null;
+	timestamp: number;
+	nodeId: string | null;
+	chain: string[];
+	recoverable: boolean;
+	recoveryAction: string | null;
+}
+
+interface ErrorRecordDto {
+	id?: unknown;
+	error?: unknown;
+	error_type?: unknown;
+	timestamp?: unknown;
+	node_id?: unknown;
+	error_chain?: unknown;
+	is_recoverable?: unknown;
+	recovery_action?: unknown;
+}
+
+function toErrorRecord(d: ErrorRecordDto): LoopErrorRecord {
+	return {
+		id: typeof d.id === 'string' ? d.id : '',
+		error: typeof d.error === 'string' ? d.error : '',
+		errorType: typeof d.error_type === 'string' ? d.error_type : null,
+		timestamp: typeof d.timestamp === 'number' ? d.timestamp : 0,
+		nodeId: typeof d.node_id === 'string' ? d.node_id : null,
+		chain: Array.isArray(d.error_chain)
+			? d.error_chain.filter(
+					(entry): entry is string => typeof entry === 'string',
+				)
+			: [],
+		recoverable: d.is_recoverable === true,
+		recoveryAction:
+			typeof d.recovery_action === 'string' ? d.recovery_action : null,
+	};
+}
+
+/** Error chain of an agent loop execution, oldest first. */
+export async function getLoopErrorChain(
+	id: string,
+): Promise<LoopErrorRecord[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/agent-executions/{id}/errors/chain', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Error chain missing for loop ${id}`);
+	const rows = Array.isArray(data) ? (data as ErrorRecordDto[]) : [];
+	return rows.map(toErrorRecord);
+}
+
+export interface LoopRootCause {
+	rootCauseId: string;
+	error: string;
+	chainLength: number;
+	suggestedAction: string | null;
+}
+
+/** Root-cause analysis of an agent loop's error chain. */
+export async function getLoopRootCause(id: string): Promise<LoopRootCause> {
+	const data = await call<{
+		root_cause_id?: unknown;
+		error?: unknown;
+		chain_length?: unknown;
+		suggested_action?: unknown;
+	} | null>(
+		client.GET('/api/v1/agent-executions/{id}/errors/root-cause', {
+			params: { path: { id } },
+		}),
+	);
+	requireData(data, `Root cause missing for loop ${id}`);
+	return {
+		rootCauseId:
+			typeof data?.root_cause_id === 'string' ? data.root_cause_id : '',
+		error: typeof data?.error === 'string' ? data.error : '',
+		chainLength:
+			typeof data?.chain_length === 'number' ? data.chain_length : 0,
+		suggestedAction:
+			typeof data?.suggested_action === 'string' ? data.suggested_action : null,
+	};
+}
+
+/** Tool-call frequency for an agent loop, most used first. */
+export async function getLoopToolFrequency(
+	id: string,
+): Promise<Array<{ tool: string; count: number }>> {
+	return getDecisionToolFrequency(id);
+}
+
+/** Execution path steps of an agent loop. */
+export async function getLoopDecisionSteps(id: string) {
+	return getDecisionSteps(id);
+}
+
 /**
- * utoipa emits one `handle_create_checkpoint` name for both the agent and the
- * workflow route, so the generated types describe the wrong signature and the
- * untyped `request()` helper is used instead.
+ * Untyped request: the generated types conflate the agent and workflow
+ * checkpoint routes under one operation name.
  */
 export async function createAgentLoopCheckpoint(
 	id: string,
@@ -429,20 +479,112 @@ export async function runAgentLoop(
 	id: string,
 	input: RunLoopInput,
 ): Promise<AgentRunResult> {
-	const data = await call<AgentRunViewDto>(
-		request('POST', '/api/v1/agent-loops/{id}/run', {
-			params: { path: { id } },
-			body: {
-				model: input.model,
-				message: input.message,
-				tool_call_protocol: { format: 'json' },
-				conversation: input.conversation ?? [],
-			},
-		}),
+	const data = requireData(
+		await call<AgentRunViewDto>(
+			request('POST', '/api/v1/agent-loops/{id}/run', {
+				params: { path: { id } },
+				body: {
+					model: input.model,
+					message: input.message,
+					tool_call_protocol: { format: 'json' },
+					conversation: input.conversation ?? [],
+				},
+			}),
+		),
+		`Run result missing for loop ${id}`,
 	);
+	const agentLoopId = data.agent_loop_id ?? '';
+	if (!agentLoopId) throw new Error(`Run result carries no loop id for ${id}`);
 	return {
-		agentLoopId: data.agent_loop_id ?? '',
+		agentLoopId,
 		result: data.result,
 		iterations: data.iterations ?? 0,
 	};
+}
+
+/**
+ * True detail aggregation: summary, decision graph, iterations and tool
+ * frequency load together. Messages, variables and checkpoints stay
+ * tab-lazy and are pulled on demand.
+ */
+export async function getAgentLoopDetail(id: string): Promise<AgentLoopDetail> {
+	const [summary, graph, iterations, toolFrequency] = await Promise.all([
+		getAgentLoop(id),
+		getLoopGraph(id),
+		listLoopIterations(id),
+		getLoopToolFrequency(id),
+	]);
+	return {
+		...summary,
+		name: summary.name || id,
+		summary: `${summary.status || 'unknown'} · iteration ${summary.iteration}`,
+		messages: [],
+		variables: [],
+		iterations: iterations.items.map((iteration) => ({
+			index: iteration.index,
+			status: iteration.durationMs !== null ? 'completed' : 'running',
+			durationMs: iteration.durationMs ?? 0,
+			summary: iteration.summary,
+		})),
+		graph,
+		analysis: {
+			rootCause: null,
+			errorChain: [],
+			recoveryHints: [],
+			toolFrequency,
+		},
+	};
+}
+
+export interface AgentLoopAnalysis {
+	rootCause: string | null;
+	errorChain: string[];
+	recoveryHints: string[];
+	toolFrequency: Array<{ tool: string; count: number }>;
+}
+
+/** Error analysis for the analysis tab: chain, root cause, hints. */
+export async function getAgentLoopAnalysis(
+	id: string,
+): Promise<AgentLoopAnalysis> {
+	const [chain, rootCause, toolFrequency] = await Promise.all([
+		getLoopErrorChain(id),
+		getLoopRootCause(id),
+		getLoopToolFrequency(id),
+	]);
+	const hints = [
+		...new Set(
+			chain
+				.map((record) => record.recoveryAction)
+				.filter((hint): hint is string => !!hint),
+		),
+	];
+	if (rootCause.suggestedAction && !hints.includes(rootCause.suggestedAction)) {
+		hints.unshift(rootCause.suggestedAction);
+	}
+	return {
+		rootCause: rootCause.error || null,
+		errorChain: chain.map((record) => record.error || record.id),
+		recoveryHints: hints,
+		toolFrequency,
+	};
+}
+
+/**
+ * Conversation messages for an agent loop. The chat session reads through
+ * this same mapping so both views interpret message payloads identically.
+ * Each view still fetches on demand; there is no shared request cache.
+ */
+export async function getAgentLoopMessages(
+	loopId: string,
+): Promise<LoopMessage[]> {
+	const page = await listLoopMessages(loopId);
+	return page.items;
+}
+
+/** Variables snapshot for an agent loop. */
+export async function getAgentLoopVariables(
+	loopId: string,
+): Promise<LoopVariable[]> {
+	return listLoopVariables(loopId);
 }

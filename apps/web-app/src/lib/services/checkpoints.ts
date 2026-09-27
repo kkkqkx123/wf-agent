@@ -1,5 +1,5 @@
 import { client, request } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
 
@@ -65,6 +65,7 @@ export async function listCheckpoints(params?: {
 			params: { query: { limit: params?.limit, offset: params?.offset } },
 		}),
 	);
+	requireData(data, 'Checkpoint list');
 	const page = extractPage<CheckpointDto>(data);
 	const rows =
 		page.items.length > 0
@@ -87,6 +88,7 @@ export async function listLoopCheckpoints(
 			params: { path: { id: loopId } },
 		}),
 	);
+	requireData(data, `Checkpoint chain missing for loop ${loopId}`);
 	const page = extractPage<CheckpointDto>(data);
 	const rows =
 		page.items.length > 0
@@ -102,7 +104,7 @@ export async function getCheckpointStats(): Promise<object> {
 	const data = await call<object>(
 		client.GET('/api/v1/agent-checkpoints/stats'),
 	);
-	return data ?? {};
+	return requireData(data, 'Checkpoint statistics');
 }
 
 interface FileChangeDto {
@@ -395,12 +397,15 @@ export async function getFileContent(
 	actor: string,
 	path: string,
 ): Promise<FileContent> {
-	const data = await call<FileContentDto>(
-		request('GET', '/api/v1/file-checkpoint/content', {
-			params: { query: { actor, path } },
-		}),
+	const data = requireData(
+		await call<FileContentDto>(
+			request('GET', '/api/v1/file-checkpoint/content', {
+				params: { query: { actor, path } },
+			}),
+		),
+		`File content missing for ${path}`,
 	);
-	const view = data ?? {};
+	const view = data;
 	return {
 		path: view.path ?? path,
 		actor: view.actor ?? actor,
@@ -437,15 +442,18 @@ export async function getFileTree(
 	actor: string,
 	prefix?: string,
 ): Promise<FileTree> {
-	const data = await call<FileTreeDto>(
-		request('GET', '/api/v1/file-checkpoint/tree/{id}', {
-			params: { path: { id: actor }, query: { prefix } },
-		}),
+	const data = requireData(
+		await call<FileTreeDto>(
+			request('GET', '/api/v1/file-checkpoint/tree/{id}', {
+				params: { path: { id: actor }, query: { prefix } },
+			}),
+		),
+		`File tree missing for ${actor}`,
 	);
 	return {
-		entries: data?.entries ?? [],
-		truncated: data?.truncated ?? false,
-		total: data?.total ?? data?.entries?.length ?? 0,
+		entries: data.entries ?? [],
+		truncated: data.truncated ?? false,
+		total: data.total ?? data.entries?.length ?? 0,
 	};
 }
 
@@ -485,14 +493,17 @@ interface FileTimelineDto {
 
 /** Version timeline for one file path, including rename history. */
 export async function getFileTimeline(path: string): Promise<FileTimeline> {
-	const data = await call<FileTimelineDto>(
-		request('GET', '/api/v1/file-checkpoint/timeline/{id}', {
-			params: { path: { id: path } },
-		}),
+	const data = requireData(
+		await call<FileTimelineDto>(
+			request('GET', '/api/v1/file-checkpoint/timeline/{id}', {
+				params: { path: { id: path } },
+			}),
+		),
+		`File timeline missing for ${path}`,
 	);
 	return {
-		originalPath: data?.original_path ?? data?.originalPath ?? path,
-		entries: (data?.entries ?? []).map((entry) => ({
+		originalPath: data.original_path ?? data.originalPath ?? path,
+		entries: (data.entries ?? []).map((entry) => ({
 			path: entry.path ?? path,
 			snapshotId: entry.snapshot_id ?? entry.snapshotId ?? '',
 			contentHash: entry.content_hash ?? entry.contentHash ?? '',
@@ -500,8 +511,8 @@ export async function getFileTimeline(path: string): Promise<FileTimeline> {
 			source: entry.source ?? '',
 			movedFrom: entry.moved_from ?? entry.movedFrom ?? null,
 		})),
-		truncated: data?.truncated ?? false,
-		total: data?.total ?? data?.entries?.length ?? 0,
+		truncated: data.truncated ?? false,
+		total: data.total ?? data.entries?.length ?? 0,
 	};
 }
 

@@ -18,6 +18,18 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
+		id: 'overview',
+		label: 'Overview',
+		items: [
+			{
+				href: '/dashboard',
+				label: 'Dashboard',
+				icon: 'gauge',
+				description: 'Aggregated metrics for workflows, executions and checkpoints',
+			},
+		],
+	},
+	{
 		id: 'conversation',
 		label: 'Conversation',
 		items: [

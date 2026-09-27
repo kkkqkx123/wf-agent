@@ -23,6 +23,7 @@ class UiStore {
 	inspectorOpen = $state(false);
 	inspectorTitle = $state('');
 	commandOpen = $state(false);
+	helpOpen = $state(false);
 	recent = $state<RecentEntry[]>([]);
 
 	get viewport(): ViewportKind {
@@ -66,6 +67,14 @@ class UiStore {
 
 	setCommandOpen(open: boolean): void {
 		this.commandOpen = open;
+	}
+
+	toggleHelp(): void {
+		this.helpOpen = !this.helpOpen;
+	}
+
+	setHelpOpen(open: boolean): void {
+		this.helpOpen = open;
 	}
 
 	recordVisit(href: string, label: string): void {

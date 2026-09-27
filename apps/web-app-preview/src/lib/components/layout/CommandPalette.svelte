@@ -7,7 +7,7 @@
 	import { NAV_ITEMS } from '$lib/config/navigation';
 	import { listExecutions } from '$lib/services/executions';
 	import { listWorkflows } from '$lib/services/workflows';
-	import { listAgentLoops } from '$lib/services/agentLoops';
+	import { listAgentLoops } from '$lib/services/agent-loops';
 	import { unifiedSearch, type SearchHit } from '$lib/services/search';
 	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';
@@ -60,14 +60,14 @@
 		}
 		let cancelled = false;
 		const timer = setTimeout(() => {
-			void unifiedSearch({ q: needle, limit: 8 })
+			void unifiedSearch({ q: needle, limit: 20 })
 				.then((outcome) => {
 					if (!cancelled) remoteHits = outcome.items;
 				})
 				.catch(() => {
 					if (!cancelled) remoteHits = [];
 				});
-		}, 180);
+		}, 300);
 		return () => {
 			cancelled = true;
 			clearTimeout(timer);

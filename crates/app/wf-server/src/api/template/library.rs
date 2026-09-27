@@ -7,7 +7,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
@@ -42,6 +42,45 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── template library ──────────────────────────────────────────────
 
+/// Uniform template summary over workflow and agent templates.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct TemplateSummaryDoc {
+    id: String,
+    kind: String,
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    author: Option<String>,
+    is_public: bool,
+    enabled: bool,
+    usage_count: u64,
+    created_at: i64,
+    updated_at: i64,
+}
+
+impl From<wf_api::template::template_library::TemplateSummary> for TemplateSummaryDoc {
+    fn from(view: wf_api::template::template_library::TemplateSummary) -> Self {
+        Self {
+            id: view.id,
+            kind: view.kind.to_string(),
+            name: view.name,
+            description: view.description,
+            category: view.category,
+            tags: view.tags,
+            author: view.author,
+            is_public: view.is_public,
+            enabled: view.enabled,
+            usage_count: view.usage_count,
+            created_at: view.created_at,
+            updated_at: view.updated_at,
+        }
+    }
+}
+
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct LibraryQuery {
@@ -57,7 +96,7 @@ pub(crate) struct LibraryQuery {
     path = "/api/v1/templates/library",
     tag = "template",
     params(LibraryQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Template library entries", body = crate::envelope::ApiEnvelope<Vec<TemplateSummaryDoc>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_library(
@@ -86,7 +125,11 @@ pub(crate) async fn handle_query_library(
         author: query.author,
     };
     match wf_api::template::template_library::query(&state.ctx, &filter) {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => ok(templates
+            .into_iter()
+            .map(TemplateSummaryDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -102,7 +145,7 @@ pub(crate) struct LimitQuery {
     path = "/api/v1/templates/library/featured",
     tag = "template",
     params(LimitQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Featured templates", body = crate::envelope::ApiEnvelope<Vec<TemplateSummaryDoc>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_library_featured(
@@ -110,7 +153,11 @@ pub(crate) async fn handle_library_featured(
     Query(query): Query<LimitQuery>,
 ) -> impl IntoResponse {
     match wf_api::template::template_library::featured(&state.ctx, query.limit) {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => ok(templates
+            .into_iter()
+            .map(TemplateSummaryDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -127,7 +174,7 @@ pub(crate) struct CategoryLimitQuery {
     path = "/api/v1/templates/library/popular",
     tag = "template",
     params(CategoryLimitQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Popular templates", body = crate::envelope::ApiEnvelope<Vec<TemplateSummaryDoc>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_library_popular(
@@ -143,7 +190,11 @@ pub(crate) async fn handle_library_popular(
         None => wf_api::template::template_library::featured(&state.ctx, query.limit),
     };
     match result {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => ok(templates
+            .into_iter()
+            .map(TemplateSummaryDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

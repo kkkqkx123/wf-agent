@@ -37,7 +37,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     path = "/api/v1/workflows/{id}/versions",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Version list: array of full workflow definitions (free-form; backend stores no frontend coordinates)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_versions(
@@ -55,7 +55,7 @@ pub(crate) async fn handle_list_versions(
     path = "/api/v1/workflows/{id}/versions/{version}",
     tag = "workflow",
     params(IdVersionPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Version detail: full workflow definition (free-form)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_version(

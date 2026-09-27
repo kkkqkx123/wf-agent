@@ -1,5 +1,5 @@
 import { client, request } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	ModelProfile,
@@ -134,12 +134,14 @@ function toSkill(d: SkillDto): Skill {
 
 export async function listModelProfiles(): Promise<ModelProfile[]> {
 	const data = await call<unknown>(client.GET('/api/v1/llm/profiles'));
+	requireData(data, 'Model profiles');
 	// llm/profiles wraps in PageView
 	return extractPage<LlmProfileDto>(data).items.map(toModelProfile);
 }
 
 export async function listProviders(): Promise<Provider[]> {
 	const data = await call<unknown>(client.GET('/api/v1/llm/providers'));
+	requireData(data, 'Providers');
 	// providers returns ApiEnvelope_Value (bare array or object)
 	if (Array.isArray(data)) {
 		return (data as LlmProviderDto[]).map(toProvider);
@@ -158,6 +160,7 @@ export async function listTools(params?: {
 			params: { query: params ?? {} },
 		}),
 	);
+	requireData(data, 'Tool list');
 	const page = extractPage<ToolDto>(data);
 	return { ...page, items: page.items.map(toTool) };
 }
@@ -171,12 +174,14 @@ export async function listScripts(params?: {
 			params: { query: params ?? {} },
 		}),
 	);
+	requireData(data, 'Script list');
 	const page = extractPage<ScriptDto>(data);
 	return { ...page, items: page.items.map(toScript) };
 }
 
 export async function listSkills(): Promise<Skill[]> {
 	const data = await call<unknown>(client.GET('/api/v1/skills'));
+	requireData(data, 'Skill list');
 	if (Array.isArray(data)) {
 		return (data as SkillDto[]).map(toSkill);
 	}
@@ -233,12 +238,15 @@ export async function validateToolParams(
 	toolId: string,
 	parameters: Record<string, unknown>,
 ): Promise<string[]> {
-	const data = await call<{ errors?: string[] }>(
-		client.POST('/api/v1/tools/validate-params', {
-			body: { tool_id: toolId, parameters },
-		}),
+	const data = requireData(
+		await call<{ errors?: string[] }>(
+			client.POST('/api/v1/tools/validate-params', {
+				body: { tool_id: toolId, parameters },
+			}),
+		),
+		`Parameter validation missing for tool ${toolId}`,
 	);
-	return data?.errors ?? [];
+	return data.errors ?? [];
 }
 
 export async function executeTool(
@@ -246,18 +254,24 @@ export async function executeTool(
 	parameters: Record<string, unknown>,
 ): Promise<ToolRun> {
 	// handle_execute_tool is one of the utoipa names shared by several routes.
-	const data = await call<ToolRunDto>(
-		request('POST', '/api/v1/tools/execute', {
-			body: { tool_id: toolId, parameters },
-		}),
+	const data = requireData(
+		await call<ToolRunDto>(
+			request('POST', '/api/v1/tools/execute', {
+				body: { tool_id: toolId, parameters },
+			}),
+		),
+		`Tool run missing for tool ${toolId}`,
 	);
 	return toToolRun(data);
 }
 
 export async function getSkillContent(name: string): Promise<string> {
-	return call<string>(
-		client.GET('/api/v1/skills/{name}/content', {
-			params: { path: { name } },
-		}),
+	return requireData(
+		await call<string>(
+			client.GET('/api/v1/skills/{name}/content', {
+				params: { path: { name } },
+			}),
+		),
+		`Skill content missing for ${name}`,
 	);
 }

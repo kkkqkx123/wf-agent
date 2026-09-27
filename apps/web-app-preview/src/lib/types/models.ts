@@ -51,8 +51,7 @@ export interface GraphNode {
 	label: string;
 	kind: string;
 	status?: string;
-	x: number;
-	y: number;
+	iteration?: number;
 }
 
 export interface GraphEdge {
@@ -67,8 +66,85 @@ export interface WorkflowGraph {
 	edges: GraphEdge[];
 }
 
+export interface GraphSummary {
+	workflowId: string;
+	nodeCount: number;
+	edgeCount: number;
+	startNodeId: string | null;
+	endNodeIds: string[];
+	nodeCountsByType: Record<string, number>;
+}
+
+export interface CycleResult {
+	hasCycle: boolean;
+	cycleNodes: string[];
+	cycleEdges: string[];
+}
+
+export interface TopologyResult {
+	success: boolean;
+	sortedNodes: string[];
+	cycleNodes: string[];
+}
+
+export interface ReachabilityResult {
+	reachableFromStart: string[];
+	reachableToEnd: string[];
+	unreachableNodes: string[];
+	deadEndNodes: string[];
+}
+
+export interface GraphAnalysisResult {
+	cycleDetection: CycleResult;
+	topologicalSort: TopologyResult;
+	reachability: ReachabilityResult;
+	nodeTotal: number;
+	edgeTotal: number;
+	nodeCountsByType: Record<string, number>;
+}
+
+export interface ExecutionPathStat {
+	nodeCount: number;
+	edgeCount: number;
+	nodes: string[];
+}
+
+export interface ValidationIssue {
+	field: string;
+	message: string;
+}
+
+export interface DependentImpact {
+	workflowId: string;
+	workflowName: string;
+	nodeId: string;
+	field: string;
+	level: string;
+	errors: string[];
+	warnings: string[];
+}
+
+export interface PromoteReport {
+	resourceKind: string;
+	resourceId: string;
+	dependents: DependentImpact[];
+	errorCount: number;
+	warningCount: number;
+	passCount: number;
+}
+
+export interface DecisionPathStep {
+	stepNo: number;
+	nodeId: string;
+	nodeType: string;
+	description: string;
+	iteration: number;
+	timestamp: number;
+	duration: number | null;
+}
+
 export interface WorkflowVersion {
-	version: number;
+	version: string;
 	createdAt: string;
 	author: string;
 	note: string;
@@ -103,7 +179,6 @@ export interface WorkflowDetail extends Workflow {
 	graph: WorkflowGraph;
 	versions: WorkflowVersion[];
 	drafts: WorkflowDraft[];
-	neighbors: Array<{ id: string; label: string; reachable: boolean }>;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';

@@ -6395,6 +6395,33 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_CycleDetectionDoc: {
+            /** @description Structural cycle detection result. */
+            data?: {
+                cycle_edges: string[];
+                cycle_nodes: string[];
+                has_cycle: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_DecisionGraphDoc: {
+            /** @description Complete agent decision graph. */
+            data?: {
+                agent_loop_id: string;
+                edges: components["schemas"]["DecisionEdgeDoc"][];
+                end_node_id?: string | null;
+                error_node_ids: string[];
+                executed_paths: number;
+                /** Format: double */
+                graph_density?: number | null;
+                nodes: components["schemas"]["DecisionNodeDoc"][];
+                start_node_id: string;
+                total_paths: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_ExecuteView: {
             data?: {
                 execution_id: string;
@@ -6408,6 +6435,46 @@ export interface components {
                 execution_id?: string | null;
                 fire_id: string;
                 fired: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_GraphAnalysisDoc: {
+            /** @description Combined structural analysis of a workflow graph. */
+            data?: {
+                cycle_detection: components["schemas"]["CycleDetectionDoc"];
+                edge_total: number;
+                node_counts_by_type: {
+                    [key: string]: number;
+                };
+                node_total: number;
+                reachability: components["schemas"]["ReachabilityDoc"];
+                topological_sort: components["schemas"]["TopologicalSortDoc"];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_GraphNeighborsDoc: {
+            /** @description Predecessors and successors of one graph node. */
+            data?: {
+                node_id: string;
+                predecessors: string[];
+                successors: string[];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_GraphSummaryDoc: {
+            /** @description Aggregate summary of a workflow graph. */
+            data?: {
+                edge_count: number;
+                end_node_ids: string[];
+                node_count: number;
+                node_counts_by_type: {
+                    [key: string]: number;
+                };
+                start_node_id?: string | null;
+                workflow_id: string;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -6444,6 +6511,30 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_PromoteReportDoc: {
+            /** @description Impact report returned when a draft is promoted to formal. */
+            data?: {
+                dependents: components["schemas"]["DependentImpactDoc"][];
+                error_count: number;
+                pass_count: number;
+                resource_id: string;
+                resource_kind: string;
+                warning_count: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_ReachabilityDoc: {
+            /** @description Reachability analysis result (sets rendered as sorted arrays). */
+            data?: {
+                dead_end_nodes: string[];
+                reachable_from_start: string[];
+                reachable_to_end: string[];
+                unreachable_nodes: string[];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_RejectResponse: {
             data?: {
                 baseline_snapshot_id: string;
@@ -6456,8 +6547,124 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_TopologicalSortDoc: {
+            /** @description Topological sort result. */
+            data?: {
+                cycle_nodes: string[];
+                sorted_nodes: string[];
+                success: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Value: {
             data?: unknown;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_DecisionEdgeDoc: {
+            data?: {
+                condition?: string | null;
+                edge_id: string;
+                from_node_id: string;
+                /** Format: double */
+                probability?: number | null;
+                reason?: string | null;
+                to_node_id: string;
+                was_taken: boolean;
+                /** Format: double */
+                weight?: number | null;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_DecisionNodeDoc: {
+            data?: {
+                /** Format: double */
+                confidence?: number | null;
+                description: string;
+                /** Format: int32 */
+                iteration: number;
+                node_id: string;
+                /** Format: int64 */
+                timestamp: number;
+                type: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_ExecutionPathStatsDoc: {
+            data?: {
+                edge_count: number;
+                node_count: number;
+                nodes: string[];
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_ExecutionPathStepDoc: {
+            data?: {
+                description: string;
+                /** Format: int64 */
+                duration?: number | null;
+                /** Format: int32 */
+                iteration: number;
+                node_id: string;
+                node_type: string;
+                /** Format: int32 */
+                step_no: number;
+                /** Format: int64 */
+                timestamp: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_GraphEdgeDoc: {
+            data?: {
+                condition?: string | null;
+                edge_type: string;
+                id: string;
+                source_node_id: string;
+                target_node_id: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_GraphNodeDoc: {
+            data?: {
+                id: string;
+                name?: string | null;
+                node_type: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_TemplateSummaryDoc: {
+            data?: {
+                author?: string | null;
+                category?: string | null;
+                /** Format: int64 */
+                created_at: number;
+                description: string;
+                enabled: boolean;
+                id: string;
+                is_public: boolean;
+                kind: string;
+                name: string;
+                tags?: string[] | null;
+                /** Format: int64 */
+                updated_at: number;
+                /** Format: int64 */
+                usage_count: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_ValidationIssueDoc: {
+            data?: {
+                field: string;
+                message: string;
+            }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -6553,6 +6760,60 @@ export interface components {
             overrides: unknown;
             template_name: string;
         };
+        /** @description Structural cycle detection result. */
+        CycleDetectionDoc: {
+            cycle_edges: string[];
+            cycle_nodes: string[];
+            has_cycle: boolean;
+        };
+        /** @description One edge of the agent decision graph. */
+        DecisionEdgeDoc: {
+            condition?: string | null;
+            edge_id: string;
+            from_node_id: string;
+            /** Format: double */
+            probability?: number | null;
+            reason?: string | null;
+            to_node_id: string;
+            was_taken: boolean;
+            /** Format: double */
+            weight?: number | null;
+        };
+        /** @description Complete agent decision graph. */
+        DecisionGraphDoc: {
+            agent_loop_id: string;
+            edges: components["schemas"]["DecisionEdgeDoc"][];
+            end_node_id?: string | null;
+            error_node_ids: string[];
+            executed_paths: number;
+            /** Format: double */
+            graph_density?: number | null;
+            nodes: components["schemas"]["DecisionNodeDoc"][];
+            start_node_id: string;
+            total_paths: number;
+        };
+        /** @description One node of the agent decision graph. */
+        DecisionNodeDoc: {
+            /** Format: double */
+            confidence?: number | null;
+            description: string;
+            /** Format: int32 */
+            iteration: number;
+            node_id: string;
+            /** Format: int64 */
+            timestamp: number;
+            type: string;
+        };
+        /** @description Per-dependent revalidation result of a draft promotion. */
+        DependentImpactDoc: {
+            errors: string[];
+            field: string;
+            level: string;
+            node_id: string;
+            warnings: string[];
+            workflow_id: string;
+            workflow_name: string;
+        };
         /**
          * @description Runtime and documentation envelope for every error response. Success
          *     payloads keep using `ApiEnvelope<T>`; errors always carry `data: null`
@@ -6583,6 +6844,26 @@ export interface components {
             execution_id: string;
             result: unknown;
         };
+        /** @description Digest of one resolved execution path. */
+        ExecutionPathStatsDoc: {
+            edge_count: number;
+            node_count: number;
+            nodes: string[];
+        };
+        /** @description One step of the agent execution path. */
+        ExecutionPathStepDoc: {
+            description: string;
+            /** Format: int64 */
+            duration?: number | null;
+            /** Format: int32 */
+            iteration: number;
+            node_id: string;
+            node_type: string;
+            /** Format: int32 */
+            step_no: number;
+            /** Format: int64 */
+            timestamp: number;
+        };
         ExportBody: {
             /** @description When true, answer as a file download instead of the JSON envelope. */
             download?: boolean | null;
@@ -6601,6 +6882,48 @@ export interface components {
             execution_id?: string | null;
             fire_id: string;
             fired: boolean;
+        };
+        /** @description Combined structural analysis of a workflow graph. */
+        GraphAnalysisDoc: {
+            cycle_detection: components["schemas"]["CycleDetectionDoc"];
+            edge_total: number;
+            node_counts_by_type: {
+                [key: string]: number;
+            };
+            node_total: number;
+            reachability: components["schemas"]["ReachabilityDoc"];
+            topological_sort: components["schemas"]["TopologicalSortDoc"];
+        };
+        /** @description One workflow graph edge: endpoint ids plus edge type. */
+        GraphEdgeDoc: {
+            condition?: string | null;
+            edge_type: string;
+            id: string;
+            source_node_id: string;
+            target_node_id: string;
+        };
+        /** @description Predecessors and successors of one graph node. */
+        GraphNeighborsDoc: {
+            node_id: string;
+            predecessors: string[];
+            successors: string[];
+        };
+        /** @description One workflow graph node: pure topology, no coordinates. */
+        GraphNodeDoc: {
+            id: string;
+            name?: string | null;
+            node_type: string;
+        };
+        /** @description Aggregate summary of a workflow graph. */
+        GraphSummaryDoc: {
+            edge_count: number;
+            end_node_ids: string[];
+            node_count: number;
+            node_counts_by_type: {
+                [key: string]: number;
+            };
+            start_node_id?: string | null;
+            workflow_id: string;
         };
         GroupByBody: {
             field: string;
@@ -6660,6 +6983,15 @@ export interface components {
             content: string;
             format?: string | null;
         };
+        /** @description Impact report returned when a draft is promoted to formal. */
+        PromoteReportDoc: {
+            dependents: components["schemas"]["DependentImpactDoc"][];
+            error_count: number;
+            pass_count: number;
+            resource_id: string;
+            resource_kind: string;
+            warning_count: number;
+        };
         /**
          * @description Wire shape of the query endpoints: filters (basic + advanced
          *     expressions) plus sort / pagination overrides.
@@ -6671,6 +7003,13 @@ export interface components {
             offset?: number | null;
             sort_descending?: boolean | null;
             sort_field?: string | null;
+        };
+        /** @description Reachability analysis result (sets rendered as sorted arrays). */
+        ReachabilityDoc: {
+            dead_end_nodes: string[];
+            reachable_from_start: string[];
+            reachable_to_end: string[];
+            unreachable_nodes: string[];
         };
         RejectRequest: {
             /** @description Optional human-readable rejection reason */
@@ -6770,6 +7109,30 @@ export interface components {
             /** @description Variable value (any JSON) */
             value: unknown;
         };
+        /** @description Uniform template summary over workflow and agent templates. */
+        TemplateSummaryDoc: {
+            author?: string | null;
+            category?: string | null;
+            /** Format: int64 */
+            created_at: number;
+            description: string;
+            enabled: boolean;
+            id: string;
+            is_public: boolean;
+            kind: string;
+            name: string;
+            tags?: string[] | null;
+            /** Format: int64 */
+            updated_at: number;
+            /** Format: int64 */
+            usage_count: number;
+        };
+        /** @description Topological sort result. */
+        TopologicalSortDoc: {
+            cycle_nodes: string[];
+            sorted_nodes: string[];
+            success: boolean;
+        };
         TransformWorkflowBody: {
             edges: Record<string, never>;
             nodes: Record<string, never>;
@@ -6790,6 +7153,11 @@ export interface components {
         ValidateToolParamsBody: {
             parameters: unknown;
             tool_id: string;
+        };
+        /** @description One validation issue on a draft: dotted field path plus message. */
+        ValidationIssueDoc: {
+            field: string;
+            message: string;
         };
         VariableBody: {
             define?: boolean | null;
@@ -9594,13 +9962,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Decision graph */
+            /** @description Decision graph: pure topology with iteration markers; column layout is frontend-owned */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_DecisionGraphDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -9826,7 +10194,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_DecisionEdgeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -9976,7 +10344,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_DecisionNodeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -10351,7 +10719,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_ExecutionPathStepDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -20242,7 +20610,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Execution graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -20383,13 +20751,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Execution graph edges */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_GraphEdgeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -20459,13 +20827,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Execution graph node neighbors */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GraphNeighborsDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -20534,13 +20902,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Execution graph nodes */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_GraphNodeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -20609,13 +20977,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Execution path statistics */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_ExecutionPathStatsDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -32962,13 +33330,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Template library entries */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_TemplateSummaryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -33328,13 +33696,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Featured templates */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_TemplateSummaryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -33404,13 +33772,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Popular templates */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_TemplateSummaryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -38085,7 +38453,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -38292,7 +38660,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Draft detail: full workflow definition (free-form; may be incomplete) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -38442,13 +38810,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Promotion impact report */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PromoteReportDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -38508,13 +38876,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Draft validation issues (empty when promotable) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_ValidationIssueDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -39846,7 +40214,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Workflow graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -39921,13 +40289,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Combined graph analysis */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GraphAnalysisDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -39996,13 +40364,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Cycle detection */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CycleDetectionDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40071,13 +40439,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Graph edges */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_GraphEdgeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40147,13 +40515,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Node neighbors */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GraphNeighborsDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40224,13 +40592,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Graph nodes */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_GraphNodeDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -40308,13 +40676,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Reachability analysis */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_ReachabilityDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40383,13 +40751,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Graph summary */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GraphSummaryDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40458,13 +40826,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Topological sort */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_TopologicalSortDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -40766,7 +41134,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Version list: array of full workflow definitions (free-form; backend stores no frontend coordinates) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -41002,7 +41370,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
+            /** @description Version detail: full workflow definition (free-form) */
             200: {
                 headers: {
                     [name: string]: unknown;

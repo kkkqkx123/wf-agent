@@ -1,5 +1,5 @@
 import { client } from '$lib/api/client';
-import { call } from '$lib/api/envelope';
+import { call, requireData } from '$lib/api/envelope';
 
 /**
  * Behavioral defaults kept in the server-side preference document so they
@@ -72,7 +72,12 @@ function toDocument(behavior: Behavior): PreferenceDocument {
 }
 
 export async function loadBehavior(): Promise<Behavior> {
-	const doc = await call<PreferenceDocument>(client.GET('/api/v1/preferences'));
+	const doc = requireData(
+		await call<PreferenceDocument>(
+			client.GET('/api/v1/preferences'),
+		),
+		'Server preferences',
+	);
 	return fromDocument(doc);
 }
 

@@ -2778,11 +2778,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Decision graph",
+            "description": "Decision graph: pure topology with iteration markers; column layout is frontend-owned",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_DecisionGraphDoc"
                 }
               }
             }
@@ -3002,7 +3002,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_DecisionEdgeDoc"
                 }
               }
             }
@@ -3142,7 +3142,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_DecisionNodeDoc"
                 }
               }
             }
@@ -3492,7 +3492,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_ExecutionPathStepDoc"
                 }
               }
             }
@@ -13302,7 +13302,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Execution graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13432,11 +13432,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Execution graph edges",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_GraphEdgeDoc"
                 }
               }
             }
@@ -13510,11 +13510,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Execution graph node neighbors",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GraphNeighborsDoc"
                 }
               }
             }
@@ -13580,11 +13580,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Execution graph nodes",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_GraphNodeDoc"
                 }
               }
             }
@@ -13650,11 +13650,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Execution path statistics",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_ExecutionPathStatsDoc"
                 }
               }
             }
@@ -25672,11 +25672,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Template library entries",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_TemplateSummaryDoc"
                 }
               }
             }
@@ -25997,11 +25997,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Featured templates",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_TemplateSummaryDoc"
                 }
               }
             }
@@ -26076,11 +26076,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Popular templates",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_TemplateSummaryDoc"
                 }
               }
             }
@@ -30799,7 +30799,7 @@
         "operationId": "handle_list_drafts",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly)",
             "content": {
               "application/json": {
                 "schema": {
@@ -30975,7 +30975,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Draft detail: full workflow definition (free-form; may be incomplete)",
             "content": {
               "application/json": {
                 "schema": {
@@ -31113,11 +31113,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Promotion impact report",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PromoteReportDoc"
                 }
               }
             }
@@ -31173,11 +31173,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Draft validation issues (empty when promotable)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_ValidationIssueDoc"
                 }
               }
             }
@@ -32504,7 +32504,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Workflow graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned)",
             "content": {
               "application/json": {
                 "schema": {
@@ -32574,11 +32574,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Combined graph analysis",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GraphAnalysisDoc"
                 }
               }
             }
@@ -32644,11 +32644,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Cycle detection",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_CycleDetectionDoc"
                 }
               }
             }
@@ -32714,11 +32714,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Graph edges",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_GraphEdgeDoc"
                 }
               }
             }
@@ -32792,11 +32792,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Node neighbors",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GraphNeighborsDoc"
                 }
               }
             }
@@ -32870,11 +32870,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Graph nodes",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_GraphNodeDoc"
                 }
               }
             }
@@ -32950,11 +32950,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Reachability analysis",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_ReachabilityDoc"
                 }
               }
             }
@@ -33020,11 +33020,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Graph summary",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GraphSummaryDoc"
                 }
               }
             }
@@ -33090,11 +33090,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Topological sort",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_TopologicalSortDoc"
                 }
               }
             }
@@ -33388,7 +33388,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Version list: array of full workflow definitions (free-form; backend stores no frontend coordinates)",
             "content": {
               "application/json": {
                 "schema": {
@@ -33633,7 +33633,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Version detail: full workflow definition (free-form)",
             "content": {
               "application/json": {
                 "schema": {
@@ -34123,6 +34123,134 @@
           }
         }
       },
+      "ApiEnvelope_CycleDetectionDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Structural cycle detection result.",
+            "required": [
+              "has_cycle",
+              "cycle_nodes",
+              "cycle_edges"
+            ],
+            "properties": {
+              "cycle_edges": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cycle_nodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "has_cycle": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_DecisionGraphDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Complete agent decision graph.",
+            "required": [
+              "agent_loop_id",
+              "nodes",
+              "edges",
+              "start_node_id",
+              "error_node_ids",
+              "total_paths",
+              "executed_paths"
+            ],
+            "properties": {
+              "agent_loop_id": {
+                "type": "string"
+              },
+              "edges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DecisionEdgeDoc"
+                }
+              },
+              "end_node_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "error_node_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "executed_paths": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "graph_density": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DecisionNodeDoc"
+                }
+              },
+              "start_node_id": {
+                "type": "string"
+              },
+              "total_paths": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_ExecuteView": {
         "type": "object",
         "required": [
@@ -34181,6 +34309,182 @@
               },
               "fired": {
                 "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_GraphAnalysisDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Combined structural analysis of a workflow graph.",
+            "required": [
+              "cycle_detection",
+              "topological_sort",
+              "reachability",
+              "node_total",
+              "edge_total",
+              "node_counts_by_type"
+            ],
+            "properties": {
+              "cycle_detection": {
+                "$ref": "#/components/schemas/CycleDetectionDoc"
+              },
+              "edge_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "node_counts_by_type": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "node_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reachability": {
+                "$ref": "#/components/schemas/ReachabilityDoc"
+              },
+              "topological_sort": {
+                "$ref": "#/components/schemas/TopologicalSortDoc"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_GraphNeighborsDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Predecessors and successors of one graph node.",
+            "required": [
+              "node_id",
+              "predecessors",
+              "successors"
+            ],
+            "properties": {
+              "node_id": {
+                "type": "string"
+              },
+              "predecessors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "successors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_GraphSummaryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Aggregate summary of a workflow graph.",
+            "required": [
+              "workflow_id",
+              "node_count",
+              "edge_count",
+              "end_node_ids",
+              "node_counts_by_type"
+            ],
+            "properties": {
+              "edge_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_node_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "node_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "node_counts_by_type": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "start_node_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "workflow_id": {
+                "type": "string"
               }
             }
           },
@@ -34333,6 +34637,122 @@
           }
         }
       },
+      "ApiEnvelope_PromoteReportDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Impact report returned when a draft is promoted to formal.",
+            "required": [
+              "resource_kind",
+              "resource_id",
+              "dependents",
+              "error_count",
+              "warning_count",
+              "pass_count"
+            ],
+            "properties": {
+              "dependents": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DependentImpactDoc"
+                }
+              },
+              "error_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pass_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resource_id": {
+                "type": "string"
+              },
+              "resource_kind": {
+                "type": "string"
+              },
+              "warning_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ReachabilityDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Reachability analysis result (sets rendered as sorted arrays).",
+            "required": [
+              "reachable_from_start",
+              "reachable_to_end",
+              "unreachable_nodes",
+              "dead_end_nodes"
+            ],
+            "properties": {
+              "dead_end_nodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reachable_from_start": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reachable_to_end": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unreachable_nodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_RejectResponse": {
         "type": "object",
         "required": [
@@ -34389,6 +34809,53 @@
           }
         }
       },
+      "ApiEnvelope_TopologicalSortDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Topological sort result.",
+            "required": [
+              "success",
+              "sorted_nodes",
+              "cycle_nodes"
+            ],
+            "properties": {
+              "cycle_nodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sorted_nodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "success": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Value": {
         "type": "object",
         "required": [
@@ -34396,6 +34863,492 @@
         ],
         "properties": {
           "data": {},
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_DecisionEdgeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One edge of the agent decision graph.",
+              "required": [
+                "edge_id",
+                "from_node_id",
+                "to_node_id",
+                "was_taken"
+              ],
+              "properties": {
+                "condition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "edge_id": {
+                  "type": "string"
+                },
+                "from_node_id": {
+                  "type": "string"
+                },
+                "probability": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to_node_id": {
+                  "type": "string"
+                },
+                "was_taken": {
+                  "type": "boolean"
+                },
+                "weight": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_DecisionNodeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One node of the agent decision graph.",
+              "required": [
+                "node_id",
+                "type",
+                "description",
+                "iteration",
+                "timestamp"
+              ],
+              "properties": {
+                "confidence": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "iteration": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "node_id": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_ExecutionPathStatsDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Digest of one resolved execution path.",
+              "required": [
+                "node_count",
+                "edge_count",
+                "nodes"
+              ],
+              "properties": {
+                "edge_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "node_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_ExecutionPathStepDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One step of the agent execution path.",
+              "required": [
+                "step_no",
+                "node_id",
+                "node_type",
+                "description",
+                "iteration",
+                "timestamp"
+              ],
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "duration": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64"
+                },
+                "iteration": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "node_id": {
+                  "type": "string"
+                },
+                "node_type": {
+                  "type": "string"
+                },
+                "step_no": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_GraphEdgeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One workflow graph edge: endpoint ids plus edge type.",
+              "required": [
+                "id",
+                "source_node_id",
+                "target_node_id",
+                "edge_type"
+              ],
+              "properties": {
+                "condition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "edge_type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "source_node_id": {
+                  "type": "string"
+                },
+                "target_node_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_GraphNodeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One workflow graph node: pure topology, no coordinates.",
+              "required": [
+                "id",
+                "node_type"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "node_type": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_TemplateSummaryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Uniform template summary over workflow and agent templates.",
+              "required": [
+                "id",
+                "kind",
+                "name",
+                "description",
+                "is_public",
+                "enabled",
+                "usage_count",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "author": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "is_public": {
+                  "type": "boolean"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "updated_at": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "usage_count": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_ValidationIssueDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One validation issue on a draft: dotted field path plus message.",
+              "required": [
+                "field",
+                "message"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "error": {
             "oneOf": [
               {
@@ -34712,6 +35665,222 @@
           }
         }
       },
+      "CycleDetectionDoc": {
+        "type": "object",
+        "description": "Structural cycle detection result.",
+        "required": [
+          "has_cycle",
+          "cycle_nodes",
+          "cycle_edges"
+        ],
+        "properties": {
+          "cycle_edges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cycle_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "has_cycle": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DecisionEdgeDoc": {
+        "type": "object",
+        "description": "One edge of the agent decision graph.",
+        "required": [
+          "edge_id",
+          "from_node_id",
+          "to_node_id",
+          "was_taken"
+        ],
+        "properties": {
+          "condition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edge_id": {
+            "type": "string"
+          },
+          "from_node_id": {
+            "type": "string"
+          },
+          "probability": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_node_id": {
+            "type": "string"
+          },
+          "was_taken": {
+            "type": "boolean"
+          },
+          "weight": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "DecisionGraphDoc": {
+        "type": "object",
+        "description": "Complete agent decision graph.",
+        "required": [
+          "agent_loop_id",
+          "nodes",
+          "edges",
+          "start_node_id",
+          "error_node_ids",
+          "total_paths",
+          "executed_paths"
+        ],
+        "properties": {
+          "agent_loop_id": {
+            "type": "string"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionEdgeDoc"
+            }
+          },
+          "end_node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_node_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "executed_paths": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "graph_density": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionNodeDoc"
+            }
+          },
+          "start_node_id": {
+            "type": "string"
+          },
+          "total_paths": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "DecisionNodeDoc": {
+        "type": "object",
+        "description": "One node of the agent decision graph.",
+        "required": [
+          "node_id",
+          "type",
+          "description",
+          "iteration",
+          "timestamp"
+        ],
+        "properties": {
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "description": {
+            "type": "string"
+          },
+          "iteration": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "DependentImpactDoc": {
+        "type": "object",
+        "description": "Per-dependent revalidation result of a draft promotion.",
+        "required": [
+          "workflow_id",
+          "workflow_name",
+          "node_id",
+          "field",
+          "level",
+          "errors",
+          "warnings"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "field": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "workflow_id": {
+            "type": "string"
+          },
+          "workflow_name": {
+            "type": "string"
+          }
+        }
+      },
       "ErrorResponse": {
         "type": "object",
         "description": "Runtime and documentation envelope for every error response. Success\npayloads keep using `ApiEnvelope<T>`; errors always carry `data: null`\nand a populated `error`.",
@@ -34788,6 +35957,75 @@
             "type": "string"
           },
           "result": {}
+        }
+      },
+      "ExecutionPathStatsDoc": {
+        "type": "object",
+        "description": "Digest of one resolved execution path.",
+        "required": [
+          "node_count",
+          "edge_count",
+          "nodes"
+        ],
+        "properties": {
+          "edge_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "node_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ExecutionPathStepDoc": {
+        "type": "object",
+        "description": "One step of the agent execution path.",
+        "required": [
+          "step_no",
+          "node_id",
+          "node_type",
+          "description",
+          "iteration",
+          "timestamp"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "duration": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "iteration": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "step_no": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          }
         }
       },
       "ExportBody": {
@@ -34878,6 +36116,171 @@
           },
           "fired": {
             "type": "boolean"
+          }
+        }
+      },
+      "GraphAnalysisDoc": {
+        "type": "object",
+        "description": "Combined structural analysis of a workflow graph.",
+        "required": [
+          "cycle_detection",
+          "topological_sort",
+          "reachability",
+          "node_total",
+          "edge_total",
+          "node_counts_by_type"
+        ],
+        "properties": {
+          "cycle_detection": {
+            "$ref": "#/components/schemas/CycleDetectionDoc"
+          },
+          "edge_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "node_counts_by_type": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "node_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reachability": {
+            "$ref": "#/components/schemas/ReachabilityDoc"
+          },
+          "topological_sort": {
+            "$ref": "#/components/schemas/TopologicalSortDoc"
+          }
+        }
+      },
+      "GraphEdgeDoc": {
+        "type": "object",
+        "description": "One workflow graph edge: endpoint ids plus edge type.",
+        "required": [
+          "id",
+          "source_node_id",
+          "target_node_id",
+          "edge_type"
+        ],
+        "properties": {
+          "condition": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edge_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "source_node_id": {
+            "type": "string"
+          },
+          "target_node_id": {
+            "type": "string"
+          }
+        }
+      },
+      "GraphNeighborsDoc": {
+        "type": "object",
+        "description": "Predecessors and successors of one graph node.",
+        "required": [
+          "node_id",
+          "predecessors",
+          "successors"
+        ],
+        "properties": {
+          "node_id": {
+            "type": "string"
+          },
+          "predecessors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "successors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GraphNodeDoc": {
+        "type": "object",
+        "description": "One workflow graph node: pure topology, no coordinates.",
+        "required": [
+          "id",
+          "node_type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "node_type": {
+            "type": "string"
+          }
+        }
+      },
+      "GraphSummaryDoc": {
+        "type": "object",
+        "description": "Aggregate summary of a workflow graph.",
+        "required": [
+          "workflow_id",
+          "node_count",
+          "edge_count",
+          "end_node_ids",
+          "node_counts_by_type"
+        ],
+        "properties": {
+          "edge_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "end_node_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "node_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "node_counts_by_type": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "start_node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflow_id": {
+            "type": "string"
           }
         }
       },
@@ -35084,6 +36487,44 @@
           }
         }
       },
+      "PromoteReportDoc": {
+        "type": "object",
+        "description": "Impact report returned when a draft is promoted to formal.",
+        "required": [
+          "resource_kind",
+          "resource_id",
+          "dependents",
+          "error_count",
+          "warning_count",
+          "pass_count"
+        ],
+        "properties": {
+          "dependents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DependentImpactDoc"
+            }
+          },
+          "error_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pass_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "resource_kind": {
+            "type": "string"
+          },
+          "warning_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "QueryBody": {
         "type": "object",
         "description": "Wire shape of the query endpoints: filters (basic + advanced\nexpressions) plus sort / pagination overrides.",
@@ -35125,6 +36566,42 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ReachabilityDoc": {
+        "type": "object",
+        "description": "Reachability analysis result (sets rendered as sorted arrays).",
+        "required": [
+          "reachable_from_start",
+          "reachable_to_end",
+          "unreachable_nodes",
+          "dead_end_nodes"
+        ],
+        "properties": {
+          "dead_end_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reachable_from_start": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reachable_to_end": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unreachable_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -35467,6 +36944,101 @@
           }
         }
       },
+      "TemplateSummaryDoc": {
+        "type": "object",
+        "description": "Uniform template summary over workflow and agent templates.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "description",
+          "is_public",
+          "enabled",
+          "usage_count",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_public": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "usage_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "TopologicalSortDoc": {
+        "type": "object",
+        "description": "Topological sort result.",
+        "required": [
+          "success",
+          "sorted_nodes",
+          "cycle_nodes"
+        ],
+        "properties": {
+          "cycle_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sorted_nodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "TransformWorkflowBody": {
         "type": "object",
         "required": [
@@ -35539,6 +37111,22 @@
         "properties": {
           "parameters": {},
           "tool_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ValidationIssueDoc": {
+        "type": "object",
+        "description": "One validation issue on a draft: dotted field path plus message.",
+        "required": [
+          "field",
+          "message"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "message": {
             "type": "string"
           }
         }

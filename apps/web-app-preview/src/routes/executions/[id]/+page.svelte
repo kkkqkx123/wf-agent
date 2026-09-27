@@ -8,15 +8,25 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { getExecutionDetail } from '$lib/services/executions';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import {
+		cancelExecution,
+		getExecutionDetail,
+		pauseExecution,
+		resumeExecution,
+	} from '$lib/services/executions';
 	import type { ExecutionDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	let execution = $state<ExecutionDetail | null>(null);
+	let loadError = $state<string | null>(null);
+	let controlBusy = $state(false);
+	let cancelArmed = $state(false);
 
-	const TAB_IDS = ['overview', 'timeline', 'tools', 'analysis', 'state'];
+	const TAB_IDS = ['overview', 'graph', 'timeline', 'tools', 'analysis', 'state'];
 	const requestedTab = parseListParams(page.url).tab;
 	let tab = $state(
 		requestedTab && TAB_IDS.includes(requestedTab) ? requestedTab : 'overview',
@@ -26,29 +36,48 @@
 		gotoWithParams(page.url, { tab: tab === 'overview' ? '' : tab });
 	});
 
+	async function load(id: string): Promise<void> {
+		loadError = null;
+		try {
+			execution = await getExecutionDetail(id);
+		} catch (e) {
+			loadError = e instanceof Error ? e.message : 'Failed to load execution.';
+			execution = null;
+		}
+	}
+
+	async function runControl(
+		label: string,
+		action: (id: string) => Promise<void>,
+	): Promise<void> {
+		const id = page.params.id;
+		if (!id) return;
+		controlBusy = true;
+		try {
+			await action(id);
+			toasts.success(`${label} done`);
+			await load(id);
+		} catch (e) {
+			toasts.error(
+				`${label} failed`,
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			controlBusy = false;
+		}
+	}
+
 	onMount(() => {
 		const id = page.params.id;
 		if (!id) return;
-		void getExecutionDetail(id)
-			.then((row) => {
-				execution = row;
-			})
-			.catch((e) => {
-				console.error('Failed to load execution:', e);
-			});
+		void load(id);
 	});
 
 	$effect(() => {
 		const id = page.params.id;
 		if (!id) return;
 		if (execution && execution.id === id) return;
-		void getExecutionDetail(id)
-			.then((row) => {
-				execution = row;
-			})
-			.catch((e) => {
-				console.error('Failed to load execution:', e);
-			});
+		void load(id);
 	});
 </script>
 
@@ -75,21 +104,40 @@
 			<IconButton
 				icon="pause"
 				label="Pause execution"
-				onclick={() => toasts.warning('Pause queued')}
+				disabled={controlBusy}
+				onclick={() => void runControl('Pause', pauseExecution)}
 			/>
 			<IconButton
 				icon="play"
 				label="Resume execution"
-				onclick={() => toasts.info('Resume queued')}
+				disabled={controlBusy}
+				onclick={() => void runControl('Resume', resumeExecution)}
 			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => toasts.error('Cancel requires confirmation')}
-			>
-				<Icon name="square" size={13} />
-				Cancel
-			</Button>
+			{#if cancelArmed}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={controlBusy}
+					onclick={() => {
+						cancelArmed = false;
+						void runControl('Cancel', cancelExecution);
+					}}
+				>
+					Confirm cancel
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => (cancelArmed = false)}>
+					Keep
+				</Button>
+			{:else}
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => (cancelArmed = true)}
+				>
+					<Icon name="square" size={13} />
+					Cancel
+				</Button>
+			{/if}
 			<Button variant="outline" size="sm" href="/executions">
 				<Icon name="arrow-left" size={13} />
 				Back to workbench
@@ -98,10 +146,22 @@
 	</PageHeader>
 
 	<div class="min-h-0 flex-1 overflow-hidden px-4 pb-4">
-		<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
-			{#if execution}
+		{#if loadError && !execution}
+			<ErrorState
+				title="Execution failed to load"
+				description={loadError}
+				onretry={() => {
+					const id = page.params.id;
+					if (id) void load(id);
+				}}
+				class="rounded-lg border border-border bg-card"
+			/>
+		{:else if !execution}
+			<Skeleton lines={6} class="h-full rounded-lg border border-border bg-card p-4" />
+		{:else}
+			<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
 				<ExecutionInspector {execution} bind:tab />
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 </div>

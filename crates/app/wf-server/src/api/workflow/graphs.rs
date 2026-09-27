@@ -6,8 +6,9 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use serde::Deserialize;
-use utoipa::IntoParams;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNodePath, IdPath};
@@ -32,12 +33,158 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
+// ── typed view docs (C1 mirrors) ────────────────────────────────────
+// Mirror the `wf-api` graph views and `wf-workflow` analysis results so
+// codegen produces real types instead of `unknown`. The full graph
+// structure (`WorkflowGraphStructure`, a foundation type with flattened
+// node payloads) intentionally stays free-form: layout is frontend-owned
+// and the backend never stores coordinates.
+
+/// One workflow graph node: pure topology, no coordinates.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct GraphNodeDoc {
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    node_type: String,
+}
+
+impl From<wf_api::workflow::graph_query::GraphNodeView> for GraphNodeDoc {
+    fn from(view: wf_api::workflow::graph_query::GraphNodeView) -> Self {
+        Self {
+            id: view.id,
+            name: view.name,
+            node_type: view.node_type,
+        }
+    }
+}
+
+/// One workflow graph edge: endpoint ids plus edge type.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct GraphEdgeDoc {
+    id: String,
+    source_node_id: String,
+    target_node_id: String,
+    edge_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    condition: Option<String>,
+}
+
+impl From<wf_api::workflow::graph_query::GraphEdgeView> for GraphEdgeDoc {
+    fn from(view: wf_api::workflow::graph_query::GraphEdgeView) -> Self {
+        Self {
+            id: view.id,
+            source_node_id: view.source_node_id,
+            target_node_id: view.target_node_id,
+            edge_type: view.edge_type,
+            condition: view.condition,
+        }
+    }
+}
+
+/// Aggregate summary of a workflow graph.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct GraphSummaryDoc {
+    workflow_id: String,
+    node_count: usize,
+    edge_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_node_id: Option<String>,
+    end_node_ids: Vec<String>,
+    node_counts_by_type: BTreeMap<String, usize>,
+}
+
+impl From<wf_api::workflow::graph_query::GraphSummary> for GraphSummaryDoc {
+    fn from(view: wf_api::workflow::graph_query::GraphSummary) -> Self {
+        Self {
+            workflow_id: view.workflow_id,
+            node_count: view.node_count,
+            edge_count: view.edge_count,
+            start_node_id: view.start_node_id,
+            end_node_ids: view.end_node_ids,
+            node_counts_by_type: view.node_counts_by_type,
+        }
+    }
+}
+
+/// Predecessors and successors of one graph node.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct GraphNeighborsDoc {
+    node_id: String,
+    predecessors: Vec<String>,
+    successors: Vec<String>,
+}
+
+impl From<wf_api::workflow::graph_query::GraphNeighborsView> for GraphNeighborsDoc {
+    fn from(view: wf_api::workflow::graph_query::GraphNeighborsView) -> Self {
+        Self {
+            node_id: view.node_id,
+            predecessors: view.predecessors,
+            successors: view.successors,
+        }
+    }
+}
+
+/// Structural cycle detection result.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct CycleDetectionDoc {
+    has_cycle: bool,
+    cycle_nodes: Vec<String>,
+    cycle_edges: Vec<String>,
+}
+
+/// Topological sort result.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct TopologicalSortDoc {
+    success: bool,
+    sorted_nodes: Vec<String>,
+    cycle_nodes: Vec<String>,
+}
+
+/// Reachability analysis result (sets rendered as sorted arrays).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ReachabilityDoc {
+    reachable_from_start: Vec<String>,
+    reachable_to_end: Vec<String>,
+    unreachable_nodes: Vec<String>,
+    dead_end_nodes: Vec<String>,
+}
+
+/// Combined structural analysis of a workflow graph.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct GraphAnalysisDoc {
+    cycle_detection: CycleDetectionDoc,
+    topological_sort: TopologicalSortDoc,
+    reachability: ReachabilityDoc,
+    node_total: usize,
+    edge_total: usize,
+    node_counts_by_type: BTreeMap<String, usize>,
+}
+
+/// Digest of one resolved execution path.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ExecutionPathStatsDoc {
+    node_count: usize,
+    edge_count: usize,
+    nodes: Vec<String>,
+}
+
+impl From<wf_api::workflow::graph_query::ExecutionPathStatsView> for ExecutionPathStatsDoc {
+    fn from(view: wf_api::workflow::graph_query::ExecutionPathStatsView) -> Self {
+        Self {
+            node_count: view.node_count,
+            edge_count: view.edge_count,
+            nodes: view.nodes,
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/{id}/graph",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Workflow graph: pure topology (nodes/edges/adjacency, no coordinates; layout is frontend-owned)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph(
@@ -55,7 +202,7 @@ pub(crate) async fn handle_graph(
     path = "/api/v1/workflows/{id}/graph/summary",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Graph summary", body = crate::envelope::ApiEnvelope<GraphSummaryDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_summary(
@@ -63,7 +210,7 @@ pub(crate) async fn handle_graph_summary(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_summary(&state.ctx, &path.id).await {
-        Ok(summary) => ok(summary).into_response(),
+        Ok(summary) => ok(GraphSummaryDoc::from(summary)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -79,7 +226,7 @@ pub(crate) struct GraphNodesQuery {
     path = "/api/v1/workflows/{id}/graph/nodes",
     tag = "workflow",
     params(IdPath, GraphNodesQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Graph nodes", body = crate::envelope::ApiEnvelope<Vec<GraphNodeDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_nodes(
@@ -95,7 +242,8 @@ pub(crate) async fn handle_graph_nodes(
         None => wf_api::workflow::graph_query::graph_nodes(&state.ctx, &path.id).await,
     };
     match result {
-        Ok(nodes) => ok(nodes).into_response(),
+        Ok(nodes) => ok(nodes.into_iter().map(GraphNodeDoc::from).collect::<Vec<_>>())
+            .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -105,7 +253,7 @@ pub(crate) async fn handle_graph_nodes(
     path = "/api/v1/workflows/{id}/graph/edges",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Graph edges", body = crate::envelope::ApiEnvelope<Vec<GraphEdgeDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_edges(
@@ -113,7 +261,8 @@ pub(crate) async fn handle_graph_edges(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_edges(&state.ctx, &path.id).await {
-        Ok(edges) => ok(edges).into_response(),
+        Ok(edges) => ok(edges.into_iter().map(GraphEdgeDoc::from).collect::<Vec<_>>())
+            .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -123,7 +272,7 @@ pub(crate) async fn handle_graph_edges(
     path = "/api/v1/workflows/{id}/graph/neighbors/{nodeId}",
     tag = "workflow",
     params(IdNodePath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Node neighbors", body = crate::envelope::ApiEnvelope<GraphNeighborsDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_neighbors(
@@ -133,7 +282,7 @@ pub(crate) async fn handle_graph_neighbors(
     match wf_api::workflow::graph_query::graph_node_neighbors(&state.ctx, &path.id, &path.node_id)
         .await
     {
-        Ok(neighbors) => ok(neighbors).into_response(),
+        Ok(neighbors) => ok(GraphNeighborsDoc::from(neighbors)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -143,7 +292,7 @@ pub(crate) async fn handle_graph_neighbors(
     path = "/api/v1/workflows/{id}/graph/analysis",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Combined graph analysis", body = crate::envelope::ApiEnvelope<GraphAnalysisDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_analysis(
@@ -151,28 +300,36 @@ pub(crate) async fn handle_graph_analysis(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_analysis(&state.ctx, &path.id).await {
-        Ok(analysis) => ok(serde_json::json!({
-            "cycle_detection": {
-                "has_cycle": analysis.cycle_detection.has_cycle,
-                "cycle_nodes": analysis.cycle_detection.cycle_nodes,
-                "cycle_edges": analysis.cycle_detection.cycle_edges,
-            },
-            "topological_sort": {
-                "success": analysis.topological_sort.success,
-                "sorted_nodes": analysis.topological_sort.sorted_nodes,
-                "cycle_nodes": analysis.topological_sort.cycle_nodes,
-            },
-            "reachability": {
-                "reachable_from_start": analysis.reachability.reachable_from_start,
-                "reachable_to_end": analysis.reachability.reachable_to_end,
-                "unreachable_nodes": analysis.reachability.unreachable_nodes,
-                "dead_end_nodes": analysis.reachability.dead_end_nodes,
-            },
-            "node_total": analysis.node_total,
-            "edge_total": analysis.edge_total,
-            "node_counts_by_type": analysis.node_counts_by_type,
-        }))
-        .into_response(),
+        Ok(analysis) => {
+            let mut reachable_from_start: Vec<String> =
+                analysis.reachability.reachable_from_start.into_iter().collect();
+            reachable_from_start.sort();
+            let mut reachable_to_end: Vec<String> =
+                analysis.reachability.reachable_to_end.into_iter().collect();
+            reachable_to_end.sort();
+            ok(GraphAnalysisDoc {
+                cycle_detection: CycleDetectionDoc {
+                    has_cycle: analysis.cycle_detection.has_cycle,
+                    cycle_nodes: analysis.cycle_detection.cycle_nodes,
+                    cycle_edges: analysis.cycle_detection.cycle_edges,
+                },
+                topological_sort: TopologicalSortDoc {
+                    success: analysis.topological_sort.success,
+                    sorted_nodes: analysis.topological_sort.sorted_nodes,
+                    cycle_nodes: analysis.topological_sort.cycle_nodes,
+                },
+                reachability: ReachabilityDoc {
+                    reachable_from_start,
+                    reachable_to_end,
+                    unreachable_nodes: analysis.reachability.unreachable_nodes,
+                    dead_end_nodes: analysis.reachability.dead_end_nodes,
+                },
+                node_total: analysis.node_total,
+                edge_total: analysis.edge_total,
+                node_counts_by_type: analysis.node_counts_by_type.into_iter().collect(),
+            })
+            .into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -182,7 +339,7 @@ pub(crate) async fn handle_graph_analysis(
     path = "/api/v1/workflows/{id}/graph/cycles",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Cycle detection", body = crate::envelope::ApiEnvelope<CycleDetectionDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_cycles(
@@ -190,11 +347,11 @@ pub(crate) async fn handle_graph_cycles(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_detect_cycles(&state.ctx, &path.id).await {
-        Ok(cycles) => ok(serde_json::json!({
-            "has_cycle": cycles.has_cycle,
-            "cycle_nodes": cycles.cycle_nodes,
-            "cycle_edges": cycles.cycle_edges,
-        }))
+        Ok(cycles) => ok(CycleDetectionDoc {
+            has_cycle: cycles.has_cycle,
+            cycle_nodes: cycles.cycle_nodes,
+            cycle_edges: cycles.cycle_edges,
+        })
         .into_response(),
         Err(e) => error_response(e),
     }
@@ -205,7 +362,7 @@ pub(crate) async fn handle_graph_cycles(
     path = "/api/v1/workflows/{id}/graph/topology",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Topological sort", body = crate::envelope::ApiEnvelope<TopologicalSortDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_topology(
@@ -213,11 +370,11 @@ pub(crate) async fn handle_graph_topology(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_topological_sort(&state.ctx, &path.id).await {
-        Ok(sort) => ok(serde_json::json!({
-            "success": sort.success,
-            "sorted_nodes": sort.sorted_nodes,
-            "cycle_nodes": sort.cycle_nodes,
-        }))
+        Ok(sort) => ok(TopologicalSortDoc {
+            success: sort.success,
+            sorted_nodes: sort.sorted_nodes,
+            cycle_nodes: sort.cycle_nodes,
+        })
         .into_response(),
         Err(e) => error_response(e),
     }
@@ -228,7 +385,7 @@ pub(crate) async fn handle_graph_topology(
     path = "/api/v1/workflows/{id}/graph/reachability",
     tag = "workflow",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Reachability analysis", body = crate::envelope::ApiEnvelope<ReachabilityDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_reachability(
@@ -236,13 +393,21 @@ pub(crate) async fn handle_graph_reachability(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_reachability(&state.ctx, &path.id).await {
-        Ok(reachability) => ok(serde_json::json!({
-            "reachable_from_start": reachability.reachable_from_start,
-            "reachable_to_end": reachability.reachable_to_end,
-            "unreachable_nodes": reachability.unreachable_nodes,
-            "dead_end_nodes": reachability.dead_end_nodes,
-        }))
-        .into_response(),
+        Ok(reachability) => {
+            let mut reachable_from_start: Vec<String> =
+                reachability.reachable_from_start.into_iter().collect();
+            reachable_from_start.sort();
+            let mut reachable_to_end: Vec<String> =
+                reachability.reachable_to_end.into_iter().collect();
+            reachable_to_end.sort();
+            ok(ReachabilityDoc {
+                reachable_from_start,
+                reachable_to_end,
+                unreachable_nodes: reachability.unreachable_nodes,
+                dead_end_nodes: reachability.dead_end_nodes,
+            })
+            .into_response()
+        }
         Err(e) => error_response(e),
     }
 }

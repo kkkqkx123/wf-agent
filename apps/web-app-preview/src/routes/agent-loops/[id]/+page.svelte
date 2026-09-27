@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -9,16 +11,26 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
-	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
+	import GraphExplorer, {
+		type GraphOverlay,
+	} from '$lib/components/domain/GraphExplorer.svelte';
 	import {
+		cancelAgentLoop,
+		createAgentLoopCheckpoint,
+		getAgentLoopAnalysis,
 		getAgentLoopDetail,
 		getAgentLoopMessages,
 		getAgentLoopVariables,
-	} from '$lib/services/agentLoops';
+		pauseAgentLoop,
+		resumeAgentLoop,
+		restoreAgentLoopCheckpoint,
+		type AgentLoopAnalysis,
+	} from '$lib/services/agent-loops';
 	import { listLoopCheckpoints } from '$lib/services/checkpoints';
 	import type {
 		AgentLoopDetail,
@@ -33,6 +45,7 @@
 		formatNumber,
 	} from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 
 	const TABS = [
 		{ id: 'messages', label: 'Messages' },
@@ -52,25 +65,80 @@
 	$effect(() => {
 		gotoWithParams(page.url, { tab: tab === 'messages' ? '' : tab });
 	});
-	let draft = $state('');
-	let detail = $state<AgentLoopDetail | null>(null);
-	let loopMessages = $state<LoopMessage[]>([]);
-	let loopVariables = $state<LoopVariable[]>([]);
-	let loopCheckpoints = $state<Checkpoint[]>([]);
 
-	/** Segment sources already pulled for this loop, so a tab loads once. */
+	let detail = $state<AgentLoopDetail | null>(null);
+	let detailError = $state<string | null>(null);
+	let loopMessages = $state<LoopMessage[]>([]);
+	let messagesError = $state<string | null>(null);
+	let loopVariables = $state<LoopVariable[]>([]);
+	let variablesError = $state<string | null>(null);
+	let loopCheckpoints = $state<Checkpoint[]>([]);
+	let checkpointsError = $state<string | null>(null);
+	let analysis = $state<AgentLoopAnalysis | null>(null);
+	let analysisError = $state<string | null>(null);
+	let analysisLoading = $state(false);
+
+	let graphNodeId = $state<string | null>(null);
+	let activeOverlay = $state<string | null>(null);
+	let cancelArmed = $state(false);
+	let controlBusy = $state(false);
+
 	let seenDetail = $state('');
 	let seenMessages = $state('');
 	let seenVariables = $state('');
 	let seenCheckpoints = $state('');
+	let seenAnalysis = $state('');
 
 	const loop = $derived(detail);
 
+	const nodes = $derived<DisplayNode[]>(
+		(detail?.graph.nodes ?? []).map((node) => ({
+			id: node.id,
+			label: node.label,
+			kind: node.kind,
+			status: node.status,
+			iteration: node.iteration,
+		})),
+	);
+
+	const edges = $derived<DisplayEdge[]>(
+		(detail?.graph.edges ?? []).map((edge) => ({
+			id: edge.id,
+			source: edge.from,
+			target: edge.to,
+			label: edge.label,
+		})),
+	);
+
+	const overlays = $derived.by<GraphOverlay[]>(() => {
+		const errorIds = nodes
+			.filter((node) => node.status === 'failed')
+			.map((node) => node.id);
+		return errorIds.length > 0
+			? [{ id: 'errors', label: 'Error nodes', ids: errorIds }]
+			: [];
+	});
+
+	const peakToolCount = $derived(
+		Math.max(
+			1,
+			...((analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? []).map(
+				(entry) => entry.count,
+			)),
+		),
+	);
+
+	const toolFrequency = $derived(
+		analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? [],
+	);
+
 	async function loadDetail(id: string): Promise<void> {
+		detailError = null;
 		try {
 			detail = await getAgentLoopDetail(id);
 		} catch (e) {
-			console.error('Failed to load agent loop:', e);
+			detailError = e instanceof Error ? e.message : 'Failed to load loop.';
+			detail = null;
 		}
 	}
 
@@ -78,23 +146,122 @@
 		try {
 			if (current === 'messages' && seenMessages !== id) {
 				seenMessages = id;
+				messagesError = null;
 				loopMessages = await getAgentLoopMessages(id);
 			} else if (current === 'variables' && seenVariables !== id) {
 				seenVariables = id;
+				variablesError = null;
 				loopVariables = await getAgentLoopVariables(id);
 			} else if (current === 'checkpoints' && seenCheckpoints !== id) {
 				seenCheckpoints = id;
+				checkpointsError = null;
 				loopCheckpoints = await listLoopCheckpoints(id);
+			} else if (current === 'analysis' && seenAnalysis !== id) {
+				seenAnalysis = id;
+				analysisError = null;
+				analysisLoading = true;
+				try {
+					analysis = await getAgentLoopAnalysis(id);
+				} catch (e) {
+					analysisError =
+						e instanceof Error ? e.message : 'Analysis failed to load.';
+					analysis = null;
+				} finally {
+					analysisLoading = false;
+				}
 			}
 		} catch (e) {
-			console.error('Failed to load agent loop segment:', e);
+			const message = e instanceof Error ? e.message : 'Segment failed.';
+			if (current === 'messages') {
+				seenMessages = '';
+				messagesError = message;
+			} else if (current === 'variables') {
+				seenVariables = '';
+				variablesError = message;
+			} else if (current === 'checkpoints') {
+				seenCheckpoints = '';
+				checkpointsError = message;
+			}
 		}
+	}
+
+	async function runControl(
+		label: string,
+		action: (id: string) => Promise<void>,
+	): Promise<void> {
+		const id = page.params.id;
+		if (!id) return;
+		controlBusy = true;
+		try {
+			await action(id);
+			toasts.success(`${label} done`);
+			seenDetail = '';
+			await loadDetail(id);
+		} catch (e) {
+			toasts.error(
+				`${label} failed`,
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			controlBusy = false;
+		}
+	}
+
+	async function runCheckpoint(): Promise<void> {
+		const id = page.params.id;
+		if (!id) return;
+		controlBusy = true;
+		try {
+			await createAgentLoopCheckpoint(id);
+			toasts.success('Checkpoint created');
+			seenCheckpoints = '';
+			if (tab === 'checkpoints') await loadTab(id, 'checkpoints');
+		} catch (e) {
+			toasts.error(
+				'Checkpoint failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			controlBusy = false;
+		}
+	}
+
+	async function runRestore(checkpointId: string): Promise<void> {
+		const id = page.params.id;
+		if (!id) return;
+		try {
+			await restoreAgentLoopCheckpoint(id, checkpointId);
+			toasts.success('Checkpoint restored');
+			seenDetail = '';
+			await loadDetail(id);
+		} catch (e) {
+			toasts.error(
+				'Restore failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
+	}
+
+	function resetFor(id: string): void {
+		seenDetail = id;
+		seenMessages = '';
+		seenVariables = '';
+		seenCheckpoints = '';
+		seenAnalysis = '';
+		detail = null;
+		loopMessages = [];
+		loopVariables = [];
+		loopCheckpoints = [];
+		analysis = null;
+		cancelArmed = false;
+		activeOverlay = null;
+		graphNodeId = null;
 	}
 
 	onMount(() => {
 		const id = page.params.id;
 		if (!id) return;
-		seenDetail = id;
+		resetFor(id);
 		void loadDetail(id);
 		void loadTab(id, tab);
 	});
@@ -103,25 +270,11 @@
 		const id = page.params.id;
 		if (!id) return;
 		if (seenDetail !== id) {
-			seenDetail = id;
-			seenMessages = '';
-			seenVariables = '';
-			seenCheckpoints = '';
-			detail = null;
-			loopMessages = [];
-			loopVariables = [];
-			loopCheckpoints = [];
+			resetFor(id);
 			void loadDetail(id);
 		}
 		void loadTab(id, tab);
 	});
-
-	const peakToolCount = $derived(
-		Math.max(
-			1,
-			...(detail?.analysis.toolFrequency.map((entry) => entry.count) ?? []),
-		),
-	);
 
 	const variableColumns: Column<LoopVariable>[] = [
 		{ key: 'key', header: 'Key', text: (row) => row.key },
@@ -157,29 +310,53 @@
 			<IconButton
 				icon="pause"
 				label="Pause loop"
-				onclick={() => toasts.warning('Pause queued')}
+				disabled={controlBusy}
+				onclick={() => void runControl('Pause', pauseAgentLoop)}
 			/>
 			<IconButton
 				icon="refresh"
 				label="Resume loop"
-				onclick={() => toasts.info('Resume queued')}
+				disabled={controlBusy}
+				onclick={() => void runControl('Resume', resumeAgentLoop)}
 			/>
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.success('Checkpoint created')}
+				disabled={controlBusy}
+				onclick={() => void runCheckpoint()}
 			>
 				<Icon name="archive" size={13} />
 				Checkpoint
 			</Button>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => toasts.error('Cancel requires confirmation')}
-			>
-				<Icon name="square" size={13} />
-				Cancel
-			</Button>
+			{#if cancelArmed}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={controlBusy}
+					onclick={() => {
+						cancelArmed = false;
+						void runControl('Cancel', cancelAgentLoop);
+					}}
+				>
+					Confirm cancel
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => (cancelArmed = false)}
+				>
+					Keep
+				</Button>
+			{:else}
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => (cancelArmed = true)}
+				>
+					<Icon name="square" size={13} />
+					Cancel
+				</Button>
+			{/if}
 		{/snippet}
 	</PageHeader>
 
@@ -191,92 +368,153 @@
 		aria-label="Agent loop sections"
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
-		{#if tab === 'messages'}
-			<div class="mx-auto flex max-w-3xl flex-col gap-3">
-				{#each loopMessages as message (message.id)}
-					<MessageBubble {message} />
-				{/each}
-			</div>
+		{#if detailError && !detail}
+			<ErrorState
+				title="Agent loop failed to load"
+				description={detailError}
+				onretry={() => {
+					const id = page.params.id;
+					if (id) {
+						resetFor(id);
+						void loadDetail(id);
+						void loadTab(id, tab);
+					}
+				}}
+				class="rounded-lg border border-border bg-card"
+			/>
+		{:else if tab === 'messages'}
+			{#if messagesError}
+				<ErrorState
+					title="Messages failed to load"
+					description={messagesError}
+					onretry={() => {
+						const id = page.params.id;
+						if (id) {
+							seenMessages = '';
+							void loadTab(id, 'messages');
+						}
+					}}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<div class="mx-auto flex max-w-3xl flex-col gap-3">
+					{#each loopMessages as message (message.id)}
+						<MessageBubble {message} />
+					{/each}
+				</div>
+			{/if}
 
 			<div
-				class="mx-auto mt-4 max-w-3xl rounded-lg border border-border bg-card p-2"
+				class="mx-auto mt-4 flex max-w-3xl items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"
 			>
-				<Textarea
-					bind:value={draft}
-					placeholder="Send a follow-up to this loop…"
-					class="min-h-16 border-0"
-				/>
-				<div class="mt-2 flex items-center justify-between">
-					<span class="text-micro text-muted-foreground"
-						>Enter sends · Shift+Enter adds a line</span
-					>
-					<div class="flex items-center gap-2">
-						<Button variant="ghost" size="sm" onclick={() => (draft = '')}
-							>Clear</Button
-						>
-						<Button
-							size="sm"
-							disabled={draft.trim().length === 0}
-							onclick={() => {
-								toasts.success('Message queued');
-								draft = '';
-							}}
-						>
-							<Icon name="arrow-up" size={13} />
-							Send
-						</Button>
-					</div>
-				</div>
+				<p class="text-caption text-muted-foreground">
+					Follow-ups run in the live chat session for this loop.
+				</p>
+				<Button
+					size="sm"
+					onclick={() => {
+						const id = page.params.id;
+						if (id)
+							void goto(resolve(`/chat?id=${encodeURIComponent(id)}`));
+					}}
+				>
+					Continue in chat
+					<Icon name="arrow-right" size={13} />
+				</Button>
 			</div>
 		{:else if tab === 'variables'}
-			<Card title="Variables" bodyClass="p-0">
-				<DataTable
-					columns={variableColumns}
-					rows={loopVariables}
-					rowKey={(row) => row.key}
+			{#if variablesError}
+				<ErrorState
+					title="Variables failed to load"
+					description={variablesError}
+					onretry={() => {
+						const id = page.params.id;
+						if (id) {
+							seenVariables = '';
+							void loadTab(id, 'variables');
+						}
+					}}
+					class="rounded-lg border border-border bg-card"
 				/>
-			</Card>
-		{:else if tab === 'graph'}
-			{#if detail}
-				<WorkflowGraph graph={detail.graph} class="max-h-[26rem]" />
+			{:else}
+				<Card title="Variables" bodyClass="p-0">
+					<DataTable
+						columns={variableColumns}
+						rows={loopVariables}
+						rowKey={(row) => row.key}
+					/>
+				</Card>
 			{/if}
-			<Card title="Iterations" class="mt-3">
-				<ul class="space-y-2">
-					{#each detail?.iterations ?? [] as iteration (iteration.index)}
-						<li
-							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
-						>
-							<div class="min-w-0">
-								<p class="text-caption">
-									<span class="font-mono text-muted-foreground"
-										>#{iteration.index}</span
-									>
-									<span class="ml-2">{iteration.summary}</span>
-								</p>
-							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								<span class="text-micro tabular-nums text-muted-foreground">
-									{formatDuration(iteration.durationMs)}
-								</span>
-								<StatusBadge status={iteration.status} size="sm" dot={false} />
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</Card>
+		{:else if tab === 'graph'}
+			{#if !detail}
+				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+			{:else}
+				<GraphExplorer
+					{nodes}
+					{edges}
+					preset="decision"
+					selectedId={graphNodeId}
+					onselect={(id) => (graphNodeId = id)}
+					overlays={overlays}
+					{activeOverlay}
+					onoverlay={(id) => (activeOverlay = id)}
+				/>
+				<Card title="Iterations" class="mt-3">
+					<ul class="space-y-2">
+						{#each detail.iterations as iteration (iteration.index)}
+							<li
+								class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
+							>
+								<div class="min-w-0">
+									<p class="text-caption">
+										<span class="font-mono text-muted-foreground"
+											>#{iteration.index}</span
+										>
+										<span class="ml-2">{iteration.summary}</span>
+									</p>
+								</div>
+								<div class="flex shrink-0 items-center gap-2">
+									<span class="text-micro tabular-nums text-muted-foreground">
+										{formatDuration(iteration.durationMs)}
+									</span>
+									<StatusBadge status={iteration.status} size="sm" dot={false} />
+								</div>
+							</li>
+						{/each}
+					</ul>
+				</Card>
+			{/if}
 		{:else if tab === 'analysis'}
-			{#if detail}
+			{#if analysisLoading}
+				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+			{:else if analysisError}
+				<ErrorState
+					title="Analysis failed to load"
+					description={analysisError}
+					onretry={() => {
+						const id = page.params.id;
+						if (id) {
+							seenAnalysis = '';
+							void loadTab(id, 'analysis');
+						}
+					}}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				{@const rootCause = analysis?.rootCause ?? detail?.analysis.rootCause ?? null}
+				{@const errorChain = analysis?.errorChain ?? detail?.analysis.errorChain ?? []}
+				{@const recoveryHints = analysis?.recoveryHints ?? detail?.analysis.recoveryHints ?? []}
 				<div class="grid gap-3 lg:grid-cols-2">
 					<Card title="Error analysis">
 						<p class="text-caption">
 							Root cause:
 							<span class="text-foreground">
-								{detail.analysis.rootCause ?? 'None recorded'}
+								{rootCause ?? 'None recorded'}
 							</span>
 						</p>
-						{#if detail.analysis.errorChain.length > 0}
+						{#if errorChain.length > 0}
 							<ol class="mt-2 space-y-1">
-								{#each detail.analysis.errorChain as link, index (index)}
+								{#each errorChain as link, index (index)}
 									<li class="text-caption text-destructive">{link}</li>
 								{/each}
 							</ol>
@@ -287,76 +525,104 @@
 						{/if}
 					</Card>
 					<Card title="Recovery hints">
-						<ul class="space-y-1.5">
-							{#each detail.analysis.recoveryHints as hint, index (index)}
-								<li class="flex items-start gap-1.5 text-caption">
-									<Icon
-										name="sparkles"
-										size={12}
-										class="mt-0.5 shrink-0 text-info"
-									/>
-									<span>{hint}</span>
-								</li>
-							{/each}
-						</ul>
+						{#if recoveryHints.length > 0}
+							<ul class="space-y-1.5">
+								{#each recoveryHints as hint, index (index)}
+									<li class="flex items-start gap-1.5 text-caption">
+										<Icon
+											name="sparkles"
+											size={12}
+											class="mt-0.5 shrink-0 text-info"
+										/>
+										<span>{hint}</span>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="text-caption text-muted-foreground">
+								No recovery hints for this loop.
+							</p>
+						{/if}
 					</Card>
 					<Card title="Tool frequency" class="lg:col-span-2">
-						<ul class="space-y-2">
-							{#each detail.analysis.toolFrequency as item (item.tool)}
-								<li class="flex items-center gap-3">
-									<span class="w-28 shrink-0 truncate font-mono text-caption"
-										>{item.tool}</span
-									>
-									<span
-										class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-									>
+						{#if toolFrequency.length > 0}
+							<ul class="space-y-2">
+								{#each toolFrequency as item (item.tool)}
+									<li class="flex items-center gap-3">
+										<span class="w-28 shrink-0 truncate font-mono text-caption"
+											>{item.tool}</span
+										>
 										<span
-											class="block h-full rounded-full bg-info"
-											style:width={`${(item.count / peakToolCount) * 100}%`}
-										></span>
-									</span>
-									<span
-										class="w-8 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
-									>
-										{formatNumber(item.count)}
-									</span>
-								</li>
-							{/each}
-						</ul>
+											class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+										>
+											<span
+												class="block h-full rounded-full bg-info"
+												style:width={`${(item.count / peakToolCount) * 100}%`}
+											></span>
+										</span>
+										<span
+											class="w-8 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
+										>
+											{formatNumber(item.count)}
+										</span>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="text-caption text-muted-foreground">
+								No tool calls recorded for this loop.
+							</p>
+						{/if}
 					</Card>
 				</div>
 			{/if}
 		{:else}
-			<div class="space-y-2">
-				{#each loopCheckpoints as checkpoint (checkpoint.id)}
-					<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
-						{#snippet actions()}
-							<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
-								{checkpoint.restorable ? 'restorable' : 'locked'}
-							</Badge>
-						{/snippet}
-						<p class="text-caption text-muted-foreground">{checkpoint.note}</p>
-						<p class="mt-1 text-micro text-muted-foreground">
-							{checkpoint.actor} · {formatDateTime(checkpoint.createdAt)}
-						</p>
-						{#snippet footer()}
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => toasts.info('Restore queued')}
-							>
-								Restore
-							</Button>
-						{/snippet}
-					</Card>
-				{:else}
-					<Card>
-						<p class="text-caption text-muted-foreground">
-							No checkpoints recorded for this loop.
-						</p>
-					</Card>
-				{/each}
-			</div>
+			{#if checkpointsError}
+				<ErrorState
+					title="Checkpoints failed to load"
+					description={checkpointsError}
+					onretry={() => {
+						const id = page.params.id;
+						if (id) {
+							seenCheckpoints = '';
+							void loadTab(id, 'checkpoints');
+						}
+					}}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<div class="space-y-2">
+					{#each loopCheckpoints as checkpoint (checkpoint.id)}
+						<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
+							{#snippet actions()}
+								<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
+									{checkpoint.restorable ? 'restorable' : 'locked'}
+								</Badge>
+							{/snippet}
+							<p class="text-caption text-muted-foreground">{checkpoint.note}</p>
+							<p class="mt-1 text-micro text-muted-foreground">
+								{checkpoint.actor} · {formatDateTime(checkpoint.createdAt)}
+							</p>
+							{#snippet footer()}
+								<Button
+									variant="ghost"
+									size="sm"
+									disabled={!checkpoint.restorable}
+									onclick={() => void runRestore(checkpoint.id)}
+								>
+									Restore
+								</Button>
+							{/snippet}
+						</Card>
+					{:else}
+						<Card>
+							<p class="text-caption text-muted-foreground">
+								No checkpoints recorded for this loop.
+							</p>
+						</Card>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>

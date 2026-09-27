@@ -6,16 +6,24 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
+		executeTool,
+		getSkillContent,
 		listModelProfiles,
 		listProviders,
-		listTools,
 		listScripts,
 		listSkills,
+		listTools,
 		setSkillEnabled,
 		setToolEnabled,
+		validateToolParams,
 	} from '$lib/services/resources';
 	import type {
 		ModelProfile,
@@ -23,6 +31,7 @@
 		Script,
 		Skill,
 		Tool,
+		ToolRun,
 	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
@@ -58,6 +67,9 @@
 	let scripts = $state<Script[]>([]);
 	let skills = $state<Skill[]>([]);
 
+	let tabError = $state<string | null>(null);
+	let tabLoading = $state(false);
+
 	let toolEnabled = $state<Record<string, boolean>>({});
 	let skillEnabled = $state<Record<string, boolean>>({});
 
@@ -66,6 +78,19 @@
 	let seenTools = $state(false);
 	let seenScripts = $state(false);
 	let seenSkills = $state(false);
+
+	let toolDialogOpen = $state(false);
+	let activeTool = $state<Tool | null>(null);
+	let toolParams = $state('{}');
+	let toolIssues = $state<string[]>([]);
+	let toolValidated = $state(false);
+	let toolRun = $state<ToolRun | null>(null);
+	let toolBusy = $state(false);
+
+	let skillDialogOpen = $state(false);
+	let activeSkill = $state<Skill | null>(null);
+	let skillContent = $state('');
+	let skillContentError = $state<string | null>(null);
 
 	onMount(() => {
 		void loadTab(tab);
@@ -76,41 +101,39 @@
 	});
 
 	async function loadTab(current: string): Promise<void> {
+		tabLoading = true;
+		tabError = null;
 		try {
 			if (current === 'models' && !seenModels) {
 				seenModels = true;
-				modelProfiles = await listModelProfiles().catch(() => []);
-				providers = await listProviders().catch(() => []);
+				modelProfiles = await listModelProfiles();
+				providers = await listProviders();
 			} else if (current === 'tools' && !seenTools) {
 				seenTools = true;
-				const toolPage = await listTools({ limit: 200 }).catch(() => ({
-					items: [],
-					hasMore: false,
-					limit: 0,
-					offset: 0,
-				}));
+				const toolPage = await listTools({ limit: 200 });
 				tools = toolPage.items;
 				toolEnabled = Object.fromEntries(
 					tools.map((tool) => [tool.id, tool.enabled]),
 				);
 			} else if (current === 'scripts' && !seenScripts) {
 				seenScripts = true;
-				const scriptPage = await listScripts({ limit: 200 }).catch(() => ({
-					items: [],
-					hasMore: false,
-					limit: 0,
-					offset: 0,
-				}));
+				const scriptPage = await listScripts({ limit: 200 });
 				scripts = scriptPage.items;
 			} else if (current === 'skills' && !seenSkills) {
 				seenSkills = true;
-				skills = await listSkills().catch(() => []);
+				skills = await listSkills();
 				skillEnabled = Object.fromEntries(
 					skills.map((skill) => [skill.id, skill.enabled]),
 				);
 			}
 		} catch (e) {
-			console.error('Failed to load resources segment:', e);
+			tabError = e instanceof Error ? e.message : 'Resources failed.';
+			if (current === 'models') seenModels = false;
+			if (current === 'tools') seenTools = false;
+			if (current === 'scripts') seenScripts = false;
+			if (current === 'skills') seenSkills = false;
+		} finally {
+			tabLoading = false;
 		}
 	}
 
@@ -123,22 +146,114 @@
 	}
 
 	async function toggleTool(id: string, checked: boolean): Promise<void> {
+		const previous = toolEnabled[id] ?? false;
 		toolEnabled = { ...toolEnabled, [id]: checked };
 		try {
 			await setToolEnabled(id, checked);
 		} catch (e) {
-			console.error('Failed to toggle tool:', e);
+			toolEnabled = { ...toolEnabled, [id]: previous };
+			toasts.error(
+				'Tool toggle failed',
+				e instanceof Error ? e.message : undefined,
+			);
 		}
 	}
 
 	async function toggleSkill(name: string, checked: boolean): Promise<void> {
 		const row = skills.find((s) => s.id === name);
 		const key = row?.name ?? name;
+		const previous = skillEnabled[name] ?? false;
 		skillEnabled = { ...skillEnabled, [name]: checked };
 		try {
 			await setSkillEnabled(key, checked);
 		} catch (e) {
-			console.error('Failed to toggle skill:', e);
+			skillEnabled = { ...skillEnabled, [name]: previous };
+			toasts.error(
+				'Skill toggle failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
+	}
+
+	function openToolDialog(tool: Tool): void {
+		activeTool = tool;
+		toolParams = '{}';
+		toolIssues = [];
+		toolValidated = false;
+		toolRun = null;
+		toolDialogOpen = true;
+	}
+
+	function parseToolParams(): {
+		value: Record<string, unknown> | null;
+		error: string | null;
+	} {
+		try {
+			const value = JSON.parse(toolParams) as unknown;
+			if (!value || typeof value !== 'object' || Array.isArray(value)) {
+				return { value: null, error: 'Parameters must be a JSON object' };
+			}
+			return { value: value as Record<string, unknown>, error: null };
+		} catch (e) {
+			return {
+				value: null,
+				error: e instanceof Error ? e.message : 'Invalid JSON',
+			};
+		}
+	}
+
+	async function runToolValidation(): Promise<void> {
+		if (!activeTool) return;
+		const { value, error } = parseToolParams();
+		if (!value) {
+			toolIssues = [error ?? 'Invalid JSON'];
+			toolValidated = false;
+			return;
+		}
+		toolBusy = true;
+		try {
+			toolIssues = await validateToolParams(activeTool.id, value);
+			toolValidated = true;
+		} catch (e) {
+			toolIssues = [e instanceof Error ? e.message : 'Validation failed.'];
+			toolValidated = false;
+		} finally {
+			toolBusy = false;
+		}
+	}
+
+	async function runToolExecute(): Promise<void> {
+		if (!activeTool) return;
+		const { value, error } = parseToolParams();
+		if (!value) {
+			toolIssues = [error ?? 'Invalid JSON'];
+			toolValidated = false;
+			return;
+		}
+		toolBusy = true;
+		toolRun = null;
+		try {
+			toolRun = await executeTool(activeTool.id, value);
+		} catch (e) {
+			toasts.error(
+				'Tool run failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			toolBusy = false;
+		}
+	}
+
+	async function openSkillDialog(skill: Skill): Promise<void> {
+		activeSkill = skill;
+		skillContent = '';
+		skillContentError = null;
+		skillDialogOpen = true;
+		try {
+			skillContent = await getSkillContent(skill.name);
+		} catch (e) {
+			skillContentError =
+				e instanceof Error ? e.message : 'Prompt failed to load.';
 		}
 	}
 </script>
@@ -154,7 +269,11 @@
 				label="Refresh"
 				onclick={() => void reload()}
 			/>
-			<Button size="sm" onclick={() => toasts.success('Creation form pending')}>
+			<Button
+				size="sm"
+				disabled
+				title="Resource creation is not available in this release"
+			>
 				<Icon name="plus" size={13} />
 				New
 			</Button>
@@ -169,7 +288,16 @@
 		aria-label="Resource sections"
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
-		{#if tab === 'models'}
+		{#if tabLoading}
+			<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+		{:else if tabError}
+			<ErrorState
+				title="Resources failed to load"
+				description={tabError}
+				onretry={() => void loadTab(tab)}
+				class="rounded-lg border border-border bg-card"
+			/>
+		{:else if tab === 'models'}
 			<div class="space-y-3">
 				<Card title="Model profiles" bodyClass="p-0">
 					<div class="overflow-x-auto">
@@ -280,52 +408,54 @@
 				</Card>
 			</div>
 		{:else if tab === 'tools'}
-			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-				{#each tools as tool (tool.id)}
-					<Card title={tool.name}>
-						{#snippet actions()}
-							<Switch
-								checked={toolEnabled[tool.id] ?? false}
-								label="Enable {tool.name}"
-								hideLabel
-								onchange={(checked) => void toggleTool(tool.id, checked)}
-							/>
-						{/snippet}
-						<p class="text-caption text-muted-foreground">{tool.description}</p>
-						<div
-							class="mt-2 flex items-center justify-between text-micro text-muted-foreground"
-						>
-							<span class="rounded border border-border px-1.5 py-0.5"
-								>{tool.kind}</span
+			{#if tools.length === 0}
+				<EmptyState
+					icon="blocks"
+					title="No tools registered"
+					description="Tools appear here once the registry has entries."
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+					{#each tools as tool (tool.id)}
+						<Card title={tool.name}>
+							{#snippet actions()}
+								<Switch
+									checked={toolEnabled[tool.id] ?? false}
+									label="Enable {tool.name}"
+									hideLabel
+									onchange={(checked) => void toggleTool(tool.id, checked)}
+								/>
+							{/snippet}
+							<p class="text-caption text-muted-foreground">{tool.description}</p>
+							<div
+								class="mt-2 flex items-center justify-between text-micro text-muted-foreground"
 							>
-							<span class="tabular-nums">
-								{formatNumber(tool.calls)} calls ·
-								{tool.successRate === null
-									? '—'
-									: formatPercent(tool.successRate, 0)} ok
-							</span>
-						</div>
-						{#snippet footer()}
-							<div class="flex items-center gap-2">
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => toasts.info('Parameter check pending')}
+								<span class="rounded border border-border px-1.5 py-0.5"
+									>{tool.kind}</span
 								>
-									Validate
-								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => toasts.info('Run pending')}
-								>
-									Run
-								</Button>
+								<span class="tabular-nums">
+									{formatNumber(tool.calls)} calls ·
+									{tool.successRate === null
+										? '—'
+										: formatPercent(tool.successRate, 0)} ok
+								</span>
 							</div>
-						{/snippet}
-					</Card>
-				{/each}
-			</div>
+							{#snippet footer()}
+								<div class="flex items-center gap-2">
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => openToolDialog(tool)}
+									>
+										Validate / Run
+									</Button>
+								</div>
+							{/snippet}
+						</Card>
+					{/each}
+				</div>
+			{/if}
 		{:else if tab === 'scripts'}
 			<Card bodyClass="p-0">
 				<div class="overflow-x-auto">
@@ -386,47 +516,133 @@
 				</div>
 			</Card>
 		{:else}
-			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-				{#each skills as skill (skill.id)}
-					<Card title={skill.name}>
-						{#snippet actions()}
-							<Switch
-								checked={skillEnabled[skill.id] ?? false}
-								label="Enable {skill.name}"
-								hideLabel
-								onchange={(checked) => void toggleSkill(skill.id, checked)}
-							/>
-						{/snippet}
-						<p class="text-caption text-muted-foreground">
-							{skill.description}
-						</p>
-						<p
-							class="mt-2 rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-muted-foreground"
-						>
-							{skill.promptPreview}
-						</p>
-						{#snippet footer()}
-							<div class="flex items-center justify-between">
-								<span
-									class={cn(
-										'tabular-nums',
-										skill.enabled ? 'text-success' : 'text-muted-foreground',
-									)}
-								>
-									v{skill.version}
-								</span>
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => toasts.info('Prompt preview')}
-								>
-									View prompt
-								</Button>
-							</div>
-						{/snippet}
-					</Card>
-				{/each}
-			</div>
+			{#if skills.length === 0}
+				<EmptyState
+					icon="sparkles"
+					title="No skills registered"
+					description="Skills appear here once the registry has entries."
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else}
+				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+					{#each skills as skill (skill.id)}
+						<Card title={skill.name}>
+							{#snippet actions()}
+								<Switch
+									checked={skillEnabled[skill.id] ?? false}
+									label="Enable {skill.name}"
+									hideLabel
+									onchange={(checked) => void toggleSkill(skill.id, checked)}
+								/>
+							{/snippet}
+							<p class="text-caption text-muted-foreground">
+								{skill.description}
+							</p>
+							<p
+								class="mt-2 rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-muted-foreground"
+							>
+								{skill.promptPreview}
+							</p>
+							{#snippet footer()}
+								<div class="flex items-center justify-between">
+									<span
+										class={cn(
+											'tabular-nums',
+											skill.enabled ? 'text-success' : 'text-muted-foreground',
+										)}
+									>
+										v{skill.version}
+									</span>
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => void openSkillDialog(skill)}
+									>
+										View prompt
+									</Button>
+								</div>
+							{/snippet}
+						</Card>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
+
+<Dialog
+	bind:open={toolDialogOpen}
+	title={activeTool ? `Validate / run ${activeTool.name}` : 'Tool'}
+	description="Parameters validate against the tool schema before running."
+>
+	<Textarea
+		bind:value={toolParams}
+		placeholder={'{\n  "input": "value"\n}'}
+		class="min-h-32 font-mono text-small"
+	/>
+	{#if toolIssues.length > 0}
+		<ul class="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+			{#each toolIssues as issue, index (index)}
+				<li class="text-caption text-destructive">{issue}</li>
+			{/each}
+		</ul>
+	{:else if toolValidated}
+		<p class="mt-2 text-caption text-success">Parameters are valid.</p>
+	{/if}
+	{#if toolRun}
+		<div class="mt-2 rounded-md border border-border bg-muted/40 p-2">
+			<p class="text-caption">
+				{toolRun.success ? 'Succeeded' : `Failed: ${toolRun.error}`}
+			</p>
+			{#if toolRun.output}
+				<pre class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
+			{/if}
+			<p class="mt-1 text-micro text-muted-foreground">
+				{toolRun.durationMs}ms · {toolRun.retries} retries
+			</p>
+		</div>
+	{/if}
+	{#snippet footer()}
+		<div class="flex items-center justify-end gap-2">
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={toolBusy}
+				onclick={() => void runToolValidation()}
+			>
+				Validate
+			</Button>
+			<Button size="sm" disabled={toolBusy} onclick={() => void runToolExecute()}>
+				{toolBusy ? 'Running…' : 'Run'}
+			</Button>
+		</div>
+	{/snippet}
+</Dialog>
+
+<Dialog
+	bind:open={skillDialogOpen}
+	title={activeSkill ? `Prompt · ${activeSkill.name}` : 'Skill prompt'}
+>
+	{#if skillContentError}
+		<ErrorState
+			title="Prompt failed to load"
+			description={skillContentError}
+			onretry={() => {
+				if (activeSkill) void openSkillDialog(activeSkill);
+			}}
+		/>
+	{:else if !skillContent}
+		<Skeleton lines={6} />
+	{:else}
+		<pre
+			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small"
+		>{skillContent}</pre>
+	{/if}
+	{#snippet footer()}
+		<div class="flex items-center justify-end">
+			<Button variant="ghost" size="sm" onclick={() => (skillDialogOpen = false)}>
+				Close
+			</Button>
+		</div>
+	{/snippet}
+</Dialog>

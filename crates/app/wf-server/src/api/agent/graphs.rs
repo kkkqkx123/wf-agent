@@ -82,13 +82,135 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
+// ── typed decision-graph view docs (C1 mirrors) ───────────────────────
+// Mirror the `wf-api` decision-graph views so codegen produces real
+// types. The per-iteration column layout stays frontend-owned; the
+// backend only supplies topology plus iteration markers.
+
+/// One node of the agent decision graph.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct DecisionNodeDoc {
+    node_id: String,
+    #[serde(rename = "type")]
+    node_type: String,
+    description: String,
+    iteration: u32,
+    timestamp: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confidence: Option<f64>,
+}
+
+impl From<wf_api::agent::agent_graph::AgentDecisionNodeView> for DecisionNodeDoc {
+    fn from(view: wf_api::agent::agent_graph::AgentDecisionNodeView) -> Self {
+        Self {
+            node_id: view.node_id,
+            node_type: view.r#type,
+            description: view.description,
+            iteration: view.iteration,
+            timestamp: view.timestamp,
+            confidence: view.confidence,
+        }
+    }
+}
+
+/// One edge of the agent decision graph.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct DecisionEdgeDoc {
+    edge_id: String,
+    from_node_id: String,
+    to_node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    condition: Option<String>,
+    was_taken: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    probability: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    weight: Option<f64>,
+}
+
+impl From<wf_api::agent::agent_graph::AgentDecisionEdgeView> for DecisionEdgeDoc {
+    fn from(view: wf_api::agent::agent_graph::AgentDecisionEdgeView) -> Self {
+        Self {
+            edge_id: view.edge_id,
+            from_node_id: view.from_node_id,
+            to_node_id: view.to_node_id,
+            reason: view.reason,
+            condition: view.condition,
+            was_taken: view.was_taken,
+            probability: view.probability,
+            weight: view.weight,
+        }
+    }
+}
+
+/// Complete agent decision graph.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct DecisionGraphDoc {
+    agent_loop_id: String,
+    nodes: Vec<DecisionNodeDoc>,
+    edges: Vec<DecisionEdgeDoc>,
+    start_node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    end_node_id: Option<String>,
+    error_node_ids: Vec<String>,
+    total_paths: usize,
+    executed_paths: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graph_density: Option<f64>,
+}
+
+impl From<wf_api::agent::agent_graph::AgentDecisionGraphView> for DecisionGraphDoc {
+    fn from(view: wf_api::agent::agent_graph::AgentDecisionGraphView) -> Self {
+        Self {
+            agent_loop_id: view.agent_loop_id,
+            nodes: view.nodes.into_iter().map(DecisionNodeDoc::from).collect(),
+            edges: view.edges.into_iter().map(DecisionEdgeDoc::from).collect(),
+            start_node_id: view.start_node_id,
+            end_node_id: view.end_node_id,
+            error_node_ids: view.error_node_ids,
+            total_paths: view.total_paths,
+            executed_paths: view.executed_paths,
+            graph_density: view.graph_density,
+        }
+    }
+}
+
+/// One step of the agent execution path.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub(crate) struct ExecutionPathStepDoc {
+    step_no: u32,
+    node_id: String,
+    node_type: String,
+    description: String,
+    iteration: u32,
+    timestamp: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration: Option<i64>,
+}
+
+impl From<wf_api::agent::agent_graph::AgentExecutionPathStepView> for ExecutionPathStepDoc {
+    fn from(view: wf_api::agent::agent_graph::AgentExecutionPathStepView) -> Self {
+        Self {
+            step_no: view.step_no,
+            node_id: view.node_id,
+            node_type: view.node_type,
+            description: view.description,
+            iteration: view.iteration,
+            timestamp: view.timestamp,
+            duration: view.duration,
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/graph",
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Decision graph", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Decision graph: pure topology with iteration markers; column layout is frontend-owned", body = crate::envelope::ApiEnvelope<DecisionGraphDoc>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -99,7 +221,7 @@ pub(crate) async fn handle_decision_graph(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::decision_graph(&state.ctx, &path.id).await {
-        Ok(graph) => ok(graph).into_response(),
+        Ok(graph) => ok(DecisionGraphDoc::from(graph)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -110,7 +232,7 @@ pub(crate) async fn handle_decision_graph(
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Decision nodes", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Decision nodes", body = crate::envelope::ApiEnvelope<Vec<DecisionNodeDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -121,7 +243,8 @@ pub(crate) async fn handle_decision_nodes(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::decision_nodes(&state.ctx, &path.id).await {
-        Ok(nodes) => ok(nodes).into_response(),
+        Ok(nodes) => ok(nodes.into_iter().map(DecisionNodeDoc::from).collect::<Vec<_>>())
+            .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -132,7 +255,7 @@ pub(crate) async fn handle_decision_nodes(
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Decision edges", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Decision edges", body = crate::envelope::ApiEnvelope<Vec<DecisionEdgeDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -143,7 +266,8 @@ pub(crate) async fn handle_decision_edges(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::decision_edges(&state.ctx, &path.id).await {
-        Ok(edges) => ok(edges).into_response(),
+        Ok(edges) => ok(edges.into_iter().map(DecisionEdgeDoc::from).collect::<Vec<_>>())
+            .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -435,7 +559,7 @@ pub(crate) async fn handle_most_promising_unexplored(
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Execution path steps", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Execution path steps", body = crate::envelope::ApiEnvelope<Vec<ExecutionPathStepDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -446,7 +570,11 @@ pub(crate) async fn handle_execution_path_steps(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::execution_path_steps(&state.ctx, &path.id).await {
-        Ok(steps) => ok(steps).into_response(),
+        Ok(steps) => ok(steps
+            .into_iter()
+            .map(ExecutionPathStepDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

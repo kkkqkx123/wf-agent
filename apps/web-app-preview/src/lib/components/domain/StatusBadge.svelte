@@ -37,6 +37,7 @@
 >
 	{#if dot}
 		<span
+			aria-hidden="true"
 			class={cn(
 				'h-1.5 w-1.5 shrink-0 rounded-full bg-current',
 				tone === 'running' && 'animate-pulse-dot',

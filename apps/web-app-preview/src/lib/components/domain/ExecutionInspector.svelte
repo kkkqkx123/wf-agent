@@ -41,23 +41,33 @@
 	let toolCalls = $state<ToolCallEntry[]>([]);
 	let timeline = $state<TimelineEntry[]>([]);
 
+	/** Sources already pulled for this execution, so a tab loads once. */
+	let seenTools = $state('');
+	let seenTimeline = $state('');
+
 	$effect(() => {
 		const id = execution.id;
 		if (!id) return;
-		void getExecutionToolCalls(id)
-			.then((rows) => {
-				toolCalls = rows;
-			})
-			.catch(() => {
-				toolCalls = [];
-			});
-		void getExecutionTimeline(id)
-			.then((rows) => {
-				timeline = rows;
-			})
-			.catch(() => {
-				timeline = [];
-			});
+		if (tab === 'tools' && seenTools !== id) {
+			seenTools = id;
+			void getExecutionToolCalls(id)
+				.then((rows) => {
+					toolCalls = rows;
+				})
+				.catch(() => {
+					toolCalls = [];
+				});
+		}
+		if (tab === 'timeline' && seenTimeline !== id) {
+			seenTimeline = id;
+			void getExecutionTimeline(id)
+				.then((rows) => {
+					timeline = rows;
+				})
+				.catch(() => {
+					timeline = [];
+				});
+		}
 	});
 
 	const TABS = [
@@ -132,9 +142,14 @@
 		</dl>
 	</div>
 
-	<Segmented items={TABS} bind:value={tab} size="sm" class="px-2" />
+	<Segmented items={TABS} bind:value={tab} size="sm" class="px-2" panelId="execution-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+	<div
+		id="execution-panel"
+		role="tabpanel"
+		aria-label="Execution sections"
+		class="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+	>
 		{#if tab === 'overview'}
 			<div class="space-y-3">
 				<Card title="Context">

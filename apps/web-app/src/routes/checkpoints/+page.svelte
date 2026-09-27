@@ -10,12 +10,25 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DiffView from '$lib/components/domain/DiffView.svelte';
+	import JsonViewer from '$lib/components/domain/JsonViewer.svelte';
+	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import { downloadFile } from '$lib/api/client';
 	import {
 		listCheckpoints,
-		getFileChanges,
+		getFileChangesPage,
 		getApprovalRequests,
 		getStagedDiffs,
+		getDiffActors,
+		getFileContent,
+		getFileTree,
+		getFileTimeline,
+		approveApproval,
+		rejectApproval,
+		type FileContent,
 		type FileDiff,
+		type FileTimeline,
+		type FileTree,
 	} from '$lib/services/checkpoints';
 	import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -50,24 +63,77 @@
 	let stagedDiff = $state<FileDiff | null>(null);
 	let diffNote = $state<string | null>(null);
 	let diffLoading = $state(false);
+	let previewContent = $state<FileContent | null>(null);
+	let previewTimeline = $state<FileTimeline | null>(null);
+	let previewTree = $state<FileTree | null>(null);
+	let changesHasMore = $state(false);
+	let changesLoading = $state(false);
+	let changesOffset = $state(0);
+
+	const CHANGES_PAGE = 100;
+
+	/** Segment sources already pulled, so a tab loads once. */
+	let seenChain = $state(false);
+	let seenFiles = $state(false);
+	let seenApprovals = $state(false);
 
 	onMount(() => {
-		void reload();
+		void loadTab(tab);
 	});
 
-	async function reload(): Promise<void> {
+	$effect(() => {
+		void loadTab(tab);
+	});
+
+	async function loadTab(current: string): Promise<void> {
 		try {
-			const [chain, files, pending] = await Promise.all([
-				listCheckpoints({ limit: 200 }),
-				getFileChanges(),
-				getApprovalRequests(),
-			]);
-			checkpoints = chain.items;
-			fileChanges = files;
-			approvals = pending;
+			if (current === 'chain' && !seenChain) {
+				seenChain = true;
+				checkpoints = (await listCheckpoints({ limit: 200 })).items;
+			} else if (current === 'files' && !seenFiles) {
+				seenFiles = true;
+				const page = await getFileChangesPage({ limit: CHANGES_PAGE });
+				fileChanges = page.items;
+				changesOffset = page.items.length;
+				changesHasMore = page.hasMore;
+			} else if (current === 'approvals' && !seenApprovals) {
+				seenApprovals = true;
+				approvals = await getApprovalRequests();
+			}
 		} catch (e) {
-			console.error('Failed to load checkpoints:', e);
+			console.error('Failed to load checkpoints segment:', e);
 		}
+	}
+
+	async function loadMoreChanges(): Promise<void> {
+		if (changesLoading || !changesHasMore) return;
+		changesLoading = true;
+		try {
+			const page = await getFileChangesPage({
+				limit: CHANGES_PAGE,
+				offset: changesOffset,
+			});
+			fileChanges = [...fileChanges, ...page.items];
+			changesOffset += page.items.length;
+			changesHasMore = page.hasMore;
+		} catch (e) {
+			console.error('Failed to load more changes:', e);
+			toasts.error('More changes unavailable');
+		} finally {
+			changesLoading = false;
+		}
+	}
+
+	async function reload(): Promise<void> {
+		seenChain = false;
+		seenFiles = false;
+		seenApprovals = false;
+		checkpoints = [];
+		fileChanges = [];
+		approvals = [];
+		changesOffset = 0;
+		changesHasMore = false;
+		await loadTab(tab);
 	}
 
 	const CHANGE_TONE: Record<string, string> = {
@@ -80,6 +146,9 @@
 	async function selectChange(change: FileChange): Promise<void> {
 		selectedChangeId = change.id;
 		stagedDiff = null;
+		previewContent = null;
+		previewTimeline = null;
+		previewTree = null;
 		diffNote = null;
 		if (!change.actor) {
 			diffNote = 'No actor recorded for this change';
@@ -87,19 +156,84 @@
 		}
 		diffLoading = true;
 		try {
-			const diffs = await getStagedDiffs(change.actor);
-			const match = diffs.find((diff) => diff.path === change.path) ?? null;
+			const [diffs, content, timeline, tree] = await Promise.all([
+				(async () => {
+					if (change.session && change.session !== change.actor) {
+						try {
+							const paired = await getDiffActors(
+								change.actor,
+								change.session,
+							);
+							const hit = paired.find((diff) => diff.path === change.path);
+							if (hit) return [hit];
+						} catch {
+							// Fall through to the single-actor staged diff.
+						}
+					}
+					const staged = await getStagedDiffs(change.actor);
+					return staged.filter((diff) => diff.path === change.path);
+				})(),
+				getFileContent(change.actor, change.path).catch(() => null),
+				getFileTimeline(change.path).catch(() => null),
+				getFileTree(change.actor).catch(() => null),
+			]);
+			const match = diffs[0] ?? null;
 			if (!match) {
 				diffNote = 'No staged diff for this path';
-				return;
+			} else {
+				stagedDiff = match;
 			}
-			stagedDiff = match;
+			previewContent = content;
+			previewTimeline = timeline;
+			previewTree = tree;
 		} catch (e) {
 			console.error('Failed to load staged diff:', e);
 			diffNote = 'Staged diff unavailable';
 			toasts.error('Staged diff unavailable');
 		} finally {
 			diffLoading = false;
+		}
+	}
+
+	function isMarkdownPath(path: string): boolean {
+		return /\.markdown?$/i.test(path);
+	}
+
+	function isJsonText(text: string): boolean {
+		const trimmed = text.trim();
+		if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false;
+		try {
+			JSON.parse(trimmed);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	function downloadPreview(): void {
+		const content = previewContent;
+		if (!content) return;
+		const name = content.path.split('/').pop() || 'preview';
+		const query = `actor=${encodeURIComponent(content.actor)}&path=${encodeURIComponent(content.path)}`;
+		void downloadFile(`/api/v1/file-checkpoint/content?${query}`, name).catch(
+			() => toasts.error('Download unavailable'),
+		);
+	}
+	async function decideApproval(approval: Approval, granted: boolean): Promise<void> {
+		try {
+			if (granted) {
+				await approveApproval(approval.id);
+				toasts.success('Approval granted');
+			} else {
+				await rejectApproval(approval.id);
+				toasts.warning('Approval rejected');
+			}
+			seenApprovals = false;
+			approvals = [];
+			await loadTab(tab);
+		} catch (e) {
+			console.error('Failed to resolve approval:', e);
+			toasts.error('Approval decision failed');
 		}
 	}
 </script>
@@ -125,9 +259,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="checkpoints-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="checkpoints-panel"
+		role="tabpanel"
+		aria-label="Checkpoint sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'chain'}
 			<div class="space-y-2">
 				{#each checkpoints as checkpoint (checkpoint.id)}
@@ -223,6 +362,15 @@
 							</li>
 						{/each}
 					</ul>
+					{#snippet footer()}
+						<LoadMorePager
+							shown={fileChanges.length}
+							hasMore={changesHasMore}
+							loading={changesLoading}
+							pageSize={CHANGES_PAGE}
+							onloadmore={() => void loadMoreChanges()}
+						/>
+					{/snippet}
 				</Card>
 
 				<div class="space-y-3">
@@ -250,6 +398,86 @@
 							<p class="text-caption text-muted-foreground">
 								{diffNote ?? 'Select a change to preview its staged diff'}
 							</p>
+						</Card>
+					{/if}
+					{#if previewContent && !previewContent.isBinary && previewContent.content !== null}
+						<Card title={previewContent.path}>
+							{#snippet actions()}
+								<Button variant="ghost" size="sm" onclick={downloadPreview}>
+									<Icon name="download" size={13} />
+									Download
+								</Button>
+							{/snippet}
+							{#if isMarkdownPath(previewContent.path)}
+								<StreamMarkdown content={previewContent.content} done />
+							{:else if isJsonText(previewContent.content)}
+								<JsonViewer value={previewContent.content} />
+							{:else}
+								<pre
+									class="max-h-64 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground"
+								>{previewContent.content}</pre>
+							{/if}
+							<p class="mt-1.5 text-micro tabular-nums text-muted-foreground">
+								{formatBytes(previewContent.size)}{previewContent.truncated
+									? ' · truncated'
+									: ''}
+							</p>
+						</Card>
+					{:else if previewContent?.isBinary}
+						<Card title={previewContent.path}>
+							<p class="text-caption text-muted-foreground">
+								Binary content has no text preview
+							</p>
+						</Card>
+					{/if}
+					{#if previewTimeline && previewTimeline.entries.length > 0}
+						<Card
+							title="Version history"
+							description="{previewTimeline.total} versions{previewTimeline.truncated
+								? ' · truncated'
+								: ''}"
+						>
+							<ul class="space-y-1.5">
+								{#each previewTimeline.entries.slice(0, 8) as entry (entry.snapshotId)}
+									<li
+										class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
+									>
+										<span class="font-mono text-micro text-muted-foreground"
+											>{entry.snapshotId.slice(0, 10)}</span
+										>
+										<span class="min-w-0 flex-1 truncate">{entry.source}</span>
+										<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
+											>{formatRelativeTime(
+												new Date(entry.timestamp).toISOString(),
+											)}</span
+										>
+									</li>
+								{/each}
+							</ul>
+						</Card>
+					{/if}
+					{#if previewTree && previewTree.entries.length > 0}
+						<Card
+							title="Workspace tree"
+							description="{previewTree.total} files{previewTree.truncated
+								? ' · truncated'
+								: ''}"
+						>
+							<ul class="space-y-1">
+								{#each previewTree.entries.slice(0, 10) as entry (entry.path)}
+									<li
+										class="flex items-center justify-between gap-2 text-caption"
+									>
+										<span class="min-w-0 flex-1 truncate font-mono"
+											>{entry.path}</span
+										>
+										<span
+											class="shrink-0 text-micro tabular-nums text-muted-foreground"
+											>{formatBytes(entry.size)}</span
+										>
+									</li>
+								{/each}
+							</ul>
 						</Card>
 					{/if}
 					<Card title="Session actions">
@@ -303,7 +531,7 @@
 								<div class="flex items-center gap-2">
 									<Button
 										size="sm"
-										onclick={() => toasts.success('Approval granted')}
+										onclick={() => void decideApproval(approval, true)}
 									>
 										<Icon name="check" size={13} />
 										Approve
@@ -311,7 +539,7 @@
 									<Button
 										variant="outline"
 										size="sm"
-										onclick={() => toasts.warning('Approval rejected')}
+										onclick={() => void decideApproval(approval, false)}
 									>
 										<Icon name="x" size={13} />
 										Reject

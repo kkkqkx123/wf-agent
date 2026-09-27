@@ -147,10 +147,32 @@ function toFileChange(d: FileChangeDto, index: number): FileChange {
 }
 
 /** File changes for an execution or checkpoint. */
-export async function getFileChanges(): Promise<FileChange[]> {
+export async function getFileChanges(params?: {
+	actor?: string;
+	path?: string;
+	limit?: number;
+	offset?: number;
+}): Promise<FileChange[]> {
+	return (await getFileChangesPage(params)).items;
+}
+
+/** Paged file changes with cursor state. */
+export async function getFileChangesPage(params?: {
+	actor?: string;
+	path?: string;
+	limit?: number;
+	offset?: number;
+}): Promise<PageResult<FileChange>> {
 	const data = await call<unknown>(
 		request('GET', '/api/v1/file-checkpoint/changes', {
-			params: { query: {} },
+			params: {
+				query: {
+					actor: params?.actor,
+					path: params?.path,
+					limit: params?.limit,
+					offset: params?.offset,
+				},
+			},
 		}),
 	);
 	const page = extractPage<FileChangeDto>(data);
@@ -160,7 +182,10 @@ export async function getFileChanges(): Promise<FileChange[]> {
 			: Array.isArray(data)
 				? (data as FileChangeDto[])
 				: [];
-	return rows.map((d, index) => toFileChange(d, index));
+	return {
+		...page,
+		items: rows.map((d, index) => toFileChange(d, index)),
+	};
 }
 
 interface ApprovalDto {
@@ -316,7 +341,6 @@ function toFileDiff(d: FileDiffDto): FileDiff {
 		truncated: parsed.truncated,
 	};
 }
-
 /** Per-file staged diffs for one actor workspace, backing the diff preview. */
 export async function getStagedDiffs(actor: string): Promise<FileDiff[]> {
 	const data = await call<unknown>(
@@ -328,4 +352,175 @@ export async function getStagedDiffs(actor: string): Promise<FileDiff[]> {
 		? (data as FileDiffDto[])
 		: extractPage<FileDiffDto>(data).items;
 	return rows.map(toFileDiff);
+}
+
+/** Per-file diff between two actor workspaces. */
+export async function getDiffActors(a: string, b: string): Promise<FileDiff[]> {
+	const data = await call<unknown>(
+		request('GET', '/api/v1/file-checkpoint/diff/actors/{a}/{b}', {
+			params: { path: { a, b } },
+		}),
+	);
+	const rows = Array.isArray(data)
+		? (data as FileDiffDto[])
+		: extractPage<FileDiffDto>(data).items;
+	return rows.map(toFileDiff);
+}
+
+export interface FileContent {
+	path: string;
+	actor: string;
+	hash: string;
+	size: number;
+	isBinary: boolean;
+	content: string | null;
+	truncated: boolean;
+	timestamp: number;
+}
+
+interface FileContentDto {
+	path?: string;
+	actor?: string;
+	hash?: string;
+	size?: number;
+	is_binary?: boolean;
+	isBinary?: boolean;
+	content?: string | null;
+	truncated?: boolean;
+	timestamp?: number;
+}
+
+/** Read-only file content for one actor workspace. */
+export async function getFileContent(
+	actor: string,
+	path: string,
+): Promise<FileContent> {
+	const data = await call<FileContentDto>(
+		request('GET', '/api/v1/file-checkpoint/content', {
+			params: { query: { actor, path } },
+		}),
+	);
+	const view = data ?? {};
+	return {
+		path: view.path ?? path,
+		actor: view.actor ?? actor,
+		hash: view.hash ?? '',
+		size: view.size ?? 0,
+		isBinary: view.is_binary ?? view.isBinary ?? view.content == null,
+		content: view.content ?? null,
+		truncated: view.truncated ?? false,
+		timestamp: view.timestamp ?? 0,
+	};
+}
+
+export interface FileTreeEntry {
+	path: string;
+	hash: string;
+	size: number;
+	timestamp: number;
+}
+
+export interface FileTree {
+	entries: FileTreeEntry[];
+	truncated: boolean;
+	total: number;
+}
+
+interface FileTreeDto {
+	entries?: FileTreeEntry[];
+	truncated?: boolean;
+	total?: number;
+}
+
+/** Capped directory tree for one actor workspace. */
+export async function getFileTree(
+	actor: string,
+	prefix?: string,
+): Promise<FileTree> {
+	const data = await call<FileTreeDto>(
+		request('GET', '/api/v1/file-checkpoint/tree/{id}', {
+			params: { path: { id: actor }, query: { prefix } },
+		}),
+	);
+	return {
+		entries: data?.entries ?? [],
+		truncated: data?.truncated ?? false,
+		total: data?.total ?? data?.entries?.length ?? 0,
+	};
+}
+
+export interface FileTimelineEntry {
+	path: string;
+	snapshotId: string;
+	contentHash: string;
+	timestamp: number;
+	source: string;
+	movedFrom?: string | null;
+}
+
+export interface FileTimeline {
+	originalPath: string;
+	entries: FileTimelineEntry[];
+	truncated: boolean;
+	total: number;
+}
+
+interface FileTimelineDto {
+	original_path?: string;
+	originalPath?: string;
+	entries?: Array<{
+		path?: string;
+		snapshot_id?: string;
+		snapshotId?: string;
+		content_hash?: string;
+		contentHash?: string;
+		timestamp?: number;
+		source?: string;
+		moved_from?: string | null;
+		movedFrom?: string | null;
+	}>;
+	truncated?: boolean;
+	total?: number;
+}
+
+/** Version timeline for one file path, including rename history. */
+export async function getFileTimeline(path: string): Promise<FileTimeline> {
+	const data = await call<FileTimelineDto>(
+		request('GET', '/api/v1/file-checkpoint/timeline/{id}', {
+			params: { path: { id: path } },
+		}),
+	);
+	return {
+		originalPath: data?.original_path ?? data?.originalPath ?? path,
+		entries: (data?.entries ?? []).map((entry) => ({
+			path: entry.path ?? path,
+			snapshotId: entry.snapshot_id ?? entry.snapshotId ?? '',
+			contentHash: entry.content_hash ?? entry.contentHash ?? '',
+			timestamp: entry.timestamp ?? 0,
+			source: entry.source ?? '',
+			movedFrom: entry.moved_from ?? entry.movedFrom ?? null,
+		})),
+		truncated: data?.truncated ?? false,
+		total: data?.total ?? data?.entries?.length ?? 0,
+	};
+}
+
+/** Approve a pending approval request. */
+export async function approveApproval(id: string): Promise<void> {
+	await call<unknown>(
+		request('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', {
+			params: { path: { id } },
+			body: {},
+		}),
+	);
+}
+
+/** Reject a pending approval request with an optional reason. */
+export async function rejectApproval(id: string, reason?: string): Promise<void> {
+	await call<unknown>(
+		request('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', {
+			params: { path: { id } },
+			body: { reason: reason ?? null },
+		}),
+	);
 }

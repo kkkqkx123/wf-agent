@@ -47,28 +47,47 @@
 	let dependencies = $state<Dependency[]>([]);
 	let diagnostics = $state<Diagnostic[]>([]);
 
+	/** Segment sources already pulled, so a tab loads once. */
+	let seenStream = $state(false);
+	let seenDeps = $state(false);
+	let seenOps = $state(false);
+
 	onMount(() => {
-		void reload();
+		void loadTab(tab);
 	});
 
-	async function reload(): Promise<void> {
+	$effect(() => {
+		void loadTab(tab);
+	});
+
+	async function loadTab(current: string): Promise<void> {
 		try {
-			const [eventPage, deps, diags] = await Promise.all([
-				listEvents({ limit: 200 }).catch(() => ({
+			if (current === 'stream' && !seenStream) {
+				seenStream = true;
+				const eventPage = await listEvents({ limit: 200 }).catch(() => ({
 					items: [],
 					hasMore: false,
 					limit: 0,
 					offset: 0,
-				})),
-				listDependencies().catch(() => []),
-				getDiagnostics().catch(() => []),
-			]);
-			events = eventPage.items;
-			dependencies = deps;
-			diagnostics = diags;
+				}));
+				events = eventPage.items;
+			} else if (current === 'dependencies' && !seenDeps) {
+				seenDeps = true;
+				dependencies = await listDependencies().catch(() => []);
+			} else if (current === 'operations' && !seenOps) {
+				seenOps = true;
+				diagnostics = await getDiagnostics().catch(() => []);
+			}
 		} catch (e) {
-			console.error('Failed to load events:', e);
+			console.error('Failed to load events segment:', e);
 		}
+	}
+
+	async function reload(): Promise<void> {
+		seenStream = false;
+		seenDeps = false;
+		seenOps = false;
+		await loadTab(tab);
 	}
 
 	async function clearEvents(): Promise<void> {
@@ -103,8 +122,10 @@
 			<span
 				class="flex items-center gap-1.5 text-caption text-muted-foreground"
 			>
-				<span class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot"
-				></span>
+				<span
+				class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot"
+				aria-hidden="true"
+			></span>
 				stream subscribed
 			</span>
 		{/snippet}
@@ -121,9 +142,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="events-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="events-panel"
+		role="tabpanel"
+		aria-label="Event sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'stream'}
 			<div class="mb-3 flex items-center gap-2">
 				<div class="relative flex-1">

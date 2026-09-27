@@ -401,4 +401,7 @@ export interface ToolCallEntry {
 	durationMs: number;
 	input: string;
 	output: string;
+	endpoint?: string;
+	exitCode?: number | null;
+	approvalId?: string;
 }

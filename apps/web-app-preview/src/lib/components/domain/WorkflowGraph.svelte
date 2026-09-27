@@ -120,10 +120,13 @@
 
 		{#each graph.nodes as node (node.id)}
 			{@const tone = statusTone(node.status)}
+			{@const selected = selectedId === node.id}
 			<g
 				role="button"
 				tabindex="0"
 				aria-label={node.label}
+				aria-pressed={selected}
+				aria-current={selected ? 'true' : undefined}
 				class="cursor-pointer"
 				onclick={() => onselect?.(node.id)}
 				onkeydown={(event) => {
@@ -139,7 +142,7 @@
 					class={cn(
 						'stroke-1.5 transition-colors',
 						TONE_FILL[tone],
-						selectedId === node.id && 'stroke-[hsl(var(--ring))] stroke-2',
+						selected && 'stroke-[hsl(var(--ring))] stroke-2',
 					)}
 				/>
 				<text

@@ -63,25 +63,46 @@
 	let errorAnalyses = $state<ErrorAnalysis[]>([]);
 	let perfNodes = $state<PerfNode[]>([]);
 
+	/** Segment sources already pulled, so a tab loads once. */
+	let seenQuery = $state(false);
+	let seenAudit = $state(false);
+	let seenErrors = $state(false);
+	let seenPerf = $state(false);
+
 	onMount(() => {
-		void reload();
+		void loadTab(tab);
 	});
 
-	async function reload(): Promise<void> {
+	$effect(() => {
+		void loadTab(tab);
+	});
+
+	async function loadTab(current: string): Promise<void> {
 		try {
-			const [query, audits, errors, perf] = await Promise.all([
-				getQueryResult(),
-				listInsightAuditReports(),
-				listErrorAnalyses(),
-				listPerformanceNodes(),
-			]);
-			queryResult = query;
-			auditReports = audits;
-			errorAnalyses = errors;
-			perfNodes = perf;
+			if (current === 'query' && !seenQuery) {
+				seenQuery = true;
+				queryResult = await getQueryResult();
+			} else if (current === 'audit' && !seenAudit) {
+				seenAudit = true;
+				auditReports = await listInsightAuditReports();
+			} else if (current === 'errors' && !seenErrors) {
+				seenErrors = true;
+				errorAnalyses = await listErrorAnalyses();
+			} else if (current === 'performance' && !seenPerf) {
+				seenPerf = true;
+				perfNodes = await listPerformanceNodes();
+			}
 		} catch (e) {
-			console.error('Failed to load insights:', e);
+			console.error('Failed to load insights segment:', e);
 		}
+	}
+
+	async function reload(): Promise<void> {
+		seenQuery = false;
+		seenAudit = false;
+		seenErrors = false;
+		seenPerf = false;
+		await loadTab(tab);
 	}
 
 	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
@@ -171,9 +192,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="insights-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="insights-panel"
+		role="tabpanel"
+		aria-label="Insight sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'query'}
 			<div class="space-y-3">
 				<Card title="Ad-hoc query">
@@ -215,6 +241,7 @@
 					columns={auditColumns}
 					rows={auditReports}
 					rowKey={(row) => row.id}
+					emptyDescription="The backend exposes per-execution audit reports only, with no global aggregator yet."
 				/>
 			</Card>
 			<div class="mt-3 flex flex-wrap gap-2">
@@ -245,6 +272,7 @@
 					columns={errorColumns}
 					rows={errorAnalyses}
 					rowKey={(row) => row.id}
+					emptyDescription="The backend exposes per-execution error analysis only, with no global aggregator yet."
 				/>
 			</Card>
 			<div class="mt-3 grid gap-3 lg:grid-cols-2">

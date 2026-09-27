@@ -2,14 +2,14 @@
  
 ## 概述
  
-`sync-web-app-preview.sh` 脚本将 `apps/web-app` 的源码完整同步到 `apps/web-app-preview`，确保预览项目始终与主项目路由、组件、store、服务层保持一致。Preview 端只需替换一个文件——`src/lib/api/client.ts`——把真实的 openapi-fetch 客户端换成基于 fixtures 的 mock 实现，即可在无后端的情况下完整跑通所有页面。
+`sync-frontend-preview.sh` 脚本将 `apps/web-app` 的源码完整同步到 `apps/web-app-preview`，确保预览项目始终与主项目路由、组件、store、服务层保持一致。Preview 端只需替换一个文件——`src/lib/api/client.ts`——把真实的 openapi-fetch 客户端换成基于 fixtures 的 mock 实现，即可在无后端的情况下完整跑通所有页面。
  
 这种 "全量镜像 + 单文件覆盖" 的设计避免了两套代码分叉带来的维护负担：主项目只维护一份 UI/业务逻辑，预览项目只需维护 fixtures 和 mock client，其他一切由同步脚本保证一致。
  
 ## 位置
  
 ```
-scripts/sync-web-app-preview.sh
+scripts/sync-frontend-preview.sh
 ```
  
 ## 使用方法
@@ -99,7 +99,7 @@ apps/web-app (主项目)          apps/web-app-preview (预览)
  
 1. 运行同步脚本：
 ```bash
-./scripts/sync-web-app-preview.sh
+./scripts/sync-frontend-preview.sh
 ```
  
 2. 如果新增了数据字段（`src/lib/types/models.ts` 有变更），手动更新 preview 端的 fixtures：
@@ -171,11 +171,7 @@ sync-preview:
       - name: Install dependencies
         run: sudo apt-get install -y rsync jq
       - name: Sync web-app-preview
-        run: ./scripts/sync-web-app-preview.sh
+        run: ./scripts/sync-frontend-preview.sh
       - name: Check for uncommitted changes
         run: git diff --exit-code apps/web-app-preview/
 ```
-sync-web-app-preview.sh
-/workspace/scripts
-+191
--0

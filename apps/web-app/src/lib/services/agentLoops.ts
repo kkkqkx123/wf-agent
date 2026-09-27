@@ -51,12 +51,10 @@ export async function listAgentLoops(params?: {
 	};
 }
 
-/** Detailed view of a single agent loop. */
+/** Detailed view of a single agent loop. Segment data loads on demand. */
 export async function getAgentLoopDetail(id: string): Promise<AgentLoopDetail> {
-	const [summary, messages, variables, graph] = await Promise.all([
+	const [summary, graph] = await Promise.all([
 		getApiLoop(id).catch(() => null),
-		listApiMessages(id).catch(() => null),
-		listApiVariables(id).catch(() => null),
 		getApiGraph(id).catch(() => null),
 	]);
 	return {
@@ -74,8 +72,8 @@ export async function getAgentLoopDetail(id: string): Promise<AgentLoopDetail> {
 		starred: summary?.starred ?? false,
 		tags: summary?.tags ?? [],
 		summary: '',
-		messages: messages?.items ?? [],
-		variables: variables ?? [],
+		messages: [],
+		variables: [],
 		iterations: [],
 		graph: graph ?? { nodes: [], edges: [] },
 		analysis: {

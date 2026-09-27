@@ -8,6 +8,12 @@ import type {
 	TimelineEntry,
 	ToolCallEntry,
 } from '$lib/types/models';
+import {
+	inferToolKind,
+	parseApprovalId,
+	parseToolEndpoint,
+	parseToolExitCode,
+} from '$lib/utils/toolcalls';
 
 interface ExecutionDto {
 	id?: string;
@@ -164,22 +170,29 @@ function stringify(value: unknown): string {
 }
 
 function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
+	const name = d.name ?? d.tool ?? '';
+	const kind = d.kind ?? inferToolKind(name);
+	const input =
+		typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments);
+	const output =
+		typeof d.output === 'string'
+			? d.output
+			: (d.error ?? stringify(d.output ?? d.result));
 	return {
 		id: d.id ?? d.tool_call_id ?? `tc-${index}`,
-		name: d.name ?? d.tool ?? '',
-		kind: d.kind ?? '',
+		name,
+		kind,
 		status:
 			d.status ??
 			(d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
 		startedAt:
 			typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
 		durationMs: d.duration_ms ?? d.durationMs ?? 0,
-		input:
-			typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments),
-		output:
-			typeof d.output === 'string'
-				? d.output
-				: (d.error ?? stringify(d.output ?? d.result)),
+		input,
+		output,
+		endpoint: parseToolEndpoint(input) || undefined,
+		exitCode: parseToolExitCode(output),
+		approvalId: parseApprovalId(input, output) || undefined,
 	};
 }
 

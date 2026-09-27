@@ -157,9 +157,12 @@
 </script>
 
 <div class={cn('flex min-h-0 flex-col', className)}>
-	<Segmented {items} bind:value={tab} size="sm" class="shrink-0 px-1" />
+	<Segmented {items} bind:value={tab} size="sm" class="shrink-0 px-1" panelId="session-panel" />
 
 	<div
+		id="session-panel"
+		role="tabpanel"
+		aria-label="Session sections"
 		class={cn(
 			'min-h-0 flex-1',
 			showTranscript ? 'flex flex-col' : 'overflow-y-auto px-3 py-3',

@@ -92,7 +92,7 @@
 		return {
 			id: tool.id,
 			name: tool.name,
-			kind: '',
+			kind: tool.kind ?? '',
 			status: tool.status,
 			startedAt: '',
 			durationMs: 0,
@@ -169,14 +169,15 @@
 				onIterationEnd: (iteration) => {
 					chatStream.iteration = iteration;
 				},
-				onToolStart: (toolCallId, toolName) =>
-					chatStream.toolStart(toolCallId, toolName),
+				onToolStart: (toolCallId, toolName, toolKind) =>
+					chatStream.toolStart(toolCallId, toolName, toolKind),
 				onToolEnd: (tool) =>
 					chatStream.toolEnd(
 						tool.toolCallId,
 						tool.toolName,
 						tool.success,
 						tool.result,
+						tool.toolKind,
 					),
 				onUsage: (usage) => {
 					chatStream.usage = usage;
@@ -351,6 +352,7 @@
 						{/if}
 						{#if chatStream.error}
 							<div
+								role="status"
 								class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-caption text-destructive"
 							>
 								{chatStream.error}
@@ -362,9 +364,11 @@
 								{/if}
 							</div>
 						{:else if chatStream.cancelled}
-							<p class="text-caption text-muted-foreground">
+							<p role="status" class="text-caption text-muted-foreground">
 								Run stopped before it finished.
 							</p>
+						{:else if chatStream.done}
+							<p role="status" class="sr-only">Run completed.</p>
 						{/if}
 						{#if chatStream.active}
 							<div class="flex items-center gap-2">

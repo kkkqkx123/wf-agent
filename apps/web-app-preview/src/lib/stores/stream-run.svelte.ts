@@ -6,6 +6,7 @@ export const STREAM_FLUSH_MS = 80;
 export interface LiveToolCall {
 	id: string;
 	name: string;
+	kind?: string;
 	status: 'pending' | 'running' | 'completed' | 'failed';
 	result: string;
 }
@@ -75,11 +76,13 @@ export class StreamRunStore {
 		if (text) this.reasoningPending += text;
 	}
 
-	toolStart(toolCallId: string, toolName: string): void {
+	toolStart(toolCallId: string, toolName: string, toolKind?: string): void {
 		if (!toolCallId) return;
 		const existing = this.tools.find((tool) => tool.id === toolCallId);
 		if (existing) {
 			existing.status = 'running';
+			if (toolKind) existing.kind = toolKind;
+			this.tools = [...this.tools];
 			return;
 		}
 		this.tools = [
@@ -87,6 +90,7 @@ export class StreamRunStore {
 			{
 				id: toolCallId,
 				name: toolName || toolCallId,
+				kind: toolKind,
 				status: 'running',
 				result: '',
 			},
@@ -98,12 +102,14 @@ export class StreamRunStore {
 		toolName: string,
 		success: boolean,
 		result: string,
+		toolKind?: string,
 	): void {
 		const existing = this.tools.find((tool) => tool.id === toolCallId);
 		const status = success ? 'completed' : 'failed';
 		if (existing) {
 			existing.status = status;
 			existing.result = result;
+			if (toolKind) existing.kind = toolKind;
 			this.tools = [...this.tools];
 			return;
 		}
@@ -112,6 +118,7 @@ export class StreamRunStore {
 			{
 				id: toolCallId,
 				name: toolName || toolCallId,
+				kind: toolKind,
 				status,
 				result,
 			},

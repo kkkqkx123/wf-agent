@@ -41,39 +41,57 @@
 	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
 
+	/** Segment sources already pulled, so a tab loads once. */
+	let seenRecords = $state(false);
+	let seenHooks = $state(false);
+
 	onMount(() => {
-		void reload();
+		void loadTab(tab);
 	});
 
-	async function reload(): Promise<void> {
+	$effect(() => {
+		void loadTab(tab);
+	});
+
+	async function loadTab(current: string): Promise<void> {
 		try {
-			const [history, executions, hookRows] = await Promise.all([
-				listTriggerHistory({ limit: 200 }).catch(() => ({
-					items: [],
-					hasMore: false,
-					limit: 0,
-					offset: 0,
-				})),
-				listTriggerExecutions({ limit: 200 }).catch(() => ({
-					items: [],
-					hasMore: false,
-					limit: 0,
-					offset: 0,
-				})),
-				listHooks().catch(() => []),
-			]);
-			const merged = [...history.items, ...executions.items];
-			const seen: string[] = [];
-			triggerRecords = merged.filter((row) => {
-				if (seen.includes(row.id)) return false;
-				seen.push(row.id);
-				return true;
-			});
-			hooks = hookRows;
-			if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			if (current === 'records' && !seenRecords) {
+				seenRecords = true;
+				const [history, executions] = await Promise.all([
+					listTriggerHistory({ limit: 200 }).catch(() => ({
+						items: [],
+						hasMore: false,
+						limit: 0,
+						offset: 0,
+					})),
+					listTriggerExecutions({ limit: 200 }).catch(() => ({
+						items: [],
+						hasMore: false,
+						limit: 0,
+						offset: 0,
+					})),
+				]);
+				const merged = [...history.items, ...executions.items];
+				const seen: string[] = [];
+				triggerRecords = merged.filter((row) => {
+					if (seen.includes(row.id)) return false;
+					seen.push(row.id);
+					return true;
+				});
+			} else if (current === 'hooks' && !seenHooks) {
+				seenHooks = true;
+				hooks = await listHooks().catch(() => []);
+				if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			}
 		} catch (e) {
-			console.error('Failed to load triggers:', e);
+			console.error('Failed to load triggers segment:', e);
 		}
+	}
+
+	async function reload(): Promise<void> {
+		seenRecords = false;
+		seenHooks = false;
+		await loadTab(tab);
 	}
 
 	async function dispatch(): Promise<void> {
@@ -111,9 +129,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="triggers-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="triggers-panel"
+		role="tabpanel"
+		aria-label="Trigger sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'records'}
 			<Card bodyClass="p-0">
 				<div class="overflow-x-auto">

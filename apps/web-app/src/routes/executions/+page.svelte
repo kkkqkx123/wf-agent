@@ -45,7 +45,10 @@
 	let detail = $state<ExecutionDetail | null>(null);
 	let overviewMetrics = $state<Metric[]>([]);
 	let loading = $state(true);
+	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
+
+	const EXECUTIONS_PAGE = 200;
 
 	onMount(() => {
 		void reload();
@@ -56,7 +59,7 @@
 		error = null;
 		try {
 			const [page, metrics] = await Promise.all([
-				listExecutions({ limit: 200 }),
+				listExecutions({ limit: EXECUTIONS_PAGE }),
 				getExecutionStats(),
 			]);
 			allExecutions = { items: page.items, hasMore: page.hasMore };
@@ -68,6 +71,26 @@
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMore(): Promise<void> {
+		if (loadingMore || !allExecutions.hasMore) return;
+		loadingMore = true;
+		try {
+			const page = await listExecutions({
+				limit: EXECUTIONS_PAGE,
+				offset: allExecutions.items.length,
+			});
+			allExecutions = {
+				items: [...allExecutions.items, ...page.items],
+				hasMore: page.hasMore,
+			};
+		} catch (e) {
+			console.error('Failed to load more executions:', e);
+			toasts.error('More executions unavailable');
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -246,7 +269,10 @@
 
 			<CursorPager
 				shown={filtered.length}
-				hasMore={false}
+				hasMore={allExecutions.hasMore}
+				loading={loadingMore}
+				pageSize={EXECUTIONS_PAGE}
+				onloadmore={() => void loadMore()}
 				class="mt-3 rounded-lg border border-border bg-card"
 			/>
 		</div>

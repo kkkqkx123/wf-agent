@@ -7,7 +7,7 @@
  * openapi-fetch ({ data, error, response }) so `envelope.ts` and the
  * services layer stay completely unchanged.
  *
- * This file is a "preview-only override": sync-web-app-preview.sh copies
+ * This file is a "preview-only override": sync-frontend-preview.sh copies
  * it *once* from the source tree, then excludes it from future syncs so
  * edits here never get overwritten.
  */
@@ -216,6 +216,9 @@ router.on('GET', '/api/v1/executions/{id}/audit/tool-calls', () => {
 router.on('GET', '/api/v1/executions/{id}/audit/timeline', () => {
         return camelToSnakeDeep(executionTimeline);
 });
+router.on('GET', '/api/v1/events/execution-timeline/{executionId}', () => {
+        return camelToSnakeDeep(executionTimeline);
+});
 
 // ---------- agent-loops ----------
 router.on('GET', '/api/v1/agent-loops', (_p, query) => {
@@ -232,6 +235,40 @@ router.on('GET', '/api/v1/agent-loops/{id}/summary', () => {
 });
 router.on('GET', '/api/v1/agent-loops/{id}/conversation', () => {
         return camelToSnakeDeep(loopMessages);
+});
+router.on('GET', '/api/v1/agent-loops/{id}/variables', () => {
+        return {
+                items: loopVariables.map((variable) => [variable.key, variable.value]),
+                has_more: false,
+                limit: 200,
+                offset: 0,
+        };
+});
+router.on('GET', '/api/v1/agent-loops/{id}/iteration-history', () => {
+        return {
+                items: loopDetail.iterations.map((iteration) => ({
+                        iteration: iteration.index,
+                        duration: iteration.durationMs ?? 0,
+                        response_content: iteration.summary,
+                        tool_calls: [],
+                })),
+                has_more: false,
+                limit: 200,
+                offset: 0,
+        };
+});
+router.on('GET', '/api/v1/agent-loops/{id}/timeline', () => ({
+        items: [],
+        total: 0,
+        truncated: false,
+}));
+router.on('GET', '/api/v1/agent-loops/{id}/checkpoints/chain', () => {
+        return {
+                items: camelToSnakeDeep(checkpoints),
+                has_more: false,
+                limit: 200,
+                offset: 0,
+        };
 });
 router.on('GET', '/api/v1/agent-loops/{id}/graph', () => {
         return camelToSnakeDeep(loopDetail.graph);
@@ -318,6 +355,78 @@ router.on('GET', '/api/v1/trigger-executions', (_p, query) => {
 });
 
 // ---------- file checkpoint ----------
+router.on('GET', '/api/v1/file-checkpoint/changes', (_p, query) => {
+        return pageView(camelToSnakeDeep(fileChanges), +(query.limit ?? 100), +(query.offset ?? 0));
+});
+router.on('GET', '/api/v1/file-checkpoint/content', (_p, query) => {
+        const path = String(query.path ?? fileChanges[0]?.path ?? 'preview.txt');
+        const actor = String(query.actor ?? fileChanges[0]?.actor ?? 'agent');
+        return {
+                path,
+                actor,
+                hash: 'preview',
+                size: 240,
+                is_binary: false,
+                content: `# Preview sample\n\nRead-only content for ${path} in workspace ${actor}.\n`,
+                truncated: false,
+                timestamp: FIXTURE_EPOCH,
+        };
+});
+router.on('GET', '/api/v1/file-checkpoint/diff/actors/{a}/{b}', () => ([
+        {
+                path: 'crates/checkpoint/src/restore_coordinator.rs',
+                kind: 'Modified',
+                diff: [
+                        '--- a/crates/checkpoint/src/restore_coordinator.rs',
+                        '+++ b/crates/checkpoint/src/restore_coordinator.rs',
+                        '@@ -12,7 +12,7 @@',
+                        ' pub fn restore(&self, target: &Branch) -> Result<Snapshot> {',
+                        '-    if self.branch_exists(target)? {',
+                        '-        return Err(Error::BranchConflict(target.clone()));',
+                        '-    }',
+                        '+    if let Some(existing) = self.find_snapshot(target)? {',
+                        '+        return Ok(existing);',
+                        '+    }',
+                        '     self.write_snapshot(target)',
+                        ' }',
+                ].join('\n'),
+                additions: 3,
+                deletions: 3,
+        },
+]));
+router.on('GET', '/api/v1/file-checkpoint/tree/{id}', () => ({
+        entries: fileChanges.map((change) => ({
+                path: change.path,
+                hash: 'preview',
+                size: 1024,
+                timestamp: FIXTURE_EPOCH,
+        })),
+        truncated: false,
+        total: fileChanges.length,
+}));
+router.on('GET', '/api/v1/file-checkpoint/timeline/{id}', (params) => ({
+        original_path: params.id,
+        entries: [
+                {
+                        path: params.id,
+                        snapshot_id: 'preview-snap-2',
+                        content_hash: 'preview',
+                        timestamp: FIXTURE_EPOCH,
+                        source: 'agent:preview',
+                },
+                {
+                        path: params.id,
+                        snapshot_id: 'preview-snap-1',
+                        content_hash: 'preview',
+                        timestamp: FIXTURE_EPOCH - 3_600_000,
+                        source: 'manual',
+                },
+        ],
+        truncated: false,
+        total: 2,
+}));
+router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', () => ({ ok: true }));
+router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', () => ({ ok: true }));
 router.on('GET', '/api/v1/file-checkpoint/diff/staged/{id}', () => ([
         {
                 path: 'crates/checkpoint/src/restore_coordinator.rs',

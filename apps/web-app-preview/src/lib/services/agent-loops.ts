@@ -10,6 +10,12 @@ import type {
 	ToolCallEntry,
 	WorkflowGraph,
 } from '$lib/types/models';
+import {
+	inferToolKind,
+	parseApprovalId,
+	parseToolEndpoint,
+	parseToolExitCode,
+} from '$lib/utils/toolcalls';
 
 interface SummaryDto {
 	id?: string;
@@ -140,15 +146,21 @@ function toMessage(d: MessageDto): LoopMessage {
 }
 
 function toToolCall(d: ToolCallDto, iteration: IterationDto): ToolCallEntry {
+	const name = d.name ?? '';
+	const input = stringify(d.arguments);
+	const output = d.error ?? stringify(d.result);
 	return {
 		id: d.tool_call_id ?? `${iteration.iteration ?? 0}-${d.name ?? ''}`,
-		name: d.name ?? '',
-		kind: '',
+		name,
+		kind: inferToolKind(name),
 		status: d.success ? 'completed' : 'failed',
 		startedAt: toIso(iteration.start_time),
 		durationMs: d.duration_ms ?? 0,
-		input: stringify(d.arguments),
-		output: d.error ?? stringify(d.result),
+		input,
+		output,
+		endpoint: parseToolEndpoint(input) || undefined,
+		exitCode: parseToolExitCode(output),
+		approvalId: parseApprovalId(input, output) || undefined,
 	};
 }
 

@@ -5,6 +5,7 @@ import type { RunLoopMessage } from '$lib/services/agent-loops';
 export interface ToolLifecycle {
 	toolCallId: string;
 	toolName: string;
+	toolKind?: string;
 	success: boolean;
 	result: string;
 	error: string | null;
@@ -45,7 +46,7 @@ export interface StreamCallbacks {
 	onReasoning?: (text: string) => void;
 	onIterationStart?: (iteration: number) => void;
 	onIterationEnd?: (iteration: number) => void;
-	onToolStart?: (toolCallId: string, toolName: string) => void;
+	onToolStart?: (toolCallId: string, toolName: string, toolKind?: string) => void;
 	onToolEnd?: (tool: ToolLifecycle) => void;
 	onUsage?: (usage: UsageSnapshot) => void;
 	onSubAgent?: (id: string, name: string, success: boolean | null) => void;
@@ -197,12 +198,15 @@ export function handleExecutionFrame(
 			callbacks.onToolStart?.(
 				asString(frame.tool_call_id),
 				asString(frame.tool_name),
+				asString(frame.tool_kind) || asString(frame.kind) || undefined,
 			);
 			break;
 		case 'tool_end':
 			callbacks.onToolEnd?.({
 				toolCallId: asString(frame.tool_call_id),
 				toolName: asString(frame.tool_name),
+				toolKind:
+					asString(frame.tool_kind) || asString(frame.kind) || undefined,
 				success: frame.success !== false,
 				result: asString(frame.result),
 				error: asOptionalString(frame.error),

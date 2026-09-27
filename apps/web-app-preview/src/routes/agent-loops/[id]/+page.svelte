@@ -58,7 +58,63 @@
 	let loopVariables = $state<LoopVariable[]>([]);
 	let loopCheckpoints = $state<Checkpoint[]>([]);
 
+	/** Segment sources already pulled for this loop, so a tab loads once. */
+	let seenDetail = $state('');
+	let seenMessages = $state('');
+	let seenVariables = $state('');
+	let seenCheckpoints = $state('');
+
 	const loop = $derived(detail);
+
+	async function loadDetail(id: string): Promise<void> {
+		try {
+			detail = await getAgentLoopDetail(id);
+		} catch (e) {
+			console.error('Failed to load agent loop:', e);
+		}
+	}
+
+	async function loadTab(id: string, current: string): Promise<void> {
+		try {
+			if (current === 'messages' && seenMessages !== id) {
+				seenMessages = id;
+				loopMessages = await getAgentLoopMessages(id);
+			} else if (current === 'variables' && seenVariables !== id) {
+				seenVariables = id;
+				loopVariables = await getAgentLoopVariables(id);
+			} else if (current === 'checkpoints' && seenCheckpoints !== id) {
+				seenCheckpoints = id;
+				loopCheckpoints = await listLoopCheckpoints(id);
+			}
+		} catch (e) {
+			console.error('Failed to load agent loop segment:', e);
+		}
+	}
+
+	onMount(() => {
+		const id = page.params.id;
+		if (!id) return;
+		seenDetail = id;
+		void loadDetail(id);
+		void loadTab(id, tab);
+	});
+
+	$effect(() => {
+		const id = page.params.id;
+		if (!id) return;
+		if (seenDetail !== id) {
+			seenDetail = id;
+			seenMessages = '';
+			seenVariables = '';
+			seenCheckpoints = '';
+			detail = null;
+			loopMessages = [];
+			loopVariables = [];
+			loopCheckpoints = [];
+			void loadDetail(id);
+		}
+		void loadTab(id, tab);
+	});
 
 	const peakToolCount = $derived(
 		Math.max(
@@ -66,36 +122,6 @@
 			...(detail?.analysis.toolFrequency.map((entry) => entry.count) ?? []),
 		),
 	);
-
-	async function load(id: string): Promise<void> {
-		try {
-			const [row, messages, variables, checkpoints] = await Promise.all([
-				getAgentLoopDetail(id),
-				getAgentLoopMessages(id),
-				getAgentLoopVariables(id),
-				listLoopCheckpoints(id),
-			]);
-			detail = row;
-			loopMessages = messages;
-			loopVariables = variables;
-			loopCheckpoints = checkpoints;
-		} catch (e) {
-			console.error('Failed to load agent loop:', e);
-		}
-	}
-
-	onMount(() => {
-		const id = page.params.id;
-		if (!id) return;
-		void load(id);
-	});
-
-	$effect(() => {
-		const id = page.params.id;
-		if (!id) return;
-		if (detail && detail.id === id) return;
-		void load(id);
-	});
 
 	const variableColumns: Column<LoopVariable>[] = [
 		{ key: 'key', header: 'Key', text: (row) => row.key },
@@ -157,9 +183,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="loop-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="loop-panel"
+		role="tabpanel"
+		aria-label="Agent loop sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'messages'}
 			<div class="mx-auto flex max-w-3xl flex-col gap-3">
 				{#each loopMessages as message (message.id)}

@@ -13,11 +13,22 @@
 	const OUTLINE_MIN_ENTRIES = 12;
 
 	const groups = $derived.by(() => {
-		const ordered: Array<{ kind: string; count: number; firstId: string }> = [];
+		const ordered: Array<{
+			kind: string;
+			title: string;
+			count: number;
+			firstId: string;
+		}> = [];
 		for (const entry of entries) {
 			const group = ordered.find((item) => item.kind === entry.kind);
 			if (group) group.count += 1;
-			else ordered.push({ kind: entry.kind, count: 1, firstId: entry.id });
+			else
+				ordered.push({
+					kind: entry.kind,
+					title: entry.title || entry.kind,
+					count: 1,
+					firstId: entry.id,
+				});
 		}
 		return ordered;
 	});
@@ -25,7 +36,7 @@
 	function jump(id: string): void {
 		document
 			.getElementById(`timeline-${id}`)
-			?.scrollIntoView({ block: 'start' });
+			?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 	}
 </script>
 
@@ -40,9 +51,10 @@
 					<button
 						type="button"
 						onclick={() => jump(group.firstId)}
+						title={group.kind}
 						class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-caption text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
 					>
-						<span class="min-w-0 truncate">{group.kind || 'Event'}</span>
+						<span class="min-w-0 truncate">{group.title || 'Event'}</span>
 						<span class="shrink-0 tabular-nums text-micro">{group.count}</span>
 					</button>
 				</li>

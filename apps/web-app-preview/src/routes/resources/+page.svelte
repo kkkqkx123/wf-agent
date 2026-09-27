@@ -61,44 +61,65 @@
 	let toolEnabled = $state<Record<string, boolean>>({});
 	let skillEnabled = $state<Record<string, boolean>>({});
 
+	/** Segment sources already pulled, so a tab loads once. */
+	let seenModels = $state(false);
+	let seenTools = $state(false);
+	let seenScripts = $state(false);
+	let seenSkills = $state(false);
+
 	onMount(() => {
-		void reload();
+		void loadTab(tab);
 	});
 
-	async function reload(): Promise<void> {
+	$effect(() => {
+		void loadTab(tab);
+	});
+
+	async function loadTab(current: string): Promise<void> {
 		try {
-			const [profiles, providerRows, toolPage, scriptPage, skillRows] =
-				await Promise.all([
-					listModelProfiles().catch(() => []),
-					listProviders().catch(() => []),
-					listTools({ limit: 200 }).catch(() => ({
-						items: [],
-						hasMore: false,
-						limit: 0,
-						offset: 0,
-					})),
-					listScripts({ limit: 200 }).catch(() => ({
-						items: [],
-						hasMore: false,
-						limit: 0,
-						offset: 0,
-					})),
-					listSkills().catch(() => []),
-				]);
-			modelProfiles = profiles;
-			providers = providerRows;
-			tools = toolPage.items;
-			scripts = scriptPage.items;
-			skills = skillRows;
-			toolEnabled = Object.fromEntries(
-				tools.map((tool) => [tool.id, tool.enabled]),
-			);
-			skillEnabled = Object.fromEntries(
-				skills.map((skill) => [skill.id, skill.enabled]),
-			);
+			if (current === 'models' && !seenModels) {
+				seenModels = true;
+				modelProfiles = await listModelProfiles().catch(() => []);
+				providers = await listProviders().catch(() => []);
+			} else if (current === 'tools' && !seenTools) {
+				seenTools = true;
+				const toolPage = await listTools({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				}));
+				tools = toolPage.items;
+				toolEnabled = Object.fromEntries(
+					tools.map((tool) => [tool.id, tool.enabled]),
+				);
+			} else if (current === 'scripts' && !seenScripts) {
+				seenScripts = true;
+				const scriptPage = await listScripts({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				}));
+				scripts = scriptPage.items;
+			} else if (current === 'skills' && !seenSkills) {
+				seenSkills = true;
+				skills = await listSkills().catch(() => []);
+				skillEnabled = Object.fromEntries(
+					skills.map((skill) => [skill.id, skill.enabled]),
+				);
+			}
 		} catch (e) {
-			console.error('Failed to load resources:', e);
+			console.error('Failed to load resources segment:', e);
 		}
+	}
+
+	async function reload(): Promise<void> {
+		seenModels = false;
+		seenTools = false;
+		seenScripts = false;
+		seenSkills = false;
+		await loadTab(tab);
 	}
 
 	async function toggleTool(id: string, checked: boolean): Promise<void> {
@@ -140,9 +161,14 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" />
+	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="resources-panel" />
 
-	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+	<div
+		id="resources-panel"
+		role="tabpanel"
+		aria-label="Resource sections"
+		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+	>
 		{#if tab === 'models'}
 			<div class="space-y-3">
 				<Card title="Model profiles" bodyClass="p-0">

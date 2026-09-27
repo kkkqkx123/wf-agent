@@ -1,5 +1,5 @@
 #!/bin/bash
-# sync-web-app-preview.sh
+# sync-frontend-preview.sh
 # Sync source files from apps/web-app to apps/web-app-preview.
 # Preserves preview-only files: fixtures, mock client, and .env.
 #

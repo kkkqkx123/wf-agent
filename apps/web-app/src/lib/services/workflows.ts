@@ -1,231 +1,180 @@
-import { client, request, downloadFile } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type {
-	Workflow,
-	WorkflowDetail,
-	WorkflowDraft,
-	WorkflowGraph,
-	WorkflowVersion,
-} from '$lib/types/models';
+import type { Workflow, WorkflowDetail, WorkflowGraph, WorkflowVersion } from '$lib/types/models';
 
 interface WorkflowDto {
 	id?: string;
 	name?: string;
-	description?: string;
+	description?: string | null;
 	category?: string;
 	tags?: string[];
 	author?: string;
-	version?: number;
+	version?: string | number;
 	status?: string;
 	node_count?: number;
+	nodeCount?: number;
 	edge_count?: number;
-	updated_at?: string;
+	edgeCount?: number;
+	updated_at?: number;
+	updatedAt?: string;
 	runs?: number;
-	run_count?: number;
 	success_rate?: number | null;
+	successRate?: number | null;
 }
 
-interface GraphNodeDto {
-	id?: string;
-	label?: string;
-	kind?: string;
-	status?: string;
-	x?: number;
-	y?: number;
+function parseVersion(value: string | number | undefined, fallback: number): number {
+	if (typeof value === 'number') return value;
+	if (typeof value === 'string') {
+		const parsed = parseInt(value, 10);
+		return Number.isNaN(parsed) ? fallback : parsed;
+	}
+	return fallback;
 }
 
-interface GraphEdgeDto {
-	id?: string;
-	from?: string;
-	to?: string;
-	label?: string;
-}
-
-interface VersionDto {
-	version?: number;
-	created_at?: string;
-	author?: string;
-	note?: string;
-	current?: boolean;
+function toIso(value: number | string | null | undefined): string {
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number') return new Date(value).toISOString();
+	return '';
 }
 
 function toWorkflow(d: WorkflowDto): Workflow {
 	return {
-		id: d.id ?? d.name ?? '',
-		name: d.name ?? '',
+		id: d.id ?? '',
+		name: d.name ?? d.id ?? '',
 		description: d.description ?? '',
 		category: d.category ?? '',
 		tags: d.tags ?? [],
 		author: d.author ?? '',
-		version: d.version ?? 1,
+		version: parseVersion(d.version, 1),
 		status: d.status ?? 'active',
-		nodeCount: d.node_count ?? 0,
-		edgeCount: d.edge_count ?? 0,
-		updatedAt: d.updated_at ?? '',
-		runs: d.runs ?? d.run_count ?? 0,
-		successRate: d.success_rate ?? null,
+		nodeCount: d.node_count ?? d.nodeCount ?? 0,
+		edgeCount: d.edge_count ?? d.edgeCount ?? 0,
+		updatedAt: toIso(d.updated_at ?? d.updatedAt),
+		runs: d.runs ?? 0,
+		successRate: d.success_rate ?? d.successRate ?? null
 	};
 }
 
-function toGraph(
-	d: { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] } | undefined,
-): WorkflowGraph {
-	return {
-		nodes: (d?.nodes ?? []).map((n) => ({
-			id: n.id ?? '',
-			label: n.label ?? n.id ?? '',
-			kind: n.kind ?? 'task',
-			status: n.status,
-			x: n.x ?? 0,
-			y: n.y ?? 0,
-		})),
-		edges: (d?.edges ?? []).map((e) => ({
-			id: e.id ?? `${e.from ?? ''}-${e.to ?? ''}`,
-			from: e.from ?? '',
-			to: e.to ?? '',
-			label: e.label,
-		})),
-	};
-}
-
-function toVersion(d: VersionDto): WorkflowVersion {
-	return {
-		version: d.version ?? 1,
-		createdAt: d.created_at ?? '',
-		author: d.author ?? '',
-		note: d.note ?? '',
-		current: d.current ?? false,
-	};
-}
-
+/** List workflows with optional paging. */
 export async function listWorkflows(params?: {
 	limit?: number;
 	offset?: number;
+	name?: string;
 }): Promise<PageResult<Workflow>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/workflows', {
-			params: { query: params ?? {} },
-		}),
+			params: { query: { limit: params?.limit, offset: params?.offset, name: params?.name } }
+		})
 	);
 	const page = extractPage<WorkflowDto>(data);
-	return { ...page, items: page.items.map(toWorkflow) };
+	return { ...page, items: page.items.map((d) => toWorkflow(d)) };
 }
 
-export async function getWorkflow(id: string): Promise<WorkflowDetail> {
+/** Detailed view of a single workflow. */
+export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	const data = await call<WorkflowDto>(
-		client.GET('/api/v1/workflows/{id}', {
-			params: { path: { id } },
-		}),
+		client.GET('/api/v1/workflows/{id}', { params: { path: { id } } })
 	);
-	const wf = toWorkflow(data);
-	// graph and versions are served by their own endpoints
-	const [graphRes, versionsRes] = await Promise.allSettled([
-		call<unknown>(
-			client.GET('/api/v1/workflows/{id}/graph', {
-				params: { path: { id } },
-			}),
-		),
-		call<unknown>(
-			client.GET('/api/v1/workflows/{id}/versions', {
-				params: { path: { id } },
-			}),
-		),
+	const base = toWorkflow(data ?? {});
+	const [graph, versions] = await Promise.all([
+		getWorkflowGraph(id).catch(() => ({ nodes: [], edges: [] }) as WorkflowGraph),
+		getWorkflowVersions(id).catch(() => [] as WorkflowVersion[])
 	]);
-
-	const graph =
-		graphRes.status === 'fulfilled'
-			? toGraph(
-					graphRes.value as { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] },
-				)
-			: { nodes: [], edges: [] };
-	const versions =
-		versionsRes.status === 'fulfilled'
-			? (Array.isArray(versionsRes.value)
-					? versionsRes.value
-					: ((versionsRes.value as { items?: VersionDto[] })?.items ?? [])
-				).map((v) => toVersion(v as VersionDto))
-			: [];
-
-	return { ...wf, graph, versions };
+	return { ...base, id, graph, versions, drafts: [], neighbors: [] };
 }
 
-interface DraftDto {
-	id?: string;
-	name?: string;
-	updated_at?: string;
+/** Compatibility alias. */
+export async function getWorkflow(id: string): Promise<WorkflowDetail> {
+	return getWorkflowDetail(id);
 }
 
-interface ValidationIssueDto {
-	field?: string;
+/** Workflow graph visualization data. */
+export async function getWorkflowGraph(id: string): Promise<WorkflowGraph> {
+	const data = await call<WorkflowGraph>(
+		client.GET('/api/v1/workflows/{id}/graph', { params: { path: { id } } })
+	);
+	if (!data || !Array.isArray(data.nodes)) return { nodes: [], edges: [] };
+	return data;
+}
+
+interface VersionDto {
+	version?: number;
+	created_at?: number;
+	createdAt?: string;
+	author?: string;
+	note?: string;
 	message?: string;
+	current?: boolean;
 }
 
-/**
- * Every stored draft, across all workflows. Drafts are persisted as whole
- * definitions under the workflow id they edit, so `id` doubles as the workflow
- * id and the caller filters to the workflow in view.
- */
-export async function listWorkflowDrafts(): Promise<WorkflowDraft[]> {
-	// `handle_list_drafts` is one of the duplicated utoipa handler names.
-	const data = await call<unknown>(request('GET', '/api/v1/workflows/drafts'));
-	return (Array.isArray(data) ? (data as DraftDto[]) : []).map((d) => ({
-		id: d.id ?? '',
-		name: d.name ?? d.id ?? '',
-		updatedAt: d.updated_at ?? '',
+/** Workflow version history. */
+export async function getWorkflowVersions(id: string): Promise<WorkflowVersion[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/workflows/{id}/versions', { params: { path: { id } } })
+	);
+	const page = extractPage<VersionDto>(data);
+	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as VersionDto[]) : [];
+	return rows.map((d, index) => ({
+		version: d.version ?? index + 1,
+		createdAt:
+			typeof d.createdAt === 'string'
+				? d.createdAt
+				: d.created_at
+					? new Date(d.created_at).toISOString()
+					: '',
+		author: d.author ?? '',
+		note: d.note ?? d.message ?? '',
+		current: d.current ?? index === 0
 	}));
 }
 
-/** Publish-blocking issues for one draft; an empty list means it can promote. */
-export async function validateWorkflowDraft(id: string): Promise<string[]> {
-	const data = await call<unknown>(
-		request('GET', '/api/v1/workflows/drafts/{id}/validate', {
-			params: { path: { id } },
-		}),
+/** Create a new workflow. */
+export async function createWorkflow(name: string, definition: object): Promise<Workflow> {
+	const data = await call<WorkflowDto>(
+		client.POST('/api/v1/workflows', { body: { name, definition } })
 	);
-	const issues = Array.isArray(data) ? (data as ValidationIssueDto[]) : [];
-	return issues.map((issue) =>
-		issue.field
-			? `${issue.field}: ${issue.message ?? ''}`
-			: (issue.message ?? ''),
-	);
+	return toWorkflow(data ?? {});
 }
 
-export async function promoteWorkflowDraft(id: string): Promise<void> {
+/** Partial update goes through the metadata sub-resource, never the item route. */
+export async function updateWorkflow(id: string, updates: Partial<Workflow>): Promise<Workflow> {
+	const metadata: Record<string, unknown> = {};
+	if (updates.name !== undefined) metadata.name = updates.name;
+	if (updates.description !== undefined) metadata.description = updates.description;
+	if (updates.category !== undefined) metadata.category = updates.category;
+	if (updates.tags !== undefined) metadata.tags = updates.tags;
+	if (updates.author !== undefined) metadata.author = updates.author;
+	if (updates.status !== undefined) metadata.status = updates.status;
 	await call<unknown>(
-		request('POST', '/api/v1/workflows/drafts/{id}/promote', {
+		client.PATCH('/api/v1/workflows/{id}/metadata', {
 			params: { path: { id } },
-		}),
+			body: metadata
+		})
 	);
+	const detail = await getWorkflowDetail(id).catch(() => null);
+	return detail ?? { ...toWorkflow({ id }), ...updates, id };
 }
 
-/** Re-point the formal definition at a stored version. */
-export async function rollbackWorkflow(
-	id: string,
-	version: number,
-): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/workflows/{id}/rollback', {
+/**
+ * Full-document replace goes through the item route with a complete
+ * definition. The backend overwrites the stored document and echoes the id,
+ * so callers must pass nodes, edges and config — never a partial patch.
+ */
+export async function replaceWorkflow(id: string, definition: object): Promise<Workflow> {
+	const savedId = await call<string>(
+		client.PUT('/api/v1/workflows/{id}', {
 			params: { path: { id } },
-			body: { version: String(version) },
-		}),
+			body: definition
+		})
 	);
+	return toWorkflow({ id: savedId ?? id });
 }
 
-/** Ask the server to render the definition and save it as a download. */
-export async function exportWorkflow(id: string): Promise<void> {
-	await downloadFile(
-		`/api/v1/workflows/${encodeURIComponent(id)}/export?download=true`,
-		`workflow-${id}.json`,
-	);
-}
-
-/** Import a workflow from the JSON text of a full definition; returns its id. */
-export async function importWorkflow(json: string): Promise<string> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/workflows/import', {
-			body: { json },
-		}),
-	);
-	return typeof data === 'string' ? data : '';
+/** Delete a workflow. */
+export async function deleteWorkflow(id: string): Promise<boolean> {
+	const { response } = await client.DELETE('/api/v1/workflows/{id}', {
+		params: { path: { id } }
+	});
+	return response.ok;
 }

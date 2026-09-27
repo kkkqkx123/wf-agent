@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -10,10 +11,11 @@
 	import DiffView from '$lib/components/domain/DiffView.svelte';
 	import type { DiffLine } from '$lib/components/domain/DiffView.svelte';
 	import {
-		approvals,
-		checkpoints,
-		fileChanges,
-	} from '$lib/fixtures/checkpoints';
+		listCheckpoints,
+		getFileChanges,
+		getApprovalRequests,
+	} from '$lib/services/checkpoints';
+	import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatBytes,
@@ -29,6 +31,28 @@
 	];
 
 	let tab = $state('chain');
+	let checkpoints = $state<Checkpoint[]>([]);
+	let fileChanges = $state<FileChange[]>([]);
+	let approvals = $state<Approval[]>([]);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [chain, files, pending] = await Promise.all([
+				listCheckpoints({ limit: 200 }),
+				getFileChanges(),
+				getApprovalRequests(),
+			]);
+			checkpoints = chain.items;
+			fileChanges = files;
+			approvals = pending;
+		} catch (e) {
+			console.error('Failed to load checkpoints:', e);
+		}
+	}
 
 	const CHANGE_TONE: Record<string, string> = {
 		added: 'text-success',
@@ -69,7 +93,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button
 				size="sm"

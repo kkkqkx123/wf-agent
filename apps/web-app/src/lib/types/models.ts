@@ -1,4 +1,4 @@
-/** View models consumed by components. Populated from fixtures in this stage. */
+/** View models consumed by components. Populated from the backend API. */
 
 export interface KeyValue {
 	key: string;
@@ -113,16 +113,33 @@ export interface LoopMessage {
 	role: MessageRole;
 	content: string;
 	createdAt: string;
-	tokens: number | null;
-	toolName?: string;
+	tokens?: number | null;
+	toolName?: string | null;
+	thinking?: string | null;
 }
 
 export interface LoopVariable {
 	key: string;
-	type: string;
+	type?: string;
 	value: string;
-	scope: string;
-	updatedAt: string;
+	scope?: string;
+	updatedAt?: string;
+}
+
+export interface LoopIteration {
+	index: number;
+	startedAt: string;
+	durationMs: number | null;
+	summary: string;
+	toolCalls: ToolCallEntry[];
+}
+
+export interface ToolRun {
+	success: boolean;
+	output: string;
+	error: string;
+	durationMs: number;
+	retries: number;
 }
 
 export interface AgentLoop {
@@ -139,6 +156,10 @@ export interface AgentLoop {
 	errors: number;
 	starred: boolean;
 	tags: string[];
+	endedAt?: string | null;
+	profileId?: string | null;
+	toolCalls?: number;
+	durationMs?: number | null;
 }
 
 export interface AgentLoopDetail extends AgentLoop {
@@ -170,6 +191,10 @@ export interface Checkpoint {
 	sizeBytes: number;
 	note: string;
 	restorable: boolean;
+	chainPosition?: number | null;
+	status?: string;
+	tags?: string[];
+	entityType?: string;
 }
 
 export type FileChangeType = 'added' | 'modified' | 'deleted' | 'renamed';
@@ -346,6 +371,11 @@ export interface Metric {
 	delta?: string;
 	tone?: MetricTone;
 	hint?: string;
+}
+
+export interface MessageAttachment {
+	name: string;
+	content: string;
 }
 
 export interface TimelineEntry {

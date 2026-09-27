@@ -1,7 +1,7 @@
 # Web App 样式、布局与组件实现方案
 
 > 目标：为 `apps/web-app`（SvelteKit 2 + Svelte 5）落地**样式体系、页面布局、组件体系**三层设计，并给出可执行的任务分解。
-> 本阶段**不对接真实 API**：页面数据一律来自 `src/lib/fixtures` 下的本地样例数据，API 客户端、SSE/WS 接入留待后续阶段。
+> UI 阶段已完成；其后的正式化收敛已把数据层切换为真实 API（样例数据与开发模式开关已删除），流式渲染、虚拟化与 API 接入三处临时形态已收敛，见 `docs/plan/web/web-app-formalization-design.md`。
 > 上游依据：`docs/plan/web/frontend-feature-list.md`（页面与功能边界）、`docs/plan/web/web-frontend-borrow-analysis.md`（借鉴结论）、`docs/ref/frontend/*`（原始实现）、`docs/plan/web-app-integration.md`（集成与部署约定）。
 
 ---
@@ -15,13 +15,9 @@
 - Design Token 体系（颜色、字体、间距、圆角、阴影、动效）。
 - 应用壳（三栏 Shell、侧栏、顶栏、命令面板、Toast）。
 - 基础组件库与领域组件库。
-- 十个一级页面及其详情子路由的静态结构与占位数据流。
+- 十一个一级页面（含对话页）及其详情子路由的静态结构与数据流。
 
-本文档范围外：
-
-- API 客户端、信封拆包、鉴权注入（见 `docs/plan/web-app-integration.md` 第 2 节）。
-- SSE / WS 流式接入（见 `docs/plan/web/web-app-streaming-markdown-design.md`）。
-- 国际化、PWA、登录计费（功能清单第 5 节已列为非目标）。
+正式化收敛后，以下原范围外事项已落地，不再是后续阶段：API 客户端、信封拆包、鉴权注入、SSE 流式接入、错误态组件、`DataTable` 虚拟化、Markdown 渲染与结构化载荷展示。对话优先的落地页与导航重组一并完成。
 
 ---
 
@@ -55,6 +51,17 @@
 
 > 行号以 `npx prettier --write src` 之后的状态为准（`npm run format` 会整体重排，引用前请重新核验）。
 
+### 1.2 正式化收敛后的现状（UI 阶段之后的变化）
+
+| 事实 | 依据 |
+|---|---|
+| `src` 下共 118 个源文件；`lib/api/` 含类型化客户端、信封拆包、推送读取与帧切分；`lib/services/` 共 13 个 API 直连的领域封装 | `apps/web-app/src` 目录清点 |
+| 样例数据目录与开发模式开关已删除，正式应用无静默回退样例；样例仅保留于 `apps/web-app-preview` 的模拟客户端内 | `apps/web-app/src/lib` 目录清点（无 `fixtures/`、`stores/app.ts`） |
+| 对话页已上线：`routes/chat/` + `components/chat/`（作曲器、推理块、流式 Markdown、转录滚动器），根路由重定向到 `/chat`，导航首组为 Conversation | `apps/web-app/src/routes/+page.ts`；`apps/web-app/src/lib/config/navigation.ts` |
+| 运行时依赖新增 Markdown 渲染器与 OpenAPI 请求库 | `apps/web-app/package.json` 的 dependencies |
+| 错误态已建：`components/ui/ErrorState.svelte` + 路由级 `routes/+error.svelte`，聊天页加载失败带重试入口 | 对应文件 |
+| 未知状态兜底与无硬编码颜色保持：组件内无十六进制颜色字面量；`theme-color` 仅剩两处 meta 名引用，属可接受例外 | 全量检索 |
+
 ---
 
 ## 2. 设计目标与非目标
@@ -65,13 +72,14 @@
 - **信息密度**：面向开发者的运维/调试工作台，默认紧凑档，允许放宽。
 - **状态可读**：执行状态、变更类型、工具类型一眼可辨，且与终端配色解耦。
 - **可扩展**：新增域页面只需加路由 + 复用组件，不改壳。
-- **无数据可跑**：不对接后端时，每个页面都能展示完整骨架与样例内容。
+- **API 优先**：正式应用只经类型化客户端访问后端；空结果走空态，失败走错误态并可重试，不静默回退样例。
 
 ### 2.2 非目标
 
 - 不实现登录、计费、多媒体生成、桌面专属能力（功能清单第 5 节）。
 - 不实现需要新后端的功能：文件编辑器、触发器启停、技能安装、模板评分、通知收件箱。
-- 本阶段不做虚拟化长列表的真实数据压测，只预留接口。
+- 全局错误聚合（审计报告、错误分析）等待后端聚合器，当前返回空列表而非占位数据。
+- 多会话并发流与自动重连不在范围内，失败保持手动重试语义。
 
 ---
 
@@ -94,6 +102,8 @@
 仅新增 `tailwindcss`、`@tailwindcss/vite`、`@tailwindcss/typography`、`@sveltejs/adapter-static` 四项，其余能力全部用 Svelte / SvelteKit 原生能力自建。这样依赖树可控，也不会把图表、组件库的选型提前锁死。
 
 实际写入 `apps/web-app/package.json:34-57` 的版本：`tailwindcss@^4.1.18`、`@tailwindcss/vite@^4.1.18`、`@tailwindcss/typography@^0.5.19`、`@sveltejs/adapter-static@^3.0.10`。`adapter-auto` 保留未删（其他工程可能引用），但已不再被 `svelte.config.js` 使用。
+
+正式化收敛追加的两项运行时依赖：`markstream-svelte@2.0.13`（流式 Markdown 渲染）、`openapi-fetch@^0.17.0`（类型化 API 客户端），与预览工程已验证版本对齐。
 
 ---
 
@@ -173,13 +183,14 @@
 | 768–1024px | 侧栏折叠为图标轨 |
 | < 768px | 单栏；侧栏改抽屉，检查器改底部 Sheet |
 
-### 5.3 一级导航（十项）
+### 5.3 一级导航（十一项）
 
-严格对齐 `docs/plan/web/frontend-feature-list.md:13-27` 的域划分，执行工作台为默认落地页：
+严格对齐 `docs/plan/web/frontend-feature-list.md:13-27` 的域划分，对话优先 IDE 为默认落地页（见 `docs/plan/web/chat-ide-primary-design.md`）：
 
 | 路由 | 页面 | 主要区块 |
 |---|---|---|
-| `/` | 入口重定向 | `+page.ts` 内 `redirect(307, '/executions')`，不渲染组件（`apps/web-app/src/routes/+page.ts:4-6`） |
+| `/` | 入口重定向 | `+page.ts` 内 `redirect(307, '/chat')`，不渲染组件（`apps/web-app/src/routes/+page.ts`） |
+| `/chat` | 对话 | 会话 + 作曲器 + 流式尾部 + 会话检查器（首导航组 Conversation） |
 | `/executions` | 执行工作台 | 概览指标条 + 执行列表（左）+ 执行详情（右检查器） |
 | `/workflows` | 工作流 | 列表（卡片/表格切换）+ 详情 + 版本 + 草稿 + 图 |
 | `/agent-loops` | Agent 回路 | 列表 + 详情 + 消息 + 变量 + 图 + 分析 + 检查点 |
@@ -203,7 +214,7 @@
 
 - **命令面板**（`components/layout/CommandPalette.svelte`）：跨执行、工作流、回路、导航项与设置的统一搜索入口，`⌘K` / `Ctrl+K` 唤起，含最近访问记录。
 - **Toast**（`components/layout/Toaster.svelte` + `stores/toast.svelte.ts`）：右下角堆叠，success / error / warning / info 四类，可带操作按钮，默认 4.5s 自动消解（error 8s）。
-- **加载态体系**：`Skeleton` 提供 line / block / circle 三种形状（可配行数与尺寸）；`EmptyState` 负责空态。**错误态与流式占位本阶段未建**——前者依赖真实请求失败路径，后者属流式阶段，见第 11.2 节。
+- **加载态体系**：`Skeleton` 提供 line / block / circle 三种形状（可配行数与尺寸）；`EmptyState` 负责空态；`ErrorState` 负责错误态（带重试）并有路由级 `+error.svelte` 兜底；流式尾部由转录滚动器的 tail 插槽承载。
 - **面包屑**：由当前路由派生的导航项生成（`config/navigation.ts` 的 `navItemFor`），非手工维护。
 
 ---
@@ -225,7 +236,7 @@
 | Tabs | `Segmented`（`components/ui/Segmented.svelte`） | 分段控件即 tablist 语义，`role="tablist"` 已在组件内声明 |
 | ScrollArea | 全局细滚动条（`app.css` 的 `@layer base` 滚动条块与 `.scrollbar-none`） | 本阶段无独立滚动容器需求，避免多一层 DOM |
 | Checkbox / Label | 未建 | 本阶段无表单提交场景；接 API 后随设置页表单一并补 |
-| 虚拟化接口 | `DataTable` 仅预留列模型，未实现虚拟化 | 依赖真实数据量，见开放点 O7 |
+| 虚拟化接口 | `DataTable` 已实现等高窗口化（阈值驱动自动启用 + 手动覆盖 + 粘性表头），阈值集中在 `config/virtualization.ts` | 开放点 O7 已关闭 |
 
 ### 6.2 布局层（7 个）
 
@@ -233,15 +244,19 @@
 
 `SidebarRail` 与 `InspectorPane` 未单开：折叠轨是 `Sidebar` 的一种渲染态（`components/layout/Sidebar.svelte` 中 `preferences.sidebarCollapsed` 分支），检查器容器统一为 `SplitView`（宽屏停靠 / 窄屏转 Sheet）。
 
-### 6.3 领域层（13 个）
+### 6.3 领域层（14 个）
 
-`src/lib/components/domain/`：StatusBadge、ExecutionCard、WorkflowCard、WorkflowGraph（内联 SVG 占位）、ToolCallCard、Timeline、DiffView、MessageBubble、MetricGrid、KeyValueList、ExecutionInspector、FilterBar、CursorPager。
+`src/lib/components/domain/`：StatusBadge、ExecutionCard、WorkflowCard、WorkflowGraph（内联 SVG 占位）、ToolCallCard、Timeline、DiffView、MessageBubble、MetricGrid、KeyValueList、ExecutionInspector、FilterBar、CursorPager、JsonViewer。
 
-`MetricCard` 合并进 `MetricGrid`（网格自带单元格渲染），`JsonViewer` 与 `SplitPane` 未建——前者等流式阶段与 Markdown 渲染一并决定（开放点 O4），后者由 `SplitView` 承担。
+其中 `MessageBubble` 已收敛为单一渲染入口：助手消息走流式 Markdown 封装，用户消息保持纯文本并保留提及分段，工具消息走等宽结构样式，推理文本独立为可折叠推理块；`ToolCallCard` 的输入输出经 `JsonViewer` 展示（折叠、复制语义、截断）。
 
 其中 `StatusBadge` 必须实现第 1 节要求的未知值兜底；`CursorPager` 对应后端"无总数、只有 `has_more`"的游标包络（`docs/plan/web/frontend-feature-list.md:34`），提供"加载更多 + 无总数提示"而非页码。
 
-### 6.4 组件契约约定
+### 6.4 对话层（4 个）
+
+`src/lib/components/chat/`：Composer（作曲器、附件、斜杠命令、草稿）、ReasoningBlock（可折叠推理）、StreamMarkdown（Markdown 唯一入口，主题随浅深模式派生）、TranscriptScroller（分组窗口、估算高度、尾部跟随与回底计数）。
+
+### 6.5 组件契约约定
 
 - 所有组件以 `class` 透传追加样式，`cn()` 合并。
 - 尺寸统一 `sm / md / lg`，变体命名沿用 shadcn 语义（default / secondary / outline / ghost / destructive）。
@@ -257,18 +272,23 @@ apps/web-app/src/
 ├── app.css                       # Tailwind 入口 + Token 定义 + 基础层
 ├── app.html                      # 预注水脚本
 ├── lib/
+│   ├── api/                      # 类型化客户端、信封拆包、推送读取、帧切分（含生成的 schema.d.ts）
 │   ├── components/
-│   │   ├── ui/                   # 基础原语（第 6.1 节）
+│   │   ├── ui/                   # 基础原语（第 6.1 节，含 ErrorState）
 │   │   ├── layout/               # 壳与导航（第 6.2 节）
-│   │   ├── domain/               # 领域组件（第 6.3 节）
+│   │   ├── domain/               # 领域组件（第 6.3 节，含 JsonViewer）
+│   │   ├── chat/                 # 对话组件（第 6.4 节）
 │   │   └── icons/                # 内联 SVG 图标
-│   ├── stores/                   # runes 单例：theme、shell、toast、command、preferences
-│   ├── fixtures/                 # 本阶段样例数据（后续阶段替换为 API 调用）
+│   ├── config/                   # 导航、虚拟化阈值等集中配置
+│   ├── services/                 # API 直连的领域封装 + 流式帧分类（含单测）
+│   ├── stores/                   # runes 单例：theme、shell、toast、command、preferences、sessions、stream-run 等
 │   ├── types/                    # 视图模型类型（不重复声明契约类型）
-│   └── utils/                    # cn、格式化、状态色、路由类型
+│   └── utils/                    # cn、格式化、状态色、路由类型、附件与提及
 └── routes/
     ├── +layout.svelte / +layout.ts    # 壳挂载、主题/字号应用、命令面板与 Toaster
-    ├── +page.ts                       # 根重定向到 /executions（无需 +page.svelte）
+    ├── +page.ts                       # 根重定向到 /chat（无需 +page.svelte）
+    ├── +error.svelte                  # 路由级错误边界
+    ├── chat/+page.svelte              # 对话优先 IDE
     ├── executions/(+page.svelte, [id]/+page.svelte)
     ├── workflows/(+page.svelte, [id]/+page.svelte)
     ├── agent-loops/(+page.svelte, [id]/+page.svelte)
@@ -283,7 +303,7 @@ apps/web-app/src/
 
 计划中的 `workflows/[id]/versions`、`agent-loops/[id]/messages` 一类子路由**未单独建路由**，改为详情页内的分段内容（`ExecutionInspector` 提供 overview / timeline / tools / analysis / state 五个分段）。理由：这些面板是同一对象的不同视图，单独建路由会让面包屑与返回栈膨胀，且后续接 API 时每个子路由都要重复取一次详情。若后续需要深链（分享某个版本），再拆成子路由并补 `?tab=` 兼容。
 
-`fixtures/` 是本阶段的临时数据层，命名与结构直接对齐视图模型，后续接 API 时只替换数据来源，不动组件。
+`fixtures/` 与开发模式开关已随正式化收敛删除；样例数据仅保留于 `apps/web-app-preview` 的模拟客户端内，正式应用的领域服务与页面无需感知数据源差异。
 
 ---
 
@@ -300,8 +320,9 @@ apps/web-app/src/
 | T5 | 应用壳 | AppShell、Sidebar、TopBar、PageHeader、SplitView | 三栏可折叠、响应式断点生效 | 已完成 |
 | T6 | 全局能力 | CommandPalette、Toaster | 快捷键唤起、Toast 堆叠消解 | 已完成 |
 | T7 | 领域组件 | `components/domain/` 13 个 | StatusBadge 对未知状态有中性兜底 | 已完成 |
-| T8 | 页面骨架 | 十个一级页面 + `executions/[id]`、`workflows/[id]`、`agent-loops/[id]` | 每页有页头、内容区、加载/空态 | 已完成 |
-| T9 | 全量校验 | `npm run check`、`npm run build`、`npm run lint`、`prettier --check` | 四项全绿 | 已完成 |
+| T8 | 页面骨架 | 十一个一级页面（含对话页） + `executions/[id]`、`workflows/[id]`、`agent-loops/[id]` | 每页有页头、内容区、加载/空态，失败走错误态 | 已完成 |
+| T9 | 全量校验 | `npm run check`、`npm run build`、`npm run lint`、`prettier --check` | 四项全绿 | 已完成（UI 阶段实测，见第 11.1 节；正式化收敛后的复验待补，见第 8.2 节） |
+| T10 | 正式化收敛 | 依赖补齐、消息渲染合回、JsonViewer、生成流分支、表格虚拟化、服务去样例化、样例删除、落地页翻转 | 见第 8.2 节验收 | 已完成（代码收敛，静态复验待补） |
 
 ### 8.1 落地清单
 
@@ -317,10 +338,26 @@ apps/web-app/src/
 | 基础组件 | `src/lib/components/ui/`：Badge、Button、Card、DataTable、Dialog、DropdownMenu、EmptyState、IconButton、Input、Progress、Segmented、Select、Separator、Sheet、Skeleton、Switch、Textarea、Tooltip，另加 `table.ts`、`variants.ts` |
 | 布局组件 | `src/lib/components/layout/`：AppShell、Sidebar、TopBar、PageHeader、SplitView、CommandPalette、Toaster |
 | 领域组件 | `src/lib/components/domain/`：StatusBadge、ExecutionCard、WorkflowCard、ExecutionInspector、WorkflowGraph、ToolCallCard、Timeline、DiffView、MessageBubble、MetricGrid、KeyValueList、FilterBar、CursorPager |
-| 样例数据 | `src/lib/fixtures/`：clock、executions、workflows、agentLoops、checkpoints、resources、insights、triggers |
-| 路由 | `src/routes/+layout.ts`、`+layout.svelte`、`+page.ts`；`executions`、`executions/[id]`、`workflows`、`workflows/[id]`、`agent-loops`、`agent-loops/[id]`、`checkpoints`、`triggers`、`resources`、`templates`、`insights`、`events`、`settings` |
+| 样例数据 | ~~`src/lib/fixtures/`：clock、executions、workflows、agentLoops、checkpoints、resources、insights、triggers~~（已删除，见 T10） |
+| 路由 | `src/routes/+layout.ts`、`+layout.svelte`、`+page.ts`、`+error.svelte`；`chat`、`executions`、`executions/[id]`、`workflows`、`workflows/[id]`、`agent-loops`、`agent-loops/[id]`、`checkpoints`、`triggers`、`resources`、`templates`、`insights`、`events`、`settings` |
+| 对话与数据层 | `src/lib/components/chat/`：Composer、ReasoningBlock、StreamMarkdown、TranscriptScroller；`src/lib/api/`：client、envelope、stream、sse；`src/lib/services/`：agent-loops、agentLoops、checkpoints、events、executions、favorites、insights、preferences、resources、search、streaming、templates、triggers、workflows |
 
-规模口径：`src` 下（排除 `lib/api/schema.d.ts`）共 **76 个 `.svelte` / `.ts` 文件、9264 行**。
+规模口径：`src` 下（排除 `lib/api/schema.d.ts`）共 **118 个 `.svelte` / `.ts` 文件**。
+
+### 8.2 正式化收敛（T10，设计见 `docs/plan/web/web-app-formalization-design.md`）
+
+| 序号 | 任务 | 产出 | 验收 |
+|---|---|---|---|
+| 一 | 依赖与引用完整性 | 运行时依赖补齐、契约引用统一 | 静态引用无悬空包与悬空路径 |
+| 二 | 消息渲染合回 | 消息气泡具备 Markdown、提及、附件与操作入口，历史与流式同路 | 回放与直播排版一致，用户消息仍纯文本 |
+| 三 | 结构化展示新增 | 独立 JsonViewer 并接入工具调用卡输入输出 | 大载荷截断折叠可用 |
+| 四 | 生成流分支补齐 | 推理与用量帧进入回调面 | 单次生成可显示推理与用量 |
+| 五 | 数据表窗口化合回 | 等高窗口、粘性表头、手动覆盖 | 超阈值列表渲染行数有界 |
+| 六 | 领域服务去样例化 | 移除样例导入与开发模式分支，失败走错误态 | 无正式服务引用样例 |
+| 七 | 样例目录移除 | 删除样例目录与模式存储 | 仅预览保留样例 |
+| 八 | 落地页翻转 | 根路由与导航按对话优先调整 | 根地址进入对话空态 |
+
+> 待补：T10 落地后尚未执行 `npm run check` / `build` / `lint` / `test`（环境缺少 `node_modules` 且无外网安装依赖），上述验收目前以读码核查为准，复验通过前不得视为关闭。
 
 > 说明：`+page.svelte` 占位首页已删除——根路由在 `+page.ts` 里恒定重定向，保留该组件会残留硬编码颜色（`#333` / `#666`），与第 11.1 节验收项冲突。
 
@@ -339,16 +376,13 @@ apps/web-app/src/
 
 ## 10. 待拍板开放点
 
-| 编号 | 问题 | 影响 | 建议 |
+| 编号 | 问题 | 影响 | 结论 |
 |---|---|---|---|
-| O1 | 样例数据保留到何时 | 决定 `fixtures/` 的生命周期 | 建议接 API 时逐页替换，全部替换完成后整目录删除，不留兼容分支 |
-| O2 | 图可视化选型（D3 / ECharts / 自研 SVG） | 工作流编辑器与路径分析的交互上限 | 本阶段用自研 SVG 占位；待图编辑需求明确后再定，避免提前锁死 |
-| O3 | 检查器是常驻还是浮层 | 影响三栏的信息密度 | **已按建议落地**：`SplitView` 由 `preferences.inspectorPinned` 决定停靠，宽屏停靠、窄屏转 Sheet，页面可自行选择 |
-| O4 | 是否引入 Markdown 渲染库 | 消息与产物展示 | 待流式阶段与 `web-app-streaming-markdown-design.md` 一并决定，本阶段只留渲染插槽 |
-| O5 | `adapter-static` 与后续 SSR 需求冲突 | 部署形态 | **已按建议落地**（`svelte.config.js` 用 `adapter-static` + `fallback: 'index.html'`，`+layout.ts` 关闭 SSR）；若后续需 SSR 再改回 |
-| O6 | 命令面板的数据源 | 是否依赖统一搜索后端 | **已按本阶段方案落地**：检索本地 fixtures + 静态导航 + 设置项；接 API 后并入统一搜索通道 |
-| O7 | 虚拟化的触发阈值 | 长列表性能 | 建议超过 200 行启用；阈值集中配置，不散落在组件内 |
-| O8 | `theme-color` meta 的两处颜色字面量 | 违反「无硬编码颜色」验收项 | 现状：`src/app.html` 首绘前脚本与 `src/lib/stores/theme.svelte.ts` 的 `DARK_META` 各存一份 `#ffffff` / `#16181d`。meta 标签在首绘前写入且不接受 CSS 变量，故无法完全去字面量。建议后续统一到一处常量并加注释说明例外；若不接受例外，可改为运行时读 `--background` 通道拼 `hsl()`，代价是深色判定与 CSS 加载时序耦合 |
+| O1 | 样例数据层去留 | 正式应用是否保留 fixtures 回退 | 已关闭：`fixtures/` 与开发模式开关已删除，样例仅保留于预览工程 |
+| O2 | 图可视化选型 (D3 / ECharts / 自研 SVG) | 工作流编辑器与路径分析的交互上限 | 未决：仍用自研 SVG 占位；待图编辑需求明确后再定，避免提前锁死 |
+| O4 | 是否引入 Markdown 渲染库 | 消息与产物展示 | 已关闭：选用 `markstream-svelte`，流式 Markdown 封装为唯一入口，结构化载荷由独立 JsonViewer 承担 |
+| O7 | 虚拟化的触发阈值 | 长列表性能 | 已关闭：超过 200 行启用；阈值集中在 `config/virtualization.ts`，转录变高窗口、表格等高窗口 |
+| O8 | `theme-color` 字面量例外 | 颜色约束的完整性 | 已关闭：仅剩两处 meta 名引用（非颜色值），接受为例外 |
 
 ---
 
@@ -356,7 +390,7 @@ apps/web-app/src/
 
 ### 11.1 本阶段验收
 
-在 `apps/web-app` 下实测结果（命令与输出）：
+在 `apps/web-app` 下实测结果（命令与输出）。以下为 UI 阶段落点时的记录；T10 正式化收敛后的复验待补（见第 8.2 节说明）。
 
 | 验收项 | 命令 | 实测结果 |
 |---|---|---|
@@ -365,7 +399,7 @@ apps/web-app/src/
 | 格式 | `npx prettier --check src` | `All matched files use Prettier code style!` |
 | 构建 | `npm run build` | `Wrote site to "build"` + `✔ done`（约 3.3s，产物 CSS 约 40 KB） |
 | 路由可访问 | `vite preview` + 无头 Chromium 逐个 `--dump-dom` | `/`、`/executions`、`/workflows`、`/agent-loops`、`/checkpoints`、`/triggers`、`/resources`、`/templates`、`/insights`、`/events`、`/settings` 全部渲染出 DOM（25–48 KB），无 500 / 白屏 |
-| 无硬编码颜色 | 全量检索 `#hex`、`rgb()`、裸 `hsl(...)` | 组件内仅剩 `hsl(var(--token))` 形式；浮层遮罩已收敛为 `--overlay`（`app.css` 的 `:root` / `.dark` 两处定义）；遗留两处 `theme-color` 字面量登记为开放点 O8 |
+| 无硬编码颜色 | 全量检索 `#hex`、`rgb()`、裸 `hsl(...)` | 组件内仅剩 `hsl(var(--token))` 形式；浮层遮罩已收敛为 `--overlay`（`app.css` 的 `:root` / `.dark` 两处定义）；两处 `theme-color` 均为 meta 名引用，接受为例外（开放点 O8 已关闭） |
 | 未知状态兜底 | `src/lib/utils/status.ts` 的 `statusTone()` | 空值返回 `neutral`，未收录值经 `?? 'neutral'` 兜底；`StatusBadge.svelte` 消费该结果 |
 
 - 深浅色切换无闪烁由 `src/app.html` 的首绘前内联脚本（`<script>` 块位于 `<head>` 内）保证；主题/密度/侧栏宽度持久化在 `src/lib/stores/preferences.svelte.ts`。
@@ -374,8 +408,8 @@ apps/web-app/src/
 
 ### 11.2 后续衔接
 
-- **接 API 阶段**：`fixtures/` → `src/lib/api/` 客户端 + 领域封装，视图模型不变。同步补齐两件本阶段留白：错误态组件（带重试）与 `DataTable` 虚拟化（开放点 O7）。
-- **流式阶段**：Timeline 与 MessageBubble 预留的渲染插槽接 `sse.ts` / `ws.ts`；Markdown 渲染选型与 `JsonViewer` 一并决定（开放点 O4）。
+- **复验（待补）**：T10 落地后执行 `npm run check`、`npm run build`、`npm run lint`、`npm run test` 四项，全绿后关闭 T10。
+- **预览同步**：正式应用变更后按既有同步脚本更新 `apps/web-app-preview`（样例目录与模拟客户端为预览独有，不被覆盖）。
 - **深链需求出现时**：把详情页分段拆成子路由，并按第 7 节的说明补 `?tab=` 兼容。
-- **深度能力阶段**：工具调用卡、Diff 与产物预览、大纲导轨按 `docs/plan/web/web-frontend-borrow-analysis.md:71-73` 的第二批推进。
-- **收尾**：`fixtures/` 全部替换完成后整目录删除（开放点 O1），并复核开放点 O8 是否接受 `theme-color` 字面量例外。
+- **深度能力阶段**：工具调用卡、Diff 与产物预览、大纲导轨按 `docs/plan/web/web-frontend-borrow-analysis.md:71-73` 的第二批推进；图表与公式能力缺失为有意取舍，待真实需求出现后再评估可选依赖。
+- **范围外（仍未决）**：多会话并发流与自动重连；全局错误聚合需后端聚合器；图可视化选型（开放点 O2）。

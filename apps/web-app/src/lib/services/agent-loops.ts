@@ -88,15 +88,25 @@ function toIso(value: number | null | undefined): string {
 }
 
 function toLoop(d: SummaryDto): AgentLoop {
+	const id = d.id ?? '';
 	return {
-		id: d.id ?? '',
+		id,
+		name: id,
 		status: d.status ?? '',
 		iteration: d.current_iteration ?? 0,
+		maxIterations: d.current_iteration ?? 0,
+		model: '',
+		tokens: 0,
 		toolCalls: d.tool_call_count ?? 0,
 		durationMs: d.execution_time ?? null,
 		profileId: d.profile_id ?? null,
 		startedAt: toIso(d.start_time),
+		updatedAt: toIso(d.end_time ?? d.start_time),
 		endedAt: d.end_time ? toIso(d.end_time) : null,
+		checkpoints: 0,
+		errors: 0,
+		starred: false,
+		tags: [],
 	};
 }
 
@@ -122,9 +132,10 @@ function toMessage(d: MessageDto): LoopMessage {
 		id: d.id ?? '',
 		role: (d.role ?? 'assistant') as LoopMessage['role'],
 		content: flattenContent(d.content),
-		thinking: d.thinking ?? null,
 		createdAt: toIso(d.timestamp),
+		tokens: null,
 		toolName: d.tool_name ?? null,
+		thinking: d.thinking ?? null,
 	} satisfies LoopMessage;
 }
 
@@ -315,7 +326,10 @@ export async function listLoopVariables(id: string): Promise<LoopVariable[]> {
 	);
 	return extractPage<[string, unknown]>(data).items.map(([key, value]) => ({
 		key,
+		type: 'string',
 		value: stringify(value),
+		scope: 'loop',
+		updatedAt: '',
 	}));
 }
 

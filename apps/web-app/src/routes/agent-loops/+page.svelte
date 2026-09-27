@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -11,7 +12,8 @@
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { agentLoops, loopDetail } from '$lib/fixtures/agentLoops';
+	import { listAgentLoops, getAgentLoopDetail } from '$lib/services/agentLoops';
+	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -27,10 +29,43 @@
 
 	let query = $state('');
 	let status = $state('');
-	let selectedId = $state<string | null>(agentLoops[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
+	let allLoops = $state<AgentLoop[]>([]);
+	let selected = $state<AgentLoopDetail | null>(null);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const page = await listAgentLoops();
+			allLoops = page.items;
+			if (page.items.length > 0 && !selectedId) {
+				selectedId = page.items[0].id;
+			}
+		} catch (e) {
+			console.error('Failed to load agent loops:', e);
+		}
+	}
+
+	$effect(() => {
+		const id = selectedId;
+		if (!id) {
+			selected = null;
+			return;
+		}
+		void getAgentLoopDetail(id)
+			.then((row) => {
+				selected = row;
+			})
+			.catch((e) => {
+				console.error('Failed to load loop detail:', e);
+			});
+	});
 
 	const filtered = $derived(
-		agentLoops.filter((loop) => {
+		allLoops.filter((loop) => {
 			const matchesStatus = !status || loop.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
@@ -40,8 +75,6 @@
 			return matchesStatus && matchesQuery;
 		}),
 	);
-
-	const selected = $derived(loopDetail);
 </script>
 
 <SplitView
@@ -58,7 +91,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => void reload()}
 				/>
 				<Button size="sm" onclick={() => toasts.success('Loop started')}>
 					<Icon name="play" size={13} />

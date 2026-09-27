@@ -12,8 +12,9 @@
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import CursorPager from '$lib/components/domain/CursorPager.svelte';
-	import { executionDetail, executions } from '$lib/fixtures/executions';
-	import { overviewMetrics } from '$lib/fixtures/insights';
+	import { onMount } from 'svelte';
+	import { listExecutions, getExecutionDetail, getExecutionStats } from '$lib/services/executions';
+	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -30,10 +31,51 @@
 	let query = $state('');
 	let status = $state('');
 	let view = $state<'list' | 'table'>('list');
-	let selectedId = $state<string | null>(executions[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
+	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({ items: [], hasMore: false });
+	let detail = $state<ExecutionDetail | null>(null);
+	let overviewMetrics = $state<Metric[]>([]);
+	let loading = $state(true);
+	let error = $state<string | null>(null);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		loading = true;
+		error = null;
+		try {
+			const [page, metrics] = await Promise.all([listExecutions({ limit: 200 }), getExecutionStats()]);
+			allExecutions = { items: page.items, hasMore: page.hasMore };
+			overviewMetrics = metrics;
+			if (page.items.length > 0 && !selectedId) {
+				selectedId = page.items[0].id;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			loading = false;
+		}
+	}
+
+	$effect(() => {
+		const id = selectedId;
+		if (!id) {
+			detail = null;
+			return;
+		}
+		void getExecutionDetail(id)
+			.then((row) => {
+				detail = row;
+			})
+			.catch((e) => {
+				console.error('Failed to load execution detail:', e);
+			});
+	});
 
 	const filtered = $derived(
-		executions.filter((execution) => {
+		allExecutions.items.filter((execution) => {
 			const matchesStatus = !status || execution.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
@@ -44,7 +86,7 @@
 		}),
 	);
 
-	const selected = $derived(executionDetail);
+	const selected = $derived(detail);
 </script>
 
 <SplitView
@@ -61,7 +103,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => void reload()}
 				/>
 				<Button
 					variant="outline"

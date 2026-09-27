@@ -3,6 +3,7 @@
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
 	import StatusBadge from './StatusBadge.svelte';
+	import JsonViewer from './JsonViewer.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
 
@@ -75,8 +76,7 @@
 				>
 					Input
 				</p>
-				<pre
-					class="overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-foreground">{entry.input}</pre>
+				<JsonViewer value={entry.input} collapsed />
 			</div>
 			<div>
 				<p
@@ -84,9 +84,7 @@
 				>
 					Output
 				</p>
-				<pre
-					class="max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-foreground">{entry.output}</pre>
-			</div>
+				<JsonViewer value={entry.output} />
 		</div>
 	{/if}
 </article>

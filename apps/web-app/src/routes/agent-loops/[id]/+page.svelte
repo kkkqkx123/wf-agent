@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -14,12 +15,17 @@
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
 	import {
-		agentLoops,
-		loopDetail,
-		loopMessages,
-		loopVariables,
-	} from '$lib/fixtures/agentLoops';
-	import { checkpoints } from '$lib/fixtures/checkpoints';
+		getAgentLoopDetail,
+		getAgentLoopMessages,
+		getAgentLoopVariables,
+	} from '$lib/services/agentLoops';
+	import { listLoopCheckpoints } from '$lib/services/checkpoints';
+	import type {
+		AgentLoopDetail,
+		Checkpoint,
+		LoopMessage,
+		LoopVariable,
+	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -37,39 +43,66 @@
 
 	let tab = $state('messages');
 	let draft = $state('');
+	let detail = $state<AgentLoopDetail | null>(null);
+	let loopMessages = $state<LoopMessage[]>([]);
+	let loopVariables = $state<LoopVariable[]>([]);
+	let loopCheckpoints = $state<Checkpoint[]>([]);
 
-	const loop = $derived(
-		agentLoops.find((item) => item.id === page.params.id) ?? loopDetail,
-	);
-	const detail = $derived(loopDetail);
+	const loop = $derived(detail);
 
-	const variableColumns: Column<(typeof loopVariables)[number]>[] = [
+	async function load(id: string): Promise<void> {
+		try {
+			const [row, messages, variables, checkpoints] = await Promise.all([
+				getAgentLoopDetail(id),
+				getAgentLoopMessages(id),
+				getAgentLoopVariables(id),
+				listLoopCheckpoints(id),
+			]);
+			detail = row;
+			loopMessages = messages;
+			loopVariables = variables;
+			loopCheckpoints = checkpoints;
+		} catch (e) {
+			console.error('Failed to load agent loop:', e);
+		}
+	}
+
+	onMount(() => {
+		void load(page.params.id);
+	});
+
+	$effect(() => {
+		const id = page.params.id;
+		if (!id) return;
+		if (detail && detail.id === id) return;
+		void load(id);
+	});
+
+	const variableColumns: Column<LoopVariable>[] = [
 		{ key: 'key', header: 'Key', text: (row) => row.key },
-		{ key: 'type', header: 'Type', text: (row) => row.type },
+		{ key: 'type', header: 'Type', text: (row) => row.type ?? '' },
 		{ key: 'value', header: 'Value', text: (row) => row.value },
-		{ key: 'scope', header: 'Scope', text: (row) => row.scope },
+		{ key: 'scope', header: 'Scope', text: (row) => row.scope ?? '' },
 		{
 			key: 'updated',
 			header: 'Updated',
-			text: (row) => formatDateTime(row.updatedAt),
+			text: (row) => formatDateTime(row.updatedAt ?? null),
 		},
 	];
-
-	const loopCheckpoints = $derived(
-		checkpoints.filter((item) => item.executionId === detail.id),
-	);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={loop.name} description={detail.summary}>
+	<PageHeader title={loop?.name ?? 'Agent loop'} description={detail?.summary ?? ''}>
 		{#snippet meta()}
-			<StatusBadge status={loop.status} />
-			<Badge variant="outline"
-				>iteration {loop.iteration}/{loop.maxIterations}</Badge
-			>
-			<span class="font-mono text-caption text-muted-foreground">{loop.id}</span
-			>
-			<span class="text-caption text-muted-foreground">{loop.model}</span>
+			{#if loop}
+				<StatusBadge status={loop.status} />
+				<Badge variant="outline"
+					>iteration {loop.iteration}/{loop.maxIterations}</Badge
+				>
+				<span class="font-mono text-caption text-muted-foreground">{loop.id}</span
+				>
+				<span class="text-caption text-muted-foreground">{loop.model}</span>
+			{/if}
 		{/snippet}
 		{#snippet actions()}
 			<IconButton
@@ -150,10 +183,12 @@
 				/>
 			</Card>
 		{:else if tab === 'graph'}
-			<WorkflowGraph graph={detail.graph} class="max-h-[26rem]" />
+			{#if detail}
+				<WorkflowGraph graph={detail.graph} class="max-h-[26rem]" />
+			{/if}
 			<Card title="Iterations" class="mt-3">
 				<ul class="space-y-2">
-					{#each detail.iterations as iteration (iteration.index)}
+					{#each detail?.iterations ?? [] as iteration (iteration.index)}
 						<li
 							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 						>
@@ -176,71 +211,74 @@
 				</ul>
 			</Card>
 		{:else if tab === 'analysis'}
-			<div class="grid gap-3 lg:grid-cols-2">
-				<Card title="Error analysis">
-					<p class="text-caption">
-						Root cause:
-						<span class="text-foreground">
-							{detail.analysis.rootCause ?? 'None recorded'}
-						</span>
-					</p>
-					{#if detail.analysis.errorChain.length > 0}
-						<ol class="mt-2 space-y-1">
-							{#each detail.analysis.errorChain as link, index (index)}
-								<li class="text-caption text-destructive">{link}</li>
-							{/each}
-						</ol>
-					{:else}
-						<p class="mt-2 text-caption text-muted-foreground">
-							No error chain for this loop.
+			{#if detail}
+				<div class="grid gap-3 lg:grid-cols-2">
+					<Card title="Error analysis">
+						<p class="text-caption">
+							Root cause:
+							<span class="text-foreground">
+								{detail.analysis.rootCause ?? 'None recorded'}
+							</span>
 						</p>
-					{/if}
-				</Card>
-				<Card title="Recovery hints">
-					<ul class="space-y-1.5">
-						{#each detail.analysis.recoveryHints as hint, index (index)}
-							<li class="flex items-start gap-1.5 text-caption">
-								<Icon
-									name="sparkles"
-									size={12}
-									class="mt-0.5 shrink-0 text-info"
-								/>
-								<span>{hint}</span>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-				<Card title="Tool frequency" class="lg:col-span-2">
-					<ul class="space-y-2">
-						{#each detail.analysis.toolFrequency as item (item.tool)}
-							<li class="flex items-center gap-3">
-								<span class="w-28 shrink-0 truncate font-mono text-caption"
-									>{item.tool}</span
-								>
-								<span
-									class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-								>
+						{#if detail.analysis.errorChain.length > 0}
+							<ol class="mt-2 space-y-1">
+								{#each detail.analysis.errorChain as link, index (index)}
+									<li class="text-caption text-destructive">{link}</li>
+								{/each}
+							</ol>
+						{:else}
+							<p class="mt-2 text-caption text-muted-foreground">
+								No error chain for this loop.
+							</p>
+						{/if}
+					</Card>
+					<Card title="Recovery hints">
+						<ul class="space-y-1.5">
+							{#each detail.analysis.recoveryHints as hint, index (index)}
+								<li class="flex items-start gap-1.5 text-caption">
+									<Icon
+										name="sparkles"
+										size={12}
+										class="mt-0.5 shrink-0 text-info"
+									/>
+									<span>{hint}</span>
+								</li>
+							{/each}
+						</ul>
+					</Card>
+					<Card title="Tool frequency" class="lg:col-span-2">
+						<ul class="space-y-2">
+							{#each detail.analysis.toolFrequency as item (item.tool)}
+								<li class="flex items-center gap-3">
+									<span class="w-28 shrink-0 truncate font-mono text-caption"
+										>{item.tool}</span
+									>
 									<span
-										class="block h-full rounded-full bg-info"
-										style:width="{(item.count /
-											Math.max(
-												...detail.analysis.toolFrequency.map(
-													(entry) => entry.count,
+										class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+									>
+										<span
+											class="block h-full rounded-full bg-info"
+											style:width="{(item.count /
+												Math.max(
+													...detail.analysis.toolFrequency.map(
+														(entry) => entry.count,
+													),
 												),
 											)) *
-											100}%"
-									></span>
-								</span>
-								<span
-									class="w-8 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
-								>
-									{formatNumber(item.count)}
-								</span>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-			</div>
+												100}%"
+										></span>
+									</span>
+									<span
+										class="w-8 shrink-0 text-right text-caption tabular-nums text-muted-foreground"
+									>
+										{formatNumber(item.count)}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					</Card>
+				</div>
+			{/if}
 		{:else}
 			<div class="space-y-2">
 				{#each loopCheckpoints as checkpoint (checkpoint.id)}

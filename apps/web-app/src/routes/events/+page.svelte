@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,7 +9,8 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { dependencies, diagnostics, events } from '$lib/fixtures/insights';
+	import { listEvents, listDependencies, getDiagnostics, deleteAllEvents } from '$lib/services/events';
+	import type { Dependency, Diagnostic, EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -25,6 +27,38 @@
 	let tab = $state('stream');
 	let query = $state('');
 	let expandedId = $state<string | null>(null);
+	let events = $state<EventRecord[]>([]);
+	let dependencies = $state<Dependency[]>([]);
+	let diagnostics = $state<Diagnostic[]>([]);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [eventPage, deps, diags] = await Promise.all([
+				listEvents({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+				listDependencies().catch(() => []),
+				getDiagnostics().catch(() => []),
+			]);
+			events = eventPage.items;
+			dependencies = deps;
+			diagnostics = diags;
+		} catch (e) {
+			console.error('Failed to load events:', e);
+		}
+	}
+
+	async function clearEvents(): Promise<void> {
+		try {
+			await deleteAllEvents();
+			await reload();
+			toasts.success('Events cleared');
+		} catch {
+			toasts.error('Deletion requires confirmation');
+		}
+	}
 
 	const filtered = $derived(
 		events.filter((event) => {
@@ -57,12 +91,12 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.error('Deletion requires confirmation')}
+				onclick={() => void clearEvents()}
 			>
 				<Icon name="trash" size={13} />
 				Delete filtered

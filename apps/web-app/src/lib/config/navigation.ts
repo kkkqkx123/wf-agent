@@ -18,6 +18,18 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
+		id: 'conversation',
+		label: 'Conversation',
+		items: [
+			{
+				href: '/chat',
+				label: 'Chat',
+				icon: 'sparkles',
+				description: 'Dialogue-first agent IDE with sessions and composer',
+			},
+		],
+	},
+	{
 		id: 'execution',
 		label: 'Execution',
 		items: [

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ExecutionDetail } from '$lib/types/models';
+	import type { ExecutionDetail, TimelineEntry, ToolCallEntry } from '$lib/types/models';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import StatusBadge from './StatusBadge.svelte';
@@ -7,8 +7,7 @@
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import Timeline from './Timeline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
-	import { executionToolCalls } from '$lib/fixtures/executions';
-	import { executionTimeline } from '$lib/fixtures/triggers';
+	import { getExecutionTimeline, getExecutionToolCalls } from '$lib/services/executions';
 	import {
 		formatBytes,
 		formatDateTime,
@@ -25,6 +24,28 @@
 	}
 
 	let { execution, class: className = '' }: Props = $props();
+
+	let toolCalls = $state<ToolCallEntry[]>([]);
+	let timeline = $state<TimelineEntry[]>([]);
+
+	$effect(() => {
+		const id = execution.id;
+		if (!id) return;
+		void getExecutionToolCalls(id)
+			.then((rows) => {
+				toolCalls = rows;
+			})
+			.catch(() => {
+				toolCalls = [];
+			});
+		void getExecutionTimeline(id)
+			.then((rows) => {
+				timeline = rows;
+			})
+			.catch(() => {
+				timeline = [];
+			});
+	});
 
 	const TABS = [
 		{ id: 'overview', label: 'Overview' },
@@ -137,10 +158,10 @@
 				</Card>
 			</div>
 		{:else if tab === 'timeline'}
-			<Timeline entries={executionTimeline} />
+			<Timeline entries={timeline} />
 		{:else if tab === 'tools'}
 			<div class="space-y-2">
-				{#each executionToolCalls as entry (entry.id)}
+				{#each toolCalls as entry (entry.id)}
 					<ToolCallCard {entry} />
 				{/each}
 			</div>

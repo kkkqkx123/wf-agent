@@ -9,12 +9,21 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
-		modelProfiles,
-		providers,
-		scripts,
-		skills,
-		tools,
-	} from '$lib/fixtures/resources';
+		listModelProfiles,
+		listProviders,
+		listTools,
+		listScripts,
+		listSkills,
+		setSkillEnabled,
+		setToolEnabled,
+	} from '$lib/services/resources';
+	import type {
+		ModelProfile,
+		Provider,
+		Script,
+		Skill,
+		Tool,
+	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
@@ -22,6 +31,7 @@
 		formatRelativeTime,
 	} from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
+	import { onMount } from 'svelte';
 
 	const TABS = [
 		{ id: 'models', label: 'Models' },
@@ -31,13 +41,60 @@
 	];
 
 	let tab = $state('models');
+	let modelProfiles = $state<ModelProfile[]>([]);
+	let providers = $state<Provider[]>([]);
+	let tools = $state<Tool[]>([]);
+	let scripts = $state<Script[]>([]);
+	let skills = $state<Skill[]>([]);
 
-	let toolEnabled = $state(
-		Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled])),
-	);
-	let skillEnabled = $state(
-		Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled])),
-	);
+	let toolEnabled = $state<Record<string, boolean>>({});
+	let skillEnabled = $state<Record<string, boolean>>({});
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [profiles, providerRows, toolPage, scriptPage, skillRows] =
+				await Promise.all([
+					listModelProfiles().catch(() => []),
+					listProviders().catch(() => []),
+					listTools({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+					listScripts({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+					listSkills().catch(() => []),
+				]);
+			modelProfiles = profiles;
+			providers = providerRows;
+			tools = toolPage.items;
+			scripts = scriptPage.items;
+			skills = skillRows;
+			toolEnabled = Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled]));
+			skillEnabled = Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled]));
+		} catch (e) {
+			console.error('Failed to load resources:', e);
+		}
+	}
+
+	async function toggleTool(id: string, checked: boolean): Promise<void> {
+		toolEnabled = { ...toolEnabled, [id]: checked };
+		try {
+			await setToolEnabled(id, checked);
+		} catch (e) {
+			console.error('Failed to toggle tool:', e);
+		}
+	}
+
+	async function toggleSkill(name: string, checked: boolean): Promise<void> {
+		const row = skills.find((s) => s.id === name);
+		const key = row?.name ?? name;
+		skillEnabled = { ...skillEnabled, [name]: checked };
+		try {
+			await setSkillEnabled(key, checked);
+		} catch (e) {
+			console.error('Failed to toggle skill:', e);
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -49,7 +106,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button size="sm" onclick={() => toasts.success('Creation form pending')}>
 				<Icon name="plus" size={13} />
@@ -180,8 +237,7 @@
 								checked={toolEnabled[tool.id] ?? false}
 								label="Enable {tool.name}"
 								hideLabel
-								onchange={(checked) =>
-									(toolEnabled = { ...toolEnabled, [tool.id]: checked })}
+								onchange={(checked) => void toggleTool(tool.id, checked)}
 							/>
 						{/snippet}
 						<p class="text-caption text-muted-foreground">{tool.description}</p>
@@ -287,8 +343,7 @@
 								checked={skillEnabled[skill.id] ?? false}
 								label="Enable {skill.name}"
 								hideLabel
-								onchange={(checked) =>
-									(skillEnabled = { ...skillEnabled, [skill.id]: checked })}
+								onchange={(checked) => void toggleSkill(skill.id, checked)}
 							/>
 						{/snippet}
 						<p class="text-caption text-muted-foreground">

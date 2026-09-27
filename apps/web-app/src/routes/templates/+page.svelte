@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -7,8 +8,8 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import { templates } from '$lib/fixtures/insights';
-	import type { TemplateKind } from '$lib/types/models';
+	import { listTemplates, listFeaturedTemplates, cloneTemplate } from '$lib/services/templates';
+	import type { Template, TemplateKind } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
 
@@ -22,6 +23,38 @@
 
 	let kind = $state('all');
 	let featuredOnly = $state(false);
+	let templates = $state<Template[]>([]);
+	let featuredIds = $state<Set<string>>(new Set());
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [all, featured] = await Promise.all([
+				listTemplates({ kind: 'all' }).catch(() => []),
+				listFeaturedTemplates().catch(() => []),
+			]);
+			templates = all.length > 0 ? all : [];
+			featuredIds = new Set(featured.map((t) => t.id));
+			if (templates.length > 0 && featuredIds.size > 0) {
+				templates = templates.map((t) => ({ ...t, featured: t.featured || featuredIds.has(t.id) }));
+			}
+		} catch (e) {
+			console.error('Failed to load templates:', e);
+		}
+	}
+
+	async function clone(row: Template): Promise<void> {
+		try {
+			await cloneTemplate(row.id, row.kind, `${row.name} (copy)`);
+			toasts.success('Template cloned');
+		} catch (e) {
+			console.error('Failed to clone template:', e);
+			toasts.info('Clone pending');
+		}
+	}
 
 	const filtered = $derived(
 		templates.filter((template) => {
@@ -51,7 +84,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button
 				variant="outline"
@@ -132,7 +165,7 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										onclick={() => toasts.info('Clone pending')}
+										onclick={() => void clone(template)}
 									>
 										Clone
 									</Button>

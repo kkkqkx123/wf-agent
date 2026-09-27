@@ -1,267 +1,202 @@
 import { client, request } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type {
-	Checkpoint,
-	Approval,
-	FileActor,
-	FileChange,
-	EditSession,
-} from '$lib/types/models';
+import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
 
 interface CheckpointDto {
 	id?: string;
-	entity_type?: string;
 	entity_id?: string;
+	entityId?: string;
+	executionId?: string;
+	entity_type?: string;
+	entityType?: string;
 	checkpoint_type?: string;
+	checkpointType?: string;
+	kind?: string;
 	timestamp?: number;
-	status?: string;
-	previous_checkpoint_id?: string | null;
-	base_checkpoint_id?: string | null;
-	chain_root_id?: string | null;
+	createdAt?: string;
+	created_at?: number;
 	chain_position?: number | null;
+	chainPosition?: number | null;
+	sequence?: number;
 	blob_size?: number | null;
-	tags?: string[] | null;
+	sizeBytes?: number;
+	size_bytes?: number;
+	status?: string;
+	tags?: string[];
+	actor?: string;
+	note?: string;
+	restorable?: boolean;
 }
 
-function toCheckpoint(d: CheckpointDto): Checkpoint {
+function toIso(value: number | string | null | undefined): string {
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number') return new Date(value).toISOString();
+	return '';
+}
+
+function toCheckpoint(d: CheckpointDto, index: number): Checkpoint {
+	const sequence = d.sequence ?? d.chain_position ?? d.chainPosition ?? index;
 	return {
-		id: d.id ?? '',
-		entityId: d.entity_id ?? '',
-		entityType: d.entity_type ?? '',
-		kind: d.checkpoint_type ?? '',
-		status: d.status ?? '',
-		createdAt: d.timestamp ? new Date(d.timestamp).toISOString() : '',
-		sizeBytes: d.blob_size ?? null,
-		chainPosition: d.chain_position ?? null,
-		chainRootId: d.chain_root_id ?? null,
+		id: d.id ?? `ckpt-${index}`,
+		executionId: d.entity_id ?? d.entityId ?? d.executionId ?? '',
+		sequence,
+		kind: d.kind ?? d.checkpoint_type ?? d.checkpointType ?? '',
+		actor: d.actor ?? '',
+		createdAt: toIso(d.createdAt ?? d.created_at ?? d.timestamp),
+		sizeBytes: d.sizeBytes ?? d.blob_size ?? d.size_bytes ?? 0,
+		note: d.note ?? '',
+		restorable: d.restorable ?? String(d.status ?? '').toLowerCase() !== 'failed',
+		chainPosition: d.chain_position ?? d.chainPosition ?? sequence,
+		status: d.status ?? 'completed',
 		tags: d.tags ?? [],
+		entityType: d.entity_type ?? d.entityType ?? ''
 	};
 }
 
+/** List checkpoints with optional paging. */
 export async function listCheckpoints(params?: {
 	limit?: number;
 	offset?: number;
 }): Promise<PageResult<Checkpoint>> {
 	const data = await call<unknown>(
 		request('GET', '/api/v1/checkpoints', {
-			params: { query: params ?? {} },
-		}),
+			params: { query: { limit: params?.limit, offset: params?.offset } }
+		})
 	);
 	const page = extractPage<CheckpointDto>(data);
-	return { ...page, items: page.items.map(toCheckpoint) };
-}
-
-/**
- * Checkpoints of one agent loop. utoipa shares the
- * `handle_list_checkpoints` operation name across routes, so the untyped
- * `request()` helper carries the path parameter instead.
- */
-export async function listLoopCheckpoints(
-	entityId: string,
-): Promise<Checkpoint[]> {
-	const data = await call<unknown>(
-		request('GET', '/api/v1/agent-loops/{id}/checkpoints', {
-			params: { path: { id: entityId }, query: { limit: 100 } },
-		}),
-	);
-	if (Array.isArray(data)) {
-		return (data as CheckpointDto[]).map(toCheckpoint);
-	}
-	return extractPage<CheckpointDto>(data).items.map(toCheckpoint);
-}
-
-interface PendingApprovalDto {
-	actor?: string;
-	snapshot_id?: string;
-	submitted_at?: number;
-	changes?: { file?: string }[];
-}
-
-function toApproval(d: PendingApprovalDto): Approval {
-	const files = (d.changes ?? [])
-		.map((change) => change.file ?? '')
-		.filter(Boolean);
+	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as CheckpointDto[]) : [];
 	return {
-		id: d.actor ?? '',
-		title: `Pending file changes · ${files.length} file${files.length === 1 ? '' : 's'}`,
-		kind: 'file-approval',
-		requester: d.actor ?? '',
-		requestedAt: d.submitted_at ? new Date(d.submitted_at).toISOString() : '',
-		status: 'pending',
-		detail: files.slice(0, 3).join(', ') + (files.length > 3 ? ' …' : ''),
-		executionId: d.snapshot_id ?? '',
+		...page,
+		items: rows.map((d, index) => toCheckpoint(d, index))
 	};
 }
 
-export async function listPendingApprovals(): Promise<Approval[]> {
+/** Checkpoints for one agent loop, newest first. */
+export async function listLoopCheckpoints(loopId: string): Promise<Checkpoint[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/file-checkpoint/approvals/pending', {}),
+		client.GET('/api/v1/agent-loops/{id}/checkpoints/chain', {
+			params: { path: { id: loopId } }
+		})
 	);
-	if (Array.isArray(data)) {
-		return (data as PendingApprovalDto[]).map(toApproval);
-	}
-	return [];
+	const page = extractPage<CheckpointDto>(data);
+	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as CheckpointDto[]) : [];
+	return rows.map((d, index) => toCheckpoint(d, index));
 }
 
-export async function approveChanges(actorId: string): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/approvals/{id}/approve', {
-			params: { path: { id: actorId } },
-			body: { feature: '', paths: null },
-		}),
-	);
+/** Checkpoint statistics. */
+export async function getCheckpointStats(): Promise<object> {
+	const data = await call<object>(client.GET('/api/v1/agent-checkpoints/stats'));
+	return data ?? {};
 }
 
-export async function rejectChanges(
-	actorId: string,
-	reason?: string,
-): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/approvals/{id}/reject', {
-			params: { path: { id: actorId } },
-			body: { reason: reason ?? null },
-		}),
-	);
-}
-
-/**
- * Restore an execution checkpoint. utoipa emits two handlers with this name
- * (agent + workflow domains), so the generated param types do not describe this
- * route; the untyped `request()` helper carries the path parameter instead.
- */
-export async function restoreCheckpoint(checkpointId: string): Promise<void> {
-	await call<unknown>(
-		request('POST', '/api/v1/executions/checkpoints/{cid}/restore', {
-			params: { path: { cid: checkpointId } },
-		}),
-	);
-}
-
-export async function resumeFromCheckpoint(
-	checkpointId: string,
-): Promise<void> {
-	await call<unknown>(
-		request('POST', '/api/v1/executions/checkpoints/{cid}/resume', {
-			params: { path: { cid: checkpointId } },
-		}),
-	);
-}
-
-export async function deleteCheckpoint(checkpointId: string): Promise<void> {
-	await call<unknown>(
-		client.DELETE('/api/v1/checkpoints/{id}', {
-			params: { path: { id: checkpointId } },
-		}),
-	);
-}
-
-interface PartitionDto {
-	partition_id?: string;
+interface FileChangeDto {
+	id?: string;
+	path?: string;
+	file?: string;
+	change_type?: string;
+	changeType?: string;
 	kind?: string;
 	actor?: string;
-	history_len?: number;
-}
-
-/** Actor partitions of the file-checkpoint store, which the workspace reads key on. */
-export async function listFileActors(): Promise<FileActor[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/file-checkpoint/partitions', {}),
-	);
-	const rows = (Array.isArray(data) ? data : []) as PartitionDto[];
-	return rows
-		.filter((row): row is PartitionDto & { actor: string } =>
-			Boolean(row.actor),
-		)
-		.map((row) => ({
-			actor: row.actor,
-			kind: row.kind ?? 'unknown',
-			historyLen: row.history_len ?? 0,
-		}));
-}
-
-interface FileDiffDto {
-	path?: string;
-	kind?: string;
-	diff?: string;
+	actor_id?: string;
+	at?: string;
+	timestamp?: number;
 	additions?: number;
 	deletions?: number;
+	session?: string;
+	session_id?: string;
 }
 
-/** Per-file difference between an actor workspace and the staged partition. */
-export async function listStagedChanges(actor: string): Promise<FileChange[]> {
+function toFileChange(d: FileChangeDto, index: number): FileChange {
+	const raw = String(d.change_type ?? d.changeType ?? d.kind ?? '').toLowerCase();
+	const changeType = (
+		raw === 'added' || raw === 'modified' || raw === 'deleted' || raw === 'renamed' ? raw : 'modified'
+	) as FileChange['changeType'];
+	return {
+		id: d.id ?? `fc-${index}`,
+		path: d.path ?? d.file ?? '',
+		changeType,
+		actor: d.actor ?? d.actor_id ?? '',
+		at: typeof d.at === 'string' ? d.at : toIso(d.timestamp),
+		additions: d.additions ?? 0,
+		deletions: d.deletions ?? 0,
+		session: d.session ?? d.session_id ?? ''
+	};
+}
+
+/** File changes for an execution or checkpoint. */
+export async function getFileChanges(executionId?: string): Promise<FileChange[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/file-checkpoint/diff/staged/{id}', {
-			params: { path: { id: actor } },
-		}),
+		request('GET', '/api/v1/file-checkpoint/changes', {
+			params: { query: {} }
+		})
 	);
-	const rows = (Array.isArray(data) ? data : []) as FileDiffDto[];
+	const page = extractPage<FileChangeDto>(data);
+	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as FileChangeDto[]) : [];
+	return rows.map((d, index) => toFileChange(d, index));
+}
+
+interface ApprovalDto {
+	id?: string;
+	title?: string;
+	kind?: string;
+	type?: string;
+	requester?: string;
+	requested_at?: number;
+	requestedAt?: string;
+	status?: string;
+	detail?: string;
+	description?: string;
+	execution_id?: string;
+	executionId?: string;
+}
+
+/** Pending approval requests. */
+export async function getApprovalRequests(status?: string): Promise<Approval[]> {
+	const data = await call<unknown>(client.GET('/api/v1/file-checkpoint/approvals/pending'));
+	const page = extractPage<ApprovalDto>(data);
+	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as ApprovalDto[]) : [];
 	return rows
-		.filter((row) => row.path && row.kind && row.kind !== 'unchanged')
-		.map((row) => ({
-			path: row.path as string,
-			kind:
-				row.kind === 'added' || row.kind === 'deleted' ? row.kind : 'modified',
-			additions: row.additions ?? 0,
-			deletions: row.deletions ?? 0,
-			diff: row.diff ?? null,
-		}));
+		.map((d, index) => ({
+			id: d.id ?? `approval-${index}`,
+			title: d.title ?? '',
+			kind: d.kind ?? d.type ?? '',
+			requester: d.requester ?? '',
+			requestedAt:
+				typeof d.requestedAt === 'string'
+					? d.requestedAt
+					: toIso(d.requested_at),
+			status: d.status ?? '',
+			detail: d.detail ?? d.description ?? '',
+			executionId: d.execution_id ?? d.executionId ?? ''
+		}) satisfies Approval)
+		.filter((a) => !status || a.status === status);
 }
 
-interface EditSessionDto {
-	id?: string | number;
-	label?: string | null;
-	created_at?: number;
-	snapshot_ids?: unknown[];
-	delta_ids?: unknown[];
-}
-
-/** Persisted edit sessions, newest first. */
-export async function listEditSessions(): Promise<EditSession[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/file-checkpoint/sessions', {
-			params: { query: { limit: 50 } },
-		}),
-	);
-	const rows = (
-		Array.isArray(data) ? data : extractPage<EditSessionDto>(data).items
-	) as EditSessionDto[];
-	return rows
-		.filter((row) => row.id !== undefined)
-		.map((row) => ({
-			id: String(row.id),
-			label: row.label || '(unlabeled)',
-			createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
-			changeCount:
-				(row.snapshot_ids?.length ?? 0) + (row.delta_ids?.length ?? 0),
-		}));
-}
-
-/** Undo the last edit recorded on an actor partition. */
-export async function undoEdit(actor: string): Promise<void> {
+/** Restore from a checkpoint. */
+export async function restoreFromCheckpoint(checkpointId: string, loopId?: string): Promise<boolean> {
+	if (loopId) {
+		await call<unknown>(
+			request('POST', '/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
+				params: { path: { id: loopId, cid: checkpointId } }
+			})
+		);
+		return true;
+	}
 	await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/undo/{id}', {
-			params: { path: { id: actor } },
-		}),
+		request('POST', '/api/v1/executions/checkpoints/{cid}/restore', {
+			params: { path: { cid: checkpointId } }
+		})
 	);
+	return true;
 }
 
-/** Redo the most recently undone edit on an actor partition. */
-export async function redoEdit(actor: string): Promise<void> {
+/** Resume execution from a checkpoint. */
+export async function resumeFromCheckpoint(checkpointId: string): Promise<boolean> {
 	await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/redo/{id}', {
-			params: { path: { id: actor } },
-		}),
+		request('POST', '/api/v1/executions/checkpoints/{cid}/resume', {
+			params: { path: { cid: checkpointId } }
+		})
 	);
-}
-
-export async function rollbackSession(
-	sessionId: string,
-	actor: string,
-): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', {
-			params: { path: { id: sessionId, actor } },
-		}),
-	);
+	return true;
 }

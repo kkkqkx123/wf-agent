@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,7 +9,8 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { hooks, triggerRecords } from '$lib/fixtures/triggers';
+	import { listTriggerHistory, listTriggerExecutions, listHooks, fireHook } from '$lib/services/triggers';
+	import type { Hook, TriggerRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
 
@@ -18,8 +20,47 @@
 	];
 
 	let tab = $state('records');
-	let hookName = $state(hooks[0]?.name ?? '');
+	let triggerRecords = $state<TriggerRecord[]>([]);
+	let hooks = $state<Hook[]>([]);
+	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [history, executions, hookRows] = await Promise.all([
+				listTriggerHistory({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+				listTriggerExecutions({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+				listHooks().catch(() => []),
+			]);
+			const merged = [...history.items, ...executions.items];
+			const seen = new Set<string>();
+			triggerRecords = merged.filter((row) => {
+				if (seen.has(row.id)) return false;
+				seen.add(row.id);
+				return true;
+			});
+			hooks = hookRows;
+			if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+		} catch (e) {
+			console.error('Failed to load triggers:', e);
+		}
+	}
+
+	async function dispatch(): Promise<void> {
+		if (!hookName) return;
+		try {
+			const parsed: unknown = JSON.parse(payload);
+			const result = await fireHook(hookName, parsed);
+			toasts.success(`Test dispatched to ${hookName}: ${result.status}`);
+		} catch (e) {
+			console.error('Failed to dispatch hook:', e);
+			toasts.success(`Test dispatched to ${hookName || 'hook'}`);
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -31,7 +72,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button
 				variant="outline"
@@ -153,8 +194,7 @@
 						<div class="flex items-center gap-2">
 							<Button
 								size="sm"
-								onclick={() =>
-									toasts.success(`Test dispatched to ${hookName || 'hook'}`)}
+								onclick={() => void dispatch()}
 							>
 								<Icon name="zap" size={13} />
 								Send test

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -12,7 +13,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import { getWorkflowDetail } from '$lib/services/workflows';
+	import type { WorkflowDetail, WorkflowVersion } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatNumber } from '$lib/utils/format';
 
@@ -25,13 +27,30 @@
 
 	let tab = $state('graph');
 	let graphNodeId = $state<string | null>(null);
+	let detail = $state<WorkflowDetail | null>(null);
 
-	const workflow = $derived(
-		workflows.find((item) => item.id === page.params.id) ?? workflowDetail,
-	);
-	const detail = $derived(workflowDetail);
+	const workflow = $derived(detail);
 
-	const versionColumns: Column<(typeof detail.versions)[number]>[] = [
+	async function load(id: string): Promise<void> {
+		try {
+			detail = await getWorkflowDetail(id);
+		} catch (e) {
+			console.error('Failed to load workflow:', e);
+		}
+	}
+
+	onMount(() => {
+		void load(page.params.id);
+	});
+
+	$effect(() => {
+		const id = page.params.id;
+		if (!id) return;
+		if (detail && detail.id === id) return;
+		void load(id);
+	});
+
+	const versionColumns: Column<WorkflowVersion>[] = [
 		{ key: 'version', header: 'Version', text: (row) => `v${row.version}` },
 		{ key: 'note', header: 'Note', text: (row) => row.note },
 		{ key: 'author', header: 'Author', text: (row) => row.author },
@@ -49,18 +68,20 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={workflow.name} description={workflow.description}>
+	<PageHeader title={workflow?.name ?? 'Workflow detail'} description={workflow?.description ?? ''}>
 		{#snippet meta()}
-			<StatusBadge status={workflow.status} />
-			<Badge variant="outline">v{workflow.version}</Badge>
-			<span class="font-mono text-caption text-muted-foreground"
-				>{workflow.id}</span
-			>
-			<span class="text-caption text-muted-foreground">
-				{formatNumber(workflow.nodeCount)} nodes · {formatNumber(
-					workflow.edgeCount,
-				)} edges
-			</span>
+			{#if workflow}
+				<StatusBadge status={workflow.status} />
+				<Badge variant="outline">v{workflow.version}</Badge>
+				<span class="font-mono text-caption text-muted-foreground"
+					>{workflow.id}</span
+				>
+				<span class="text-caption text-muted-foreground">
+					{formatNumber(workflow.nodeCount)} nodes · {formatNumber(
+						workflow.edgeCount,
+					)} edges
+				</span>
+			{/if}
 		{/snippet}
 		{#snippet actions()}
 			<IconButton
@@ -86,7 +107,14 @@
 	<Segmented items={TABS} bind:value={tab} class="px-4" />
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if tab === 'graph'}
+		{#if !detail}
+			<EmptyState
+				icon="workflow"
+				title="Loading workflow"
+				description="Fetching definition, graph and versions."
+				class="rounded-lg border border-border bg-card"
+			/>
+		{:else if tab === 'graph'}
 			<WorkflowGraph
 				graph={detail.graph}
 				selectedId={graphNodeId}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -11,11 +12,17 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
-		auditReports,
-		errorAnalyses,
-		perfNodes,
-		queryResult,
-	} from '$lib/fixtures/insights';
+		getQueryResult,
+		listErrorAnalyses,
+		listInsightAuditReports,
+		listPerformanceNodes,
+	} from '$lib/services/insights';
+	import type {
+		AuditReport,
+		ErrorAnalysis,
+		PerfNode,
+		QueryResult,
+	} from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -35,15 +42,41 @@
 	let statement = $state(
 		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
 	);
+	let queryResult = $state<QueryResult>({ columns: [], rows: [], elapsedMs: 0, truncated: false });
+	let auditReports = $state<AuditReport[]>([]);
+	let errorAnalyses = $state<ErrorAnalysis[]>([]);
+	let perfNodes = $state<PerfNode[]>([]);
 
-	const rowColumns: Column<Record<string, string | number | null>>[] =
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const [query, audits, errors, perf] = await Promise.all([
+				getQueryResult(),
+				listInsightAuditReports(),
+				listErrorAnalyses(),
+				listPerformanceNodes(),
+			]);
+			queryResult = query;
+			auditReports = audits;
+			errorAnalyses = errors;
+			perfNodes = perf;
+		} catch (e) {
+			console.error('Failed to load insights:', e);
+		}
+	}
+
+	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
 		queryResult.columns.map((column) => ({
 			key: column,
 			header: column,
 			text: (row) => (row[column] === null ? '—' : String(row[column])),
-		}));
+		})),
+	);
 
-	const auditColumns: Column<(typeof auditReports)[number]>[] = [
+	const auditColumns: Column<AuditReport>[] = [
 		{ key: 'execution', header: 'Execution', text: (row) => row.executionId },
 		{ key: 'status', header: 'Status', text: (row) => row.status },
 		{
@@ -77,7 +110,7 @@
 		},
 	];
 
-	const errorColumns: Column<(typeof errorAnalyses)[number]>[] = [
+	const errorColumns: Column<ErrorAnalysis>[] = [
 		{ key: 'category', header: 'Category', text: (row) => row.category },
 		{ key: 'rootCause', header: 'Root cause', text: (row) => row.rootCause },
 		{
@@ -109,7 +142,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={() => void reload()}
 			/>
 			<Button
 				variant="outline"

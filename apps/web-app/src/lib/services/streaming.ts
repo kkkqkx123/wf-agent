@@ -238,9 +238,38 @@ export function handleExecutionFrame(
 }
 
 /**
+ * Token usage as reported mid-stream. Cost stays null unless the provider
+ * attached a figure, so the view hides the cost instead of showing a fake one.
+ */
+function toUsage(data: unknown): UsageSnapshot | null {
+	const record = asRecord(data);
+	if (!record) return null;
+	const promptTokens = record.prompt_tokens;
+	const completionTokens = record.completion_tokens;
+	if (typeof promptTokens !== 'number' || typeof completionTokens !== 'number') {
+		return null;
+	}
+	const costs = [
+		record.prompt_tokens_cost,
+		record.completion_tokens_cost,
+		record.total_cost,
+	].filter(
+		(cost): cost is number =>
+			typeof cost === 'number' && Number.isFinite(cost),
+	);
+	return {
+		promptTokens,
+		completionTokens,
+		cost: costs.length > 0 ? costs.reduce((sum, cost) => sum + cost, 0) : null,
+	};
+}
+
+/**
  * Route one frame of the single-generation protocol, the `event_type`-tagged
- * stream. The terminal `final_message` repeats the accumulated answer and the
- * `end` frame only closes the stream, so neither is modelled here.
+ * stream. Text and reasoning arrive as increments; usage arrives either alone
+ * or inside the terminal `final_message`. `final_message` repeats the
+ * accumulated answer and the `end` frame only closes the stream, so neither
+ * carries display text; an `abort` frame interrupts the run.
  */
 export function handleGenerationFrame(
 	data: unknown,
@@ -256,6 +285,24 @@ export function handleGenerationFrame(
 			if (text) callbacks.onDelta?.(text);
 			break;
 		}
+		case 'reasoning_text': {
+			const text = asString(frame.reasoning);
+			if (text) callbacks.onReasoning?.(text);
+			break;
+		}
+		case 'usage': {
+			const usage = toUsage(frame.usage);
+			if (usage) callbacks.onUsage?.(usage);
+			break;
+		}
+		case 'final_message': {
+			const usage = toUsage(frame.usage);
+			if (usage) callbacks.onUsage?.(usage);
+			break;
+		}
+		case 'abort':
+			callbacks.onInterrupted?.(asString(frame.reason) || 'Interrupted');
+			break;
 		case 'error':
 			callbacks.onError?.({
 				message: asString(frame.error) || 'Stream error',

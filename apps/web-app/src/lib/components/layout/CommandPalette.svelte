@@ -5,9 +5,11 @@
 	import type { IconName } from '$lib/components/icons/paths';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import { NAV_ITEMS } from '$lib/config/navigation';
-	import { executions } from '$lib/fixtures/executions';
-	import { workflows } from '$lib/fixtures/workflows';
-	import { agentLoops } from '$lib/fixtures/agentLoops';
+	import { listExecutions } from '$lib/services/executions';
+	import { listWorkflows } from '$lib/services/workflows';
+	import { listAgentLoops } from '$lib/services/agentLoops';
+	import { unifiedSearch, type SearchHit } from '$lib/services/search';
+	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '$lib/utils/cn';
 
@@ -22,6 +24,48 @@
 
 	let query = $state('');
 	let rawIndex = $state(0);
+	let executions = $state<Execution[]>([]);
+	let workflows = $state<Workflow[]>([]);
+	let agentLoops = $state<AgentLoop[]>([]);
+	let remoteHits = $state<SearchHit[]>([]);
+
+	$effect(() => {
+		if (!ui.commandOpen) return;
+		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0) return;
+		void Promise.all([
+			listExecutions({ limit: 50 }).then((page) => {
+				executions = page.items;
+			}).catch(() => {}),
+			listWorkflows({ limit: 50 }).then((page) => {
+				workflows = page.items;
+			}).catch(() => {}),
+			listAgentLoops({ limit: 50 }).then((page) => {
+				agentLoops = page.items;
+			}).catch(() => {}),
+		]);
+	});
+
+	$effect(() => {
+		const needle = query.trim();
+		if (!needle) {
+			remoteHits = [];
+			return;
+		}
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			void unifiedSearch({ q: needle, limit: 8 })
+				.then((outcome) => {
+					if (!cancelled) remoteHits = outcome.items;
+				})
+				.catch(() => {
+					if (!cancelled) remoteHits = [];
+				});
+		}, 180);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	});
 
 	const items = $derived.by<CommandItem[]>(() => {
 		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
@@ -72,7 +116,25 @@
 			},
 		}));
 
-		const all = [...nav, ...execs, ...flows, ...loops];
+		const remote: CommandItem[] = remoteHits.map((hit) => ({
+			id: `search:${hit.type}:${hit.id}`,
+			label: hit.label,
+			group: 'Search',
+			icon: 'search' as IconName,
+			hint: hit.matches.slice(0, 2).join(' · ') || hit.type,
+			run: () => {
+				ui.setCommandOpen(false);
+				const target =
+					hit.executionId != null
+						? resolve('/executions/[id]', { id: hit.executionId })
+						: hit.agentLoopId != null
+							? resolve('/agent-loops/[id]', { id: hit.agentLoopId })
+							: resolve('/');
+				void goto(target);
+			},
+		}));
+
+		const all = [...nav, ...execs, ...flows, ...loops, ...remote];
 		const needle = query.trim().toLowerCase();
 		if (!needle) return all.filter((item) => item.group === 'Navigate');
 		return all.filter(

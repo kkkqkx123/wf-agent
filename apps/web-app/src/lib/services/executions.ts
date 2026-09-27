@@ -1,213 +1,223 @@
 import { client } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
+import { call, extractCapped, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type {
-	Execution,
-	ExecutionDetail,
-	KeyValue,
-	ToolCallEntry,
-	TimelineEntry,
-} from '$lib/types/models';
+import type { Execution, ExecutionDetail, Metric, TimelineEntry, ToolCallEntry } from '$lib/types/models';
 
-/** Stored execution: both endpoints answer with this shape. */
 interface ExecutionDto {
 	id?: string;
 	workflow_id?: string;
+	workflowId?: string;
+	workflow_name?: string;
+	workflowName?: string;
 	status?: string;
-	current_node_id?: string | null;
 	started_at?: number;
+	startedAt?: string;
 	completed_at?: number | null;
+	endedAt?: string | null;
+	elapsed_ms?: number | null;
+	durationMs?: number | null;
+	error_count?: number;
+	failedNodes?: number;
 	error?: string | null;
-	errors?: string[] | null;
-	execution_type?: string | null;
-	variables?: VariableDto[] | null;
-	input?: unknown;
-	output?: unknown;
-	node_results?: NodeResultDto[] | null;
-	graph?: { nodes?: unknown[] } | null;
+	progress?: number;
+	current_node?: string | null;
+	currentNode?: string | null;
+	trigger?: string | null;
+	tasks_total?: number;
+	tasksTotal?: number;
+	tasks_done?: number;
+	tasksDone?: number;
+	memory_peak_bytes?: number | null;
+	memoryPeakBytes?: number | null;
 }
 
-interface NodeResultDto {
-	status?: string;
+function toIso(value: number | string | null | undefined): string {
+	if (value === null || value === undefined) return '';
+	if (typeof value === 'string') return value;
+	return new Date(value).toISOString();
 }
 
-interface VariableDto {
-	name?: string;
-	value?: unknown;
-}
-
-function toIso(value: number | null | undefined): string {
-	return value === null || value === undefined
-		? ''
-		: new Date(value).toISOString();
-}
-
-/** JSON text for a payload segment the server keeps as an arbitrary value. */
-function asJsonText(value: unknown): string | null {
+function toIsoOrNull(value: number | string | null | undefined): string | null {
 	if (value === null || value === undefined) return null;
-	return JSON.stringify(value, null, 2);
-}
-
-function toVariable(d: VariableDto): KeyValue {
-	return {
-		key: d.name ?? '',
-		value: typeof d.value === 'string' ? d.value : JSON.stringify(d.value),
-	};
+	if (typeof value === 'string') return value;
+	return new Date(value).toISOString();
 }
 
 function toExecution(d: ExecutionDto): Execution {
-	const results = d.node_results ?? null;
-	const nodesDone = results === null ? null : results.length;
-	// The recorded node count is only a total once the run is over; progress
-	// needs the graph to know what remains, so it stays undecidable without it.
-	const nodesTotal = d.graph?.nodes ? d.graph.nodes.length : null;
-	const nodesFailed =
-		results === null
-			? null
-			: results.filter((node) => node.status === 'failed').length;
-	const startedAt = d.started_at ?? null;
-	const completedAt = d.completed_at ?? null;
+	const status = String(d.status ?? 'running').toLowerCase();
+	const completed = status === 'completed' || status === 'succeeded' || status === 'success';
 	return {
 		id: d.id ?? '',
-		workflowId: d.workflow_id ?? '',
-		status: d.status ?? '',
-		currentNodeId: d.current_node_id ?? null,
-		startedAt: toIso(startedAt),
-		endedAt: completedAt === null ? null : toIso(completedAt),
-		nodesDone,
-		nodesTotal,
-		nodesFailed,
-		progress:
-			nodesDone !== null && nodesTotal && nodesTotal > 0
-				? Math.min(1, nodesDone / nodesTotal)
-				: null,
-		durationMs:
-			startedAt !== null && completedAt !== null
-				? completedAt - startedAt
-				: null,
-		errorMessage: d.error ?? null,
+		workflowId: d.workflow_id ?? d.workflowId ?? '',
+		workflowName:
+			d.workflow_name ?? d.workflowName ?? d.workflow_id ?? d.workflowId ?? '',
+		status,
+		startedAt: typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
+		endedAt:
+			typeof d.endedAt === 'string' ? d.endedAt : toIsoOrNull(d.completed_at),
+		durationMs: d.durationMs ?? d.elapsed_ms ?? null,
+		progress: d.progress ?? (completed ? 1 : 0),
+		currentNode: d.current_node ?? d.currentNode ?? null,
+		trigger: d.trigger ?? null,
+		tasksTotal: d.tasks_total ?? d.tasksTotal ?? 0,
+		tasksDone: d.tasks_done ?? d.tasksDone ?? (completed ? 1 : 0),
+		failedNodes: d.failedNodes ?? d.error_count ?? 0,
+		memoryPeakBytes: d.memory_peak_bytes ?? d.memoryPeakBytes ?? null
 	};
+}
+
+/** List executions with optional paging and filters. */
+export async function listExecutions(params?: {
+	limit?: number;
+	offset?: number;
+	status?: string;
+	workflowId?: string;
+}): Promise<PageResult<Execution>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions', {
+			params: {
+				query: {
+					limit: params?.limit,
+					offset: params?.offset,
+					status: params?.status,
+					workflow_id: params?.workflowId
+				}
+			}
+		})
+	);
+	const page = extractPage<ExecutionDto>(data);
+	return { ...page, items: page.items.map((d) => toExecution(d)) };
+}
+
+/** Overview metric cards derived from the execution list. */
+export async function getExecutionStats(): Promise<Metric[]> {
+	const page = await listExecutions({ limit: 200 });
+	const running = page.items.filter((e) => e.status === 'running').length;
+	const completed = page.items.filter((e) => e.status === 'completed').length;
+	const failed = page.items.filter((e) => e.status === 'failed').length;
+	return [
+		{ label: 'Running', value: String(running), tone: 'running' },
+		{ label: 'Completed', value: String(completed), tone: 'success' },
+		{ label: 'Failed', value: String(failed), tone: 'danger' }
+	];
+}
+
+/** Detailed view of a single execution. */
+export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
+	const data = await call<ExecutionDto>(
+		client.GET('/api/v1/executions/{id}', { params: { path: { id } } })
+	);
+	const base = toExecution(data ?? {});
+	return {
+		...base,
+		id,
+		context: [],
+		callStack: [],
+		variables: [],
+		memory: { currentBytes: 0, peakBytes: base.memoryPeakBytes ?? 0 },
+		migration: [],
+		analysis: {
+			slowNodes: [],
+			decisionPoints: [],
+			failureNodes: [],
+			criticalPath: [],
+			iterations: 0
+		}
+	};
+}
+
+/** Compatibility alias for the detail route. */
+export async function getExecution(id: string): Promise<ExecutionDetail> {
+	return getExecutionDetail(id);
 }
 
 interface ToolCallDto {
 	id?: string;
+	tool_call_id?: string;
 	name?: string;
+	tool?: string;
 	kind?: string;
 	status?: string;
-	started_at?: string;
+	success?: boolean;
+	started_at?: number;
+	startedAt?: string;
 	duration_ms?: number;
-	input?: string;
-	output?: string;
+	durationMs?: number;
+	input?: unknown;
+	arguments?: unknown;
+	output?: unknown;
+	result?: unknown;
+	error?: string | null;
+}
+
+function stringify(value: unknown): string {
+	if (value === null || value === undefined) return '';
+	return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
+	return {
+		id: d.id ?? d.tool_call_id ?? `tc-${index}`,
+		name: d.name ?? d.tool ?? '',
+		kind: d.kind ?? '',
+		status: d.status ?? (d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
+		startedAt: typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
+		durationMs: d.duration_ms ?? d.durationMs ?? 0,
+		input: typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments),
+		output: typeof d.output === 'string' ? d.output : (d.error ?? stringify(d.output ?? d.result))
+	};
+}
+
+/** Tool calls for an execution. */
+export async function getExecutionToolCalls(executionId: string): Promise<ToolCallEntry[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/audit/tool-calls', {
+			params: { path: { id: executionId } }
+		})
+	);
+	const page = extractPage<ToolCallDto>(data);
+	return page.items.map((d, index) => toToolCall(d, index));
 }
 
 interface TimelineDto {
 	id?: string;
+	timestamp?: number;
 	at?: string;
+	type?: string;
 	kind?: string;
+	description?: string;
 	title?: string;
 	detail?: string;
+	error_severity?: string | null;
 	status?: string;
 }
 
-function toToolCall(d: ToolCallDto): ToolCallEntry {
+function toTimelineEntry(d: TimelineDto, index: number): TimelineEntry {
+	const kind = d.kind ?? d.type ?? '';
 	return {
-		id: d.id ?? '',
-		name: d.name ?? '',
-		kind: d.kind ?? '',
-		status: d.status ?? '',
-		startedAt: d.started_at ?? '',
-		durationMs: d.duration_ms ?? 0,
-		input: d.input ?? '',
-		output: d.output ?? '',
+		id: d.id ?? `tl-${index}`,
+		at: typeof d.at === 'string' ? d.at : toIso(d.timestamp),
+		kind,
+		title: d.title ?? d.description ?? '',
+		detail: d.detail ?? d.description ?? '',
+		status: d.status ?? ''
 	};
 }
 
-function toTimelineEntry(d: TimelineDto): TimelineEntry {
-	return {
-		id: d.id ?? '',
-		at: d.at ?? '',
-		kind: d.kind ?? '',
-		title: d.title ?? '',
-		detail: d.detail ?? '',
-		status: d.status ?? '',
-	};
-}
-
-export async function listExecutions(params?: {
-	limit?: number;
-	offset?: number;
-	workflowId?: string;
-}): Promise<PageResult<Execution>> {
-	const { workflowId, ...page } = params ?? {};
+/** Timeline events for an execution. */
+export async function getExecutionTimeline(executionId: string): Promise<TimelineEntry[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/executions', {
-			params: { query: { ...page, workflow_id: workflowId } },
-		}),
+		client.GET('/api/v1/events/execution-timeline/{executionId}', {
+			params: { path: { executionId } }
+		})
 	);
-	const result = extractPage<ExecutionDto>(data);
-	return { ...result, items: result.items.map(toExecution) };
+	const capped = extractCapped<TimelineDto>(data);
+	const items = capped.items.length > 0 ? capped.items : extractPage<TimelineDto>(data).items;
+	return items.map((d, index) => toTimelineEntry(d, index));
 }
 
-export async function getExecution(id: string): Promise<ExecutionDetail> {
-	const data = await call<ExecutionDto>(
-		client.GET('/api/v1/executions/{id}', {
-			params: { path: { id } },
-		}),
-	);
-	return {
-		...toExecution(data),
-		variables: (data.variables ?? []).map(toVariable),
-		input: asJsonText(data.input),
-		output: asJsonText(data.output),
-		failures: data.errors ?? [],
-		executionType: data.execution_type ?? null,
-	};
-}
-
-export async function listToolCalls(
-	executionId: string,
-): Promise<ToolCallEntry[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/executions/{id}/audit/tool-calls', {
-			params: { path: { id: executionId } },
-		}),
-	);
-	if (Array.isArray(data)) {
-		return (data as ToolCallDto[]).map(toToolCall);
-	}
-	const page = extractPage<ToolCallDto>(data);
-	return page.items.map(toToolCall);
-}
-
-export async function listTimeline(
-	executionId: string,
-): Promise<TimelineEntry[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/executions/{id}/audit/timeline', {
-			params: { path: { id: executionId } },
-		}),
-	);
-	if (Array.isArray(data)) {
-		return (data as TimelineDto[]).map(toTimelineEntry);
-	}
-	const page = extractPage<TimelineDto>(data);
-	return page.items.map(toTimelineEntry);
-}
-
-export async function pauseExecution(id: string): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/executions/{id}/pause', { params: { path: { id } } }),
-	);
-}
-
-export async function resumeExecution(id: string): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/executions/{id}/resume', { params: { path: { id } } }),
-	);
-}
-
-export async function cancelExecution(id: string): Promise<void> {
-	await call<unknown>(
-		client.POST('/api/v1/executions/{id}/cancel', { params: { path: { id } } }),
-	);
+/** Filter executions by status. */
+export async function filterExecutionsByStatus(status: string): Promise<Execution[]> {
+	const page = await listExecutions({ status, limit: 200 });
+	return page.items;
 }

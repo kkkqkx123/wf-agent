@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,7 +13,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import { listWorkflows, getWorkflowDetail } from '$lib/services/workflows';
+	import type { Workflow, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
@@ -28,11 +30,44 @@
 
 	let query = $state('');
 	let status = $state('');
-	let selectedId = $state<string | null>(workflows[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
 	let graphNodeId = $state<string | null>(null);
+	let allWorkflows = $state<Workflow[]>([]);
+	let selected = $state<WorkflowDetail | null>(null);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		try {
+			const page = await listWorkflows({ limit: 200 });
+			allWorkflows = page.items;
+			if (page.items.length > 0 && !selectedId) {
+				selectedId = page.items[0].id;
+			}
+		} catch (e) {
+			console.error('Failed to load workflows:', e);
+		}
+	}
+
+	$effect(() => {
+		const id = selectedId;
+		if (!id) {
+			selected = null;
+			return;
+		}
+		void getWorkflowDetail(id)
+			.then((row) => {
+				selected = row;
+			})
+			.catch((e) => {
+				console.error('Failed to load workflow detail:', e);
+			});
+	});
 
 	const filtered = $derived(
-		workflows.filter((workflow) => {
+		allWorkflows.filter((workflow) => {
 			const matchesStatus = !status || workflow.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
@@ -42,8 +77,6 @@
 			return matchesStatus && matchesQuery;
 		}),
 	);
-
-	const selected = $derived(workflowDetail);
 </script>
 
 <SplitView
@@ -60,7 +93,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => void reload()}
 				/>
 				<Button
 					variant="outline"

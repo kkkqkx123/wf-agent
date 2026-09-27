@@ -5,12 +5,14 @@
 //! `tui-render` and `tui-components` crates can consume them without depending
 //! on the `wf-tui` facade. `screens.rs` re-exports everything here.
 
-/// Identifier for the 8 full-TUI screens.
+/// Identifier for the full-TUI screens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScreenKind {
     Dashboard,
     Workflow,
     Executions,
+    AgentLoops,
+    Insights,
     Interactive,
     Checkpoints,
     Search,
@@ -24,6 +26,8 @@ impl ScreenKind {
             Self::Dashboard => "Dashboard",
             Self::Workflow => "Workflows",
             Self::Executions => "Executions",
+            Self::AgentLoops => "Agent Loops",
+            Self::Insights => "Insights",
             Self::Interactive => "Interactive",
             Self::Checkpoints => "Checkpoints",
             Self::Search => "Search",
@@ -37,6 +41,8 @@ impl ScreenKind {
             Self::Dashboard,
             Self::Workflow,
             Self::Executions,
+            Self::AgentLoops,
+            Self::Insights,
             Self::Interactive,
             Self::Checkpoints,
             Self::Search,
@@ -167,6 +173,30 @@ pub struct SettingsData {
     pub theme: String,
 }
 
+/// One agent-loop session row rendered on the agent loops screen.
+#[derive(Debug, Clone)]
+pub struct LoopRow {
+    pub id: String,
+    pub status: String,
+    pub iteration: u32,
+    pub tool_calls: u32,
+    pub started: String,
+}
+
+/// One pre-aggregated metrics table rendered on the insights screen.
+#[derive(Debug, Clone)]
+pub struct InsightTable {
+    pub title: String,
+    /// First entry is the header row; every row must have the same width.
+    pub rows: Vec<Vec<String>>,
+}
+
+/// Insights screen state: a set of summary tables.
+#[derive(Debug, Clone, Default)]
+pub struct InsightsData {
+    pub tables: Vec<InsightTable>,
+}
+
 /// Data bound to the currently visible screen.
 #[derive(Debug, Clone, Default)]
 pub enum ScreenData {
@@ -175,6 +205,8 @@ pub enum ScreenData {
     Dashboard(DashboardData),
     Workflow(Vec<WorkflowRow>),
     Executions(Vec<ExecRow>),
+    AgentLoops(Vec<LoopRow>),
+    Insights(InsightsData),
     Checkpoints(Vec<CheckpointRow>),
     Search(SearchData),
     Settings(SettingsData),
@@ -184,9 +216,10 @@ impl ScreenData {
     /// Number of selectable rows on the screen (drives `j/k` navigation).
     pub fn row_count(&self) -> usize {
         match self {
-            Self::None | Self::Dashboard(_) => 0,
+            Self::None | Self::Dashboard(_) | Self::Insights(_) => 0,
             Self::Workflow(rows) => rows.len(),
             Self::Executions(rows) => rows.len(),
+            Self::AgentLoops(rows) => rows.len(),
             Self::Checkpoints(rows) => rows.len(),
             Self::Search(data) => data.results.len(),
             Self::Settings(data) => data.profiles.len(),

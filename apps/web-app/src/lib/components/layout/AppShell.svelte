@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import Sidebar from './Sidebar.svelte';
 	import TopBar from './TopBar.svelte';
+	import HelpModal from './HelpModal.svelte';
 	import Sheet from '$lib/components/ui/Sheet.svelte';
 	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
 	import { page } from '$app/state';
@@ -31,7 +32,16 @@
 		const item = navItemFor(pathname);
 		return !!item && (item.href === href || item.href.startsWith(href));
 	}
+
+	function onwindowkeydown(event: KeyboardEvent): void {
+		if (event.key === 'F1') {
+			event.preventDefault();
+			ui.toggleHelp();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onwindowkeydown} />
 
 <div class="flex h-screen w-full overflow-hidden bg-background text-foreground">
 	<div class="hidden lg:flex">
@@ -47,6 +57,7 @@
 </div>
 
 <!-- Narrow viewports swap the rail for a drawer. -->
+<HelpModal />
 <Sheet
 	bind:open={ui.mobileNavOpen}
 	title="Navigation"

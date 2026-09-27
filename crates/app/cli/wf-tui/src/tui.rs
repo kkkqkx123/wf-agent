@@ -75,17 +75,35 @@ async fn theme_reload_signals() -> io::Result<mpsc::Receiver<()>> {
     Ok(rx)
 }
 
-/// Cached screen data is considered stale after this duration.
-const DATA_TTL: Duration = Duration::from_secs(5);
+/// Fallback cache TTL for screens without a dedicated policy.
+const DEFAULT_DATA_TTL: Duration = Duration::from_secs(5);
 /// A fetch that never reports back is retried after this duration.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Dashboard entry order: index `i` is what `1..=8` / `j-k` selects.
+/// Per-screen cache TTL: aggregation screens refresh slowly, live lists more
+/// eagerly, and the search screen is essentially per-keystroke.
+fn data_ttl(kind: ScreenKind) -> Duration {
+    match kind {
+        ScreenKind::Dashboard => Duration::from_secs(10),
+        ScreenKind::Workflow => Duration::from_secs(5),
+        ScreenKind::Executions | ScreenKind::Checkpoints | ScreenKind::AgentLoops => {
+            Duration::from_secs(3)
+        }
+        ScreenKind::Insights => Duration::from_secs(10),
+        ScreenKind::Search => Duration::from_millis(500),
+        ScreenKind::Settings => DEFAULT_DATA_TTL,
+        ScreenKind::Interactive | ScreenKind::Help => DEFAULT_DATA_TTL,
+    }
+}
+
+/// Dashboard entry order: index `i` is what `1..=0` / `j-k` selects.
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,
     ScreenKind::Executions,
+    ScreenKind::AgentLoops,
+    ScreenKind::Insights,
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Search,
@@ -926,7 +944,7 @@ impl TuiApp {
         if !kind.has_data() {
             return;
         }
-        if self.app.screen.is_fresh(kind, DATA_TTL) {
+        if self.app.screen.is_fresh(kind, data_ttl(kind)) {
             return;
         }
         if self.app.screen.has_inflight(kind, FETCH_TIMEOUT) {
@@ -1094,19 +1112,24 @@ impl TuiApp {
                         self.goto(kind);
                     }
                 }
-                ScreenKind::Executions => {
-                    if let ScreenData::Executions(rows) = self.current_data() {
-                        let idx = self
-                            .app
-                            .screen
-                            .navigation
-                            .selected()
-                            .min(rows.len().saturating_sub(1));
-                        if let Some(row) = rows.get(idx) {
-                            let id = row.id.clone();
-                            self.goto(ScreenKind::Interactive);
-                            self.pending_replay = Some(id);
-                        }
+                ScreenKind::Executions | ScreenKind::AgentLoops => {
+                    // Both list screens share the same shape: pick the selected
+                    // id and open it as an interactive session replay.
+                    let rows_len = self.current_data().row_count();
+                    let selected = self
+                        .app
+                        .screen
+                        .navigation
+                        .selected()
+                        .min(rows_len.saturating_sub(1));
+                    let id = match self.current_data() {
+                        ScreenData::Executions(rows) => rows.get(selected).map(|r| r.id.clone()),
+                        ScreenData::AgentLoops(rows) => rows.get(selected).map(|r| r.id.clone()),
+                        _ => None,
+                    };
+                    if let Some(id) = id {
+                        self.goto(ScreenKind::Interactive);
+                        self.pending_replay = Some(id);
                     }
                 }
                 _ => {}
@@ -1127,6 +1150,16 @@ impl TuiApp {
                 self.app
                     .notice
                     .set(format!("Refreshing {}...", kind.title()));
+            }
+            CKey::Char('p')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>
+            {
+                self.toggle_selected_execution();
+            }
+            CKey::Char('x')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>
+            {
+                self.cancel_selected_execution();
             }
             CKey::Char('d')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Workflow =>
@@ -1291,6 +1324,80 @@ impl TuiApp {
                     return;
                 }
                 _ => "Delete cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Pause or resume the currently selected execution based on its status.
+    fn toggle_selected_execution(&mut self) {
+        let rows = match self.current_data() {
+            ScreenData::Executions(rows) => rows,
+            _ => return,
+        };
+        let idx = self
+            .app
+            .screen
+            .navigation
+            .selected()
+            .min(rows.len().saturating_sub(1));
+        let Some(row) = rows.get(idx) else { return };
+        let id = row.id.clone();
+        let paused = row.status.eq_ignore_ascii_case("paused");
+        let action = if paused { "resume" } else { "pause" };
+        let tx = self.feedback_tx.clone();
+        let adapter = Arc::clone(&self.adapter);
+        self.tasks.push(tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let result = if paused {
+                ctx.resume_execution(&id).await
+            } else {
+                ctx.pause_execution(&id).await
+            };
+            let notice = match result {
+                Ok(()) => {
+                    let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
+                    format!("Execution {id} {action}d")
+                }
+                Err(err) => format!("{action} failed: {err}"),
+            };
+            let _ = tx.send(Feedback::Notice(notice));
+        }));
+    }
+
+    /// Cancel the currently selected execution after user confirmation.
+    fn cancel_selected_execution(&mut self) {
+        let rows = match self.current_data() {
+            ScreenData::Executions(rows) => rows,
+            _ => return,
+        };
+        let idx = self
+            .app
+            .screen
+            .navigation
+            .selected()
+            .min(rows.len().saturating_sub(1));
+        let Some(row) = rows.get(idx) else { return };
+        let id = row.id.clone();
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Cancel execution",
+            format!("Cancel execution {id}? This cannot be undone."),
+        )));
+        let tx = self.feedback_tx.clone();
+        let adapter = Arc::clone(&self.adapter);
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let ctx = adapter.api_context();
+                    match ctx.cancel_execution(&id).await {
+                        Ok(()) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
+                            format!("Cancelled execution {id}")
+                        }
+                        Err(err) => format!("Cancel failed: {err}"),
+                    }
+                }
+                _ => "Cancel dismissed".to_string(),
             };
             let _ = tx.send(Feedback::Notice(outcome));
         }));
@@ -1504,12 +1611,14 @@ fn digit_to_screen(c: char) -> Option<ScreenKind> {
     match c {
         '1' => Some(ScreenKind::Workflow),
         '2' => Some(ScreenKind::Executions),
-        '3' => Some(ScreenKind::Interactive),
-        '4' => Some(ScreenKind::Checkpoints),
-        '5' => Some(ScreenKind::Search),
-        '6' => Some(ScreenKind::Settings),
-        '7' => Some(ScreenKind::Dashboard),
-        '8' => Some(ScreenKind::Help),
+        '3' => Some(ScreenKind::AgentLoops),
+        '4' => Some(ScreenKind::Insights),
+        '5' => Some(ScreenKind::Interactive),
+        '6' => Some(ScreenKind::Checkpoints),
+        '7' => Some(ScreenKind::Search),
+        '8' => Some(ScreenKind::Settings),
+        '9' => Some(ScreenKind::Dashboard),
+        '0' => Some(ScreenKind::Help),
         _ => None,
     }
 }
@@ -1531,11 +1640,15 @@ mod tests {
 
     #[test]
     fn digit_to_screen_maps_all_screens() {
-        let mapped: Vec<ScreenKind> = ('1'..='8').filter_map(digit_to_screen).collect();
-        assert_eq!(mapped.len(), 8);
+        let mapped: Vec<ScreenKind> = ('1'..='9')
+            .chain(std::iter::once('0'))
+            .filter_map(digit_to_screen)
+            .collect();
+        assert_eq!(mapped.len(), 10);
         assert_eq!(mapped[0], ScreenKind::Workflow);
-        assert_eq!(mapped[7], ScreenKind::Help);
-        assert!(digit_to_screen('9').is_none());
+        assert_eq!(mapped[7], ScreenKind::Settings);
+        assert_eq!(mapped[9], ScreenKind::Help);
+        assert!(digit_to_screen('z').is_none());
     }
 
     #[test]

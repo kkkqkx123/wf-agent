@@ -60,14 +60,14 @@
 		}
 		let cancelled = false;
 		const timer = setTimeout(() => {
-			void unifiedSearch({ q: needle, limit: 8 })
+			void unifiedSearch({ q: needle, limit: 20 })
 				.then((outcome) => {
 					if (!cancelled) remoteHits = outcome.items;
 				})
 				.catch(() => {
 					if (!cancelled) remoteHits = [];
 				});
-		}, 180);
+		}, 300);
 		return () => {
 			cancelled = true;
 			clearTimeout(timer);

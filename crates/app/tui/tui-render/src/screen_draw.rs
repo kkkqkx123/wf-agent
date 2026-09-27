@@ -147,6 +147,81 @@ pub fn draw_executions(
     render_rows(frame, body_area, block, &rows, selected, theme);
 }
 
+pub fn draw_agent_loops(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+) {
+    let rows = match data {
+        ScreenData::AgentLoops(rows) => rows
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} · {} · iter {} · {} tools · {}",
+                    short_id(&r.id),
+                    r.status,
+                    r.iteration,
+                    r.tool_calls,
+                    r.started
+                )
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let block = titled_block("Agent Loops (Enter open session, Esc back)", ColorRole::Add, theme);
+    render_rows(frame, area, block, &rows, selected, theme);
+}
+
+pub fn draw_insights(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
+    let text = match data {
+        ScreenData::Insights(d) => {
+            let mut out = String::new();
+            for table in &d.tables {
+                // Column widths from the widest cell so the table aligns.
+                let width = table.rows.iter().map(Vec::len).max().unwrap_or(0);
+                let col_widths = (0..width).map(|c| {
+                    table
+                        .rows
+                        .iter()
+                        .map(|row| row.get(c).map_or(0, String::len))
+                        .max()
+                        .unwrap_or(0)
+                });
+                let fmt_row = |row: &[String]| {
+                    row.iter()
+                        .enumerate()
+                        .map(|(c, cell)| {
+                            let pad = col_widths.clone().nth(c).unwrap_or(0);
+                            format!("{cell:<pad$}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("  ")
+                };
+                out.push_str(&fmt_row(&table.rows[0]));
+                out.push('\n');
+                let dashes = col_widths
+                    .clone()
+                    .map(|w| "-".repeat(w))
+                    .collect::<Vec<_>>()
+                    .join("--");
+                out.push_str(&dashes);
+                out.push('\n');
+                for row in table.rows.iter().skip(1) {
+                    out.push_str(&fmt_row(row));
+                    out.push('\n');
+                }
+                out.push('\n');
+            }
+            out
+        }
+        _ => "Loading...".to_string(),
+    };
+    let block = titled_block("Insights (Esc back)", ColorRole::Highlight, theme);
+    frame.render_widget(Paragraph::new(text).block(block), area);
+}
+
 pub fn draw_checkpoints(
     frame: &mut Frame,
     area: Rect,

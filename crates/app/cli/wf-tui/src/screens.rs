@@ -121,6 +121,10 @@ impl Screens {
             ScreenKind::Executions => {
                 screen_draw::draw_executions(frame, area, data, self.selected, theme)
             }
+            ScreenKind::AgentLoops => {
+                screen_draw::draw_agent_loops(frame, area, data, self.selected, theme)
+            }
+            ScreenKind::Insights => screen_draw::draw_insights(frame, area, data, theme),
             // The Interactive screen is rendered by `InteractiveController::draw`
             // directly from `tui.rs` (it owns streaming state), so it is never
             // reached here — kept as an explicit no-op for exhaustiveness.

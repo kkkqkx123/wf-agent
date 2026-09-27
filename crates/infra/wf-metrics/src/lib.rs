@@ -10,6 +10,7 @@ pub mod registry;
 pub mod render_cache;
 pub mod report;
 pub mod sink;
+pub mod usage;
 
 pub use collector::{
     BaseMetricCollector, CollectorConfig, InternalMetrics, DEFAULT_HISTOGRAM_BUCKETS,

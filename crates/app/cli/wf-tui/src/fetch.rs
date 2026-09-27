@@ -11,8 +11,8 @@ use wf_api::ApiContext;
 
 use crate::error::CliResult;
 use crate::screens::{
-    short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, ProfileRow, ScreenData,
-    ScreenKind, SearchData, SearchRow, SettingsData, WorkflowRow,
+    short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, InsightsData, InsightTable,
+    LoopRow, ProfileRow, ScreenData, ScreenKind, SearchData, SearchRow, SettingsData, WorkflowRow,
 };
 
 /// Fetch data for the given screen kind.
@@ -26,6 +26,8 @@ pub async fn fetch_for(
         ScreenKind::Dashboard => fetch_dashboard(ctx).await,
         ScreenKind::Workflow => fetch_workflows(ctx).await,
         ScreenKind::Executions => fetch_executions(ctx, filter).await,
+        ScreenKind::AgentLoops => fetch_agent_loops(ctx).await,
+        ScreenKind::Insights => fetch_insights(ctx).await,
         ScreenKind::Checkpoints => fetch_checkpoints(ctx).await,
         ScreenKind::Search => fetch_search(ctx, query).await,
         ScreenKind::Settings => fetch_settings(ctx).await,
@@ -137,6 +139,81 @@ async fn fetch_executions(ctx: &ApiContext, filter: ExecStatusFilter) -> CliResu
     }));
 
     Ok(ScreenData::Executions(rows))
+}
+
+async fn fetch_agent_loops(ctx: &ApiContext) -> CliResult<ScreenData> {
+    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
+    let rows = sessions
+        .into_iter()
+        .map(|s| LoopRow {
+            id: s.id,
+            status: s.status.as_str().to_string(),
+            iteration: s.current_iteration,
+            tool_calls: s.tool_call_count,
+            started: format_ts(s.start_time.unwrap_or(0)),
+        })
+        .collect();
+    Ok(ScreenData::AgentLoops(rows))
+}
+
+async fn fetch_insights(ctx: &ApiContext) -> CliResult<ScreenData> {
+    let workflows = wf_api::workflow::summary::workflow_summaries(ctx, None).await?;
+    let executions = wf_api::agent::agent_execution_registry::summaries(ctx, None).await?;
+    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
+
+    // Status breakdown across both registries.
+    let mut status_counts: Vec<(String, usize)> = Vec::new();
+    let mut record = |status: &str| {
+        if let Some(entry) = status_counts
+            .iter_mut()
+            .find(|(name, _)| name.eq_ignore_ascii_case(status))
+        {
+            entry.1 += 1;
+        } else {
+            status_counts.push((status.to_string(), 1));
+        }
+    };
+    let mut total_tool_calls = 0u64;
+    let mut total_iterations = 0u64;
+    for e in &executions {
+        record(e.status.as_str());
+        total_tool_calls += u64::from(e.tool_call_count);
+        total_iterations += u64::from(e.current_iteration);
+    }
+    for s in &sessions {
+        record(s.status.as_str());
+        total_tool_calls += u64::from(s.tool_call_count);
+        total_iterations += u64::from(s.current_iteration);
+    }
+    status_counts.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+
+    let overview = InsightTable {
+        title: "Overview".to_string(),
+        rows: vec![
+            vec!["Metric".to_string(), "Value".to_string()],
+            vec!["Workflows".to_string(), workflows.len().to_string()],
+            vec![
+                "Executions".to_string(),
+                (executions.len() + sessions.len()).to_string(),
+            ],
+            vec!["Iterations".to_string(), total_iterations.to_string()],
+            vec!["Tool calls".to_string(), total_tool_calls.to_string()],
+        ],
+    };
+    let statuses = InsightTable {
+        title: "Executions by status".to_string(),
+        rows: std::iter::once(vec!["Status".to_string(), "Count".to_string()])
+            .chain(
+                status_counts
+                    .into_iter()
+                    .map(|(status, count)| vec![status, count.to_string()]),
+            )
+            .collect(),
+    };
+
+    Ok(ScreenData::Insights(InsightsData {
+        tables: vec![overview, statuses],
+    }))
 }
 
 async fn fetch_checkpoints(ctx: &ApiContext) -> CliResult<ScreenData> {

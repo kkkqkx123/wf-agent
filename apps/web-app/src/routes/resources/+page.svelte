@@ -31,7 +31,9 @@
 		formatRelativeTime,
 	} from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 
 	const TABS = [
 		{ id: 'models', label: 'Models' },
@@ -40,7 +42,16 @@
 		{ id: 'skills', label: 'Skills' },
 	];
 
-	let tab = $state('models');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'models',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'models' ? '' : tab });
+	});
 	let modelProfiles = $state<ModelProfile[]>([]);
 	let providers = $state<Provider[]>([]);
 	let tools = $state<Tool[]>([]);
@@ -60,8 +71,18 @@
 				await Promise.all([
 					listModelProfiles().catch(() => []),
 					listProviders().catch(() => []),
-					listTools({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
-					listScripts({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+					listTools({ limit: 200 }).catch(() => ({
+						items: [],
+						hasMore: false,
+						limit: 0,
+						offset: 0,
+					})),
+					listScripts({ limit: 200 }).catch(() => ({
+						items: [],
+						hasMore: false,
+						limit: 0,
+						offset: 0,
+					})),
 					listSkills().catch(() => []),
 				]);
 			modelProfiles = profiles;
@@ -69,8 +90,12 @@
 			tools = toolPage.items;
 			scripts = scriptPage.items;
 			skills = skillRows;
-			toolEnabled = Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled]));
-			skillEnabled = Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled]));
+			toolEnabled = Object.fromEntries(
+				tools.map((tool) => [tool.id, tool.enabled]),
+			);
+			skillEnabled = Object.fromEntries(
+				skills.map((skill) => [skill.id, skill.enabled]),
+			);
 		} catch (e) {
 			console.error('Failed to load resources:', e);
 		}

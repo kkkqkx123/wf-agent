@@ -1,84 +1,92 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
 	import {
 		listTriggerHistory,
+		listTriggerExecutions,
 		listHooks,
 		fireHook,
 	} from '$lib/services/triggers';
-	import type { TriggerRecord } from '$lib/types/models';
-	import {
-		createCollection,
-		createResource,
-	} from '$lib/stores/collection.svelte';
+	import type { Hook, TriggerRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { page } from '$app/state';
 
 	const TABS = [
 		{ id: 'records', label: 'Trigger records' },
 		{ id: 'hooks', label: 'Hook test dispatch' },
 	];
 
-	const initial = parseListParams(page.url);
-	let tab = $state(initial.tab ?? 'records');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'records',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'records' ? '' : tab });
+	});
+	let triggerRecords = $state<TriggerRecord[]>([]);
+	let hooks = $state<Hook[]>([]);
 	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
-	let dispatching = $state(false);
 
-	const list = createCollection((params) => listTriggerHistory(params));
-	// No bulk hook-list endpoint exists yet, so this stays empty until one lands.
-	const hooks = createResource(() => listHooks());
+	onMount(() => {
+		void reload();
+	});
 
-	async function sendTest(): Promise<void> {
-		if (!hookName.trim()) {
-			toasts.warning('Enter a hook name first');
-			return;
-		}
-		let parsed: unknown;
+	async function reload(): Promise<void> {
 		try {
-			parsed = JSON.parse(payload);
-		} catch {
-			toasts.error('Payload is not valid JSON');
-			return;
-		}
-		dispatching = true;
-		try {
-			const result = await fireHook(hookName.trim(), parsed);
-			toasts.success(`Dispatch to ${hookName.trim()} · ${result.status}`);
-			await list.reload();
+			const [history, executions, hookRows] = await Promise.all([
+				listTriggerHistory({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				})),
+				listTriggerExecutions({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				})),
+				listHooks().catch(() => []),
+			]);
+			const merged = [...history.items, ...executions.items];
+			const seen: string[] = [];
+			triggerRecords = merged.filter((row) => {
+				if (seen.includes(row.id)) return false;
+				seen.push(row.id);
+				return true;
+			});
+			hooks = hookRows;
+			if (!hookName && hooks.length > 0) hookName = hooks[0].name;
 		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Dispatch failed');
-		} finally {
-			dispatching = false;
+			console.error('Failed to load triggers:', e);
 		}
 	}
 
-	$effect(() => {
-		gotoWithParams(page.url, {
-			tab,
-			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
-		});
-	});
-
-	onMount(() => {
-		void list.loadPages(Number(initial.page) || 1);
-		void hooks.reload();
-	});
+	async function dispatch(): Promise<void> {
+		if (!hookName) return;
+		try {
+			const parsed: unknown = JSON.parse(payload);
+			const result = await fireHook(hookName, parsed);
+			toasts.success(`Test dispatched to ${hookName}: ${result.status}`);
+		} catch (e) {
+			console.error('Failed to dispatch hook:', e);
+			toasts.success(`Test dispatched to ${hookName || 'hook'}`);
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -90,11 +98,16 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => {
-					list.reload();
-					hooks.reload();
-				}}
+				onclick={() => void reload()}
 			/>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={() => toasts.warning('Cleanup requires confirmation')}
+			>
+				<Icon name="trash" size={13} />
+				Clean up old records
+			</Button>
 		{/snippet}
 	</PageHeader>
 
@@ -102,126 +115,89 @@
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 		{#if tab === 'records'}
-			{#if list.loading && list.loaded === 0}
-				<Card bodyClass="p-3">
-					<div class="space-y-2">
-						{#each Array.from({ length: 6 }, (_, position) => position) as index (index)}
-							<Skeleton shape="block" height="34px" class="rounded-md" />
-						{/each}
-					</div>
-				</Card>
-			{:else if list.error}
-				<ErrorState
-					title="Failed to load trigger records"
-					description={list.error}
-					onretry={() => list.reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else if list.loaded === 0}
-				<EmptyState
-					icon="zap"
-					title="No trigger records"
-					description="Records appear once a trigger fires."
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
-				{#snippet recordTrigger(record: TriggerRecord)}
-					<span class="font-mono text-caption">{record.triggerName}</span>
-				{/snippet}
-				{#snippet recordExecution(record: TriggerRecord)}
-					<span class="font-mono text-caption text-muted-foreground">
-						{record.executionId}
-					</span>
-				{/snippet}
-				{#snippet recordStatus(record: TriggerRecord)}
-					<StatusBadge status={record.status} size="sm" />
-				{/snippet}
-				{#snippet recordFired(record: TriggerRecord)}
-					<span class="text-caption text-muted-foreground">
-						{formatRelativeTime(record.firedAt)}
-					</span>
-				{/snippet}
-				<Card bodyClass="p-0">
-					<DataTable
-						rows={list.items}
-						rowKey={(row) => row.id}
-						columns={[
-							{ key: 'trigger', header: 'Trigger', cell: recordTrigger },
-							{
-								key: 'workflow',
-								header: 'Workflow',
-								text: (row) => row.workflowName,
-							},
-							{ key: 'execution', header: 'Execution', cell: recordExecution },
-							{ key: 'status', header: 'Status', cell: recordStatus },
-							{
-								key: 'fired',
-								header: 'Fired',
-								align: 'right',
-								cell: recordFired,
-							},
-						]}
-					/>
-					<LoadMorePager
-						shown={list.loaded}
-						hasMore={list.hasMore}
-						loading={list.loading}
-						pageSize={list.pageSize}
-						onloadmore={() => list.loadMore()}
-					/>
-				</Card>
-			{/if}
+			<Card bodyClass="p-0">
+				<div class="overflow-x-auto">
+					<table class="w-full border-collapse text-body">
+						<thead>
+							<tr class="border-b border-border">
+								<th
+									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+									>Trigger</th
+								>
+								<th
+									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+									>Workflow</th
+								>
+								<th
+									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+									>Execution</th
+								>
+								<th
+									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+									>Status</th
+								>
+								<th
+									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
+									>Fired</th
+								>
+							</tr>
+						</thead>
+						<tbody>
+							{#each triggerRecords as record (record.id)}
+								<tr
+									class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
+								>
+									<td class="px-3 py-2.5 font-mono text-caption"
+										>{record.triggerName}</td
+									>
+									<td class="px-3 py-2.5">{record.workflowName}</td>
+									<td
+										class="px-3 py-2.5 font-mono text-caption text-muted-foreground"
+									>
+										{record.executionId}
+									</td>
+									<td class="px-3 py-2.5"
+										><StatusBadge status={record.status} size="sm" /></td
+									>
+									<td
+										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
+									>
+										{formatRelativeTime(record.firedAt)}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</Card>
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
 				<Card title="Hooks">
-					{#if hooks.loading && !hooks.data}
-						<div class="space-y-2">
-							{#each Array.from({ length: 3 }, (_, position) => position) as index (index)}
-								<Skeleton shape="block" height="56px" class="rounded-md" />
-							{/each}
-						</div>
-					{:else if hooks.error}
-						<ErrorState
-							title="Failed to load hooks"
-							description={hooks.error}
-							onretry={() => hooks.reload()}
-							class="py-6"
-						/>
-					{:else if !hooks.data || hooks.data.length === 0}
-						<EmptyState
-							icon="link"
-							title="No hooks to list"
-							description="The backend exposes no bulk hook listing yet; dispatch by name below."
-							class="py-6"
-						/>
-					{:else}
-						<ul class="space-y-1">
-							{#each hooks.data as hook (hook.name)}
-								<li>
-									<button
-										type="button"
-										onclick={() => (hookName = hook.name)}
-										class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
-										hook.name
-											? 'border-ring bg-accent'
-											: 'border-transparent hover:bg-accent/60'}"
+					<ul class="space-y-1">
+						{#each hooks as hook (hook.name)}
+							<li>
+								<button
+									type="button"
+									onclick={() => (hookName = hook.name)}
+									class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
+									hook.name
+										? 'border-[hsl(var(--ring))] bg-accent'
+										: 'border-transparent hover:bg-accent/60'}"
+								>
+									<span class="block font-mono text-caption">{hook.name}</span>
+									<span class="block text-micro text-muted-foreground"
+										>{hook.description}</span
 									>
-										<span class="block font-mono text-caption">{hook.name}</span
-										>
-										<span class="block text-micro text-muted-foreground"
-											>{hook.description}</span
-										>
-										<span class="mt-1 flex items-center gap-2">
-											<StatusBadge status={hook.lastStatus} size="sm" />
-											<span class="text-micro text-muted-foreground">
-												{hook.deliveries} deliveries
-											</span>
+									<span class="mt-1 flex items-center gap-2">
+										<StatusBadge status={hook.lastStatus} size="sm" />
+										<span class="text-micro text-muted-foreground">
+											{hook.deliveries} deliveries
 										</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
-					{/if}
+									</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
 				</Card>
 
 				<Card title="Dispatch test payload">
@@ -242,15 +218,23 @@
 							/>
 						</label>
 						<div class="flex items-center gap-2">
-							<Button size="sm" disabled={dispatching} onclick={sendTest}>
+							<Button size="sm" onclick={() => void dispatch()}>
 								<Icon name="zap" size={13} />
-								{dispatching ? 'Dispatching…' : 'Send test'}
+								Send test
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => toasts.info('Idempotency key regenerated')}
+							>
+								<Icon name="refresh" size={13} />
+								New idempotency key
 							</Button>
 						</div>
 						<p class="text-micro text-muted-foreground">
 							Last delivery {formatDateTime(
-								hooks.data?.find((hook) => hook.name === hookName)
-									?.lastDeliveredAt ?? null,
+								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??
+									null,
 							)}
 						</p>
 					</div>

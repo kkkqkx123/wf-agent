@@ -14,7 +14,9 @@ function collect(): { callbacks: StreamCallbacks; calls: string[] } {
 				calls.push(`node:${node.id}:${node.status}:${node.durationMs}`),
 			onToolStart: (id, name) => calls.push(`toolStart:${id}:${name}`),
 			onUsage: (usage) =>
-				calls.push(`usage:${usage.promptTokens}:${usage.completionTokens}:${usage.cost}`),
+				calls.push(
+					`usage:${usage.promptTokens}:${usage.completionTokens}:${usage.cost}`,
+				),
 			onInterrupted: (reason) => calls.push(`interrupted:${reason}`),
 			onError: (failure) => calls.push(`error:${failure.message}`),
 		},
@@ -125,7 +127,10 @@ describe('handleGenerationFrame', () => {
 
 	it('maps an abort frame to an interruption', () => {
 		const { callbacks, calls } = collect();
-		handleGenerationFrame({ event_type: 'abort', reason: 'stopped' }, callbacks);
+		handleGenerationFrame(
+			{ event_type: 'abort', reason: 'stopped' },
+			callbacks,
+		);
 		expect(calls).toEqual(['interrupted:stopped']);
 	});
 

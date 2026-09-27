@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import JsonViewer from './JsonViewer.svelte';
 	import { formatDuration } from '$lib/utils/format';
@@ -15,6 +19,17 @@
 	let { entry, class: className = '' }: Props = $props();
 
 	let open = $state(false);
+	let resultOpen = $state(false);
+
+	/** Outputs beyond this length open in a dialog instead of inline. */
+	const INLINE_OUTPUT_LIMIT = 2000;
+
+	const isApproval = $derived(entry.kind === 'approval');
+	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
+
+	function reviewApprovals(): void {
+		void goto(resolve('/checkpoints?tab=approvals'));
+	}
 
 	const KIND_ICON: Record<string, IconName> = {
 		bash: 'terminal',
@@ -85,6 +100,35 @@
 					Output
 				</p>
 				<JsonViewer value={entry.output} />
+			</div>
+			{#if isApproval}
+				<div
+					class="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1.5"
+				>
+					<p class="text-micro text-muted-foreground">
+						Resolution happens in the approvals queue
+					</p>
+					<Button variant="outline" size="sm" onclick={reviewApprovals}>
+						Review
+					</Button>
+				</div>
+			{/if}
+			{#if hasLargeOutput}
+				<div class="flex justify-end">
+					<Button variant="ghost" size="sm" onclick={() => (resultOpen = true)}>
+						<Icon name="maximize" size={13} />
+						Full result
+					</Button>
+				</div>
+			{/if}
 		</div>
 	{/if}
+
+	<Dialog
+		bind:open={resultOpen}
+		title={entry.name}
+		description="Complete tool result"
+	>
+		<JsonViewer value={entry.output} maxLength={32000} />
+	</Dialog>
 </article>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -12,6 +13,7 @@
 	} from '$lib/stores/preferences.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '$lib/utils/cn';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const SECTIONS = [
 		{ id: 'appearance', label: 'Appearance', icon: 'sun' },
@@ -20,7 +22,18 @@
 		{ id: 'workspace', label: 'Workspace', icon: 'sliders' },
 	] as const;
 
-	let section = $state<(typeof SECTIONS)[number]['id']>('appearance');
+	const requestedSection = parseListParams(page.url).tab;
+	let section = $state<(typeof SECTIONS)[number]['id']>(
+		requestedSection === 'execution' ||
+			requestedSection === 'notifications' ||
+			requestedSection === 'workspace'
+			? requestedSection
+			: 'appearance',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: section === 'appearance' ? '' : section });
+	});
 
 	const THEME_OPTIONS = [
 		{ value: 'light', label: 'Light' },

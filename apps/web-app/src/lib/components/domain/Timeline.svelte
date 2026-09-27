@@ -29,7 +29,7 @@
 	></span>
 	{#each entries as entry (entry.id)}
 		{@const tone = statusTone(entry.status)}
-		<li class="relative">
+		<li id={`timeline-${entry.id}`} class="relative">
 			<span
 				class={cn(
 					'absolute -left-3.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-[hsl(var(--card))]',

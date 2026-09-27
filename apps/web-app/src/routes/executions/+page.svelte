@@ -3,8 +3,10 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import ExecutionCard from '$lib/components/domain/ExecutionCard.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
@@ -13,7 +15,11 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import CursorPager from '$lib/components/domain/CursorPager.svelte';
 	import { onMount } from 'svelte';
-	import { listExecutions, getExecutionDetail, getExecutionStats } from '$lib/services/executions';
+	import {
+		listExecutions,
+		getExecutionDetail,
+		getExecutionStats,
+	} from '$lib/services/executions';
 	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
@@ -32,7 +38,10 @@
 	let status = $state('');
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
-	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({ items: [], hasMore: false });
+	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
+		items: [],
+		hasMore: false,
+	});
 	let detail = $state<ExecutionDetail | null>(null);
 	let overviewMetrics = $state<Metric[]>([]);
 	let loading = $state(true);
@@ -46,7 +55,10 @@
 		loading = true;
 		error = null;
 		try {
-			const [page, metrics] = await Promise.all([listExecutions({ limit: 200 }), getExecutionStats()]);
+			const [page, metrics] = await Promise.all([
+				listExecutions({ limit: 200 }),
+				getExecutionStats(),
+			]);
 			allExecutions = { items: page.items, hasMore: page.hasMore };
 			overviewMetrics = metrics;
 			if (page.items.length > 0 && !selectedId) {
@@ -140,7 +152,18 @@
 				{/snippet}
 			</FilterBar>
 
-			{#if filtered.length === 0}
+			{#if loading}
+				<div class="space-y-2">
+					<Skeleton shape="block" height="72px" class="rounded-lg" />
+					<Skeleton shape="block" height="72px" class="rounded-lg" />
+				</div>
+			{:else if error}
+				<ErrorState
+					title="Failed to load executions"
+					description={error}
+					onretry={() => void reload()}
+				/>
+			{:else if filtered.length === 0}
 				<EmptyState
 					icon="activity"
 					title="No executions match"

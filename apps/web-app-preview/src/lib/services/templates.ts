@@ -28,6 +28,7 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 		category: d.category ?? '',
 		description: d.description ?? '',
 		usage: d.usage_count ?? 0,
+		featured: false,
 		tags: d.tags ?? [],
 	};
 }

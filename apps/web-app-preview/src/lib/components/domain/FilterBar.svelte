@@ -34,7 +34,7 @@
 		<Input bind:value={query} {placeholder} class="pl-8" />
 	</div>
 	<Select
-		bind:value={status}
+		value={status}
 		options={statusOptions}
 		placeholder="All statuses"
 		class="w-40"

@@ -135,8 +135,7 @@ function toSkill(d: SkillDto): Skill {
 export async function listModelProfiles(): Promise<ModelProfile[]> {
 	const data = await call<unknown>(client.GET('/api/v1/llm/profiles'));
 	// llm/profiles wraps in PageView
-	const page = extractPage<LlmProfileDto>(data);
-	return page.items.map(toModelProfile);
+	return extractPage<LlmProfileDto>(data).items.map(toModelProfile);
 }
 
 export async function listProviders(): Promise<Provider[]> {
@@ -144,9 +143,10 @@ export async function listProviders(): Promise<Provider[]> {
 	// providers returns ApiEnvelope_Value (bare array or object)
 	if (Array.isArray(data)) {
 		return (data as LlmProviderDto[]).map(toProvider);
+	} else if (data && typeof data === 'object') {
+		return [toProvider(data as LlmProviderDto)];
 	}
-	// could be a single object
-	return [toProvider(data as LlmProviderDto)];
+	return [];
 }
 
 export async function listTools(params?: {

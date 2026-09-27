@@ -1,7 +1,12 @@
 import { client } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type { Workflow, WorkflowDetail, WorkflowGraph, WorkflowVersion } from '$lib/types/models';
+import type {
+	Workflow,
+	WorkflowDetail,
+	WorkflowGraph,
+	WorkflowVersion,
+} from '$lib/types/models';
 
 interface WorkflowDto {
 	id?: string;
@@ -23,7 +28,10 @@ interface WorkflowDto {
 	successRate?: number | null;
 }
 
-function parseVersion(value: string | number | undefined, fallback: number): number {
+function parseVersion(
+	value: string | number | undefined,
+	fallback: number,
+): number {
 	if (typeof value === 'number') return value;
 	if (typeof value === 'string') {
 		const parsed = parseInt(value, 10);
@@ -52,7 +60,7 @@ function toWorkflow(d: WorkflowDto): Workflow {
 		edgeCount: d.edge_count ?? d.edgeCount ?? 0,
 		updatedAt: toIso(d.updated_at ?? d.updatedAt),
 		runs: d.runs ?? 0,
-		successRate: d.success_rate ?? d.successRate ?? null
+		successRate: d.success_rate ?? d.successRate ?? null,
 	};
 }
 
@@ -64,8 +72,14 @@ export async function listWorkflows(params?: {
 }): Promise<PageResult<Workflow>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/workflows', {
-			params: { query: { limit: params?.limit, offset: params?.offset, name: params?.name } }
-		})
+			params: {
+				query: {
+					limit: params?.limit,
+					offset: params?.offset,
+					name: params?.name,
+				},
+			},
+		}),
 	);
 	const page = extractPage<WorkflowDto>(data);
 	return { ...page, items: page.items.map((d) => toWorkflow(d)) };
@@ -74,12 +88,14 @@ export async function listWorkflows(params?: {
 /** Detailed view of a single workflow. */
 export async function getWorkflowDetail(id: string): Promise<WorkflowDetail> {
 	const data = await call<WorkflowDto>(
-		client.GET('/api/v1/workflows/{id}', { params: { path: { id } } })
+		client.GET('/api/v1/workflows/{id}', { params: { path: { id } } }),
 	);
 	const base = toWorkflow(data ?? {});
 	const [graph, versions] = await Promise.all([
-		getWorkflowGraph(id).catch(() => ({ nodes: [], edges: [] }) as WorkflowGraph),
-		getWorkflowVersions(id).catch(() => [] as WorkflowVersion[])
+		getWorkflowGraph(id).catch(
+			() => ({ nodes: [], edges: [] }) as WorkflowGraph,
+		),
+		getWorkflowVersions(id).catch(() => [] as WorkflowVersion[]),
 	]);
 	return { ...base, id, graph, versions, drafts: [], neighbors: [] };
 }
@@ -92,7 +108,7 @@ export async function getWorkflow(id: string): Promise<WorkflowDetail> {
 /** Workflow graph visualization data. */
 export async function getWorkflowGraph(id: string): Promise<WorkflowGraph> {
 	const data = await call<WorkflowGraph>(
-		client.GET('/api/v1/workflows/{id}/graph', { params: { path: { id } } })
+		client.GET('/api/v1/workflows/{id}/graph', { params: { path: { id } } }),
 	);
 	if (!data || !Array.isArray(data.nodes)) return { nodes: [], edges: [] };
 	return data;
@@ -109,12 +125,19 @@ interface VersionDto {
 }
 
 /** Workflow version history. */
-export async function getWorkflowVersions(id: string): Promise<WorkflowVersion[]> {
+export async function getWorkflowVersions(
+	id: string,
+): Promise<WorkflowVersion[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/workflows/{id}/versions', { params: { path: { id } } })
+		client.GET('/api/v1/workflows/{id}/versions', { params: { path: { id } } }),
 	);
 	const page = extractPage<VersionDto>(data);
-	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as VersionDto[]) : [];
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as VersionDto[])
+				: [];
 	return rows.map((d, index) => ({
 		version: d.version ?? index + 1,
 		createdAt:
@@ -125,23 +148,30 @@ export async function getWorkflowVersions(id: string): Promise<WorkflowVersion[]
 					: '',
 		author: d.author ?? '',
 		note: d.note ?? d.message ?? '',
-		current: d.current ?? index === 0
+		current: d.current ?? index === 0,
 	}));
 }
 
 /** Create a new workflow. */
-export async function createWorkflow(name: string, definition: object): Promise<Workflow> {
+export async function createWorkflow(
+	name: string,
+	definition: object,
+): Promise<Workflow> {
 	const data = await call<WorkflowDto>(
-		client.POST('/api/v1/workflows', { body: { name, definition } })
+		client.POST('/api/v1/workflows', { body: { name, definition } }),
 	);
 	return toWorkflow(data ?? {});
 }
 
 /** Partial update goes through the metadata sub-resource, never the item route. */
-export async function updateWorkflow(id: string, updates: Partial<Workflow>): Promise<Workflow> {
+export async function updateWorkflow(
+	id: string,
+	updates: Partial<Workflow>,
+): Promise<Workflow> {
 	const metadata: Record<string, unknown> = {};
 	if (updates.name !== undefined) metadata.name = updates.name;
-	if (updates.description !== undefined) metadata.description = updates.description;
+	if (updates.description !== undefined)
+		metadata.description = updates.description;
 	if (updates.category !== undefined) metadata.category = updates.category;
 	if (updates.tags !== undefined) metadata.tags = updates.tags;
 	if (updates.author !== undefined) metadata.author = updates.author;
@@ -149,8 +179,8 @@ export async function updateWorkflow(id: string, updates: Partial<Workflow>): Pr
 	await call<unknown>(
 		client.PATCH('/api/v1/workflows/{id}/metadata', {
 			params: { path: { id } },
-			body: metadata
-		})
+			body: metadata,
+		}),
 	);
 	const detail = await getWorkflowDetail(id).catch(() => null);
 	return detail ?? { ...toWorkflow({ id }), ...updates, id };
@@ -161,12 +191,15 @@ export async function updateWorkflow(id: string, updates: Partial<Workflow>): Pr
  * definition. The backend overwrites the stored document and echoes the id,
  * so callers must pass nodes, edges and config — never a partial patch.
  */
-export async function replaceWorkflow(id: string, definition: object): Promise<Workflow> {
+export async function replaceWorkflow(
+	id: string,
+	definition: object,
+): Promise<Workflow> {
 	const savedId = await call<string>(
 		client.PUT('/api/v1/workflows/{id}', {
 			params: { path: { id } },
-			body: definition
-		})
+			body: definition,
+		}),
 	);
 	return toWorkflow({ id: savedId ?? id });
 }
@@ -174,7 +207,7 @@ export async function replaceWorkflow(id: string, definition: object): Promise<W
 /** Delete a workflow. */
 export async function deleteWorkflow(id: string): Promise<boolean> {
 	const { response } = await client.DELETE('/api/v1/workflows/{id}', {
-		params: { path: { id } }
+		params: { path: { id } },
 	});
 	return response.ok;
 }

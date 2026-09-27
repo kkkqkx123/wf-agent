@@ -1,10 +1,13 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import StatusBadge from './StatusBadge.svelte';
+	import JsonViewer from './JsonViewer.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
 
@@ -16,7 +19,17 @@
 	let { entry, class: className = '' }: Props = $props();
 
 	let open = $state(false);
-	let fullResult = $state(false);
+	let resultOpen = $state(false);
+
+	/** Outputs beyond this length open in a dialog instead of inline. */
+	const INLINE_OUTPUT_LIMIT = 2000;
+
+	const isApproval = $derived(entry.kind === 'approval');
+	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
+
+	function reviewApprovals(): void {
+		void goto(resolve('/checkpoints?tab=approvals'));
+	}
 
 	const KIND_ICON: Record<string, IconName> = {
 		bash: 'terminal',
@@ -78,8 +91,7 @@
 				>
 					Input
 				</p>
-				<pre
-					class="overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-foreground">{entry.input}</pre>
+				<JsonViewer value={entry.input} collapsed />
 			</div>
 			<div>
 				<p
@@ -87,28 +99,36 @@
 				>
 					Output
 				</p>
-				<pre
-					class="max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro text-foreground">{entry.output}</pre>
-				<Button
-					variant="link"
-					size="sm"
-					class="mt-1 px-0"
-					onclick={() => (fullResult = true)}
-				>
-					Full result
-				</Button>
+				<JsonViewer value={entry.output} />
 			</div>
+			{#if isApproval}
+				<div
+					class="flex items-center justify-between gap-2 rounded-md bg-muted px-2 py-1.5"
+				>
+					<p class="text-micro text-muted-foreground">
+						Resolution happens in the approvals queue
+					</p>
+					<Button variant="outline" size="sm" onclick={reviewApprovals}>
+						Review
+					</Button>
+				</div>
+			{/if}
+			{#if hasLargeOutput}
+				<div class="flex justify-end">
+					<Button variant="ghost" size="sm" onclick={() => (resultOpen = true)}>
+						<Icon name="maximize" size={13} />
+						Full result
+					</Button>
+				</div>
+			{/if}
 		</div>
 	{/if}
-</article>
 
-<Dialog
-	bind:open={fullResult}
-	title={entry.name}
-	description="Complete tool result"
-	width="40rem"
->
-	<pre
-		class="overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-caption text-foreground">{entry.output ||
-			'No output recorded'}</pre>
-</Dialog>
+	<Dialog
+		bind:open={resultOpen}
+		title={entry.name}
+		description="Complete tool result"
+	>
+		<JsonViewer value={entry.output} maxLength={32000} />
+	</Dialog>
+</article>

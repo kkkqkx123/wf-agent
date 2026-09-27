@@ -81,7 +81,9 @@ export async function getOverviewMetrics(): Promise<Metric[]> {
 	const data = await call<unknown>(client.GET('/api/v1/analysis/stats'));
 	const rows: Metric[] = [];
 	if (data && typeof data === 'object' && !Array.isArray(data)) {
-		for (const [label, value] of Object.entries(data as Record<string, unknown>)) {
+		for (const [label, value] of Object.entries(
+			data as Record<string, unknown>,
+		)) {
 			if (typeof value === 'number' || typeof value === 'string') {
 				rows.push({ label, value: String(value), tone: 'info' });
 			}
@@ -176,7 +178,12 @@ function toInsightEvent(d: InsightEventDto): EventRecord {
 		source: d.source ?? '',
 		at: d.at ?? d.timestamp ?? '',
 		executionId: d.execution_id ?? d.executionId ?? null,
-		payload: typeof payload === 'string' ? payload : payload ? JSON.stringify(payload) : ''
+		payload:
+			typeof payload === 'string'
+				? payload
+				: payload
+					? JSON.stringify(payload)
+					: '',
 	};
 }
 
@@ -187,13 +194,15 @@ function toInsightDependency(d: InsightDependencyDto): Dependency {
 		callee: d.callee ?? '',
 		kind: d.kind ?? '',
 		calls: d.calls ?? d.call_count ?? 0,
-		lastCalledAt: d.last_called_at ?? d.lastCalledAt ?? ''
+		lastCalledAt: d.last_called_at ?? d.lastCalledAt ?? '',
 	};
 }
 
 /** Event stream backed by the event store. */
 export async function listInsightEvents(): Promise<EventRecord[]> {
-	const data = await call<unknown>(client.GET('/api/v1/events', { params: { query: { limit: 100 } } }));
+	const data = await call<unknown>(
+		client.GET('/api/v1/events', { params: { query: { limit: 100 } } }),
+	);
 	return extractPage<InsightEventDto>(data).items.map(toInsightEvent);
 }
 
@@ -211,7 +220,7 @@ export async function listInsightDiagnostics(): Promise<Diagnostic[]> {
 	const results = await Promise.allSettled([
 		call<InsightHealthDto>(client.GET('/health')),
 		call<unknown>(client.GET('/api/v1/storage/diagnose')),
-		call<unknown>(client.GET('/api/v1/storage/stats'))
+		call<unknown>(client.GET('/api/v1/storage/stats')),
 	]);
 	const diagnostics: Diagnostic[] = [];
 	if (results[0].status === 'fulfilled') {
@@ -220,30 +229,44 @@ export async function listInsightDiagnostics(): Promise<Diagnostic[]> {
 			name: 'ready',
 			status: health?.ready ? 'healthy' : 'degraded',
 			value: String(health?.ready),
-			detail: health?.storage ?? ''
+			detail: health?.storage ?? '',
 		});
 		if (health?.persistence && typeof health.persistence === 'object') {
 			for (const [name, value] of Object.entries(health.persistence)) {
-				diagnostics.push({ name: `persistence.${name}`, status: 'info', value: String(value), detail: '' });
+				diagnostics.push({
+					name: `persistence.${name}`,
+					status: 'info',
+					value: String(value),
+					detail: '',
+				});
 			}
 		}
 	}
 	if (results[1].status === 'fulfilled' && Array.isArray(results[1].value)) {
-		for (const item of results[1].value as Array<{ name?: string; status?: string; value?: string | number; detail?: string }>) {
+		for (const item of results[1].value as Array<{
+			name?: string;
+			status?: string;
+			value?: string | number;
+			detail?: string;
+		}>) {
 			diagnostics.push({
 				name: item.name ?? '',
 				status: item.status ?? 'info',
 				value: String(item.value ?? ''),
-				detail: item.detail ?? ''
+				detail: item.detail ?? '',
 			});
 		}
 	}
-	if (results[2].status === 'fulfilled' && results[2].value && typeof results[2].value === 'object') {
+	if (
+		results[2].status === 'fulfilled' &&
+		results[2].value &&
+		typeof results[2].value === 'object'
+	) {
 		diagnostics.push({
 			name: 'storage.stats',
 			status: 'info',
 			value: JSON.stringify(results[2].value).slice(0, 120),
-			detail: ''
+			detail: '',
 		});
 	}
 	return diagnostics;

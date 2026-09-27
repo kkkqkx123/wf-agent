@@ -378,6 +378,11 @@ export interface MessageAttachment {
 	content: string;
 }
 
+export interface OutgoingMessage {
+	text: string;
+	attachments: MessageAttachment[];
+}
+
 export interface TimelineEntry {
 	id: string;
 	at: string;

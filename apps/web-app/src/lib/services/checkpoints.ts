@@ -46,11 +46,12 @@ function toCheckpoint(d: CheckpointDto, index: number): Checkpoint {
 		createdAt: toIso(d.createdAt ?? d.created_at ?? d.timestamp),
 		sizeBytes: d.sizeBytes ?? d.blob_size ?? d.size_bytes ?? 0,
 		note: d.note ?? '',
-		restorable: d.restorable ?? String(d.status ?? '').toLowerCase() !== 'failed',
+		restorable:
+			d.restorable ?? String(d.status ?? '').toLowerCase() !== 'failed',
 		chainPosition: d.chain_position ?? d.chainPosition ?? sequence,
 		status: d.status ?? 'completed',
 		tags: d.tags ?? [],
-		entityType: d.entity_type ?? d.entityType ?? ''
+		entityType: d.entity_type ?? d.entityType ?? '',
 	};
 }
 
@@ -61,32 +62,46 @@ export async function listCheckpoints(params?: {
 }): Promise<PageResult<Checkpoint>> {
 	const data = await call<unknown>(
 		request('GET', '/api/v1/checkpoints', {
-			params: { query: { limit: params?.limit, offset: params?.offset } }
-		})
+			params: { query: { limit: params?.limit, offset: params?.offset } },
+		}),
 	);
 	const page = extractPage<CheckpointDto>(data);
-	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as CheckpointDto[]) : [];
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as CheckpointDto[])
+				: [];
 	return {
 		...page,
-		items: rows.map((d, index) => toCheckpoint(d, index))
+		items: rows.map((d, index) => toCheckpoint(d, index)),
 	};
 }
 
 /** Checkpoints for one agent loop, newest first. */
-export async function listLoopCheckpoints(loopId: string): Promise<Checkpoint[]> {
+export async function listLoopCheckpoints(
+	loopId: string,
+): Promise<Checkpoint[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/agent-loops/{id}/checkpoints/chain', {
-			params: { path: { id: loopId } }
-		})
+			params: { path: { id: loopId } },
+		}),
 	);
 	const page = extractPage<CheckpointDto>(data);
-	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as CheckpointDto[]) : [];
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as CheckpointDto[])
+				: [];
 	return rows.map((d, index) => toCheckpoint(d, index));
 }
 
 /** Checkpoint statistics. */
 export async function getCheckpointStats(): Promise<object> {
-	const data = await call<object>(client.GET('/api/v1/agent-checkpoints/stats'));
+	const data = await call<object>(
+		client.GET('/api/v1/agent-checkpoints/stats'),
+	);
 	return data ?? {};
 }
 
@@ -108,9 +123,16 @@ interface FileChangeDto {
 }
 
 function toFileChange(d: FileChangeDto, index: number): FileChange {
-	const raw = String(d.change_type ?? d.changeType ?? d.kind ?? '').toLowerCase();
+	const raw = String(
+		d.change_type ?? d.changeType ?? d.kind ?? '',
+	).toLowerCase();
 	const changeType = (
-		raw === 'added' || raw === 'modified' || raw === 'deleted' || raw === 'renamed' ? raw : 'modified'
+		raw === 'added' ||
+		raw === 'modified' ||
+		raw === 'deleted' ||
+		raw === 'renamed'
+			? raw
+			: 'modified'
 	) as FileChange['changeType'];
 	return {
 		id: d.id ?? `fc-${index}`,
@@ -120,19 +142,24 @@ function toFileChange(d: FileChangeDto, index: number): FileChange {
 		at: typeof d.at === 'string' ? d.at : toIso(d.timestamp),
 		additions: d.additions ?? 0,
 		deletions: d.deletions ?? 0,
-		session: d.session ?? d.session_id ?? ''
+		session: d.session ?? d.session_id ?? '',
 	};
 }
 
 /** File changes for an execution or checkpoint. */
-export async function getFileChanges(executionId?: string): Promise<FileChange[]> {
+export async function getFileChanges(): Promise<FileChange[]> {
 	const data = await call<unknown>(
 		request('GET', '/api/v1/file-checkpoint/changes', {
-			params: { query: {} }
-		})
+			params: { query: {} },
+		}),
 	);
 	const page = extractPage<FileChangeDto>(data);
-	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as FileChangeDto[]) : [];
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as FileChangeDto[])
+				: [];
 	return rows.map((d, index) => toFileChange(d, index));
 }
 
@@ -152,51 +179,153 @@ interface ApprovalDto {
 }
 
 /** Pending approval requests. */
-export async function getApprovalRequests(status?: string): Promise<Approval[]> {
-	const data = await call<unknown>(client.GET('/api/v1/file-checkpoint/approvals/pending'));
+export async function getApprovalRequests(
+	status?: string,
+): Promise<Approval[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/approvals/pending'),
+	);
 	const page = extractPage<ApprovalDto>(data);
-	const rows = page.items.length > 0 ? page.items : Array.isArray(data) ? (data as ApprovalDto[]) : [];
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as ApprovalDto[])
+				: [];
 	return rows
-		.map((d, index) => ({
-			id: d.id ?? `approval-${index}`,
-			title: d.title ?? '',
-			kind: d.kind ?? d.type ?? '',
-			requester: d.requester ?? '',
-			requestedAt:
-				typeof d.requestedAt === 'string'
-					? d.requestedAt
-					: toIso(d.requested_at),
-			status: d.status ?? '',
-			detail: d.detail ?? d.description ?? '',
-			executionId: d.execution_id ?? d.executionId ?? ''
-		}) satisfies Approval)
+		.map(
+			(d, index) =>
+				({
+					id: d.id ?? `approval-${index}`,
+					title: d.title ?? '',
+					kind: d.kind ?? d.type ?? '',
+					requester: d.requester ?? '',
+					requestedAt:
+						typeof d.requestedAt === 'string'
+							? d.requestedAt
+							: toIso(d.requested_at),
+					status: d.status ?? '',
+					detail: d.detail ?? d.description ?? '',
+					executionId: d.execution_id ?? d.executionId ?? '',
+				}) satisfies Approval,
+		)
 		.filter((a) => !status || a.status === status);
 }
 
 /** Restore from a checkpoint. */
-export async function restoreFromCheckpoint(checkpointId: string, loopId?: string): Promise<boolean> {
+export async function restoreFromCheckpoint(
+	checkpointId: string,
+	loopId?: string,
+): Promise<boolean> {
 	if (loopId) {
 		await call<unknown>(
 			request('POST', '/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
-				params: { path: { id: loopId, cid: checkpointId } }
-			})
+				params: { path: { id: loopId, cid: checkpointId } },
+			}),
 		);
 		return true;
 	}
 	await call<unknown>(
 		request('POST', '/api/v1/executions/checkpoints/{cid}/restore', {
-			params: { path: { cid: checkpointId } }
-		})
+			params: { path: { cid: checkpointId } },
+		}),
 	);
 	return true;
 }
 
 /** Resume execution from a checkpoint. */
-export async function resumeFromCheckpoint(checkpointId: string): Promise<boolean> {
+export async function resumeFromCheckpoint(
+	checkpointId: string,
+): Promise<boolean> {
 	await call<unknown>(
 		request('POST', '/api/v1/executions/checkpoints/{cid}/resume', {
-			params: { path: { cid: checkpointId } }
-		})
+			params: { path: { cid: checkpointId } },
+		}),
 	);
 	return true;
+}
+
+export interface FileDiffLine {
+	type: 'add' | 'del' | 'context' | 'meta';
+	text: string;
+}
+
+export interface FileDiff {
+	path: string;
+	kind: string;
+	lines: FileDiffLine[];
+	additions: number;
+	deletions: number;
+	binary: boolean;
+	truncated: boolean;
+}
+
+/** Rows rendered per diff; longer diffs are cut with a truncation flag. */
+const DIFF_LINE_LIMIT = 400;
+
+function parseUnifiedDiff(text: string): {
+	lines: FileDiffLine[];
+	truncated: boolean;
+} {
+	const rows = text.split('\n');
+	const lines: FileDiffLine[] = [];
+	for (const raw of rows) {
+		if (lines.length >= DIFF_LINE_LIMIT) break;
+		if (
+			raw.startsWith('+++') ||
+			raw.startsWith('---') ||
+			raw.startsWith('diff ') ||
+			raw.startsWith('index ') ||
+			raw.startsWith('@@')
+		) {
+			lines.push({ type: 'meta', text: raw });
+		} else if (raw.startsWith('+')) {
+			lines.push({ type: 'add', text: raw.slice(1) });
+		} else if (raw.startsWith('-')) {
+			lines.push({ type: 'del', text: raw.slice(1) });
+		} else if (raw.startsWith('\\')) {
+			continue;
+		} else {
+			lines.push({
+				type: 'context',
+				text: raw.startsWith(' ') ? raw.slice(1) : raw,
+			});
+		}
+	}
+	return { lines, truncated: rows.length > lines.length };
+}
+
+interface FileDiffDto {
+	path?: string;
+	kind?: string;
+	diff?: string | null;
+	additions?: number | null;
+	deletions?: number | null;
+}
+
+function toFileDiff(d: FileDiffDto): FileDiff {
+	const text = d.diff ?? '';
+	const parsed = parseUnifiedDiff(text);
+	return {
+		path: d.path ?? '',
+		kind: String(d.kind ?? '').toLowerCase(),
+		lines: parsed.lines,
+		additions: d.additions ?? 0,
+		deletions: d.deletions ?? 0,
+		binary: !text,
+		truncated: parsed.truncated,
+	};
+}
+
+/** Per-file staged diffs for one actor workspace, backing the diff preview. */
+export async function getStagedDiffs(actor: string): Promise<FileDiff[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/diff/staged/{id}', {
+			params: { path: { id: actor } },
+		}),
+	);
+	const rows = Array.isArray(data)
+		? (data as FileDiffDto[])
+		: extractPage<FileDiffDto>(data).items;
+	return rows.map(toFileDiff);
 }

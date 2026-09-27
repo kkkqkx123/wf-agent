@@ -9,6 +9,7 @@
 		inspectorTitle?: string;
 		inspectorWidth?: string;
 		inspectorOpen?: boolean;
+		oninspectorclose?: () => void;
 		class?: string;
 		children: Snippet;
 		inspector?: Snippet;
@@ -18,6 +19,7 @@
 		inspectorTitle = 'Details',
 		inspectorWidth = '22.5rem',
 		inspectorOpen = false,
+		oninspectorclose,
 		class: className = '',
 		children,
 		inspector,
@@ -66,7 +68,10 @@
 		title={inspectorTitle}
 		side="right"
 		width={inspectorWidth}
-		onclose={() => ui.closeInspector()}
+		onclose={() => {
+			ui.closeInspector();
+			oninspectorclose?.();
+		}}
 	>
 		{@render inspector()}
 	</Sheet>

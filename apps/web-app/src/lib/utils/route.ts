@@ -54,7 +54,10 @@ export function buildListQuery(url: URL, patch: ListParams): string {
  * unchanged, which is what keeps a selection effect from looping on its own
  * navigation.
  */
-export async function gotoWithParams(url: URL, patch: ListParams): Promise<void> {
+export async function gotoWithParams(
+	url: URL,
+	patch: ListParams,
+): Promise<void> {
 	const next = buildListQuery(url, patch);
 	if (next === url.searchParams.toString()) return;
 	// The pathname already comes from the live URL, so the base is baked in and

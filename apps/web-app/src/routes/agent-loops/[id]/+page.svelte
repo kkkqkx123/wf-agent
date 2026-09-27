@@ -32,6 +32,7 @@
 		formatDuration,
 		formatNumber,
 	} from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'messages', label: 'Messages' },
@@ -41,7 +42,16 @@
 		{ id: 'checkpoints', label: 'Checkpoints' },
 	];
 
-	let tab = $state('messages');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'messages',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'messages' ? '' : tab });
+	});
 	let draft = $state('');
 	let detail = $state<AgentLoopDetail | null>(null);
 	let loopMessages = $state<LoopMessage[]>([]);
@@ -49,6 +59,13 @@
 	let loopCheckpoints = $state<Checkpoint[]>([]);
 
 	const loop = $derived(detail);
+
+	const peakToolCount = $derived(
+		Math.max(
+			1,
+			...(detail?.analysis.toolFrequency.map((entry) => entry.count) ?? []),
+		),
+	);
 
 	async function load(id: string): Promise<void> {
 		try {
@@ -68,7 +85,9 @@
 	}
 
 	onMount(() => {
-		void load(page.params.id);
+		const id = page.params.id;
+		if (!id) return;
+		void load(id);
 	});
 
 	$effect(() => {
@@ -92,14 +111,18 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={loop?.name ?? 'Agent loop'} description={detail?.summary ?? ''}>
+	<PageHeader
+		title={loop?.name ?? 'Agent loop'}
+		description={detail?.summary ?? ''}
+	>
 		{#snippet meta()}
 			{#if loop}
 				<StatusBadge status={loop.status} />
 				<Badge variant="outline"
 					>iteration {loop.iteration}/{loop.maxIterations}</Badge
 				>
-				<span class="font-mono text-caption text-muted-foreground">{loop.id}</span
+				<span class="font-mono text-caption text-muted-foreground"
+					>{loop.id}</span
 				>
 				<span class="text-caption text-muted-foreground">{loop.model}</span>
 			{/if}
@@ -258,14 +281,7 @@
 									>
 										<span
 											class="block h-full rounded-full bg-info"
-											style:width="{(item.count /
-												Math.max(
-													...detail.analysis.toolFrequency.map(
-														(entry) => entry.count,
-													),
-												),
-											)) *
-												100}%"
+											style:width={`${(item.count / peakToolCount) * 100}%`}
 										></span>
 									</span>
 									<span

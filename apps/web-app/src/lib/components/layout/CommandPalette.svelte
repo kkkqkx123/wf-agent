@@ -31,17 +31,24 @@
 
 	$effect(() => {
 		if (!ui.commandOpen) return;
-		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0) return;
+		if (executions.length > 0 && workflows.length > 0 && agentLoops.length > 0)
+			return;
 		void Promise.all([
-			listExecutions({ limit: 50 }).then((page) => {
-				executions = page.items;
-			}).catch(() => {}),
-			listWorkflows({ limit: 50 }).then((page) => {
-				workflows = page.items;
-			}).catch(() => {}),
-			listAgentLoops({ limit: 50 }).then((page) => {
-				agentLoops = page.items;
-			}).catch(() => {}),
+			listExecutions({ limit: 50 })
+				.then((page) => {
+					executions = page.items;
+				})
+				.catch(() => {}),
+			listWorkflows({ limit: 50 })
+				.then((page) => {
+					workflows = page.items;
+				})
+				.catch(() => {}),
+			listAgentLoops({ limit: 50 })
+				.then((page) => {
+					agentLoops = page.items;
+				})
+				.catch(() => {}),
 		]);
 	});
 

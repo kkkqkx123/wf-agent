@@ -12,11 +12,24 @@
 	import type { ExecutionDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	let execution = $state<ExecutionDetail | null>(null);
 
+	const TAB_IDS = ['overview', 'timeline', 'tools', 'analysis', 'state'];
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TAB_IDS.includes(requestedTab) ? requestedTab : 'overview',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'overview' ? '' : tab });
+	});
+
 	onMount(() => {
-		void getExecutionDetail(page.params.id)
+		const id = page.params.id;
+		if (!id) return;
+		void getExecutionDetail(id)
 			.then((row) => {
 				execution = row;
 			})
@@ -87,7 +100,7 @@
 	<div class="min-h-0 flex-1 overflow-hidden px-4 pb-4">
 		<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
 			{#if execution}
-				<ExecutionInspector execution={execution} />
+				<ExecutionInspector {execution} bind:tab />
 			{/if}
 		</div>
 	</div>

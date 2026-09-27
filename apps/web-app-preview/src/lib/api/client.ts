@@ -317,6 +317,46 @@ router.on('GET', '/api/v1/trigger-executions', (_p, query) => {
         return pageView(camelToSnakeDeep(triggerRecords), +(query.limit ?? 50), +(query.offset ?? 0));
 });
 
+// ---------- file checkpoint ----------
+router.on('GET', '/api/v1/file-checkpoint/diff/staged/{id}', () => ([
+        {
+                path: 'crates/checkpoint/src/restore_coordinator.rs',
+                kind: 'Modified',
+                diff: [
+                        '--- a/crates/checkpoint/src/restore_coordinator.rs',
+                        '+++ b/crates/checkpoint/src/restore_coordinator.rs',
+                        '@@ -12,7 +12,7 @@',
+                        ' pub fn restore(&self, target: &Branch) -> Result<Snapshot> {',
+                        '-    if self.branch_exists(target)? {',
+                        '-        return Err(Error::BranchConflict(target.clone()));',
+                        '-    }',
+                        '+    if let Some(existing) = self.find_snapshot(target)? {',
+                        '+        return Ok(existing);',
+                        '+    }',
+                        '     self.write_snapshot(target)',
+                        ' }',
+                ].join('\n'),
+                additions: 3,
+                deletions: 3,
+        },
+        {
+                path: 'crates/checkpoint/src/branch_probe.rs',
+                kind: 'Modified',
+                diff: [
+                        '--- a/crates/checkpoint/src/branch_probe.rs',
+                        '+++ b/crates/checkpoint/src/branch_probe.rs',
+                        '@@ -4,6 +4,7 @@',
+                        ' pub fn probe(branch: &Branch) -> Probe {',
+                        '     let mut probe = Probe::new(branch);',
+                        '+    probe.with_cache(true);',
+                        '     probe.run()',
+                        ' }',
+                ].join('\n'),
+                additions: 1,
+                deletions: 0,
+        },
+]));
+
 // ---------------------------------------------------------------------------
 // Public client object — mirrors openapi-fetch surface used by services
 // ---------------------------------------------------------------------------
@@ -374,6 +414,48 @@ export const client: AnyClient = {
                 return { data };
         },
 };
+
+// ---------------------------------------------------------------------------
+// request / downloadFile — same call shape as the formal client
+// ---------------------------------------------------------------------------
+
+export async function request(
+        method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+        path: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        opts?: any,
+): Promise<{ data?: unknown; error?: unknown }> {
+        await delay(30);
+        const query = queryOf(opts?.params);
+        const body = opts?.body;
+        const data = router.dispatch(method, path, query, body);
+        return { data };
+}
+
+export async function downloadFile(
+        path: string,
+        fallbackFilename: string,
+        init?: { method?: 'GET' | 'POST'; body?: unknown },
+): Promise<void> {
+        const method = init?.method ?? 'GET';
+        const [urlPath, queryString] = path.split('?');
+        const query: Record<string, unknown> = {};
+        if (queryString) {
+                for (const [key, value] of new URLSearchParams(queryString)) {
+                        query[key] = value;
+                }
+        }
+        const data = router.dispatch(method, urlPath, query, init?.body);
+        const blob = new Blob([JSON.stringify(data ?? null, null, 2)], {
+                type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fallbackFilename;
+        anchor.click();
+        URL.revokeObjectURL(url);
+}
 
 // ---------------------------------------------------------------------------
 // resolveApiKey — no-op in preview (no backend to authenticate against)

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -9,7 +10,12 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { listEvents, listDependencies, getDiagnostics, deleteAllEvents } from '$lib/services/events';
+	import {
+		listEvents,
+		listDependencies,
+		getDiagnostics,
+		deleteAllEvents,
+	} from '$lib/services/events';
 	import type { Dependency, Diagnostic, EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
@@ -17,6 +23,7 @@
 		formatNumber,
 		formatRelativeTime,
 	} from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'stream', label: 'Event stream' },
@@ -24,7 +31,16 @@
 		{ id: 'operations', label: 'Operations' },
 	];
 
-	let tab = $state('stream');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'stream',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'stream' ? '' : tab });
+	});
 	let query = $state('');
 	let expandedId = $state<string | null>(null);
 	let events = $state<EventRecord[]>([]);
@@ -38,7 +54,12 @@
 	async function reload(): Promise<void> {
 		try {
 			const [eventPage, deps, diags] = await Promise.all([
-				listEvents({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+				listEvents({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				})),
 				listDependencies().catch(() => []),
 				getDiagnostics().catch(() => []),
 			]);
@@ -93,11 +114,7 @@
 				label="Refresh"
 				onclick={() => void reload()}
 			/>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => void clearEvents()}
-			>
+			<Button variant="outline" size="sm" onclick={() => void clearEvents()}>
 				<Icon name="trash" size={13} />
 				Delete filtered
 			</Button>

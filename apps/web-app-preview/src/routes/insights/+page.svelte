@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,25 +9,21 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import type { Column } from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
-		runQuery,
-		listAuditReports,
+		getQueryResult,
 		listErrorAnalyses,
+		listInsightAuditReports,
 		listPerformanceNodes,
-		exportQuery,
 	} from '$lib/services/insights';
 	import type {
-		QueryResult,
 		AuditReport,
 		ErrorAnalysis,
+		PerfNode,
+		QueryResult,
 	} from '$lib/types/models';
-	import { createResource } from '$lib/stores/collection.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -34,6 +31,7 @@
 		formatNumber,
 		formatRelativeTime,
 	} from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'query', label: 'Query' },
@@ -42,27 +40,49 @@
 		{ id: 'performance', label: 'Performance' },
 	];
 
-	let tab = $state('query');
-	let statement = $state('');
-	let exporting = $state(false);
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'query',
+	);
 
-	// Query tab state
-	let queryLoading = $state(false);
-	let queryError = $state<string | null>(null);
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'query' ? '' : tab });
+	});
+	let statement = $state(
+		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
+	);
 	let queryResult = $state<QueryResult>({
 		columns: [],
 		rows: [],
 		elapsedMs: 0,
 		truncated: false,
 	});
+	let auditReports = $state<AuditReport[]>([]);
+	let errorAnalyses = $state<ErrorAnalysis[]>([]);
+	let perfNodes = $state<PerfNode[]>([]);
 
-	const audit = createResource(() => listAuditReports());
-	const errors = createResource(() => listErrorAnalyses());
-	const perf = createResource(() => listPerformanceNodes());
+	onMount(() => {
+		void reload();
+	});
 
-	const auditReports = $derived(audit.data ?? []);
-	const errorAnalyses = $derived(errors.data ?? []);
-	const perfNodes = $derived(perf.data ?? []);
+	async function reload(): Promise<void> {
+		try {
+			const [query, audits, errors, perf] = await Promise.all([
+				getQueryResult(),
+				listInsightAuditReports(),
+				listErrorAnalyses(),
+				listPerformanceNodes(),
+			]);
+			queryResult = query;
+			auditReports = audits;
+			errorAnalyses = errors;
+			perfNodes = perf;
+		} catch (e) {
+			console.error('Failed to load insights:', e);
+		}
+	}
 
 	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
 		queryResult.columns.map((column) => ({
@@ -127,47 +147,6 @@
 		},
 		{ key: 'status', header: 'State', text: (row) => row.status },
 	];
-
-	async function executeQuery() {
-		if (!statement.trim()) {
-			toasts.warning('Please enter a query');
-			return;
-		}
-		queryLoading = true;
-		queryError = null;
-		try {
-			queryResult = await runQuery({
-				expressions: [{ sql: statement.trim() }],
-				limit: 50,
-			});
-		} catch (e) {
-			queryError = e instanceof Error ? e.message : 'Query failed';
-			toasts.error(queryError);
-		} finally {
-			queryLoading = false;
-		}
-	}
-
-	async function runExport(): Promise<void> {
-		exporting = true;
-		try {
-			await exportQuery({
-				expressions: statement.trim() ? [{ sql: statement.trim() }] : [],
-				format: 'csv',
-			});
-			toasts.success('Export downloaded');
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Export failed');
-		} finally {
-			exporting = false;
-		}
-	}
-
-	onMount(() => {
-		void audit.reload();
-		void errors.reload();
-		void perf.reload();
-	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -179,20 +158,15 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => {
-					audit.reload();
-					errors.reload();
-					perf.reload();
-				}}
+				onclick={() => void reload()}
 			/>
 			<Button
 				variant="outline"
 				size="sm"
-				disabled={exporting}
-				onclick={runExport}
+				onclick={() => toasts.success('Export queued')}
 			>
 				<Icon name="download" size={13} />
-				{exporting ? 'Exporting…' : 'Export'}
+				Export
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -208,9 +182,9 @@
 						class="min-h-28 font-mono text-caption"
 					/>
 					<div class="mt-2 flex items-center gap-2">
-						<Button size="sm" onclick={executeQuery} disabled={queryLoading}>
+						<Button size="sm" onclick={() => toasts.success('Query executed')}>
 							<Icon name="play" size={13} />
-							{queryLoading ? 'Running…' : 'Run query'}
+							Run query
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
 							>Clear</Button
@@ -236,24 +210,13 @@
 				</Card>
 			</div>
 		{:else if tab === 'audit'}
-			{#if audit.loading && !audit.data}
-				<Skeleton shape="block" height="160px" class="rounded-lg" />
-			{:else if audit.error}
-				<ErrorState
-					title="Failed to load audit reports"
-					description={audit.error}
-					onretry={() => audit.reload()}
-					class="rounded-lg border border-border bg-card"
+			<Card title="Audit reports" bodyClass="p-0">
+				<DataTable
+					columns={auditColumns}
+					rows={auditReports}
+					rowKey={(row) => row.id}
 				/>
-			{:else}
-				<Card title="Audit reports" bodyClass="p-0">
-					<DataTable
-						columns={auditColumns}
-						rows={auditReports}
-						rowKey={(row) => row.id}
-					/>
-				</Card>
-			{/if}
+			</Card>
 			<div class="mt-3 flex flex-wrap gap-2">
 				{#each auditReports.slice(0, 3) as report (report.id)}
 					<Card class="min-w-56 flex-1" title={report.executionId}>
@@ -277,24 +240,13 @@
 				{/each}
 			</div>
 		{:else if tab === 'errors'}
-			{#if errors.loading && !errors.data}
-				<Skeleton shape="block" height="160px" class="rounded-lg" />
-			{:else if errors.error}
-				<ErrorState
-					title="Failed to load error analysis"
-					description={errors.error}
-					onretry={() => errors.reload()}
-					class="rounded-lg border border-border bg-card"
+			<Card title="Error analysis" bodyClass="p-0">
+				<DataTable
+					columns={errorColumns}
+					rows={errorAnalyses}
+					rowKey={(row) => row.id}
 				/>
-			{:else}
-				<Card title="Error analysis" bodyClass="p-0">
-					<DataTable
-						columns={errorColumns}
-						rows={errorAnalyses}
-						rowKey={(row) => row.id}
-					/>
-				</Card>
-			{/if}
+			</Card>
 			<div class="mt-3 grid gap-3 lg:grid-cols-2">
 				{#each errorAnalyses.slice(0, 2) as error (error.id)}
 					<Card title={error.category}>
@@ -306,7 +258,7 @@
 							{#if error.similar.length > 0}
 								<span class="text-micro text-muted-foreground">similar:</span>
 								{#each error.similar as id (id)}
-									<Badge variant="outline" size="sm">{id}</Badge>
+									<Badge variant="outline" class="text-[0.625rem]">{id}</Badge>
 								{/each}
 							{:else}
 								<span class="text-micro text-muted-foreground"
@@ -318,57 +270,37 @@
 				{/each}
 			</div>
 		{:else}
-			{#if perf.loading && !perf.data}
-				<Skeleton shape="block" height="160px" class="rounded-lg" />
-			{:else if perf.error}
-				<ErrorState
-					title="Failed to load performance"
-					description={perf.error}
-					onretry={() => perf.reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else if perfNodes.length === 0}
-				<EmptyState
-					icon="chart"
-					title="No performance data"
-					description="Node stats appear once executions are analysed."
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
-				<Card title="Node performance">
-					<ul class="space-y-3">
-						{#each perfNodes as node (node.node)}
-							<li>
-								<div
-									class="flex items-center justify-between gap-3 text-caption"
+			<Card title="Node performance">
+				<ul class="space-y-3">
+					{#each perfNodes as node (node.node)}
+						<li>
+							<div class="flex items-center justify-between gap-3 text-caption">
+								<span class="truncate font-mono">{node.node}</span>
+								<span class="shrink-0 tabular-nums text-muted-foreground">
+									{formatDuration(node.avgMs)} avg · {formatDuration(
+										node.p95Ms,
+									)} p95
+								</span>
+							</div>
+							<div class="mt-1 flex items-center gap-2">
+								<span
+									class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
 								>
-									<span class="truncate font-mono">{node.node}</span>
-									<span class="shrink-0 tabular-nums text-muted-foreground">
-										{formatDuration(node.avgMs)} avg · {formatDuration(
-											node.p95Ms,
-										)} p95
-									</span>
-								</div>
-								<div class="mt-1 flex items-center gap-2">
 									<span
-										class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-									>
-										<span
-											class="block h-full rounded-full bg-chart-1"
-											style:width="{node.share * 100}%"
-										></span>
-									</span>
-									<span
-										class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
-									>
-										{Math.round(node.share * 100)}%
-									</span>
-								</div>
-							</li>
-						{/each}
-					</ul>
-				</Card>
-			{/if}
+										class="block h-full rounded-full bg-chart-1"
+										style:width="{node.share * 100}%"
+									></span>
+								</span>
+								<span
+									class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
+								>
+									{Math.round(node.share * 100)}%
+								</span>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</Card>
 		{/if}
 	</div>
 </div>

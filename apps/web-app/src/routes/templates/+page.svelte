@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -8,10 +9,15 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import { listTemplates, listFeaturedTemplates, cloneTemplate } from '$lib/services/templates';
+	import {
+		listTemplates,
+		listFeaturedTemplates,
+		cloneTemplate,
+	} from '$lib/services/templates';
 	import type { Template, TemplateKind } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'all', label: 'All' },
@@ -21,7 +27,16 @@
 		{ id: 'workflow', label: 'Workflow' },
 	];
 
-	let kind = $state('all');
+	const requestedTab = parseListParams(page.url).tab;
+	let kind = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'all',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: kind === 'all' ? '' : kind });
+	});
 	let featuredOnly = $state(false);
 	let templates = $state<Template[]>([]);
 	let featuredIds = $state<Set<string>>(new Set());
@@ -39,7 +54,10 @@
 			templates = all.length > 0 ? all : [];
 			featuredIds = new Set(featured.map((t) => t.id));
 			if (templates.length > 0 && featuredIds.size > 0) {
-				templates = templates.map((t) => ({ ...t, featured: t.featured || featuredIds.has(t.id) }));
+				templates = templates.map((t) => ({
+					...t,
+					featured: t.featured || featuredIds.has(t.id),
+				}));
 			}
 		} catch (e) {
 			console.error('Failed to load templates:', e);

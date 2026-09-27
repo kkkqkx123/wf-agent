@@ -37,7 +37,7 @@
 		href={resolve(href)}
 		class={cn(
 			buttonClass(variant, size),
-			active && 'ring-1 ring-ring',
+			active && 'ring-1 ring-[hsl(var(--ring))]',
 			className,
 		)}
 		{...anchorRest}
@@ -49,7 +49,7 @@
 		type="button"
 		class={cn(
 			buttonClass(variant, size),
-			active && 'ring-1 ring-ring',
+			active && 'ring-1 ring-[hsl(var(--ring))]',
 			className,
 		)}
 		{...rest}

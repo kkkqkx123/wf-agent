@@ -13,6 +13,11 @@ function collect(): { callbacks: StreamCallbacks; calls: string[] } {
 			onNode: (node) =>
 				calls.push(`node:${node.id}:${node.status}:${node.durationMs}`),
 			onToolStart: (id, name) => calls.push(`toolStart:${id}:${name}`),
+			onUsage: (usage) =>
+				calls.push(
+					`usage:${usage.promptTokens}:${usage.completionTokens}:${usage.cost}`,
+				),
+			onInterrupted: (reason) => calls.push(`interrupted:${reason}`),
 			onError: (failure) => calls.push(`error:${failure.message}`),
 		},
 	};
@@ -84,6 +89,49 @@ describe('handleGenerationFrame', () => {
 		const { callbacks, calls } = collect();
 		handleGenerationFrame({ event_type: 'error', error: 'boom' }, callbacks);
 		expect(calls).toEqual(['error:boom']);
+	});
+
+	it('routes reasoning and usage increments', () => {
+		const { callbacks, calls } = collect();
+		handleGenerationFrame(
+			{ event_type: 'reasoning_text', reasoning: 'think', snapshot: 'think' },
+			callbacks,
+		);
+		handleGenerationFrame(
+			{
+				event_type: 'usage',
+				usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+			},
+			callbacks,
+		);
+		expect(calls).toEqual(['reasoning:think', 'usage:10:20:null']);
+	});
+
+	it('surfaces usage carried by the terminal message', () => {
+		const { callbacks, calls } = collect();
+		handleGenerationFrame(
+			{
+				event_type: 'final_message',
+				message: { content: [] },
+				usage: {
+					prompt_tokens: 5,
+					completion_tokens: 7,
+					total_tokens: 12,
+					total_cost: 0.001,
+				},
+			},
+			callbacks,
+		);
+		expect(calls).toEqual(['usage:5:7:0.001']);
+	});
+
+	it('maps an abort frame to an interruption', () => {
+		const { callbacks, calls } = collect();
+		handleGenerationFrame(
+			{ event_type: 'abort', reason: 'stopped' },
+			callbacks,
+		);
+		expect(calls).toEqual(['interrupted:stopped']);
 	});
 
 	it('ignores frames the timeline does not model', () => {

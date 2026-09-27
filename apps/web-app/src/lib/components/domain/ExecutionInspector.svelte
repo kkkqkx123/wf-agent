@@ -1,13 +1,21 @@
 <script lang="ts">
-	import type { ExecutionDetail, TimelineEntry, ToolCallEntry } from '$lib/types/models';
+	import type {
+		ExecutionDetail,
+		TimelineEntry,
+		ToolCallEntry,
+	} from '$lib/types/models';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import StatusBadge from './StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import Timeline from './Timeline.svelte';
+	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
-	import { getExecutionTimeline, getExecutionToolCalls } from '$lib/services/executions';
+	import {
+		getExecutionTimeline,
+		getExecutionToolCalls,
+	} from '$lib/services/executions';
 	import {
 		formatBytes,
 		formatDateTime,
@@ -20,10 +28,15 @@
 
 	interface Props {
 		execution: ExecutionDetail;
+		tab?: string;
 		class?: string;
 	}
 
-	let { execution, class: className = '' }: Props = $props();
+	let {
+		execution,
+		tab = $bindable('overview'),
+		class: className = '',
+	}: Props = $props();
 
 	let toolCalls = $state<ToolCallEntry[]>([]);
 	let timeline = $state<TimelineEntry[]>([]);
@@ -54,8 +67,6 @@
 		{ id: 'analysis', label: 'Analysis' },
 		{ id: 'state', label: 'State' },
 	];
-
-	let tab = $state('overview');
 
 	const tone = $derived(statusTone(execution.status));
 	const progressTone = $derived(
@@ -158,7 +169,10 @@
 				</Card>
 			</div>
 		{:else if tab === 'timeline'}
-			<Timeline entries={timeline} />
+			<div class="flex items-start gap-3">
+				<Timeline entries={timeline} class="min-w-0 flex-1" />
+				<TimelineOutline entries={timeline} class="hidden w-44 xl:block" />
+			</div>
 		{:else if tab === 'tools'}
 			<div class="space-y-2">
 				{#each toolCalls as entry (entry.id)}

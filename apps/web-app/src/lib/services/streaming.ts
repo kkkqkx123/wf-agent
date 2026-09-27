@@ -246,7 +246,10 @@ function toUsage(data: unknown): UsageSnapshot | null {
 	if (!record) return null;
 	const promptTokens = record.prompt_tokens;
 	const completionTokens = record.completion_tokens;
-	if (typeof promptTokens !== 'number' || typeof completionTokens !== 'number') {
+	if (
+		typeof promptTokens !== 'number' ||
+		typeof completionTokens !== 'number'
+	) {
 		return null;
 	}
 	const costs = [
@@ -254,8 +257,7 @@ function toUsage(data: unknown): UsageSnapshot | null {
 		record.completion_tokens_cost,
 		record.total_cost,
 	].filter(
-		(cost): cost is number =>
-			typeof cost === 'number' && Number.isFinite(cost),
+		(cost): cost is number => typeof cost === 'number' && Number.isFinite(cost),
 	);
 	return {
 		promptTokens,

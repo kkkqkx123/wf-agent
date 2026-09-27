@@ -1,45 +1,29 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import ExecutionCard from '$lib/components/domain/ExecutionCard.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import LoadMorePager from '$lib/components/domain/LoadMorePager.svelte';
+	import CursorPager from '$lib/components/domain/CursorPager.svelte';
+	import { onMount } from 'svelte';
 	import {
 		listExecutions,
-		getExecution,
-		listToolCalls,
-		listTimeline,
+		getExecutionDetail,
+		getExecutionStats,
 	} from '$lib/services/executions';
-	import type {
-		Execution,
-		ExecutionDetail,
-		ToolCallEntry,
-		TimelineEntry,
-	} from '$lib/types/models';
-	import {
-		createCollection,
-		createResource,
-	} from '$lib/stores/collection.svelte';
-	import { behavior } from '$lib/stores/behavior.svelte';
-	import { live } from '$lib/stores/live.svelte';
-	import { formatDateTime, nodeCount } from '$lib/utils/format';
-	import {
-		loadWorkflowTitles,
-		workflowTitle,
-	} from '$lib/stores/workflow-titles.svelte';
-	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
+	import { toasts } from '$lib/stores/toast.svelte';
+	import { formatDateTime } from '$lib/utils/format';
+	import { cn } from '$lib/utils/cn';
 
 	const STATUS_OPTIONS = [
 		{ value: 'running', label: 'Running' },
@@ -50,98 +34,76 @@
 		{ value: 'cancelled', label: 'Cancelled' },
 	];
 
-	interface ExecutionBundle {
-		execution: ExecutionDetail;
-		toolCalls: ToolCallEntry[];
-		timeline: TimelineEntry[];
+	let query = $state('');
+	let status = $state('');
+	let view = $state<'list' | 'table'>('list');
+	let selectedId = $state<string | null>(null);
+	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
+		items: [],
+		hasMore: false,
+	});
+	let detail = $state<ExecutionDetail | null>(null);
+	let overviewMetrics = $state<Metric[]>([]);
+	let loading = $state(true);
+	let error = $state<string | null>(null);
+
+	onMount(() => {
+		void reload();
+	});
+
+	async function reload(): Promise<void> {
+		loading = true;
+		error = null;
+		try {
+			const [page, metrics] = await Promise.all([
+				listExecutions({ limit: 200 }),
+				getExecutionStats(),
+			]);
+			allExecutions = { items: page.items, hasMore: page.hasMore };
+			overviewMetrics = metrics;
+			if (page.items.length > 0 && !selectedId) {
+				selectedId = page.items[0].id;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			loading = false;
+		}
 	}
 
-	const initial = parseListParams(page.url);
-
-	let query = $state(initial.q ?? '');
-	let status = $state(initial.status ?? '');
-	let view = $state<'list' | 'table'>(
-		initial.tab === 'table' ? 'table' : 'list',
-	);
-	let selectedId = $state<string | null>(initial.id ?? null);
-
-	const list = createCollection((params) => listExecutions(params));
-	const detail = createResource<ExecutionBundle | null>(async () => {
-		if (!selectedId) return null;
+	$effect(() => {
 		const id = selectedId;
-		const [execution, toolCalls, timeline] = await Promise.all([
-			getExecution(id),
-			listToolCalls(id),
-			listTimeline(id),
-		]);
-		return { execution, toolCalls, timeline };
+		if (!id) {
+			detail = null;
+			return;
+		}
+		void getExecutionDetail(id)
+			.then((row) => {
+				detail = row;
+			})
+			.catch((e) => {
+				console.error('Failed to load execution detail:', e);
+			});
 	});
 
 	const filtered = $derived(
-		list.items.filter((execution) => {
+		allExecutions.items.filter((execution) => {
 			const matchesStatus = !status || execution.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
 				!needle ||
-				workflowTitle(execution.workflowId).toLowerCase().includes(needle) ||
+				execution.workflowName.toLowerCase().includes(needle) ||
 				execution.id.toLowerCase().includes(needle);
 			return matchesStatus && matchesQuery;
 		}),
 	);
 
-	$effect(() => {
-		if (selectedId) void detail.reload();
-	});
-
-	// Auto-select the first execution once the list has loaded.
-	$effect(() => {
-		if (!selectedId && list.loaded > 0 && !list.loading) {
-			selectedId = list.items[0].id;
-		}
-	});
-
-	// The address bar mirrors whatever is on screen, so a reload or a shared
-	// link restores the same filter, selection and paging depth.
-	$effect(() => {
-		gotoWithParams(page.url, {
-			q: query,
-			status,
-			tab: view === 'table' ? 'table' : '',
-			id: selectedId ?? '',
-			page: String(Math.max(1, Math.ceil(list.loaded / list.pageSize))),
-		});
-	});
-
-	onMount(() => {
-		void loadWorkflowTitles();
-		void list.loadPages(Number(initial.page) || 1);
-		// Live execution-state events trigger a throttled reload; no inline
-		// row splicing since the list is offset-paginated.
-		let timer: ReturnType<typeof setTimeout> | null = null;
-		const scheduleReload = () => {
-			if (timer) return;
-			timer = setTimeout(() => {
-				timer = null;
-				void list.reload();
-				if (selectedId) void detail.reload();
-			}, 1000);
-		};
-		const unsubscribe = live.subscribe((event) => {
-			if (!behavior.autoRefresh) return;
-			if (!event.type.startsWith('WORKFLOW_EXECUTION_')) return;
-			scheduleReload();
-		});
-		return () => {
-			unsubscribe();
-			if (timer) clearTimeout(timer);
-		};
-	});
+	const selected = $derived(detail);
 </script>
 
 <SplitView
 	inspectorTitle="Execution detail"
 	inspectorOpen={selectedId !== null}
-	oninspectorclose={() => (selectedId = null)}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
@@ -153,10 +115,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => {
-						list.reload();
-						if (selectedId) detail.reload();
-					}}
+					onclick={() => void reload()}
 				/>
 				<Button
 					variant="outline"
@@ -166,10 +125,19 @@
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
 					{view === 'list' ? 'Table' : 'Cards'}
 				</Button>
+				<Button
+					size="sm"
+					onclick={() => toasts.success('Execution request prepared')}
+				>
+					<Icon name="play" size={13} />
+					Start
+				</Button>
 			{/snippet}
 		</PageHeader>
 
 		<div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+			<MetricGrid metrics={overviewMetrics} class="mb-3" />
+
 			<FilterBar
 				bind:query
 				bind:status
@@ -184,18 +152,16 @@
 				{/snippet}
 			</FilterBar>
 
-			{#if list.loading && list.loaded === 0}
-				<div class="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-					{#each Array.from({ length: 6 }, (_, position) => position) as index (index)}
-						<Skeleton shape="block" height="104px" class="rounded-lg" />
-					{/each}
+			{#if loading}
+				<div class="space-y-2">
+					<Skeleton shape="block" height="72px" class="rounded-lg" />
+					<Skeleton shape="block" height="72px" class="rounded-lg" />
 				</div>
-			{:else if list.error}
+			{:else if error}
 				<ErrorState
 					title="Failed to load executions"
-					description={list.error}
-					onretry={() => list.reload()}
-					class="rounded-lg border border-border bg-card"
+					description={error}
+					onretry={() => void reload()}
 				/>
 			{:else if filtered.length === 0}
 				<EmptyState
@@ -215,79 +181,80 @@
 					{/each}
 				</div>
 			{:else}
-				{#snippet executionId(execution: Execution)}
-					<span class="font-mono text-caption">{execution.id}</span>
-				{/snippet}
-				{#snippet executionStatus(execution: Execution)}
-					<StatusBadge status={execution.status} size="sm" />
-				{/snippet}
-				{#snippet executionStarted(execution: Execution)}
-					<span class="text-caption tabular-nums text-muted-foreground">
-						{formatDateTime(execution.startedAt)}
-					</span>
-				{/snippet}
-				{#snippet executionTasks(execution: Execution)}
-					<span class="text-caption tabular-nums text-muted-foreground">
-						{nodeCount(execution.nodesDone, execution.nodesTotal) ?? '—'}
-					</span>
-				{/snippet}
 				<Card bodyClass="p-0">
-					<DataTable
-						rows={filtered}
-						rowKey={(row) => row.id}
-						selectedKey={selectedId}
-						onrowclick={(row) => (selectedId = row.id)}
-						columns={[
-							{ key: 'id', header: 'Execution', cell: executionId },
-							{
-								key: 'workflow',
-								header: 'Workflow',
-								text: (row) => workflowTitle(row.workflowId),
-							},
-							{ key: 'status', header: 'Status', cell: executionStatus },
-							{ key: 'started', header: 'Started', cell: executionStarted },
-							{
-								key: 'tasks',
-								header: 'Tasks',
-								align: 'right',
-								cell: executionTasks,
-							},
-						]}
-					/>
+					<div class="overflow-x-auto">
+						<table class="w-full border-collapse text-body">
+							<thead>
+								<tr class="border-b border-border">
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Execution</th
+									>
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Workflow</th
+									>
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Status</th
+									>
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Started</th
+									>
+									<th
+										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
+										>Tasks</th
+									>
+								</tr>
+							</thead>
+							<tbody>
+								{#each filtered as execution (execution.id)}
+									<tr
+										class={cn(
+											'cursor-pointer border-b border-border/60 transition-colors last:border-0',
+											selectedId === execution.id
+												? 'bg-accent/70'
+												: 'hover:bg-accent/40',
+										)}
+										onclick={() => (selectedId = execution.id)}
+									>
+										<td class="px-3 py-2 font-mono text-caption"
+											>{execution.id}</td
+										>
+										<td class="px-3 py-2">{execution.workflowName}</td>
+										<td class="px-3 py-2"
+											><StatusBadge status={execution.status} size="sm" /></td
+										>
+										<td
+											class="px-3 py-2 tabular-nums text-caption text-muted-foreground"
+										>
+											{formatDateTime(execution.startedAt)}
+										</td>
+										<td
+											class="px-3 py-2 text-right tabular-nums text-caption text-muted-foreground"
+										>
+											{execution.tasksDone}/{execution.tasksTotal}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
 				</Card>
 			{/if}
 
-			<LoadMorePager
-				shown={list.loaded}
-				hasMore={list.hasMore}
-				loading={list.loading}
-				pageSize={list.pageSize}
-				onloadmore={() => list.loadMore()}
+			<CursorPager
+				shown={filtered.length}
+				hasMore={false}
 				class="mt-3 rounded-lg border border-border bg-card"
 			/>
 		</div>
 	</div>
 
 	{#snippet inspector()}
-		{#if detail.loading && !detail.data}
-			<div class="space-y-3 p-4">
-				<Skeleton lines={2} />
-				<Skeleton shape="block" height="120px" class="rounded-lg" />
-				<Skeleton lines={4} />
-			</div>
-		{:else if detail.error}
-			<ErrorState
-				title="Failed to load detail"
-				description={detail.error}
-				onretry={() => detail.reload()}
-				class="m-4"
-			/>
-		{:else if detail.data}
-			<ExecutionInspector
-				execution={detail.data.execution}
-				toolCalls={detail.data.toolCalls}
-				timeline={detail.data.timeline}
-			/>
+		{#if selected}
+			<ExecutionInspector execution={selected} />
 		{/if}
 	{/snippet}
 </SplitView>

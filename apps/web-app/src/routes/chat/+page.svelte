@@ -34,7 +34,6 @@
 	import { createResource } from '$lib/stores/collection.svelte';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
 	import type { LiveToolCall } from '$lib/stores/stream-run.svelte';
-	import { preferences } from '$lib/stores/preferences.svelte';
 	import { NEW_SESSION, sessions } from '$lib/stores/sessions.svelte';
 	import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -299,10 +298,7 @@
 				itemKey={(message) => message.id}
 				{activity}
 				resetKey={selectedId ?? NEW_SESSION}
-				contentClass="mx-auto max-w-3xl px-4 py-4 {preferences.chatFont ===
-				'mono'
-					? 'font-mono'
-					: ''}"
+				contentClass="mx-auto max-w-3xl px-4 py-4"
 				class="min-h-0 flex-1"
 			>
 				{#snippet renderItem(message: LoopMessage)}

@@ -1,4 +1,3 @@
-import { base, resolve } from '$app/paths';
 import { goto } from '$app/navigation';
 import type { Pathname } from '$app/types';
 
@@ -18,52 +17,56 @@ export function appPath(path: string): AppPath {
 	return path as AppPath;
 }
 
-/** Query keys that carry list-page state, so a URL alone reproduces the view. */
-export const LIST_KEYS = ['q', 'status', 'page', 'id', 'tab', 'panel'] as const;
+/** Query keys the app round-trips through the address bar. */
+const LIST_KEYS = ['id', 'q', 'status', 'page', 'tab', 'panel'] as const;
 
-export type ListKey = (typeof LIST_KEYS)[number];
+export type ListParamKey = (typeof LIST_KEYS)[number];
 
-export type ListState = Partial<Record<ListKey, string>>;
+export type ListParams = Partial<Record<ListParamKey, string>>;
 
-export function parseListParams(url: URL): ListState {
-	const state: ListState = {};
+/** Read the list keys that carry a non-empty value out of a URL. */
+export function parseListParams(url: URL): ListParams {
+	const params: ListParams = {};
 	for (const key of LIST_KEYS) {
 		const value = url.searchParams.get(key);
-		if (value) state[key] = value;
+		if (value) params[key] = value;
 	}
-	return state;
+	return params;
 }
 
 /**
- * Apply a patch to the list keys of `url`, dropping empty ones. Pure so the
- * write-back rules can be tested without a router.
+ * Merge a list-param patch onto a URL's query. Empty values clear their key;
+ * keys outside the owned set are ignored so unrelated params stay untouched.
  */
-export function buildListQuery(url: URL, patch: ListState): string {
-	const params = new URLSearchParams(url.search);
-	for (const key of LIST_KEYS) {
-		const value = patch[key];
+export function buildListQuery(url: URL, patch: ListParams): string {
+	const params = new URLSearchParams(url.searchParams);
+	const owned: readonly string[] = LIST_KEYS;
+	for (const [key, value] of Object.entries(patch)) {
+		if (!owned.includes(key)) continue;
 		if (value) params.set(key, value);
-		else if (key in patch) params.delete(key);
+		else params.delete(key);
 	}
 	return params.toString();
 }
 
 /**
- * Mirror list state into the address bar without disturbing focus or scroll.
- * Only the known keys are rewritten, so any other query survives.
+ * Write list params back to the address bar in place. A no-op when the query is
+ * unchanged, which is what keeps a selection effect from looping on its own
+ * navigation.
  */
-export function gotoWithParams(url: URL, patch: ListState): void {
-	const query = buildListQuery(url, patch);
-	if (query === url.searchParams.toString()) return;
-	const path = url.pathname.startsWith(base)
-		? url.pathname.slice(base.length)
-		: url.pathname;
-	const href = `${resolve(appPath(path))}${query ? `?${query}` : ''}`;
-	// The rule cannot see that the path half of `href` is already resolved.
+export async function gotoWithParams(
+	url: URL,
+	patch: ListParams,
+): Promise<void> {
+	const next = buildListQuery(url, patch);
+	if (next === url.searchParams.toString()) return;
+	// The pathname already comes from the live URL, so the base is baked in and
+	// resolve() (route literals only) cannot re-derive it.
+	const target = `${url.pathname}${next ? `?${next}` : ''}${url.hash}`;
 	// eslint-disable-next-line svelte/no-navigation-without-resolve
-	void goto(href, {
-		replaceState: true,
+	await goto(target, {
 		keepFocus: true,
 		noScroll: true,
+		replaceState: true,
 	});
 }

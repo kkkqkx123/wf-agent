@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -30,6 +31,7 @@
 		formatNumber,
 		formatRelativeTime,
 	} from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'query', label: 'Query' },
@@ -38,11 +40,25 @@
 		{ id: 'performance', label: 'Performance' },
 	];
 
-	let tab = $state('query');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'query',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'query' ? '' : tab });
+	});
 	let statement = $state(
 		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
 	);
-	let queryResult = $state<QueryResult>({ columns: [], rows: [], elapsedMs: 0, truncated: false });
+	let queryResult = $state<QueryResult>({
+		columns: [],
+		rows: [],
+		elapsedMs: 0,
+		truncated: false,
+	});
 	let auditReports = $state<AuditReport[]>([]);
 	let errorAnalyses = $state<ErrorAnalysis[]>([]);
 	let perfNodes = $state<PerfNode[]>([]);

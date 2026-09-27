@@ -17,6 +17,7 @@
 	import type { WorkflowDetail, WorkflowVersion } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatNumber } from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'graph', label: 'Graph' },
@@ -25,7 +26,16 @@
 		{ id: 'runs', label: 'Runs' },
 	];
 
-	let tab = $state('graph');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'graph',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'graph' ? '' : tab });
+	});
 	let graphNodeId = $state<string | null>(null);
 	let detail = $state<WorkflowDetail | null>(null);
 
@@ -40,7 +50,9 @@
 	}
 
 	onMount(() => {
-		void load(page.params.id);
+		const id = page.params.id;
+		if (!id) return;
+		void load(id);
 	});
 
 	$effect(() => {
@@ -68,7 +80,10 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={workflow?.name ?? 'Workflow detail'} description={workflow?.description ?? ''}>
+	<PageHeader
+		title={workflow?.name ?? 'Workflow detail'}
+		description={workflow?.description ?? ''}
+	>
 		{#snippet meta()}
 			{#if workflow}
 				<StatusBadge status={workflow.status} />

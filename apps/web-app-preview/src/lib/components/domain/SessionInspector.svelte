@@ -11,6 +11,7 @@
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import Timeline from '$lib/components/domain/Timeline.svelte';
+	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
 	import type { Column } from '$lib/components/ui/table';
@@ -263,10 +264,10 @@
 								{formatBytes(checkpoint.sizeBytes)} ·
 								{formatDateTime(checkpoint.createdAt)}
 							</p>
-							{#if checkpoint.tags.length > 0}
+							{#if (checkpoint.tags ?? []).length > 0}
 								<div class="mt-1.5 flex flex-wrap gap-1.5">
-									{#each checkpoint.tags as tag (tag)}
-										<Badge variant="outline" size="sm">{tag}</Badge>
+									{#each checkpoint.tags ?? [] as tag (tag)}
+										<Badge variant="outline">{tag}</Badge>
 									{/each}
 								</div>
 							{/if}
@@ -303,7 +304,13 @@
 					No timeline events for this session.
 				</p>
 			{:else}
-				<Timeline entries={timeline.data ?? []} />
+				<div class="flex items-start gap-3">
+					<Timeline entries={timeline.data ?? []} class="min-w-0 flex-1" />
+					<TimelineOutline
+						entries={timeline.data ?? []}
+						class="hidden w-44 xl:block"
+					/>
+				</div>
 			{/if}
 		{:else if tab === 'analysis'}
 			<div class="space-y-3">

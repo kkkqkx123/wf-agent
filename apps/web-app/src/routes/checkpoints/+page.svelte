@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -9,11 +10,12 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DiffView from '$lib/components/domain/DiffView.svelte';
-	import type { DiffLine } from '$lib/components/domain/DiffView.svelte';
 	import {
 		listCheckpoints,
 		getFileChanges,
 		getApprovalRequests,
+		getStagedDiffs,
+		type FileDiff,
 	} from '$lib/services/checkpoints';
 	import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -23,6 +25,7 @@
 		formatRelativeTime,
 	} from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'chain', label: 'Checkpoint chain' },
@@ -30,10 +33,23 @@
 		{ id: 'approvals', label: 'Approvals' },
 	];
 
-	let tab = $state('chain');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'chain',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'chain' ? '' : tab });
+	});
 	let checkpoints = $state<Checkpoint[]>([]);
 	let fileChanges = $state<FileChange[]>([]);
 	let approvals = $state<Approval[]>([]);
+	let selectedChangeId = $state<string | null>(null);
+	let stagedDiff = $state<FileDiff | null>(null);
+	let diffNote = $state<string | null>(null);
+	let diffLoading = $state(false);
 
 	onMount(() => {
 		void reload();
@@ -61,27 +77,31 @@
 		deleted: 'text-destructive',
 	};
 
-	const SAMPLE_DIFF: DiffLine[] = [
-		{ type: 'meta', text: 'crates/checkpoint/src/restore_coordinator.rs' },
-		{
-			type: 'context',
-			text: 'pub fn restore(&self, target: &Branch) -> Result<Snapshot> {',
-		},
-		{ type: 'del', text: '    if self.branch_exists(target)? {' },
-		{
-			type: 'del',
-			text: '        return Err(Error::BranchConflict(target.clone()));',
-		},
-		{ type: 'del', text: '    }' },
-		{
-			type: 'add',
-			text: '    if let Some(existing) = self.find_snapshot(target)? {',
-		},
-		{ type: 'add', text: '        return Ok(existing);' },
-		{ type: 'add', text: '    }' },
-		{ type: 'context', text: '    self.write_snapshot(target)' },
-		{ type: 'context', text: '}' },
-	];
+	async function selectChange(change: FileChange): Promise<void> {
+		selectedChangeId = change.id;
+		stagedDiff = null;
+		diffNote = null;
+		if (!change.actor) {
+			diffNote = 'No actor recorded for this change';
+			return;
+		}
+		diffLoading = true;
+		try {
+			const diffs = await getStagedDiffs(change.actor);
+			const match = diffs.find((diff) => diff.path === change.path) ?? null;
+			if (!match) {
+				diffNote = 'No staged diff for this path';
+				return;
+			}
+			stagedDiff = match;
+		} catch (e) {
+			console.error('Failed to load staged diff:', e);
+			diffNote = 'Staged diff unavailable';
+			toasts.error('Staged diff unavailable');
+		} finally {
+			diffLoading = false;
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -164,40 +184,74 @@
 				>
 					<ul class="divide-y divide-border">
 						{#each fileChanges as change (change.id)}
-							<li
-								class="flex items-start justify-between gap-3 py-2 first:pt-0"
-							>
-								<div class="min-w-0">
-									<p class="truncate font-mono text-caption">{change.path}</p>
-									<p class="mt-0.5 text-micro text-muted-foreground">
-										{change.actor} · {change.session} · {formatRelativeTime(
-											change.at,
-										)}
-									</p>
-								</div>
-								<div class="flex shrink-0 items-center gap-2">
-									<span
-										class={cn(
-											'text-micro',
-											CHANGE_TONE[change.changeType] ?? 'text-muted-foreground',
-										)}
-									>
-										{change.changeType}
-									</span>
-									<span class="text-micro tabular-nums text-success"
-										>+{change.additions}</span
-									>
-									<span class="text-micro tabular-nums text-destructive"
-										>-{change.deletions}</span
-									>
-								</div>
+							<li class="py-2 first:pt-0">
+								<button
+									type="button"
+									onclick={() => void selectChange(change)}
+									aria-pressed={selectedChangeId === change.id}
+									class={cn(
+										'flex w-full items-start justify-between gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/50',
+										selectedChangeId === change.id && 'bg-accent/70',
+									)}
+								>
+									<div class="min-w-0">
+										<p class="truncate font-mono text-caption">{change.path}</p>
+										<p class="mt-0.5 text-micro text-muted-foreground">
+											{change.actor} · {change.session} · {formatRelativeTime(
+												change.at,
+											)}
+										</p>
+									</div>
+									<div class="flex shrink-0 items-center gap-2">
+										<span
+											class={cn(
+												'text-micro',
+												CHANGE_TONE[change.changeType] ??
+													'text-muted-foreground',
+											)}
+										>
+											{change.changeType}
+										</span>
+										<span class="text-micro tabular-nums text-success"
+											>+{change.additions}</span
+										>
+										<span class="text-micro tabular-nums text-destructive"
+											>-{change.deletions}</span
+										>
+									</div>
+								</button>
 							</li>
 						{/each}
 					</ul>
 				</Card>
 
 				<div class="space-y-3">
-					<DiffView lines={SAMPLE_DIFF} title="Selected delta" />
+					{#if diffLoading}
+						<Card title="Selected delta">
+							<p class="text-caption text-muted-foreground">
+								Loading staged diff…
+							</p>
+						</Card>
+					{:else if stagedDiff && !stagedDiff.binary}
+						<DiffView
+							lines={stagedDiff.lines}
+							title={stagedDiff.truncated
+								? `${stagedDiff.path} · truncated`
+								: stagedDiff.path}
+						/>
+					{:else if stagedDiff?.binary}
+						<Card title={stagedDiff.path}>
+							<p class="text-caption text-muted-foreground">
+								Binary content has no text diff
+							</p>
+						</Card>
+					{:else}
+						<Card title="Selected delta">
+							<p class="text-caption text-muted-foreground">
+								{diffNote ?? 'Select a change to preview its staged diff'}
+							</p>
+						</Card>
+					{/if}
 					<Card title="Session actions">
 						<div class="flex flex-wrap gap-2">
 							<Button

@@ -1,7 +1,13 @@
 import { client } from '$lib/api/client';
 import { call, extractCapped, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
-import type { Execution, ExecutionDetail, Metric, TimelineEntry, ToolCallEntry } from '$lib/types/models';
+import type {
+	Execution,
+	ExecutionDetail,
+	Metric,
+	TimelineEntry,
+	ToolCallEntry,
+} from '$lib/types/models';
 
 interface ExecutionDto {
 	id?: string;
@@ -45,14 +51,16 @@ function toIsoOrNull(value: number | string | null | undefined): string | null {
 
 function toExecution(d: ExecutionDto): Execution {
 	const status = String(d.status ?? 'running').toLowerCase();
-	const completed = status === 'completed' || status === 'succeeded' || status === 'success';
+	const completed =
+		status === 'completed' || status === 'succeeded' || status === 'success';
 	return {
 		id: d.id ?? '',
 		workflowId: d.workflow_id ?? d.workflowId ?? '',
 		workflowName:
 			d.workflow_name ?? d.workflowName ?? d.workflow_id ?? d.workflowId ?? '',
 		status,
-		startedAt: typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
+		startedAt:
+			typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
 		endedAt:
 			typeof d.endedAt === 'string' ? d.endedAt : toIsoOrNull(d.completed_at),
 		durationMs: d.durationMs ?? d.elapsed_ms ?? null,
@@ -62,7 +70,7 @@ function toExecution(d: ExecutionDto): Execution {
 		tasksTotal: d.tasks_total ?? d.tasksTotal ?? 0,
 		tasksDone: d.tasks_done ?? d.tasksDone ?? (completed ? 1 : 0),
 		failedNodes: d.failedNodes ?? d.error_count ?? 0,
-		memoryPeakBytes: d.memory_peak_bytes ?? d.memoryPeakBytes ?? null
+		memoryPeakBytes: d.memory_peak_bytes ?? d.memoryPeakBytes ?? null,
 	};
 }
 
@@ -80,10 +88,10 @@ export async function listExecutions(params?: {
 					limit: params?.limit,
 					offset: params?.offset,
 					status: params?.status,
-					workflow_id: params?.workflowId
-				}
-			}
-		})
+					workflow_id: params?.workflowId,
+				},
+			},
+		}),
 	);
 	const page = extractPage<ExecutionDto>(data);
 	return { ...page, items: page.items.map((d) => toExecution(d)) };
@@ -98,14 +106,14 @@ export async function getExecutionStats(): Promise<Metric[]> {
 	return [
 		{ label: 'Running', value: String(running), tone: 'running' },
 		{ label: 'Completed', value: String(completed), tone: 'success' },
-		{ label: 'Failed', value: String(failed), tone: 'danger' }
+		{ label: 'Failed', value: String(failed), tone: 'danger' },
 	];
 }
 
 /** Detailed view of a single execution. */
 export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
 	const data = await call<ExecutionDto>(
-		client.GET('/api/v1/executions/{id}', { params: { path: { id } } })
+		client.GET('/api/v1/executions/{id}', { params: { path: { id } } }),
 	);
 	const base = toExecution(data ?? {});
 	return {
@@ -121,8 +129,8 @@ export async function getExecutionDetail(id: string): Promise<ExecutionDetail> {
 			decisionPoints: [],
 			failureNodes: [],
 			criticalPath: [],
-			iterations: 0
-		}
+			iterations: 0,
+		},
 	};
 }
 
@@ -160,20 +168,29 @@ function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
 		id: d.id ?? d.tool_call_id ?? `tc-${index}`,
 		name: d.name ?? d.tool ?? '',
 		kind: d.kind ?? '',
-		status: d.status ?? (d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
-		startedAt: typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
+		status:
+			d.status ??
+			(d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
+		startedAt:
+			typeof d.startedAt === 'string' ? d.startedAt : toIso(d.started_at),
 		durationMs: d.duration_ms ?? d.durationMs ?? 0,
-		input: typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments),
-		output: typeof d.output === 'string' ? d.output : (d.error ?? stringify(d.output ?? d.result))
+		input:
+			typeof d.input === 'string' ? d.input : stringify(d.input ?? d.arguments),
+		output:
+			typeof d.output === 'string'
+				? d.output
+				: (d.error ?? stringify(d.output ?? d.result)),
 	};
 }
 
 /** Tool calls for an execution. */
-export async function getExecutionToolCalls(executionId: string): Promise<ToolCallEntry[]> {
+export async function getExecutionToolCalls(
+	executionId: string,
+): Promise<ToolCallEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/audit/tool-calls', {
-			params: { path: { id: executionId } }
-		})
+			params: { path: { id: executionId } },
+		}),
 	);
 	const page = extractPage<ToolCallDto>(data);
 	return page.items.map((d, index) => toToolCall(d, index));
@@ -200,24 +217,31 @@ function toTimelineEntry(d: TimelineDto, index: number): TimelineEntry {
 		kind,
 		title: d.title ?? d.description ?? '',
 		detail: d.detail ?? d.description ?? '',
-		status: d.status ?? ''
+		status: d.status ?? '',
 	};
 }
 
 /** Timeline events for an execution. */
-export async function getExecutionTimeline(executionId: string): Promise<TimelineEntry[]> {
+export async function getExecutionTimeline(
+	executionId: string,
+): Promise<TimelineEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/events/execution-timeline/{executionId}', {
-			params: { path: { executionId } }
-		})
+			params: { path: { executionId } },
+		}),
 	);
 	const capped = extractCapped<TimelineDto>(data);
-	const items = capped.items.length > 0 ? capped.items : extractPage<TimelineDto>(data).items;
+	const items =
+		capped.items.length > 0
+			? capped.items
+			: extractPage<TimelineDto>(data).items;
 	return items.map((d, index) => toTimelineEntry(d, index));
 }
 
 /** Filter executions by status. */
-export async function filterExecutionsByStatus(status: string): Promise<Execution[]> {
+export async function filterExecutionsByStatus(
+	status: string,
+): Promise<Execution[]> {
 	const page = await listExecutions({ status, limit: 200 });
 	return page.items;
 }

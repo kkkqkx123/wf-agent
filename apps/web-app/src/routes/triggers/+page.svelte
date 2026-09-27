@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -9,17 +10,32 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { listTriggerHistory, listTriggerExecutions, listHooks, fireHook } from '$lib/services/triggers';
+	import {
+		listTriggerHistory,
+		listTriggerExecutions,
+		listHooks,
+		fireHook,
+	} from '$lib/services/triggers';
 	import type { Hook, TriggerRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
+	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
 		{ id: 'records', label: 'Trigger records' },
 		{ id: 'hooks', label: 'Hook test dispatch' },
 	];
 
-	let tab = $state('records');
+	const requestedTab = parseListParams(page.url).tab;
+	let tab = $state(
+		requestedTab && TABS.some((item) => item.id === requestedTab)
+			? requestedTab
+			: 'records',
+	);
+
+	$effect(() => {
+		gotoWithParams(page.url, { tab: tab === 'records' ? '' : tab });
+	});
 	let triggerRecords = $state<TriggerRecord[]>([]);
 	let hooks = $state<Hook[]>([]);
 	let hookName = $state('');
@@ -32,15 +48,25 @@
 	async function reload(): Promise<void> {
 		try {
 			const [history, executions, hookRows] = await Promise.all([
-				listTriggerHistory({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
-				listTriggerExecutions({ limit: 200 }).catch(() => ({ items: [], hasMore: false, limit: 0, offset: 0 })),
+				listTriggerHistory({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				})),
+				listTriggerExecutions({ limit: 200 }).catch(() => ({
+					items: [],
+					hasMore: false,
+					limit: 0,
+					offset: 0,
+				})),
 				listHooks().catch(() => []),
 			]);
 			const merged = [...history.items, ...executions.items];
-			const seen = new Set<string>();
+			const seen: string[] = [];
 			triggerRecords = merged.filter((row) => {
-				if (seen.has(row.id)) return false;
-				seen.add(row.id);
+				if (seen.includes(row.id)) return false;
+				seen.push(row.id);
 				return true;
 			});
 			hooks = hookRows;
@@ -192,10 +218,7 @@
 							/>
 						</label>
 						<div class="flex items-center gap-2">
-							<Button
-								size="sm"
-								onclick={() => void dispatch()}
-							>
+							<Button size="sm" onclick={() => void dispatch()}>
 								<Icon name="zap" size={13} />
 								Send test
 							</Button>

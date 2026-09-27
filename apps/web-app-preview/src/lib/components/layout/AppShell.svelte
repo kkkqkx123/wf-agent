@@ -1,13 +1,15 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { page } from '$app/state';
+	import { browser } from '$app/environment';
 	import Sidebar from './Sidebar.svelte';
-	import SessionNav from './SessionNav.svelte';
-	import NavList from './NavList.svelte';
 	import TopBar from './TopBar.svelte';
 	import Sheet from '$lib/components/ui/Sheet.svelte';
+	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
+	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
+	import Icon from '$lib/components/icons/Icon.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
-	import { sessions } from '$lib/stores/sessions.svelte';
+	import { cn } from '$lib/utils/cn';
 
 	interface Props {
 		children: Snippet;
@@ -15,12 +17,20 @@
 
 	let { children }: Props = $props();
 
-	// The shell outlives every route, so it owns the single session refresh.
+	const pathname = $derived(page.url.pathname);
+
 	$effect(() => {
-		void sessions.refresh();
+		if (!browser) return;
+		const onresize = (): void => ui.syncViewport(window.innerWidth);
+		onresize();
+		window.addEventListener('resize', onresize);
+		return () => window.removeEventListener('resize', onresize);
 	});
 
-	const selectedId = $derived(page.url.searchParams.get('id'));
+	function isActive(href: string): boolean {
+		const item = navItemFor(pathname);
+		return !!item && (item.href === href || item.href.startsWith(href));
+	}
 </script>
 
 <div class="flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -37,17 +47,39 @@
 </div>
 
 <!-- Narrow viewports swap the rail for a drawer. -->
-<div class="lg:hidden">
-	<Sheet
-		bind:open={ui.mobileNavOpen}
-		title="Navigation"
-		side="left"
-		width="17rem"
-	>
-		<SessionNav
-			{selectedId}
-			class="max-h-[45%] shrink-0 border-b border-border"
-		/>
-		<NavList tone="popover" onnavigate={() => ui.closeMobileNav()} />
-	</Sheet>
-</div>
+<Sheet
+	bind:open={ui.mobileNavOpen}
+	title="Navigation"
+	side="left"
+	width="17rem"
+>
+	<nav class="space-y-3">
+		{#each NAV_GROUPS as group (group.id)}
+			<div>
+				<p
+					class="px-2 pb-1 text-micro uppercase tracking-wide text-muted-foreground"
+				>
+					{group.label}
+				</p>
+				<div class="space-y-0.5">
+					{#each group.items as item (item.href)}
+						<a
+							href={resolve(item.href)}
+							onclick={() => ui.closeMobileNav()}
+							aria-current={isActive(item.href) ? 'page' : undefined}
+							class={cn(
+								'flex items-center gap-2 rounded-md px-2 py-1.5 text-body transition-colors',
+								isActive(item.href)
+									? 'bg-accent font-medium text-accent-foreground'
+									: 'text-foreground hover:bg-accent',
+							)}
+						>
+							<Icon name={item.icon} size={15} />
+							<span class="truncate">{item.label}</span>
+						</a>
+					{/each}
+				</div>
+			</div>
+		{/each}
+	</nav>
+</Sheet>

@@ -15,6 +15,8 @@
 	import {
 		capGraph,
 		distinctKinds,
+		EDGE_LABEL_LIMIT,
+		kindCounts,
 		legendFor,
 		type DisplayEdge,
 		type DisplayNode,
@@ -128,6 +130,12 @@
 			: [...hiddenKinds, kind];
 	}
 
+	function isolateKind(kind: string): void {
+		hiddenKinds = kinds.filter((entry) => entry !== kind);
+	}
+
+	const aggregatedCounts = $derived(kindCounts(nodes));
+
 	function toggleOverlay(id: string): void {
 		onoverlay?.(activeOverlay === id ? null : id);
 	}
@@ -139,6 +147,20 @@
 		} else {
 			toasts.error('Graph export failed', 'The renderer is not ready yet.');
 		}
+	}
+
+	// Denser execution graphs hide edge labels sooner to stay readable.
+	const edgeLabelLimit = $derived(EDGE_LABEL_LIMIT[preset] ?? 60);
+
+	function handleBoxSelect(ids: string[]): void {
+		if (ids.length === 1) {
+			onselect?.(ids[0]);
+			return;
+		}
+		toasts.info(
+			'Box selection',
+			`${ids.length} nodes in the box. Click a node to inspect it.`,
+		);
 	}
 
 	const layoutOptions = [
@@ -184,6 +206,22 @@
 			label={showFilters ? 'Hide filters' : 'Show filters'}
 			onclick={() => (showFilters = !showFilters)}
 		/>
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={!selectedId}
+			onclick={() => selectedId && canvas?.zoomTo(selectedId)}
+		>
+			Zoom to selection
+		</Button>
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={activeIds.size === 0}
+			onclick={() => canvas?.fitTo([...activeIds])}
+		>
+			Fit highlight
+		</Button>
 		{#if actions}
 			<span class="mx-1 h-5 w-px bg-border"></span>
 			{@render actions()}
@@ -275,18 +313,44 @@
 				{layout}
 				{selectedId}
 				highlightIds={[...activeIds]}
+				{edgeLabelLimit}
 				onselect={(id) => onselect?.(id)}
 				onexpand={(id) => onexpand?.(id)}
+				onboxselect={handleBoxSelect}
 				class="min-h-0"
 			/>
 			<div class="flex min-h-0 flex-col gap-2">
 				{#if capped.truncated}
 					<Card title="Large graph">
 						<p class="text-caption text-muted-foreground">
-							Showing the first {capped.nodes.length} of {capped.total}
-							nodes. Use filters or double-click a node to expand its
-							neighborhood.
+							Showing {capped.nodes.length} of {capped.total} nodes,
+							sampled across kinds ({aggregatedCounts
+								.map((entry) => `${entry.kind} ${entry.count}`)
+								.join(' · ')}). Fold to one kind or use filters;
+							double-click a node to expand its neighborhood.
 						</p>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each aggregatedCounts.slice(0, 4) as entry (entry.kind)}
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => isolateKind(entry.kind)}
+								>
+									Fold to {entry.kind}
+								</Button>
+							{/each}
+							{#if hiddenKinds.length > 0}
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => {
+										hiddenKinds = [];
+									}}
+								>
+									Unfold all
+								</Button>
+							{/if}
+						</div>
 					</Card>
 				{/if}
 				{#if selected}

@@ -13,10 +13,12 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
+		exportQuery,
 		getQueryResult,
 		listErrorAnalyses,
 		listInsightAuditReports,
 		listPerformanceNodes,
+		runQuery,
 	} from '$lib/services/insights';
 	import type {
 		AuditReport,
@@ -59,6 +61,7 @@
 		elapsedMs: 0,
 		truncated: false,
 	});
+	let queryBusy = $state(false);
 	let auditReports = $state<AuditReport[]>([]);
 	let errorAnalyses = $state<ErrorAnalysis[]>([]);
 	let perfNodes = $state<PerfNode[]>([]);
@@ -103,6 +106,34 @@
 		seenErrors = false;
 		seenPerf = false;
 		await loadTab(tab);
+	}
+
+	async function runAdhocQuery(): Promise<void> {
+		queryBusy = true;
+		try {
+			queryResult = await runQuery({ limit: 50 });
+			seenQuery = true;
+			toasts.success('Default scope executed');
+		} catch (e) {
+			toasts.error(
+				'Query failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			queryBusy = false;
+		}
+	}
+
+	async function exportAdhocQuery(): Promise<void> {
+		try {
+			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
+			toasts.success('Export queued');
+		} catch (e) {
+			toasts.error(
+				'Export failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
 	}
 
 	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
@@ -184,7 +215,7 @@
 			<Button
 				variant="outline"
 				size="sm"
-				onclick={() => toasts.success('Export queued')}
+				onclick={() => void exportAdhocQuery()}
 			>
 				<Icon name="download" size={13} />
 				Export
@@ -207,10 +238,19 @@
 						bind:value={statement}
 						class="min-h-28 font-mono text-caption"
 					/>
+					<p class="mt-1 text-micro text-muted-foreground">
+						The statement box is a local draft. The query endpoint takes
+						structured filters, so Run executes the default execution scope
+						and reports that scope only until statement execution lands.
+					</p>
 					<div class="mt-2 flex items-center gap-2">
-						<Button size="sm" onclick={() => toasts.success('Query executed')}>
+						<Button
+							size="sm"
+							disabled={queryBusy}
+							onclick={() => void runAdhocQuery()}
+						>
 							<Icon name="play" size={13} />
-							Run query
+							{queryBusy ? 'Running…' : 'Run query'}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
 							>Clear</Button
@@ -230,7 +270,10 @@
 					<DataTable
 						columns={rowColumns}
 						rows={queryResult.rows}
-						rowKey={(row) => String(row.execution_id)}
+						rowKey={(row) =>
+							String(
+								row.execution_id ?? row.id ?? JSON.stringify(row).slice(0, 48),
+							)}
 						dense
 					/>
 				</Card>

@@ -19,6 +19,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         // ── execution graph ──
         .route("/executions/{id}/graph", get(handle_execution_graph))
         .route(
+            "/executions/{id}/graph/overview",
+            get(handle_execution_graph_overview),
+        )
+        .route(
             "/executions/{id}/graph/nodes",
             get(handle_execution_graph_nodes),
         )
@@ -118,6 +122,48 @@ pub(crate) async fn handle_execution_graph(
         Ok(graph) => ok(graph).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Serialize)]
+pub(crate) struct ExecutionGraphOverviewView {
+    graph: wf_types::workflow_execution::WorkflowGraphStructure,
+    failed_nodes: Vec<String>,
+    critical_path: Vec<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/executions/{id}/graph/overview",
+    tag = "workflow",
+    params(IdPath),
+    responses((status = 200, description = "Execution graph overview: topology plus failed nodes and critical path in one round trip", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_execution_graph_overview(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    let graph =
+        match wf_api::workflow::graph_query::get_execution_graph(&state.ctx, &path.id).await {
+            Ok(graph) => graph,
+            Err(e) => return error_response(e),
+        };
+    let failed_nodes =
+        match wf_api::workflow::workflow_iteration::get_failed_nodes(&state.ctx, &path.id).await {
+            Ok(records) => records.into_iter().map(|record| record.node_id).collect(),
+            Err(e) => return error_response(e),
+        };
+    let critical_path =
+        match wf_api::workflow::execution_graph::analyze(&state.ctx, &path.id).await {
+            Ok(analysis) => analysis.critical_path.nodes,
+            Err(e) => return error_response(e),
+        };
+    ok(ExecutionGraphOverviewView {
+        graph,
+        failed_nodes,
+        critical_path,
+    })
+    .into_response()
 }
 
 #[utoipa::path(

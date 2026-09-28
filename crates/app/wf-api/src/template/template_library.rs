@@ -111,6 +111,19 @@ pub fn delete_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
         .ok_or_else(|| not_found("workflow_template", id))
 }
 
+/// Replace a workflow template in place; errors with `NotFound` when the
+/// id is not registered.
+pub fn update_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate) -> ApiResult<()> {
+    if !ctx.registries.workflows.has(&template.id) {
+        return Err(not_found("workflow_template", &template.id.to_string()));
+    }
+    ctx.registries.workflows.register_or_replace(
+        template.id.to_string(),
+        Arc::new(template.clone()),
+    );
+    Ok(())
+}
+
 // ── agent templates ─────────────────────────────────────────────
 
 pub fn get_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<AgentTemplate> {
@@ -166,6 +179,24 @@ pub async fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> 
         .unregister(id)
         .map(|_| ())
         .ok_or_else(|| not_found("agent_template", id))
+}
+
+/// Replace an agent template in place; errors with `NotFound` when the id
+/// is not registered.
+pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
+    if !ctx.registries.agent_templates.has(&template.id) {
+        return Err(not_found("agent_template", &template.id.to_string()));
+    }
+    ctx.storage
+        .agent_template
+        .save(template)
+        .await
+        .map_err(crate::ApiError::from)?;
+    ctx.registries.agent_templates.register_or_replace(
+        template.id.to_string(),
+        std::sync::Arc::new(template.clone()),
+    );
+    Ok(())
 }
 
 // ── query ───────────────────────────────────────────────────────
@@ -514,6 +545,36 @@ mod tests {
         let popular = popular_in_category(&ctx, "analytics", Some(10)).unwrap();
         assert_eq!(popular.len(), 2);
         assert_eq!(popular[0].id, "wf-a");
+    }
+
+    #[tokio::test]
+    async fn update_replaces_in_place_and_rejects_missing() {
+        let ctx = make_ctx();
+
+        let mut renamed = workflow_template("wf-a", "analytics");
+        renamed.name = "Renamed".into();
+        update_workflow_template(&ctx, &renamed).unwrap();
+        assert_eq!(get_workflow_template(&ctx, "wf-a").unwrap().name, "Renamed");
+        let missing = workflow_template("nope", "analytics");
+        assert!(matches!(
+            update_workflow_template(&ctx, &missing).unwrap_err(),
+            ApiError::NotFound { .. }
+        ));
+
+        let mut agent_renamed = agent_template("agent-a", "analytics");
+        agent_renamed.name = "Renamed Agent".into();
+        update_agent_template(&ctx, &agent_renamed).await.unwrap();
+        assert_eq!(
+            get_agent_template(&ctx, "agent-a").unwrap().name,
+            "Renamed Agent"
+        );
+        let agent_missing = agent_template("nope", "analytics");
+        assert!(matches!(
+            update_agent_template(&ctx, &agent_missing)
+                .await
+                .unwrap_err(),
+            ApiError::NotFound { .. }
+        ));
     }
 
     #[tokio::test]

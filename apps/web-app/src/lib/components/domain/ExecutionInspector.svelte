@@ -30,11 +30,9 @@
 		getExecutionDecisionPoints,
 		getExecutionEfficiency,
 		getExecutionFailedNodes,
-		getExecutionGraphEdges,
 		getExecutionGraphNeighbors,
-		getExecutionGraphNodes,
+		getExecutionGraphOverview,
 		getExecutionSlowNodes,
-		toWorkflowGraph,
 		type EfficiencyEntry,
 		type SlowNodeEntry,
 	} from '$lib/services/graph';
@@ -120,29 +118,21 @@
 		graphLoading = true;
 		graphError = null;
 		try {
-			const [nodes, edges] = await Promise.all([
-				getExecutionGraphNodes(id),
-				getExecutionGraphEdges(id),
-			]);
-			const graph = toWorkflowGraph(nodes, edges);
-			graphNodes = graph.nodes.map((node) => ({
+			const overview = await getExecutionGraphOverview(id);
+			graphNodes = overview.graph.nodes.map((node) => ({
 				id: node.id,
 				label: node.label,
 				kind: node.kind,
 				status: node.status,
 			}));
-			graphEdges = graph.edges.map((edge) => ({
+			graphEdges = overview.graph.edges.map((edge) => ({
 				id: edge.id,
 				source: edge.from,
 				target: edge.to,
 				label: edge.label,
 			}));
-			const [failed, critical] = await Promise.all([
-				getExecutionFailedNodes(id).catch(() => [] as string[]),
-				getExecutionCriticalPath(id).catch(() => [] as string[]),
-			]);
-			failedNodes = failed;
-			criticalPath = critical;
+			failedNodes = overview.failedNodes;
+			criticalPath = overview.criticalPath;
 		} catch (e) {
 			graphError = e instanceof Error ? e.message : 'Graph failed to load.';
 		} finally {

@@ -140,8 +140,53 @@ export function distinctKinds(nodes: DisplayNode[]): string[] {
 	return [...new Set(nodes.map((node) => node.kind || 'unknown'))].sort();
 }
 
+/** Per-kind node counts, for the large-graph aggregation notice. */
+export function kindCounts(nodes: DisplayNode[]): Array<{ kind: string; count: number }> {
+	const counts = new Map<string, number>();
+	for (const node of nodes) {
+		const kind = node.kind || 'unknown';
+		counts.set(kind, (counts.get(kind) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.map(([kind, count]) => ({ kind, count }))
+		.sort((a, b) => b.count - a.count);
+}
+
 /** Maximum nodes rendered; larger graphs show a truncation notice. */
 export const GRAPH_NODE_CAP = 800;
+
+/**
+ * Per-preset edge label budget. Denser execution graphs hide sooner so
+ * labels stay readable instead of collapsing into noise.
+ */
+export const EDGE_LABEL_LIMIT: Record<GraphPreset, number> = {
+	workflow: 60,
+	decision: 60,
+	execution: 40,
+};
+
+/**
+ * Importance score for an edge label. Semantic edges (error routes,
+ * conditionals, branches) outrank plain flow edges; short labels outrank
+ * long ones. Unlabeled edges score far below zero so they never take a
+ * label slot.
+ */
+export function scoreEdgeLabel(edge: DisplayEdge): number {
+	const label = (edge.label ?? '').trim();
+	if (!label) return -100;
+	const kind = (edge.kind ?? '').trim().toLowerCase();
+	let score = Math.max(0, 12 - label.length);
+	if (kind === 'error' || kind === 'error_route') {
+		score += 8;
+	} else if (
+		kind === 'conditional' ||
+		kind === 'condition' ||
+		kind === 'branch'
+	) {
+		score += 5;
+	}
+	return score;
+}
 
 export interface CappedGraph {
 	nodes: DisplayNode[];
@@ -150,7 +195,11 @@ export interface CappedGraph {
 	total: number;
 }
 
-/** Enforce the node cap, keeping edges whose endpoints survive. */
+/**
+ * Enforce the node cap with round-robin sampling across kinds, so a large
+ * graph keeps every kind represented instead of cutting off the tail.
+ * Edges survive only when both endpoints survive.
+ */
 export function capGraph(
 	nodes: DisplayNode[],
 	edges: DisplayEdge[],
@@ -159,10 +208,34 @@ export function capGraph(
 	if (nodes.length <= cap) {
 		return { nodes, edges, truncated: false, total: nodes.length };
 	}
-	const kept = new Set(nodes.slice(0, cap).map((node) => node.id));
+	const buckets = new Map<string, DisplayNode[]>();
+	for (const node of nodes) {
+		const kind = node.kind || 'unknown';
+		const bucket = buckets.get(kind) ?? [];
+		bucket.push(node);
+		buckets.set(kind, bucket);
+	}
+	const kept: DisplayNode[] = [];
+	const kinds = [...buckets.keys()];
+	let round = 0;
+	let progressed = true;
+	while (kept.length < cap && progressed) {
+		progressed = false;
+		for (const kind of kinds) {
+			const bucket = buckets.get(kind);
+			if (bucket && round < bucket.length && kept.length < cap) {
+				kept.push(bucket[round]);
+				progressed = true;
+			}
+		}
+		round += 1;
+	}
+	const keptIds = new Set(kept.map((node) => node.id));
 	return {
-		nodes: nodes.slice(0, cap),
-		edges: edges.filter((edge) => kept.has(edge.source) && kept.has(edge.target)),
+		nodes: kept,
+		edges: edges.filter(
+			(edge) => keptIds.has(edge.source) && keptIds.has(edge.target),
+		),
 		truncated: true,
 		total: nodes.length,
 	};

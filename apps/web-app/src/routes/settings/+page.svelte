@@ -183,6 +183,10 @@
 				</div>
 			{:else if section === 'execution'}
 				<div class="space-y-3">
+					<p class="text-caption text-muted-foreground">
+						Unlike Appearance, which applies instantly, changes here only
+						take effect when you press Save in the header.
+					</p>
 					{#if behavior.error}
 						<p class="text-caption text-destructive">
 							Server preferences unavailable ({behavior.error});
@@ -223,6 +227,10 @@
 				</div>
 			{:else if section === 'notifications'}
 				<div class="space-y-3">
+					<p class="text-caption text-muted-foreground">
+						Toast previews apply instantly; the accessibility preference
+						below is stored server-side and needs Save.
+					</p>
 					<Card title="Toasts">
 						<div class="mt-1 flex gap-2">
 							<Button

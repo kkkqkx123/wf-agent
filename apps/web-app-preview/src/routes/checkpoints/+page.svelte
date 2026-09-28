@@ -292,6 +292,9 @@
 								<Button
 									size="sm"
 									disabled={!checkpoint.restorable}
+									title={checkpoint.restorable
+										? 'Restore this checkpoint'
+										: 'This checkpoint is locked and cannot be restored'}
 									onclick={() => toasts.info('Restore queued')}
 								>
 									Restore

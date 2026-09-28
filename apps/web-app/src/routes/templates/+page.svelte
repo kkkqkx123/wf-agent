@@ -13,18 +13,26 @@
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Sheet from '$lib/components/ui/Sheet.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import Input from '$lib/components/ui/Input.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		cloneTemplate,
 		deleteTemplate,
 		exportTemplate,
+		formFromDefinition,
+		formToDefinition,
 		getTemplateDetail,
 		importTemplate,
+		jsonErrorLine,
 		listFeaturedTemplates,
 		listTemplates,
 		saveTemplate,
+		summarizeTemplate,
+		templateFormFields,
 		validateTemplateDefinition,
 		type TemplateDetail,
 	} from '$lib/services/templates';
@@ -66,7 +74,12 @@
 	let detailError = $state<string | null>(null);
 
 	let editMode = $state(false);
+	let editTab = $state<'json' | 'form'>('json');
 	let editText = $state('');
+	let formState = $state<Record<string, string>>({});
+	let editor = $state<{
+		scrollToLine: (line: number) => void;
+	} | null>(null);
 	let syntaxError = $state<string | null>(null);
 	let validationState = $state<'idle' | 'valid' | 'invalid'>('idle');
 	let validationIssues = $state<string[]>([]);
@@ -77,10 +90,24 @@
 	let createId = $state('');
 
 	let importOpen = $state(false);
-	let importKind = $state<'node' | 'trigger'>('node');
+	let importKind = $state<TemplateKind>('node');
 	let importText = $state('');
 	let importError = $state<string | null>(null);
 	let importBusy = $state(false);
+	let importEditor = $state<{
+		scrollToLine: (line: number) => void;
+	} | null>(null);
+
+	const errorLine = $derived(
+		syntaxError ? jsonErrorLine(editText, syntaxError) : null,
+	);
+	const importErrorLine = $derived(
+		importError ? jsonErrorLine(importText, importError) : null,
+	);
+	const formFields = $derived(templateFormFields(drawerKind));
+	const summary = $derived(
+		detail ? summarizeTemplate(drawerKind, detail.raw) : [],
+	);
 
 	async function reload(): Promise<void> {
 		listLoading = true;
@@ -107,6 +134,8 @@
 		drawerKind = row.kind;
 		drawerId = row.id;
 		editMode = false;
+		editTab = 'json';
+		formState = {};
 		detail = null;
 		detailError = null;
 		deleteArmed = false;
@@ -136,6 +165,8 @@
 		drawerId = null;
 		detail = null;
 		editMode = true;
+		editTab = 'json';
+		formState = {};
 		createName = '';
 		createId = '';
 		editText = '';
@@ -157,6 +188,43 @@
 		}
 	}
 
+	/** Definition-level object the form edits (unwrapped for library kinds). */
+	function editTarget(value: unknown): unknown {
+		if (drawerKind === 'node' || drawerKind === 'trigger') return value;
+		return (value as Record<string, unknown>)?.definition ?? value;
+	}
+
+	function enterForm(): void {
+		const { value } = parseEditText();
+		formState = formFromDefinition(drawerKind, editTarget(value));
+		editTab = 'form';
+	}
+
+	function syncFormToText(): void {
+		const { value } = parseEditText();
+		const current = editTarget(value);
+		const merged = formToDefinition(
+			drawerKind,
+			formState,
+			current && typeof current === 'object' ? current : {},
+		);
+		if (drawerKind === 'node' || drawerKind === 'trigger') {
+			editText = JSON.stringify(merged, null, 2);
+			return;
+		}
+		const base =
+			value && typeof value === 'object' && !Array.isArray(value)
+				? (value as Record<string, unknown>)
+				: {};
+		editText = JSON.stringify({ ...base, definition: merged }, null, 2);
+	}
+
+	function switchEditTab(tab: 'json' | 'form'): void {
+		if (tab === 'form' && editTab !== 'form') enterForm();
+		if (tab === 'json' && editTab !== 'json') syncFormToText();
+		editTab = tab;
+	}
+
 	function editedPayload(parsed: unknown): unknown {
 		if (drawerKind === 'node' || drawerKind === 'trigger') return parsed;
 		const base =
@@ -167,6 +235,7 @@
 	}
 
 	async function runValidate(): Promise<boolean> {
+		if (editTab === 'form') syncFormToText();
 		const { value, error } = parseEditText();
 		syntaxError = error;
 		if (error || value === undefined) {
@@ -174,11 +243,10 @@
 			validationIssues = [];
 			return false;
 		}
-		const target =
-			drawerKind === 'node' || drawerKind === 'trigger'
-				? value
-				: (value as Record<string, unknown>)?.definition ?? value;
-		const issues = await validateTemplateDefinition(drawerKind, target);
+		const issues = await validateTemplateDefinition(
+			drawerKind,
+			editTarget(value),
+		);
 		validationIssues = issues;
 		validationState = issues.length === 0 ? 'valid' : 'invalid';
 		return issues.length === 0;
@@ -247,7 +315,7 @@
 	async function runExport(): Promise<void> {
 		if (!drawerId) return;
 		try {
-			await exportTemplate(drawerKind, drawerId, detail?.raw);
+			await exportTemplate(drawerKind, drawerId);
 			toasts.success('Template exported');
 		} catch (e) {
 			toasts.error(
@@ -471,7 +539,10 @@
 						options={kindOptions}
 						size="sm"
 						placeholder="Kind"
-						onchange={(value) => (drawerKind = value as TemplateKind)}
+						onchange={(value) => {
+							drawerKind = value as TemplateKind;
+							formState = {};
+						}}
 					/>
 					<input
 						bind:value={createId}
@@ -505,23 +576,73 @@
 			{/if}
 
 			{#if editMode || drawerId === null}
-				<div class="flex items-center justify-between">
-					<span class="text-caption font-medium">Definition JSON</span>
+				<div class="flex items-center justify-between gap-2">
+					<Segmented
+						items={[
+							{ id: 'json', label: 'JSON' },
+							{ id: 'form', label: 'Form' },
+						]}
+						value={editTab}
+						size="sm"
+						onchange={(id) => switchEditTab(id as 'json' | 'form')}
+					/>
 					{#if validationState === 'valid'}
 						<Badge variant="success">Valid</Badge>
 					{:else if validationState === 'invalid'}
 						<Badge variant="danger">Invalid</Badge>
 					{/if}
 				</div>
-				<Textarea
-					bind:value={editText}
-					placeholder={'{\n  "name": "my-template",\n  …\n}'}
-					class="min-h-64 font-mono text-small"
-				/>
+				{#if editTab === 'form'}
+					<div class="space-y-2">
+						{#each formFields as field (field.key)}
+							<label class="block">
+								<span class="mb-1 block text-caption text-muted-foreground">
+									{field.label}{#if field.required}<span class="text-destructive"> *</span>{/if}
+								</span>
+								{#if field.multiline}
+									<Textarea
+										bind:value={formState[field.key]}
+										placeholder={field.label}
+										class="min-h-16 text-small"
+									/>
+								{:else}
+									<Input
+										bind:value={formState[field.key]}
+										placeholder={field.label}
+										size="sm"
+										class="w-full"
+									/>
+								{/if}
+							</label>
+						{/each}
+						<p class="text-micro text-muted-foreground">
+							Form edits the core fields; the remaining definition stays in JSON mode.
+						</p>
+					</div>
+				{:else}
+					<JsonEditor
+						bind:this={editor}
+						bind:value={editText}
+						errorLine={errorLine}
+						placeholder={'{\n  "name": "my-template",\n  …\n}'}
+						minHeight="16rem"
+					/>
+				{/if}
 				{#if syntaxError}
-					<p class="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive">
-						JSON syntax: {syntaxError}
-					</p>
+					<div class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+						<p class="text-caption text-destructive">
+							JSON syntax{#if errorLine} (line {errorLine}){/if}: {syntaxError}
+						</p>
+						{#if errorLine}
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => editor?.scrollToLine(errorLine ?? 1)}
+							>
+								Go to line
+							</Button>
+						{/if}
+					</div>
 				{/if}
 				{#if validationIssues.length > 0}
 					<ul class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
@@ -558,6 +679,12 @@
 				</div>
 			{:else if detail}
 				{@const current = detail}
+				{#if summary.length > 0}
+					<div>
+						<span class="text-caption font-medium">Summary</span>
+						<KeyValueList items={summary} dense />
+					</div>
+				{/if}
 				<div>
 					<span class="text-caption font-medium">Definition preview</span>
 					<pre
@@ -569,6 +696,8 @@
 						size="sm"
 						onclick={() => {
 							editMode = true;
+							editTab = 'json';
+							formState = {};
 							editText =
 								drawerKind === 'node' || drawerKind === 'trigger'
 									? JSON.stringify(current.raw, null, 2)
@@ -629,28 +758,44 @@
 <Dialog
 	bind:open={importOpen}
 	title="Import template"
-	description="Node and trigger templates import from JSON text."
+	description="Import any template kind from JSON text."
 >
 	<Select
 		value={importKind}
 		options={[
 			{ value: 'node', label: 'Node' },
 			{ value: 'trigger', label: 'Trigger' },
+			{ value: 'agent', label: 'Agent' },
+			{ value: 'workflow', label: 'Workflow' },
 		]}
 		size="sm"
 		placeholder="Kind"
 		class="mb-2 w-40"
-		onchange={(value) => (importKind = value as 'node' | 'trigger')}
+		onchange={(value) => (importKind = value as TemplateKind)}
 	/>
-	<Textarea
+	<JsonEditor
+		bind:this={importEditor}
 		bind:value={importText}
+		errorLine={importErrorLine}
 		placeholder={'{\n  "id": "my-template",\n  …\n}'}
-		class="min-h-48 font-mono text-small"
+		label="Import template JSON"
+		minHeight="12rem"
 	/>
 	{#if importError}
-		<p class="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive">
-			{importError}
-		</p>
+		<div class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+			<p class="text-caption text-destructive">
+				JSON syntax{#if importErrorLine} (line {importErrorLine}){/if}: {importError}
+			</p>
+			{#if importErrorLine}
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => importEditor?.scrollToLine(importErrorLine ?? 1)}
+				>
+					Go to line
+				</Button>
+			{/if}
+		</div>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">

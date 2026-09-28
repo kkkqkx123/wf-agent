@@ -343,10 +343,12 @@ use utoipa::OpenApi;
         crate::api::template::library::handle_list_workflow_templates,
         crate::api::template::library::handle_get_workflow_template,
         crate::api::template::library::handle_register_workflow_template,
+        crate::api::template::library::handle_update_workflow_template,
         crate::api::template::library::handle_delete_workflow_template,
         crate::api::template::library::handle_list_agent_templates,
         crate::api::template::library::handle_get_agent_template,
         crate::api::template::library::handle_register_agent_template,
+        crate::api::template::library::handle_update_agent_template,
         crate::api::template::library::handle_delete_agent_template,
         crate::api::template::queries::handle_query_agent_trigger_templates,
         crate::api::template::queries::handle_agent_trigger_summaries,
@@ -739,7 +741,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(ops, 452, "one operation per annotated handler");
+        assert_eq!(ops, 454, "one operation per annotated handler");
     }
 
     #[test]

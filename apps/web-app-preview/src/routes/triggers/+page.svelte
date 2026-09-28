@@ -245,6 +245,13 @@
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
 				<Card title="Hooks">
+					{#if hooks.length === 0}
+						<p class="text-caption text-muted-foreground">
+							The backend exposes no hook registry endpoint, so there is
+							nothing to pick. Enter a hook name manually on the right to
+							dispatch a test payload.
+						</p>
+					{:else}
 					<ul class="space-y-1">
 						{#each hooks as hook (hook.name)}
 							<li>
@@ -270,6 +277,7 @@
 							</li>
 						{/each}
 					</ul>
+					{/if}
 				</Card>
 
 				<Card title="Dispatch test payload">

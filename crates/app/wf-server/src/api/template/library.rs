@@ -5,7 +5,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -27,16 +27,36 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_list_workflow_templates).post(handle_register_workflow_template),
         )
         .route(
+            "/templates/library/workflows/import",
+            post(handle_import_workflow_template),
+        )
+        .route(
+            "/templates/library/workflows/{id}/export",
+            get(handle_export_workflow_template),
+        )
+        .route(
             "/templates/library/workflows/{id}",
-            get(handle_get_workflow_template).delete(handle_delete_workflow_template),
+            get(handle_get_workflow_template)
+                .put(handle_update_workflow_template)
+                .delete(handle_delete_workflow_template),
         )
         .route(
             "/templates/library/agents",
             get(handle_list_agent_templates).post(handle_register_agent_template),
         )
         .route(
+            "/templates/library/agents/import",
+            post(handle_import_agent_template),
+        )
+        .route(
+            "/templates/library/agents/{id}/export",
+            get(handle_export_agent_template),
+        )
+        .route(
             "/templates/library/agents/{id}",
-            get(handle_get_agent_template).delete(handle_delete_agent_template),
+            get(handle_get_agent_template)
+                .put(handle_update_agent_template)
+                .delete(handle_delete_agent_template),
         )
 }
 
@@ -308,6 +328,27 @@ pub(crate) async fn handle_register_workflow_template(
 }
 
 #[utoipa::path(
+    put,
+    path = "/api/v1/templates/library/workflows/{id}",
+    tag = "template",
+    params(IdPath),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_update_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(mut template): Json<wf_api::WorkflowTemplate>,
+) -> impl IntoResponse {
+    template.id = wf_api::Id::from(path.id.clone());
+    match wf_api::template::template_library::update_workflow_template(&state.ctx, &template) {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
     delete,
     path = "/api/v1/templates/library/workflows/{id}",
     tag = "template",
@@ -378,6 +419,27 @@ pub(crate) async fn handle_register_agent_template(
 }
 
 #[utoipa::path(
+    put,
+    path = "/api/v1/templates/library/agents/{id}",
+    tag = "template",
+    params(IdPath),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_update_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(mut template): Json<wf_api::AgentTemplate>,
+) -> impl IntoResponse {
+    template.id = wf_api::Id::from(path.id.clone());
+    match wf_api::template::template_library::update_agent_template(&state.ctx, &template).await {
+        Ok(()) => ok(path.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
     delete,
     path = "/api/v1/templates/library/agents/{id}",
     tag = "template",
@@ -391,6 +453,131 @@ pub(crate) async fn handle_delete_agent_template(
 ) -> impl IntoResponse {
     match wf_api::template::template_library::delete_agent_template(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+// ── library import / export ───────────────────────────────────────
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LibraryImportBody {
+    json: String,
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct LibraryExportQuery {
+    download: Option<bool>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/workflows/import",
+    tag = "template",
+    request_body = LibraryImportBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_import_workflow_template(
+    State(state): State<ApiState>,
+    Json(body): Json<LibraryImportBody>,
+) -> impl IntoResponse {
+    let template: wf_api::WorkflowTemplate =
+        match serde_json::from_str(&body.json).map_err(wf_api::ApiError::from) {
+            Ok(template) => template,
+            Err(e) => return error_response(e),
+        };
+    match wf_api::template::template_library::register_workflow_template(&state.ctx, &template) {
+        Ok(()) => ok(template.id.to_string()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/templates/library/agents/import",
+    tag = "template",
+    request_body = LibraryImportBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_import_agent_template(
+    State(state): State<ApiState>,
+    Json(body): Json<LibraryImportBody>,
+) -> impl IntoResponse {
+    let template: wf_api::AgentTemplate =
+        match serde_json::from_str(&body.json).map_err(wf_api::ApiError::from) {
+            Ok(template) => template,
+            Err(e) => return error_response(e),
+        };
+    match wf_api::template::template_library::register_agent_template(&state.ctx, &template).await {
+        Ok(()) => ok(template.id.to_string()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/workflows/{id}/export",
+    tag = "template",
+    params(IdPath, LibraryExportQuery),
+    responses((status = 200, description = "Exported workflow template file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_export_workflow_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Query(query): Query<LibraryExportQuery>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::get_workflow_template(&state.ctx, &path.id) {
+        Ok(template) => {
+            if query.download.unwrap_or(false) {
+                match serde_json::to_string_pretty(&template) {
+                    Ok(json) => crate::envelope::download(
+                        &json,
+                        "application/json",
+                        &format!("workflow-template-{}.json", path.id),
+                    )
+                    .into_response(),
+                    Err(e) => error_response(wf_api::ApiError::from(e)),
+                }
+            } else {
+                ok(template).into_response()
+            }
+        }
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/templates/library/agents/{id}/export",
+    tag = "template",
+    params(IdPath, LibraryExportQuery),
+    responses((status = 200, description = "Exported agent template file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_export_agent_template(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Query(query): Query<LibraryExportQuery>,
+) -> impl IntoResponse {
+    match wf_api::template::template_library::get_agent_template(&state.ctx, &path.id).await {
+        Ok(template) => {
+            if query.download.unwrap_or(false) {
+                match serde_json::to_string_pretty(&template) {
+                    Ok(json) => crate::envelope::download(
+                        &json,
+                        "application/json",
+                        &format!("agent-template-{}.json", path.id),
+                    )
+                    .into_response(),
+                    Err(e) => error_response(wf_api::ApiError::from(e)),
+                }
+            } else {
+                ok(template).into_response()
+            }
+        }
         Err(e) => error_response(e),
     }
 }

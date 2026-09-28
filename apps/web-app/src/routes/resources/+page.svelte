@@ -7,15 +7,21 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import Input from '$lib/components/ui/Input.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
+	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		executeTool,
+		formFromToolParams,
+		formToToolParams,
 		getSkillContent,
+		getToolDetail,
 		listModelProfiles,
 		listProviders,
 		listScripts,
@@ -24,6 +30,7 @@
 		setSkillEnabled,
 		setToolEnabled,
 		validateToolParams,
+		type ToolParameterSchema,
 	} from '$lib/services/resources';
 	import type {
 		ModelProfile,
@@ -82,10 +89,21 @@
 	let toolDialogOpen = $state(false);
 	let activeTool = $state<Tool | null>(null);
 	let toolParams = $state('{}');
+	let toolSyntaxError = $state<string | null>(null);
+	let toolEditor = $state<{
+		scrollToLine: (line: number) => void;
+	} | null>(null);
 	let toolIssues = $state<string[]>([]);
 	let toolValidated = $state(false);
 	let toolRun = $state<ToolRun | null>(null);
 	let toolBusy = $state(false);
+	let toolTab = $state<'form' | 'json'>('json');
+	let toolSchema = $state<ToolParameterSchema | null>(null);
+	let toolForm = $state<Record<string, string>>({});
+
+	const toolErrorLine = $derived(
+		toolSyntaxError ? jsonErrorLine(toolParams, toolSyntaxError) : null,
+	);
 
 	let skillDialogOpen = $state(false);
 	let activeSkill = $state<Skill | null>(null);
@@ -178,10 +196,66 @@
 	function openToolDialog(tool: Tool): void {
 		activeTool = tool;
 		toolParams = '{}';
+		toolSyntaxError = null;
 		toolIssues = [];
 		toolValidated = false;
 		toolRun = null;
+		toolTab = 'json';
+		toolSchema = null;
+		toolForm = {};
 		toolDialogOpen = true;
+		void loadToolSchema(tool.id);
+	}
+
+	async function loadToolSchema(toolId: string): Promise<void> {
+		try {
+			const detail = await getToolDetail(toolId);
+			toolSchema = detail.parameters;
+			if (toolSchema && Object.keys(toolSchema.properties).length > 0) {
+				toolForm = formFromToolParams(toolSchema, {});
+				toolTab = 'form';
+			}
+		} catch {
+			toolSchema = null;
+		}
+	}
+
+	function enterToolForm(): void {
+		if (!toolSchema) return;
+		try {
+			const parsed = JSON.parse(toolParams) as Record<string, unknown>;
+			toolForm = formFromToolParams(
+				toolSchema,
+				parsed && typeof parsed === 'object' ? parsed : {},
+			);
+		} catch {
+			toolForm = formFromToolParams(toolSchema, {});
+		}
+		toolTab = 'form';
+	}
+
+	function syncToolFormToText(): void {
+		if (!toolSchema) return;
+		let base: Record<string, unknown> = {};
+		try {
+			const parsed = JSON.parse(toolParams) as unknown;
+			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+				base = parsed as Record<string, unknown>;
+			}
+		} catch {
+			base = {};
+		}
+		toolParams = JSON.stringify(
+			formToToolParams(toolSchema, toolForm, base),
+			null,
+			2,
+		);
+	}
+
+	function switchToolTab(next: 'form' | 'json'): void {
+		if (next === 'form' && toolTab !== 'form') enterToolForm();
+		if (next === 'json' && toolTab !== 'json') syncToolFormToText();
+		toolTab = next;
 	}
 
 	function parseToolParams(): {
@@ -204,7 +278,9 @@
 
 	async function runToolValidation(): Promise<void> {
 		if (!activeTool) return;
+		if (toolTab === 'form') syncToolFormToText();
 		const { value, error } = parseToolParams();
+		toolSyntaxError = error;
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
@@ -224,7 +300,9 @@
 
 	async function runToolExecute(): Promise<void> {
 		if (!activeTool) return;
+		if (toolTab === 'form') syncToolFormToText();
 		const { value, error } = parseToolParams();
+		toolSyntaxError = error;
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
@@ -573,13 +651,111 @@
 <Dialog
 	bind:open={toolDialogOpen}
 	title={activeTool ? `Validate / run ${activeTool.name}` : 'Tool'}
-	description="Parameters validate against the tool schema before running."
+	description={toolSchema
+		? 'Structured fields with JSON advanced mode; validation stays server-side.'
+		: 'Free-form JSON validated server-side; no parameter schema was reported for this tool.'}
 >
-	<Textarea
-		bind:value={toolParams}
-		placeholder={'{\n  "input": "value"\n}'}
-		class="min-h-32 font-mono text-small"
-	/>
+	{#if toolSchema && Object.keys(toolSchema.properties).length > 0}
+		<Segmented
+			items={[
+				{ id: 'form', label: 'Form' },
+				{ id: 'json', label: 'JSON' },
+			]}
+			value={toolTab}
+			size="sm"
+			onchange={(id) => switchToolTab(id as 'form' | 'json')}
+		/>
+		{#if toolTab === 'form'}
+			<div class="mt-2 space-y-2">
+				{#each Object.entries(toolSchema.properties) as [key, prop] (key)}
+					{@const required = toolSchema.required.includes(key)}
+					<label class="block">
+						<span class="mb-1 block text-caption text-muted-foreground">
+							{key}{#if required}<span class="text-destructive"> *</span>{/if}
+							{#if prop.description}
+								<span class="ml-1 text-micro">· {prop.description}</span>
+							{/if}
+						</span>
+						{#if prop.enum && prop.enum.length > 0}
+							<Select
+								value={toolForm[key] ?? ''}
+								options={prop.enum.map((option) => ({
+									value: String(option),
+									label: String(option),
+								}))}
+								size="sm"
+								placeholder={key}
+								class="w-full"
+								onchange={(value) => {
+									toolForm = { ...toolForm, [key]: value };
+								}}
+							/>
+						{:else if prop.type === 'boolean'}
+							<Select
+								value={toolForm[key] ?? ''}
+								options={[
+									{ value: 'true', label: 'true' },
+									{ value: 'false', label: 'false' },
+								]}
+								size="sm"
+								placeholder={key}
+								class="w-40"
+								onchange={(value) => {
+									toolForm = { ...toolForm, [key]: value };
+								}}
+							/>
+						{:else}
+							<Input
+								bind:value={toolForm[key]}
+								placeholder={prop.description ?? key}
+								size="sm"
+								class="w-full"
+							/>
+						{/if}
+					</label>
+				{/each}
+				<p class="text-micro text-muted-foreground">
+					Form edits typed fields; remaining parameters stay in JSON mode.
+				</p>
+			</div>
+		{:else}
+			<div class="mt-2">
+				<JsonEditor
+					bind:this={toolEditor}
+					bind:value={toolParams}
+					errorLine={toolErrorLine}
+					placeholder={'{\n  "input": "value"\n}'}
+					label="Tool parameters"
+					minHeight="8rem"
+				/>
+			</div>
+		{/if}
+	{:else}
+		<JsonEditor
+			bind:this={toolEditor}
+			bind:value={toolParams}
+			errorLine={toolErrorLine}
+			placeholder={'{\n  "input": "value"\n}'}
+			label="Tool parameters"
+			minHeight="8rem"
+		/>
+	{/if}
+	{#if toolSyntaxError}
+		<div class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+			<p class="text-caption text-destructive">
+				JSON syntax{#if toolErrorLine} (line {toolErrorLine}){/if}: {toolSyntaxError}
+			</p>
+			{#if toolErrorLine}
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => toolEditor?.scrollToLine(toolErrorLine ?? 1)}
+				>
+					Go to line
+				</Button>
+			{/if}
+		</div>
+	{/if}
 	{#if toolIssues.length > 0}
 		<ul class="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
 			{#each toolIssues as issue, index (index)}

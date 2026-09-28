@@ -68,6 +68,17 @@ describe('capGraph', () => {
 		expect(result.nodes).toHaveLength(3);
 		expect(result.edges).toEqual([edges[0]]);
 	});
+	it('samples across kinds instead of cutting the tail', () => {
+		const nodes = [
+			node('a0', 'a'),
+			node('a1', 'a'),
+			node('a2', 'a'),
+			node('b0', 'b'),
+		];
+		const result = capGraph(nodes, [], 3);
+		expect(result.truncated).toBe(true);
+		expect(result.nodes.map((entry) => entry.id)).toEqual(['a0', 'b0', 'a1']);
+	});
 });
 
 describe('columnPositions', () => {

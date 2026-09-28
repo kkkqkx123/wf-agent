@@ -30,6 +30,7 @@
 	import {
 		getGraphAnalysis,
 		getGraphNeighbors,
+		getWorkflowDraftTopology,
 		promoteWorkflowDraft,
 		rollbackWorkflow,
 		validateWorkflowDraft,
@@ -85,6 +86,43 @@
 	let runs = $state<Execution[]>([]);
 	let runsError = $state<string | null>(null);
 	let runsLoading = $state(false);
+
+	let draftPreviewId = $state<string | null>(null);
+	let draftPreviewNodes = $state<DisplayNode[]>([]);
+	let draftPreviewEdges = $state<DisplayEdge[]>([]);
+	let draftPreviewError = $state<string | null>(null);
+	let draftPreviewLoading = $state(false);
+
+	async function toggleDraftPreview(draftId: string): Promise<void> {
+		if (draftPreviewId === draftId) {
+			draftPreviewId = null;
+			return;
+		}
+		draftPreviewId = draftId;
+		draftPreviewNodes = [];
+		draftPreviewEdges = [];
+		draftPreviewError = null;
+		draftPreviewLoading = true;
+		try {
+			const topology = await getWorkflowDraftTopology(draftId);
+			draftPreviewNodes = topology.nodes.map((node) => ({
+				id: node.id,
+				label: node.label,
+				kind: node.kind,
+			}));
+			draftPreviewEdges = topology.edges.map((edge) => ({
+				id: edge.id,
+				source: edge.from,
+				target: edge.to,
+				label: edge.label,
+			}));
+		} catch (e) {
+			draftPreviewError =
+				e instanceof Error ? e.message : 'Draft preview failed.';
+		} finally {
+			draftPreviewLoading = false;
+		}
+	}
 
 	const workflow = $derived(detail);
 
@@ -629,8 +667,34 @@
 								>
 									Validate
 								</Button>
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => void toggleDraftPreview(draft.id)}
+								>
+									{draftPreviewId === draft.id ? 'Hide graph' : 'Preview graph'}
+								</Button>
 							</div>
 						{/snippet}
+						{#if draftPreviewId === draft.id}
+							<div class="mt-2">
+								{#if draftPreviewLoading}
+									<Skeleton lines={4} />
+								{:else if draftPreviewError}
+									<ErrorState
+										title="Draft preview failed to load"
+										description={draftPreviewError}
+										onretry={() => void toggleDraftPreview(draft.id)}
+									/>
+								{:else}
+									<GraphExplorer
+										nodes={draftPreviewNodes}
+										edges={draftPreviewEdges}
+										preset="workflow"
+									/>
+								{/if}
+							</div>
+						{/if}
 					</Card>
 				{:else}
 					<EmptyState

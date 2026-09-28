@@ -41,12 +41,14 @@ interface ToolDto {
 	id?: string;
 	name?: string;
 	kind?: string;
+	tool_type?: string;
 	description?: string;
 	enabled?: boolean;
 	registration_enabled?: boolean;
 	calls?: number;
 	invocation_count?: number;
 	success_rate?: number | null;
+	parameters?: ToolParameterSchemaDto | null;
 }
 
 interface ScriptDto {
@@ -102,12 +104,146 @@ function toTool(d: ToolDto): Tool {
 	return {
 		id: d.id ?? d.name ?? '',
 		name: d.name ?? '',
-		kind: d.kind ?? '',
+		kind: d.kind ?? d.tool_type ?? '',
 		description: d.description ?? '',
 		enabled: d.enabled ?? d.registration_enabled ?? false,
 		calls: d.calls ?? d.invocation_count ?? 0,
 		successRate: d.success_rate ?? null,
 	};
+}
+
+export interface ToolPropertySchema {
+	type: string;
+	description?: string;
+	enum?: unknown[];
+	default?: unknown;
+}
+
+export interface ToolParameterSchema {
+	type: string;
+	properties: Record<string, ToolPropertySchema>;
+	required: string[];
+}
+
+interface ToolParameterSchemaDto {
+	type?: string;
+	properties?: Record<string, {
+		type?: string;
+		description?: string;
+		enum?: unknown[];
+		default?: unknown;
+	}>;
+	required?: string[];
+}
+
+export interface ToolDetail extends Tool {
+	parameters: ToolParameterSchema | null;
+}
+
+/** Full tool definition including its JSON parameter schema, if any. */
+export async function getToolDetail(toolId: string): Promise<ToolDetail> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/tools/{id}', {
+			params: { path: { id: toolId } },
+		}),
+	);
+	const detail = requireData(data, `Tool ${toolId} missing`);
+	const record =
+		detail && typeof detail === 'object'
+			? (detail as ToolDto & Record<string, unknown>)
+			: ({} as ToolDto);
+	const rawSchema = record.parameters;
+	const properties: Record<string, ToolPropertySchema> = {};
+	if (rawSchema && typeof rawSchema === 'object' && rawSchema.properties) {
+		for (const [key, prop] of Object.entries(rawSchema.properties)) {
+			properties[key] = {
+				type: typeof prop?.type === 'string' ? prop.type : 'string',
+				description: typeof prop?.description === 'string' ? prop.description : undefined,
+				enum: Array.isArray(prop?.enum) ? prop.enum : undefined,
+				default: prop?.default,
+			};
+		}
+	}
+	return {
+		...toTool(record),
+		parameters:
+			rawSchema && typeof rawSchema === 'object'
+				? {
+						type: typeof rawSchema.type === 'string' ? rawSchema.type : 'object',
+						properties,
+						required: Array.isArray(rawSchema.required)
+							? rawSchema.required.map(String)
+							: [],
+					}
+				: null,
+	};
+}
+
+function fieldText(value: unknown): string {
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (value === undefined || value === null) return '';
+	return JSON.stringify(value);
+}
+
+/** Flatten a parameter object into form strings using schema defaults. */
+export function formFromToolParams(
+	schema: ToolParameterSchema | null,
+	params: Record<string, unknown>,
+): Record<string, string> {
+	const form: Record<string, string> = {};
+	if (!schema) return form;
+	for (const [key, prop] of Object.entries(schema.properties)) {
+		if (params[key] !== undefined) {
+			form[key] = fieldText(params[key]);
+		} else if (prop.default !== undefined) {
+			form[key] = fieldText(prop.default);
+		} else {
+			form[key] = '';
+		}
+	}
+	return form;
+}
+
+function coerceField(type: string, text: string): unknown {
+	const trimmed = text.trim();
+	if (type === 'number' || type === 'integer') {
+		const parsed = Number(trimmed);
+		return Number.isNaN(parsed) ? trimmed : parsed;
+	}
+	if (type === 'boolean') {
+		if (trimmed === 'true') return true;
+		if (trimmed === 'false') return false;
+		return trimmed;
+	}
+	if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+		try {
+			return JSON.parse(trimmed) as unknown;
+		} catch {
+			return trimmed;
+		}
+	}
+	return text;
+}
+
+/** Merge form strings back into a parameter object with type coercion. */
+export function formToToolParams(
+	schema: ToolParameterSchema | null,
+	form: Record<string, string>,
+	base: Record<string, unknown>,
+): Record<string, unknown> {
+	const record: Record<string, unknown> = { ...base };
+	if (!schema) return record;
+	for (const [key, prop] of Object.entries(schema.properties)) {
+		const text = (form[key] ?? '').trim();
+		const required = schema.required.includes(key);
+		if (!text && !required) {
+			delete record[key];
+			continue;
+		}
+		record[key] = coerceField(prop.type, form[key] ?? '');
+	}
+	return record;
 }
 
 function toScript(d: ScriptDto): Script {

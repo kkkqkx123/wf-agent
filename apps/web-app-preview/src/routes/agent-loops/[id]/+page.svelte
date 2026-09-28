@@ -608,6 +608,9 @@
 									variant="ghost"
 									size="sm"
 									disabled={!checkpoint.restorable}
+									title={checkpoint.restorable
+										? 'Restore this checkpoint'
+										: 'This checkpoint is locked and cannot be restored'}
 									onclick={() => void runRestore(checkpoint.id)}
 								>
 									Restore

@@ -8,6 +8,7 @@
 		columnPositions,
 		isDashedEdge,
 		nodeShape,
+		scoreEdgeLabel,
 		shortLabel,
 		statusHex,
 		type DisplayEdge,
@@ -24,9 +25,11 @@
 		layout?: GraphLayoutKind;
 		selectedId?: string | null;
 		highlightIds?: string[];
+		edgeLabelLimit?: number;
 		class?: string;
 		onselect?: (id: string) => void;
 		onexpand?: (id: string) => void;
+		onboxselect?: (ids: string[]) => void;
 	}
 
 	let {
@@ -36,15 +39,20 @@
 		layout = 'layered',
 		selectedId = null,
 		highlightIds = [],
+		edgeLabelLimit = 60,
 		class: className = '',
 		onselect,
 		onexpand,
+		onboxselect,
 	}: Props = $props();
 
 	let container: HTMLDivElement | null = $state(null);
 	let cy: Core | null = $state(null);
 	let ready = $state(false);
 	let empty = $derived(nodes.length === 0);
+	// Zoomed-out canvases hide non-essential edge labels; the flag only
+	// flips when crossing the threshold so zoom gestures stay cheap.
+	let zoomedOut = $state(false);
 
 	const highlight = $derived(new Set(highlightIds));
 
@@ -74,18 +82,67 @@
 				.join(' '),
 		}));
 		for (const edge of edges) {
+			const touchesSelection =
+				selectedId !== null &&
+				(edge.source === selectedId || edge.target === selectedId);
 			defs.push({
 				group: 'edges' as const,
 				data: {
 					id: edge.id,
 					source: edge.source,
 					target: edge.target,
-					label: edge.label ?? '',
+					label: edgeLabelFor(edge, touchesSelection),
 					lineStyle: isDashedEdge(edge.kind) ? 'dashed' : 'solid',
 				},
 			});
 		}
 		return defs;
+	}
+
+	/**
+	 * Label visibility for one edge. Selection-adjacent labels always show.
+	 * Zoomed-out canvases hide the rest. Over-budget graphs rank the rest
+	 * by importance and keep only the top slice.
+	 */
+	function edgeLabelFor(edge: DisplayEdge, touchesSelection: boolean): string {
+		const label = edge.label ?? '';
+		if (!label) return '';
+		if (touchesSelection) return label;
+		if (zoomedOut) return '';
+		if (edges.length <= edgeLabelLimit) return label;
+		return rankedEdgeIds().has(edge.id) ? label : '';
+	}
+
+	const rankedCache = new SvelteMap<string, Set<string>>();
+
+	function rankedEdgeIds(): Set<string> {
+		const key = `${edges.length}:${edgeLabelLimit}:${selectedId ?? ''}:${[...highlight].sort().join(',')}`;
+		const cached = rankedCache.get(key);
+		if (cached) return cached;
+		const scored = edges
+			.filter(
+				(edge) =>
+					(edge.label ?? '').trim() &&
+					!(
+						selectedId !== null &&
+						(edge.source === selectedId || edge.target === selectedId)
+					),
+			)
+			.map((edge) => ({
+				id: edge.id,
+				score:
+					scoreEdgeLabel(edge) +
+					(highlight.has(edge.source) || highlight.has(edge.target)
+						? 50
+						: 0),
+			}))
+			.sort((a, b) => b.score - a.score)
+			.slice(0, edgeLabelLimit)
+			.map((entry) => entry.id);
+		const ranked = new Set(scored);
+		rankedCache.clear();
+		rankedCache.set(key, ranked);
+		return ranked;
 	}
 
 	function layoutOptions(): Record<string, unknown> {
@@ -175,6 +232,29 @@
 		cy?.fit(undefined, 30);
 	}
 
+	export function zoomTo(id: string): void {
+		const core = cy;
+		if (!core) return;
+		const target = core.getElementById(id);
+		if (target.empty() || !target.isNode()) return;
+		void core.animate(
+			{ center: { eles: target }, zoom: Math.max(core.zoom(), 1.2) },
+			{ duration: 250 },
+		);
+	}
+
+	export function fitTo(ids: string[]): void {
+		const core = cy;
+		if (!core || ids.length === 0) return;
+		const eles = core.collection();
+		for (const id of ids) {
+			const found = core.getElementById(id);
+			if (!found.empty()) eles.merge(found);
+		}
+		if (eles.empty()) return;
+		core.fit(eles, 40);
+	}
+
 	export function relayout(): void {
 		runLayout();
 	}
@@ -210,6 +290,7 @@
 				layout: layoutOptions() as never,
 				minZoom: 0.2,
 				maxZoom: 4,
+				boxSelectionEnabled: true,
 				// Data mappers (`data(field)`) are core cytoscape behavior but
 				// postdate the shipped stylesheet types, hence the cast.
 				style: [
@@ -262,6 +343,10 @@
 							label: 'data(label)',
 							color: '#a1a1aa',
 							'font-size': 9,
+							'edge-text-rotation': 'autorotate',
+							'text-background-color': '#18181b',
+							'text-background-opacity': 0.7,
+							'text-background-padding': 2,
 						},
 					},
 					{
@@ -281,6 +366,15 @@
 				lastTap = { id, at: now };
 				onselect?.(id);
 			});
+			const core = instance;
+			core.on('zoom', () => {
+				const out = core.zoom() < 0.6;
+				if (out !== zoomedOut) zoomedOut = out;
+			});
+			core.on('boxend', () => {
+				const ids = core.$('node:selected').map((node) => node.id());
+				if (ids.length > 0) onboxselect?.(ids);
+			});
 			cy = instance;
 			ready = true;
 		})();
@@ -298,6 +392,8 @@
 		void selectedId;
 		void highlightIds;
 		void preset;
+		void edgeLabelLimit;
+		void zoomedOut;
 		syncElements();
 	});
 

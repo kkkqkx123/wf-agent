@@ -1,4 +1,4 @@
-import { client } from '$lib/api/client';
+import { client, request } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
 import type { components } from '$lib/api/schema';
 import type {
@@ -532,4 +532,147 @@ export async function getExecutionCriticalPath(
 	return critical.nodes.filter(
 		(node): node is string => typeof node === 'string',
 	);
+}
+
+function textField(
+	record: Record<string, unknown>,
+	keys: string[],
+	fallback: string,
+): string {
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === 'string' && value) return value;
+	}
+	return fallback;
+}
+
+function asNodeList(value: unknown): Record<string, unknown>[] {
+	return Array.isArray(value)
+		? value.filter(
+				(entry): entry is Record<string, unknown> =>
+					!!entry && typeof entry === 'object' && !Array.isArray(entry),
+			)
+		: [];
+}
+
+/**
+ * Whole execution topology in one round trip. The split nodes/edges
+ * endpoints re-resolve the same structure server-side, so prefer this for
+ * the graph tab and keep the split calls for filtered (by-type) views.
+ */
+export async function getExecutionGraph(
+	executionId: string,
+): Promise<WorkflowGraph> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/graph', {
+			params: { path: { id: executionId } },
+		}),
+	);
+	const structure = requireData(
+		data,
+		`Graph missing for execution ${executionId}`,
+	);
+	const view = isRecord(structure) ? structure : {};
+	return {
+		nodes: asNodeList(view.nodes).map((node, index) => ({
+			id: textField(node, ['id', 'node_id'], `node-${index}`),
+			label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+		})),
+		edges: asNodeList(view.edges).map((edge, index) => ({
+			id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
+			from: textField(edge, ['source_node_id', 'from', 'source'], ''),
+			to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+			label:
+				typeof edge.condition === 'string' && edge.condition
+					? edge.condition
+					: undefined,
+		})),
+	};
+}
+
+/**
+ * Execution graph overview in one round trip: topology plus failed nodes
+ * and critical path. Prefer this for the graph tab; the split endpoints
+ * stay for filtered views and the analysis tab.
+ */
+export async function getExecutionGraphOverview(
+	executionId: string,
+): Promise<{
+	graph: WorkflowGraph;
+	failedNodes: string[];
+	criticalPath: string[];
+}> {
+	const data = await call<unknown>(
+		request('GET', `/api/v1/executions/${encodeURIComponent(executionId)}/graph/overview`),
+	);
+	const overview = requireData(data, `Graph overview missing for execution ${executionId}`);
+	const view = isRecord(overview) ? overview : {};
+	const graphValue = isRecord(view.graph) ? view.graph : {};
+	const failedValue = Array.isArray(view.failed_nodes)
+		? view.failed_nodes
+		: Array.isArray(view.failedNodes)
+			? view.failedNodes
+			: [];
+	const criticalValue = Array.isArray(view.critical_path)
+		? view.critical_path
+		: Array.isArray(view.criticalPath)
+			? view.criticalPath
+			: [];
+	return {
+		graph: {
+			nodes: asNodeList(graphValue.nodes).map((node, index) => ({
+				id: textField(node, ['id', 'node_id'], `node-${index}`),
+				label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+				kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+			})),
+			edges: asNodeList(graphValue.edges).map((edge, index) => ({
+				id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
+				from: textField(edge, ['source_node_id', 'from', 'source'], ''),
+				to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+				label:
+					typeof edge.condition === 'string' && edge.condition
+						? edge.condition
+						: undefined,
+			})),
+		},
+		failedNodes: failedValue.filter(
+			(entry): entry is string => typeof entry === 'string',
+		),
+		criticalPath: criticalValue.filter(
+			(entry): entry is string => typeof entry === 'string',
+		),
+	};
+}
+
+/**
+ * Read-only topology of a workflow draft. Drafts are free-form and may be
+ * incomplete, so every field degrades to a placeholder instead of failing.
+ */
+export async function getWorkflowDraftTopology(
+	draftId: string,
+): Promise<WorkflowGraph> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/workflows/drafts/{id}', {
+			params: { path: { id: draftId } },
+		}),
+	);
+	const record = requireData(data, `Draft ${draftId} missing`);
+	const definition = isRecord(record) ? (isRecord(record.definition) ? record.definition : record) : {};
+	return {
+		nodes: asNodeList(definition.nodes).map((node, index) => ({
+			id: textField(node, ['id', 'node_id'], `node-${index}`),
+			label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+		})),
+		edges: asNodeList(definition.edges).map((edge, index) => ({
+			id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
+			from: textField(edge, ['source_node_id', 'from', 'source'], ''),
+			to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+			label:
+				typeof edge.condition === 'string' && edge.condition
+					? edge.condition
+					: undefined,
+		})),
+	};
 }

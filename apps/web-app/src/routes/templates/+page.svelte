@@ -706,6 +706,8 @@
 			const created = await createWorkflow(name, definition);
 			toasts.success('Workflow created from template');
 			drawerOpen = false;
+			// The path is resolve()d; resolve() cannot append the query string.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
 			await goto(resolve('/workflows/[id]', { id: created.id }) + '?tab=edit');
 		} catch (e) {
 			toasts.error(

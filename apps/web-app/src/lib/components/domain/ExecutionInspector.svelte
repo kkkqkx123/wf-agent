@@ -137,7 +137,7 @@
 	/** Deduplicated slow rows for the analysis tab; overlapping sources keep
 	 * the longest duration so graph and analysis never disagree on membership. */
 	const slowDisplay = $derived.by(() => {
-		const longest = new Map<string, number>();
+		const longest = new SvelteMap<string, number>();
 		for (const entry of slowEntries) {
 			const prev = longest.get(entry.node) ?? 0;
 			if (entry.durationMs > prev) longest.set(entry.node, entry.durationMs);

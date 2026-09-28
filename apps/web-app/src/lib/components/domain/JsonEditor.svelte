@@ -116,7 +116,7 @@
 >
 	<div class="w-11 shrink-0 overflow-hidden bg-muted/40 select-none">
 		<div bind:this={gutterInner} class="px-2 py-2 text-right">
-			{#each lines as _, idx (idx)}
+			{#each lines.map((_, idx) => idx) as idx (idx)}
 				<div
 					class={cn(
 						'font-mono text-small leading-6 tabular-nums',

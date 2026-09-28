@@ -96,7 +96,8 @@ impl SyncHandler {
                             "SYNC node '{}' timed out waiting for source branch '{}'",
                             ctx.node_id, source_path_id
                         ),
-                        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                        failure_source:
+                            wf_types::workflow::error_branch::NodeFailureSource::Handler,
                     });
                 }
             }
@@ -257,8 +258,7 @@ impl SyncHandler {
         // 4. Data input mapping: `data_inputs` (`parent_field ->
         // internal_name`) copies values from the workflow input object into
         // variables.
-        if let Some(data_inputs) = config.get("data_inputs").and_then(|v| v.as_array())
-        {
+        if let Some(data_inputs) = config.get("data_inputs").and_then(|v| v.as_array()) {
             let input_obj = ctx.input.as_object().cloned().unwrap_or_default();
             for entry in data_inputs {
                 let parent_field = entry

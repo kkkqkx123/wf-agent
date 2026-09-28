@@ -45,8 +45,8 @@ impl ExecutionStatus {
 
 impl From<ExecutionStatus> for wf_types::ExecutionStatus {
     /// Map the execution-engine status onto the persisted `wf-types` status.
-    /// `Timeout` collapses onto `Failed`: the persisted contract has no
-    /// timeout state, so an aborted-by-timeout execution reads as failed.
+    /// `Timeout` is preserved: the persisted contract carries a timeout
+    /// state, so an aborted-by-timeout execution reads as timed out.
     fn from(status: ExecutionStatus) -> Self {
         match status {
             ExecutionStatus::Created => wf_types::ExecutionStatus::Created,
@@ -56,7 +56,7 @@ impl From<ExecutionStatus> for wf_types::ExecutionStatus {
             ExecutionStatus::Failed => wf_types::ExecutionStatus::Failed,
             ExecutionStatus::Cancelled => wf_types::ExecutionStatus::Cancelled,
             ExecutionStatus::Stopped => wf_types::ExecutionStatus::Stopped,
-            ExecutionStatus::Timeout => wf_types::ExecutionStatus::Failed,
+            ExecutionStatus::Timeout => wf_types::ExecutionStatus::Timeout,
         }
     }
 }
@@ -79,6 +79,11 @@ pub trait ExecutionEntity: Send + Sync {
     fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken;
     fn get_hierarchy_depth(&self) -> u32;
     fn get_root_execution_id(&self) -> Option<Id>;
+    fn hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        None
+    }
     /// Root-to-parent execution id chain (oldest first, excluding self).
     /// Empty when the run has no parent or the chain was not resolved at
     /// build time; used to propagate deep-hierarchy ancestry to children.
@@ -177,6 +182,12 @@ where
 
     fn get_ancestors(&self) -> Vec<Id> {
         self.as_ref().get_ancestors()
+    }
+
+    fn hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        self.as_ref().hierarchy_manager()
     }
 }
 
@@ -278,5 +289,11 @@ mod tests {
     fn child_root_falls_back_to_parent_id() {
         let parent = stub("p", 0, vec![], None);
         assert_eq!(child_root(&parent).as_str(), "p");
+    }
+
+    #[test]
+    fn engine_timeout_maps_to_persisted_timeout() {
+        let status: wf_types::ExecutionStatus = ExecutionStatus::Timeout.into();
+        assert_eq!(status, wf_types::ExecutionStatus::Timeout);
     }
 }

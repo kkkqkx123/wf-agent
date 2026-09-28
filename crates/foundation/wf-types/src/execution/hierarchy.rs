@@ -33,10 +33,35 @@ pub struct ExecutionHierarchy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ForkPath {
+    pub fork_node_id: String,
+    pub branch_path_id: String,
+}
+
+impl ForkPath {
+    pub fn new(fork_node_id: impl Into<String>, branch_path_id: impl Into<String>) -> Self {
+        Self {
+            fork_node_id: fork_node_id.into(),
+            branch_path_id: branch_path_id.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChildExecutionReference {
     pub child_type: ExecutionType,
     pub child_id: super::super::Id,
     pub created_at: super::super::Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fork_path_id: Option<String>,
+    pub fork_path: Option<ForkPath>,
+}
+
+impl ChildExecutionReference {
+    pub fn branch_path_id(&self) -> Option<&str> {
+        self.fork_path.as_ref().map(|p| p.branch_path_id.as_str())
+    }
+
+    pub fn fork_node_id(&self) -> Option<&str> {
+        self.fork_path.as_ref().map(|p| p.fork_node_id.as_str())
+    }
 }

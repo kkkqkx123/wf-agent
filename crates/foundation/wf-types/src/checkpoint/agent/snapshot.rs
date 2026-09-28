@@ -94,6 +94,11 @@ pub struct AgentStateSnapshot {
     /// terminal reporting carried across a restore.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permanently_failed_tools: Option<Vec<String>>,
+    /// Declarative loop configuration the run was started with. Authoritative
+    /// source for auto-resume; absent in checkpoints written before the
+    /// migration, which are explicitly not auto-recoverable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_config: Option<crate::agent_execution::AgentLoopConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

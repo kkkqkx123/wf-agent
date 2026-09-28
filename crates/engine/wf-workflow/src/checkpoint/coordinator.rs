@@ -342,11 +342,7 @@ impl WorkflowCheckpointIntegration {
             ) {
                 let reused = self
                     .inner
-                    .reuse_duplicate(
-                        &latest,
-                        entity.id().as_str(),
-                        description.as_deref(),
-                    )
+                    .reuse_duplicate(&latest, entity.id().as_str(), description.as_deref())
                     .await;
                 tracing::debug!(
                     entity_id = %entity.id(),
@@ -358,30 +354,36 @@ impl WorkflowCheckpointIntegration {
             }
         }
         let snapshot = self.build_snapshot(entity).await;
+        let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
         let ctx = self
             .inner
-            .prepare_with_parent(
+            .prepare_with_hierarchy(
                 entity.id().as_str(),
                 trigger.clone(),
                 entity.parent_execution_id().map(|p| p.as_str()),
+                &ancestors,
             )
             .await?;
         let checkpoint = self.inner.build(ctx, snapshot).await?;
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
-        if let Err(err) = self
+        let file_snapshot_status = match self
             .inner
             .save_file_snapshot(&checkpoint.id, entity.id().as_str())
             .await
         {
-            tracing::error!(
-                checkpoint = %checkpoint.id,
-                entity = %entity.id().as_str(),
-                error = %err,
-                "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
-            );
-        }
+            Ok(_) => "ok".to_string(),
+            Err(err) => {
+                tracing::error!(
+                    checkpoint = %checkpoint.id,
+                    entity = %entity.id().as_str(),
+                    error = %err,
+                    "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
+                );
+                format!("failed: {err}")
+            }
+        };
 
         match &self.event_bus {
             Some(bus) => {
@@ -398,6 +400,10 @@ impl WorkflowCheckpointIntegration {
                 if let Some(d) = description {
                     metadata.insert("description".to_string(), Value::String(d));
                 }
+                metadata.insert(
+                    "file_snapshot".to_string(),
+                    Value::String(file_snapshot_status.clone()),
+                );
                 bus.publish_logged(
                     BaseEvent {
                         id: wf_types::Id::new(),
@@ -431,6 +437,10 @@ impl WorkflowCheckpointIntegration {
             changes.insert(
                 "trigger".to_string(),
                 serde_json::json!(format!("{:?}", trigger)),
+            );
+            changes.insert(
+                "fileSnapshot".to_string(),
+                serde_json::json!(file_snapshot_status),
             );
             bus.publish(&ExecutionEvent::StateChanged(
                 wf_types::execution::ExecutionStateChangedEvent {
@@ -494,12 +504,12 @@ impl WorkflowCheckpointIntegration {
         entity: &WorkflowExecutionEntity,
     ) -> Option<wf_types::execution::ExecutionHierarchy> {
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
-        let children = entity.child_execution_ids().read().await.clone();
+        let children = entity.hierarchy_manager().children();
         let parent = entity.parent_execution_id().cloned();
         if parent.is_none() && children.is_empty() {
             return None;
         }
-        let ancestors = entity.ancestors();
+        let ancestors = entity.get_ancestors();
         Some(wf_types::execution::ExecutionHierarchy {
             workflow_id: entity.workflow_id().clone(),
             execution_id: entity.id().clone(),
@@ -509,24 +519,40 @@ impl WorkflowCheckpointIntegration {
             ancestors: if ancestors.is_empty() {
                 None
             } else {
-                Some(ancestors.to_vec())
+                Some(ancestors)
             },
             children: if children.is_empty() {
                 None
             } else {
-                Some(
-                    children
-                        .into_iter()
-                        .map(|child_id| wf_types::execution::ChildExecutionReference {
-                            child_type: wf_types::execution::ExecutionType::Workflow,
-                            child_id,
-                            created_at: wf_common::now(),
-                            fork_path_id: None,
-                        })
-                        .collect(),
-                )
+                Some(children)
             },
         })
+    }
+
+    fn fork_aggregation_state(entity: &WorkflowExecutionEntity) -> Option<serde_json::Value> {
+        let children = entity.hierarchy_manager().children();
+        let fork_children: Vec<&wf_types::execution::ChildExecutionReference> =
+            children.iter().filter(|c| c.fork_path.is_some()).collect();
+        if fork_children.is_empty() {
+            return None;
+        }
+        let mut path_statuses = serde_json::Map::new();
+        let mut fork_nodes = std::collections::HashSet::new();
+        for child in fork_children {
+            if let Some(fork) = child.fork_path.as_ref() {
+                path_statuses.insert(
+                    fork.branch_path_id.clone(),
+                    serde_json::Value::String("PENDING".to_string()),
+                );
+                fork_nodes.insert(fork.fork_node_id.clone());
+            }
+        }
+        let fork_node_id = fork_nodes.iter().next().cloned().unwrap_or_default();
+        Some(serde_json::json!({
+            "forkNodeId": fork_node_id,
+            "pathStatuses": serde_json::Value::Object(path_statuses),
+            "isAggregationComplete": false,
+        }))
     }
 
     async fn build_snapshot(
@@ -728,7 +754,7 @@ impl WorkflowCheckpointIntegration {
                 entity.variables(),
                 state.start_time(),
             ),
-            fork_join_aggregation_state: None,
+            fork_join_aggregation_state: Self::fork_aggregation_state(entity),
             hook_execution_context: None,
             error_suspend: state.error_suspend().cloned(),
         }

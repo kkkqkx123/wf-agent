@@ -351,6 +351,8 @@ mod tests {
         assert!(lookup_flow("global-flow").is_some());
 
         // The free functions must land in the same process-wide registry.
-        assert!(WorkflowRegistry::global().lookup_graph("global-wf").is_some());
+        assert!(WorkflowRegistry::global()
+            .lookup_graph("global-wf")
+            .is_some());
     }
 }

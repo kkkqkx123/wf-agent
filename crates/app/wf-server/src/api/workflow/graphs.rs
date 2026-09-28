@@ -242,8 +242,11 @@ pub(crate) async fn handle_graph_nodes(
         None => wf_api::workflow::graph_query::graph_nodes(&state.ctx, &path.id).await,
     };
     match result {
-        Ok(nodes) => ok(nodes.into_iter().map(GraphNodeDoc::from).collect::<Vec<_>>())
-            .into_response(),
+        Ok(nodes) => ok(nodes
+            .into_iter()
+            .map(GraphNodeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -261,8 +264,11 @@ pub(crate) async fn handle_graph_edges(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_edges(&state.ctx, &path.id).await {
-        Ok(edges) => ok(edges.into_iter().map(GraphEdgeDoc::from).collect::<Vec<_>>())
-            .into_response(),
+        Ok(edges) => ok(edges
+            .into_iter()
+            .map(GraphEdgeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -301,8 +307,11 @@ pub(crate) async fn handle_graph_analysis(
 ) -> impl IntoResponse {
     match wf_api::workflow::graph_query::graph_analysis(&state.ctx, &path.id).await {
         Ok(analysis) => {
-            let mut reachable_from_start: Vec<String> =
-                analysis.reachability.reachable_from_start.into_iter().collect();
+            let mut reachable_from_start: Vec<String> = analysis
+                .reachability
+                .reachable_from_start
+                .into_iter()
+                .collect();
             reachable_from_start.sort();
             let mut reachable_to_end: Vec<String> =
                 analysis.reachability.reachable_to_end.into_iter().collect();

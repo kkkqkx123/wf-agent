@@ -244,11 +244,65 @@ pub async fn resume_from_checkpoint(
     }
 }
 
+/// Automatically resume an agent execution from its latest checkpoint using
+/// the declarative loop configuration captured in the snapshot. No caller
+/// config or new user message is required; the source execution id is reused
+/// in place. Missing checkpoints, terminal snapshots, missing loop configs
+/// and live sources surface as validation errors so the recovery
+/// orchestrator can skip with a reason instead of backfilling defaults.
+pub async fn auto_resume(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> crate::infra::error::ApiResult<AgentLoopOutput> {
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    let state_manager =
+        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let latest = state_manager
+        .get_latest(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        .ok_or_else(|| {
+            ApiError::Validation(format!(
+                "agent execution {agent_loop_id} has no checkpoint; auto-resume requires a checkpoint"
+            ))
+        })?;
+    let coordinator = coordinator(ctx);
+    let checkpoint_id = latest.id.clone();
+    let outcome = crate::infra::error::with_timeout(
+        Duration::from_millis(DEFAULT_AGENT_TIMEOUT_MS),
+        async move {
+            coordinator
+                .auto_resume_from_checkpoint(&checkpoint_id)
+                .await
+                .map_err(|e| {
+                    let message = e.to_string();
+                    let lower = message.to_lowercase();
+                    if lower.contains("no loop_config")
+                        || lower.contains("terminal")
+                        || lower.contains("still live")
+                        || lower.contains("invalid")
+                        || lower.contains("no checkpoint")
+                    {
+                        ApiError::Validation(format!(
+                            "agent execution {agent_loop_id} not auto-recoverable: {message}"
+                        ))
+                    } else {
+                        ApiError::execution(format!("agent auto-resume failed: {e}"))
+                    }
+                })
+        },
+    )
+    .await?;
+    persist_conversation(ctx, &outcome.agent_loop_id, &outcome.conversation).await;
+    Ok(outcome)
+}
+
 /// Query the live status of an agent loop execution.
 ///
 /// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
 /// contract) instead of a Debug string, so callers can match without
-/// string parsing. A timeout in the engine state reads as `Failed`.
+/// string parsing. A timeout in the engine state reads as `Timeout`.
 pub async fn status(
     ctx: &ApiContext,
     agent_loop_id: &str,

@@ -206,6 +206,7 @@ fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStat
         messages: None,
         tool_discovery_state: None,
         permanently_failed_tools: None,
+        loop_config: None,
     }
 }
 

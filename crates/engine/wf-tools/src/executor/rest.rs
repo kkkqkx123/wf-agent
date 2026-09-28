@@ -984,7 +984,10 @@ mod tests {
         assert_eq!(result.retryable, Some(false));
         let msg = result.error.unwrap();
         assert!(msg.contains("not_found"), "msg: {}", msg);
-        assert!(!msg.contains("[retryable]"), "message must not carry protocol: {msg}");
+        assert!(
+            !msg.contains("[retryable]"),
+            "message must not carry protocol: {msg}"
+        );
     }
 
     #[tokio::test]

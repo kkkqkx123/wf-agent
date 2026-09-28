@@ -93,10 +93,7 @@ pub fn enter_loop(variables: &VariableStore, state: LoopState) -> WorkflowResult
 
 /// Pop the state of `loop_id` and clean up its imported variables
 /// (LOOP_END terminating the loop).
-pub fn exit_loop(
-    variables: &VariableStore,
-    loop_id: &str,
-) -> WorkflowResult<Option<LoopState>> {
+pub fn exit_loop(variables: &VariableStore, loop_id: &str) -> WorkflowResult<Option<LoopState>> {
     let mut current = try_stack(variables)?;
     let Some(pos) = current.iter().rposition(|s| s.loop_id == loop_id) else {
         return Ok(None);
@@ -115,10 +112,7 @@ pub fn current_loop(variables: &VariableStore) -> WorkflowResult<Option<LoopStat
 }
 
 /// Find an active loop's state by id (searching from the innermost loop).
-pub fn find_loop(
-    variables: &VariableStore,
-    loop_id: &str,
-) -> WorkflowResult<Option<LoopState>> {
+pub fn find_loop(variables: &VariableStore, loop_id: &str) -> WorkflowResult<Option<LoopState>> {
     Ok(try_stack(variables)?
         .into_iter()
         .rev()
@@ -140,10 +134,7 @@ pub fn update_loop(variables: &VariableStore, state: LoopState) -> WorkflowResul
 /// (called by the coordinator after a loop node completes). Loop control
 /// nodes (LOOP_START/LOOP_END) are not recorded; the coordinator always
 /// re-executes them while the loop is active.
-pub fn record_iteration_completion(
-    variables: &VariableStore,
-    node_id: &str,
-) -> WorkflowResult<()> {
+pub fn record_iteration_completion(variables: &VariableStore, node_id: &str) -> WorkflowResult<()> {
     let mut current = try_stack(variables)?;
     if let Some(top) = current.last_mut() {
         if !top.iteration_nodes.contains(&node_id.to_string()) {

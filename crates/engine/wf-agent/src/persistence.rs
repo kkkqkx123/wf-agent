@@ -9,9 +9,11 @@ use wf_types::agent_execution::{
     AgentExecutionStatus, AgentRuntimeConfig, IterationRecord as PersistedIterationRecord,
     ToolCallRecord,
 };
+use wf_types::execution::ExecutionHierarchy;
 use wf_types::AgentExecution;
 
 use crate::entity::AgentLoopEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 
 /// Build a persisted `AgentExecution` record from the entity's live state.
 pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
@@ -65,6 +67,8 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
         .collect();
 
     let failed_tools = state.permanently_failed_tools();
+    let hierarchy = build_agent_hierarchy(entity).await;
+    let effective = entity.effective_config().cloned();
     AgentExecution {
         id: entity.id().clone(),
         definition_id: entity.definition_id().clone(),
@@ -80,17 +84,19 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
         } else {
             Some(failed_tools)
         },
+        hierarchy,
+        loop_config: effective.clone(),
         context: Some(AgentRuntimeConfig {
             profile_id: Some(entity.model().to_string()),
             system_prompt: None,
-            max_iterations: None,
-            max_execution_time: None,
+            max_iterations: effective.as_ref().and_then(|c| c.max_iterations),
+            max_execution_time: effective.as_ref().and_then(|c| c.max_execution_time),
             max_retries: None,
             execution_timeout: None,
-            max_pause_duration: None,
-            token_limit: None,
-            token_warning_threshold: None,
-            enable_token_tracking: None,
+            max_pause_duration: entity.max_pause_duration(),
+            token_limit: effective.as_ref().and_then(|c| c.token_limit),
+            token_warning_threshold: effective.as_ref().and_then(|c| c.token_warning_threshold),
+            enable_token_tracking: effective.as_ref().and_then(|c| c.enable_token_tracking),
             initial_messages: None,
             available_tools: Some(entity.available_tool_names().to_vec()),
             discoverable_tool_names: Some(entity.discoverable_tool_names().to_vec()),
@@ -100,9 +106,42 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
             on_failure: None,
             fallback_output: None,
             hooks: None,
-            checkpoint_config: None,
+            checkpoint_config: effective.as_ref().and_then(|c| {
+                c.checkpoint_message_interval.map(|interval| {
+                    std::collections::HashMap::from([(
+                        "message_interval".to_string(),
+                        serde_json::json!(interval),
+                    )])
+                })
+            }),
         }),
     }
+}
+
+async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHierarchy> {
+    let children = entity.hierarchy_manager().children();
+    let parent = entity.parent_execution_id().cloned();
+    let ancestors = entity.get_ancestors();
+    if parent.is_none() && children.is_empty() && ancestors.is_empty() {
+        return None;
+    }
+    Some(ExecutionHierarchy {
+        workflow_id: entity.definition_id().clone(),
+        execution_id: entity.id().clone(),
+        parent_execution_id: parent,
+        depth: entity.get_hierarchy_depth(),
+        root_execution_id: entity.get_root_execution_id(),
+        ancestors: if ancestors.is_empty() {
+            None
+        } else {
+            Some(ancestors)
+        },
+        children: if children.is_empty() {
+            None
+        } else {
+            Some(children)
+        },
+    })
 }
 
 #[cfg(test)]
@@ -110,8 +149,8 @@ mod tests {
     use super::*;
     use wf_types::Id;
 
-    use crate::error_analysis::analyze_error;
     use crate::error::AgentError;
+    use crate::error_analysis::analyze_error;
 
     fn entity(id: &str) -> AgentLoopEntity {
         AgentLoopEntity::new(Id::from(id.to_string()))
@@ -151,6 +190,22 @@ mod tests {
             persisted.permanently_failed_tools,
             Some(vec!["broken-tool".to_string()])
         );
+    }
+
+    #[tokio::test]
+    async fn child_hierarchy_reaches_the_record() {
+        let entity = entity("loop-child")
+            .with_parent_execution_id(Id::from("loop-root".to_string()))
+            .with_ancestors(vec![Id::from("loop-root".to_string())])
+            .with_hierarchy_depth(1)
+            .with_root_execution_id(Id::from("loop-root".to_string()));
+        entity.register_child(Id::from("loop-gc".to_string())).await;
+        let persisted = build_agent_execution(&entity).await;
+        let hierarchy = persisted.hierarchy.expect("child must carry hierarchy");
+        assert_eq!(hierarchy.depth, 1);
+        assert_eq!(hierarchy.root_execution_id.as_deref(), Some("loop-root"));
+        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("loop-root"));
+        assert_eq!(hierarchy.children.map(|c| c.len()), Some(1));
     }
 
     #[tokio::test]

@@ -32,33 +32,34 @@ impl RecoveryOrchestrator {
     }
 
     pub async fn recover_all(&self, ctx: &wf_api::ApiContext) -> RuntimeResult<RecoveryResult> {
-        let incomplete = self.scanner.scan_incomplete().await?;
-        let incomplete_agents = self.scanner.scan_incomplete_agent().await?;
+        use crate::recovery::RecoveryTarget;
+        let targets = self.scanner.scan_targets().await?;
         let mut result = RecoveryResult::default();
 
-        if incomplete.is_empty() && incomplete_agents.is_empty() {
+        if targets.is_empty() {
             info!("No incomplete executions found; nothing to recover");
             return Ok(result);
         }
 
         let Some(executor) = &self.executor else {
             warn!(
-                count = incomplete.len() + incomplete_agents.len(),
+                count = targets.len(),
                 "Recovery executor not wired; executions are reported, not recovered"
             );
-            for execution in &incomplete {
-                result.skipped.push(skip_item(execution));
-            }
-            for execution in &incomplete_agents {
-                result
-                    .skipped
-                    .push(skip_agent_item_with_lookup(ctx, execution).await);
+            for target in &targets {
+                match target {
+                    RecoveryTarget::Workflow(e) => result.skipped.push(skip_item(e)),
+                    RecoveryTarget::Agent(e) => result
+                        .skipped
+                        .push(skip_agent_item_with_lookup(ctx, e).await),
+                }
             }
             return Ok(result);
         };
 
-        for execution in &incomplete {
-            match executor.recover_execution(ctx, execution).await {
+        for target in &targets {
+            let target_id = target.execution_id().to_string();
+            match executor.recover_target(ctx, target).await {
                 Ok(item) if item.recovered => {
                     info!(
                         execution_id = %item.execution_id,
@@ -76,22 +77,10 @@ impl RecoveryOrchestrator {
                     result.skipped.push(item);
                 }
                 Err(e) => {
-                    warn!("Failed to recover execution {}: {}", execution.id, e);
-                    result
-                        .failed
-                        .push((execution.id.to_string(), e.to_string()));
+                    warn!("Failed to recover execution {}: {}", target_id, e);
+                    result.failed.push((target_id, e.to_string()));
                 }
             }
-        }
-
-        for execution in &incomplete_agents {
-            let item = skip_agent_item_with_lookup(ctx, execution).await;
-            warn!(
-                execution_id = %item.execution_id,
-                note = %item.note.as_deref().unwrap_or("unknown"),
-                "Agent execution left un-recovered"
-            );
-            result.skipped.push(item);
         }
 
         Ok(result)
@@ -293,6 +282,83 @@ mod tests {
         assert_eq!(
             result.skipped[0].note.as_deref(),
             Some("no checkpoint available")
+        );
+    }
+
+    #[tokio::test]
+    async fn recover_all_runs_parents_before_children() {
+        use std::sync::{Arc, Mutex};
+        let ctx = StorageContext::new_memory();
+        let child = wf_types::WorkflowExecution {
+            id: "child-1".into(),
+            workflow_id: "wf-1".into(),
+            workflow_version: None,
+            status: ExecutionStatus::Running,
+            current_node_id: None,
+            graph: None,
+            variables: None,
+            input: None,
+            output: None,
+            node_results: None,
+            errors: None,
+            started_at: 0,
+            completed_at: None,
+            error: None,
+            execution_type: None,
+            fork_join_context: None,
+            hierarchy: Some(wf_types::execution::ExecutionHierarchy {
+                workflow_id: "wf-1".into(),
+                execution_id: "child-1".into(),
+                parent_execution_id: Some("root-1".into()),
+                depth: 1,
+                root_execution_id: Some("root-1".into()),
+                ancestors: Some(vec!["root-1".into()]),
+                children: None,
+            }),
+        };
+        let root = make_execution("root-1", ExecutionStatus::Running);
+        // Save child first so scan order alone would recover it first.
+        ctx.workflow_execution.save(&child).await.unwrap();
+        ctx.workflow_execution.save(&root).await.unwrap();
+
+        let order: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        struct OrderExecutor {
+            order: Arc<Mutex<Vec<String>>>,
+        }
+        #[async_trait::async_trait]
+        impl RecoveryExecutor for OrderExecutor {
+            async fn recover_execution(
+                &self,
+                _ctx: &wf_api::ApiContext,
+                execution: &wf_types::WorkflowExecution,
+            ) -> RuntimeResult<RecoveryItem> {
+                self.order
+                    .lock()
+                    .expect("order lock")
+                    .push(execution.id.to_string());
+                Ok(RecoveryItem {
+                    execution_id: execution.id.clone(),
+                    status: "Completed".into(),
+                    current_node_id: None,
+                    recovered: true,
+                    note: None,
+                })
+            }
+        }
+
+        let orchestrator = RecoveryOrchestrator::new(RecoveryScanner::new(ctx.workflow_execution))
+            .with_recovery_executor(Arc::new(OrderExecutor {
+                order: order.clone(),
+            }));
+        let api_ctx = wf_api::ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        );
+        let result = orchestrator.recover_all(&api_ctx).await.unwrap();
+        assert_eq!(result.recovered.len(), 2);
+        assert_eq!(
+            order.lock().expect("order lock").as_slice(),
+            &["root-1".to_string(), "child-1".to_string()]
         );
     }
 

@@ -62,6 +62,8 @@ pub struct TriggerContext {
     pub ancestors: Vec<Id>,
     pub depth: u32,
     pub root_execution_id: Option<Id>,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    pub parent_checkpoints_enabled: Option<bool>,
 }
 
 impl TriggerContext {
@@ -86,6 +88,8 @@ impl TriggerContext {
             ancestors: Vec::new(),
             depth: 0,
             root_execution_id: None,
+            hierarchy_manager: None,
+            parent_checkpoints_enabled: None,
         }
     }
 
@@ -164,10 +168,23 @@ impl TriggerContext {
         self
     }
 
+    pub fn with_parent_checkpoints(mut self, enabled: Option<bool>) -> Self {
+        self.parent_checkpoints_enabled = enabled;
+        self
+    }
+
     pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
         self.ancestors = ancestors;
         self.depth = depth;
         self.root_execution_id = root;
+        self
+    }
+
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy_manager = Some(manager);
         self
     }
 }

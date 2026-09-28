@@ -79,11 +79,19 @@ impl AgentLoopCoordinator {
     ) -> AgentResult<AgentLoopOutput> {
         if let Some(ref registry) = self.entity_registry {
             registry.register(entity.clone())?;
-            // Parent association: link the child onto the parent's child
-            // list so the hierarchy stays visible (parent filter + cascade).
+            // Parent association for agent-to-agent nesting: the manager
+            // derive path already registered the child on the parent manager,
+            // so only link when the manager has no record yet.
             if let Some(parent_id) = entity.parent_execution_id().cloned() {
                 if let Some(parent) = registry.get(&parent_id) {
-                    parent.register_child(entity.id().clone()).await;
+                    let already = parent
+                        .hierarchy_manager()
+                        .children()
+                        .iter()
+                        .any(|c| c.child_id == *entity.id());
+                    if !already {
+                        parent.register_child(entity.id().clone()).await;
+                    }
                 }
             }
         }

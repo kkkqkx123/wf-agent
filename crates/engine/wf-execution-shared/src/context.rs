@@ -18,6 +18,7 @@ pub struct ExecutorContext {
     pub execution_id: Id,
     pub workflow_id: Id,
     pub event_bus: Option<Arc<EventBus>>,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     pub tool_registry: Arc<ToolRegistry>,
     /// Shared resource registries (templates, fragments, tool descriptions);
     /// injected by the workflow executor when configured. Handlers render
@@ -76,6 +77,7 @@ impl ExecutorContext {
             execution_id,
             workflow_id,
             event_bus,
+            hierarchy_manager: None,
             tool_registry,
             resource_registries: None,
             variables: Arc::new(DashMap::new()),
@@ -111,15 +113,18 @@ impl ExecutorContext {
         self
     }
 
-    pub fn with_hierarchy(
-        mut self,
-        ancestors: Vec<Id>,
-        depth: u32,
-        root: Option<Id>,
-    ) -> Self {
+    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
         self.ancestors = ancestors;
         self.depth = depth;
         self.root_execution_id = root;
+        self
+    }
+
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy_manager = Some(manager);
         self
     }
 
@@ -196,6 +201,7 @@ pub enum NodeInputShape {
 
 pub struct NodeExecutionContext {
     pub execution_id: Id,
+    pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     pub node_id: String,
     pub node_type: wf_types::node::StaticNodeType,
     pub node_name: Option<String>,
@@ -286,6 +292,11 @@ pub struct NodeExecutionContext {
     /// action declares no explicit timeout, keeping parent and child on one
     /// budget source.
     pub parent_max_execution_time_ms: Option<u64>,
+    /// The owning execution's checkpoint switch, inherited by nested
+    /// executions (subgraph, fork branch, triggered sub-workflow) so a
+    /// checkpoint-enabled parent yields checkpoint-capable children.
+    /// `None` means the parent did not declare a value (treat as enabled).
+    pub parent_checkpoints_enabled: Option<bool>,
 }
 
 impl NodeExecutionContext {
@@ -298,6 +309,7 @@ impl NodeExecutionContext {
     ) -> Self {
         Self {
             execution_id,
+            hierarchy_manager: None,
             node_id,
             node_type,
             node_name: None,
@@ -327,6 +339,7 @@ impl NodeExecutionContext {
             session_cache: None,
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
+            parent_checkpoints_enabled: None,
         }
     }
 
@@ -345,17 +358,20 @@ impl NodeExecutionContext {
         self
     }
 
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy_manager = Some(manager);
+        self
+    }
+
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
         self
     }
 
-    pub fn with_hierarchy(
-        mut self,
-        ancestors: Vec<Id>,
-        depth: u32,
-        root: Option<Id>,
-    ) -> Self {
+    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
         self.ancestors = ancestors;
         self.depth = depth;
         self.root_execution_id = root;
@@ -372,6 +388,11 @@ impl NodeExecutionContext {
     ) -> Self {
         self.parent_node_timeout_ms = node_timeout_ms;
         self.parent_max_execution_time_ms = max_execution_time_ms;
+        self
+    }
+
+    pub fn with_parent_checkpoints(mut self, enabled: Option<bool>) -> Self {
+        self.parent_checkpoints_enabled = enabled;
         self
     }
 

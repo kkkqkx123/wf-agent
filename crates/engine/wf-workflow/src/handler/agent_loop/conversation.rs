@@ -120,10 +120,7 @@ pub(crate) fn normalize_conversation_for_target(
 /// `message_outputs`.
 pub(crate) fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Message]) {
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-    if let Some(outputs) = config
-        .get("message_outputs")
-        .and_then(|v| v.as_array())
-    {
+    if let Some(outputs) = config.get("message_outputs").and_then(|v| v.as_array()) {
         for entry in outputs {
             let target = entry.get("target_context_id").and_then(|v| v.as_str());
             if let Some(target) = target {

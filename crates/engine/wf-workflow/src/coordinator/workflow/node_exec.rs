@@ -190,7 +190,8 @@ impl WorkflowCoordinator {
                         category:
                             wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                         detail: format!("timed out after {:?}", tout_dur),
-                        failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                        failure_source:
+                            wf_types::workflow::error_branch::NodeFailureSource::Handler,
                     })
                     .and_then(|handler_result| handler_result.map_err(panic_failure));
                 match &result {

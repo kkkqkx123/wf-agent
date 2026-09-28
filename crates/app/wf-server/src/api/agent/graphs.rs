@@ -243,8 +243,11 @@ pub(crate) async fn handle_decision_nodes(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::decision_nodes(&state.ctx, &path.id).await {
-        Ok(nodes) => ok(nodes.into_iter().map(DecisionNodeDoc::from).collect::<Vec<_>>())
-            .into_response(),
+        Ok(nodes) => ok(nodes
+            .into_iter()
+            .map(DecisionNodeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -266,8 +269,11 @@ pub(crate) async fn handle_decision_edges(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::decision_edges(&state.ctx, &path.id).await {
-        Ok(edges) => ok(edges.into_iter().map(DecisionEdgeDoc::from).collect::<Vec<_>>())
-            .into_response(),
+        Ok(edges) => ok(edges
+            .into_iter()
+            .map(DecisionEdgeDoc::from)
+            .collect::<Vec<_>>())
+        .into_response(),
         Err(e) => error_response(e),
     }
 }

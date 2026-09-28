@@ -108,12 +108,10 @@ impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
                 failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
             WorkflowError::ExecutionTimeout(detail) => Shared::TimeoutError(detail),
-            WorkflowError::ExecutionPaused(detail) => {
-                Shared::InterruptionError {
-                    kind: wf_execution_shared::error::InterruptionKind::Pause,
-                    detail,
-                }
-            }
+            WorkflowError::ExecutionPaused(detail) => Shared::InterruptionError {
+                kind: wf_execution_shared::error::InterruptionKind::Pause,
+                detail,
+            },
             WorkflowError::VariableError(detail) => Shared::VariableError(detail),
             WorkflowError::StateTransitionError(detail) => Shared::StateError(detail),
             WorkflowError::SharedError(inner) => inner,

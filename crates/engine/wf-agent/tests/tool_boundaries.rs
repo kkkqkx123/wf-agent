@@ -127,7 +127,9 @@ async fn approval_rejection_reports_tool_end_failure_and_continues() {
         .with_approval_handler(Arc::new(RejectingHandler {
             reason: "too risky".to_string(),
         }));
-    let mut stream = coordinator.execute_stream(config("echo"), input("run")).await;
+    let mut stream = coordinator
+        .execute_stream(config("echo"), input("run"))
+        .await;
 
     let mut tool_end = None;
     let mut completed = None;
@@ -191,9 +193,7 @@ async fn tool_handler_error_becomes_tool_message_without_stopping_loop() {
 
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
-        "call_1",
-        "flaky",
-        r#"{}"#,
+        "call_1", "flaky", r#"{}"#,
     )]));
     mock.script(LlmResponseSpec::text("done"));
 
@@ -203,7 +203,11 @@ async fn tool_handler_error_becomes_tool_message_without_stopping_loop() {
         .await
         .unwrap();
     assert_eq!(output.result, serde_json::json!("done"));
-    assert_eq!(mock.recorded_count(), 2, "LLM decides again after the error");
+    assert_eq!(
+        mock.recorded_count(),
+        2,
+        "LLM decides again after the error"
+    );
     let texts = tool_texts(&output.conversation);
     assert_eq!(texts.len(), 1);
     assert!(
@@ -219,8 +223,7 @@ async fn tool_timeout_surfaces_as_error_message_and_continues() {
     registry.register_stateless_async_handler(
         "slow",
         Arc::new(
-            |_p: serde_json::Value,
-             _c: wf_tools::executor::trait_def::ToolExecutionContext| {
+            |_p: serde_json::Value, _c: wf_tools::executor::trait_def::ToolExecutionContext| {
                 Box::pin(async move {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     Ok(serde_json::Value::from("too late"))
@@ -232,9 +235,7 @@ async fn tool_timeout_surfaces_as_error_message_and_continues() {
 
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
-        "call_1",
-        "slow",
-        r#"{}"#,
+        "call_1", "slow", r#"{}"#,
     )]));
     mock.script(LlmResponseSpec::text("done"));
 
@@ -270,9 +271,7 @@ async fn permanently_failed_tool_listed_in_failed_event() {
 
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
-        "call_1",
-        "broken",
-        r#"{}"#,
+        "call_1", "broken", r#"{}"#,
     )]));
     mock.script_error(wf_llm::LlmError::AuthError("stop here".to_string()));
 
@@ -313,10 +312,7 @@ async fn streaming_tool_events_match_blocking_conversation() {
 
     let blocking_mock = Arc::new(MockLlmClient::new());
     script(&blocking_mock);
-    let blocking = AgentLoopCoordinator::new(
-        gateway_with(blocking_mock),
-        registry_with_echo(),
-    );
+    let blocking = AgentLoopCoordinator::new(gateway_with(blocking_mock), registry_with_echo());
     let blocking_output = blocking
         .execute(config("echo"), input("run"))
         .await
@@ -325,9 +321,7 @@ async fn streaming_tool_events_match_blocking_conversation() {
     let streaming_mock = Arc::new(MockLlmClient::new());
     script(&streaming_mock);
     let streaming = AgentLoopCoordinator::new(gateway_with(streaming_mock), registry_with_echo());
-    let mut stream = streaming
-        .execute_stream(config("echo"), input("run"))
-        .await;
+    let mut stream = streaming.execute_stream(config("echo"), input("run")).await;
 
     let mut order = Vec::new();
     let mut tool_start = None;
@@ -380,5 +374,8 @@ async fn streaming_tool_events_match_blocking_conversation() {
         blocking_tool.tool_call_id.as_deref(),
         Some(start_id.as_str())
     );
-    assert_eq!(blocking_tool.tool_name.as_deref(), Some(start_name.as_str()));
+    assert_eq!(
+        blocking_tool.tool_name.as_deref(),
+        Some(start_name.as_str())
+    );
 }

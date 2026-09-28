@@ -26,6 +26,29 @@ impl RecoveryScanner {
         self
     }
 
+    pub async fn scan_targets(&self) -> RuntimeResult<Vec<crate::recovery::RecoveryTarget>> {
+        let mut targets: Vec<crate::recovery::RecoveryTarget> = self
+            .scan_incomplete()
+            .await?
+            .into_iter()
+            .map(crate::recovery::RecoveryTarget::Workflow)
+            .collect();
+        let mut agents: Vec<crate::recovery::RecoveryTarget> = self
+            .scan_incomplete_agent()
+            .await?
+            .into_iter()
+            .map(crate::recovery::RecoveryTarget::Agent)
+            .collect();
+        targets.append(&mut agents);
+        targets.sort_by(|a, b| {
+            a.root_id()
+                .cmp(&b.root_id())
+                .then_with(|| a.depth().cmp(&b.depth()))
+                .then_with(|| a.execution_id().cmp(b.execution_id()))
+        });
+        Ok(targets)
+    }
+
     pub async fn scan_incomplete(&self) -> RuntimeResult<Vec<WorkflowExecution>> {
         let mut results = Vec::new();
 

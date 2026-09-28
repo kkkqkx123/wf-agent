@@ -597,6 +597,36 @@ impl AgentCheckpointCoordinator {
             metadata: None,
         })
     }
+
+    pub async fn prepare_with_hierarchy(
+        &self,
+        entity_id: &str,
+        trigger: CheckpointTiming,
+        parent_execution_id: Option<&str>,
+        ancestors: &[String],
+    ) -> Result<CheckpointContext, CheckpointError> {
+        if let Some(manager) = &self.file_checkpoint_manager {
+            manager
+                .ensure_child_branch(entity_id, parent_execution_id)
+                .await?;
+        }
+        let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
+            manager
+                .resolve_actor_with_chain(entity_id, ancestors, parent_execution_id)
+                .to_string()
+        });
+        Ok(CheckpointContext {
+            entity_type: "agent_loop".to_string(),
+            entity_id: entity_id.to_string(),
+            trigger: Some(trigger),
+            actor_id,
+            attempt: None,
+            retry_count: None,
+            error: None,
+            fallback_used: None,
+            metadata: None,
+        })
+    }
 }
 
 /// Resolve the latest checkpoint of a single child and restore it through
@@ -639,7 +669,7 @@ async fn restore_child(
                         &child.child_id,
                         status,
                         parent_entity_id,
-                        child.fork_path_id.as_deref(),
+                        child.branch_path_id(),
                     );
                 }
             } else {
@@ -1261,6 +1291,7 @@ mod tests {
             messages: None,
             tool_discovery_state: None,
             permanently_failed_tools: None,
+            loop_config: None,
         }
     }
 
@@ -1611,7 +1642,7 @@ mod tests {
                 child_type: ExecutionType::AgentLoop,
                 child_id: "child-loop-1".to_string(),
                 created_at: 0,
-                fork_path_id: None,
+                fork_path: None,
             }]),
         });
         let ctx = coord

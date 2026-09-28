@@ -3,8 +3,10 @@ use std::sync::RwLock;
 
 use wf_common::lock::read_ok;
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
-use wf_types::execution::{ChildExecutionReference, ExecutionType};
+use wf_types::execution::{ChildExecutionReference, ExecutionType, ForkPath};
 use wf_types::Id;
 
 use crate::error::{CoreError, CoreResult};
@@ -69,7 +71,7 @@ impl ExecutionHierarchyManager {
 
     pub fn from_metadata(
         execution_id: Id,
-        _execution_type: ExecutionType,
+        execution_type: ExecutionType,
         metadata: ExecutionHierarchyMetadata,
     ) -> Self {
         let children: HashMap<String, ChildExecutionReference> = metadata
@@ -86,7 +88,7 @@ impl ExecutionHierarchyManager {
         Self {
             inner: RwLock::new(HierarchyInner {
                 execution_id,
-                execution_type: metadata.root_execution_type.clone(),
+                execution_type,
                 parent: metadata.parent,
                 children,
                 depth: metadata.depth,
@@ -115,7 +117,21 @@ impl ExecutionHierarchyManager {
         }
 
         let mut inner = wf_common::lock::write_ok(self.inner.write());
-        let new_depth = inner.estimate_parent_depth(&parent) + 1;
+        let parent_id = parent.parent_id.clone();
+        let parent_type = parent.parent_type.clone();
+        inner.parent = Some(parent);
+        if let Some(parent_ancestors) = parent_ancestors {
+            let mut chain = parent_ancestors.to_vec();
+            if chain.last() != Some(&parent_id) {
+                chain.push(parent_id.clone());
+            }
+            inner.ancestors = chain;
+        }
+        let new_depth = if inner.ancestors.is_empty() {
+            1
+        } else {
+            inner.ancestors.len() as u32
+        };
 
         if new_depth > MAX_DEPTH {
             return Err(CoreError::StateError(format!(
@@ -124,26 +140,161 @@ impl ExecutionHierarchyManager {
             )));
         }
 
-        inner.parent = Some(parent);
-        if let Some(parent_ancestors) = parent_ancestors {
-            let mut chain = parent_ancestors.to_vec();
-            let parent_id = inner
-                .parent
-                .as_ref()
-                .map(|p| p.parent_id.clone())
-                .unwrap_or_default();
-            if chain.last() != Some(&parent_id) {
-                chain.push(parent_id);
-            }
-            inner.ancestors = chain;
+        inner.depth = new_depth;
+        if inner.ancestors.is_empty() {
+            inner.root_execution_id = parent_id.clone();
+            inner.root_execution_type = match parent_type {
+                ExecutionType::Workflow => ExecutionType::Workflow,
+                ExecutionType::AgentLoop => ExecutionType::AgentLoop,
+            };
+        } else if let Some(root) = inner.ancestors.first().cloned() {
+            inner.root_execution_id = root;
         }
         inner.recalculate();
 
         Ok(())
     }
 
+    pub fn set_parent_full(
+        &self,
+        parent: ParentExecutionContext,
+        parent_ancestors: &[Id],
+        parent_depth: u32,
+        parent_root_id: Id,
+        parent_root_type: ExecutionType,
+    ) -> CoreResult<()> {
+        if parent.parent_id == wf_common::lock::read_ok(self.inner.read()).execution_id {
+            return Err(CoreError::StateError(format!(
+                "cannot set self ({}) as parent",
+                parent.parent_id
+            )));
+        }
+        let mut inner = wf_common::lock::write_ok(self.inner.write());
+        let new_depth = parent_depth.saturating_add(1);
+        if new_depth > MAX_DEPTH {
+            return Err(CoreError::StateError(format!(
+                "maximum hierarchy depth exceeded: {} > {}",
+                new_depth, MAX_DEPTH
+            )));
+        }
+        inner.parent = Some(parent.clone());
+        let mut chain = parent_ancestors.to_vec();
+        if chain.last() != Some(&parent.parent_id) {
+            chain.push(parent.parent_id.clone());
+        }
+        inner.ancestors = chain;
+        inner.depth = new_depth;
+        inner.root_execution_id = parent_root_id;
+        inner.root_execution_type = parent_root_type;
+        Ok(())
+    }
+
+    pub fn execution_id(&self) -> Id {
+        wf_common::lock::read_ok(self.inner.read())
+            .execution_id
+            .clone()
+    }
+
+    pub fn execution_type(&self) -> ExecutionType {
+        wf_common::lock::read_ok(self.inner.read())
+            .execution_type
+            .clone()
+    }
+
     pub fn parent(&self) -> Option<ParentExecutionContext> {
         wf_common::lock::read_ok(self.inner.read()).parent.clone()
+    }
+
+    pub fn parent_id(&self) -> Option<Id> {
+        wf_common::lock::read_ok(self.inner.read())
+            .parent
+            .as_ref()
+            .map(|p| p.parent_id.clone())
+    }
+
+    pub fn derive_child(
+        self: &Arc<Self>,
+        child_id: Id,
+        child_type: ExecutionType,
+        fork_path: Option<ForkPath>,
+    ) -> CoreResult<Arc<Self>> {
+        let (
+            parent_id,
+            parent_type,
+            parent_ancestors,
+            parent_depth,
+            parent_root_id,
+            parent_root_type,
+        );
+        {
+            let inner = wf_common::lock::read_ok(self.inner.read());
+            if inner.execution_id == child_id {
+                return Err(CoreError::StateError(format!(
+                    "cannot derive self ({}) as child",
+                    child_id
+                )));
+            }
+            parent_id = inner.execution_id.clone();
+            parent_type = inner.execution_type.clone();
+            parent_ancestors = inner.ancestors.clone();
+            parent_depth = inner.depth;
+            parent_root_id = inner.root_execution_id.clone();
+            parent_root_type = inner.root_execution_type.clone();
+        }
+        let new_depth = parent_depth.saturating_add(1);
+        if new_depth > MAX_DEPTH {
+            return Err(CoreError::StateError(format!(
+                "maximum hierarchy depth exceeded: {} > {}",
+                new_depth, MAX_DEPTH
+            )));
+        }
+        let mut chain = parent_ancestors;
+        if chain.last() != Some(&parent_id) {
+            chain.push(parent_id.clone());
+        }
+        let child = Arc::new(Self {
+            inner: RwLock::new(HierarchyInner {
+                execution_id: child_id.clone(),
+                execution_type: child_type.clone(),
+                parent: Some(ParentExecutionContext {
+                    parent_id: parent_id.clone(),
+                    parent_type,
+                }),
+                children: HashMap::new(),
+                depth: new_depth,
+                root_execution_id: parent_root_id,
+                root_execution_type: parent_root_type,
+                ancestors: chain,
+            }),
+        });
+        let child_ref = ChildExecutionReference {
+            child_type,
+            child_id,
+            created_at: wf_common::time::now(),
+            fork_path,
+        };
+        self.register_child_ref(child_ref);
+        Ok(child)
+    }
+
+    pub fn register_child_ref(&self, child_ref: ChildExecutionReference) {
+        self.add_child(child_ref);
+    }
+
+    pub fn sync_restored(
+        &self,
+        parent: Option<ParentExecutionContext>,
+        ancestors: Vec<Id>,
+        depth: u32,
+        root_id: Id,
+        root_type: ExecutionType,
+    ) {
+        let mut inner = wf_common::lock::write_ok(self.inner.write());
+        inner.parent = parent;
+        inner.ancestors = ancestors;
+        inner.depth = depth;
+        inner.root_execution_id = root_id;
+        inner.root_execution_type = root_type;
     }
 
     pub fn add_child(&self, child_ref: ChildExecutionReference) {
@@ -232,16 +383,25 @@ impl ExecutionHierarchyManager {
 }
 
 impl HierarchyInner {
-    fn estimate_parent_depth(&self, _parent: &ParentExecutionContext) -> u32 {
-        self.depth.saturating_sub(1)
-    }
-
     fn recalculate(&mut self) {
         if self.parent.is_none() {
             self.depth = 0;
             self.root_execution_id = self.execution_id.clone();
             self.root_execution_type = self.execution_type.clone();
             self.ancestors.clear();
+        } else if self.depth == 0 {
+            let repaired = if self.ancestors.is_empty() {
+                1
+            } else {
+                self.ancestors.len() as u32
+            };
+            self.depth = repaired;
+            if let Some(root) = self.ancestors.first().cloned() {
+                self.root_execution_id = root;
+            } else if let Some(parent) = self.parent.as_ref() {
+                self.root_execution_id = parent.parent_id.clone();
+                self.root_execution_type = parent.parent_type.clone();
+            }
         }
     }
 }
@@ -262,7 +422,7 @@ mod tests {
             child_type,
             child_id: id.to_string(),
             created_at: wf_common::time::now(),
-            fork_path_id: None,
+            fork_path: None,
         }
     }
 
@@ -477,5 +637,105 @@ mod tests {
         m.add_child(make_ref("same_id", ExecutionType::AgentLoop));
 
         assert_eq!(m.children().len(), 2);
+    }
+
+    #[test]
+    fn test_set_parent_assigns_depth_and_root() {
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Workflow);
+        m.set_parent(
+            ParentExecutionContext {
+                parent_id: "root".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            Some(&[]),
+        )
+        .unwrap();
+        assert_eq!(m.depth(), 1);
+        assert_eq!(m.root_execution_id(), "root");
+        assert_eq!(m.ancestors(), vec!["root".to_string()]);
+    }
+
+    #[test]
+    fn test_set_parent_grows_depth_along_chain() {
+        let child = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Workflow);
+        child
+            .set_parent(
+                ParentExecutionContext {
+                    parent_id: "root".to_string(),
+                    parent_type: ExecutionType::Workflow,
+                },
+                Some(&[]),
+            )
+            .unwrap();
+        assert_eq!(child.depth(), 1);
+
+        let grandchild =
+            ExecutionHierarchyManager::new("grandchild".to_string(), ExecutionType::Workflow);
+        grandchild
+            .set_parent(
+                ParentExecutionContext {
+                    parent_id: "child".to_string(),
+                    parent_type: ExecutionType::Workflow,
+                },
+                Some(&child.ancestors()),
+            )
+            .unwrap();
+        assert_eq!(grandchild.depth(), 2);
+        assert_eq!(grandchild.root_execution_id(), "root");
+        assert_eq!(
+            grandchild.ancestors(),
+            vec!["root".to_string(), "child".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_set_parent_full_uses_parent_depth_and_root() {
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        m.set_parent_full(
+            ParentExecutionContext {
+                parent_id: "parent".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            &["root".to_string()],
+            1,
+            "root".to_string(),
+            ExecutionType::Workflow,
+        )
+        .unwrap();
+        assert_eq!(m.depth(), 2);
+        assert_eq!(m.root_execution_id(), "root");
+        assert_eq!(m.root_execution_type(), ExecutionType::Workflow);
+        assert_eq!(
+            m.ancestors(),
+            vec!["root".to_string(), "parent".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_set_parent_rejects_beyond_max_depth() {
+        let m = ExecutionHierarchyManager::new("deep".to_string(), ExecutionType::Workflow);
+        let long: Vec<String> = (0..MAX_DEPTH).map(|i| format!("a{i}")).collect();
+        let refs: Vec<Id> = long;
+        let result = m.set_parent(
+            ParentExecutionContext {
+                parent_id: "parent".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            Some(&refs),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_metadata_keeps_own_execution_type() {
+        let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::AgentLoop);
+        m.add_child(make_ref("c1", ExecutionType::Workflow));
+        let metadata = m.to_metadata();
+        let restored = ExecutionHierarchyManager::from_metadata(
+            "exec1".to_string(),
+            ExecutionType::AgentLoop,
+            metadata,
+        );
+        assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
     }
 }

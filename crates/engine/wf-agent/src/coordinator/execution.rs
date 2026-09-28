@@ -345,10 +345,8 @@ impl AgentExecutionCoordinator {
                     // persisted per-iteration slot resolves to this round.
                     let analysis = analyze_error(&e);
                     let iteration = entity.state.read().await.current_iteration();
-                    let record = analysis.to_error_record(
-                        entity.id(),
-                        Some(crate::state::iteration_tag(iteration)),
-                    );
+                    let record = analysis
+                        .to_error_record(entity.id(), Some(crate::state::iteration_tag(iteration)));
                     let kind = analysis.kind;
                     let limit = error_retry_limit(failure_policy);
                     let per_call_allowed = failure_policy.should_retry(kind, attempt);

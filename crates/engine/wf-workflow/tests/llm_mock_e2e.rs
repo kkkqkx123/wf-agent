@@ -478,10 +478,7 @@ async fn llm_errors_propagate_without_node_retry() {
     let err = run_workflow(g, handlers)
         .await
         .expect_err("LLM error must fail the node");
-    assert!(
-        err.to_string().contains("boom"),
-        "unexpected error: {err}"
-    );
+    assert!(err.to_string().contains("boom"), "unexpected error: {err}");
 }
 
 /// Exhausting `max_interactions` while the model keeps emitting tool

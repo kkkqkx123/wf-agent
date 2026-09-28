@@ -97,7 +97,7 @@ pub(crate) async fn execute_subgraph(
         // path): a child must not outlive the budget the caller granted the
         // outer execution.
         max_execution_time: ctx.parent_max_execution_time_ms,
-        enable_checkpoints: Some(false),
+        enable_checkpoints: ctx.parent_checkpoints_enabled,
         node_timeout: ctx.parent_node_timeout_ms,
         max_pause_duration: None,
         max_navigation_multiplier: None,
@@ -105,11 +105,19 @@ pub(crate) async fn execute_subgraph(
     };
 
     // Subgraphs are independent workflow entities with their own
-    // execution_id, and thus their own variable store. The ancestor chain
-    // extends the parent chain with the parent id so deep nesting keeps
-    // full ancestry across checkpoint restore.
+    // execution_id, and thus their own variable store. Derived through the
+    // parent hierarchy manager so the child linkage is the single source.
     let execution_id = wf_common::generate_id();
     let sub_workflow_id = wf_common::generate_id();
+    let child_manager = ctx.hierarchy_manager.as_ref().and_then(|parent| {
+        parent
+            .derive_child(
+                execution_id.clone(),
+                wf_types::execution::ExecutionType::Workflow,
+                None,
+            )
+            .ok()
+    });
     let mut child_ancestors = ctx.ancestors.clone();
     if child_ancestors.last() != Some(&ctx.execution_id) {
         child_ancestors.push(ctx.execution_id.clone());
@@ -118,11 +126,27 @@ pub(crate) async fn execute_subgraph(
         .root_execution_id
         .clone()
         .unwrap_or_else(|| ctx.execution_id.clone());
+    let (child_ancestors, child_depth, child_root) = match child_manager.as_ref() {
+        Some(manager) => (
+            manager.ancestors(),
+            manager.depth(),
+            manager.root_execution_id(),
+        ),
+        None => (child_ancestors, ctx.depth + 1, child_root),
+    };
 
-    let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
-        .with_parent_execution_id(ctx.execution_id.clone())
-        .with_ancestors(child_ancestors.clone())
-        .with_hierarchy_depth(ctx.depth + 1);
+    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
+    if let Some(manager) = child_manager.clone() {
+        entity = entity.with_hierarchy_manager(manager);
+    } else {
+        entity = entity
+            .with_parent_execution_id(ctx.execution_id.clone())
+            .with_ancestors(child_ancestors.clone())
+            .with_hierarchy_depth(child_depth)
+            .with_root_execution_id(child_root.clone());
+    }
+    entity =
+        entity.with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::Subgraph);
     // Capture the child's cancellation signal before the entity moves into
     // the coordinator.
     let child_cancellation = entity.get_abort_signal();
@@ -140,7 +164,7 @@ pub(crate) async fn execute_subgraph(
     }
     let start = wf_common::now();
 
-    let exec_ctx = ExecutorContext::new(
+    let mut exec_ctx = ExecutorContext::new(
         execution_id,
         sub_workflow_id,
         event_bus,
@@ -148,7 +172,10 @@ pub(crate) async fn execute_subgraph(
         options,
     )
     .with_parent_execution(ctx.execution_id.clone())
-    .with_hierarchy(child_ancestors, ctx.depth + 1, Some(child_root));
+    .with_hierarchy(child_ancestors, child_depth, Some(child_root));
+    if let Some(manager) = child_manager {
+        exec_ctx = exec_ctx.with_hierarchy_manager(manager);
+    }
     let exec_ctx = match &ctx.metrics {
         Some(metrics) => exec_ctx.with_metrics(metrics.clone()),
         None => exec_ctx,

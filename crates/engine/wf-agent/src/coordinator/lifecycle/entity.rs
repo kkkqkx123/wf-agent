@@ -92,6 +92,8 @@ impl AgentLoopCoordinator {
             .with_model(config.model.clone());
 
         // Parent association: typed field first, `input.context` fallback.
+        // The parent hierarchy manager is the single source; the registry
+        // lookup is only a fallback when no manager handle was injected.
         let parent_execution_id = self.parent_execution_id.clone().or_else(|| {
             input
                 .context
@@ -100,21 +102,30 @@ impl AgentLoopCoordinator {
                 .map(Id::from)
         });
         if let Some(parent_id) = parent_execution_id {
-            entity = entity.with_parent_execution_id(parent_id.clone());
-            // Resolve hierarchy depth / root / ancestor chain from the
-            // registered parent so `get_hierarchy_depth`,
-            // `get_root_execution_id` and `get_ancestors` reflect the real
-            // parent chain (root run keeps 0 / own id / empty).
-            if let Some(ref registry) = self.entity_registry {
-                if let Some(parent) = registry.get(&parent_id) {
-                    let parent_ref = parent.as_ref();
-                    entity = entity
-                        .with_hierarchy_depth(child_depth(parent_ref))
-                        .with_root_execution_id(child_root(parent_ref))
-                        .with_ancestors(child_ancestors(parent_ref));
+            if let Some(parent_manager) = self.parent_hierarchy_manager.clone() {
+                if let Ok(child_manager) = parent_manager.derive_child(
+                    entity.id().clone(),
+                    wf_types::execution::ExecutionType::AgentLoop,
+                    None,
+                ) {
+                    entity = entity.with_hierarchy_manager(child_manager);
+                } else {
+                    entity = entity.with_parent_execution_id(parent_id.clone());
+                }
+            } else {
+                entity = entity.with_parent_execution_id(parent_id.clone());
+                if let Some(ref registry) = self.entity_registry {
+                    if let Some(parent) = registry.get(&parent_id) {
+                        let parent_ref = parent.as_ref();
+                        entity = entity
+                            .with_hierarchy_depth(child_depth(parent_ref))
+                            .with_root_execution_id(child_root(parent_ref))
+                            .with_ancestors(child_ancestors(parent_ref));
+                    }
                 }
             }
         }
+        entity = entity.with_effective_config(config.clone());
 
         if !config.available_tool_names.is_empty() {
             entity = entity.with_available_tool_names(config.available_tool_names.clone());

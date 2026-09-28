@@ -59,10 +59,7 @@ impl LlmError {
             LlmError::HttpError(e) => e.is_timeout() || e.is_connect() || e.is_request(),
             // Retryability comes from the structured status, never from
             // parsing the message text.
-            LlmError::ProviderError { status, .. } => matches!(
-                status,
-                Some(429) | Some(500..=599)
-            ),
+            LlmError::ProviderError { status, .. } => matches!(status, Some(429) | Some(500..=599)),
             LlmError::Timeout(_) | LlmError::StreamError(_) => true,
             LlmError::Cancelled
             | LlmError::SerializationError(_)
@@ -148,13 +145,11 @@ mod tests {
 
     #[test]
     fn provider_error_without_status_is_not_retryable() {
-        assert!(
-            !LlmError::ProviderError {
-                status: None,
-                message: "500 internal".to_string(),
-            }
-            .is_retryable()
-        );
+        assert!(!LlmError::ProviderError {
+            status: None,
+            message: "500 internal".to_string(),
+        }
+        .is_retryable());
     }
 
     #[test]

@@ -183,7 +183,10 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
         })
         .await
         .expect_err("first run must pause on the script body");
-    assert!(err.to_string().contains("paused"), "unexpected error: {err}");
+    assert!(
+        err.to_string().contains("paused"),
+        "unexpected error: {err}"
+    );
 
     let resumed = lifecycle
         .resume_workflow(

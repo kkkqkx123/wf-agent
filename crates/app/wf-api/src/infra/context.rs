@@ -463,37 +463,87 @@ impl ApiContext {
         Ok(())
     }
 
-    /// Every live execution in the hierarchy rooted at `root_id`, including
-    /// the root itself, ordered by id for stable output. Membership is
-    /// resolved through each execution's root link, falling back to the
-    /// ancestor chain so executions with a missing root link are still found.
-    pub fn execution_subtree(&self, root_id: &str) -> Vec<LiveExecutionInstance> {
-        fn in_subtree(handle: &LiveExecutionInstance, root_id: &str) -> bool {
-            if handle.id().as_str() == root_id {
-                return true;
-            }
-            if handle.get_root_execution_id().as_deref() == Some(root_id) {
-                return true;
-            }
+    /// Pause a whole subtree rooted at `root_id`, children first so a parent
+    /// does not keep driving while its children are still running.
+    pub async fn pause_subtree(&self, root_id: &str) -> ApiResult<()> {
+        let mut handles = self.execution_subtree(root_id);
+        handles.reverse();
+        for handle in handles {
             handle
-                .get_ancestors()
-                .iter()
-                .any(|id| id.as_str() == root_id)
+                .pause()
+                .await
+                .map_err(|e| ApiError::execution(e.to_string()))?;
         }
-        let mut matches = Vec::new();
-        for key in self.workflow_executions.list() {
-            if let Some(entity) = self.workflow_executions.get(&key) {
-                let handle = LiveExecutionInstance::workflow(entity);
-                if in_subtree(&handle, root_id) {
-                    matches.push(handle);
+        Ok(())
+    }
+
+    /// Resume a whole subtree rooted at `root_id`, root first so children
+    /// reattach to a running parent.
+    pub async fn resume_subtree(&self, root_id: &str) -> ApiResult<()> {
+        for handle in self.execution_subtree(root_id) {
+            handle
+                .resume()
+                .await
+                .map_err(|e| ApiError::execution(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Stop a whole subtree rooted at `root_id`, children first.
+    pub async fn stop_subtree(&self, root_id: &str) -> ApiResult<()> {
+        let mut handles = self.execution_subtree(root_id);
+        handles.reverse();
+        for handle in handles {
+            handle
+                .stop()
+                .await
+                .map_err(|e| ApiError::execution(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Cancel a whole subtree: stop every member then drop tracked driver
+    /// tasks for each member id.
+    pub async fn cancel_subtree(&self, root_id: &str) -> ApiResult<()> {
+        let ids: Vec<String> = self
+            .execution_subtree(root_id)
+            .iter()
+            .map(|h| h.id().to_string())
+            .collect();
+        self.stop_subtree(root_id).await?;
+        for id in ids {
+            let key = wf_types::Id::from(id.clone());
+            self.agent_loops.abort_task(&key);
+            self.execution_tasks.abort(&id);
+        }
+        Ok(())
+    }
+
+    /// Every live execution in the hierarchy rooted at `root_id`, including
+    /// the root itself, ordered by id for stable output. Traversed through
+    /// the root manager child references so fork branches registered on the
+    /// manager are located without scanning the registries by guess.
+    pub fn execution_subtree(&self, root_id: &str) -> Vec<LiveExecutionInstance> {
+        let Some(root) = self.execution_instance(root_id) else {
+            return Vec::new();
+        };
+        let mut matches = vec![root.clone()];
+        let mut queue: Vec<LiveExecutionInstance> = vec![root];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(root_id.to_string());
+        while let Some(handle) = queue.pop() {
+            let children = handle
+                .hierarchy_manager()
+                .map(|m| m.children())
+                .unwrap_or_default();
+            for child in children {
+                let child_id = child.child_id.as_str();
+                if !visited.insert(child_id.to_string()) {
+                    continue;
                 }
-            }
-        }
-        for id in self.agent_loops.get_all_ids() {
-            if let Some(entity) = self.agent_loops.get(&id) {
-                let handle = LiveExecutionInstance::agent(entity);
-                if in_subtree(&handle, root_id) {
-                    matches.push(handle);
+                if let Some(child_handle) = self.execution_instance(child_id) {
+                    matches.push(child_handle.clone());
+                    queue.push(child_handle);
                 }
             }
         }

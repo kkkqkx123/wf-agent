@@ -202,7 +202,7 @@ async fn run_triggered_subworkflow(
         max_execution_time: (run.timeout > 0)
             .then_some(run.timeout)
             .or(ctx.parent_max_execution_time_ms),
-        enable_checkpoints: Some(false),
+        enable_checkpoints: ctx.parent_checkpoints_enabled,
         // Inherit the parent's node budget (entry/limits derived) rather
         // than resetting to the engine per-node fallback.
         node_timeout: ctx.parent_node_timeout_ms,
@@ -213,6 +213,15 @@ async fn run_triggered_subworkflow(
 
     let execution_id = run.execution_id.clone();
     let sub_workflow_id = wf_common::generate_id();
+    let child_manager = ctx.hierarchy_manager.as_ref().and_then(|parent| {
+        parent
+            .derive_child(
+                execution_id.clone(),
+                wf_types::execution::ExecutionType::Workflow,
+                None,
+            )
+            .ok()
+    });
     let mut child_ancestors = ctx.ancestors.clone();
     if child_ancestors.last() != Some(&ctx.execution_id) {
         child_ancestors.push(ctx.execution_id.clone());
@@ -221,10 +230,27 @@ async fn run_triggered_subworkflow(
         .root_execution_id
         .clone()
         .unwrap_or_else(|| ctx.execution_id.clone());
-    let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
-        .with_parent_execution_id(ctx.execution_id.clone())
-        .with_ancestors(child_ancestors.clone())
-        .with_hierarchy_depth(ctx.depth + 1);
+    let (child_ancestors, child_depth, child_root) = match child_manager.as_ref() {
+        Some(manager) => (
+            manager.ancestors(),
+            manager.depth(),
+            manager.root_execution_id(),
+        ),
+        None => (child_ancestors, ctx.depth + 1, child_root),
+    };
+    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
+    if let Some(manager) = child_manager.clone() {
+        entity = entity.with_hierarchy_manager(manager);
+    } else {
+        entity = entity
+            .with_parent_execution_id(ctx.execution_id.clone())
+            .with_ancestors(child_ancestors.clone())
+            .with_hierarchy_depth(child_depth)
+            .with_root_execution_id(child_root.clone());
+    }
+    entity = entity.with_execution_type(
+        wf_types::workflow_execution::WorkflowExecutionType::TriggeredSubworkflow,
+    );
     let mut exec_ctx = ExecutorContext::new(
         execution_id,
         sub_workflow_id,
@@ -233,7 +259,10 @@ async fn run_triggered_subworkflow(
         options,
     )
     .with_parent_execution(ctx.execution_id.clone())
-    .with_hierarchy(child_ancestors, ctx.depth + 1, Some(child_root));
+    .with_hierarchy(child_ancestors, child_depth, Some(child_root));
+    if let Some(manager) = child_manager {
+        exec_ctx = exec_ctx.with_hierarchy_manager(manager);
+    }
     if let Some(metrics) = &ctx.metrics {
         exec_ctx = exec_ctx.with_metrics(metrics.clone());
     }

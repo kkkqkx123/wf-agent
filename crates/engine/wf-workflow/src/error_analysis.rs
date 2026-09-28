@@ -249,8 +249,9 @@ mod tests {
     fn main_loop_pause_reads_as_interruption() {
         // The main loop never reports a pause as a coordinator malfunction:
         // routing and transports see an interruption, not an internal error.
-        let analysis =
-            analyze_workflow_error(&WorkflowError::ExecutionPaused("Execution paused".to_string()));
+        let analysis = analyze_workflow_error(&WorkflowError::ExecutionPaused(
+            "Execution paused".to_string(),
+        ));
         assert_eq!(analysis.error_type, ErrorType::Interruption);
         assert_eq!(
             NodeErrorCategory::from_error_type(&analysis.error_type),

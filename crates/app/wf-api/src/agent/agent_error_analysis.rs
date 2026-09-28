@@ -375,7 +375,9 @@ mod tests {
             completed_at: Some(wf_common::now()),
             error: Some("fatal timeout".to_string()),
             context: None,
+            loop_config: None,
             permanently_failed_tools: None,
+            hierarchy: None,
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
 

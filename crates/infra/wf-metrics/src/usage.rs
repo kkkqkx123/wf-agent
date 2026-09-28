@@ -124,7 +124,8 @@ impl UsageMetricsCollector {
     pub fn stats(&self) -> UsageStats {
         UsageStats {
             screen_switches: self.counter_totals(usage_metrics::SCREEN_SWITCH, "screen"),
-            action_counts: self.histogram_averages(usage_metrics::ACTION_DURATION, "action")
+            action_counts: self
+                .histogram_averages(usage_metrics::ACTION_DURATION, "action")
                 .keys()
                 .map(|action| (action.clone(), 0))
                 .collect(),
@@ -168,10 +169,7 @@ mod tests {
         c.record_action_duration("search", 10.0);
         c.record_action_duration("search", 30.0);
         let stats = c.stats();
-        assert_eq!(
-            stats.avg_action_duration_ms.get("search"),
-            Some(&20.0)
-        );
+        assert_eq!(stats.avg_action_duration_ms.get("search"), Some(&20.0));
     }
 
     #[test]

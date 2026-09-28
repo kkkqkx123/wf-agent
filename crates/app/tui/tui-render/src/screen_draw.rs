@@ -170,7 +170,11 @@ pub fn draw_agent_loops(
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
-    let block = titled_block("Agent Loops (Enter open session, Esc back)", ColorRole::Add, theme);
+    let block = titled_block(
+        "Agent Loops (Enter open session, Esc back)",
+        ColorRole::Add,
+        theme,
+    );
     render_rows(frame, area, block, &rows, selected, theme);
 }
 

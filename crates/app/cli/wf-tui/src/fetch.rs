@@ -11,7 +11,7 @@ use wf_api::ApiContext;
 
 use crate::error::CliResult;
 use crate::screens::{
-    short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, InsightsData, InsightTable,
+    short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, InsightTable, InsightsData,
     LoopRow, ProfileRow, ScreenData, ScreenKind, SearchData, SearchRow, SettingsData, WorkflowRow,
 };
 

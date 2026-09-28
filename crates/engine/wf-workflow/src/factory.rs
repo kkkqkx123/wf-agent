@@ -7,6 +7,7 @@ pub struct WorkflowExecutionBuilder {
     parent_execution_id: Option<wf_types::Id>,
     ancestors: Vec<wf_types::Id>,
     hierarchy_depth: Option<u32>,
+    execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
 }
 
 impl Default for WorkflowExecutionBuilder {
@@ -23,6 +24,7 @@ impl WorkflowExecutionBuilder {
             parent_execution_id: None,
             ancestors: Vec::new(),
             hierarchy_depth: None,
+            execution_type: None,
         }
     }
 
@@ -51,6 +53,14 @@ impl WorkflowExecutionBuilder {
         self
     }
 
+    pub fn with_execution_type(
+        mut self,
+        execution_type: wf_types::workflow_execution::WorkflowExecutionType,
+    ) -> Self {
+        self.execution_type = Some(execution_type);
+        self
+    }
+
     pub fn build(self) -> WorkflowResult<WorkflowExecutionEntity> {
         let id = self.id.unwrap_or_default();
         let workflow_id = self.workflow_id.unwrap_or_default();
@@ -65,6 +75,9 @@ impl WorkflowExecutionBuilder {
         }
         if let Some(depth) = self.hierarchy_depth {
             entity = entity.with_hierarchy_depth(depth);
+        }
+        if let Some(execution_type) = self.execution_type {
+            entity = entity.with_execution_type(execution_type);
         }
 
         Ok(entity)

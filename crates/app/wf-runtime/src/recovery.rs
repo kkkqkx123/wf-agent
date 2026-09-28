@@ -36,6 +36,81 @@ impl RecoveryResult {
     }
 }
 
+/// Unified recovery target covering both engines. Sorted by root group then
+/// depth parent-first so a parent re-registers before its children resume.
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
+pub enum RecoveryTarget {
+    Workflow(wf_types::WorkflowExecution),
+    Agent(wf_types::AgentExecution),
+}
+
+impl RecoveryTarget {
+    pub fn execution_id(&self) -> &str {
+        match self {
+            Self::Workflow(e) => e.id.as_str(),
+            Self::Agent(e) => e.id.as_str(),
+        }
+    }
+
+    pub fn depth(&self) -> u32 {
+        match self {
+            Self::Workflow(e) => e.hierarchy.as_ref().map(|h| h.depth).unwrap_or(0),
+            Self::Agent(e) => e.hierarchy.as_ref().map(|h| h.depth).unwrap_or(0),
+        }
+    }
+
+    pub fn root_id(&self) -> String {
+        match self {
+            Self::Workflow(e) => e
+                .hierarchy
+                .as_ref()
+                .and_then(|h| h.root_execution_id.clone())
+                .or_else(|| h_ancestors_first(&e.hierarchy).or_else(|| Some(e.id.clone())))
+                .unwrap_or_else(|| e.id.clone()),
+            Self::Agent(e) => e
+                .hierarchy
+                .as_ref()
+                .and_then(|h| h.root_execution_id.clone())
+                .or_else(|| h_ancestors_first(&e.hierarchy).or_else(|| Some(e.id.clone())))
+                .unwrap_or_else(|| e.id.clone()),
+        }
+    }
+
+    pub fn parent_id(&self) -> Option<String> {
+        match self {
+            Self::Workflow(e) => e.hierarchy.as_ref().and_then(|h| {
+                h.parent_execution_id
+                    .clone()
+                    .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
+            }),
+            Self::Agent(e) => e.hierarchy.as_ref().and_then(|h| {
+                h.parent_execution_id
+                    .clone()
+                    .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
+            }),
+        }
+    }
+
+    pub fn fork_branch(&self) -> Option<String> {
+        let children_empty = true;
+        let _ = children_empty;
+        match self {
+            Self::Workflow(_) | Self::Agent(_) => None,
+        }
+    }
+
+    pub fn is_workflow(&self) -> bool {
+        matches!(self, Self::Workflow(_))
+    }
+}
+
+fn h_ancestors_first(h: &Option<wf_types::execution::ExecutionHierarchy>) -> Option<String> {
+    h.as_ref()
+        .and_then(|h| h.ancestors.as_ref())
+        .and_then(|a| a.first().cloned())
+}
+
 /// Backend that actually restarts an incomplete execution. Injected into the
 /// [`RecoveryOrchestrator`] so the orchestrator stays storage-agnostic; the
 /// runtime provides an API-backed implementation over the checkpoint +
@@ -51,5 +126,35 @@ pub trait RecoveryExecutor: Send + Sync {
         &self,
         ctx: &wf_api::ApiContext,
         execution: &wf_types::WorkflowExecution,
-    ) -> crate::error::RuntimeResult<RecoveryItem>;
+    ) -> crate::error::RuntimeResult<RecoveryItem> {
+        let _ = (ctx, execution);
+        Ok(RecoveryItem {
+            execution_id: execution.id.to_string(),
+            status: format!("{:?}", execution.status),
+            current_node_id: execution.current_node_id.clone(),
+            recovered: false,
+            note: Some("recovery executor does not handle workflow targets".to_string()),
+        })
+    }
+
+    /// Recover one unified target (workflow or agent). Defaults to the
+    /// workflow path for workflow targets and skips agents so existing
+    /// executors keep working; the API executor overrides this to
+    /// auto-recover both.
+    async fn recover_target(
+        &self,
+        ctx: &wf_api::ApiContext,
+        target: &RecoveryTarget,
+    ) -> crate::error::RuntimeResult<RecoveryItem> {
+        match target {
+            RecoveryTarget::Workflow(e) => self.recover_execution(ctx, e).await,
+            RecoveryTarget::Agent(e) => Ok(RecoveryItem {
+                execution_id: e.id.to_string(),
+                status: format!("{:?}", e.status),
+                current_node_id: None,
+                recovered: false,
+                note: Some("agent executions are not auto-recovered by this executor".to_string()),
+            }),
+        }
+    }
 }

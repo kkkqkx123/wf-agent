@@ -83,7 +83,7 @@ impl ForkJoinStateInference {
                         .map(|children| {
                             children
                                 .iter()
-                                .any(|c| c.fork_path_id.as_deref() == Some(path_id.as_str()))
+                                .any(|c| c.branch_path_id() == Some(path_id.as_str()))
                         })
                         .unwrap_or(false);
                     if in_snapshot {
@@ -140,7 +140,10 @@ mod tests {
                         child_type: ExecutionType::Workflow,
                         child_id: id.to_string(),
                         created_at: 0,
-                        fork_path_id: Some(path.to_string()),
+                        fork_path: Some(wf_types::execution::ForkPath::new(
+                            "fork-1",
+                            path.to_string(),
+                        )),
                     })
                     .collect(),
             ),

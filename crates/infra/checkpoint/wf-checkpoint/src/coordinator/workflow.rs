@@ -547,7 +547,7 @@ async fn restore_child(
                         &child.child_id,
                         status,
                         Some(parent_entity_id),
-                        child.fork_path_id.as_deref(),
+                        child.branch_path_id(),
                     );
                 }
             } else {
@@ -1060,6 +1060,36 @@ impl WorkflowCheckpointCoordinator {
         let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
             manager
                 .resolve_actor(entity_id, parent_execution_id)
+                .to_string()
+        });
+        Ok(CheckpointContext {
+            entity_type: "workflow_execution".to_string(),
+            entity_id: entity_id.to_string(),
+            trigger: Some(trigger),
+            actor_id,
+            attempt: None,
+            retry_count: None,
+            error: None,
+            fallback_used: None,
+            metadata: None,
+        })
+    }
+
+    pub async fn prepare_with_hierarchy(
+        &self,
+        entity_id: &str,
+        trigger: CheckpointTiming,
+        parent_execution_id: Option<&str>,
+        ancestors: &[String],
+    ) -> Result<CheckpointContext, CheckpointError> {
+        if let Some(manager) = &self.file_checkpoint_manager {
+            manager
+                .ensure_child_branch(entity_id, parent_execution_id)
+                .await?;
+        }
+        let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
+            manager
+                .resolve_actor_with_chain(entity_id, ancestors, parent_execution_id)
                 .to_string()
         });
         Ok(CheckpointContext {
@@ -1724,7 +1754,7 @@ mod tests {
                 child_type: ExecutionType::Workflow,
                 child_id: "child-exec-1".to_string(),
                 created_at: 0,
-                fork_path_id: None,
+                fork_path: None,
             }]),
         });
         let ctx = coord
@@ -1784,7 +1814,7 @@ mod tests {
                 child_type: ExecutionType::Workflow,
                 child_id: "child-exec-1".to_string(),
                 created_at: 0,
-                fork_path_id: None,
+                fork_path: None,
             }]),
         });
         let ctx = coord
@@ -1837,13 +1867,13 @@ mod tests {
                     child_type: ExecutionType::Workflow,
                     child_id: "child-1".to_string(),
                     created_at: 0,
-                    fork_path_id: Some("path-1".to_string()),
+                    fork_path: Some(wf_types::execution::ForkPath::new("fork-1", "path-1")),
                 },
                 ChildExecutionReference {
                     child_type: ExecutionType::Workflow,
                     child_id: "child-2".to_string(),
                     created_at: 0,
-                    fork_path_id: Some("path-2".to_string()),
+                    fork_path: Some(wf_types::execution::ForkPath::new("fork-1", "path-2")),
                 },
             ]),
         });

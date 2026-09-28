@@ -61,11 +61,15 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
         tctx = tctx.with_cancellation(token.clone());
     }
     tctx = tctx.with_parent_timeouts(ctx.parent_node_timeout_ms, ctx.parent_max_execution_time_ms);
+    tctx = tctx.with_parent_checkpoints(ctx.parent_checkpoints_enabled);
     tctx = tctx.with_hierarchy(
         ctx.ancestors.clone(),
         ctx.depth,
         ctx.root_execution_id.clone(),
     );
+    if let Some(manager) = ctx.hierarchy_manager.clone() {
+        tctx = tctx.with_hierarchy_manager(manager);
+    }
     Ok(tctx)
 }
 
@@ -159,10 +163,7 @@ fn export_variable_outputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()>
     let Some(config) = &ctx.node_config else {
         return Ok(());
     };
-    let Some(outputs) = config
-        .get("variable_outputs")
-        .and_then(|v| v.as_array())
-    else {
+    let Some(outputs) = config.get("variable_outputs").and_then(|v| v.as_array()) else {
         return Ok(());
     };
 

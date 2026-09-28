@@ -35,7 +35,9 @@ fn agent_record(id: &str) -> AgentExecution {
         completed_at: None,
         error: None,
         context: None,
+        loop_config: None,
         permanently_failed_tools: None,
+        hierarchy: None,
     }
 }
 

@@ -95,7 +95,7 @@ impl From<WorkflowExecutionStateSnapshot> for WorkflowExecution {
             error: None,
             execution_type: None,
             fork_join_context,
-            hierarchy: None,
+            hierarchy: snapshot.hierarchy,
         }
     }
 }

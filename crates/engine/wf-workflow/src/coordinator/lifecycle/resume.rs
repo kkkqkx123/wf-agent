@@ -74,10 +74,9 @@ impl WorkflowLifecycleCoordinator {
         use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
         use wf_checkpoint::coordinator::CheckpointCoordinator;
 
-        let mut cp_coordinator =
-            WorkflowCheckpointCoordinator::new(wf_checkpoint::state::WorkflowCheckpointStateManager::new(
-                self.store.clone(),
-            ));
+        let mut cp_coordinator = WorkflowCheckpointCoordinator::new(
+            wf_checkpoint::state::WorkflowCheckpointStateManager::new(self.store.clone()),
+        );
         if let Some(ref manager) = self.file_checkpoint_manager {
             cp_coordinator = cp_coordinator.with_file_checkpoint_manager(manager.clone());
         }
@@ -111,10 +110,27 @@ impl WorkflowLifecycleCoordinator {
             }
         }
 
-        let entity = WorkflowExecutionEntity::new(
+        let mut entity = WorkflowExecutionEntity::new(
             wf_types::Id::from(snapshot.execution_id.clone()),
             workflow_id.clone(),
         );
+        if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
+            if let Some(parent_id) = hierarchy.parent_execution_id.clone() {
+                entity = entity.with_parent_execution_id(parent_id);
+            }
+            if let Some(ancestors) = hierarchy.ancestors.clone() {
+                entity = entity.with_ancestors(ancestors);
+            }
+            entity = entity.with_hierarchy_depth(hierarchy.depth);
+            if let Some(root) = hierarchy.root_execution_id.clone() {
+                entity = entity.with_root_execution_id(root);
+            }
+        }
+        if let Some(children) = snapshot.hierarchy.as_ref().and_then(|h| h.children.clone()) {
+            for child in children {
+                entity.register_child_ref(child.clone()).await;
+            }
+        }
         {
             let mut state = entity.state.write().await;
             state.start()?;

@@ -1335,6 +1335,7 @@ mod tests {
             messages: None,
             tool_discovery_state: None,
             permanently_failed_tools: None,
+            loop_config: None,
         }
     }
 }

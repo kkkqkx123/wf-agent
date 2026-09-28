@@ -219,7 +219,7 @@ mod tests {
                         child_type: t,
                         child_id: id.to_string(),
                         created_at: 0,
-                        fork_path_id: None,
+                        fork_path: None,
                     })
                     .collect(),
             ),

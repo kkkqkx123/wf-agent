@@ -403,7 +403,9 @@ mod tests {
             completed_at: Some(5000),
             error: None,
             context: None,
+            loop_config: None,
             permanently_failed_tools: None,
+            hierarchy: None,
         };
         storage.agent_execution.save(&record).await.unwrap();
         wf_api::entity::message::add_message(
@@ -446,7 +448,9 @@ mod tests {
                 completed_at: Some(start + 500),
                 error: None,
                 context: None,
+                loop_config: None,
                 permanently_failed_tools: None,
+                hierarchy: None,
             };
             storage.agent_execution.save(&rec).await.unwrap();
         }
@@ -468,7 +472,9 @@ mod tests {
             completed_at: Some(5000),
             error: None,
             context: None,
+            loop_config: None,
             permanently_failed_tools: None,
+            hierarchy: None,
         };
         storage.agent_execution.save(&record).await.unwrap();
         for i in 0..count {
@@ -561,7 +567,9 @@ mod tests {
             completed_at: Some(2000),
             error: None,
             context: None,
+            loop_config: None,
             permanently_failed_tools: None,
+            hierarchy: None,
         };
         storage.agent_execution.save(&record).await.unwrap();
 

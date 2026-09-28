@@ -46,11 +46,7 @@ fn graph() -> WorkflowGraphStructure {
             node("n2", "SCRIPT"),
             node("end", "END"),
         ],
-        edges: vec![
-            edge("start", "n1"),
-            edge("n1", "n2"),
-            edge("n2", "end"),
-        ],
+        edges: vec![edge("start", "n1"), edge("n1", "n2"), edge("n2", "end")],
         adjacency_list: HashMap::new(),
         reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
@@ -177,10 +173,8 @@ async fn snapshot_rebuild_preserves_state_and_record() {
         .expect("snapshot");
 
     // Rebuild a fresh entity purely from the snapshot plus the live maps.
-    let rebuilt = WorkflowExecutionEntity::new(
-        "exec-rebuild-1".to_string(),
-        "wf-rebuild-1".to_string(),
-    );
+    let rebuilt =
+        WorkflowExecutionEntity::new("exec-rebuild-1".to_string(), "wf-rebuild-1".to_string());
     rebuilt
         .state
         .write()
@@ -250,10 +244,8 @@ async fn rebuilt_entity_resumes_idempotently_and_settles() {
         .await
         .expect("snapshot");
 
-    let rebuilt = WorkflowExecutionEntity::new(
-        "exec-rebuild-1".to_string(),
-        "wf-rebuild-1".to_string(),
-    );
+    let rebuilt =
+        WorkflowExecutionEntity::new("exec-rebuild-1".to_string(), "wf-rebuild-1".to_string());
     rebuilt
         .state
         .write()
@@ -263,7 +255,12 @@ async fn rebuilt_entity_resumes_idempotently_and_settles() {
         .expect("restore");
 
     // Idempotent re-entry: a Running restore re-drives through start.
-    rebuilt.state.write().await.start().expect("resume to Running");
+    rebuilt
+        .state
+        .write()
+        .await
+        .start()
+        .expect("resume to Running");
     assert_eq!(
         rebuilt.state.read().await.status(),
         ExecutionStatus::Running

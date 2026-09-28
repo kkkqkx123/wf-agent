@@ -105,6 +105,45 @@ impl FileCheckpointManager {
         actor
     }
 
+    /// Resolve the actor using the full ancestor chain when available.
+    /// Unlike [`Self::resolve_actor`], a cold index does not collapse to the
+    /// root: the caller-supplied `ancestors` (root-to-parent, oldest first,
+    /// excluding self) are used verbatim with the entity id appended, so deep
+    /// hierarchies keep full ancestry after a restart. Falls back to
+    /// [`Self::resolve_actor`] when the chain is empty.
+    pub fn resolve_actor_with_chain(
+        &self,
+        entity_id: &str,
+        ancestors: &[String],
+        parent_execution_id: Option<&str>,
+    ) -> ActorId {
+        if let Some(actor) = self.actor_index.get(entity_id) {
+            return actor.clone();
+        }
+        if let Ok(actor) = ActorId::parse(entity_id) {
+            self.actor_index
+                .insert(entity_id.to_string(), actor.clone());
+            return actor;
+        }
+        if !ancestors.is_empty() {
+            let mut chain = ancestors.to_vec();
+            if chain.last().map(String::as_str) != Some(entity_id) {
+                chain.push(entity_id.to_string());
+            }
+            let kind = parent_execution_id
+                .and_then(|p| self.actor_index.get(p))
+                .map(|a| a.kind())
+                .unwrap_or(ActorKind::Agent);
+            let chain_ids: Vec<wf_types::Id> = chain;
+            if let Ok(actor) = ActorId::new(kind, &chain_ids) {
+                self.actor_index
+                    .insert(entity_id.to_string(), actor.clone());
+                return actor;
+            }
+        }
+        self.resolve_actor(entity_id, parent_execution_id)
+    }
+
     /// The resolved actor of an entity, if it was resolved earlier.
     pub fn resolved_actor(&self, entity_id: &str) -> Option<ActorId> {
         self.actor_index.get(entity_id)
@@ -568,6 +607,26 @@ mod tests {
             .unwrap();
         let branches = manager.store.branch_adapter.list_branches().await.unwrap();
         assert_eq!(branches, vec![branch,]);
+    }
+
+    #[tokio::test]
+    async fn resolve_actor_with_chain_keeps_full_ancestry_on_cold_index() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.resolve_actor_with_chain(
+            "leaf",
+            &["root".to_string(), "mid".to_string()],
+            Some("mid"),
+        );
+        assert_eq!(actor.as_str(), "agent:root/child:mid/child:leaf");
+        assert_eq!(actor.hierarchy(), vec!["root", "mid", "leaf"]);
+    }
+
+    #[tokio::test]
+    async fn resolve_actor_with_chain_falls_back_without_ancestors() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let chained = manager.resolve_actor_with_chain("leaf", &[], Some("parent"));
+        let direct = manager.resolve_actor("other", Some("parent"));
+        assert_eq!(chained.as_str(), direct.as_str().replace("other", "leaf"));
     }
 
     #[tokio::test]

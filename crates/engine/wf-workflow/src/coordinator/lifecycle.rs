@@ -200,7 +200,8 @@ impl WorkflowLifecycleCoordinator {
             self.event_bus.clone(),
             tool_registry,
             options,
-        );
+        )
+        .with_hierarchy_manager(entity.hierarchy_manager());
         // The coordinator and the entity share one variable map so that
         // checkpoints (built from the entity) capture live variables.
         ctx.variables = entity.variables().clone();

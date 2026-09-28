@@ -95,9 +95,9 @@ impl ErrorKind {
             }
             ErrorKind::Timeout => ErrorType::Timeout,
             ErrorKind::RateLimited => ErrorType::RateLimited,
-            ErrorKind::ServiceUnavailable
-            | ErrorKind::Network
-            | ErrorKind::Resource => ErrorType::ServiceUnavailable,
+            ErrorKind::ServiceUnavailable | ErrorKind::Network | ErrorKind::Resource => {
+                ErrorType::ServiceUnavailable
+            }
             ErrorKind::Tool => ErrorType::ToolError,
             ErrorKind::Execution
             | ErrorKind::AgentCheckpoint
@@ -146,7 +146,10 @@ mod tests {
 
     #[test]
     fn default_error_type_covers_every_kind() {
-        assert_eq!(ErrorKind::Validation.default_error_type(), ErrorType::Validation);
+        assert_eq!(
+            ErrorKind::Validation.default_error_type(),
+            ErrorType::Validation
+        );
         assert_eq!(ErrorKind::Timeout.default_error_type(), ErrorType::Timeout);
         assert_eq!(
             ErrorKind::RateLimited.default_error_type(),
@@ -161,9 +164,6 @@ mod tests {
             ErrorKind::Execution.default_error_type(),
             ErrorType::Internal
         );
-        assert_eq!(
-            ErrorKind::General.default_error_type(),
-            ErrorType::Internal
-        );
+        assert_eq!(ErrorKind::General.default_error_type(), ErrorType::Internal);
     }
 }

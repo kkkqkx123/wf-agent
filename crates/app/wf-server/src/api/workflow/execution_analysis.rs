@@ -143,21 +143,21 @@ pub(crate) async fn handle_execution_graph_overview(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    let graph =
-        match wf_api::workflow::graph_query::get_execution_graph(&state.ctx, &path.id).await {
-            Ok(graph) => graph,
-            Err(e) => return error_response(e),
-        };
+    let graph = match wf_api::workflow::graph_query::get_execution_graph(&state.ctx, &path.id).await
+    {
+        Ok(graph) => graph,
+        Err(e) => return error_response(e),
+    };
     let failed_nodes =
         match wf_api::workflow::workflow_iteration::get_failed_nodes(&state.ctx, &path.id).await {
             Ok(records) => records.into_iter().map(|record| record.node_id).collect(),
             Err(e) => return error_response(e),
         };
-    let critical_path =
-        match wf_api::workflow::execution_graph::analyze(&state.ctx, &path.id).await {
-            Ok(analysis) => analysis.critical_path.nodes,
-            Err(e) => return error_response(e),
-        };
+    let critical_path = match wf_api::workflow::execution_graph::analyze(&state.ctx, &path.id).await
+    {
+        Ok(analysis) => analysis.critical_path.nodes,
+        Err(e) => return error_response(e),
+    };
     ok(ExecutionGraphOverviewView {
         graph,
         failed_nodes,
@@ -229,9 +229,9 @@ pub(crate) async fn handle_execution_graph_neighbors(
     )
     .await
     {
-        Ok(neighbors) => ok(
-            crate::api::workflow::graphs::GraphNeighborsDoc::from(neighbors),
-        )
+        Ok(neighbors) => ok(crate::api::workflow::graphs::GraphNeighborsDoc::from(
+            neighbors,
+        ))
         .into_response(),
         Err(e) => error_response(e),
     }

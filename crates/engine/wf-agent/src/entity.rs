@@ -23,6 +23,8 @@ pub struct AgentLoopEntity {
     interruption: InterruptionState,
     conversation: Arc<tokio::sync::RwLock<ConversationSession>>,
     cancellation: tokio_util::sync::CancellationToken,
+    hierarchy: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    effective_config: Option<wf_types::agent_execution::AgentLoopConfig>,
     parent_execution_id: Option<Id>,
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
     hooks: Vec<HookDefinition>,
@@ -66,6 +68,10 @@ pub struct AgentLoopEntity {
 impl AgentLoopEntity {
     pub fn new(id: Id) -> Self {
         let definition_id = id.clone();
+        let hierarchy = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            id.clone(),
+            wf_types::execution::ExecutionType::AgentLoop,
+        ));
         Self {
             id,
             definition_id,
@@ -73,6 +79,8 @@ impl AgentLoopEntity {
             interruption: InterruptionState::new(),
             conversation: Arc::new(tokio::sync::RwLock::new(ConversationSession::new())),
             cancellation: tokio_util::sync::CancellationToken::new(),
+            hierarchy,
+            effective_config: None,
             parent_execution_id: None,
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             hooks: Vec::new(),
@@ -98,8 +106,37 @@ impl AgentLoopEntity {
         }
     }
 
+    pub fn hierarchy_manager(&self) -> Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager> {
+        self.hierarchy.clone()
+    }
+
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy = manager;
+        self.parent_execution_id = self.hierarchy.parent_id();
+        self.ancestors = self.hierarchy.ancestors();
+        self.hierarchy_depth = self.hierarchy.depth();
+        self.root_execution_id = Some(self.hierarchy.root_execution_id());
+        self
+    }
+
+    pub fn with_effective_config(
+        mut self,
+        config: wf_types::agent_execution::AgentLoopConfig,
+    ) -> Self {
+        self.effective_config = Some(config);
+        self
+    }
+
+    pub fn effective_config(&self) -> Option<&wf_types::agent_execution::AgentLoopConfig> {
+        self.effective_config.as_ref()
+    }
+
     pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self.sync_manager_from_legacy();
         self
     }
 
@@ -188,12 +225,14 @@ impl AgentLoopEntity {
     /// Record this execution's depth in the agent hierarchy (parent depth + 1).
     pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
         self.hierarchy_depth = depth;
+        self.sync_manager_from_legacy();
         self
     }
 
     /// Record the root execution id of the hierarchy this run belongs to.
     pub fn with_root_execution_id(mut self, root: Id) -> Self {
         self.root_execution_id = Some(root);
+        self.sync_manager_from_legacy();
         self
     }
 
@@ -201,7 +240,32 @@ impl AgentLoopEntity {
     /// resolved from the parent execution at build time.
     pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
         self.ancestors = ancestors;
+        self.sync_manager_from_legacy();
         self
+    }
+
+    fn sync_manager_from_legacy(&mut self) {
+        use wf_core::hierarchy::manager::ParentExecutionContext;
+        let parent = self
+            .parent_execution_id
+            .clone()
+            .map(|parent_id| ParentExecutionContext {
+                parent_id,
+                parent_type: wf_types::execution::ExecutionType::AgentLoop,
+            });
+        let root_id = self
+            .root_execution_id
+            .clone()
+            .or_else(|| self.ancestors.first().cloned())
+            .or_else(|| self.parent_execution_id.clone())
+            .unwrap_or_else(|| self.id.clone());
+        self.hierarchy.sync_restored(
+            parent,
+            self.ancestors.clone(),
+            self.hierarchy_depth,
+            root_id,
+            wf_types::execution::ExecutionType::AgentLoop,
+        );
     }
 
     pub fn id(&self) -> &Id {
@@ -325,7 +389,28 @@ impl AgentLoopEntity {
     }
 
     pub async fn register_child(&self, child_id: Id) {
-        self.child_execution_ids.write().await.push(child_id);
+        self.child_execution_ids
+            .write()
+            .await
+            .push(child_id.clone());
+        self.hierarchy
+            .register_child_ref(wf_types::execution::ChildExecutionReference {
+                child_type: wf_types::execution::ExecutionType::AgentLoop,
+                child_id,
+                created_at: wf_common::now(),
+                fork_path: None,
+            });
+    }
+
+    pub async fn register_child_ref(
+        &self,
+        child_ref: wf_types::execution::ChildExecutionReference,
+    ) {
+        self.child_execution_ids
+            .write()
+            .await
+            .push(child_ref.child_id.clone());
+        self.hierarchy.register_child_ref(child_ref);
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
@@ -333,6 +418,14 @@ impl AgentLoopEntity {
             .write()
             .await
             .retain(|id| id != child_id);
+        for child_type in [
+            wf_types::execution::ExecutionType::Workflow,
+            wf_types::execution::ExecutionType::AgentLoop,
+        ] {
+            if self.hierarchy.remove_child(child_id, &child_type) {
+                break;
+            }
+        }
     }
 
     /// Read the shared status from a synchronous context. Tries a non-blocking
@@ -437,20 +530,21 @@ impl ExecutionEntity for AgentLoopEntity {
     }
 
     fn get_hierarchy_depth(&self) -> u32 {
-        self.hierarchy_depth
+        self.hierarchy.depth()
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {
-        if let Some(root) = self.ancestors.first() {
-            return Some(root.clone());
-        }
-        self.root_execution_id
-            .clone()
-            .or_else(|| Some(self.id.clone()))
+        Some(self.hierarchy.root_execution_id())
     }
 
     fn get_ancestors(&self) -> Vec<Id> {
-        self.ancestors.clone()
+        self.hierarchy.ancestors()
+    }
+
+    fn hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        Some(self.hierarchy.clone())
     }
 }
 

@@ -37,6 +37,17 @@ pub async fn summaries(
     let mut records = live_records(ctx).await;
     if let Ok(persisted) = ctx.storage.agent_execution.list(None).await {
         for record in persisted {
+            if records
+                .iter()
+                .any(|r: &AgentExecutionSummary| r.execution_id == record.id)
+            {
+                continue;
+            }
+            let parent_execution_id = record
+                .hierarchy
+                .as_ref()
+                .and_then(|h| h.parent_execution_id.clone())
+                .map(|p| p.to_string());
             records.push(AgentExecutionSummary {
                 execution_id: record.id.to_string(),
                 status: record.status.clone(),
@@ -45,7 +56,7 @@ pub async fn summaries(
                 start_time: record.started_at,
                 end_time: record.completed_at,
                 error: record.error.clone(),
-                parent_execution_id: None,
+                parent_execution_id,
             });
         }
     }

@@ -125,13 +125,8 @@ async fn fail_settlement_marks_failed_and_publishes_agent_failed() {
         "root cause must surface: {err}"
     );
 
-    let entity = registry
-        .get(&loop_id)
-        .expect("failed run stays registered");
-    assert_eq!(
-        entity.state.read().await.status(),
-        ExecutionStatus::Failed
-    );
+    let entity = registry.get(&loop_id).expect("failed run stays registered");
+    assert_eq!(entity.state.read().await.status(), ExecutionStatus::Failed);
     assert!(
         entity
             .state
@@ -225,10 +220,7 @@ async fn wall_clock_timeout_settles_timeout_state() {
         .with_agent_loop_id(loop_id.clone());
     let mut cfg = config(5);
     cfg.max_execution_time = Some(40);
-    let err = coordinator
-        .execute(cfg, input("run"))
-        .await
-        .unwrap_err();
+    let err = coordinator.execute(cfg, input("run")).await.unwrap_err();
     assert!(
         matches!(err, wf_agent::error::AgentError::ExecutionTimeout(_)),
         "slow run settles as ExecutionTimeout: {err}"
@@ -236,10 +228,7 @@ async fn wall_clock_timeout_settles_timeout_state() {
     let entity = registry
         .get(&loop_id)
         .expect("timed-out run stays registered");
-    assert_eq!(
-        entity.state.read().await.status(),
-        ExecutionStatus::Timeout
-    );
+    assert_eq!(entity.state.read().await.status(), ExecutionStatus::Timeout);
 }
 
 #[tokio::test]
@@ -323,10 +312,7 @@ async fn pause_then_resume_converges_to_completed() {
     let parked_entity = entity_registry
         .get(&agent_loop_id)
         .expect("parked entity stays registered");
-    parked_entity
-        .resume()
-        .await
-        .expect("resume must succeed");
+    parked_entity.resume().await.expect("resume must succeed");
 
     let output = tokio::time::timeout(Duration::from_secs(10), run)
         .await

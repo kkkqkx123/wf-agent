@@ -382,7 +382,11 @@ async fn blocking_text_response_completes_the_iteration() {
     mock.script(LlmResponseSpec::text("plain answer"));
 
     let entity = running_entity("agent-block-text").await;
-    entity.conversation().write().await.add_message(user_message("hi"));
+    entity
+        .conversation()
+        .write()
+        .await
+        .add_message(user_message("hi"));
 
     let result = blocking_call(mock, echo_registry(), &entity)
         .await
@@ -408,13 +412,20 @@ async fn blocking_tool_call_executes_and_continues() {
     }]));
 
     let entity = running_entity("agent-block-tool").await;
-    entity.conversation().write().await.add_message(user_message("run"));
+    entity
+        .conversation()
+        .write()
+        .await
+        .add_message(user_message("run"));
 
     let result = blocking_call(mock, echo_registry(), &entity)
         .await
         .expect("iteration must succeed");
     assert_eq!(result.tool_call_count, 1);
-    assert!(result.should_continue, "no attempt_completion means continue");
+    assert!(
+        result.should_continue,
+        "no attempt_completion means continue"
+    );
     let messages = entity.conversation().read().await.messages().to_vec();
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[2].role, wf_types::message::MessageRole::Tool);
@@ -434,7 +445,11 @@ async fn blocking_attempt_completion_ends_the_loop() {
     }]));
 
     let entity = running_entity("agent-block-done").await;
-    entity.conversation().write().await.add_message(user_message("finish"));
+    entity
+        .conversation()
+        .write()
+        .await
+        .add_message(user_message("finish"));
 
     let result = blocking_call(mock, echo_registry(), &entity)
         .await
@@ -455,7 +470,11 @@ async fn blocking_llm_error_maps_to_agent_llm_error() {
     });
 
     let entity = running_entity("agent-block-err").await;
-    entity.conversation().write().await.add_message(user_message("hi"));
+    entity
+        .conversation()
+        .write()
+        .await
+        .add_message(user_message("hi"));
 
     let err = blocking_call(mock, echo_registry(), &entity)
         .await

@@ -83,8 +83,7 @@ pub fn failure_source(
     match error {
         WorkflowError::NodeFailure { failure_source, .. } => *failure_source,
         WorkflowError::SharedError(ExecutionSharedError::NodeFailure {
-            failure_source,
-            ..
+            failure_source, ..
         }) => *failure_source,
         _ => NodeFailureSource::Handler,
     }

@@ -50,8 +50,7 @@ impl BranchResult {
             success: false,
             output: serde_json::Value::Null,
             failure: Some(BranchFailure {
-                category:
-                    wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
+                category: wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
                 detail: detail.into(),
             }),
             variables: None,
@@ -72,9 +71,7 @@ impl BranchResult {
         self.failure.as_ref().map(|f| f.detail.as_str())
     }
 
-    pub fn error_category(
-        &self,
-    ) -> Option<wf_types::workflow::error_branch::NodeErrorCategory> {
+    pub fn error_category(&self) -> Option<wf_types::workflow::error_branch::NodeErrorCategory> {
         self.failure.as_ref().map(|f| f.category)
     }
 }

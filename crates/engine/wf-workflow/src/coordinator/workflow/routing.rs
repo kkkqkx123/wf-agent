@@ -129,6 +129,14 @@ impl WorkflowCoordinator {
                 .and_then(|e| e.get_root_execution_id())
                 .or_else(|| self.ctx.root_execution_id.clone()),
         );
+        if let Some(manager) = self
+            .entity
+            .as_ref()
+            .and_then(|e| e.hierarchy_manager())
+            .or_else(|| self.ctx.hierarchy_manager.clone())
+        {
+            ctx = ctx.with_hierarchy_manager(manager);
+        }
         ctx.event_bus = self.ctx.event_bus.clone();
         ctx.handler_registry = Some(self.handlers.clone());
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));
@@ -150,6 +158,7 @@ impl WorkflowCoordinator {
             self.ctx.options.node_timeout,
             self.ctx.options.max_execution_time,
         );
+        ctx = ctx.with_parent_checkpoints(self.ctx.options.enable_checkpoints);
 
         // Message nodes execute trigger actions within one visit; give them a
         // shared session cache so consecutive actions can exchange state.

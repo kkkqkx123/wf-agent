@@ -103,9 +103,7 @@ pub fn continuation_options(
         .unwrap_or(0);
     let mut options = unbudgeted();
     options.node_timeout = budgets.get("node_timeout").and_then(|v| v.as_u64());
-    options.max_pause_duration = budgets
-        .get("max_pause_duration")
-        .and_then(|v| v.as_u64());
+    options.max_pause_duration = budgets.get("max_pause_duration").and_then(|v| v.as_u64());
     options.max_navigation_multiplier = budgets
         .get("max_navigation_multiplier")
         .and_then(|v| v.as_u64())

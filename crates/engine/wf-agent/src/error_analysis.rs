@@ -25,10 +25,7 @@ impl ErrorAnalysis {
     /// snapshots. Callers that need chain context (caused_by, parent links)
     /// fill those fields on the returned record.
     pub fn to_error_record(&self, execution_id: &str, node_id: Option<String>) -> ErrorRecord {
-        debug_assert_eq!(
-            self.retryable,
-            self.recovery_action.is_retry(),
-        );
+        debug_assert_eq!(self.retryable, self.recovery_action.is_retry(),);
         ErrorRecord::new(
             execution_id.to_string(),
             self.message.clone(),
@@ -154,10 +151,7 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             RecoveryAction::Abort,
         ),
     };
-    debug_assert_eq!(
-        retryable,
-        recovery_action.is_retry(),
-    );
+    debug_assert_eq!(retryable, recovery_action.is_retry(),);
     ErrorAnalysis {
         kind,
         error_type,
@@ -266,10 +260,7 @@ pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
             )
         }
     };
-    debug_assert_eq!(
-        retryable,
-        recovery_action.is_retry(),
-    );
+    debug_assert_eq!(retryable, recovery_action.is_retry(),);
     ErrorAnalysis {
         kind,
         error_type,
@@ -319,9 +310,7 @@ pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
             RecoveryAction::Abort,
         ),
     };
-    debug_assert!(
-        !recovery_action.is_retry(),
-    );
+    debug_assert!(!recovery_action.is_retry(),);
     ErrorAnalysis {
         kind,
         error_type,
@@ -419,10 +408,7 @@ pub fn analyze_error(e: &AgentError) -> ErrorAnalysis {
             message: e.to_string(),
         },
     };
-    debug_assert_eq!(
-        analysis.retryable,
-        analysis.recovery_action.is_retry(),
-    );
+    debug_assert_eq!(analysis.retryable, analysis.recovery_action.is_retry(),);
     analysis
 }
 

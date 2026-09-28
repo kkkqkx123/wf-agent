@@ -236,14 +236,8 @@ async fn bus_mirror_maps_every_stream_variant() {
             .expect("receiver alive during the mapping probe");
         let bus_event = sub.try_recv().expect("mirror publishes to the bus");
         assert_eq!(bus_event.r#type, *expected, "mapping for {event:?}");
-        assert_eq!(
-            bus_event.execution_id.as_deref(),
-            Some("loop-mirror-1")
-        );
-        assert_eq!(
-            bus_event.agent_loop_id.as_deref(),
-            Some("loop-mirror-1")
-        );
+        assert_eq!(bus_event.execution_id.as_deref(), Some("loop-mirror-1"));
+        assert_eq!(bus_event.agent_loop_id.as_deref(), Some("loop-mirror-1"));
         let expected_metadata: std::collections::HashMap<String, serde_json::Value> =
             serde_json::to_value(event)
                 .expect("stream event serializes")
@@ -272,8 +266,8 @@ async fn streaming_run_mirrors_lifecycle_to_bus() {
 
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();
-    let coordinator = AgentLoopCoordinator::new(gateway_with(mock), registry_with_echo())
-        .with_event_bus(bus);
+    let coordinator =
+        AgentLoopCoordinator::new(gateway_with(mock), registry_with_echo()).with_event_bus(bus);
     let mut stream = coordinator.execute_stream(config(5), input("run")).await;
     let mut completed = None;
     while let Some(event) = stream.next().await {

@@ -67,6 +67,7 @@ pub struct AgentLoopCoordinator {
     /// parent agent/workflow). Read from `input.context["parent_execution_id"]`
     /// by the executor; the field wins when both are present.
     parent_execution_id: Option<Id>,
+    parent_hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     /// Shared hook receiver registry: hook points dispatch through it
     /// (synchronous notification). `None` degrades to audit-only behavior.
     hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
@@ -112,6 +113,7 @@ impl AgentLoopCoordinator {
             state_manager: None,
             agent_loop_id: None,
             parent_execution_id: None,
+            parent_hierarchy_manager: None,
             hook_handler_registry: None,
             file_checkpoint_manager: None,
             default_max_iterations: crate::constants::DEFAULT_MAX_ITERATIONS,
@@ -238,6 +240,20 @@ impl AgentLoopCoordinator {
     pub fn with_parent_execution_id(mut self, parent_id: Option<Id>) -> Self {
         self.parent_execution_id = parent_id;
         self
+    }
+
+    pub fn with_parent_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.parent_hierarchy_manager = Some(manager);
+        self
+    }
+
+    pub fn parent_hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        self.parent_hierarchy_manager.clone()
     }
 
     pub async fn execute(
@@ -382,6 +398,102 @@ impl AgentLoopCoordinator {
             .restore_state(restore.conversation);
         self.run_loop(&config, entity, prompt, IterationMode::Blocking, None)
             .await
+    }
+
+    /// Automatic crash-resume under the source execution id using the
+    /// declarative loop configuration captured in the checkpoint. No new user
+    /// message is appended; the restored conversation continues exactly where
+    /// the snapshot stood. Missing loop configuration, terminal snapshots,
+    /// live source executions and invalid configs are rejected explicitly so
+    /// the recovery orchestrator can skip with a reason instead of
+    /// backfilling defaults.
+    pub async fn auto_resume_from_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> AgentResult<AgentLoopOutput> {
+        let restore = self
+            .build_checkpoint_integration_any()
+            .restore_entity(checkpoint_id)
+            .await?;
+        let status = &restore.state.status;
+        if status.is_terminal() {
+            return Err(AgentError::IllegalStateTransition(format!(
+                "checkpoint {checkpoint_id} records terminal status {status:?}: \
+                 auto-resume only continues a live run"
+            )));
+        }
+        let Some(config) = restore.loop_config.clone() else {
+            return Err(AgentError::Validation(format!(
+                "checkpoint {checkpoint_id} has no loop_config; \
+                 auto-resume requires a checkpoint carrying the declarative loop configuration"
+            )));
+        };
+        if config.model.is_empty() {
+            return Err(AgentError::Validation(format!(
+                "checkpoint {checkpoint_id} carries an invalid loop_config (empty model)"
+            )));
+        }
+        if let Err(errors) =
+            crate::validation::AgentLoopValidator::validate_or_fail(&config, &self.tool_registry)
+        {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(AgentError::Validation(format!(
+                "checkpoint {checkpoint_id} loop_config invalid for this host: {detail}"
+            )));
+        }
+        if let Some(ref registry) = self.entity_registry {
+            if let Some(live) = registry.get(&restore.agent_loop_id) {
+                let state = live.state.read().await;
+                if !state.status().is_terminal() {
+                    return Err(AgentError::IllegalStateTransition(format!(
+                        "auto-resume rejected: execution {} is still live ({:?})",
+                        restore.agent_loop_id,
+                        state.status()
+                    )));
+                }
+            }
+        }
+        let mut resume_input = AgentLoopInput {
+            message: String::new(),
+            context: std::collections::HashMap::new(),
+            conversation: Vec::new(),
+        };
+        resume_input.context.insert(
+            "resume_source_checkpoint".to_string(),
+            Value::String(restore.source_checkpoint_id.clone()),
+        );
+        resume_input
+            .context
+            .insert("auto_resume".to_string(), Value::Bool(true));
+        let entity = Arc::new(
+            self.build_entity_with_forced_id(
+                &config,
+                resume_input,
+                Some(restore.agent_loop_id.clone()),
+            )
+            .await?,
+        );
+        {
+            let mut state = entity.state.write().await;
+            state.restore_from_snapshot(restore.state).await?;
+        }
+        entity
+            .conversation()
+            .write()
+            .await
+            .restore_state(restore.conversation);
+        self.run_loop(
+            &config,
+            entity,
+            String::new(),
+            IterationMode::Blocking,
+            None,
+        )
+        .await
     }
 
     /// Stream execution of the agent loop. Events (message deltas, tool

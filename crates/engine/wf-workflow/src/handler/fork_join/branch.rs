@@ -43,9 +43,11 @@ pub struct BranchContext {
 /// environment shared by every branch of the fork.
 pub struct BranchRunContext {
     pub parent_execution_id: wf_types::Id,
+    pub parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     pub parent_ancestors: Vec<wf_types::Id>,
     pub parent_depth: u32,
     pub parent_root: Option<wf_types::Id>,
+    pub parent_checkpoints_enabled: Option<bool>,
     pub node_id: String,
     pub graph: Option<WorkflowGraphStructure>,
     pub join_node_id: Option<String>,
@@ -187,9 +189,12 @@ async fn run_branch_inner(
                             BranchHierarchy {
                                 execution_id: branch_execution_id.clone(),
                                 parent_execution_id: ctx.parent_execution_id.clone(),
+                                parent_manager: ctx.parent_manager.clone(),
                                 parent_ancestors: ctx.parent_ancestors.clone(),
                                 parent_depth: ctx.parent_depth,
                                 parent_root: ctx.parent_root.clone(),
+                                parent_checkpoints_enabled: ctx.parent_checkpoints_enabled,
+                                fork_node_id: ctx.node_id.clone(),
                             },
                             &path_id,
                             ctx.branch_input,
@@ -217,9 +222,12 @@ async fn run_branch_inner(
 struct BranchHierarchy {
     execution_id: wf_types::Id,
     parent_execution_id: wf_types::Id,
+    parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     parent_ancestors: Vec<wf_types::Id>,
     parent_depth: u32,
     parent_root: Option<wf_types::Id>,
+    parent_checkpoints_enabled: Option<bool>,
+    fork_node_id: String,
 }
 
 async fn execute_branch(
@@ -233,9 +241,12 @@ async fn execute_branch(
     let BranchHierarchy {
         execution_id,
         parent_execution_id,
+        parent_manager,
         parent_ancestors,
         parent_depth,
         parent_root,
+        parent_checkpoints_enabled,
+        fork_node_id,
     } = hierarchy;
     let workflow_id = wf_common::generate_id();
 
@@ -244,7 +255,7 @@ async fn execute_branch(
         max_steps: None,
         timeout: None,
         max_execution_time: None,
-        enable_checkpoints: Some(false),
+        enable_checkpoints: parent_checkpoints_enabled,
         node_timeout: None,
         max_pause_duration: None,
         max_navigation_multiplier: None,
@@ -254,11 +265,29 @@ async fn execute_branch(
     let tool_registry = branch_ctx
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
+    let fork_path = wf_types::execution::ForkPath::new(fork_node_id.clone(), branch_id.to_string());
+    let child_manager = parent_manager.as_ref().and_then(|parent| {
+        parent
+            .derive_child(
+                execution_id.clone(),
+                wf_types::execution::ExecutionType::Workflow,
+                Some(fork_path.clone()),
+            )
+            .ok()
+    });
     let mut child_ancestors = parent_ancestors.to_vec();
     if child_ancestors.last() != Some(&parent_execution_id) {
         child_ancestors.push(parent_execution_id.clone());
     }
     let child_root = parent_root.unwrap_or_else(|| parent_execution_id.clone());
+    let (child_ancestors, child_depth, child_root) = match child_manager.as_ref() {
+        Some(manager) => (
+            manager.ancestors(),
+            manager.depth(),
+            manager.root_execution_id(),
+        ),
+        None => (child_ancestors, parent_depth + 1, child_root),
+    };
     let mut exec_ctx = ExecutorContext::new(
         execution_id.clone(),
         workflow_id.clone(),
@@ -267,7 +296,14 @@ async fn execute_branch(
         options,
     )
     .with_parent_execution(parent_execution_id.clone())
-    .with_hierarchy(child_ancestors.clone(), parent_depth + 1, Some(child_root));
+    .with_hierarchy(
+        child_ancestors.clone(),
+        child_depth,
+        Some(child_root.clone()),
+    );
+    if let Some(manager) = child_manager.clone() {
+        exec_ctx = exec_ctx.with_hierarchy_manager(manager);
+    }
     if let Some(ref regs) = branch_ctx.resource_registries {
         exec_ctx = exec_ctx.with_resource_registries(regs.clone());
     }
@@ -291,10 +327,18 @@ async fn execute_branch(
 
     let branch_variables = exec_ctx.variables.clone();
 
-    let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id)
-        .with_parent_execution_id(parent_execution_id.clone())
-        .with_ancestors(child_ancestors)
-        .with_hierarchy_depth(parent_depth + 1);
+    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
+    if let Some(manager) = child_manager {
+        entity = entity.with_hierarchy_manager(manager);
+    } else {
+        entity = entity
+            .with_parent_execution_id(parent_execution_id.clone())
+            .with_ancestors(child_ancestors)
+            .with_hierarchy_depth(child_depth)
+            .with_root_execution_id(child_root.clone());
+    }
+    entity =
+        entity.with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::ForkJoin);
 
     let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, branch_ctx.handlers)?.with_entity(entity);

@@ -117,10 +117,9 @@ pub fn update_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate) -
     if !ctx.registries.workflows.has(&template.id) {
         return Err(not_found("workflow_template", &template.id.to_string()));
     }
-    ctx.registries.workflows.register_or_replace(
-        template.id.to_string(),
-        Arc::new(template.clone()),
-    );
+    ctx.registries
+        .workflows
+        .register_or_replace(template.id.to_string(), Arc::new(template.clone()));
     Ok(())
 }
 

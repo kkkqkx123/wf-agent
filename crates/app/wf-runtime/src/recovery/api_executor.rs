@@ -14,7 +14,28 @@ pub struct ApiRecoveryExecutor;
 
 #[async_trait::async_trait]
 impl RecoveryExecutor for ApiRecoveryExecutor {
+    async fn recover_target(
+        &self,
+        ctx: &wf_api::ApiContext,
+        target: &crate::recovery::RecoveryTarget,
+    ) -> RuntimeResult<RecoveryItem> {
+        match target {
+            crate::recovery::RecoveryTarget::Workflow(e) => self.recover_workflow(ctx, e).await,
+            crate::recovery::RecoveryTarget::Agent(e) => self.recover_agent(ctx, e).await,
+        }
+    }
+
     async fn recover_execution(
+        &self,
+        ctx: &wf_api::ApiContext,
+        execution: &wf_types::WorkflowExecution,
+    ) -> RuntimeResult<RecoveryItem> {
+        self.recover_workflow(ctx, execution).await
+    }
+}
+
+impl ApiRecoveryExecutor {
+    async fn recover_workflow(
         &self,
         ctx: &wf_api::ApiContext,
         execution: &wf_types::WorkflowExecution,
@@ -56,10 +77,78 @@ impl RecoveryExecutor for ApiRecoveryExecutor {
                 recovered: true,
                 note: None,
             }),
-            Err(e) => Err(RuntimeError::Config(format!(
-                "checkpoint restore/resume failed for {}: {e}",
-                execution.id
-            ))),
+            Err(e) => {
+                let message = e.to_string();
+                let lower = message.to_lowercase();
+                // Corrupted, missing or broken-chain checkpoints are not
+                // retryable within this boot: report the execution as skipped
+                // with the cause so healthy siblings still recover.
+                if lower.contains("corrupt")
+                    || lower.contains("not found")
+                    || lower.contains("no checkpoint")
+                    || lower.contains("missing")
+                    || lower.contains("broken")
+                {
+                    return Ok(RecoveryItem {
+                        execution_id: execution.id.to_string(),
+                        status: format!("{:?}", execution.status),
+                        current_node_id: execution.current_node_id.clone(),
+                        recovered: false,
+                        note: Some(format!(
+                            "checkpoint {} unusable, skipped: {message}",
+                            latest.id
+                        )),
+                    });
+                }
+                Err(RuntimeError::Config(format!(
+                    "checkpoint restore/resume failed for {}: {e}",
+                    execution.id
+                )))
+            }
+        }
+    }
+
+    async fn recover_agent(
+        &self,
+        ctx: &wf_api::ApiContext,
+        execution: &wf_types::AgentExecution,
+    ) -> RuntimeResult<RecoveryItem> {
+        let execution_id = execution.id.to_string();
+        match wf_api::agent::agent_execution::auto_resume(ctx, &execution_id).await {
+            Ok(output) => Ok(RecoveryItem {
+                execution_id: output.agent_loop_id.to_string(),
+                status: "Completed".to_string(),
+                current_node_id: None,
+                recovered: true,
+                note: None,
+            }),
+            Err(e) => {
+                let message = e.to_string();
+                let lower = message.to_lowercase();
+                if matches!(e, wf_api::infra::error::ApiError::Validation(_))
+                    || lower.contains("no checkpoint")
+                    || lower.contains("not auto-recoverable")
+                    || lower.contains("terminal")
+                    || lower.contains("no loop_config")
+                    || lower.contains("still live")
+                    || lower.contains("invalid")
+                    || lower.contains("corrupt")
+                    || lower.contains("not found")
+                    || lower.contains("missing")
+                    || lower.contains("broken")
+                {
+                    return Ok(RecoveryItem {
+                        execution_id: execution_id.clone(),
+                        status: format!("{:?}", execution.status),
+                        current_node_id: None,
+                        recovered: false,
+                        note: Some(format!("agent execution {execution_id} skipped: {message}")),
+                    });
+                }
+                Err(RuntimeError::Config(format!(
+                    "agent auto-resume failed for {execution_id}: {e}"
+                )))
+            }
         }
     }
 }

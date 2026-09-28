@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde_json::Value;
+use wf_core::hierarchy::manager::ExecutionHierarchyManager;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_types::Id;
@@ -17,14 +18,18 @@ pub struct WorkflowExecutionEntity {
     variables: Arc<DashMap<String, Value>>,
     node_results: Arc<DashMap<String, Value>>,
     pub current_node_id: Arc<tokio::sync::RwLock<Option<String>>>,
+    hierarchy: Arc<ExecutionHierarchyManager>,
     parent_execution_id: Option<Id>,
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
     /// Root-to-parent execution id chain (oldest first, excluding self).
     /// Resolved from the parent entity when the run is linked, so deep
     /// hierarchies keep full ancestry across checkpoint restore.
     ancestors: Vec<Id>,
+    /// Root execution id of the hierarchy (own id for a root run).
+    root_execution_id: Option<Id>,
     /// Nesting depth in the execution hierarchy (0 = root).
     hierarchy_depth: u32,
+    execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
     output: Arc<tokio::sync::RwLock<Option<Value>>>,
@@ -32,6 +37,10 @@ pub struct WorkflowExecutionEntity {
 
 impl WorkflowExecutionEntity {
     pub fn new(id: Id, workflow_id: Id) -> Self {
+        let hierarchy = Arc::new(ExecutionHierarchyManager::new(
+            id.clone(),
+            wf_types::execution::ExecutionType::Workflow,
+        ));
         Self {
             id,
             workflow_id,
@@ -41,16 +50,33 @@ impl WorkflowExecutionEntity {
             variables: Arc::new(DashMap::new()),
             node_results: Arc::new(DashMap::new()),
             current_node_id: Arc::new(tokio::sync::RwLock::new(None)),
+            hierarchy,
             parent_execution_id: None,
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             ancestors: Vec::new(),
+            root_execution_id: None,
             hierarchy_depth: 0,
+            execution_type: None,
             output: Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
+    pub fn hierarchy_manager(&self) -> Arc<ExecutionHierarchyManager> {
+        self.hierarchy.clone()
+    }
+
+    pub fn with_hierarchy_manager(mut self, manager: Arc<ExecutionHierarchyManager>) -> Self {
+        self.hierarchy = manager;
+        self.parent_execution_id = self.hierarchy.parent_id();
+        self.ancestors = self.hierarchy.ancestors();
+        self.hierarchy_depth = self.hierarchy.depth();
+        self.root_execution_id = Some(self.hierarchy.root_execution_id());
+        self
+    }
+
     pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self.sync_manager_from_legacy();
         self
     }
 
@@ -58,13 +84,57 @@ impl WorkflowExecutionEntity {
     /// resolved from the parent execution at build time.
     pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
         self.ancestors = ancestors;
+        self.sync_manager_from_legacy();
         self
     }
 
     /// Set the nesting depth in the execution hierarchy (0 = root).
     pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
         self.hierarchy_depth = depth;
+        self.sync_manager_from_legacy();
         self
+    }
+
+    pub fn with_root_execution_id(mut self, root: Id) -> Self {
+        self.root_execution_id = Some(root);
+        self.sync_manager_from_legacy();
+        self
+    }
+
+    fn sync_manager_from_legacy(&mut self) {
+        use wf_core::hierarchy::manager::ParentExecutionContext;
+        let parent = self
+            .parent_execution_id
+            .clone()
+            .map(|parent_id| ParentExecutionContext {
+                parent_id,
+                parent_type: wf_types::execution::ExecutionType::Workflow,
+            });
+        let root_id = self
+            .root_execution_id
+            .clone()
+            .or_else(|| self.ancestors.first().cloned())
+            .or_else(|| self.parent_execution_id.clone())
+            .unwrap_or_else(|| self.id.clone());
+        self.hierarchy.sync_restored(
+            parent,
+            self.ancestors.clone(),
+            self.hierarchy_depth,
+            root_id,
+            wf_types::execution::ExecutionType::Workflow,
+        );
+    }
+
+    pub fn with_execution_type(
+        mut self,
+        execution_type: wf_types::workflow_execution::WorkflowExecutionType,
+    ) -> Self {
+        self.execution_type = Some(execution_type);
+        self
+    }
+
+    pub fn execution_type(&self) -> Option<wf_types::workflow_execution::WorkflowExecutionType> {
+        self.execution_type.clone()
     }
 
     pub fn id(&self) -> &Id {
@@ -126,7 +196,28 @@ impl WorkflowExecutionEntity {
     }
 
     pub async fn register_child(&self, child_id: Id) {
-        self.child_execution_ids.write().await.push(child_id);
+        self.child_execution_ids
+            .write()
+            .await
+            .push(child_id.clone());
+        self.hierarchy
+            .register_child_ref(wf_types::execution::ChildExecutionReference {
+                child_type: wf_types::execution::ExecutionType::Workflow,
+                child_id,
+                created_at: wf_common::now(),
+                fork_path: None,
+            });
+    }
+
+    pub async fn register_child_ref(
+        &self,
+        child_ref: wf_types::execution::ChildExecutionReference,
+    ) {
+        self.child_execution_ids
+            .write()
+            .await
+            .push(child_ref.child_id.clone());
+        self.hierarchy.register_child_ref(child_ref);
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
@@ -134,6 +225,14 @@ impl WorkflowExecutionEntity {
             .write()
             .await
             .retain(|id| id != child_id);
+        for child_type in [
+            wf_types::execution::ExecutionType::Workflow,
+            wf_types::execution::ExecutionType::AgentLoop,
+        ] {
+            if self.hierarchy.remove_child(child_id, &child_type) {
+                break;
+            }
+        }
     }
 
     /// Read the shared status from a synchronous context. Tries a non-blocking
@@ -231,21 +330,21 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     fn get_hierarchy_depth(&self) -> u32 {
-        self.hierarchy_depth
+        self.hierarchy.depth()
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {
-        if let Some(root) = self.ancestors.first() {
-            return Some(root.clone());
-        }
-        if let Some(parent) = &self.parent_execution_id {
-            return Some(parent.clone());
-        }
-        Some(self.id.clone())
+        Some(self.hierarchy.root_execution_id())
     }
 
     fn get_ancestors(&self) -> Vec<Id> {
-        self.ancestors.clone()
+        self.hierarchy.ancestors()
+    }
+
+    fn hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        Some(self.hierarchy.clone())
     }
 }
 

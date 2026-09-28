@@ -327,9 +327,7 @@ impl NodeCoordinator {
             category,
             detail: reason.to_string(),
             failure_source: match rejection_source {
-                Some("hook_veto") => {
-                    wf_types::workflow::error_branch::NodeFailureSource::HookVeto
-                }
+                Some("hook_veto") => wf_types::workflow::error_branch::NodeFailureSource::HookVeto,
                 _ => wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
         })

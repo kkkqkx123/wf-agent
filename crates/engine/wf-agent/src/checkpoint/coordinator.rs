@@ -32,6 +32,10 @@ pub struct RestoredAgentLoop {
     /// Checkpoint id this restoration was built from, recorded as branch
     /// lineage on the new execution.
     pub source_checkpoint_id: String,
+    /// Declarative loop configuration captured at checkpoint time. `None`
+    /// for checkpoints written before the migration; auto-resume must reject
+    /// those explicitly instead of backfilling defaults.
+    pub loop_config: Option<wf_types::agent_execution::AgentLoopConfig>,
 }
 
 /// How a restored checkpoint may be used. `Branch` continues under a fresh
@@ -218,11 +222,7 @@ impl AgentCheckpointIntegration {
             ) {
                 let reused = self
                     .inner
-                    .reuse_duplicate(
-                        &latest,
-                        entity.id().as_str(),
-                        description.as_deref(),
-                    )
+                    .reuse_duplicate(&latest, entity.id().as_str(), description.as_deref())
                     .await;
                 tracing::debug!(
                     entity_id = %entity.id(),
@@ -234,12 +234,14 @@ impl AgentCheckpointIntegration {
             }
         }
         let snapshot = self.build_snapshot(entity).await;
+        let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
         let mut ctx = self
             .inner
-            .prepare_with_parent(
+            .prepare_with_hierarchy(
                 entity.id().as_str(),
                 trigger.clone(),
                 entity.parent_execution_id().map(|p| p.as_str()),
+                &ancestors,
             )
             .await?;
         if let Some(ref text) = description {
@@ -254,18 +256,22 @@ impl AgentCheckpointIntegration {
         // The state checkpoint is durable at this point; a failed file
         // snapshot means restore will carry state without file history, so
         // the gap must be visible rather than silently swallowed.
-        if let Err(err) = self
+        let file_snapshot_status = match self
             .inner
             .save_file_snapshot(&checkpoint.id, entity.id().as_str())
             .await
         {
-            tracing::error!(
-                checkpoint = %checkpoint.id,
-                entity = %entity.id(),
-                error = %err,
-                "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
-            );
-        }
+            Ok(_) => "ok".to_string(),
+            Err(err) => {
+                tracing::error!(
+                    checkpoint = %checkpoint.id,
+                    entity = %entity.id(),
+                    error = %err,
+                    "checkpoint persisted but file snapshot failed; file history for this checkpoint is incomplete"
+                );
+                format!("failed: {err}")
+            }
+        };
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();
@@ -280,6 +286,10 @@ impl AgentCheckpointIntegration {
             if let Some(d) = description {
                 changes.insert("description".to_string(), serde_json::json!(d));
             }
+            changes.insert(
+                "fileSnapshot".to_string(),
+                serde_json::json!(file_snapshot_status),
+            );
             bus.publish(&ExecutionEvent::StateChanged(
                 wf_types::execution::ExecutionStateChangedEvent {
                     execution_id: entity.id().to_string(),
@@ -323,7 +333,33 @@ impl AgentCheckpointIntegration {
             state: Self::runtime_state_from_snapshot(&snapshot)?,
             conversation: Self::conversation_state_from_snapshot(&snapshot)?,
             source_checkpoint_id: checkpoint_id.to_string(),
+            loop_config: snapshot.loop_config.clone(),
         })
+    }
+
+    pub async fn restore_loop_config(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<wf_types::agent_execution::AgentLoopConfig, CheckpointError> {
+        let entity = self.inner.restore(checkpoint_id).await?;
+        let snapshot = entity.snapshot;
+        match snapshot.loop_config {
+            Some(config) => {
+                if config.model.is_empty() {
+                    return Err(CheckpointError::Corrupted {
+                        id: snapshot.agent_loop_id,
+                        reason: "checkpoint loop_config has empty model".to_string(),
+                    });
+                }
+                Ok(config)
+            }
+            None => Err(CheckpointError::Validation {
+                reason: format!(
+                    "checkpoint {} has no loop_config; auto-resume requires a checkpoint carrying the declarative loop configuration",
+                    checkpoint_id
+                ),
+            }),
+        }
     }
 
     /// Read-only prefix of the conversation through a sequence coordinate,
@@ -367,10 +403,7 @@ impl AgentCheckpointIntegration {
 
     fn conversation_state_from_snapshot(
         snapshot: &AgentStateSnapshot,
-    ) -> Result<
-        wf_execution_shared::conversation_session::ConversationState,
-        CheckpointError,
-    > {
+    ) -> Result<wf_execution_shared::conversation_session::ConversationState, CheckpointError> {
         use wf_execution_shared::conversation_session::ConversationState;
         let messages = snapshot
             .conversation_snapshot
@@ -448,7 +481,10 @@ impl AgentCheckpointIntegration {
             start_time: snapshot.started_at.unwrap_or(0),
             end_time: snapshot.completed_at,
             error: snapshot.error.clone(),
-            error_records: parse_snapshot_records(snapshot.error_records.as_deref(), "error_record"),
+            error_records: parse_snapshot_records(
+                snapshot.error_records.as_deref(),
+                "error_record",
+            ),
             retry_totals: snapshot.retry_totals.clone().unwrap_or_default(),
             variable_snapshots: snapshot
                 .variable_snapshots
@@ -549,12 +585,12 @@ impl AgentCheckpointIntegration {
         entity: &AgentLoopEntity,
     ) -> Option<wf_types::execution::ExecutionHierarchy> {
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
-        let children = entity.child_execution_ids().read().await.clone();
+        let children = entity.hierarchy_manager().children();
         let parent = entity.parent_execution_id().cloned();
         if parent.is_none() && children.is_empty() {
             return None;
         }
-        let ancestors = entity.ancestors();
+        let ancestors = entity.get_ancestors();
         Some(wf_types::execution::ExecutionHierarchy {
             workflow_id: entity.definition_id().clone(),
             execution_id: entity.id().clone(),
@@ -564,22 +600,12 @@ impl AgentCheckpointIntegration {
             ancestors: if ancestors.is_empty() {
                 None
             } else {
-                Some(ancestors.to_vec())
+                Some(ancestors)
             },
             children: if children.is_empty() {
                 None
             } else {
-                Some(
-                    children
-                        .into_iter()
-                        .map(|child_id| wf_types::execution::ChildExecutionReference {
-                            child_type: wf_types::execution::ExecutionType::AgentLoop,
-                            child_id,
-                            created_at: wf_common::now(),
-                            fork_path_id: None,
-                        })
-                        .collect(),
-                )
+                Some(children)
             },
         })
     }
@@ -728,6 +754,7 @@ impl AgentCheckpointIntegration {
                     Some(tools)
                 }
             },
+            loop_config: entity.effective_config().cloned(),
         }
     }
 }

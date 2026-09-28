@@ -47,12 +47,19 @@
 		problemIds?: string[];
 		/** Nodes currently running; rendered with an emphasized border. */
 		pulseIds?: string[];
+		/** Failed nodes; rendered with a solid failure border. The running
+		 * pulse keeps precedence on the current node. */
+		failedIds?: string[];
 		/** Nodes on the critical path; rendered with a gold border. */
 		criticalIds?: string[];
 		/** Slow-node heat tier by node id (1-3); shape never changes. */
 		heatTierById?: Record<string, number>;
 		/** Decision points; rendered with a distinct dashed outline. */
 		decisionIds?: string[];
+		/** Hover text by node id (slow-node duration, decision branches).
+		 * Same information the selected card shows; the canvas only
+		 * surfaces it on hover. */
+		tooltipLabels?: Record<string, string>;
 		/** Position overrides (edit store); unset nodes use the preset layout. */
 		positions?: Record<string, CanvasPosition>;
 		/** Controlled edit mode: no auto layout, gestures emit intents. */
@@ -89,9 +96,11 @@
 		highlightIds = [],
 		problemIds = [],
 		pulseIds = [],
+		failedIds = [],
 		criticalIds = [],
 		heatTierById = {},
 		decisionIds = [],
+		tooltipLabels = {},
 		positions = undefined,
 		editMode = false,
 		edgeLabelLimit = 60,
@@ -119,10 +128,40 @@
 	// Zoomed-out canvases hide non-essential edge labels; the flag only
 	// flips when crossing the threshold so zoom gestures stay cheap.
 	let zoomedOut = $state(false);
+	// Hover tooltip for heat/decision labels. Shown after a short delay so
+	// panning across nodes does not flicker; hidden on leave, drag, zoom,
+	// pan and tap. The same text lives in the selected card, so the
+	// tooltip is hidden from assistive technology.
+	let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
+	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearHoverTip(): void {
+		if (hoverTimer !== null) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		hoverTip = null;
+	}
+
+	function requestHoverTip(id: string, clientX: number, clientY: number): void {
+		clearHoverTip();
+		const text = tooltipLabels[id];
+		if (!text || !wrapper) return;
+		const rect = wrapper.getBoundingClientRect();
+		hoverTimer = setTimeout(() => {
+			hoverTip = {
+				x: clientX - rect.left + 12,
+				y: clientY - rect.top + 12,
+				text,
+			};
+			hoverTimer = null;
+		}, 350);
+	}
 
 	const highlight = $derived(new Set(highlightIds));
 	const problems = $derived(new Set(problemIds));
 	const pulses = $derived(new Set(pulseIds));
+	const failed = $derived(new Set(failedIds));
 	const criticals = $derived(new Set(criticalIds));
 	const decisions = $derived(new Set(decisionIds));
 	const collapsed = $derived(new Set(collapsedIds));
@@ -483,6 +522,7 @@
 				isGroupTitleId(node.id) ? 'group-title' : '',
 				problems.has(node.id) ? 'problem' : '',
 				pulses.has(node.id) ? 'running' : '',
+				failed.has(node.id) ? 'failed' : '',
 				criticals.has(node.id) ? 'critical' : '',
 				decisions.has(node.id) ? 'decision' : '',
 				heatTierById[node.id] === 3
@@ -805,15 +845,22 @@
 							'border-style': 'dashed',
 						},
 					},
-					{
-						selector: 'node.running',
-						style: {
-							'border-width': 3,
-							'border-color': '#2563eb',
-						},
+				{
+					selector: 'node.failed',
+					style: {
+						'border-width': 3,
+						'border-color': '#ef4444',
 					},
-					{
-						selector: 'node.critical',
+				},
+				{
+					selector: 'node.running',
+					style: {
+						'border-width': 3,
+						'border-color': '#2563eb',
+					},
+				},
+				{
+					selector: 'node.critical',
 						style: {
 							'border-width': 2.5,
 							'border-color': '#f59e0b',
@@ -919,8 +966,9 @@
 					},
 				] as unknown as cytoscape.StylesheetJson,
 			});
-			instance.on('tap', 'node', (event) => {
-				const id = event.target.id() as string;
+		instance.on('tap', 'node', (event) => {
+			clearHoverTip();
+			const id = event.target.id() as string;
 				if (editSnapshot) {
 					const original = (event as unknown as { originalEvent?: MouseEvent })
 						.originalEvent;
@@ -945,8 +993,9 @@
 				if (!editMode) return;
 				ondeleteedge?.(event.target.id() as string);
 			});
-			instance.on('grab', 'node', (event) => {
-				const target = event.target;
+		instance.on('grab', 'node', (event) => {
+			clearHoverTip();
+			const target = event.target;
 				grabStart.set(
 					target.id() as string,
 					roundPosition(target.position() as CanvasPosition),
@@ -994,17 +1043,31 @@
 					y: Math.round(position.y),
 				});
 			});
-			const core = instance;
-			core.on('zoom', () => {
-				const out = core.zoom() < 0.6;
+		instance.on('mouseover', 'node', (event) => {
+			const original = (event as unknown as { originalEvent?: MouseEvent })
+				.originalEvent;
+			requestHoverTip(
+				event.target.id() as string,
+				original?.clientX ?? 0,
+				original?.clientY ?? 0,
+			);
+		});
+		instance.on('mouseout', 'node', () => {
+			clearHoverTip();
+		});
+		const core = instance;
+		core.on('zoom', () => {
+			clearHoverTip();
+			const out = core.zoom() < 0.6;
 				if (out !== zoomedOut) zoomedOut = out;
 				requestMiniRefresh();
 				refreshHotspots();
 			});
-			core.on('pan', () => {
-				requestMiniRefresh();
-				refreshHotspots();
-			});
+		core.on('pan', () => {
+			clearHoverTip();
+			requestMiniRefresh();
+			refreshHotspots();
+		});
 			core.on('layoutstop', () => {
 				refreshOverview();
 				refreshHotspots();
@@ -1058,6 +1121,7 @@
 		})();
 		return () => {
 			cancelled = true;
+			clearHoverTip();
 			instance?.destroy();
 			cy = null;
 		};
@@ -1071,6 +1135,7 @@
 		void highlightIds;
 		void problemIds;
 		void pulseIds;
+		void failedIds;
 		void criticalIds;
 		void heatTierById;
 		void decisionIds;
@@ -1166,6 +1231,16 @@
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-caption text-muted-foreground"
 		>
 			No nodes to display.
+		</div>
+	{/if}
+	{#if hoverTip}
+		<div
+			class="pointer-events-none absolute z-20 max-w-56 rounded-md border border-border bg-card px-2 py-1 text-micro text-foreground shadow-md"
+			style:left={`${hoverTip.x}px`}
+			style:top={`${hoverTip.y}px`}
+			aria-hidden="true"
+		>
+			{hoverTip.text}
 		</div>
 	{/if}
 	<div

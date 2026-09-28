@@ -148,6 +148,7 @@ function toToolCall(d: ToolCallDto, iteration: IterationDto): ToolCallEntry {
 		status: d.success ? 'completed' : 'failed',
 		startedAt: toIso(iteration.start_time),
 		durationMs: d.duration_ms ?? 0,
+		iteration: iteration.iteration ?? undefined,
 		input,
 		output,
 		endpoint: parseToolEndpoint(input) || undefined,

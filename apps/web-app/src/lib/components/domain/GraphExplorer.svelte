@@ -31,6 +31,7 @@
 		capGraph,
 		distinctKinds,
 		EDGE_LABEL_LIMIT,
+		GRAPH_NODE_CAP,
 		kindCounts,
 		legendFor,
 		type DisplayEdge,
@@ -226,7 +227,14 @@
 	);
 	const foldedView = $derived(folded.view);
 
-	const capped = $derived(capGraph(foldedView.nodes, foldedView.edges));
+	const capped = $derived(
+		capGraph(foldedView.nodes, foldedView.edges, GRAPH_NODE_CAP, [
+			...failedIds,
+			...pulseIds,
+			...criticalIds,
+			...(selectedId ? [selectedId] : []),
+		]),
+	);
 
 	const selected = $derived(
 		capped.nodes.find((node) => node.id === selectedId) ??
@@ -243,6 +251,16 @@
 			if (edge.source === selectedId) successors += 1;
 		}
 		return { predecessors, successors };
+	});
+
+	// Hover text for the canvas: heat durations and decision branches
+	// merged per node; a node carrying both joins them in one line.
+	const mergedTooltipLabels = $derived.by(() => {
+		const merged: Record<string, string> = { ...decisionLabels };
+		for (const [id, text] of Object.entries(heatLabels)) {
+			merged[id] = merged[id] ? `${merged[id]} · ${text}` : text;
+		}
+		return merged;
 	});
 
 	function toggleGroup(groupId: string): void {
@@ -638,6 +656,7 @@
 			{/if}
 			{#if capped.truncated}
 				Showing {capped.nodes.length} of {capped.total} nodes ·
+				Retention order: failed, running, critical path, selection ·
 			{/if}
 			{filtered.nodes.length} nodes · {filtered.edges.length} edges
 		</span>
@@ -770,8 +789,10 @@
 				problemIds={issueIds}
 				{pulseIds}
 				{criticalIds}
+				{failedIds}
 				{heatTierById}
 				{decisionIds}
+				tooltipLabels={mergedTooltipLabels}
 				{positions}
 				{editMode}
 				{edgeLabelLimit}
@@ -793,9 +814,8 @@
 				{#if capped.truncated || folded.auto.length > 0}
 					<Card title="Large graph">
 						<p class="text-caption text-muted-foreground">
-							Retention order: failed, running, critical path, then
-							selection. Non-critical groups fold first; leftovers sample
-							across kinds.
+							Retention order: failed, running, critical path, selection.
+							Non-critical groups fold first; leftovers sample across kinds.
 							{#if folded.auto.length > 0}
 								Folded {folded.auto.length} non-critical group(s) ({folded.auto.join(
 									', ',

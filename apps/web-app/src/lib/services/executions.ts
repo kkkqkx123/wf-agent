@@ -279,6 +279,9 @@ interface ToolCallDto {
 	tool_call_id?: string;
 	name?: string;
 	tool?: string;
+	node_id?: string;
+	nodeId?: string;
+	iteration?: number;
 	kind?: string;
 	status?: string;
 	success?: boolean;
@@ -311,6 +314,8 @@ function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
 		id: d.id ?? d.tool_call_id ?? `tc-${index}`,
 		name,
 		kind,
+		nodeId: d.node_id ?? d.nodeId ?? undefined,
+		iteration: typeof d.iteration === 'number' ? d.iteration : undefined,
 		status:
 			d.status ??
 			(d.success === false ? 'failed' : d.success === true ? 'completed' : ''),
@@ -350,6 +355,18 @@ interface TimelineDto {
 	detail?: string;
 	error_severity?: string | null;
 	status?: string;
+	metadata?: Record<string, unknown>;
+}
+
+/** Owning graph node id carried in event metadata, if any. Workflow node
+ * lifecycle events always set `node_id`; other events carry none. */
+function metadataNodeId(metadata: Record<string, unknown> | undefined): string | undefined {
+	if (!metadata) return undefined;
+	for (const key of ['node_id', 'nodeId', 'node']) {
+		const value = metadata[key];
+		if (typeof value === 'string' && value !== '') return value;
+	}
+	return undefined;
 }
 
 function toTimelineEntry(d: TimelineDto, index: number): TimelineEntry {
@@ -361,6 +378,7 @@ function toTimelineEntry(d: TimelineDto, index: number): TimelineEntry {
 		title: d.title ?? d.description ?? '',
 		detail: d.detail ?? d.description ?? '',
 		status: d.status ?? '',
+		nodeId: metadataNodeId(d.metadata),
 	};
 }
 

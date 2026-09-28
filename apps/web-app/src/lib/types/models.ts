@@ -467,6 +467,8 @@ export interface TimelineEntry {
 	title: string;
 	detail: string;
 	status: string;
+	/** Owning graph node id, extracted from event metadata when present. */
+	nodeId?: string;
 }
 
 export interface ToolCallEntry {
@@ -481,4 +483,10 @@ export interface ToolCallEntry {
 	endpoint?: string;
 	exitCode?: number | null;
 	approvalId?: string;
+	/** Owning loop's definition id: launching workflow node id for loops
+	 * started by a workflow node, else the agent definition id. Joins to
+	 * graph nodes by exact id equality only. */
+	nodeId?: string;
+	/** Owning iteration for agent-loop tool calls. */
+	iteration?: number;
 }

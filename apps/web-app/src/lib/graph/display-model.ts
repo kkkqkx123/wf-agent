@@ -250,24 +250,50 @@ export interface CappedGraph {
 /**
  * Enforce the node cap with round-robin sampling across kinds, so a large
  * graph keeps every kind represented instead of cutting off the tail.
+ * Retained ids (failed, running, critical path, selection) are kept first
+ * in the given order; leftovers fill the remaining budget by sampling.
  * Edges survive only when both endpoints survive.
  */
 export function capGraph(
 	nodes: DisplayNode[],
 	edges: DisplayEdge[],
 	cap: number = GRAPH_NODE_CAP,
+	retainIds: Iterable<string> = [],
 ): CappedGraph {
 	if (nodes.length <= cap) {
 		return { nodes, edges, truncated: false, total: nodes.length };
 	}
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	const retained: DisplayNode[] = [];
+	const retainedIds = new Set<string>();
+	for (const id of new Set(retainIds)) {
+		if (retained.length >= cap) break;
+		const node = byId.get(id);
+		if (node && !retainedIds.has(id)) {
+			retained.push(node);
+			retainedIds.add(id);
+		}
+	}
+	if (retained.length >= cap) {
+		const keptIds = new Set(retained.map((node) => node.id));
+		return {
+			nodes: retained,
+			edges: edges.filter(
+				(edge) => keptIds.has(edge.source) && keptIds.has(edge.target),
+			),
+			truncated: true,
+			total: nodes.length,
+		};
+	}
+	const rest = nodes.filter((node) => !retainedIds.has(node.id));
 	const buckets = new Map<string, DisplayNode[]>();
-	for (const node of nodes) {
+	for (const node of rest) {
 		const kind = node.kind || 'unknown';
 		const bucket = buckets.get(kind) ?? [];
 		bucket.push(node);
 		buckets.set(kind, bucket);
 	}
-	const kept: DisplayNode[] = [];
+	const kept: DisplayNode[] = [...retained];
 	const kinds = [...buckets.keys()];
 	let round = 0;
 	let progressed = true;

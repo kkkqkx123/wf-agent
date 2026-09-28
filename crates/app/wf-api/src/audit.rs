@@ -64,6 +64,13 @@ pub struct ToolCallAuditView {
     /// Owning iteration (`None` for pre-recorded legacy entries).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration: Option<u32>,
+    /// Owning loop's definition id. Loops started by a workflow node carry
+    /// the launching node id here, so consumers can join tool calls to
+    /// graph nodes by exact id equality. Standalone loops carry the agent
+    /// definition id, which never matches a graph node. `None` when the
+    /// owner is unknown (checkpoint snapshots).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<serde_json::Value>,
@@ -199,10 +206,11 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
             .await
             .map_err(|e| crate::ApiError::execution(format!("state snapshot failed: {e}")))?;
         let status: wf_types::ExecutionStatus = snapshot.status.clone().into();
+        let node_id = Some(entity.definition_id().to_string());
         let iterations = snapshot
             .iteration_history
             .iter()
-            .map(live_iteration_view)
+            .map(|record| live_iteration_view(record, node_id.clone()))
             .collect();
         return Ok(Some(AgentAuditData {
             source: AuditSource::Live,
@@ -214,11 +222,12 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
     }
 
     if let Some(record) = ctx.storage.agent_execution.load(execution_id).await? {
+        let node_id = Some(record.definition_id.to_string());
         let iterations = record
             .iteration_history
             .unwrap_or_default()
             .iter()
-            .map(persisted_iteration_view)
+            .map(|record| persisted_iteration_view(record, node_id.clone()))
             .collect();
         return Ok(Some(AgentAuditData {
             source: AuditSource::Persisted,
@@ -237,7 +246,7 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
             .filter_map(|value| {
                 serde_json::from_value::<wf_agent::state::IterationRecord>(value.clone()).ok()
             })
-            .map(|record| live_iteration_view(&record))
+            .map(|record| live_iteration_view(&record, None))
             .collect();
         return Ok(Some(AgentAuditData {
             source: AuditSource::CheckpointSnapshot,
@@ -368,7 +377,10 @@ async fn workflow_checkpoint_snapshot(
 
 // ─── view builders ─────────────────────────────────────────────────────────
 
-fn live_iteration_view(record: &wf_agent::state::IterationRecord) -> IterationAuditView {
+fn live_iteration_view(
+    record: &wf_agent::state::IterationRecord,
+    node_id: Option<String>,
+) -> IterationAuditView {
     IterationAuditView {
         iteration: record.iteration,
         started_at: record.start_time,
@@ -386,6 +398,7 @@ fn live_iteration_view(record: &wf_agent::state::IterationRecord) -> IterationAu
             .iter()
             .map(|call| ToolCallAuditView {
                 iteration: Some(record.iteration),
+                node_id: node_id.clone(),
                 name: call.name.clone(),
                 arguments: if call.arguments.is_null() {
                     None
@@ -410,6 +423,7 @@ fn live_iteration_view(record: &wf_agent::state::IterationRecord) -> IterationAu
 
 fn persisted_iteration_view(
     record: &wf_types::agent_execution::IterationRecord,
+    node_id: Option<String>,
 ) -> IterationAuditView {
     IterationAuditView {
         iteration: record.iteration,
@@ -437,6 +451,7 @@ fn persisted_iteration_view(
             .flatten()
             .map(|call| ToolCallAuditView {
                 iteration: Some(record.iteration),
+                node_id: node_id.clone(),
                 name: call.name.clone(),
                 arguments: if call.arguments.is_null() {
                     None

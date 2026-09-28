@@ -102,6 +102,23 @@ describe('capGraph', () => {
 		expect(result.truncated).toBe(true);
 		expect(result.nodes.map((entry) => entry.id)).toEqual(['a0', 'b0', 'a1']);
 	});
+	it('retains priority ids before sampling leftovers', () => {
+		const nodes = [
+			node('a0', 'a'),
+			node('a1', 'a'),
+			node('a2', 'a'),
+			node('b0', 'b'),
+		];
+		const result = capGraph(nodes, [], 3, ['b0', 'a2']);
+		expect(result.truncated).toBe(true);
+		expect(result.nodes.map((entry) => entry.id)).toEqual(['b0', 'a2', 'a0']);
+	});
+	it('keeps retained ids within the budget when they exceed it', () => {
+		const nodes = Array.from({ length: 5 }, (_, i) => node(`n${i}`));
+		const result = capGraph(nodes, [], 2, ['n4', 'n3', 'n2']);
+		expect(result.truncated).toBe(true);
+		expect(result.nodes.map((entry) => entry.id)).toEqual(['n4', 'n3']);
+	});
 });
 
 describe('columnPositions', () => {

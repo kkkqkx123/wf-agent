@@ -55,7 +55,7 @@
 	import { openEventStream, type StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap } from 'svelte/reactivity';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -133,6 +133,20 @@
 	]);
 
 	const slowAll = $derived(slowEntries);
+
+	/** Deduplicated slow rows for the analysis tab; overlapping sources keep
+	 * the longest duration so graph and analysis never disagree on membership. */
+	const slowDisplay = $derived.by(() => {
+		const longest = new Map<string, number>();
+		for (const entry of slowEntries) {
+			const prev = longest.get(entry.node) ?? 0;
+			if (entry.durationMs > prev) longest.set(entry.node, entry.durationMs);
+		}
+		return [...longest.entries()].map(([node, durationMs]) => ({
+			node,
+			durationMs,
+		}));
+	});
 
 	const decisionAll = $derived([
 		...new Set([...decisionPoints, ...execution.analysis.decisionPoints]),
@@ -247,14 +261,45 @@
 		return labels;
 	});
 
+	/** Active replay scope: executed graph node ids plus the cursor frame's
+	 * timestamp. Tools join by exact node id, timeline entries by exact
+	 * timestamp; unattributed rows stay visible. */
+	const replayScope = $derived.by(() => {
+		if (replayIndex === null || callStack.length === 0) return null;
+		const graphIds = new Set(graphNodes.map((node) => node.id));
+		const executed = new Set(
+			(replayView?.executedNodes ?? []).filter((id) => graphIds.has(id ?? '')),
+		);
+		const frame = callStack[Math.min(replayIndex, callStack.length - 1)];
+		return {
+			graphIds,
+			executed,
+			cutoff: frame?.enteredAt || null,
+		};
+	});
+
 	const filteredTools = $derived.by(() => {
 		const needle = toolFilter.trim().toLowerCase();
-		if (!needle) return toolCalls;
-		return toolCalls.filter(
+		const scoped = replayScope === null ? toolCalls : toolCalls.filter((tool) =>
+			replayScope.graphIds.has(tool.nodeId ?? '')
+				? replayScope.executed.has(tool.nodeId as string)
+				: true,
+		);
+		if (!needle) return scoped;
+		return scoped.filter(
 			(tool) =>
 				tool.name.toLowerCase().includes(needle) ||
 				tool.id.toLowerCase().includes(needle),
 		);
+	});
+
+	/** Timeline entries up to the replay cursor (exact timestamp cutoff).
+	 * Entries without a timestamp stay visible; nothing is hidden on
+	 * uncertain grounds. */
+	const scopedTimeline = $derived.by(() => {
+		const cutoff = replayScope?.cutoff;
+		if (!cutoff) return timeline;
+		return timeline.filter((entry) => !entry.at || entry.at <= cutoff);
 	});
 
 	/** Best-effort match between a tool call and a graph node by name. */
@@ -280,14 +325,23 @@
 		return null;
 	}
 
+	function focusGraphNode(nodeId: string): void {
+		tab = 'graph';
+		queueMicrotask(() => explorer?.focus(nodeId));
+	}
+
 	function focusToolOnGraph(toolId: string, toolName: string): void {
+		const direct = toolCalls.find((tool) => tool.id === toolId)?.nodeId;
+		if (direct && graphNodes.some((node) => node.id === direct)) {
+			focusGraphNode(direct);
+			return;
+		}
 		const nodeId = matchToolNode(toolName, toolId);
 		if (!nodeId) {
 			toasts.info('No graph node matches this tool call');
 			return;
 		}
-		tab = 'graph';
-		queueMicrotask(() => explorer?.focus(nodeId));
+		focusGraphNode(nodeId);
 	}
 
 	function filterToolsByGraph(nodeId: string): void {
@@ -295,6 +349,25 @@
 		toolFilter = node ? node.label : nodeId;
 		tab = 'tools';
 	}
+
+	/** Jump from the graph selection back to the analysis row that
+	 * produced its mark. */
+	function revealInAnalysis(kind: 'slow' | 'critical' | 'decision'): void {
+		tab = 'analysis';
+		queueMicrotask(() =>
+			document
+				.getElementById(`analysis-${kind}`)
+				?.scrollIntoView({ block: 'nearest' }),
+		);
+	}
+
+	const selectedAnalysisKind = $derived.by((): 'slow' | 'critical' | 'decision' | null => {
+		if (!graphNodeId) return null;
+		if (slowEntries.some((entry) => entry.node === graphNodeId)) return 'slow';
+		if (criticalAll.includes(graphNodeId)) return 'critical';
+		if (decisionAll.includes(graphNodeId)) return 'decision';
+		return null;
+	});
 
 	function noteLiveEvent(event: EventRecord): void {
 		let meta: Record<string, unknown>;
@@ -693,6 +766,19 @@
 						>
 							{replayPlaying ? 'Pause' : 'Play'}
 						</button>
+						<label class="text-micro text-muted-foreground">
+							Speed
+							<select
+								bind:value={replaySpeed}
+								class="ml-1 rounded border border-border bg-card text-micro text-foreground"
+								aria-label="Replay speed"
+							>
+								<option value={0.5}>0.5×</option>
+								<option value={1}>1×</option>
+								<option value={2}>2×</option>
+								<option value={4}>4×</option>
+							</select>
+						</label>
 						<button
 							type="button"
 							class="text-micro text-muted-foreground underline-offset-2 hover:underline"
@@ -778,6 +864,16 @@
 						>
 							Show tool calls for this node
 						</button>
+						{#if selectedAnalysisKind}
+							<button
+								type="button"
+								class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
+								onclick={() =>
+									selectedAnalysisKind && revealInAnalysis(selectedAnalysisKind)}
+							>
+								Show in analysis
+							</button>
+						{/if}
 					{/if}
 				{/snippet}
 			</GraphExplorer>
@@ -793,9 +889,14 @@
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else}
+				{#if replayScope !== null}
+					<p class="mb-2 text-micro text-muted-foreground">
+						Following replay cursor ({scopedTimeline.length}/{timeline.length})
+					</p>
+				{/if}
 				<div class="flex items-start gap-3">
-					<Timeline entries={timeline} class="min-w-0 flex-1" />
-					<TimelineOutline entries={timeline} class="hidden w-44 xl:block" />
+					<Timeline entries={scopedTimeline} class="min-w-0 flex-1" />
+					<TimelineOutline entries={scopedTimeline} class="hidden w-44 xl:block" />
 				</div>
 			{/if}
 		{:else if tab === 'tools'}
@@ -811,6 +912,11 @@
 				/>
 			{:else}
 				<div class="space-y-2">
+					{#if replayScope !== null}
+						<p class="text-micro text-muted-foreground">
+							Following replay cursor ({filteredTools.length}/{toolCalls.length})
+						</p>
+					{/if}
 					{#if toolFilter}
 						<div class="flex items-center gap-2">
 							<p class="text-micro text-muted-foreground">
@@ -876,12 +982,19 @@
 						</Card>
 					{/if}
 					<Card title="Slow nodes">
-						<ul class="space-y-1.5">
-							{#each slowNodes as node (node.node)}
+						<ul class="space-y-1.5" id="analysis-slow">
+							{#each slowDisplay as node (node.node)}
 								<li
 									class="flex items-center justify-between gap-2 text-caption"
 								>
-									<span class="truncate font-mono">{node.node}</span>
+									<button
+										type="button"
+										class="truncate font-mono underline-offset-2 hover:underline"
+										title="Locate on graph"
+										onclick={() => focusGraphNode(node.node)}
+									>
+										{node.node}
+									</button>
 									<span class="shrink-0 tabular-nums text-muted-foreground">
 										{formatDuration(node.durationMs)}
 									</span>
@@ -894,15 +1007,18 @@
 						</ul>
 					</Card>
 					<Card title="Critical path">
-						<ol class="flex flex-wrap items-center gap-1.5">
-							{#each criticalPath as node (node)}
+						<ol class="flex flex-wrap items-center gap-1.5" id="analysis-critical">
+							{#each criticalAll as node (node)}
 								<li class="flex items-center gap-1.5">
-									<span
-										class="rounded border border-border px-1.5 py-0.5 font-mono text-micro"
+									<button
+										type="button"
+										class="rounded border border-border px-1.5 py-0.5 font-mono text-micro underline-offset-2 hover:underline"
+										title="Locate on graph"
+										onclick={() => focusGraphNode(node)}
 									>
 										{node}
-									</span>
-									{#if node !== criticalPath[criticalPath.length - 1]}
+									</button>
+									{#if node !== criticalAll[criticalAll.length - 1]}
 										<span class="text-micro text-muted-foreground">→</span>
 									{/if}
 								</li>
@@ -914,17 +1030,20 @@
 						</ol>
 					</Card>
 					<Card title="Decision points">
-						<div class="flex flex-wrap gap-1.5">
-							{#each decisionPoints as node (node)}
-								<span
-									class="rounded-full border border-border px-2 py-0.5 font-mono text-micro"
+						<div class="flex flex-wrap gap-1.5" id="analysis-decision">
+							{#each decisionAll as node (node)}
+								<button
+									type="button"
+									class="rounded-full border border-border px-2 py-0.5 font-mono text-micro underline-offset-2 hover:underline"
+									title="Locate on graph"
+									onclick={() => focusGraphNode(node)}
 								>
 									{node}
-								</span>
+								</button>
 							{/each}
 						</div>
 						<p class="mt-2 text-caption text-muted-foreground">
-							{formatNumber(failedNodes.length)} failed nodes
+							{formatNumber(failedAll.length)} failed nodes
 						</p>
 					</Card>
 				</div>

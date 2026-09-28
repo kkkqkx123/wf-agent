@@ -76,8 +76,15 @@ export class WorkflowLockStore {
 		);
 	}
 
+	/** Poll or heartbeat failed: holder is stale, writes must wait. */
+	get unknown(): boolean {
+		return this.supported && this.refreshError !== null;
+	}
+
 	get canWrite(): boolean {
-		return !this.supported || this.held;
+		if (!this.supported) return true;
+		if (this.refreshError !== null) return false;
+		return this.held;
 	}
 
 	get displayHolder(): string {
@@ -97,6 +104,16 @@ export class WorkflowLockStore {
 
 	watch(workflowId: string): void {
 		if (this.workflowId === workflowId && workflowId !== '') return;
+		// Switching workflows releases the previous lease without blocking;
+		// failures only surface as a notice.
+		if (this.workflowId && this.supported && this.held) {
+			const previousId = this.workflowId;
+			const previousOwner = this.ownerId;
+			void releaseWorkflowLock(previousId, previousOwner).catch((e) => {
+				this.refreshError =
+					e instanceof Error ? e.message : 'Lock release failed.';
+			});
+		}
 		this.dispose();
 		this.workflowId = workflowId;
 		this.holderId = null;
@@ -137,8 +154,11 @@ export class WorkflowLockStore {
 		if (!this.workflowId || !this.supported || !this.held) return;
 		try {
 			await releaseWorkflowLock(this.workflowId, this.ownerId);
-		} catch {
+			this.refreshError = null;
+		} catch (e) {
 			// Leaving edit never blocks on release failures.
+			this.refreshError =
+				e instanceof Error ? e.message : 'Lock release failed.';
 		}
 		this.holderId = null;
 		this.holderName = '';

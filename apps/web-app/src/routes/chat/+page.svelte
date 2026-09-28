@@ -25,6 +25,8 @@
 	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
 	import {
 		applyExecutionOverlay,
+		matchDecisionNodeId,
+		nodesForIteration,
 		projectExecutionOverlay,
 	} from '$lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
@@ -40,7 +42,10 @@
 	import { splitAttachments, withAttachments } from '$lib/utils/attachments';
 	import { createResource } from '$lib/stores/collection.svelte';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
-	import type { LiveToolCall } from '$lib/stores/stream-run.svelte';
+	import type {
+		LiveToolCall,
+		SubAgentNote,
+	} from '$lib/stores/stream-run.svelte';
 	import { NEW_SESSION, sessions } from '$lib/stores/sessions.svelte';
 	import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -150,27 +155,43 @@
 		})),
 	);
 
+	// Beat-merged snapshot for projection input. Stream frames arrive at
+	// SSE cadence; the mini map and inspector only consume this snapshot so
+	// high-frequency deltas never re-layout the graph per frame.
+	let projectedTools = $state<LiveToolCall[]>([]);
+	let projectedSubAgents = $state<SubAgentNote[]>([]);
+	let projectedIteration = $state<number | null>(null);
+
+	$effect(() => {
+		const id = window.setInterval(() => {
+			if (!chatStream.active) return;
+			projectedTools = [...chatStream.tools];
+			projectedSubAgents = [...chatStream.subAgents];
+			projectedIteration = chatStream.iteration;
+		}, 200);
+		return () => window.clearInterval(id);
+	});
+
+	$effect(() => {
+		if (chatStream.active) return;
+		projectedTools = [...chatStream.tools];
+		projectedSubAgents = [...chatStream.subAgents];
+		projectedIteration = chatStream.iteration;
+	});
+
+	// Converge with the history snapshot once the run settles.
+	$effect(() => {
+		if (chatStream.done && selectedId) void loopGraph.reload();
+	});
+
 	function matchMiniNode(name: string): string | null {
-		const needle = name.trim().toLowerCase();
-		if (!needle) return null;
-		const exact = miniBaseNodes.find(
-			(node) =>
-				node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
-		);
-		if (exact) return exact.id;
-		return (
-			miniBaseNodes.find(
-				(node) =>
-					node.label.toLowerCase().includes(needle) ||
-					needle.includes(node.id.toLowerCase()),
-			)?.id ?? null
-		);
+		return matchDecisionNodeId(miniBaseNodes, name);
 	}
 
-	const miniNodes = $derived.by(() => {
+	const miniLive = $derived.by(() => {
 		const live: Record<string, string> = {};
 		let current: string | null = null;
-		for (const tool of chatStream.tools) {
+		for (const tool of projectedTools) {
 			const nodeId = matchMiniNode(tool.name);
 			if (!nodeId) continue;
 			live[nodeId] = tool.status;
@@ -178,10 +199,32 @@
 				current = nodeId;
 			}
 		}
+		for (const agent of projectedSubAgents) {
+			const nodeId = matchMiniNode(agent.name);
+			if (!nodeId) continue;
+			const status =
+				agent.success === null
+					? 'running'
+					: agent.success
+						? 'completed'
+						: 'failed';
+			live[nodeId] = status;
+			if (agent.success === null) current ??= nodeId;
+		}
+		if (current === null && projectedIteration !== null) {
+			current = nodesForIteration(miniBaseNodes, projectedIteration)[0] ?? null;
+		}
+		return { live, current };
+	});
+
+	const miniLiveStatuses = $derived(miniLive.live);
+	const miniCurrentNode = $derived(miniLive.current);
+
+	const miniNodes = $derived.by(() => {
 		if (miniBaseNodes.length === 0) return miniBaseNodes;
 		const overlay = projectExecutionOverlay(miniBaseNodes, {
-			currentNode: current,
-			liveStatuses: live,
+			currentNode: miniCurrentNode,
+			liveStatuses: miniLiveStatuses,
 		});
 		return applyExecutionOverlay(miniBaseNodes, overlay);
 	});
@@ -608,9 +651,23 @@
 			bind:tab
 			{revision}
 			busy={chatStream.active}
-			liveStatuses={Object.fromEntries(
-				chatStream.tools.map((tool) => [tool.name, tool.status]),
-			)}
+			liveStatuses={{
+				...Object.fromEntries(
+					projectedTools.map((tool) => [tool.name, tool.status]),
+				),
+				...Object.fromEntries(
+					projectedSubAgents.map((agent) => [
+						agent.name,
+						agent.success === null
+							? 'running'
+							: agent.success
+								? 'completed'
+								: 'failed',
+					]),
+				),
+			}}
+			liveNode={miniCurrentNode}
+			focusId={miniSelected}
 			onnodeselect={(id) => {
 				if (id) {
 					focusToolFromNode(id);

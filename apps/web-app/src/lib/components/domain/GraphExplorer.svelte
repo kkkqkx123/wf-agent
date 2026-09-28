@@ -26,6 +26,11 @@
 		groupIdFromTitle,
 		isGroupTitleId,
 	} from '$lib/graph/group-view';
+	import {
+		columnPositions,
+		layeredPositions,
+		sortIdsByCanvasPosition,
+	} from '$lib/graph/layout';
 	import { registerCanvasShortcuts } from '$lib/graph/canvas-shortcuts';
 	import {
 		capGraph,
@@ -40,6 +45,7 @@
 		type GraphPreset,
 	} from '$lib/graph/display-model';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '$lib/utils/cn';
 
 	export interface GraphOverlay {
@@ -160,8 +166,14 @@
 	let query = $state('');
 	let hiddenKinds = $state<string[]>([]);
 	let collapsedIds = $state<string[]>([]);
-	let minimapMode = $state<'auto' | 'on' | 'off'>('auto');
 	let matchIndex = $state(0);
+
+	function cycleMinimap(): void {
+		const current = preferences.minimapMode;
+		preferences.setMinimapMode(
+			current === 'auto' ? 'on' : current === 'on' ? 'off' : 'auto',
+		);
+	}
 
 	const kinds = $derived(distinctKinds(nodes));
 	const activeIds = $derived(
@@ -217,12 +229,21 @@
 			),
 		);
 	});
+	const statusById = $derived.by(() => {
+		const table: Record<string, string | undefined> = {};
+		for (const node of filtered.nodes) table[node.id] = node.status;
+		for (const id of failedIds) table[id] = 'failed';
+		for (const id of pulseIds) table[id] = 'running';
+		return table;
+	});
 	const folded = $derived(
 		foldForCap(
 			filtered.nodes,
 			filtered.edges,
 			new Set(collapsedIds),
 			protectedGroups,
+			GRAPH_NODE_CAP,
+			{ statusById },
 		),
 	);
 	const foldedView = $derived(folded.view);
@@ -269,6 +290,73 @@
 			: [...collapsedIds, groupId];
 	}
 
+	function collapseAllGroups(): void {
+		collapsedIds = groups.map((group) => group.id);
+	}
+
+	function expandAllGroups(): void {
+		collapsedIds = [];
+	}
+
+	function focusGroup(titleId: string): void {
+		const title = foldedView.titles[titleId];
+		if (!title) return;
+		if (folded.collapsed.has(title.groupId)) {
+			void focus(titleId);
+			return;
+		}
+		const visible = title.memberIds.filter((id) =>
+			capped.nodes.some((node) => node.id === id),
+		);
+		if (visible.length === 0) {
+			void focus(titleId);
+			return;
+		}
+		canvas?.fitTo(visible);
+	}
+
+	async function copyText(text: string, label: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(text);
+			toasts.success(`${label} copied`);
+		} catch {
+			toasts.error('Copy failed', 'Clipboard is unavailable.');
+		}
+	}
+
+	function isHiddenNode(id: string): boolean {
+		return foldedView.hiddenIds.has(id);
+	}
+
+	function guardConnect(source: string, target: string): boolean {
+		if (isHiddenNode(source) || isHiddenNode(target)) {
+			toasts.info(
+				'Hidden group member',
+				'Expand the group before connecting.',
+			);
+			return false;
+		}
+		if (isGroupTitleId(source) || isGroupTitleId(target)) {
+			toasts.info(
+				'Group title cannot connect',
+				'Expand the group and connect a member.',
+			);
+			return false;
+		}
+		return true;
+	}
+
+	function guardMoves(moves: CanvasMove[]): CanvasMove[] {
+		const visible = moves.filter((move) => !isHiddenNode(move.id));
+		if (visible.length !== moves.length) {
+			toasts.info(
+				'Hidden group member',
+				'Expand the group before moving hidden nodes.',
+			);
+		}
+		return visible;
+	}
+
 	function handleExpand(id: string): void {
 		// Double-clicking a group title folds back out instead of loading
 		// neighborhoods; every other node keeps the existing behavior.
@@ -291,9 +379,26 @@
 		if (nodeIds.length > 0) ondeletenodes?.(nodeIds);
 	}
 
-	// Search-locate: every capped node already matches the query, so matches
-	// are just the visible nodes in render order.
-	const matchIds = $derived(capped.nodes.map((node) => node.id));
+	// Search-locate: every capped node already matches the query. Matches
+	// follow canvas geometry left to right, top to bottom so stepping feels
+	// stable instead of following input order.
+	const matchIds = $derived.by(() => {
+		const ids = capped.nodes.map((node) => node.id);
+		const base =
+			layout === 'columns'
+				? columnPositions(capped.nodes)
+				: layout === 'layered'
+					? layeredPositions(capped.nodes, capped.edges)
+					: new Map<string, { x: number; y: number }>();
+		const resolved = new Map<string, { x: number; y: number }>();
+		for (const id of ids) {
+			const override = positions?.[id];
+			const computed = base.get(id);
+			if (override) resolved.set(id, override);
+			else if (computed) resolved.set(id, computed);
+		}
+		return sortIdsByCanvasPosition(ids, resolved);
+	});
 	const matchLabel = $derived(
 		matchIds.length === 0
 			? 'No matches'
@@ -342,20 +447,33 @@
 					: `Node ${contextMenu.id ?? ''}`,
 	);
 
+	const paramReason = $derived.by(() => {
+		if (!contextMenu || !contextMenu.id) return 'No target node.';
+		if (!onjumpparam) return 'No definition panel is available.';
+		return null;
+	});
+
 	const menuItems = $derived.by((): ContextMenuItem[] => {
 		if (!contextMenu) return [];
 		const write = editMode;
 		if (contextMenu.kind === 'node') {
 			return [
 				{ id: 'locate', label: 'Focus node' },
-				...(onjumpparam
-					? [{ id: 'params', label: 'Locate in definition' }]
-					: []),
+				{ id: 'copy-id', label: 'Copy node id' },
+				{
+					id: 'params',
+					label: 'Locate in definition',
+					disabled: paramReason !== null,
+					...(paramReason ? { reason: paramReason } : {}),
+				},
 				{
 					id: 'delete-node',
 					label: 'Delete node',
 					danger: true,
 					disabled: !write,
+					...(!write
+						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
+						: {}),
 				},
 			];
 		}
@@ -365,6 +483,7 @@
 				: undefined;
 			const collapsedNow = title ? folded.collapsed.has(title.groupId) : false;
 			return [
+				{ id: 'focus-group', label: 'Focus whole group' },
 				{
 					id: 'toggle-group',
 					label: collapsedNow ? 'Expand group' : 'Collapse group',
@@ -374,6 +493,9 @@
 					label: 'Delete group',
 					danger: true,
 					disabled: !write,
+					...(!write
+						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
+						: {}),
 				},
 			];
 		}
@@ -386,6 +508,9 @@
 					label: 'Delete edge',
 					danger: true,
 					disabled: !write,
+					...(!write
+						? { reason: 'Read-only canvas. Enter edit mode to delete.' }
+						: {}),
 				},
 			];
 		}
@@ -396,6 +521,7 @@
 				id: 'edit-toggle',
 				label: editMode ? 'Exit edit mode' : 'Enter edit mode',
 				disabled: !editable,
+				...(!editable ? { reason: 'This graph is not editable.' } : {}),
 			},
 		];
 	});
@@ -409,11 +535,17 @@
 			case 'locate':
 				if (id) void focus(id);
 				break;
+			case 'copy-id':
+				if (id) void copyText(id, 'Node id');
+				break;
 			case 'params':
-				if (id) onjumpparam?.(id);
+				if (id && !paramReason) onjumpparam?.(id);
 				break;
 			case 'delete-node':
 				if (id) ondeletenodes?.([id]);
+				break;
+			case 'focus-group':
+				if (id) focusGroup(id);
 				break;
 			case 'toggle-group': {
 				const title = id ? foldedView.titles[id] : undefined;
@@ -457,6 +589,12 @@
 		return registerCanvasShortcuts(root, () => ({
 			fit: () => canvas?.fit(),
 			relayout: () => canvas?.relayout(),
+			zoomIn: () => canvas?.zoomIn(),
+			zoomOut: () => canvas?.zoomOut(),
+			focusSelected: () => {
+				const id = selectedId ?? canvas?.selectedNodeIds()[0];
+				if (id) canvas?.zoomTo(id);
+			},
 			selectAll: () => canvas?.selectAll(),
 			deleteSelected: () => handleDeleteSelected(),
 			undo: () => onundo?.(),
@@ -568,20 +706,14 @@
 			onclick={() => (showFilters = !showFilters)}
 		/>
 		<Button
-			variant={minimapMode === 'off' ? 'outline' : 'default'}
+			variant={preferences.minimapMode === 'off' ? 'outline' : 'default'}
 			size="sm"
-			onclick={() =>
-				(minimapMode =
-					minimapMode === 'auto'
-						? 'on'
-						: minimapMode === 'on'
-							? 'off'
-							: 'auto')}
+			onclick={cycleMinimap}
 			title="Cycle minimap auto / on / off"
 		>
-			Minimap {minimapMode === 'auto'
+			Minimap {preferences.minimapMode === 'auto'
 				? 'auto'
-				: minimapMode === 'on'
+				: preferences.minimapMode === 'on'
 					? 'on'
 					: 'off'}
 		</Button>
@@ -655,8 +787,8 @@
 				Folded {folded.auto.length} group(s) ·
 			{/if}
 			{#if capped.truncated}
-				Showing {capped.nodes.length} of {capped.total} nodes ·
-				Retention order: failed, running, critical path, selection ·
+				Showing {capped.nodes.length} of {capped.total} nodes · Retention order: failed,
+				running, critical path, selection ·
 			{/if}
 			{filtered.nodes.length} nodes · {filtered.edges.length} edges
 		</span>
@@ -664,9 +796,10 @@
 
 	{#if editMode}
 		<p class="text-micro text-muted-foreground">
-			Drag nodes to move · double-click empty canvas to add a node · click an
-			edge to delete it · shift-click another node to connect from the selection
-			· Delete selected removes the selection. Layout is frozen while editing.
+			Drag nodes to move · drag a hotspot or shift-click another node to
+			connect from the selection · double-click empty canvas to add a node ·
+			click an edge to delete it · Delete selected removes the selection.
+			Layout is frozen while editing.
 		</p>
 	{/if}
 	{#if overlays.length > 0}
@@ -699,6 +832,12 @@
 					>
 				</Button>
 			{/each}
+			<Button variant="ghost" size="sm" onclick={collapseAllGroups}>
+				Collapse all
+			</Button>
+			<Button variant="ghost" size="sm" onclick={expandAllGroups}>
+				Expand all
+			</Button>
 		</div>
 	{/if}
 
@@ -796,17 +935,33 @@
 				{positions}
 				{editMode}
 				{edgeLabelLimit}
-				minimap={minimapMode}
+				minimap={preferences.minimapMode}
 				collapsedIds={[...folded.collapsed]}
+				hiddenIds={[...foldedView.hiddenIds]}
 				groupTitles={foldedView.titles}
 				onselect={(id) => onselect?.(id)}
 				onexpand={handleExpand}
 				onboxselect={handleBoxSelect}
-				onmovenode={(id, position) => onmovenode?.(id, position)}
-				ongroupmove={(moves) => onmovenodes?.(moves)}
+				onmovenode={(id, position) => {
+					if (isHiddenNode(id)) {
+						toasts.info(
+							'Hidden group member',
+							'Expand the group before moving hidden nodes.',
+						);
+						return;
+					}
+					onmovenode?.(id, position);
+				}}
+				ongroupmove={(moves) => {
+					const visible = guardMoves(moves);
+					if (visible.length > 0) onmovenodes?.(visible);
+				}}
 				onbackgrounddoubleclick={(position) => onaddnode?.(position)}
 				ondeleteedge={(id) => ondeleteedge?.(id)}
-				onconnect={(source, target) => onconnect?.(source, target)}
+				onconnect={(source, target) => {
+					if (guardConnect(source, target)) onconnect?.(source, target);
+				}}
+				onconnectreject={(reason) => toasts.info('Cannot connect', reason)}
 				oncontext={openContext}
 				class="min-h-0"
 			/>
@@ -847,7 +1002,7 @@
 										hiddenKinds = [];
 									}}
 								>
-									Unfold all
+									Show all kinds
 								</Button>
 							{/if}
 						</div>
@@ -865,12 +1020,13 @@
 						{#if isGroupTitleId(selected.id)}
 							{@const title = foldedView.titles[selected.id]}
 							<p class="text-caption text-muted-foreground">
-								Group · {title?.memberIds.length ?? 0} member(s) ·
+								Group · {title?.label ?? selected.id} · {title?.memberIds
+									.length ?? 0} member(s) ·
 								{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
 								out
 							</p>
 							{#if title}
-								<div class="mt-2">
+								<div class="mt-2 flex flex-wrap gap-1.5">
 									<Button
 										variant="outline"
 										size="sm"
@@ -880,7 +1036,20 @@
 											? 'Expand group'
 											: 'Collapse group'}
 									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() => focusGroup(selected.id)}
+									>
+										Focus whole group
+									</Button>
 								</div>
+								<p
+									class="mt-1 text-micro text-muted-foreground"
+									title="Groups have no definition entry."
+								>
+									Locate in definition is unavailable for groups.
+								</p>
 							{/if}
 						{:else}
 							<dl class="space-y-1 text-caption">
@@ -947,8 +1116,15 @@
 									</Button>
 								</div>
 							{/if}
-							{#if onjumpparam}
-								<div class="mt-2">
+							<div class="mt-2 flex flex-wrap gap-1.5">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => selected && void copyText(selected.id, 'Node id')}
+								>
+									Copy node id
+								</Button>
+								{#if onjumpparam}
 									<Button
 										variant="outline"
 										size="sm"
@@ -956,7 +1132,21 @@
 									>
 										Locate in definition
 									</Button>
-								</div>
+								{:else}
+									<Button
+										variant="outline"
+										size="sm"
+										disabled
+										title="No definition panel is available."
+									>
+										Locate in definition
+									</Button>
+								{/if}
+							</div>
+							{#if !onjumpparam}
+								<p class="mt-1 text-micro text-muted-foreground">
+									No definition panel is available.
+								</p>
 							{/if}
 						{/if}
 					</Card>

@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
 	connectedComponents,
 	columnPositions,
+	groupAwareLayeredPositions,
 	layeredPositions,
+	pushOverlapped,
 	snapToGrid,
+	sortIdsByCanvasPosition,
 } from './layout';
 import {
 	capGraph,
@@ -23,8 +26,11 @@ import {
 import {
 	applyEdgeOverlay,
 	applyExecutionOverlay,
+	buildVersionDiffView,
 	diffTopology,
 	issueNodeIds,
+	matchDecisionNodeId,
+	nodesForIteration,
 	projectEdgeOverlay,
 	projectEdgeTone,
 	projectExecutionOverlay,
@@ -292,6 +298,83 @@ describe('snapToGrid', () => {
 	});
 });
 
+describe('pushOverlapped', () => {
+	it('pushes stationary nodes out of moved boxes', () => {
+		const pushed = pushOverlapped(
+			[{ id: 'a', position: { x: 100, y: 100 } }],
+			{ a: { x: 0, y: 0 }, b: { x: 110, y: 100 } },
+		);
+		expect(pushed.map((entry) => entry.id)).toEqual(['b']);
+		expect(pushed[0]?.position.x % 20).toBe(0);
+	});
+	it('leaves distant nodes alone', () => {
+		expect(
+			pushOverlapped(
+				[{ id: 'a', position: { x: 0, y: 0 } }],
+				{ a: { x: 0, y: 0 }, b: { x: 500, y: 500 } },
+			),
+		).toEqual([]);
+	});
+});
+
+describe('groupAwareLayeredPositions', () => {
+	it('keeps grouped members compact', () => {
+		const nodes = [
+			node('a', 'step', { groupId: 'g' }),
+			node('b', 'step', { groupId: 'g' }),
+			node('c', 'step'),
+		];
+		const edges = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')];
+		const positions = groupAwareLayeredPositions(nodes, edges, {
+			a: 'g',
+			b: 'g',
+		});
+		expect(positions.size).toBe(3);
+		const ax = positions.get('a')?.x ?? 0;
+		const bx = positions.get('b')?.x ?? 0;
+		expect(Math.abs(bx - ax)).toBeLessThan(600);
+	});
+	it('falls back to layered layout without groups', () => {
+		const nodes = [node('a'), node('b')];
+		const positions = groupAwareLayeredPositions(
+			nodes,
+			[edge('e1', 'a', 'b')],
+			{},
+		);
+		expect(positions.get('b')?.x ?? 0).toBeGreaterThan(
+			positions.get('a')?.x ?? 0,
+		);
+	});
+});
+
+describe('sortIdsByCanvasPosition', () => {
+	it('orders left to right then top to bottom', () => {
+		const ids = ['c', 'a', 'b'];
+		const positions = new Map([
+			['a', { x: 0, y: 100 }],
+			['b', { x: 0, y: 20 }],
+			['c', { x: 200, y: 0 }],
+		]);
+		expect(sortIdsByCanvasPosition(ids, positions)).toEqual(['b', 'a', 'c']);
+	});
+	it('keeps input order for missing positions', () => {
+		const ids = ['b', 'a', 'c'];
+		expect(
+			sortIdsByCanvasPosition(ids, new Map([['a', { x: 0, y: 0 }]])),
+		).toEqual(['b', 'a', 'c']);
+	});
+	it('accepts record positions and passes through without positions', () => {
+		const ids = ['b', 'a'];
+		expect(
+			sortIdsByCanvasPosition(ids, {
+				a: { x: 0, y: 0 },
+				b: { x: 100, y: 0 },
+			}),
+		).toEqual(['a', 'b']);
+		expect(sortIdsByCanvasPosition(ids, undefined)).toEqual(['b', 'a']);
+	});
+});
+
 describe('projectExecutionOverlay', () => {
 	it('merges signals by priority and pulses the current node', () => {
 		const nodes = [node('a'), node('b'), node('c')];
@@ -354,7 +437,8 @@ describe('projectExecutionOverlay', () => {
 	});
 });
 
-describe('diffTopology', () => {	it('reports added and removed nodes and edges', () => {
+describe('diffTopology', () => {
+	it('reports added and removed nodes and edges', () => {
 		const diff = diffTopology(
 			[node('a'), node('b')],
 			[edge('e1', 'a', 'b')],
@@ -365,6 +449,77 @@ describe('diffTopology', () => {	it('reports added and removed nodes and edges',
 		expect(diff.removedNodes).toEqual(['a']);
 		expect(diff.addedEdges).toEqual([{ source: 'b', target: 'c' }]);
 		expect(diff.removedEdges).toEqual([{ source: 'a', target: 'b' }]);
+	});
+});
+
+describe('matchDecisionNodeId', () => {
+	it('prefers exact id or label matches', () => {
+		const nodes = [node('a'), node('b')];
+		expect(matchDecisionNodeId(nodes, 'A')).toBe('a');
+		expect(matchDecisionNodeId(nodes, 'b')).toBe('b');
+		expect(matchDecisionNodeId(nodes, '  ')).toBeNull();
+	});
+	it('falls back to substring matches', () => {
+		const nodes = [{ id: 'tool-search', label: 'Web Search' }];
+		expect(matchDecisionNodeId(nodes, 'search')).toBe('tool-search');
+		expect(matchDecisionNodeId(nodes, 'unknown-tool')).toBeNull();
+	});
+});
+
+describe('nodesForIteration', () => {
+	it('collects ids of one iteration column', () => {
+		const nodes = [
+			node('a', 'decision', { iteration: 0 }),
+			node('b', 'decision', { iteration: 1 }),
+		];
+		expect(nodesForIteration(nodes, 1)).toEqual(['b']);
+		expect(nodesForIteration(nodes, null)).toEqual([]);
+	});
+});
+
+describe('buildVersionDiffView', () => {
+	it('returns empty passthrough without a diff', () => {
+		const nodes = [node('a')];
+		const edges = [edge('e', 'a', 'a')];
+		const view = buildVersionDiffView(nodes, edges, null);
+		expect(view.empty).toBe(true);
+		expect(view.nodes).toBe(nodes);
+	});
+	it('styles added edges and placeholders removed ones', () => {
+		const view = buildVersionDiffView([node('a'), node('b')], [], {
+			addedNodes: [],
+			removedNodes: ['gone'],
+			addedEdges: [],
+			removedEdges: [{ source: 'a', target: 'gone' }],
+		});
+		expect(view.removedNodes).toBe(1);
+		expect(view.nodes.some((entry) => entry.id === 'gone')).toBe(true);
+		expect(view.edges[0]?.label).toContain('−');
+		expect(view.empty).toBe(false);
+	});
+	it('merges parallel removed edges with a count', () => {
+		const view = buildVersionDiffView([node('a'), node('b')], [], {
+			addedNodes: [],
+			removedNodes: [],
+			addedEdges: [],
+			removedEdges: [
+				{ source: 'a', target: 'b' },
+				{ source: 'a', target: 'b' },
+			],
+		});
+		expect(view.edges).toHaveLength(1);
+		expect(view.edges[0]?.label).toContain('2 links');
+		expect(view.mergedGroups).toBe(1);
+	});
+	it('reports an empty diff with zero counts', () => {
+		const view = buildVersionDiffView([node('a')], [], {
+			addedNodes: [],
+			removedNodes: [],
+			addedEdges: [],
+			removedEdges: [],
+		});
+		expect(view.empty).toBe(true);
+		expect(view.addedEdges).toBe(0);
 	});
 });
 

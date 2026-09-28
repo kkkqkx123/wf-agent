@@ -7,6 +7,8 @@
 		label: string;
 		disabled?: boolean;
 		danger?: boolean;
+		/** Human-readable reason shown for disabled items. */
+		reason?: string;
 	}
 
 	interface Props {
@@ -29,6 +31,9 @@
 	let menu: HTMLDivElement | null = $state(null);
 	onMount(() => {
 		menu?.focus();
+		const closeOnWheel = (): void => onclose();
+		window.addEventListener('wheel', closeOnWheel, { capture: true });
+		return () => window.removeEventListener('wheel', closeOnWheel, { capture: true });
 	});
 
 	function point(delta: number): void {
@@ -83,8 +88,10 @@
 			type="button"
 			role="menuitem"
 			disabled={item.disabled}
+			title={item.disabled && item.reason ? item.reason : undefined}
+			aria-disabled={item.disabled ? 'true' : undefined}
 			class={cn(
-				'flex w-full items-center rounded-md px-2 py-1.5 text-left text-caption',
+				'flex w-full flex-col rounded-md px-2 py-1.5 text-left text-caption',
 				item.danger ? 'text-destructive' : 'text-foreground',
 				!item.disabled && focused === index && 'bg-accent',
 				item.disabled && 'cursor-not-allowed opacity-40',
@@ -97,7 +104,10 @@
 			}}
 			onclick={() => onaction(item.id)}
 		>
-			{item.label}
+			<span>{item.label}</span>
+			{#if item.disabled && item.reason}
+				<span class="text-micro text-muted-foreground">{item.reason}</span>
+			{/if}
 		</button>
 	{/each}
 </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	aggregateGroupStatus,
 	aggregateGroupTone,
 	buildGroupView,
 	deriveGroups,
@@ -12,10 +13,14 @@ import {
 } from './group-view';
 import type { DisplayEdge, DisplayNode } from './display-model';
 
-function node(id: string, groupId?: string): DisplayNode {
+function node(
+	id: string,
+	groupId?: string,
+	extra?: Partial<DisplayNode>,
+): DisplayNode {
 	return groupId
-		? { id, label: id, kind: 'step', groupId }
-		: { id, label: id, kind: 'step' };
+		? { id, label: id, kind: 'step', groupId, ...extra }
+		: { id, label: id, kind: 'step', ...extra };
 }
 
 function edge(id: string, source: string, target: string): DisplayEdge {
@@ -100,6 +105,38 @@ describe('aggregateGroupTone', () => {
 	it('takes the highest member tone', () => {
 		expect(aggregateGroupTone(['success', 'warning', 'error'])).toBe('error');
 		expect(aggregateGroupTone([])).toBe('neutral');
+	});
+});
+
+describe('group labels and status', () => {
+	it('prefers real group labels over ids', () => {
+		const nodes = [
+			node('a', 'g', { groupLabel: 'Payments' }),
+			node('b', 'g'),
+		];
+		expect(deriveGroups(nodes)).toEqual([{ id: 'g', label: 'Payments' }]);
+		const view = buildGroupView(nodes, [], new Set(['g']));
+		expect(view.titles['group:g']?.label).toBe('Payments');
+	});
+	it('aggregates member failure onto the title', () => {
+		const nodes = [
+			{ ...node('a', 'g'), status: 'completed' },
+			{ ...node('b', 'g'), status: 'failed' },
+		];
+		const view = buildGroupView(nodes, [], new Set(['g']));
+		expect(view.titles['group:g']?.status).toBe('failed');
+		expect(
+			view.nodes.find((entry) => entry.id === 'group:g')?.status,
+		).toBe('failed');
+		expect(aggregateGroupStatus(['completed', 'failed'])).toBe('failed');
+		expect(aggregateGroupStatus([])).toBeUndefined();
+	});
+	it('honors status overrides for live execution', () => {
+		const nodes = [node('a', 'g'), node('b', 'g')];
+		const view = buildGroupView(nodes, [], new Set(['g']), {
+			statusById: { a: 'running' },
+		});
+		expect(view.titles['group:g']?.status).toBe('running');
 	});
 });
 

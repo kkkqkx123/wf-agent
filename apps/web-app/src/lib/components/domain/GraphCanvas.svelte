@@ -4,7 +4,11 @@
 	import { browser } from '$app/environment';
 	import type cytoscape from 'cytoscape';
 	import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
-	import { columnPositions, layeredPositions } from '$lib/graph/layout';
+	import {
+		columnPositions,
+		layeredPositions,
+		pushOverlapped,
+	} from '$lib/graph/layout';
 	import {
 		isDashedEdge,
 		nodeShape,
@@ -70,6 +74,8 @@
 		class?: string;
 		/** Collapsed group ids; members are already folded out by the caller. */
 		collapsedIds?: string[];
+		/** Hidden member ids behind collapsed titles; never valid endpoints. */
+		hiddenIds?: string[];
 		/** Pre-cap group titles for collapsed-drag member math. */
 		groupTitles?: Record<string, GroupTitle>;
 		/** Minimap visibility: auto shows it only on large graphs. */
@@ -85,6 +91,8 @@
 		onbackgrounddoubleclick?: (position: CanvasPosition) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
+		/** Rejected connect attempt with a human-readable reason. */
+		onconnectreject?: (reason: string) => void;
 	}
 
 	let {
@@ -107,6 +115,7 @@
 		heightClass = 'h-96',
 		class: className = '',
 		collapsedIds = [],
+		hiddenIds = [],
 		groupTitles = {},
 		minimap = 'auto',
 		onselect,
@@ -118,6 +127,7 @@
 		onbackgrounddoubleclick,
 		ondeleteedge,
 		onconnect,
+		onconnectreject,
 	}: Props = $props();
 
 	let wrapper: HTMLDivElement | null = $state(null);
@@ -170,11 +180,13 @@
 	const selectedSnapshot = $derived(selectedId);
 	const editSnapshot = $derived(editMode);
 	const connectHandler = $derived(onconnect);
+	const connectRejectHandler = $derived(onconnectreject);
 	const selectHandler = $derived(onselect);
 	const expandHandler = $derived(onexpand);
 	// Snapshots for gesture handlers registered once on mount.
 	const positionsSnapshot = $derived(positions);
 	const groupTitlesSnapshot = $derived(groupTitles);
+	const hiddenSnapshot = $derived(new Set(hiddenIds));
 	const groupMoveHandler = $derived(ongroupmove);
 	const moveHandler = $derived(onmovenode);
 	const contextHandler = $derived(oncontext);
@@ -193,6 +205,13 @@
 
 	interface MiniOverview {
 		items: Array<{ id: string; x: number; y: number }>;
+		boxes: Array<{
+			id: string;
+			x1: number;
+			y1: number;
+			x2: number;
+			y2: number;
+		}>;
 		bounds: MiniBounds;
 		view: { x1: number; y1: number; x2: number; y2: number };
 	}
@@ -207,9 +226,9 @@
 	);
 
 	/**
-	 * Snapshot node dots plus the viewport for the minimap. Structure only:
-	 * execution colors stay on the main canvas so hot updates never redraw
-	 * the overview.
+	 * Snapshot node dots, group outlines plus the viewport for the minimap.
+	 * Structure only: execution colors stay on the main canvas so hot
+	 * updates never redraw the overview.
 	 */
 	function refreshOverview(): void {
 		const core = cy;
@@ -225,7 +244,57 @@
 				const position = node.position();
 				items.push({ id: node.id(), x: position.x, y: position.y });
 			});
-		if (items.length === 0) {
+		const boxes: Array<{
+			id: string;
+			x1: number;
+			y1: number;
+			x2: number;
+			y2: number;
+		}> = [];
+		core
+			.nodes()
+			.filter((node) => node.isParent())
+			.forEach((parent) => {
+				let x1 = Number.POSITIVE_INFINITY;
+				let y1 = Number.POSITIVE_INFINITY;
+				let x2 = Number.NEGATIVE_INFINITY;
+				let y2 = Number.NEGATIVE_INFINITY;
+				let count = 0;
+				parent.children().forEach((child) => {
+					const position = child.position();
+					x1 = Math.min(x1, position.x);
+					y1 = Math.min(y1, position.y);
+					x2 = Math.max(x2, position.x);
+					y2 = Math.max(y2, position.y);
+					count += 1;
+				});
+				if (count === 0) return;
+				const pad = 30;
+				boxes.push({
+					id: parent.id(),
+					x1: x1 - pad,
+					y1: y1 - pad,
+					x2: x2 + pad,
+					y2: y2 + pad,
+				});
+			});
+		core
+			.nodes()
+			.filter(
+				(node) =>
+					!node.isParent() && (node.id() as string).startsWith('group:'),
+			)
+			.forEach((title) => {
+				const position = title.position();
+				boxes.push({
+					id: title.id(),
+					x1: position.x - 80,
+					y1: position.y - 20,
+					x2: position.x + 80,
+					y2: position.y + 20,
+				});
+			});
+		if (items.length === 0 && boxes.length === 0) {
 			if (overview) overview = null;
 			return;
 		}
@@ -239,6 +308,12 @@
 			maxX = Math.max(maxX, item.x);
 			maxY = Math.max(maxY, item.y);
 		}
+		for (const box of boxes) {
+			minX = Math.min(minX, box.x1);
+			minY = Math.min(minY, box.y1);
+			maxX = Math.max(maxX, box.x2);
+			maxY = Math.max(maxY, box.y2);
+		}
 		const pad = 60;
 		minX -= pad;
 		minY -= pad;
@@ -247,6 +322,7 @@
 		const extent = core.extent();
 		overview = {
 			items,
+			boxes,
 			bounds: {
 				minX,
 				minY,
@@ -350,10 +426,10 @@
 	let hotspots = $state<ConnectSpot[]>([]);
 	let connectDrag = $state<ConnectDrag | null>(null);
 
-	/** Hotspot dots at node edges; edit mode only. */
+	/** Hotspot dots at node edges; edit mode only, hidden while connecting. */
 	function refreshHotspots(): void {
 		const core = cy;
-		if (!core || !editSnapshot) {
+		if (!core || !editSnapshot || connectDrag) {
 			if (hotspots.length > 0) hotspots = [];
 			return;
 		}
@@ -361,7 +437,13 @@
 		const spots: ConnectSpot[] = [];
 		core
 			.nodes()
-			.filter((node) => !node.isParent())
+			.filter((node) => {
+				if (node.isParent()) return false;
+				const id = node.id() as string;
+				if (isGroupTitleId(id)) return false;
+				if (hiddenSnapshot.has(id)) return false;
+				return true;
+			})
 			.forEach((node) => {
 				const rendered = node.renderedPosition();
 				if (!rendered) return;
@@ -374,12 +456,31 @@
 		hotspots = spots;
 	}
 
+	function connectRejectReason(source: string, target: string): string | null {
+		if (!editSnapshot) return 'Read-only canvas. Enter edit mode to connect.';
+		if (!source || !target) return 'Choose another node to connect.';
+		if (source === target) return 'Cannot self-connect.';
+		if (
+			target.startsWith('groupbox:') ||
+			source.startsWith('groupbox:') ||
+			isGroupTitleId(source) ||
+			isGroupTitleId(target)
+		) {
+			return 'Groups cannot connect directly. Expand the group first.';
+		}
+		if (hiddenSnapshot.has(source) || hiddenSnapshot.has(target)) {
+			return 'Hidden group members cannot connect. Expand the group first.';
+		}
+		if (
+			edges.some((edge) => edge.source === source && edge.target === target)
+		) {
+			return 'Edge already exists.';
+		}
+		return null;
+	}
+
 	function connectValid(source: string, target: string): boolean {
-		if (!source || !target || source === target) return false;
-		if (target.startsWith('groupbox:')) return false;
-		return !edges.some(
-			(edge) => edge.source === source && edge.target === target,
-		);
+		return connectRejectReason(source, target) === null;
 	}
 
 	function nodeAtPoint(px: number, py: number): string | null {
@@ -421,6 +522,18 @@
 		}
 	}
 
+	function setNodesGrabbable(enabled: boolean): void {
+		const core = cy;
+		if (!core) return;
+		if (enabled && editSnapshot) {
+			core.autoungrabify(false);
+			core.nodes().grabify();
+		} else {
+			core.nodes().ungrabify();
+			core.autoungrabify(true);
+		}
+	}
+
 	function endConnectDrag(commit: boolean): void {
 		window.removeEventListener('pointermove', onConnectMove);
 		window.removeEventListener('pointerup', onConnectUp);
@@ -429,13 +542,14 @@
 		connectDrag = null;
 		const core = cy;
 		if (core) core.elements().removeClass('connect-ok connect-bad');
-		if (
-			commit &&
-			drag &&
-			drag.target &&
-			connectValid(drag.source, drag.target)
-		) {
+		setNodesGrabbable(true);
+		refreshHotspots();
+		if (!commit || !drag || !drag.target) return;
+		const reason = connectRejectReason(drag.source, drag.target);
+		if (reason === null) {
 			connectHandler?.(drag.source, drag.target);
+		} else if (reason !== 'Edge already exists.') {
+			connectRejectHandler?.(reason);
 		}
 	}
 
@@ -461,6 +575,14 @@
 	function startConnect(event: PointerEvent, spot: ConnectSpot): void {
 		event.preventDefault();
 		event.stopPropagation();
+		if (!editSnapshot) {
+			connectRejectHandler?.('Read-only canvas. Enter edit mode to connect.');
+			return;
+		}
+		if (hiddenSnapshot.has(spot.id) || isGroupTitleId(spot.id)) {
+			connectRejectHandler?.('Hidden group members cannot connect.');
+			return;
+		}
 		endConnectDrag(false);
 		connectDrag = {
 			source: spot.id,
@@ -470,6 +592,8 @@
 			py: spot.y,
 			target: null,
 		};
+		setNodesGrabbable(false);
+		refreshHotspots();
 		window.addEventListener('pointermove', onConnectMove);
 		window.addEventListener('pointerup', onConnectUp);
 		window.addEventListener('keydown', onConnectKey);
@@ -500,6 +624,19 @@
 				),
 			),
 		];
+		function titleEmphasis(id: string): string[] {
+			if (!isGroupTitleId(id)) return [];
+			const title = groupTitles[id];
+			const members = title?.memberIds ?? [];
+			if (members.length === 0) return [];
+			if (members.some((member) => pulses.has(member))) return ['running'];
+			if (members.some((member) => failed.has(member))) return ['failed'];
+			if (members.some((member) => problems.has(member))) return ['problem'];
+			if (members.some((member) => criticals.has(member)))
+				return ['critical'];
+			return [];
+		}
+
 		const defs: ElementDefinition[] = nodes.map((node) => ({
 			group: 'nodes' as const,
 			data: {
@@ -520,6 +657,7 @@
 			classes: [
 				selectedId === node.id ? 'selected' : '',
 				isGroupTitleId(node.id) ? 'group-title' : '',
+				...titleEmphasis(node.id),
 				problems.has(node.id) ? 'problem' : '',
 				pulses.has(node.id) ? 'running' : '',
 				failed.has(node.id) ? 'failed' : '',
@@ -845,22 +983,22 @@
 							'border-style': 'dashed',
 						},
 					},
-				{
-					selector: 'node.failed',
-					style: {
-						'border-width': 3,
-						'border-color': '#ef4444',
+					{
+						selector: 'node.failed',
+						style: {
+							'border-width': 3,
+							'border-color': '#ef4444',
+						},
 					},
-				},
-				{
-					selector: 'node.running',
-					style: {
-						'border-width': 3,
-						'border-color': '#2563eb',
+					{
+						selector: 'node.running',
+						style: {
+							'border-width': 3,
+							'border-color': '#2563eb',
+						},
 					},
-				},
-				{
-					selector: 'node.critical',
+					{
+						selector: 'node.critical',
 						style: {
 							'border-width': 2.5,
 							'border-color': '#f59e0b',
@@ -930,6 +1068,38 @@
 							width: 160,
 							'border-width': 2,
 							'border-style': 'dashed',
+							'border-color': '#71717a',
+						},
+					},
+					{
+						selector: 'node.group-title.failed',
+						style: {
+							'border-width': 3,
+							'border-style': 'solid',
+							'border-color': '#ef4444',
+						},
+					},
+					{
+						selector: 'node.group-title.running',
+						style: {
+							'border-width': 3,
+							'border-style': 'solid',
+							'border-color': '#2563eb',
+						},
+					},
+					{
+						selector: 'node.group-title.problem',
+						style: {
+							'border-width': 2.5,
+							'border-style': 'dashed',
+							'border-color': '#dc2626',
+						},
+					},
+					{
+						selector: 'node.group-title.critical',
+						style: {
+							'border-width': 2.5,
+							'border-style': 'dashed',
 							'border-color': '#f59e0b',
 						},
 					},
@@ -966,16 +1136,50 @@
 					},
 				] as unknown as cytoscape.StylesheetJson,
 			});
-		instance.on('tap', 'node', (event) => {
-			clearHoverTip();
-			const id = event.target.id() as string;
+			function livePositions(): Record<string, CanvasPosition> {
+				const core = cy;
+				const table: Record<string, CanvasPosition> = {};
+				if (core) {
+					core
+						.nodes()
+						.filter((node) => !node.isParent())
+						.forEach((node) => {
+							table[node.id() as string] = roundPosition(
+								node.position() as CanvasPosition,
+							);
+						});
+				}
+				return { ...(positionsSnapshot ?? {}), ...table };
+			}
+
+			function withPushes(moves: CanvasMove[]): CanvasMove[] {
+				if (moves.length === 0) return moves;
+				const pushed = pushOverlapped(moves, livePositions());
+				if (pushed.length === 0) return moves;
+				const seen = new Set(moves.map((move) => move.id));
+				const extra = pushed.filter((move) => !seen.has(move.id));
+				return [...moves, ...extra];
+			}
+
+			instance.on('tap', 'node', (event) => {
+				clearHoverTip();
+				const id = event.target.id() as string;
+				if (connectDrag) return;
 				if (editSnapshot) {
 					const original = (event as unknown as { originalEvent?: MouseEvent })
 						.originalEvent;
 					const from = selectedSnapshot;
-					if (original?.shiftKey && from && from !== id && connectHandler) {
-						connectHandler(from, id);
-						return;
+					if (original?.shiftKey && from && from !== id) {
+						const reason = connectRejectReason(from, id);
+						if (reason === null) {
+							connectHandler?.(from, id);
+							return;
+						}
+						if (reason !== 'Edge already exists.') {
+							connectRejectHandler?.(reason);
+						} else {
+							return;
+						}
 					}
 				}
 				const now = Date.now();
@@ -993,9 +1197,9 @@
 				if (!editMode) return;
 				ondeleteedge?.(event.target.id() as string);
 			});
-		instance.on('grab', 'node', (event) => {
-			clearHoverTip();
-			const target = event.target;
+			instance.on('grab', 'node', (event) => {
+				clearHoverTip();
+				const target = event.target;
 				grabStart.set(
 					target.id() as string,
 					roundPosition(target.position() as CanvasPosition),
@@ -1009,27 +1213,31 @@
 				const id = target.id() as string;
 				const position = roundPosition(target.position() as CanvasPosition);
 				if (isGroupTitleId(id)) {
-					groupMoveHandler?.(titleDragMoves(id, position));
+					groupMoveHandler?.(withPushes(titleDragMoves(id, position)));
 					return;
 				}
-				const parent = target.parent();
-				if (id.startsWith('groupbox:') || !parent.empty()) {
-					// A group moves as one unit; report every member so the
-					// store can persist the drag as a single history entry.
-					const siblings = id.startsWith('groupbox:')
-						? target.children()
-						: parent.children();
+				if (id.startsWith('groupbox:')) {
+					// A group box moves as one unit; report every member so
+					// the store persists the drag as a single history entry.
 					const moves: CanvasMove[] = [];
-					siblings.forEach((child: NodeSingular) => {
+					target.children().forEach((child: NodeSingular) => {
 						moves.push({
 							id: child.id() as string,
 							position: roundPosition(child.position() as CanvasPosition),
 						});
 					});
 					if (moves.length > 0) {
-						groupMoveHandler?.(moves);
+						groupMoveHandler?.(withPushes(moves));
 						return;
 					}
+				}
+				// Expanded members move alone; pushed neighbors join the same
+				// batched move so overlap resolution undoes atomically.
+				const single: CanvasMove[] = [{ id, position }];
+				const combined = withPushes(single);
+				if (combined.length > 1) {
+					groupMoveHandler?.(combined);
+					return;
 				}
 				moveHandler?.(id, position);
 			});
@@ -1043,31 +1251,31 @@
 					y: Math.round(position.y),
 				});
 			});
-		instance.on('mouseover', 'node', (event) => {
-			const original = (event as unknown as { originalEvent?: MouseEvent })
-				.originalEvent;
-			requestHoverTip(
-				event.target.id() as string,
-				original?.clientX ?? 0,
-				original?.clientY ?? 0,
-			);
-		});
-		instance.on('mouseout', 'node', () => {
-			clearHoverTip();
-		});
-		const core = instance;
-		core.on('zoom', () => {
-			clearHoverTip();
-			const out = core.zoom() < 0.6;
+			instance.on('mouseover', 'node', (event) => {
+				const original = (event as unknown as { originalEvent?: MouseEvent })
+					.originalEvent;
+				requestHoverTip(
+					event.target.id() as string,
+					original?.clientX ?? 0,
+					original?.clientY ?? 0,
+				);
+			});
+			instance.on('mouseout', 'node', () => {
+				clearHoverTip();
+			});
+			const core = instance;
+			core.on('zoom', () => {
+				clearHoverTip();
+				const out = core.zoom() < 0.6;
 				if (out !== zoomedOut) zoomedOut = out;
 				requestMiniRefresh();
 				refreshHotspots();
 			});
-		core.on('pan', () => {
-			clearHoverTip();
-			requestMiniRefresh();
-			refreshHotspots();
-		});
+			core.on('pan', () => {
+				clearHoverTip();
+				requestMiniRefresh();
+				refreshHotspots();
+			});
 			core.on('layoutstop', () => {
 				refreshOverview();
 				refreshHotspots();
@@ -1141,6 +1349,7 @@
 		void decisionIds;
 		void positions;
 		void collapsedIds;
+		void hiddenIds;
 		void groupTitles;
 		void preset;
 		void edgeLabelLimit;
@@ -1154,6 +1363,7 @@
 	$effect(() => {
 		if (!ready || !cy) return;
 		void editMode;
+		if (connectDrag) return;
 		if (editMode) {
 			cy.autoungrabify(false);
 			cy.nodes().grabify();
@@ -1265,6 +1475,19 @@
 				onpointerup={onMiniUp}
 				onpointercancel={onMiniUp}
 			>
+				{#each overview.boxes as box (box.id)}
+					{@const boxTopLeft = miniXY(box.x1, box.y1)}
+					{@const boxBottomRight = miniXY(box.x2, box.y2)}
+					<rect
+						x={Math.min(boxTopLeft.x, boxBottomRight.x)}
+						y={Math.min(boxTopLeft.y, boxBottomRight.y)}
+						width={Math.max(2, Math.abs(boxBottomRight.x - boxTopLeft.x))}
+						height={Math.max(2, Math.abs(boxBottomRight.y - boxTopLeft.y))}
+						class="fill-transparent stroke-muted-foreground"
+						stroke-width="1"
+						stroke-dasharray="3 2"
+					/>
+				{/each}
 				{#each overview.items as item (item.id)}
 					{@const point = miniXY(item.x, item.y)}
 					<rect

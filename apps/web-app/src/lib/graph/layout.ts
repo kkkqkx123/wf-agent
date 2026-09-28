@@ -215,3 +215,239 @@ export function columnPositions(
 	}
 	return positions;
 }
+
+export interface CanvasPoint {
+	x: number;
+	y: number;
+}
+
+export interface CanvasMoveInput {
+	id: string;
+	position: CanvasPoint;
+}
+
+interface Box {
+	x1: number;
+	y1: number;
+	x2: number;
+	y2: number;
+}
+
+function nodeBox(
+	position: CanvasPoint,
+	width: number,
+	height: number,
+): Box {
+	return {
+		x1: position.x - width / 2,
+		y1: position.y - height / 2,
+		x2: position.x + width / 2,
+		y2: position.y + height / 2,
+	};
+}
+
+function boxesOverlap(a: Box, b: Box): boolean {
+	return a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+}
+
+/**
+ * Push stationary nodes out of moved boxes. Returns extra moves for the
+ * pushed nodes so the caller can persist everything in one commit. Pure
+ * function; the canvas supplies geometry and the store persists the union.
+ */
+export function pushOverlapped(
+	moves: CanvasMoveInput[],
+	positions: Record<string, CanvasPoint>,
+	options?: { width?: number; height?: number; gap?: number },
+): CanvasMoveInput[] {
+	const width = options?.width ?? NODE_WIDTH;
+	const height = options?.height ?? NODE_HEIGHT;
+	const gap = options?.gap ?? 24;
+	if (moves.length === 0) return [];
+	const movedIds = new Set(moves.map((move) => move.id));
+	const current = new Map<string, CanvasPoint>();
+	for (const [id, position] of Object.entries(positions)) {
+		current.set(id, { ...position });
+	}
+	for (const move of moves) current.set(move.id, { ...move.position });
+	const pushed: CanvasMoveInput[] = [];
+	for (const move of moves) {
+		const mover = nodeBox(move.position, width + gap, height + gap);
+		for (const [id, position] of current) {
+			if (movedIds.has(id)) continue;
+			if (pushed.some((entry) => entry.id === id)) continue;
+			const other = nodeBox(position, width + gap, height + gap);
+			if (!boxesOverlap(mover, other)) continue;
+			const shiftX = mover.x2 - other.x1 + gap;
+			const shiftLeft = other.x2 - mover.x1 + gap;
+			const shiftY = mover.y2 - other.y1 + gap;
+			const shiftUp = other.y2 - mover.y1 + gap;
+			const minX = Math.min(shiftX, shiftLeft);
+			const minY = Math.min(shiftY, shiftUp);
+			const next =
+				minX < minY
+					? {
+							x: position.x + (shiftX < shiftLeft ? shiftX : -shiftLeft),
+							y: position.y,
+						}
+					: {
+							x: position.x,
+							y: position.y + (shiftY < shiftUp ? shiftY : -shiftUp),
+						};
+			const snapped = {
+				x: snapToGrid(Math.round(next.x)),
+				y: snapToGrid(Math.round(next.y)),
+			};
+			pushed.push({ id, position: snapped });
+			current.set(id, snapped);
+		}
+	}
+	return pushed;
+}
+
+/**
+ * Layered layout honoring expanded-group membership. Each multi-member
+ * group lays out internally first, then participates outside as one box,
+ * so large groups stay compact instead of scattering. Pure function.
+ */
+export function groupAwareLayeredPositions(
+	nodes: DisplayNode[],
+	edges: DisplayEdge[],
+	parentOf: Record<string, string>,
+): Map<string, { x: number; y: number }> {
+	const groups = new Map<string, DisplayNode[]>();
+	const ungrouped: DisplayNode[] = [];
+	for (const node of nodes) {
+		const parent = parentOf[node.id];
+		if (parent) {
+			const list = groups.get(parent) ?? [];
+			list.push(node);
+			groups.set(parent, list);
+		} else {
+			ungrouped.push(node);
+		}
+	}
+	if (groups.size === 0) return layeredPositions(nodes, edges);
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	const outerNodes: DisplayNode[] = [...ungrouped];
+	const outerEdges: DisplayEdge[] = [];
+	const innerByGroup = new Map<string, Map<string, { x: number; y: number }>>();
+	const innerSize = new Map<string, { w: number; h: number }>();
+	for (const [groupId, members] of groups) {
+		if (members.length < 2) {
+			outerNodes.push(...members);
+			continue;
+		}
+		void byId;
+		const inner = layeredPositions(
+			members,
+			edges.filter(
+				(edge) =>
+					members.some((member) => member.id === edge.source) &&
+					members.some((member) => member.id === edge.target),
+			),
+		);
+		innerByGroup.set(groupId, inner);
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		for (const member of members) {
+			const position = inner.get(member.id);
+			if (!position) continue;
+			minX = Math.min(minX, position.x - nodeWidth(member) / 2);
+			minY = Math.min(minY, position.y - NODE_HEIGHT / 2);
+			maxX = Math.max(maxX, position.x + nodeWidth(member) / 2);
+			maxY = Math.max(maxY, position.y + NODE_HEIGHT / 2);
+		}
+		if (!Number.isFinite(minX)) {
+			outerNodes.push(...members);
+			innerByGroup.delete(groupId);
+			continue;
+		}
+		innerSize.set(groupId, {
+			w: Math.max(NODE_WIDTH, maxX - minX + COMPONENT_GAP / 2),
+			h: Math.max(NODE_HEIGHT, maxY - minY + COMPONENT_GAP / 2),
+		});
+		outerNodes.push({ id: `__group:${groupId}`, label: groupId, kind: 'step' });
+	}
+	const outerId = (id: string): string => {
+		const parent = parentOf[id];
+		if (parent && innerByGroup.has(parent)) return `__group:${parent}`;
+		return id;
+	};
+	const seen = new Set<string>();
+	for (const edge of edges) {
+		const source = outerId(edge.source);
+		const target = outerId(edge.target);
+		if (source === target) continue;
+		const key = `${source}->${target}:${edge.id}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		outerEdges.push({ id: `outer:${edge.id}`, source, target });
+	}
+	const outer = layeredPositions(outerNodes, outerEdges);
+	const positions = new Map<string, { x: number; y: number }>();
+	for (const node of ungrouped) {
+		const position = outer.get(node.id);
+		if (position) positions.set(node.id, position);
+	}
+	for (const [groupId, members] of groups) {
+		const inner = innerByGroup.get(groupId);
+		const center = outer.get(`__group:${groupId}`);
+		if (!inner || !center) {
+			for (const member of members) {
+				const fallback = outer.get(member.id);
+				if (fallback) positions.set(member.id, fallback);
+			}
+			continue;
+		}
+		let sumX = 0;
+		let sumY = 0;
+		let count = 0;
+		for (const member of members) {
+			const position = inner.get(member.id);
+			if (!position) continue;
+			sumX += position.x;
+			sumY += position.y;
+			count += 1;
+		}
+		if (count === 0) continue;
+		const shiftX = center.x - sumX / count;
+		const shiftY = center.y - sumY / count;
+		for (const member of members) {
+			const position = inner.get(member.id);
+			if (!position) continue;
+			positions.set(member.id, {
+				x: snapToGrid(Math.round(position.x + shiftX)),
+				y: snapToGrid(Math.round(position.y + shiftY)),
+			});
+		}
+	}
+	void innerSize;
+	return positions;
+}
+
+/**
+ * Stable match order by canvas geometry: left to right, then top to
+ * bottom. Ids without a position keep their input relative order so
+ * force and grid layouts never throw.
+ */
+export function sortIdsByCanvasPosition(
+	ids: string[],
+	positions: Map<string, CanvasPoint> | Record<string, CanvasPoint> | undefined,
+): string[] {
+	if (!positions) return [...ids];
+	const lookup = (id: string): CanvasPoint | undefined =>
+		positions instanceof Map ? positions.get(id) : positions[id];
+	return ids
+		.map((id, index) => ({ id, index, point: lookup(id) }))
+		.sort((a, b) => {
+			if (a.point && b.point) {
+				if (a.point.x !== b.point.x) return a.point.x - b.point.x;
+				if (a.point.y !== b.point.y) return a.point.y - b.point.y;
+			}
+			return a.index - b.index;
+		})
+		.map((entry) => entry.id);
+}

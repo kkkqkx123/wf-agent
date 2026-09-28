@@ -17,6 +17,8 @@ export interface DisplayNode {
 	iteration?: number;
 	/** Frontend-only group membership; empty means ungrouped. */
 	groupId?: string;
+	/** Human label for the group; falls back to the group id. */
+	groupLabel?: string;
 }
 
 export interface DisplayEdge {

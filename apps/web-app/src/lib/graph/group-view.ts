@@ -18,6 +18,15 @@ export interface GroupTitle {
 	groupId: string;
 	label: string;
 	memberIds: string[];
+	/** Aggregated display status of the members; drives title emphasis. */
+	status?: string;
+}
+
+export interface GroupViewOptions {
+	/** Explicit group labels; member labels win when present. */
+	labels?: Record<string, string>;
+	/** Status override by node id; falls back to the member status. */
+	statusById?: Record<string, string | undefined>;
 }
 
 /** Id of the placeholder node representing a collapsed group. */
@@ -49,11 +58,30 @@ export function deriveGroups(nodes: DisplayNode[]): GroupDef[] {
 	const labels = new Map<string, string>();
 	for (const node of nodes) {
 		if (!node.groupId) continue;
-		if (!labels.has(node.groupId)) labels.set(node.groupId, node.groupId);
+		if (!labels.has(node.groupId)) {
+			const trimmed = (node.groupLabel ?? '').trim();
+			labels.set(node.groupId, trimmed ? trimmed : node.groupId);
+		}
+		const current = labels.get(node.groupId);
+		if (current === node.groupId) {
+			const trimmed = (node.groupLabel ?? '').trim();
+			if (trimmed) labels.set(node.groupId, trimmed);
+		}
 	}
 	return [...labels.entries()]
 		.sort(([a], [b]) => (a < b ? -1 : 1))
 		.map(([id, label]) => ({ id, label }));
+}
+
+/** Aggregated display status for a member set using the shared tone order. */
+export function aggregateGroupStatus(
+	statuses: Array<string | undefined>,
+): string | undefined {
+	let tone: ExecutionTone = 'neutral';
+	for (const status of statuses) {
+		tone = rankTone(tone, toneForStatus(status));
+	}
+	return statusForTone(tone);
 }
 
 /**
@@ -67,6 +95,7 @@ export function buildGroupView(
 	nodes: DisplayNode[],
 	edges: DisplayEdge[],
 	collapsed: Set<string>,
+	options?: GroupViewOptions,
 ): GroupView {
 	const empty: GroupView = {
 		nodes: [...nodes],
@@ -102,12 +131,29 @@ export function buildGroupView(
 	)) {
 		const titleId = groupTitleId(groupId);
 		titleIds.add(titleId);
+		const memberLabel = list
+			.map((node) => (node.groupLabel ?? '').trim())
+			.find((label) => label.length > 0);
+		const label =
+			(options?.labels?.[groupId] ?? '').trim() ||
+			memberLabel ||
+			groupId;
+		const status = aggregateGroupStatus(
+			list.map((node) => options?.statusById?.[node.id] ?? node.status),
+		);
 		titles[titleId] = {
 			groupId,
-			label: groupId,
+			label,
 			memberIds: list.map((node) => node.id).sort(),
+			...(status ? { status } : {}),
 		};
-		visible.push({ id: titleId, label: groupId, kind: 'group' });
+		visible.push({
+			id: titleId,
+			label,
+			kind: 'group',
+			...(status ? { status } : {}),
+			groupId,
+		});
 	}
 	const redirect = (id: string, groups: Map<string, string>): string =>
 		groups.get(id) ?? id;
@@ -240,9 +286,10 @@ export function foldForCap(
 	manual: Set<string>,
 	protectedGroups: Set<string>,
 	cap: number = GRAPH_NODE_CAP,
+	options?: GroupViewOptions,
 ): FoldedGroups {
 	const collapsed = new Set(manual);
-	let view = buildGroupView(nodes, edges, collapsed);
+	let view = buildGroupView(nodes, edges, collapsed, options);
 	if (view.nodes.length <= cap) return { view, collapsed, auto: [] };
 	const sizes = new Map<string, number>();
 	for (const node of nodes) {
@@ -257,7 +304,7 @@ export function foldForCap(
 	for (const id of ordered) {
 		collapsed.add(id);
 		auto.push(id);
-		view = buildGroupView(nodes, edges, collapsed);
+		view = buildGroupView(nodes, edges, collapsed, options);
 		if (view.nodes.length <= cap) break;
 	}
 	return { view, collapsed, auto };

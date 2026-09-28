@@ -378,7 +378,18 @@
 	}
 
 	function handleTemplateConnect(source: string, target: string): void {
-		templateEditStore.connect(source, target);
+		if (
+			templateEditStore.edges.some(
+				(edge) => edge.source === source && edge.target === target,
+			)
+		) {
+			return;
+		}
+		const reason = templateEditStore.connect(source, target);
+		if (reason) {
+			toasts.info('Cannot connect', reason);
+			return;
+		}
 		templateNodeId = target;
 		templateEditStore.selectedId = target;
 	}
@@ -386,6 +397,14 @@
 	function handleTemplateDeleteNodes(ids: string[]): void {
 		templateEditStore.removeNodes(ids);
 		if (templateNodeId && ids.includes(templateNodeId)) templateNodeId = null;
+	}
+
+	function handleTemplateDeleteGroups(ids: string[]): void {
+		for (const id of ids) templateEditStore.removeGroup(id);
+		toasts.info(
+			'Groups deleted',
+			`${ids.length} group(s) removed from the canvas.`,
+		);
 	}
 
 	function editedPayload(parsed: unknown): unknown {
@@ -1094,6 +1113,7 @@
 							ondeleteedge={(id) => templateEditStore.removeEdge(id)}
 							onconnect={handleTemplateConnect}
 							ondeletenodes={handleTemplateDeleteNodes}
+							ondeletegroups={handleTemplateDeleteGroups}
 							onjumpparam={(id) => (templateNodeId = id)}
 						/>
 						{#if templateNodeSnippet}

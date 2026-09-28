@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
+export type MinimapMode = 'auto' | 'on' | 'off';
 
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
@@ -14,6 +15,7 @@ interface PersistedPreferences {
 	sidebarCollapsed?: boolean;
 	sidebarWidth?: number;
 	inspectorPinned?: boolean;
+	minimapMode?: MinimapMode;
 }
 
 const DENSITY_SCALE: Record<Density, number> = {
@@ -38,6 +40,7 @@ class PreferencesStore {
 	sidebarCollapsed = $state(false);
 	sidebarWidth = $state(240);
 	inspectorPinned = $state(false);
+	minimapMode = $state<MinimapMode>('auto');
 
 	constructor() {
 		const stored = read();
@@ -66,6 +69,13 @@ class PreferencesStore {
 		}
 		if (typeof stored.inspectorPinned === 'boolean') {
 			this.inspectorPinned = stored.inspectorPinned;
+		}
+		if (
+			stored.minimapMode === 'auto' ||
+			stored.minimapMode === 'on' ||
+			stored.minimapMode === 'off'
+		) {
+			this.minimapMode = stored.minimapMode;
 		}
 	}
 
@@ -98,6 +108,11 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setMinimapMode(mode: MinimapMode): void {
+		this.minimapMode = mode;
+		this.persist();
+	}
+
 	private persist(): void {
 		if (!browser) return;
 		try {
@@ -109,6 +124,7 @@ class PreferencesStore {
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,
 					inspectorPinned: this.inspectorPinned,
+					minimapMode: this.minimapMode,
 				} satisfies PersistedPreferences),
 			);
 		} catch {

@@ -80,10 +80,18 @@ export class GraphEditStore {
 		this.baseline = this.describe();
 	}
 
-	applyMove(id: string, position: GraphPosition): void {
-		if (!this.nodes.some((node) => node.id === id)) return;
+	applyMove(
+		id: string,
+		position: GraphPosition,
+		options?: { hiddenIds?: Iterable<string> },
+	): string | null {
+		if (!this.nodes.some((node) => node.id === id)) return 'Unknown node.';
+		if (options?.hiddenIds && new Set(options.hiddenIds).has(id)) {
+			return 'Hidden group members cannot move.';
+		}
 		this.commit();
 		this.positions = { ...this.positions, [id]: { ...position } };
+		return null;
 	}
 
 	/** Distinct group ids present in the loaded nodes, in stable order. */
@@ -106,14 +114,29 @@ export class GraphEditStore {
 	/**
 	 * Apply several position updates as one history entry, so group drags
 	 * (title plus members) undo in a single step. Unknown ids are ignored.
+	 * Hidden members are rejected and reported for a prompt. Pushed nodes
+	 * belong in the same call so overlap resolution undoes atomically.
 	 */
-	applyMoves(moves: GraphMove[]): void {
-		const targets = moves.filter((move) => this.isPositionTarget(move.id));
-		if (targets.length === 0) return;
+	applyMoves(
+		moves: GraphMove[],
+		options?: { hiddenIds?: Iterable<string> },
+	): string[] {
+		const hidden = options?.hiddenIds ? new Set(options.hiddenIds) : null;
+		const rejected: string[] = [];
+		const targets = moves.filter((move) => {
+			if (!this.isPositionTarget(move.id)) return false;
+			if (hidden?.has(move.id)) {
+				rejected.push(move.id);
+				return false;
+			}
+			return true;
+		});
+		if (targets.length === 0) return rejected;
 		this.commit();
 		const next = { ...this.positions };
 		for (const move of targets) next[move.id] = { ...move.position };
 		this.positions = next;
+		return rejected;
 	}
 
 	/** Delete a whole group: members, their edges and the title position. */
@@ -163,22 +186,34 @@ export class GraphEditStore {
 
 	/**
 	 * Connect two nodes from canvas intent. Duplicate source-target pairs
-	 * are ignored so shift-click gestures stay idempotent.
+	 * are ignored so shift-click gestures stay idempotent. Hidden members
+	 * and title placeholders are rejected with a reason for a prompt.
 	 */
-	connect(source: string, target: string): void {
-		if (!source || !target || source === target) return;
+	connect(
+		source: string,
+		target: string,
+		options?: { hiddenIds?: Iterable<string> },
+	): string | null {
+		if (!source || !target || source === target) return 'Cannot self-connect.';
+		const hidden = options?.hiddenIds ? new Set(options.hiddenIds) : null;
+		if (hidden?.has(source) || hidden?.has(target)) {
+			return 'Hidden group members cannot connect.';
+		}
+		if (source.startsWith('group:') || target.startsWith('group:')) {
+			return 'Group titles cannot connect.';
+		}
 		if (
 			!this.nodes.some((node) => node.id === source) ||
 			!this.nodes.some((node) => node.id === target)
 		) {
-			return;
+			return 'Unknown node.';
 		}
 		if (
 			this.edges.some(
 				(edge) => edge.source === source && edge.target === target,
 			)
 		) {
-			return;
+			return null;
 		}
 		let id = `${source}->${target}`;
 		let suffix = 2;
@@ -188,6 +223,7 @@ export class GraphEditStore {
 		}
 		this.commit();
 		this.edges = [...this.edges, { id, source, target }];
+		return null;
 	}
 
 	removeEdge(id: string): void {

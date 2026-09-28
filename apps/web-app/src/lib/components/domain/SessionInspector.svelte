@@ -16,6 +16,7 @@
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
 	import {
 		applyExecutionOverlay,
+		matchDecisionNodeId,
 		projectExecutionOverlay,
 	} from '$lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
@@ -194,22 +195,9 @@
 		})),
 	);
 
-	/** Match a tool name to a decision node by id or label. */
+	/** Shared bridge: history and live frames resolve names identically. */
 	function matchDecisionNode(name: string): string | null {
-		const needle = name.trim().toLowerCase();
-		if (!needle) return null;
-		const exact = decisionNodes.find(
-			(node) =>
-				node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
-		);
-		if (exact) return exact.id;
-		return (
-			decisionNodes.find(
-				(node) =>
-					node.label.toLowerCase().includes(needle) ||
-					needle.includes(node.id.toLowerCase()),
-			)?.id ?? null
-		);
+		return matchDecisionNodeId(decisionNodes, name);
 	}
 
 	// Worst tool-call status per node from recorded iterations; live frames
@@ -264,6 +252,15 @@
 	function handleGraphSelect(id: string | null): void {
 		selectedGraphNode = id;
 		onnodeselect?.(id);
+	}
+
+	/** History tool cards focus the graph like live tool cards do. */
+	function handleToolFocus(entry: { id: string; name: string }): void {
+		const nodeId = matchDecisionNode(entry.name);
+		if (!nodeId) return;
+		selectedGraphNode = nodeId;
+		onnodeselect?.(nodeId);
+		graphExplorer?.focus(nodeId);
 	}
 
 	const selectedGraphIteration = $derived(
@@ -475,11 +472,34 @@
 						: 'No tool calls recorded for this session.'}
 				</p>
 			{:else}
-				<div class="space-y-2">
-					{#each visibleTools as entry (entry.id)}
+			<div class="space-y-2">
+				{#each visibleTools as entry (entry.id)}
+					{@const toolNodeId = matchDecisionNode(entry.name)}
+					<div
+						role="button"
+						tabindex={toolNodeId ? 0 : -1}
+						aria-label={toolNodeId
+							? `Locate tool ${entry.name} on decision graph`
+							: `Tool ${entry.name}`}
+						onclick={() => handleToolFocus(entry)}
+						onkeydown={(event) => {
+							if (event.key === 'Enter' || event.key === ' ') {
+								event.preventDefault();
+								handleToolFocus(entry);
+							}
+						}}
+						class={cn(
+							'rounded-lg',
+							toolNodeId && 'cursor-pointer',
+							toolNodeId &&
+								selectedGraphNode === toolNodeId &&
+								'ring-2 ring-warning',
+						)}
+					>
 						<ToolCallCard {entry} />
-					{/each}
-				</div>
+					</div>
+				{/each}
+			</div>
 			{/if}
 		{:else if tab === 'timeline'}
 			{#if (timeline.data ?? []).length === 0}

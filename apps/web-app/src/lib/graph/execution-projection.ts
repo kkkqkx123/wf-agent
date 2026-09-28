@@ -222,6 +222,153 @@ export function diffTopology(
 }
 
 /**
+ * Shared name-to-node mapping for decision graphs. History mode and live
+ * mode use this single function so tool names and sub-agent names resolve
+ * identically. Exact id or label matches win; substring matches are the
+ * fallback. Pure function for unit tests.
+ */
+export function matchDecisionNodeId(
+	nodes: Array<Pick<DisplayNode, 'id' | 'label'>>,
+	name: string,
+): string | null {
+	const needle = name.trim().toLowerCase();
+	if (!needle) return null;
+	const exact = nodes.find(
+		(node) =>
+			node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
+	);
+	if (exact) return exact.id;
+	return (
+		nodes.find(
+			(node) =>
+				node.label.toLowerCase().includes(needle) ||
+				needle.includes(node.id.toLowerCase()),
+		)?.id ?? null
+	);
+}
+
+/**
+ * Node ids belonging to one iteration column. Iteration start and end
+ * events map through here so a running iteration pulses even before its
+ * first tool frame arrives. Pure function for unit tests.
+ */
+export function nodesForIteration(
+	nodes: DisplayNode[],
+	iteration: number | null | undefined,
+): string[] {
+	if (iteration === null || iteration === undefined) return [];
+	return nodes
+		.filter((node) => node.iteration === iteration)
+		.map((node) => node.id);
+}
+
+export interface VersionDiffView {
+	nodes: DisplayNode[];
+	edges: DisplayEdge[];
+	addedNodes: number;
+	removedNodes: number;
+	addedEdges: number;
+	removedEdges: number;
+	mergedGroups: number;
+	empty: boolean;
+}
+
+/**
+ * Edge-level version diff view shared by the text rows and the graph.
+ * Added base edges keep their semantic label when present so the canvas
+ * label budget ranks them normally; only unlabeled added edges fall back
+ * to a plus marker. Removed edges merge by endpoints with a count suffix
+ * so parallel removals stay readable. Pure function for unit tests.
+ */
+export function buildVersionDiffView(
+	nodes: DisplayNode[],
+	edges: DisplayEdge[],
+	diff: TopologyDiff | null,
+): VersionDiffView {
+	if (!diff) {
+		return {
+			nodes,
+			edges,
+			addedNodes: 0,
+			removedNodes: 0,
+			addedEdges: 0,
+			removedEdges: 0,
+			mergedGroups: 0,
+			empty: true,
+		};
+	}
+	const addedKeys = new Set(
+		diff.addedEdges.map((edge) => `${edge.source}->${edge.target}`),
+	);
+	const addedGroupSizes = new Map<string, number>();
+	for (const edge of diff.addedEdges) {
+		const key = `${edge.source}->${edge.target}`;
+		addedGroupSizes.set(key, (addedGroupSizes.get(key) ?? 0) + 1);
+	}
+	const removedGroups = new Map<string, number>();
+	for (const edge of diff.removedEdges) {
+		const key = `${edge.source}->${edge.target}`;
+		removedGroups.set(key, (removedGroups.get(key) ?? 0) + 1);
+	}
+	const viewNodes: DisplayNode[] = [
+		...nodes,
+		...diff.removedNodes
+			.filter((id) => !nodes.some((node) => node.id === id))
+			.map((id) => ({
+				id,
+				label: `${id} (removed)`,
+				kind: 'removed',
+				status: 'failed',
+			})),
+	];
+	const viewEdges: DisplayEdge[] = [
+		...edges.map((edge) => {
+			const key = `${edge.source}->${edge.target}`;
+			if (!addedKeys.has(key)) return edge;
+			const groupSize = addedGroupSizes.get(key) ?? 1;
+			const label =
+				edge.label ??
+				(groupSize > 1
+					? `+ ${edge.source} → ${edge.target} (${groupSize} links)`
+					: `+ ${edge.source} → ${edge.target}`);
+			return { ...edge, status: 'completed', label };
+		}),
+		...[...removedGroups.entries()].map(([key, count]) => {
+			const [source, target] = key.split('->');
+			return {
+				id: `removed:${key}`,
+				source,
+				target,
+				kind: 'default',
+				status: 'failed',
+				label:
+					count > 1
+						? `− ${source} → ${target} (${count} links)`
+						: `− ${source} → ${target}`,
+			};
+		}),
+	];
+	const mergedGroups =
+		[...addedGroupSizes.values()].filter((size) => size > 1).length +
+		[...removedGroups.values()].filter((size) => size > 1).length;
+	const empty =
+		diff.addedNodes.length === 0 &&
+		diff.removedNodes.length === 0 &&
+		diff.addedEdges.length === 0 &&
+		diff.removedEdges.length === 0;
+	return {
+		nodes: viewNodes,
+		edges: viewEdges,
+		addedNodes: diff.addedNodes.length,
+		removedNodes: diff.removedNodes.length,
+		addedEdges: diff.addedEdges.length,
+		removedEdges: diff.removedEdges.length,
+		mergedGroups,
+		empty,
+	};
+}
+
+/**
  * Whether a dotted issue field path targets a node id (segment match, so
  * `nodes.b.name` hits `b` but `nodesbly.name` does not).
  */

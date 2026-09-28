@@ -48,6 +48,7 @@
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import {
+		buildVersionDiffView,
 		issueNodeIds,
 		issueTargetsNode,
 	} from '$lib/graph/execution-projection';
@@ -159,6 +160,12 @@
 		void lockStore.release();
 	}
 
+	// Leaving the edit tab releases the lease; re-entering re-acquires.
+	// Release failures only surface as a notice and never block navigation.
+	$effect(() => {
+		if (tab !== 'edit' && editMode) exitEdit();
+	});
+
 	function handleMoveNode(id: string, position: CanvasPosition): void {
 		editStore.applyMove(id, position);
 	}
@@ -204,7 +211,18 @@
 	}
 
 	function handleConnect(source: string, target: string): void {
-		editStore.connect(source, target);
+		if (
+			editStore.edges.some(
+				(edge) => edge.source === source && edge.target === target,
+			)
+		) {
+			return;
+		}
+		const reason = editStore.connect(source, target);
+		if (reason) {
+			toasts.info('Cannot connect', reason);
+			return;
+		}
 		editStore.selectedId = target;
 		toasts.success(
 			`Edge ${source} → ${target} added`,
@@ -355,41 +373,13 @@
 
 	// Edge-level diff view: single derivation feeds both the text rows and
 	// the graph, so counts and colors always agree.
-	const diffAddedKeys = $derived(
-		new Set((diff?.addedEdges ?? []).map((edge) => `${edge.source}->${edge.target}`)),
-	);
+	const diffView = $derived(buildVersionDiffView(nodes, edges, diff));
 
-	const diffGraphNodes = $derived<DisplayNode[]>([
-		...nodes,
-		...(diff?.removedNodes ?? [])
-			.filter((id) => !nodes.some((node) => node.id === id))
-			.map((id) => ({
-				id,
-				label: `${id} (removed)`,
-				kind: 'removed',
-				status: 'failed',
-			})),
-	]);
+	const diffGraphNodes = $derived<DisplayNode[]>(diffView.nodes);
 
-	const diffGraphEdges = $derived<DisplayEdge[]>([
-		...edges.map((edge) =>
-			diffAddedKeys.has(`${edge.source}->${edge.target}`)
-				? {
-						...edge,
-						status: 'completed',
-						label: edge.label ?? `+ ${edge.source} → ${edge.target}`,
-					}
-				: edge,
-		),
-		...(diff?.removedEdges ?? []).map((edge) => ({
-			id: `removed:${edge.source}->${edge.target}`,
-			source: edge.source,
-			target: edge.target,
-			kind: 'default',
-			status: 'failed',
-			label: `− ${edge.source} → ${edge.target}`,
-		})),
-	]);
+	const diffGraphEdges = $derived<DisplayEdge[]>(diffView.edges);
+
+	const diffIsEmpty = $derived(diff !== null && diffView.empty);
 
 	const overlays = $derived.by<GraphOverlay[]>(() => {
 		if (!analysis) return [];
@@ -603,6 +593,18 @@
 		const id = page.params.id;
 		if (!id) return;
 		void load(id);
+		// Best-effort lease release on page hide or unload. Failures never
+		// block navigation; the store surfaces them as a notice.
+		const release = (): void => {
+			void lockStore.release();
+		};
+		window.addEventListener('pagehide', release);
+		window.addEventListener('beforeunload', release);
+		return () => {
+			window.removeEventListener('pagehide', release);
+			window.removeEventListener('beforeunload', release);
+			void lockStore.release();
+		};
 	});
 
 	$effect(() => {
@@ -902,56 +904,68 @@
 					{#if diffError}
 						<p class="mt-2 text-caption text-destructive">{diffError}</p>
 					{:else if diff}
-						<ul class="mt-2 space-y-1 text-caption">
-							<li>
-								Added nodes:
-								{#each diff.addedNodes as nodeId (nodeId)}
-									<button
-										type="button"
-										class="mr-1 font-mono text-success underline-offset-2 hover:underline"
-										onclick={() => diffExplorer?.focus(nodeId)}
-									>
-										{nodeId}
-									</button>
-								{:else}—{/each}
-							</li>
-							<li>
-								Removed nodes:
-								{#each diff.removedNodes as nodeId (nodeId)}
-									<button
-										type="button"
-										class="mr-1 font-mono text-destructive underline-offset-2 hover:underline"
-										onclick={() => diffExplorer?.focus(nodeId)}
-									>
-										{nodeId}
-									</button>
-								{:else}—{/each}
-							</li>
-							<li>
-								Added edges:
-								{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
-									<button
-										type="button"
-										class="mr-1 font-mono text-success underline-offset-2 hover:underline"
-										onclick={() => diffExplorer?.focus(edge.source)}
-									>
-										{edge.source} → {edge.target}
-									</button>
-								{:else}—{/each}
-							</li>
-							<li>
-								Removed edges:
-								{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
-									<button
-										type="button"
-										class="mr-1 font-mono text-destructive underline-offset-2 hover:underline"
-										onclick={() => diffExplorer?.focus(edge.source)}
-									>
-										{edge.source} → {edge.target}
-									</button>
-								{:else}—{/each}
-							</li>
-						</ul>
+						{#if diffIsEmpty}
+							<p class="mt-2 text-caption text-muted-foreground">
+								No differences between {compareFrom} and {compareTo}.
+							</p>
+						{:else}
+							<ul class="mt-2 space-y-1 text-caption">
+								<li>
+									Added nodes ({diffView.addedNodes}):
+									{#each diff.addedNodes as nodeId (nodeId)}
+										<button
+											type="button"
+											aria-current={graphNodeId === nodeId}
+											class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
+											onclick={() => diffExplorer?.focus(nodeId)}
+										>
+											{nodeId}
+										</button>
+									{:else}—{/each}
+								</li>
+								<li>
+									Removed nodes ({diffView.removedNodes}):
+									{#each diff.removedNodes as nodeId (nodeId)}
+										<button
+											type="button"
+											aria-current={graphNodeId === nodeId}
+											class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-destructive/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
+											onclick={() => diffExplorer?.focus(nodeId)}
+										>
+											{nodeId}
+										</button>
+									{:else}—{/each}
+								</li>
+								<li>
+									Added edges ({diffView.addedEdges}):
+									{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
+										<button
+											type="button"
+											aria-current={graphNodeId === edge.source ||
+												graphNodeId === edge.target}
+											class="mr-1 font-mono text-success underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-success/15 aria-[current=true]:ring-1 aria-[current=true]:ring-success"
+											onclick={() => diffExplorer?.focus(edge.source)}
+										>
+											{edge.source} → {edge.target}
+										</button>
+									{:else}—{/each}
+								</li>
+								<li>
+									Removed edges ({diffView.removedEdges}):
+									{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
+										<button
+											type="button"
+											aria-current={graphNodeId === edge.source ||
+												graphNodeId === edge.target}
+											class="mr-1 font-mono text-destructive underline-offset-2 hover:underline aria-[current=true]:rounded aria-[current=true]:bg-destructive/15 aria-[current=true]:ring-1 aria-[current=true]:ring-destructive"
+											onclick={() => diffExplorer?.focus(edge.source)}
+										>
+											{edge.source} → {edge.target}
+										</button>
+									{:else}—{/each}
+								</li>
+							</ul>
+						{/if}
 					{/if}
 				</Card>
 				<Card title="Rollback">
@@ -997,6 +1011,11 @@
 			</div>
 			{#if diff && !diffLoading}
 				<div class="mt-3">
+					{#if diffIsEmpty}
+						<p class="mb-2 text-caption text-muted-foreground">
+							Graph matches the text: no added or removed nodes or edges.
+						</p>
+					{/if}
 					<GraphExplorer
 						bind:this={diffExplorer}
 						nodes={diffGraphNodes}

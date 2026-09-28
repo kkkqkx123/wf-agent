@@ -10,7 +10,10 @@ export interface CanvasShortcutEntry {
 export const CANVAS_SHORTCUT_HELP: CanvasShortcutEntry[] = [
 	{ keys: 'F', action: 'Fit graph to view' },
 	{ keys: 'R', action: 'Re-run layout' },
+	{ keys: '+ / -', action: 'Zoom in / out' },
+	{ keys: 'C', action: 'Focus selected node' },
 	{ keys: 'E', action: 'Enter or exit edit mode' },
+	{ keys: 'Esc', action: 'Exit edit mode' },
 	{ keys: 'Ctrl/⌘ + S', action: 'Save draft' },
 	{ keys: 'Ctrl/⌘ + Z / Ctrl/⌘ + Shift + Z', action: 'Undo / redo' },
 	{ keys: 'Ctrl/⌘ + A', action: 'Select all nodes' },
@@ -20,6 +23,9 @@ export const CANVAS_SHORTCUT_HELP: CanvasShortcutEntry[] = [
 export interface CanvasShortcutHandlers {
 	fit(): void;
 	relayout(): void;
+	zoomIn(): void;
+	zoomOut(): void;
+	focusSelected(): void;
 	selectAll(): void;
 	deleteSelected(): void;
 	undo(): void;
@@ -44,9 +50,11 @@ function isTyping(target: HTMLElement | null): boolean {
 
 /**
  * Register canvas shortcuts on the window, scoped to focus inside `root`.
- * Typing in fields never triggers shortcuts. Write operations are gated by
- * `canWrite`; read-only presses report through `onreadonlywrite` without
- * side effects. Returns a dispose function.
+ * Typing in fields never triggers shortcuts, except Escape which exits
+ * edit mode even from inputs. Write operations are gated by `canWrite`;
+ * read-only presses report through `onreadonlywrite` without side effects.
+ * Zoom and focus are view operations and stay available read-only.
+ * Returns a dispose function.
  */
 export function registerCanvasShortcuts(
 	root: HTMLElement,
@@ -64,11 +72,18 @@ export function registerCanvasShortcuts(
 	}
 	function onKey(event: KeyboardEvent): void {
 		const target = event.target as HTMLElement | null;
-		if (isTyping(target)) return;
 		if (!target || !root.contains(target)) return;
 		const handlers = get();
-		const mod = event.ctrlKey || event.metaKey;
 		const key = event.key;
+		if (key === 'Escape') {
+			if (handlers.canWrite()) {
+				event.preventDefault();
+				handlers.toggleEdit();
+			}
+			return;
+		}
+		if (isTyping(target)) return;
+		const mod = event.ctrlKey || event.metaKey;
 		if (mod && (key === 'z' || key === 'Z')) {
 			event.preventDefault();
 			if (event.shiftKey) {
@@ -80,7 +95,7 @@ export function registerCanvasShortcuts(
 		}
 		if (mod && (key === 'a' || key === 'A')) {
 			event.preventDefault();
-			handlers.selectAll();
+			guarded(handlers, (h) => h.selectAll());
 			return;
 		}
 		if (mod && (key === 's' || key === 'S')) {
@@ -104,6 +119,21 @@ export function registerCanvasShortcuts(
 			case 'R':
 				event.preventDefault();
 				handlers.relayout();
+				break;
+			case '+':
+			case '=':
+				event.preventDefault();
+				handlers.zoomIn();
+				break;
+			case '-':
+			case '_':
+				event.preventDefault();
+				handlers.zoomOut();
+				break;
+			case 'c':
+			case 'C':
+				event.preventDefault();
+				handlers.focusSelected();
 				break;
 			case 'e':
 			case 'E':

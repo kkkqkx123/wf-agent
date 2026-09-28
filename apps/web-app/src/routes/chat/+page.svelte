@@ -18,9 +18,16 @@
 	import Composer from '$lib/components/chat/Composer.svelte';
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
 	import {
+		getLoopGraph,
 		listLoopMessages,
 		type RunLoopMessage,
 	} from '$lib/services/agent-loops';
+	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
+	import {
+		applyExecutionOverlay,
+		projectExecutionOverlay,
+	} from '$lib/graph/execution-projection';
+	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import { streamLoopRun } from '$lib/services/streaming';
 	import { listModelProfiles } from '$lib/services/resources';
 	import type { CommandAction } from '$lib/config/commands';
@@ -99,6 +106,112 @@
 			input: '',
 			output: tool.result,
 		};
+	}
+
+	// Mini decision map: lightweight mirror of the session decision graph,
+	// sharing the projection bridge with the inspector graph tab.
+	const loopGraph = createResource(async () => {
+		if (!selectedId) return { nodes: [], edges: [] };
+		return getLoopGraph(selectedId);
+	});
+
+	let mapOpen = $state(false);
+	let miniSelected = $state<string | null>(null);
+	let focusedToolId = $state<string | null>(null);
+	let miniCanvas = $state<{ zoomTo: (id: string) => void } | null>(null);
+
+	$effect(() => {
+		if (!selectedId) {
+			mapOpen = false;
+			miniSelected = null;
+			focusedToolId = null;
+			return;
+		}
+		void loopGraph.reload();
+	});
+
+	const miniBaseNodes = $derived<DisplayNode[]>(
+		(loopGraph.data?.nodes ?? []).map((node) => ({
+			id: node.id,
+			label: node.label,
+			kind: node.kind,
+			status: node.status,
+			iteration: node.iteration,
+		})),
+	);
+	const miniEdges = $derived<DisplayEdge[]>(
+		(loopGraph.data?.edges ?? []).map((edge) => ({
+			id: edge.id,
+			source: edge.from,
+			target: edge.to,
+			label: edge.label,
+			kind: edge.kind,
+			taken: edge.taken,
+		})),
+	);
+
+	function matchMiniNode(name: string): string | null {
+		const needle = name.trim().toLowerCase();
+		if (!needle) return null;
+		const exact = miniBaseNodes.find(
+			(node) =>
+				node.id.toLowerCase() === needle || node.label.toLowerCase() === needle,
+		);
+		if (exact) return exact.id;
+		return (
+			miniBaseNodes.find(
+				(node) =>
+					node.label.toLowerCase().includes(needle) ||
+					needle.includes(node.id.toLowerCase()),
+			)?.id ?? null
+		);
+	}
+
+	const miniNodes = $derived.by(() => {
+		const live: Record<string, string> = {};
+		let current: string | null = null;
+		for (const tool of chatStream.tools) {
+			const nodeId = matchMiniNode(tool.name);
+			if (!nodeId) continue;
+			live[nodeId] = tool.status;
+			if (tool.status === 'running' || tool.status === 'pending') {
+				current = nodeId;
+			}
+		}
+		if (miniBaseNodes.length === 0) return miniBaseNodes;
+		const overlay = projectExecutionOverlay(miniBaseNodes, {
+			currentNode: current,
+			liveStatuses: live,
+		});
+		return applyExecutionOverlay(miniBaseNodes, overlay);
+	});
+
+	function focusToolFromNode(nodeId: string): void {
+		miniSelected = nodeId;
+		const node = miniBaseNodes.find((entry) => entry.id === nodeId);
+		const needle = (node?.label ?? nodeId).toLowerCase();
+		const match = [...chatStream.tools]
+			.reverse()
+			.find(
+				(tool) =>
+					tool.name.toLowerCase() === needle ||
+					tool.name.toLowerCase().includes(nodeId.toLowerCase()),
+			);
+		if (match) {
+			focusedToolId = match.id;
+			document
+				.getElementById(`live-tool-${match.id}`)
+				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		}
+	}
+
+	function focusNodeFromTool(toolId: string, toolName: string): void {
+		const nodeId = matchMiniNode(toolName);
+		focusedToolId = toolId;
+		if (!nodeId) return;
+		miniSelected = nodeId;
+		if (!mapOpen) mapOpen = true;
+		queueMicrotask(() => miniCanvas?.zoomTo(nodeId));
 	}
 
 	function sendText(message: OutgoingMessage): boolean {
@@ -319,7 +432,24 @@
 							/>
 						{/if}
 						{#each chatStream.tools as tool (tool.id)}
-							<ToolCallCard entry={toLiveEntry(tool)} />
+							<div
+								id={`live-tool-${tool.id}`}
+								role="button"
+								tabindex={0}
+								aria-label={`Locate tool ${tool.name} on decision map`}
+								onclick={() => focusNodeFromTool(tool.id, tool.name)}
+								onkeydown={(event) => {
+									if (event.key === 'Enter' || event.key === ' ') {
+										event.preventDefault();
+										focusNodeFromTool(tool.id, tool.name);
+									}
+								}}
+								class={focusedToolId === tool.id
+									? 'cursor-pointer rounded-lg ring-2 ring-warning'
+									: 'cursor-pointer rounded-lg'}
+							>
+								<ToolCallCard entry={toLiveEntry(tool)} />
+							</div>
 						{/each}
 						{#if chatStream.answer}
 							<article class="flex gap-2.5">
@@ -421,6 +551,42 @@
 		{/if}
 
 		<div class="shrink-0 border-t border-border px-3 py-2.5">
+			{#if selectedId}
+				<div class="mx-auto mb-2 max-w-3xl">
+					<button
+						type="button"
+						class="text-micro text-muted-foreground underline-offset-2 hover:underline"
+						onclick={() => (mapOpen = !mapOpen)}
+					>
+						{mapOpen ? 'Hide decision map' : 'Show decision map'}
+						{chatStream.tools.length > 0
+							? ` · ${chatStream.tools.length} live tool(s)`
+							: ''}
+					</button>
+					{#if mapOpen}
+						<div class="mt-1.5">
+							{#if loopGraph.loading && !loopGraph.data}
+								<Skeleton shape="block" height="120px" class="rounded-lg" />
+							{:else if miniBaseNodes.length === 0}
+								<p class="text-micro text-muted-foreground">
+									No decision graph for this session yet.
+								</p>
+							{:else}
+								<GraphCanvas
+									bind:this={miniCanvas}
+									nodes={miniNodes}
+									edges={miniEdges}
+									preset="decision"
+									layout="columns"
+									selectedId={miniSelected}
+									onselect={focusToolFromNode}
+									heightClass="h-56"
+								/>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 			<div class="mx-auto max-w-3xl">
 				<Composer
 					bind:model
@@ -442,6 +608,14 @@
 			bind:tab
 			{revision}
 			busy={chatStream.active}
+			liveStatuses={Object.fromEntries(
+				chatStream.tools.map((tool) => [tool.name, tool.status]),
+			)}
+			onnodeselect={(id) => {
+				if (id) {
+					focusToolFromNode(id);
+				}
+			}}
 			class="h-full"
 		/>
 	{/snippet}

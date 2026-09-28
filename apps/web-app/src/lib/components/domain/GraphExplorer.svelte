@@ -11,7 +11,9 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
+	import GraphCanvas, {
+		type CanvasPosition,
+	} from '$lib/components/domain/GraphCanvas.svelte';
 	import {
 		capGraph,
 		distinctKinds,
@@ -48,6 +50,29 @@
 		onoverlay?: (id: string | null) => void;
 		inspector?: Snippet;
 		actions?: Snippet;
+		/** Controlled edit mode; intents report back instead of mutating. */
+		editable?: boolean;
+		editMode?: boolean;
+		editDirty?: boolean;
+		canUndo?: boolean;
+		canRedo?: boolean;
+		editBusy?: boolean;
+		positions?: Record<string, CanvasPosition>;
+		issueIds?: string[];
+		pulseIds?: string[];
+		criticalIds?: string[];
+		onenteredit?: () => void;
+		onexitedit?: () => void;
+		onundo?: () => void;
+		onredo?: () => void;
+		onsave?: () => void;
+		onvalidate?: () => void;
+		onpromote?: () => void;
+		onmovenode?: (id: string, position: CanvasPosition) => void;
+		onaddnode?: (position: CanvasPosition) => void;
+		ondeleteedge?: (id: string) => void;
+		onconnect?: (source: string, target: string) => void;
+		ondeletenodes?: (ids: string[]) => void;
 		class?: string;
 	}
 
@@ -67,6 +92,28 @@
 		onoverlay,
 		inspector,
 		actions,
+		editable = false,
+		editMode = false,
+		editDirty = false,
+		canUndo = false,
+		canRedo = false,
+		editBusy = false,
+		positions = undefined,
+		issueIds = [],
+		pulseIds = [],
+		criticalIds = [],
+		onenteredit,
+		onexitedit,
+		onundo,
+		onredo,
+		onsave,
+		onvalidate,
+		onpromote,
+		onmovenode,
+		onaddnode,
+		ondeleteedge,
+		onconnect,
+		ondeletenodes,
 		class: className = '',
 	}: Props = $props();
 
@@ -81,7 +128,9 @@
 
 	const kinds = $derived(distinctKinds(nodes));
 	const activeIds = $derived(
-		new Set(overlays.find((overlay) => overlay.id === activeOverlay)?.ids ?? []),
+		new Set(
+			overlays.find((overlay) => overlay.id === activeOverlay)?.ids ?? [],
+		),
 	);
 
 	const filtered = $derived.by(() => {
@@ -149,6 +198,12 @@
 		}
 	}
 
+	/** Focus a node from outside (version diff rows, validation issues). */
+	export function focus(id: string): void {
+		onselect?.(id);
+		canvas?.zoomTo(id);
+	}
+
 	// Denser execution graphs hide edge labels sooner to stay readable.
 	const edgeLabelLimit = $derived(EDGE_LABEL_LIMIT[preset] ?? 60);
 
@@ -173,17 +228,17 @@
 
 <div class={cn('flex min-h-0 flex-col gap-2', className)}>
 	<div class="flex flex-wrap items-center gap-1.5">
-		<IconButton
-			icon="plus"
-			label="Zoom in"
-			onclick={() => canvas?.zoomIn()}
-		/>
+		<IconButton icon="plus" label="Zoom in" onclick={() => canvas?.zoomIn()} />
 		<IconButton
 			icon="minus"
 			label="Zoom out"
 			onclick={() => canvas?.zoomOut()}
 		/>
-		<IconButton icon="maximize" label="Fit to view" onclick={() => canvas?.fit()} />
+		<IconButton
+			icon="maximize"
+			label="Fit to view"
+			onclick={() => canvas?.fit()}
+		/>
 		<IconButton
 			icon="refresh"
 			label="Re-run layout"
@@ -196,11 +251,7 @@
 			placeholder=""
 			class="w-28"
 		/>
-		<IconButton
-			icon="download"
-			label="Export as PNG"
-			onclick={handleExport}
-		/>
+		<IconButton icon="download" label="Export as PNG" onclick={handleExport} />
 		<IconButton
 			icon="filter"
 			label={showFilters ? 'Hide filters' : 'Show filters'}
@@ -226,6 +277,58 @@
 			<span class="mx-1 h-5 w-px bg-border"></span>
 			{@render actions()}
 		{/if}
+		{#if editable}
+			<span class="mx-1 h-5 w-px bg-border"></span>
+			{#if !editMode}
+				<Button variant="outline" size="sm" onclick={() => onenteredit?.()}>
+					Enter edit mode
+				</Button>
+			{:else}
+				<Badge variant="warning">Editing{editDirty ? ' · unsaved' : ''}</Badge>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={!canUndo}
+					onclick={() => onundo?.()}
+				>
+					Undo
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={!canRedo}
+					onclick={() => onredo?.()}
+				>
+					Redo
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => {
+						const ids = canvas?.selectedNodeIds() ?? [];
+						if (ids.length > 0) ondeletenodes?.(ids);
+					}}
+				>
+					Delete selected
+				</Button>
+				<Button
+					size="sm"
+					disabled={!editDirty || editBusy}
+					onclick={() => onsave?.()}
+				>
+					{editBusy ? 'Saving…' : 'Save draft'}
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => onvalidate?.()}>
+					Validate
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => onpromote?.()}>
+					Promote
+				</Button>
+				<Button variant="ghost" size="sm" onclick={() => onexitedit?.()}>
+					Exit
+				</Button>
+			{/if}
+		{/if}
 		<span class="ml-auto text-micro text-muted-foreground">
 			{#if capped.truncated}
 				Showing {capped.nodes.length} of {capped.total} nodes ·
@@ -234,6 +337,14 @@
 		</span>
 	</div>
 
+	{#if editMode}
+		<p class="text-micro text-muted-foreground">
+			Drag nodes to move · double-click empty canvas to add a node · click an
+			edge to delete it · shift-click another node to connect from the
+			selection · Delete selected removes the selection. Layout is frozen
+			while editing.
+		</p>
+	{/if}
 	{#if overlays.length > 0}
 		<div class="flex flex-wrap items-center gap-1.5">
 			<span class="text-micro text-muted-foreground">Highlight:</span>
@@ -313,21 +424,30 @@
 				{layout}
 				{selectedId}
 				highlightIds={[...activeIds]}
+				problemIds={issueIds}
+				pulseIds={pulseIds}
+				criticalIds={criticalIds}
+				{positions}
+				{editMode}
 				{edgeLabelLimit}
 				onselect={(id) => onselect?.(id)}
 				onexpand={(id) => onexpand?.(id)}
 				onboxselect={handleBoxSelect}
+				onmovenode={(id, position) => onmovenode?.(id, position)}
+				onbackgrounddoubleclick={(position) => onaddnode?.(position)}
+				ondeleteedge={(id) => ondeleteedge?.(id)}
+				onconnect={(source, target) => onconnect?.(source, target)}
 				class="min-h-0"
 			/>
 			<div class="flex min-h-0 flex-col gap-2">
 				{#if capped.truncated}
 					<Card title="Large graph">
 						<p class="text-caption text-muted-foreground">
-							Showing {capped.nodes.length} of {capped.total} nodes,
-							sampled across kinds ({aggregatedCounts
+							Showing {capped.nodes.length} of {capped.total} nodes, sampled across
+							kinds ({aggregatedCounts
 								.map((entry) => `${entry.kind} ${entry.count}`)
-								.join(' · ')}). Fold to one kind or use filters;
-							double-click a node to expand its neighborhood.
+								.join(' · ')}). Fold to one kind or use filters; double-click a
+							node to expand its neighborhood.
 						</p>
 						<div class="mt-2 flex flex-wrap gap-1.5">
 							{#each aggregatedCounts.slice(0, 4) as entry (entry.kind)}
@@ -370,7 +490,13 @@
 							{#if selected.status}
 								<div class="flex justify-between gap-2">
 									<dt class="text-muted-foreground">Status</dt>
-									<dd><StatusBadge status={selected.status} size="sm" dot={false} /></dd>
+									<dd>
+										<StatusBadge
+											status={selected.status}
+											size="sm"
+											dot={false}
+										/>
+									</dd>
 								</div>
 							{/if}
 							{#if selected.iteration !== undefined}
@@ -382,7 +508,8 @@
 							<div class="flex justify-between gap-2">
 								<dt class="text-muted-foreground">Links</dt>
 								<dd class="font-mono">
-									{selectedNeighbors.predecessors} in · {selectedNeighbors.successors} out
+									{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
+									out
 								</dd>
 							</div>
 						</dl>
@@ -408,22 +535,22 @@
 				<Card title="Legend">
 					<ul class="space-y-1">
 						{#each legendFor(preset) as entry (entry.label)}
-							<li class="flex items-center gap-2 text-caption text-muted-foreground">
+							<li
+								class="flex items-center gap-2 text-caption text-muted-foreground"
+							>
 								<span
 									class="inline-block h-2.5 w-2.5"
 									style:background={entry.shape.startsWith('line')
 										? 'transparent'
 										: entry.color}
-									style:border-radius={
-										entry.shape === 'ellipse'
-											? '9999px'
-											: entry.shape === 'diamond'
-												? '2px'
-												: '4px'
-									}
-									style:transform={
-										entry.shape === 'diamond' ? 'rotate(45deg)' : 'none'
-									}
+									style:border-radius={entry.shape === 'ellipse'
+										? '9999px'
+										: entry.shape === 'diamond'
+											? '2px'
+											: '4px'}
+									style:transform={entry.shape === 'diamond'
+										? 'rotate(45deg)'
+										: 'none'}
 									style:border={entry.shape.startsWith('line')
 										? `2px ${entry.shape === 'line-dashed' ? 'dashed' : 'solid'} ${entry.color}`
 										: 'none'}

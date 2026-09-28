@@ -33,6 +33,7 @@
 		getWorkflowDraftTopology,
 		promoteWorkflowDraft,
 		rollbackWorkflow,
+		saveWorkflowDraft,
 		validateWorkflowDraft,
 	} from '$lib/services/graph';
 	import { listExecutions } from '$lib/services/executions';
@@ -46,9 +47,17 @@
 	import { formatDateTime, formatNumber } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+	import {
+		issueNodeIds,
+		issueTargetsNode,
+	} from '$lib/graph/execution-projection';
+	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
+	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
+	import type { ValidationIssue } from '$lib/types/models';
 
 	const TABS = [
 		{ id: 'graph', label: 'Graph' },
+		{ id: 'edit', label: 'Edit' },
 		{ id: 'versions', label: 'Versions' },
 		{ id: 'drafts', label: 'Drafts' },
 		{ id: 'runs', label: 'Runs' },
@@ -93,6 +102,130 @@
 	let draftPreviewError = $state<string | null>(null);
 	let draftPreviewLoading = $state(false);
 
+	// Controlled canvas edit state. The canvas only emits intents; every
+	// mutation lands in this store and re-renders from it.
+	const editStore = new GraphEditStore();
+	let editSeededId = $state('');
+	let editMode = $state(false);
+	let editBusy = $state(false);
+	let editDraftId = $state<string | null>(null);
+	let editIssues = $state<ValidationIssue[]>([]);
+	let editExplorer = $state<{ focus: (id: string) => void } | null>(null);
+	let diffExplorer = $state<{ focus: (id: string) => void } | null>(null);
+
+	const editIssueIds = $derived([
+		...issueNodeIds(editIssues, editStore.nodes).keys(),
+	]);
+
+	$effect(() => {
+		if (tab !== 'edit' || !detail) return;
+		if (editSeededId === detail.id) return;
+		editStore.load(nodes, edges);
+		editSeededId = detail.id;
+		editDraftId = null;
+		editIssues = [];
+		editMode = false;
+	});
+
+	function handleMoveNode(id: string, position: CanvasPosition): void {
+		editStore.applyMove(id, position);
+	}
+
+	function handleAddNode(position: CanvasPosition): void {
+		let stamp = Date.now();
+		let id = `node-${stamp}`;
+		while (editStore.nodes.some((node) => node.id === id)) {
+			stamp += 1;
+			id = `node-${stamp}`;
+		}
+		editStore.addNode({ id, label: id, kind: 'STEP' }, position);
+		editStore.selectedId = id;
+		toasts.success(`Node ${id} added`, 'Save the draft to keep it.');
+	}
+
+	function handleDeleteEdge(id: string): void {
+		editStore.removeEdge(id);
+	}
+
+	function handleConnect(source: string, target: string): void {
+		editStore.connect(source, target);
+		editStore.selectedId = target;
+		toasts.success(`Edge ${source} → ${target} added`, 'Save the draft to keep it.');
+	}
+
+	function handleDeleteNodes(ids: string[]): void {
+		editStore.removeNodes(ids);
+		toasts.info(
+			'Nodes deleted',
+			`${ids.length} node(s) removed from the canvas.`,
+		);
+	}
+
+	async function saveEditDraft(): Promise<void> {
+		const id = page.params.id;
+		if (!id || !detail) return;
+		editBusy = true;
+		try {
+			const savedId = await saveWorkflowDraft(
+				editStore.toDraftDefinition(id, detail.name),
+			);
+			editDraftId = savedId;
+			editStore.markClean();
+			await validateEditDraft(savedId);
+			toasts.success('Draft saved', `Draft ${savedId} updated.`);
+		} catch (e) {
+			toasts.error('Save failed', e instanceof Error ? e.message : undefined);
+		} finally {
+			editBusy = false;
+		}
+	}
+
+	async function validateEditDraft(draftId?: string): Promise<void> {
+		const target = draftId ?? editDraftId;
+		if (!target) {
+			toasts.info('Nothing to validate', 'Save the draft first.');
+			return;
+		}
+		try {
+			editIssues = await validateWorkflowDraft(target);
+			if (editIssues.length === 0) {
+				toasts.success('Draft is valid');
+			} else {
+				toasts.warning(`Draft has ${editIssues.length} issue(s)`);
+			}
+		} catch (e) {
+			toasts.error(
+				'Validation failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
+	}
+
+	async function promoteEditDraft(): Promise<void> {
+		if (!editDraftId) {
+			toasts.info('Nothing to promote', 'Save the draft first.');
+			return;
+		}
+		if (editStore.dirty) {
+			toasts.error('Unsaved changes', 'Save the draft before promoting.');
+			return;
+		}
+		try {
+			const report = await promoteWorkflowDraft(editDraftId);
+			toasts.success(
+				`Draft promoted (${report.passCount} passed, ${report.warningCount} warnings)`,
+			);
+			const id = page.params.id;
+			editSeededId = '';
+			if (id) await load(id);
+		} catch (e) {
+			toasts.error(
+				'Promotion failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
+	}
+
 	async function toggleDraftPreview(draftId: string): Promise<void> {
 		if (draftPreviewId === draftId) {
 			draftPreviewId = null;
@@ -115,6 +248,7 @@
 				source: edge.from,
 				target: edge.to,
 				label: edge.label,
+				kind: edge.kind,
 			}));
 		} catch (e) {
 			draftPreviewError =
@@ -141,6 +275,8 @@
 			source: edge.from,
 			target: edge.to,
 			label: edge.label,
+			kind: edge.kind,
+			taken: edge.taken,
 		})),
 	);
 
@@ -185,8 +321,7 @@
 			}
 			void loadAnalysis(id);
 		} catch (e) {
-			detailError =
-				e instanceof Error ? e.message : 'Failed to load workflow.';
+			detailError = e instanceof Error ? e.message : 'Failed to load workflow.';
 			detail = null;
 		} finally {
 			detailLoading = false;
@@ -222,7 +357,11 @@
 		if (!workflowId) return;
 		try {
 			const neighbors = await getGraphNeighbors(workflowId, id);
-			neighborhoodIds = [id, ...neighbors.predecessors, ...neighbors.successors];
+			neighborhoodIds = [
+				id,
+				...neighbors.predecessors,
+				...neighbors.successors,
+			];
 			activeOverlay = '__neighborhood';
 			toasts.success(
 				`Neighborhood: ${neighbors.predecessors.length} in · ${neighbors.successors.length} out`,
@@ -332,10 +471,7 @@
 			await exportWorkflow(id);
 			toasts.success('Workflow definition exported');
 		} catch (e) {
-			toasts.error(
-				'Export failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Export failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -425,8 +561,8 @@
 		{#snippet actions()}
 			<IconButton
 				icon="pencil"
-				label="Definition editing is not available in this release"
-				disabled
+				label="Edit graph"
+				onclick={() => (tab = 'edit')}
 			/>
 			<Button
 				variant="outline"
@@ -536,6 +672,62 @@
 					</ul>
 				</Card>
 			</div>
+		{:else if tab === 'edit'}
+			{#if editIssues.length > 0}
+				<Card title="Validation issues" class="mb-2">
+					<ul class="space-y-1">
+						{#each editIssues as issue, index (index)}
+							<li class="flex items-center justify-between gap-2 text-caption">
+								<span class="min-w-0 truncate text-destructive">
+									<span class="font-mono">{issue.field}</span>: {issue.message}
+								</span>
+								{#if editIssueIds.some( (id) => issueTargetsNode(issue.field, id) )}
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => {
+											const target = editIssueIds.find((id) =>
+												issueTargetsNode(issue.field, id),
+											);
+											if (target) editExplorer?.focus(target);
+										}}
+									>
+										Locate
+									</Button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</Card>
+			{/if}
+			<GraphExplorer
+				bind:this={editExplorer}
+				nodes={editStore.nodes}
+				edges={editStore.edges}
+				preset="workflow"
+				selectedId={editStore.selectedId}
+				onselect={(id) => (editStore.selectedId = id)}
+				editable
+				{editMode}
+				editDirty={editStore.dirty}
+				canUndo={editStore.canUndo}
+				canRedo={editStore.canRedo}
+				{editBusy}
+				positions={editStore.positions}
+				issueIds={editIssueIds}
+				onenteredit={() => (editMode = true)}
+				onexitedit={() => (editMode = false)}
+				onundo={() => editStore.undo()}
+				onredo={() => editStore.redo()}
+				onsave={() => void saveEditDraft()}
+				onvalidate={() => void validateEditDraft()}
+				onpromote={() => void promoteEditDraft()}
+				onmovenode={handleMoveNode}
+				onaddnode={handleAddNode}
+				ondeleteedge={handleDeleteEdge}
+				onconnect={handleConnect}
+				ondeletenodes={handleDeleteNodes}
+			/>
 		{:else if tab === 'versions'}
 			<Card title="Version history" bodyClass="p-0">
 				<DataTable
@@ -578,8 +770,30 @@
 						<p class="mt-2 text-caption text-destructive">{diffError}</p>
 					{:else if diff}
 						<ul class="mt-2 space-y-1 text-caption">
-							<li>Added nodes: {diff.addedNodes.join(', ') || '—'}</li>
-							<li>Removed nodes: {diff.removedNodes.join(', ') || '—'}</li>
+							<li>
+								Added nodes:
+								{#each diff.addedNodes as nodeId (nodeId)}
+									<button
+										type="button"
+										class="mr-1 font-mono text-success underline-offset-2 hover:underline"
+										onclick={() => diffExplorer?.focus(nodeId)}
+									>
+										{nodeId}
+									</button>
+								{:else}—{/each}
+							</li>
+							<li>
+								Removed nodes:
+								{#each diff.removedNodes as nodeId (nodeId)}
+									<button
+										type="button"
+										class="mr-1 font-mono text-destructive underline-offset-2 hover:underline"
+										onclick={() => diffExplorer?.focus(nodeId)}
+									>
+										{nodeId}
+									</button>
+								{:else}—{/each}
+							</li>
 							<li>Added edges: {diff.addedEdges.join(', ') || '—'}</li>
 							<li>Removed edges: {diff.removedEdges.join(', ') || '—'}</li>
 						</ul>
@@ -626,6 +840,32 @@
 					</div>
 				</Card>
 			</div>
+			{#if diff && !diffLoading}
+				<div class="mt-3">
+					<GraphExplorer
+						bind:this={diffExplorer}
+						nodes={[
+							...nodes,
+							...diff.removedNodes
+								.filter((id) => !nodes.some((node) => node.id === id))
+								.map((id) => ({
+									id,
+									label: `${id} (removed)`,
+									kind: 'removed',
+									status: 'failed',
+								})),
+						]}
+						{edges}
+						preset="workflow"
+						selectedId={graphNodeId}
+						onselect={(id) => (graphNodeId = id)}
+						overlays={[
+							{ id: 'added', label: 'Added', ids: diff.addedNodes },
+							{ id: 'removed', label: 'Removed', ids: diff.removedNodes },
+						]}
+					/>
+				</div>
+			{/if}
 		{:else if tab === 'drafts'}
 			<div class="space-y-2">
 				{#each detail.drafts as draft (draft.id)}
@@ -707,7 +947,10 @@
 			</div>
 		{:else}
 			{#if runsLoading}
-				<Skeleton lines={4} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={4}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if runsError}
 				<ErrorState
 					title="Runs failed to load"
@@ -729,7 +972,9 @@
 				<Card title="Runs" bodyClass="p-0">
 					<ul class="divide-y divide-border">
 						{#each runs as run (run.id)}
-							<li class="flex items-center justify-between gap-2 px-3 py-2 text-caption">
+							<li
+								class="flex items-center justify-between gap-2 px-3 py-2 text-caption"
+							>
 								<a
 									href={resolve('/executions/[id]', { id: run.id })}
 									class="truncate font-mono underline-offset-2 hover:underline"

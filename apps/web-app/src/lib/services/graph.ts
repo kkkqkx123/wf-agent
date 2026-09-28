@@ -39,6 +39,7 @@ export function toWorkflowGraph(
 			from: edge.source_node_id,
 			to: edge.target_node_id,
 			label: edge.condition ?? undefined,
+			kind: (edge.edge_type ?? 'DEFAULT').toLowerCase(),
 		})),
 	};
 }
@@ -64,6 +65,7 @@ export function toDecisionGraph(
 			from: edge.from_node_id,
 			to: edge.to_node_id,
 			label: edge.reason ?? edge.condition ?? undefined,
+			taken: edge.was_taken ?? true,
 		})),
 	};
 }
@@ -95,9 +97,7 @@ export async function getGraphEdges(id: string): Promise<EdgeDoc[]> {
 }
 
 export async function getGraphSummary(id: string): Promise<GraphSummary> {
-	const data = await call<
-		components['schemas']['GraphSummaryDoc'] | null
-	>(
+	const data = await call<components['schemas']['GraphSummaryDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/summary', {
 			params: { path: { id } },
 		}),
@@ -117,9 +117,7 @@ export async function getGraphNeighbors(
 	id: string,
 	nodeId: string,
 ): Promise<{ predecessors: string[]; successors: string[] }> {
-	const data = await call<
-		components['schemas']['GraphNeighborsDoc'] | null
-	>(
+	const data = await call<components['schemas']['GraphNeighborsDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/neighbors/{nodeId}', {
 			params: { path: { id, nodeId } },
 		}),
@@ -134,10 +132,10 @@ export async function getGraphNeighbors(
 	};
 }
 
-export async function getGraphAnalysis(id: string): Promise<GraphAnalysisResult> {
-	const data = await call<
-		components['schemas']['GraphAnalysisDoc'] | null
-	>(
+export async function getGraphAnalysis(
+	id: string,
+): Promise<GraphAnalysisResult> {
+	const data = await call<components['schemas']['GraphAnalysisDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/analysis', {
 			params: { path: { id } },
 		}),
@@ -167,9 +165,7 @@ export async function getGraphAnalysis(id: string): Promise<GraphAnalysisResult>
 }
 
 export async function getGraphCycles(id: string): Promise<CycleResult> {
-	const data = await call<
-		components['schemas']['CycleDetectionDoc'] | null
-	>(
+	const data = await call<components['schemas']['CycleDetectionDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/cycles', {
 			params: { path: { id } },
 		}),
@@ -183,9 +179,7 @@ export async function getGraphCycles(id: string): Promise<CycleResult> {
 }
 
 export async function getGraphTopology(id: string): Promise<TopologyResult> {
-	const data = await call<
-		components['schemas']['TopologicalSortDoc'] | null
-	>(
+	const data = await call<components['schemas']['TopologicalSortDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/topology', {
 			params: { path: { id } },
 		}),
@@ -201,9 +195,7 @@ export async function getGraphTopology(id: string): Promise<TopologyResult> {
 export async function getGraphReachability(
 	id: string,
 ): Promise<ReachabilityResult> {
-	const data = await call<
-		components['schemas']['ReachabilityDoc'] | null
-	>(
+	const data = await call<components['schemas']['ReachabilityDoc'] | null>(
 		client.GET('/api/v1/workflows/{id}/graph/reachability', {
 			params: { path: { id } },
 		}),
@@ -247,9 +239,7 @@ export async function getExecutionGraphNeighbors(
 	executionId: string,
 	nodeId: string,
 ): Promise<{ predecessors: string[]; successors: string[] }> {
-	const data = await call<
-		components['schemas']['GraphNeighborsDoc'] | null
-	>(
+	const data = await call<components['schemas']['GraphNeighborsDoc'] | null>(
 		client.GET('/api/v1/executions/{id}/graph/neighbors/{nodeId}', {
 			params: { path: { id: executionId, nodeId } },
 		}),
@@ -274,7 +264,10 @@ export async function getExecutionPathStats(
 			params: { path: { id: executionId } },
 		}),
 	);
-	const stats = requireData(data, `Path stats missing for execution ${executionId}`);
+	const stats = requireData(
+		data,
+		`Path stats missing for execution ${executionId}`,
+	);
 	return stats.map((stat) => ({
 		nodeCount: stat.node_count,
 		edgeCount: stat.edge_count,
@@ -311,7 +304,9 @@ export async function getDecisionEdges(id: string): Promise<DecisionEdgeDoc[]> {
 	return requireData(data, `Decision edges missing for loop ${id}`);
 }
 
-export async function getDecisionSteps(id: string): Promise<DecisionPathStep[]> {
+export async function getDecisionSteps(
+	id: string,
+): Promise<DecisionPathStep[]> {
 	const data = await call<StepDoc[] | null>(
 		client.GET('/api/v1/agent-loops/{id}/graph/paths/steps', {
 			params: { path: { id } },
@@ -344,20 +339,31 @@ export async function getDecisionToolFrequency(
 	requireData(data, `Tool frequency missing for loop ${id}`);
 	if (!isRecord(data)) return [];
 	return Object.entries(data)
-		.filter(
-			(entry): entry is [string, number] => typeof entry[1] === 'number',
-		)
+		.filter((entry): entry is [string, number] => typeof entry[1] === 'number')
 		.map(([tool, count]) => ({ tool, count }))
 		.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Save a full workflow definition as an editable draft. The backend
+ * overwrites the stored document and echoes the draft id, so callers must
+ * pass a complete definition, never a partial patch.
+ */
+export async function saveWorkflowDraft(
+	definition: Record<string, unknown>,
+): Promise<string> {
+	const data = await call<unknown>(
+		request('POST', '/api/v1/workflows/drafts', { body: definition }),
+	);
+	const id = requireData(data, 'Draft save returned no id');
+	return String(id);
 }
 
 /** Draft validation issues (typed). */
 export async function validateWorkflowDraft(
 	id: string,
 ): Promise<ValidationIssue[]> {
-	const data = await call<
-		components['schemas']['ValidationIssueDoc'][] | null
-	>(
+	const data = await call<components['schemas']['ValidationIssueDoc'][] | null>(
 		client.GET('/api/v1/workflows/drafts/{id}/validate', {
 			params: { path: { id } },
 		}),
@@ -371,9 +377,7 @@ export async function validateWorkflowDraft(
 
 /** Draft promotion report (typed). */
 export async function promoteWorkflowDraft(id: string): Promise<PromoteReport> {
-	const data = await call<
-		components['schemas']['PromoteReportDoc'] | null
-	>(
+	const data = await call<components['schemas']['PromoteReportDoc'] | null>(
 		client.POST('/api/v1/workflows/drafts/{id}/promote', {
 			params: { path: { id } },
 		}),
@@ -425,7 +429,10 @@ export async function getExecutionSlowNodes(
 			params: { path: { id: executionId } },
 		}),
 	);
-	const rows = requireData(data, `Slow nodes missing for execution ${executionId}`);
+	const rows = requireData(
+		data,
+		`Slow nodes missing for execution ${executionId}`,
+	);
 	if (!Array.isArray(rows)) return [];
 	return rows
 		.filter(isRecord)
@@ -456,7 +463,10 @@ export async function getExecutionDecisionPoints(
 			params: { path: { id: executionId } },
 		}),
 	);
-	const rows = requireData(data, `Decision points missing for execution ${executionId}`);
+	const rows = requireData(
+		data,
+		`Decision points missing for execution ${executionId}`,
+	);
 	if (!Array.isArray(rows)) return [];
 	return rows
 		.map((row) =>
@@ -509,8 +519,7 @@ export async function getExecutionFailedNodes(
 	return data
 		.map((row) => {
 			if (typeof row === 'string') return row;
-			if (isRecord(row) && typeof row.node_id === 'string')
-				return row.node_id;
+			if (isRecord(row) && typeof row.node_id === 'string') return row.node_id;
 			return null;
 		})
 		.filter((id): id is string => !!id);
@@ -576,7 +585,11 @@ export async function getExecutionGraph(
 	return {
 		nodes: asNodeList(view.nodes).map((node, index) => ({
 			id: textField(node, ['id', 'node_id'], `node-${index}`),
-			label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+			label: textField(
+				node,
+				['name', 'label', 'id', 'node_id'],
+				`node-${index}`,
+			),
 			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
 		edges: asNodeList(view.edges).map((edge, index) => ({
@@ -587,6 +600,7 @@ export async function getExecutionGraph(
 				typeof edge.condition === 'string' && edge.condition
 					? edge.condition
 					: undefined,
+			kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 		})),
 	};
 }
@@ -596,17 +610,21 @@ export async function getExecutionGraph(
  * and critical path. Prefer this for the graph tab; the split endpoints
  * stay for filtered views and the analysis tab.
  */
-export async function getExecutionGraphOverview(
-	executionId: string,
-): Promise<{
+export async function getExecutionGraphOverview(executionId: string): Promise<{
 	graph: WorkflowGraph;
 	failedNodes: string[];
 	criticalPath: string[];
 }> {
 	const data = await call<unknown>(
-		request('GET', `/api/v1/executions/${encodeURIComponent(executionId)}/graph/overview`),
+		request(
+			'GET',
+			`/api/v1/executions/${encodeURIComponent(executionId)}/graph/overview`,
+		),
 	);
-	const overview = requireData(data, `Graph overview missing for execution ${executionId}`);
+	const overview = requireData(
+		data,
+		`Graph overview missing for execution ${executionId}`,
+	);
 	const view = isRecord(overview) ? overview : {};
 	const graphValue = isRecord(view.graph) ? view.graph : {};
 	const failedValue = Array.isArray(view.failed_nodes)
@@ -623,7 +641,11 @@ export async function getExecutionGraphOverview(
 		graph: {
 			nodes: asNodeList(graphValue.nodes).map((node, index) => ({
 				id: textField(node, ['id', 'node_id'], `node-${index}`),
-				label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+				label: textField(
+					node,
+					['name', 'label', 'id', 'node_id'],
+					`node-${index}`,
+				),
 				kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
 			})),
 			edges: asNodeList(graphValue.edges).map((edge, index) => ({
@@ -634,6 +656,7 @@ export async function getExecutionGraphOverview(
 					typeof edge.condition === 'string' && edge.condition
 						? edge.condition
 						: undefined,
+				kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 			})),
 		},
 		failedNodes: failedValue.filter(
@@ -658,11 +681,19 @@ export async function getWorkflowDraftTopology(
 		}),
 	);
 	const record = requireData(data, `Draft ${draftId} missing`);
-	const definition = isRecord(record) ? (isRecord(record.definition) ? record.definition : record) : {};
+	const definition = isRecord(record)
+		? isRecord(record.definition)
+			? record.definition
+			: record
+		: {};
 	return {
 		nodes: asNodeList(definition.nodes).map((node, index) => ({
 			id: textField(node, ['id', 'node_id'], `node-${index}`),
-			label: textField(node, ['name', 'label', 'id', 'node_id'], `node-${index}`),
+			label: textField(
+				node,
+				['name', 'label', 'id', 'node_id'],
+				`node-${index}`,
+			),
 			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
 		edges: asNodeList(definition.edges).map((edge, index) => ({
@@ -673,6 +704,7 @@ export async function getWorkflowDraftTopology(
 				typeof edge.condition === 'string' && edge.condition
 					? edge.condition
 					: undefined,
+			kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
 		})),
 	};
 }

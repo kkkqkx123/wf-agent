@@ -4,15 +4,33 @@ import {
 	columnPositions,
 	distinctKinds,
 	isDashedEdge,
+	layeredPositions,
 	legendFor,
 	nodeShape,
+	rankTone,
+	renderKind,
 	shortLabel,
+	statusForTone,
 	statusHex,
+	toneForStatus,
 	type DisplayEdge,
 	type DisplayNode,
 } from './display-model';
+import {
+	applyEdgeOverlay,
+	applyExecutionOverlay,
+	diffTopology,
+	issueNodeIds,
+	projectEdgeOverlay,
+	projectEdgeTone,
+	projectExecutionOverlay,
+} from './execution-projection';
 
-function node(id: string, kind = 'llm', extra?: Partial<DisplayNode>): DisplayNode {
+function node(
+	id: string,
+	kind = 'llm',
+	extra?: Partial<DisplayNode>,
+): DisplayNode {
 	return { id, label: id, kind, ...extra };
 }
 
@@ -96,10 +114,7 @@ describe('columnPositions', () => {
 
 describe('distinctKinds and legend', () => {
 	it('lists sorted kinds', () => {
-		expect(distinctKinds([node('a', 'b'), node('b', 'a')])).toEqual([
-			'a',
-			'b',
-		]);
+		expect(distinctKinds([node('a', 'b'), node('b', 'a')])).toEqual(['a', 'b']);
 	});
 	it('adds error legend entries for decision graphs', () => {
 		expect(legendFor('decision').some((entry) => entry.label === 'Error')).toBe(
@@ -116,5 +131,138 @@ describe('shortLabel', () => {
 		expect(shortLabel('a'.repeat(30))).toHaveLength(18);
 		expect(shortLabel('ok')).toBe('ok');
 		expect(shortLabel('')).toBe('unnamed');
+	});
+});
+
+describe('renderKind', () => {
+	it('classifies terminals, tools, triggers and agents', () => {
+		expect(renderKind('START', 'workflow')).toBe('terminal');
+		expect(renderKind('start_node', 'workflow')).toBe('terminal');
+		expect(renderKind('tool_call', 'decision')).toBe('tool');
+		expect(renderKind('webhook', 'workflow')).toBe('trigger');
+		expect(renderKind('subagent', 'decision')).toBe('agent');
+		expect(renderKind('note', 'workflow')).toBe('note');
+		expect(renderKind('custom', 'workflow')).toBe('step');
+	});
+	it('keeps decision shapes for branches and decision errors', () => {
+		expect(renderKind('branch', 'workflow')).toBe('decision');
+		expect(renderKind('error', 'decision')).toBe('decision');
+		expect(renderKind('error', 'workflow')).toBe('step');
+	});
+});
+
+describe('execution tones', () => {
+	it('normalizes backend statuses to canonical tones', () => {
+		expect(toneForStatus('in_progress')).toBe('running');
+		expect(toneForStatus('timeout')).toBe('error');
+		expect(toneForStatus('queued')).toBe('warning');
+		expect(toneForStatus('succeeded')).toBe('success');
+		expect(toneForStatus('bogus')).toBe('neutral');
+		expect(toneForStatus(null)).toBe('neutral');
+	});
+	it('ranks running above error above warning above success', () => {
+		expect(rankTone('success', 'warning')).toBe('warning');
+		expect(rankTone('warning', 'error')).toBe('error');
+		expect(rankTone('error', 'running')).toBe('running');
+		expect(rankTone('running', 'success')).toBe('running');
+		expect(statusForTone('running')).toBe('running');
+		expect(statusForTone('neutral')).toBeUndefined();
+	});
+});
+
+describe('layeredPositions', () => {
+	it('ranks nodes by depth and snaps rows to a grid', () => {
+		const nodes = [node('a'), node('b'), node('c')];
+		const positions = layeredPositions(nodes, [
+			edge('e1', 'a', 'b'),
+			edge('e2', 'b', 'c'),
+		]);
+		expect(positions.get('a')).toEqual({ x: 40, y: 40 });
+		expect(positions.get('b')).toEqual({ x: 260, y: 40 });
+		expect(positions.get('c')).toEqual({ x: 480, y: 40 });
+	});
+	it('places cyclic leftovers instead of dropping them', () => {
+		const nodes = [node('a'), node('b')];
+		const positions = layeredPositions(nodes, [
+			edge('e1', 'a', 'b'),
+			edge('e2', 'b', 'a'),
+		]);
+		expect(positions.size).toBe(2);
+	});
+});
+
+describe('projectExecutionOverlay', () => {
+	it('merges signals by priority and pulses the current node', () => {
+		const nodes = [node('a'), node('b'), node('c')];
+		const overlay = projectExecutionOverlay(nodes, {
+			currentNode: 'b',
+			failedNodes: ['a', 'b'],
+			criticalPath: ['b'],
+			executedNodes: ['a'],
+		});
+		expect(overlay.marks.get('b')?.tone).toBe('running');
+		expect(overlay.marks.get('b')?.pulse).toBe(true);
+		expect(overlay.marks.get('b')?.critical).toBe(true);
+		expect(overlay.marks.get('a')?.tone).toBe('error');
+		expect(overlay.marks.get('c')?.tone).toBe('neutral');
+		const applied = applyExecutionOverlay(nodes, overlay);
+		expect(applied.find((entry) => entry.id === 'b')?.status).toBe('running');
+		expect(applied.find((entry) => entry.id === 'c')?.status).toBeUndefined();
+	});
+	it('derives edge tones from the source node', () => {
+		expect(projectEdgeTone('error', true)).toBe('error');
+		expect(projectEdgeTone('running', false)).toBe('running');
+		expect(projectEdgeTone('success', true)).toBe('success');
+		expect(projectEdgeTone('success', false)).toBe('neutral');
+	});
+	it('projects edge overlays from node marks', () => {
+		const nodes = [node('a'), node('b'), node('c')];
+		const overlay = projectExecutionOverlay(nodes, {
+			currentNode: 'a',
+			failedNodes: ['b'],
+			executedNodes: ['a', 'c'],
+		});
+		const tones = projectEdgeOverlay(
+			[edge('e1', 'a', 'c'), edge('e2', 'b', 'c'), edge('e3', 'c', 'a')],
+			overlay,
+		);
+		expect(tones.get('e1')).toBe('running');
+		expect(tones.get('e2')).toBe('error');
+		expect(tones.get('e3')).toBe('success');
+		const applied = applyEdgeOverlay(
+			[edge('e1', 'a', 'c'), edge('e2', 'b', 'c')],
+			tones,
+		);
+		expect(applied.find((entry) => entry.id === 'e1')?.status).toBe('running');
+		expect(applied.find((entry) => entry.id === 'e2')?.status).toBe('failed');
+	});
+});
+
+describe('diffTopology', () => {
+	it('reports added and removed nodes and edges', () => {
+		const diff = diffTopology(
+			[node('a'), node('b')],
+			[edge('e1', 'a', 'b')],
+			[node('b'), node('c')],
+			[edge('e2', 'b', 'c')],
+		);
+		expect(diff.addedNodes).toEqual(['c']);
+		expect(diff.removedNodes).toEqual(['a']);
+		expect(diff.addedEdges).toEqual(['b->c']);
+		expect(diff.removedEdges).toEqual(['a->b']);
+	});
+});
+
+describe('issueNodeIds', () => {
+	it('maps dotted field paths to node ids', () => {
+		const matched = issueNodeIds(
+			[
+				{ field: 'nodesbly.name', message: 'required' },
+				{ field: 'nodes.b.name', message: 'unknown kind' },
+			],
+			[node('a'), node('b')],
+		);
+		expect(matched.get('b')).toEqual(['unknown kind']);
+		expect(matched.has('a')).toBe(false);
 	});
 });

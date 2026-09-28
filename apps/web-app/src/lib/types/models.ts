@@ -59,6 +59,8 @@ export interface GraphEdge {
 	from: string;
 	to: string;
 	label?: string;
+	kind?: string;
+	taken?: boolean;
 }
 
 export interface WorkflowGraph {

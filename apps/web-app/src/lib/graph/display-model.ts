@@ -23,11 +23,69 @@ export interface DisplayEdge {
 	target: string;
 	label?: string;
 	kind?: string;
+	status?: string;
+	taken?: boolean;
+}
+
+/**
+ * What a node does, independent of backend naming variants. The renderer
+ * dispatches on this instead of branching on raw kind strings, so new
+ * node families (notes, triggers, agent cards) extend one mapping.
+ */
+export type NodeRenderKind =
+	'terminal' | 'decision' | 'tool' | 'trigger' | 'note' | 'agent' | 'step';
+
+const TRIGGER_KINDS = new Set([
+	'trigger',
+	'TRIGGER',
+	'webhook',
+	'WEBHOOK',
+	'schedule',
+	'SCHEDULE',
+	'cron',
+	'CRON',
+]);
+
+const NOTE_KINDS = new Set([
+	'note',
+	'NOTE',
+	'comment',
+	'COMMENT',
+	'annotation',
+]);
+
+const AGENT_KINDS = new Set(['agent', 'AGENT', 'subagent', 'SUBAGENT']);
+
+/** Canonical render role for a backend node kind within a preset. */
+export function renderKind(kind: string, preset: GraphPreset): NodeRenderKind {
+	const normalized = (kind ?? '').trim().toLowerCase();
+	if (TERMINAL_KINDS.has(kind) || TERMINAL_KINDS.has(normalized)) {
+		return 'terminal';
+	}
+	if (
+		normalized === 'decision' ||
+		normalized === 'branch' ||
+		(preset === 'decision' && (ERROR_KINDS.has(kind) || normalized === 'error'))
+	) {
+		return 'decision';
+	}
+	if (TOOL_KINDS.has(kind) || TOOL_KINDS.has(normalized)) return 'tool';
+	if (TRIGGER_KINDS.has(kind) || TRIGGER_KINDS.has(normalized))
+		return 'trigger';
+	if (NOTE_KINDS.has(kind) || NOTE_KINDS.has(normalized)) return 'note';
+	if (AGENT_KINDS.has(kind) || AGENT_KINDS.has(normalized)) return 'agent';
+	return 'step';
 }
 
 export interface LegendEntry {
 	label: string;
-	shape: 'ellipse' | 'diamond' | 'rounded' | 'hexagon' | 'line-solid' | 'line-dashed';
+	shape:
+		| 'ellipse'
+		| 'diamond'
+		| 'rounded'
+		| 'hexagon'
+		| 'line-solid'
+		| 'line-dashed';
 	color: string;
 }
 
@@ -53,25 +111,23 @@ const TOOL_KINDS = new Set([
 
 /** Cytoscape shape name for a node kind within a preset. */
 export function nodeShape(kind: string, preset: GraphPreset): string {
-	const normalized = (kind ?? '').trim().toLowerCase();
-	if (TERMINAL_KINDS.has(kind) || TERMINAL_KINDS.has(normalized)) {
-		return 'ellipse';
+	switch (renderKind(kind, preset)) {
+		case 'terminal':
+			return 'ellipse';
+		case 'decision':
+			return 'diamond';
+		case 'tool':
+			return preset === 'workflow' ? 'round-rectangle' : 'hexagon';
+		default:
+			return 'round-rectangle';
 	}
-	if (
-		preset === 'decision' &&
-		(ERROR_KINDS.has(kind) || ERROR_KINDS.has(normalized))
-	) {
-		return 'diamond';
-	}
-	if (TOOL_KINDS.has(kind) || TOOL_KINDS.has(normalized)) {
-		return preset === 'workflow' ? 'round-rectangle' : 'hexagon';
-	}
-	if (normalized === 'decision' || normalized === 'branch') return 'diamond';
-	return 'round-rectangle';
 }
 
 /** Whether an edge renders dashed (conditional, error-route, untaken). */
-export function isDashedEdge(kind: string | undefined, taken: boolean = true): boolean {
+export function isDashedEdge(
+	kind: string | undefined,
+	taken: boolean = true,
+): boolean {
 	if (!taken) return true;
 	const normalized = (kind ?? '').trim().toLowerCase();
 	return (
@@ -96,28 +152,21 @@ const TONE_HEX: Record<string, string> = {
 export function statusHex(status: string | null | undefined): string {
 	if (!status) return TONE_HEX.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (
-		['completed', 'complete', 'success', 'succeeded', 'done', 'ok', 'active', 'enabled'].includes(
-			normalized,
-		)
-	) {
-		return TONE_HEX.success;
+	if (normalized === 'cached' || normalized === 'info')
+		return TONE_HEX.info;
+	const tone = toneForStatus(status);
+	switch (tone) {
+		case 'success':
+			return TONE_HEX.success;
+		case 'error':
+			return TONE_HEX.danger;
+		case 'running':
+			return TONE_HEX.running;
+		case 'warning':
+			return TONE_HEX.warning;
+		default:
+			return TONE_HEX.neutral;
 	}
-	if (
-		['failed', 'failure', 'error', 'errored', 'timeout', 'aborted'].includes(
-			normalized,
-		)
-	) {
-		return TONE_HEX.danger;
-	}
-	if (['running', 'in_progress', 'executing', 'streaming', 'started'].includes(normalized)) {
-		return TONE_HEX.running;
-	}
-	if (['paused', 'pending', 'queued', 'waiting', 'retrying'].includes(normalized)) {
-		return TONE_HEX.warning;
-	}
-	if (normalized === 'cached' || normalized === 'info') return TONE_HEX.info;
-	return TONE_HEX.neutral;
 }
 
 /** Legend entries for a preset. */
@@ -141,7 +190,9 @@ export function distinctKinds(nodes: DisplayNode[]): string[] {
 }
 
 /** Per-kind node counts, for the large-graph aggregation notice. */
-export function kindCounts(nodes: DisplayNode[]): Array<{ kind: string; count: number }> {
+export function kindCounts(
+	nodes: DisplayNode[],
+): Array<{ kind: string; count: number }> {
 	const counts = new Map<string, number>();
 	for (const node of nodes) {
 		const kind = node.kind || 'unknown';
@@ -269,4 +320,160 @@ export function columnPositions(
 export function shortLabel(label: string, max: number = 18): string {
 	const trimmed = (label ?? '').trim() || 'unnamed';
 	return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
+}
+
+/**
+ * Canonical execution tone. When several signals apply to one node the
+ * highest-ranked tone wins, so colors never depend on update order.
+ */
+export type ExecutionTone =
+	'running' | 'error' | 'warning' | 'success' | 'neutral';
+
+const TONE_RANK: Record<ExecutionTone, number> = {
+	running: 4,
+	error: 3,
+	warning: 2,
+	success: 1,
+	neutral: 0,
+};
+
+/** Normalize any backend status string to a canonical execution tone. */
+export function toneForStatus(
+	status: string | null | undefined,
+): ExecutionTone {
+	if (!status) return 'neutral';
+	const normalized = status.trim().toLowerCase();
+	if (
+		['running', 'in_progress', 'executing', 'streaming', 'started'].includes(
+			normalized,
+		)
+	) {
+		return 'running';
+	}
+	if (
+		['failed', 'failure', 'error', 'errored', 'timeout', 'aborted'].includes(
+			normalized,
+		)
+	) {
+		return 'error';
+	}
+	if (
+		['paused', 'pending', 'queued', 'waiting', 'retrying', 'cached'].includes(
+			normalized,
+		)
+	) {
+		return 'warning';
+	}
+	if (
+		[
+			'completed',
+			'complete',
+			'success',
+			'succeeded',
+			'done',
+			'ok',
+			'active',
+			'enabled',
+		].includes(normalized)
+	) {
+		return 'success';
+	}
+	return 'neutral';
+}
+
+/** Higher-ranked tone wins; used to merge execution, validation and edit signals. */
+export function rankTone(
+	current: ExecutionTone,
+	next: ExecutionTone,
+): ExecutionTone {
+	return TONE_RANK[next] > TONE_RANK[current] ? next : current;
+}
+
+/** Status value the canvas understands for a canonical tone. */
+export function statusForTone(tone: ExecutionTone): string | undefined {
+	switch (tone) {
+		case 'running':
+			return 'running';
+		case 'error':
+			return 'failed';
+		case 'warning':
+			return 'pending';
+		case 'success':
+			return 'completed';
+		default:
+			return undefined;
+	}
+}
+
+const LAYER_X_GAP = 220;
+const LAYER_Y_GAP = 72;
+
+/**
+ * Layered DAG positions: depth from entry nodes via longest-path ranks, rows
+ * in stable id order, snapped to a grid so edges stay axis-aligned.
+ * Cyclic leftovers fall one layer past the deepest rank instead of failing.
+ * Pure function; the renderer only applies the result.
+ */
+export function layeredPositions(
+	nodes: DisplayNode[],
+	edges: DisplayEdge[],
+): Map<string, { x: number; y: number }> {
+	const ids = nodes.map((node) => node.id);
+	const incoming = new Map<string, number>();
+	const outgoing = new Map<string, string[]>();
+	for (const id of ids) {
+		incoming.set(id, 0);
+		outgoing.set(id, []);
+	}
+	for (const edge of edges) {
+		if (!incoming.has(edge.source) || !incoming.has(edge.target)) continue;
+		if (edge.source === edge.target) continue;
+		incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
+		outgoing.get(edge.source)?.push(edge.target);
+	}
+	const depth = new Map<string, number>();
+	const queue: string[] = [];
+	for (const id of ids) {
+		if ((incoming.get(id) ?? 0) === 0) {
+			depth.set(id, 0);
+			queue.push(id);
+		}
+	}
+	const remaining = new Map(incoming);
+	while (queue.length > 0) {
+		const current = queue.shift() as string;
+		const currentDepth = depth.get(current) ?? 0;
+		for (const next of outgoing.get(current) ?? []) {
+			if (currentDepth + 1 > (depth.get(next) ?? -1)) {
+				depth.set(next, currentDepth + 1);
+			}
+			remaining.set(next, (remaining.get(next) ?? 1) - 1);
+			if ((remaining.get(next) ?? 0) <= 0) queue.push(next);
+		}
+	}
+	let maxDepth = 0;
+	for (const value of depth.values()) maxDepth = Math.max(maxDepth, value);
+	for (const id of ids) {
+		if (!depth.has(id)) {
+			maxDepth += 1;
+			depth.set(id, maxDepth);
+		}
+	}
+	const layers = new Map<number, string[]>();
+	for (const id of [...ids].sort()) {
+		const rank = depth.get(id) ?? 0;
+		const layer = layers.get(rank) ?? [];
+		layer.push(id);
+		layers.set(rank, layer);
+	}
+	const positions = new Map<string, { x: number; y: number }>();
+	for (const [rank, members] of layers) {
+		members.forEach((id, index) => {
+			positions.set(id, {
+				x: 40 + rank * LAYER_X_GAP,
+				y: 40 + index * LAYER_Y_GAP,
+			});
+		});
+	}
+	return positions;
 }

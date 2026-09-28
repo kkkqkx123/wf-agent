@@ -7,6 +7,7 @@
 	import {
 		columnPositions,
 		isDashedEdge,
+		layeredPositions,
 		nodeShape,
 		scoreEdgeLabel,
 		shortLabel,
@@ -18,6 +19,11 @@
 	} from '$lib/graph/display-model';
 	import { cn } from '$lib/utils/cn';
 
+	export interface CanvasPosition {
+		x: number;
+		y: number;
+	}
+
 	interface Props {
 		nodes: DisplayNode[];
 		edges: DisplayEdge[];
@@ -25,11 +31,27 @@
 		layout?: GraphLayoutKind;
 		selectedId?: string | null;
 		highlightIds?: string[];
+		/** Node ids carrying server validation problems. */
+		problemIds?: string[];
+		/** Nodes currently running; rendered with an emphasized border. */
+		pulseIds?: string[];
+		/** Nodes on the critical path; rendered with a gold border. */
+		criticalIds?: string[];
+		/** Position overrides (edit store); unset nodes use the preset layout. */
+		positions?: Record<string, CanvasPosition>;
+		/** Controlled edit mode: no auto layout, gestures emit intents. */
+		editMode?: boolean;
 		edgeLabelLimit?: number;
+		/** Height class for the canvas container (mini maps use h-56). */
+		heightClass?: string;
 		class?: string;
 		onselect?: (id: string) => void;
 		onexpand?: (id: string) => void;
 		onboxselect?: (ids: string[]) => void;
+		onmovenode?: (id: string, position: CanvasPosition) => void;
+		onbackgrounddoubleclick?: (position: CanvasPosition) => void;
+		ondeleteedge?: (id: string) => void;
+		onconnect?: (source: string, target: string) => void;
 	}
 
 	let {
@@ -39,11 +61,21 @@
 		layout = 'layered',
 		selectedId = null,
 		highlightIds = [],
+		problemIds = [],
+		pulseIds = [],
+		criticalIds = [],
+		positions = undefined,
+		editMode = false,
 		edgeLabelLimit = 60,
+		heightClass = 'h-96',
 		class: className = '',
 		onselect,
 		onexpand,
 		onboxselect,
+		onmovenode,
+		onbackgrounddoubleclick,
+		ondeleteedge,
+		onconnect,
 	}: Props = $props();
 
 	let container: HTMLDivElement | null = $state(null);
@@ -55,10 +87,45 @@
 	let zoomedOut = $state(false);
 
 	const highlight = $derived(new Set(highlightIds));
+	const problems = $derived(new Set(problemIds));
+	const pulses = $derived(new Set(pulseIds));
+	const criticals = $derived(new Set(criticalIds));
+	// Latest selection for gesture handlers registered once on mount.
+	let selectedSnapshot = $state<string | null>(selectedId);
+	let editSnapshot = $state(editMode);
+	$effect(() => {
+		selectedSnapshot = selectedId;
+	});
+	$effect(() => {
+		editSnapshot = editMode;
+	});
+	let connectHandler = $state<((source: string, target: string) => void) | undefined>(
+		onconnect,
+	);
+	$effect(() => {
+		connectHandler = onconnect;
+	});
+	let selectHandler = $state<((id: string) => void) | undefined>(onselect);
+	$effect(() => {
+		selectHandler = onselect;
+	});
+	let expandHandler = $state<((id: string) => void) | undefined>(onexpand);
+	$effect(() => {
+		expandHandler = onexpand;
+	});
+
+	function presetPositions(): Record<string, { x: number; y: number }> {
+		if (layout === 'columns') {
+			return Object.fromEntries(columnPositions(nodes));
+		}
+		if (layout === 'layered') {
+			return Object.fromEntries(layeredPositions(nodes, edges));
+		}
+		return {};
+	}
 
 	function elementDefs(): ElementDefinition[] {
-		const positions: Record<string, { x: number; y: number }> =
-			layout === 'columns' ? Object.fromEntries(columnPositions(nodes)) : {};
+		const computed = presetPositions();
 		const defs: ElementDefinition[] = nodes.map((node) => ({
 			group: 'nodes' as const,
 			data: {
@@ -69,9 +136,12 @@
 				shape: nodeShape(node.kind, preset),
 				color: statusHex(node.status),
 			},
-			position: positions[node.id],
+			position: positions?.[node.id] ?? computed[node.id],
 			classes: [
 				selectedId === node.id ? 'selected' : '',
+				problems.has(node.id) ? 'problem' : '',
+				pulses.has(node.id) ? 'running' : '',
+				criticals.has(node.id) ? 'critical' : '',
 				highlight.size > 0
 					? highlight.has(node.id)
 						? 'highlighted'
@@ -92,7 +162,10 @@
 					source: edge.source,
 					target: edge.target,
 					label: edgeLabelFor(edge, touchesSelection),
-					lineStyle: isDashedEdge(edge.kind) ? 'dashed' : 'solid',
+					lineStyle: isDashedEdge(edge.kind, edge.taken ?? true)
+						? 'dashed'
+						: 'solid',
+					color: statusHex(edge.status) === '#71717a' ? '#71717a' : statusHex(edge.status),
 				},
 			});
 		}
@@ -132,9 +205,7 @@
 				id: edge.id,
 				score:
 					scoreEdgeLabel(edge) +
-					(highlight.has(edge.source) || highlight.has(edge.target)
-						? 50
-						: 0),
+					(highlight.has(edge.source) || highlight.has(edge.target) ? 50 : 0),
 			}))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, edgeLabelLimit)
@@ -148,6 +219,7 @@
 	function layoutOptions(): Record<string, unknown> {
 		switch (layout) {
 			case 'columns':
+			case 'layered':
 				return { name: 'preset', padding: 30, fit: true };
 			case 'force':
 				return {
@@ -160,22 +232,16 @@
 			case 'grid':
 				return { name: 'grid', padding: 30, fit: true, avoidOverlap: true };
 			default:
-				return {
-					name: 'breadthfirst',
-					directed: true,
-					padding: 30,
-					spacingFactor: 1.15,
-					circle: false,
-					grid: true,
-					fit: true,
-				};
+				return { name: 'preset', padding: 30, fit: true };
 		}
 	}
 
 	function syncElements(): void {
 		if (!cy) return;
 		const defs = elementDefs();
-		const wanted = new SvelteMap(defs.map((def) => [def.data.id as string, def]));
+		const wanted = new SvelteMap(
+			defs.map((def) => [def.data.id as string, def]),
+		);
 		cy.batch(() => {
 			if (!cy) return;
 			cy.elements().forEach((element) => {
@@ -259,6 +325,14 @@
 		runLayout();
 	}
 
+	/** Ids currently selected on the canvas (edit toolbar delete). */
+	export function selectedNodeIds(): string[] {
+		const boxed =
+			cy?.$('node:selected').map((node) => node.id() as string) ?? [];
+		if (boxed.length > 0) return boxed;
+		return selectedId ? [selectedId] : [];
+	}
+
 	export function exportPng(): boolean {
 		if (!cy) return false;
 		try {
@@ -321,6 +395,28 @@
 						},
 					},
 					{
+						selector: 'node.problem',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#dc2626',
+							'border-style': 'dashed',
+						},
+					},
+					{
+						selector: 'node.running',
+						style: {
+							'border-width': 3,
+							'border-color': '#2563eb',
+						},
+					},
+					{
+						selector: 'node.critical',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#f59e0b',
+						},
+					},
+					{
 						selector: 'node.highlighted',
 						style: {
 							'border-width': 3,
@@ -335,10 +431,10 @@
 						selector: 'edge',
 						style: {
 							width: 1.5,
-							'line-color': '#71717a',
+							'line-color': 'data(color)',
 							'line-style': 'data(lineStyle)',
 							'target-arrow-shape': 'triangle',
-							'target-arrow-color': '#71717a',
+							'target-arrow-color': 'data(color)',
 							'curve-style': 'bezier',
 							label: 'data(label)',
 							color: '#a1a1aa',
@@ -357,14 +453,55 @@
 			});
 			instance.on('tap', 'node', (event) => {
 				const id = event.target.id() as string;
+				if (editSnapshot) {
+					const original = (
+						event as unknown as { originalEvent?: MouseEvent }
+					).originalEvent;
+					const from = selectedSnapshot;
+					if (
+						original?.shiftKey &&
+						from &&
+						from !== id &&
+						connectHandler
+					) {
+						connectHandler(from, id);
+						return;
+					}
+				}
 				const now = Date.now();
 				if (lastTap && lastTap.id === id && now - lastTap.at < 350) {
 					lastTap = null;
-					onexpand?.(id);
+					expandHandler?.(id);
 					return;
 				}
 				lastTap = { id, at: now };
-				onselect?.(id);
+				selectHandler?.(id);
+			});
+			// Edit intents: the canvas never mutates business state itself,
+			// it only reports what the user did back to the edit store.
+			instance.on('tap', 'edge', (event) => {
+				if (!editMode) return;
+				ondeleteedge?.(event.target.id() as string);
+			});
+			instance.on('dragfree', 'node', (event) => {
+				if (!editMode) return;
+				const target = event.target;
+				const id = target.id() as string;
+				const position = target.position() as CanvasPosition;
+				onmovenode?.(id, {
+					x: Math.round(position.x),
+					y: Math.round(position.y),
+				});
+			});
+			instance.on('dblclick', (event) => {
+				if (!editMode) return;
+				if (event.target !== instance) return;
+				const position = (event as unknown as { position: CanvasPosition })
+					.position;
+				onbackgrounddoubleclick?.({
+					x: Math.round(position.x),
+					y: Math.round(position.y),
+				});
 			});
 			const core = instance;
 			core.on('zoom', () => {
@@ -391,6 +528,10 @@
 		void edges;
 		void selectedId;
 		void highlightIds;
+		void problemIds;
+		void pulseIds;
+		void criticalIds;
+		void positions;
 		void preset;
 		void edgeLabelLimit;
 		void zoomedOut;
@@ -398,7 +539,19 @@
 	});
 
 	$effect(() => {
-		if (!ready) return;
+		if (!ready || !cy) return;
+		void editMode;
+		if (editMode) {
+			cy.autoungrabify(false);
+			cy.nodes().grabify();
+		} else {
+			cy.nodes().ungrabify();
+			cy.autoungrabify(true);
+		}
+	});
+
+	$effect(() => {
+		if (!ready || editMode) return;
 		void layout;
 		runLayout();
 	});
@@ -410,7 +563,12 @@
 		className,
 	)}
 >
-	<div bind:this={container} class="h-96 w-full" role="img" aria-label="Graph canvas"></div>
+	<div
+		bind:this={container}
+		class={`w-full ${heightClass}`}
+		role="img"
+		aria-label="Graph canvas"
+	></div>
 	{#if !ready}
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-caption text-muted-foreground"

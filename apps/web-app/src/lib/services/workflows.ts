@@ -14,6 +14,7 @@ import {
 	toWorkflowGraph,
 	validateWorkflowDraft,
 } from '$lib/services/graph';
+import { diffTopology } from '$lib/graph/execution-projection';
 
 interface WorkflowDto {
 	id?: string;
@@ -187,10 +188,6 @@ interface DiffEdgeDto {
 	target_node_id?: unknown;
 }
 
-function edgeKey(edge: DiffEdgeDto): string {
-	return `${String(edge.source_node_id ?? '')}->${String(edge.target_node_id ?? '')}`;
-}
-
 export interface VersionDiff {
 	addedNodes: string[];
 	removedNodes: string[];
@@ -208,26 +205,34 @@ export async function diffWorkflowVersions(
 		getWorkflowVersionDefinition(id, from),
 		getWorkflowVersionDefinition(id, to),
 	]);
-	const nodeIds = (d: DefinitionDto): Set<string> =>
-		new Set(
-			(Array.isArray(d.nodes) ? (d.nodes as DiffNodeDto[]) : [])
-				.map((node) => String(node.id ?? ''))
-				.filter(Boolean),
-		);
-	const edgeKeys = (d: DefinitionDto): Set<string> =>
-		new Set(
-			(Array.isArray(d.edges) ? (d.edges as DiffEdgeDto[]) : []).map(edgeKey),
-		);
-	const before = nodeIds(a);
-	const after = nodeIds(b);
-	const beforeEdges = edgeKeys(a);
-	const afterEdges = edgeKeys(b);
-	return {
-		addedNodes: [...after].filter((node) => !before.has(node)),
-		removedNodes: [...before].filter((node) => !after.has(node)),
-		addedEdges: [...afterEdges].filter((edge) => !beforeEdges.has(edge)),
-		removedEdges: [...beforeEdges].filter((edge) => !afterEdges.has(edge)),
-	};
+	const toDisplay = (d: DefinitionDto): { nodes: { id: string }[]; edges: { source: string; target: string }[] } => ({
+		nodes: (Array.isArray(d.nodes) ? (d.nodes as DiffNodeDto[]) : [])
+			.map((node) => String(node.id ?? ''))
+			.filter(Boolean)
+			.map((nodeId) => ({ id: nodeId })),
+		edges: (Array.isArray(d.edges) ? (d.edges as DiffEdgeDto[]) : []).map(
+			(edge) => ({
+				source: String(edge.source_node_id ?? ''),
+				target: String(edge.target_node_id ?? ''),
+			}),
+		),
+	});
+	const before = toDisplay(a);
+	const after = toDisplay(b);
+	return diffTopology(
+		before.nodes.map((node) => ({ id: node.id, label: node.id, kind: 'unknown' })),
+		before.edges.map((edge) => ({
+			id: `${edge.source}->${edge.target}`,
+			source: edge.source,
+			target: edge.target,
+		})),
+		after.nodes.map((node) => ({ id: node.id, label: node.id, kind: 'unknown' })),
+		after.edges.map((edge) => ({
+			id: `${edge.source}->${edge.target}`,
+			source: edge.source,
+			target: edge.target,
+		})),
+	);
 }
 
 /**

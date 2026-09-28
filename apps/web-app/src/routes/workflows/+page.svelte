@@ -15,7 +15,7 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import WorkflowCard from '$lib/components/domain/WorkflowCard.svelte';
-	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
+	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
@@ -339,8 +339,22 @@
 
 					<div>
 						<h3 class="mb-1.5 text-caption font-medium">Graph</h3>
-						<WorkflowGraph
-							graph={selected.graph}
+						<GraphCanvas
+							nodes={(selected.graph.nodes ?? []).map((node) => ({
+								id: node.id,
+								label: node.label,
+								kind: node.kind,
+								status: node.status,
+							}))}
+							edges={(selected.graph.edges ?? []).map((edge) => ({
+								id: edge.id,
+								source: edge.from,
+								target: edge.to,
+								label: edge.label,
+								kind: edge.kind,
+							}))}
+							preset="workflow"
+							layout="layered"
 							selectedId={graphNodeId}
 							onselect={(id) => (graphNodeId = id)}
 							class="max-h-56"

@@ -46,7 +46,16 @@
 	import { statusTone } from '$lib/utils/status';
 	import { cn } from '$lib/utils/cn';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+	import {
+		applyEdgeOverlay,
+		applyExecutionOverlay,
+		projectEdgeOverlay,
+		projectExecutionOverlay,
+	} from '$lib/graph/execution-projection';
+	import { openEventStream, type StreamState } from '$lib/api/sse';
+	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/store';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -96,13 +105,233 @@
 	let seenAnalysis = $state('');
 	let seenState = $state('');
 
+	// Live execution overlay: SSE frames buffer here and flush on a fixed
+	// tick, so high-frequency node updates never re-render per frame.
+	let liveStatuses = $state<Record<string, string>>({});
+	let streamState = $state<StreamState>('closed');
+	let pendingLive = new SvelteMap<string, string>();
+
+	// Replay cursor over the call stack; when set, the same projection
+	// bridge renders history instead of live state.
+	let replayIndex = $state<number | null>(null);
+	let replayPlaying = $state(false);
+	let replaySpeed = $state(1);
+
+	// Tool list filter driven by graph selection (bidirectional focus).
+	let toolFilter = $state('');
+	let explorer = $state<{ focus: (id: string) => void } | null>(null);
+
+	const failedAll = $derived([
+		...new Set([...failedNodes, ...execution.analysis.failureNodes]),
+	]);
+	const criticalAll = $derived([
+		...new Set([...criticalPath, ...execution.analysis.criticalPath]),
+	]);
+	const slowAll = $derived(
+		execution.analysis.slowNodes.map((entry) => entry.node),
+	);
+	const decisionAll = $derived(execution.analysis.decisionPoints);
+
+	const completedFrames = $derived(
+		callStack.filter((frame) =>
+			['completed', 'complete', 'success', 'succeeded', 'done', 'ok'].includes(
+				frame.status.trim().toLowerCase(),
+			),
+		),
+	);
+
+	const replayView = $derived.by(() => {
+		if (replayIndex === null || callStack.length === 0) return null;
+		const upto = callStack.slice(0, replayIndex + 1);
+		return {
+			executedNodes: upto.map((frame) => frame.node),
+			currentNode:
+				upto.length > 0 ? (upto[upto.length - 1].node ?? null) : null,
+			failedNodes: upto
+				.filter((frame) =>
+					[
+						'failed',
+						'failure',
+						'error',
+						'errored',
+						'timeout',
+						'aborted',
+					].includes(frame.status.trim().toLowerCase()),
+				)
+				.map((frame) => frame.node),
+		};
+	});
+
+	const executionOverlay = $derived(
+		projectExecutionOverlay(graphNodes, {
+			currentNode: replayView?.currentNode ?? execution.currentNode,
+			failedNodes: [...failedAll, ...(replayView?.failedNodes ?? [])],
+			criticalPath: criticalAll,
+			slowNodes: slowAll,
+			decisionPoints: decisionAll,
+			executedNodes:
+				replayView?.executedNodes ?? completedFrames.map((frame) => frame.node),
+			liveStatuses: replayView ? {} : liveStatuses,
+		}),
+	);
+
+	const overlayNodes = $derived(applyExecutionOverlay(graphNodes, executionOverlay));
+
+	const overlayEdges = $derived.by(() => {
+		const tones = projectEdgeOverlay(graphEdges, executionOverlay);
+		return applyEdgeOverlay(graphEdges, tones);
+	});
+
+	const pulseIds = $derived(
+		[...executionOverlay.marks.values()]
+			.filter((mark) => mark.pulse)
+			.map((mark) => mark.id),
+	);
+
+	const criticalIds = $derived(
+		[...executionOverlay.marks.values()]
+			.filter((mark) => mark.critical)
+			.map((mark) => mark.id),
+	);
+
+	const filteredTools = $derived.by(() => {
+		const needle = toolFilter.trim().toLowerCase();
+		if (!needle) return toolCalls;
+		return toolCalls.filter(
+			(tool) =>
+				tool.name.toLowerCase().includes(needle) ||
+				tool.id.toLowerCase().includes(needle),
+		);
+	});
+
+	/** Best-effort match between a tool call and a graph node by name. */
+	function matchToolNode(toolName: string, toolId: string): string | null {
+		const needle = toolName.trim().toLowerCase();
+		for (const node of graphNodes) {
+			const id = node.id.toLowerCase();
+			const label = node.label.toLowerCase();
+			if (id === needle || label === needle || id === toolId.toLowerCase()) {
+				return node.id;
+			}
+		}
+		for (const node of graphNodes) {
+			const id = node.id.toLowerCase();
+			const label = node.label.toLowerCase();
+			if (
+				(needle && (label.includes(needle) || needle.includes(id))) ||
+				toolId.toLowerCase().includes(id)
+			) {
+				return node.id;
+			}
+		}
+		return null;
+	}
+
+	function focusToolOnGraph(toolId: string, toolName: string): void {
+		const nodeId = matchToolNode(toolName, toolId);
+		if (!nodeId) {
+			toasts.info('No graph node matches this tool call');
+			return;
+		}
+		tab = 'graph';
+		queueMicrotask(() => explorer?.focus(nodeId));
+	}
+
+	function filterToolsByGraph(nodeId: string): void {
+		const node = graphNodes.find((entry) => entry.id === nodeId);
+		toolFilter = node ? node.label : nodeId;
+		tab = 'tools';
+	}
+
+	function noteLiveEvent(event: EventRecord): void {
+		let meta: Record<string, unknown>;
+		try {
+			meta = JSON.parse(event.payload || '{}') as Record<string, unknown>;
+		} catch {
+			return;
+		}
+		const node = ['node_id', 'nodeId', 'node']
+			.map((key) => meta[key])
+			.find(
+				(value): value is string => typeof value === 'string' && value !== '',
+			);
+		const status = ['status', 'state']
+			.map((key) => meta[key])
+			.find(
+				(value): value is string => typeof value === 'string' && value !== '',
+			);
+		if (node && status) pendingLive.set(node, status);
+	}
+
+	const isLive = $derived(
+		[
+			'running',
+			'in_progress',
+			'executing',
+			'streaming',
+			'started',
+			'pending',
+		].includes(execution.status.trim().toLowerCase()),
+	);
+
+	// Live subscription lives only while the graph tab is visible and the
+	// execution is still active; leaving the tab closes the stream.
+	$effect(() => {
+		if (tab !== 'graph' || !isLive) return;
+		const stop = openEventStream({
+			executionId: execution.id,
+			onEvent: noteLiveEvent,
+			onState: (state) => (streamState = state),
+		});
+		const timer = setInterval(() => {
+			if (pendingLive.size === 0) return;
+			const flushed = Object.fromEntries(pendingLive);
+			pendingLive.clear();
+			liveStatuses = { ...liveStatuses, ...flushed };
+		}, 120);
+		return () => {
+			clearInterval(timer);
+			pendingLive.clear();
+			stop();
+		};
+	});
+
+	// Replay playback advances the cursor on a fixed tick; colors flow
+	// through the same projection bridge as live state.
+	$effect(() => {
+		if (!replayPlaying || callStack.length === 0) return;
+		const timer = setInterval(
+			() => {
+				const last = callStack.length - 1;
+				const next = (replayIndex ?? -1) + 1;
+				if (next > last) {
+					replayPlaying = false;
+					return;
+				}
+				replayIndex = next;
+			},
+			Math.max(200, Math.round(800 / replaySpeed)),
+		);
+		return () => clearInterval(timer);
+	});
+
 	const overlays = $derived.by<GraphOverlay[]>(() => {
 		const list: GraphOverlay[] = [];
-		if (failedNodes.length > 0) {
-			list.push({ id: 'failed', label: 'Failed nodes', ids: failedNodes });
+		if (failedAll.length > 0) {
+			list.push({ id: 'failed', label: 'Failed nodes', ids: failedAll });
 		}
-		if (criticalPath.length > 0) {
-			list.push({ id: 'critical', label: 'Critical path', ids: criticalPath });
+		if (criticalAll.length > 0) {
+			list.push({ id: 'critical', label: 'Critical path', ids: criticalAll });
+		}
+		if (decisionAll.length > 0) {
+			list.push({
+				id: 'decisions',
+				label: 'Decision points',
+				ids: decisionAll,
+			});
+		}
+		if (slowAll.length > 0) {
+			list.push({ id: 'slow', label: 'Slow nodes', ids: slowAll });
 		}
 		if (activeOverlay === '__neighborhood') {
 			list.push({
@@ -130,6 +359,7 @@
 				source: edge.from,
 				target: edge.to,
 				label: edge.label,
+				kind: edge.kind,
 			}));
 			failedNodes = overview.failedNodes;
 			criticalPath = overview.criticalPath;
@@ -187,7 +417,11 @@
 	async function expandNeighborhood(id: string): Promise<void> {
 		try {
 			const neighbors = await getExecutionGraphNeighbors(execution.id, id);
-			neighborhoodIds = [id, ...neighbors.predecessors, ...neighbors.successors];
+			neighborhoodIds = [
+				id,
+				...neighbors.predecessors,
+				...neighbors.successors,
+			];
 			activeOverlay = '__neighborhood';
 		} catch (e) {
 			toasts.error(
@@ -230,6 +464,12 @@
 			seenGraph = id;
 			void loadGraph(id);
 		}
+		// The replay cursor walks the call stack, so the graph tab pulls
+		// state once; the state tab then reuses the same snapshot.
+		if (tab === 'graph' && seenState !== id) {
+			seenState = id;
+			void loadState(id);
+		}
 		if (tab === 'analysis' && seenAnalysis !== id) {
 			seenAnalysis = id;
 			void loadAnalysis(id);
@@ -252,7 +492,8 @@
 	const tone = $derived(statusTone(execution.status));
 	const contextItems = $derived(
 		context.length > 0 ? context : execution.context,
-	);	const progressTone = $derived(
+	);
+	const progressTone = $derived(
 		tone === 'danger'
 			? 'danger'
 			: tone === 'success'
@@ -315,7 +556,13 @@
 		</dl>
 	</div>
 
-	<Segmented items={TABS} bind:value={tab} size="sm" class="px-2" panelId="execution-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		size="sm"
+		class="px-2"
+		panelId="execution-panel"
+	/>
 
 	<div
 		id="execution-panel"
@@ -357,9 +604,95 @@
 				</Card>
 			</div>
 		{:else if tab === 'graph'}
+			<div class="mb-2 flex flex-wrap items-center gap-2">
+				{#if isLive}
+					<span class="text-micro text-muted-foreground">
+						Live: {streamState === 'open' ? 'connected' : streamState}
+						{Object.keys(liveStatuses).length > 0
+							? `· ${Object.keys(liveStatuses).length} live node(s)`
+							: ''}
+					</span>
+				{:else}
+					<span class="text-micro text-muted-foreground">Historical run</span>
+				{/if}
+				{#if callStack.length > 0}
+					<span class="mx-1 h-4 w-px bg-border"></span>
+					{#if replayIndex === null}
+						<button
+							type="button"
+							class="text-micro text-foreground underline-offset-2 hover:underline"
+							onclick={() => {
+								replayIndex = 0;
+								replayPlaying = false;
+							}}
+						>
+							Start replay
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="text-micro text-foreground underline-offset-2 hover:underline"
+							onclick={() => (replayPlaying = !replayPlaying)}
+						>
+							{replayPlaying ? 'Pause' : 'Play'}
+						</button>
+						<button
+							type="button"
+							class="text-micro text-muted-foreground underline-offset-2 hover:underline"
+							disabled={replayIndex <= 0}
+							onclick={() => {
+								replayPlaying = false;
+								replayIndex = Math.max(0, (replayIndex ?? 1) - 1);
+							}}
+						>
+							Step back
+						</button>
+						<button
+							type="button"
+							class="text-micro text-muted-foreground underline-offset-2 hover:underline"
+							disabled={replayIndex >= callStack.length - 1}
+							onclick={() => {
+								replayPlaying = false;
+								replayIndex = Math.min(
+									callStack.length - 1,
+									(replayIndex ?? -1) + 1,
+								);
+							}}
+						>
+							Step forward
+						</button>
+						<input
+							type="range"
+							min={0}
+							max={callStack.length - 1}
+							value={replayIndex}
+							oninput={(event) => {
+								replayPlaying = false;
+								replayIndex = Number(event.currentTarget.value);
+							}}
+							class="w-32 accent-current"
+							aria-label="Replay position"
+						/>
+						<span class="text-micro tabular-nums text-muted-foreground">
+							{(replayIndex ?? 0) + 1}/{callStack.length}
+						</span>
+						<button
+							type="button"
+							class="text-micro text-muted-foreground underline-offset-2 hover:underline"
+							onclick={() => {
+								replayPlaying = false;
+								replayIndex = null;
+							}}
+						>
+							Exit replay
+						</button>
+					{/if}
+				{/if}
+			</div>
 			<GraphExplorer
-				nodes={graphNodes}
-				edges={graphEdges}
+				bind:this={explorer}
+				nodes={overlayNodes}
+				edges={overlayEdges}
 				preset="execution"
 				loading={graphLoading}
 				error={graphError}
@@ -368,10 +701,24 @@
 				onselect={(id) => (graphNodeId = id)}
 				onexpand={(id) => void expandNeighborhood(id)}
 				expandLabel="Reveal neighborhood"
-				overlays={overlays}
+				{overlays}
 				{activeOverlay}
 				onoverlay={(id) => (activeOverlay = id)}
-			/>
+				{pulseIds}
+				{criticalIds}
+			>
+				{#snippet inspector()}
+					{#if graphNodeId}
+						<button
+							type="button"
+							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
+							onclick={() => graphNodeId && filterToolsByGraph(graphNodeId)}
+						>
+							Show tool calls for this node
+						</button>
+					{/if}
+				{/snippet}
+			</GraphExplorer>
 		{:else if tab === 'timeline'}
 			{#if timelineError}
 				<ErrorState
@@ -402,14 +749,52 @@
 				/>
 			{:else}
 				<div class="space-y-2">
-					{#each toolCalls as entry (entry.id)}
-						<ToolCallCard {entry} />
+					{#if toolFilter}
+						<div class="flex items-center gap-2">
+							<p class="text-micro text-muted-foreground">
+								Filtered by “{toolFilter}” ({filteredTools.length}/{toolCalls.length})
+							</p>
+							<button
+								type="button"
+								class="text-micro text-foreground underline-offset-2 hover:underline"
+								onclick={() => (toolFilter = '')}
+							>
+								Clear
+							</button>
+						</div>
+					{/if}
+					{#each filteredTools as entry (entry.id)}
+						<div
+							role="button"
+							tabindex={0}
+							aria-label={`Locate tool ${entry.name} on graph`}
+							title="Click to locate on graph"
+							onclick={() => focusToolOnGraph(entry.id, entry.name)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									focusToolOnGraph(entry.id, entry.name);
+								}
+							}}
+							class="cursor-pointer rounded-lg"
+						>
+							<ToolCallCard {entry} />
+						</div>
+					{:else}
+						<p class="text-caption text-muted-foreground">
+							{toolCalls.length === 0
+								? 'No tool calls recorded.'
+								: 'No tool calls match the filter.'}
+						</p>
 					{/each}
 				</div>
 			{/if}
 		{:else if tab === 'analysis'}
 			{#if analysisLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if analysisError}
 				<ErrorState
 					title="Analysis failed to load"
@@ -431,14 +816,18 @@
 					<Card title="Slow nodes">
 						<ul class="space-y-1.5">
 							{#each slowNodes as node (node.node)}
-								<li class="flex items-center justify-between gap-2 text-caption">
+								<li
+									class="flex items-center justify-between gap-2 text-caption"
+								>
 									<span class="truncate font-mono">{node.node}</span>
 									<span class="shrink-0 tabular-nums text-muted-foreground">
 										{formatDuration(node.durationMs)}
 									</span>
 								</li>
 							{:else}
-								<li class="text-caption text-muted-foreground">No slow nodes recorded.</li>
+								<li class="text-caption text-muted-foreground">
+									No slow nodes recorded.
+								</li>
 							{/each}
 						</ul>
 					</Card>
@@ -456,7 +845,9 @@
 									{/if}
 								</li>
 							{:else}
-								<li class="text-caption text-muted-foreground">No path data.</li>
+								<li class="text-caption text-muted-foreground">
+									No path data.
+								</li>
 							{/each}
 						</ol>
 					</Card>
@@ -478,7 +869,10 @@
 			{/if}
 		{:else}
 			{#if stateLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if stateError}
 				<ErrorState
 					title="State failed to load"
@@ -508,7 +902,9 @@
 									<StatusBadge status={frame.status} size="sm" dot={false} />
 								</li>
 							{:else}
-								<li class="text-caption text-muted-foreground">Call stack empty.</li>
+								<li class="text-caption text-muted-foreground">
+									Call stack empty.
+								</li>
 							{/each}
 						</ol>
 					</Card>
@@ -522,8 +918,7 @@
 									>
 								</div>
 								<Progress
-									value={memory.currentBytes /
-										Math.max(1, memory.peakBytes)}
+									value={memory.currentBytes / Math.max(1, memory.peakBytes)}
 									tone="default"
 									class="mt-1"
 								/>

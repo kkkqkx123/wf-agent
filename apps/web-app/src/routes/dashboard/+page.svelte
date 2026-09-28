@@ -49,7 +49,7 @@
 				class="grid gap-2"
 				style:grid-template-columns="repeat(auto-fit, minmax(min(100%, 9rem), 1fr))"
 			>
-				{#each Array(4) as _, i (i)}
+				{#each Array(4) as _, idx (idx)}
 					<div class="h-20 animate-pulse rounded-lg border border-border bg-muted" />
 				{/each}
 			</div>

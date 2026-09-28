@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
+	import { goto, resolve } from '$app/navigation';
 
 	interface Shortcut {
 		keys: string;
@@ -19,9 +20,17 @@
 	];
 
 	const links: Link[] = [
-		{ href: '/docs/user-guide.md', label: 'User guide' },
+		{ href: `/docs/user-guide.md`, label: 'User guide' },
 		{ href: 'https://github.com/atomgit-com/wf-agent#readme', label: 'README' },
 	];
+
+	function navigateTo(href: string): void {
+		if (href.startsWith('http://') || href.startsWith('https://')) {
+			window.open(href, '_blank', 'noopener,noreferrer');
+		} else {
+			goto(resolve(href));
+		}
+	}
 </script>
 
 <Dialog
@@ -55,14 +64,16 @@
 		<ul class="mt-1 space-y-1">
 			{#each links as link (link.href)}
 				<li>
-					<a
-						href={link.href}
-						target="_blank"
-						rel="noreferrer"
+					<button
+						type="button"
+						onclick={(e) => {
+							e.preventDefault();
+							navigateTo(link.href);
+						}}
 						class="text-body text-info hover:underline"
 					>
 						{link.label}
-					</a>
+					</button>
 				</li>
 			{/each}
 		</ul>

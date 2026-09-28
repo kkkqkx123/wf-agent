@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -24,7 +26,10 @@
 		validateWorkflowDraft,
 	} from '$lib/services/graph';
 	import { issueNodeIds } from '$lib/graph/execution-projection';
+	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
+	import { createWorkflow } from '$lib/services/workflows';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		cloneTemplate,
@@ -97,6 +102,16 @@
 	let draftBusy = $state(false);
 	let saveBusy = $state(false);
 	let deleteArmed = $state(false);
+	let openWorkflowBusy = $state(false);
+
+	// Controlled graph edit state for workflow templates. The canvas only
+	// emits intents; every mutation lands here and re-renders from it.
+	const templateEditStore = new GraphEditStore();
+	let graphSeed = $state('');
+	let graphConflictOpen = $state(false);
+	let templateExplorer = $state<{ focus: (id: string) => void } | null>(
+		null,
+	);
 
 	let createName = $state('');
 	let createId = $state('');
@@ -160,6 +175,9 @@
 		serverIssueIds = [];
 		templateNodeId = null;
 		syntaxError = null;
+		graphSeed = '';
+		graphConflictOpen = false;
+		templateEditStore.load([], []);
 		drawerOpen = true;
 		await loadDetail(row.kind, row.id);
 	}
@@ -194,6 +212,9 @@
 		serverIssueIds = [];
 		templateNodeId = null;
 		deleteArmed = false;
+		graphSeed = '';
+		graphConflictOpen = false;
+		templateEditStore.load([], []);
 		drawerOpen = true;
 	}
 
@@ -241,9 +262,130 @@
 
 	function switchEditTab(tab: TemplateEditTab): void {
 		if (tab === 'graph' && drawerKind !== 'workflow') return;
+		if (editTab === 'graph' && tab !== 'graph') {
+			syncGraphToText();
+		}
 		if (editTab === 'form' && tab !== 'form') syncFormToText();
-		if (tab === 'form' && editTab !== 'form') enterForm();
+		if (tab === 'form' && editTab !== 'form') {
+			if (editTab === 'graph') syncGraphToText();
+			enterForm();
+		}
+		if (tab === 'graph') {
+			if (
+				templateEditStore.dirty &&
+				editText !== graphSeed &&
+				graphSeed !== ''
+			) {
+				graphConflictOpen = true;
+				return;
+			}
+			loadTemplateStore();
+		}
 		editTab = tab;
+	}
+
+	/** Load the graph store from the current JSON text. */
+	function loadTemplateStore(): void {
+		templateEditStore.load(templateGraphNodes, templateGraphEdges);
+		graphSeed = editText;
+		templateNodeId = templateEditStore.selectedId;
+	}
+
+	/**
+	 * Merge the graph store back into the JSON text. Only the node and edge
+	 * arrays are rewritten; every other template field is preserved.
+	 */
+	function syncGraphToText(): void {
+		if (drawerKind !== 'workflow') return;
+		if (!templateEditStore.dirty && editText === graphSeed) return;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(editText);
+		} catch {
+			return;
+		}
+		const nodes = templateEditStore.nodes.map((node) => ({
+			id: node.id,
+			node_type: node.kind,
+			name: node.label,
+		}));
+		const edges = templateEditStore.edges.map((edge) => ({
+			id: edge.id,
+			source_node_id: edge.source,
+			target_node_id: edge.target,
+			type: templateEdgeType(edge.kind ?? 'DEFAULT'),
+			...(edge.label ? { condition: edge.label } : {}),
+		}));
+		if (
+			parsed &&
+			typeof parsed === 'object' &&
+			!Array.isArray(parsed) &&
+			(parsed as Record<string, unknown>).definition &&
+			typeof (parsed as Record<string, unknown>).definition === 'object'
+		) {
+			const record = parsed as Record<string, unknown>;
+			record.definition = {
+				...(record.definition as Record<string, unknown>),
+				nodes,
+				edges,
+			};
+			editText = JSON.stringify(record, null, 2);
+		} else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+			editText = JSON.stringify(
+				{ ...(parsed as Record<string, unknown>), nodes, edges },
+				null,
+				2,
+			);
+		} else {
+			return;
+		}
+		graphSeed = editText;
+	}
+
+	function discardGraphChanges(): void {
+		graphConflictOpen = false;
+		loadTemplateStore();
+		editTab = 'graph';
+	}
+
+	function keepGraphChanges(): void {
+		graphConflictOpen = false;
+		syncGraphToText();
+		loadTemplateStore();
+		editTab = 'graph';
+	}
+
+	function handleTemplateMoveNode(id: string, position: CanvasPosition): void {
+		templateEditStore.applyMove(id, position);
+	}
+
+	function handleTemplateMoveNodes(
+		moves: Array<{ id: string; position: CanvasPosition }>,
+	): void {
+		templateEditStore.applyMoves(moves);
+	}
+
+	function handleTemplateAddNode(position: CanvasPosition): void {
+		let stamp = Date.now();
+		let id = `node-${stamp}`;
+		while (templateEditStore.nodes.some((node) => node.id === id)) {
+			stamp += 1;
+			id = `node-${stamp}`;
+		}
+		templateEditStore.addNode({ id, label: id, kind: 'STEP' }, position);
+		templateEditStore.selectedId = id;
+		templateNodeId = id;
+	}
+
+	function handleTemplateConnect(source: string, target: string): void {
+		templateEditStore.connect(source, target);
+		templateNodeId = target;
+		templateEditStore.selectedId = target;
+	}
+
+	function handleTemplateDeleteNodes(ids: string[]): void {
+		templateEditStore.removeNodes(ids);
+		if (templateNodeId && ids.includes(templateNodeId)) templateNodeId = null;
 	}
 
 	function editedPayload(parsed: unknown): unknown {
@@ -423,6 +565,7 @@
 	 */
 	async function runTemplateServerGate(): Promise<boolean> {
 		if (editTab === 'form') syncFormToText();
+		if (editTab === 'graph') syncGraphToText();
 		const { value, error } = parseEditText();
 		if (error || value === undefined) {
 			syntaxError = error;
@@ -464,6 +607,7 @@
 
 	async function runValidate(): Promise<boolean> {
 		if (editTab === 'form') syncFormToText();
+		if (editTab === 'graph') syncGraphToText();
 		const { value, error } = parseEditText();
 		syntaxError = error;
 		if (error || value === undefined) {
@@ -528,6 +672,49 @@
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-+|-+$/g, '');
+	}
+
+	async function runOpenAsWorkflow(): Promise<void> {
+		if (drawerKind !== 'workflow') return;
+		if (editTab === 'form') syncFormToText();
+		if (editTab === 'graph') syncGraphToText();
+		const { value, error } = parseEditText();
+		if (error || value === undefined) {
+			toasts.error('Template invalid', 'Fix the JSON syntax first.');
+			return;
+		}
+		let definition: Record<string, unknown>;
+		try {
+			definition = templateBackendDefinition(value);
+		} catch (e) {
+			toasts.error(
+				'Template invalid',
+				e instanceof Error ? e.message : undefined,
+			);
+			return;
+		}
+		if (templateEditStore.dirty) {
+			toasts.error('Unsaved graph changes', 'Save the template first.');
+			return;
+		}
+		openWorkflowBusy = true;
+		try {
+			const name =
+				typeof definition.name === 'string' && definition.name
+					? definition.name
+					: `template-${drawerId ?? 'new'}`;
+			const created = await createWorkflow(name, definition);
+			toasts.success('Workflow created from template');
+			drawerOpen = false;
+			await goto(resolve('/workflows/[id]', { id: created.id }) + '?tab=edit');
+		} catch (e) {
+			toasts.error(
+				'Open as workflow failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			openWorkflowBusy = false;
+		}
 	}
 
 	async function runClone(row: Template): Promise<void> {
@@ -875,13 +1062,37 @@
 							No nodes array in the definition yet.
 						</p>
 					{:else}
+						<p class="text-micro text-muted-foreground">
+							Drag nodes to move · double-click empty canvas to add a node ·
+							click an edge to delete it · shift-click another node to connect.
+						</p>
 						<GraphExplorer
-							nodes={templateGraphNodes}
-							edges={templateGraphEdges}
+							bind:this={templateExplorer}
+							nodes={templateEditStore.nodes}
+							edges={templateEditStore.edges}
 							preset="workflow"
 							selectedId={templateNodeId}
-							onselect={(id) => (templateNodeId = id)}
+							onselect={(id) => {
+								templateNodeId = id;
+								templateEditStore.selectedId = id;
+							}}
+							editable
+							editMode
+							editDirty={templateEditStore.dirty}
+							canUndo={templateEditStore.canUndo}
+							canRedo={templateEditStore.canRedo}
+							positions={templateEditStore.positions}
 							issueIds={serverIssueIds}
+							onundo={() => templateEditStore.undo()}
+							onredo={() => templateEditStore.redo()}
+							onsave={() => void runSave()}
+							onmovenode={handleTemplateMoveNode}
+							onmovenodes={handleTemplateMoveNodes}
+							onaddnode={handleTemplateAddNode}
+							ondeleteedge={(id) => templateEditStore.removeEdge(id)}
+							onconnect={handleTemplateConnect}
+							ondeletenodes={handleTemplateDeleteNodes}
+							onjumpparam={(id) => (templateNodeId = id)}
 						/>
 						{#if templateNodeSnippet}
 							<pre
@@ -892,7 +1103,23 @@
 								class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
 							>
 								{#each serverIssues as issue, index (index)}
-									<li class="text-caption text-destructive">{issue}</li>
+									<li
+										class="flex items-center justify-between gap-2 text-caption text-destructive"
+									>
+										<span class="min-w-0 truncate">{issue}</span>
+										<button
+											type="button"
+											class="shrink-0 underline-offset-2 hover:underline"
+											onclick={() => {
+												const target = serverIssueIds.find((id) =>
+													issue.includes(id),
+												);
+												if (target) templateExplorer?.focus(target);
+											}}
+										>
+											Locate
+										</button>
+									</li>
 								{/each}
 							</ul>
 						{/if}
@@ -905,9 +1132,17 @@
 							>
 								{draftBusy ? 'Checking…' : 'Check with server rules'}
 							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={openWorkflowBusy}
+								onclick={() => void runOpenAsWorkflow()}
+							>
+								{openWorkflowBusy ? 'Opening…' : 'Open as workflow'}
+							</Button>
 							<span class="text-micro text-muted-foreground">
-								Saves the JSON as a workflow draft and runs server validation;
-								issues map back to graph nodes.
+								Graph edits merge into JSON on save; issues map back to
+								graph nodes.
 							</span>
 						</div>
 					{/if}
@@ -1017,7 +1252,6 @@
 							size="sm"
 							onclick={() => {
 								editMode = true;
-								editTab = 'graph';
 								formState = {};
 								editText = current.definitionJson;
 								syntaxError = null;
@@ -1026,9 +1260,12 @@
 								serverIssues = [];
 								serverIssueIds = [];
 								templateNodeId = null;
+								templateEditStore.load([], []);
+								graphSeed = '';
+								switchEditTab('graph');
 							}}
 						>
-							Preview graph
+							Edit graph
 						</Button>
 					{/if}
 					{#if deleteArmed}
@@ -1071,6 +1308,25 @@
 		{/if}
 	{/snippet}
 </Sheet>
+
+<Dialog
+	bind:open={graphConflictOpen}
+	title="Graph and JSON diverge"
+	description="The graph has unsaved changes and the JSON changed underneath. Choose which side to keep."
+>
+	<p class="text-caption text-muted-foreground">
+		Overwrite the JSON with the graph, or discard the graph and reload from
+		the JSON. No automatic merge is attempted.
+	</p>
+	{#snippet footer()}
+		<div class="flex items-center justify-end gap-2">
+			<Button variant="ghost" size="sm" onclick={discardGraphChanges}>
+				Discard graph
+			</Button>
+			<Button size="sm" onclick={keepGraphChanges}>Keep graph</Button>
+		</div>
+	{/snippet}
+</Dialog>
 
 <Dialog
 	bind:open={importOpen}

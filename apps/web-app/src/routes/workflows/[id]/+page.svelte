@@ -52,6 +52,7 @@
 		issueTargetsNode,
 	} from '$lib/graph/execution-projection';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
+	import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import type { ValidationIssue } from '$lib/types/models';
 
@@ -105,6 +106,7 @@
 	// Controlled canvas edit state. The canvas only emits intents; every
 	// mutation lands in this store and re-renders from it.
 	const editStore = new GraphEditStore();
+	const lockStore = new WorkflowLockStore();
 	let editSeededId = $state('');
 	let editMode = $state(false);
 	let editBusy = $state(false);
@@ -119,6 +121,7 @@
 
 	$effect(() => {
 		if (tab !== 'edit' || !detail) return;
+		lockStore.watch(detail.id);
 		if (editSeededId === detail.id) return;
 		editStore.load(nodes, edges);
 		editSeededId = detail.id;
@@ -126,6 +129,35 @@
 		editIssues = [];
 		editMode = false;
 	});
+
+	// A lost lease drops back to read-only; dirty canvas content stays so
+	// it can be copied elsewhere.
+	$effect(() => {
+		if (editMode && lockStore.lockedByOther) {
+			editMode = false;
+			toasts.warning(
+				'Edit lock lost',
+				`Held by ${lockStore.displayHolder}. Canvas is read-only.`,
+			);
+		}
+	});
+
+	async function enterEdit(): Promise<void> {
+		const ok = await lockStore.acquire();
+		if (!ok) {
+			toasts.warning(
+				'Workflow is being edited',
+				`Held by ${lockStore.displayHolder}.`,
+			);
+			return;
+		}
+		editMode = true;
+	}
+
+	function exitEdit(): void {
+		editMode = false;
+		void lockStore.release();
+	}
 
 	function handleMoveNode(id: string, position: CanvasPosition): void {
 		editStore.applyMove(id, position);
@@ -191,6 +223,13 @@
 	async function saveEditDraft(): Promise<void> {
 		const id = page.params.id;
 		if (!id || !detail) return;
+		if (!lockStore.canWrite) {
+			toasts.warning(
+				'Save blocked',
+				`Held by ${lockStore.displayHolder}.`,
+			);
+			return;
+		}
 		editBusy = true;
 		try {
 			const savedId = await saveWorkflowDraft(
@@ -229,6 +268,13 @@
 	}
 
 	async function promoteEditDraft(): Promise<void> {
+		if (!lockStore.canWrite) {
+			toasts.warning(
+				'Promotion blocked',
+				`Held by ${lockStore.displayHolder}.`,
+			);
+			return;
+		}
 		if (!editDraftId) {
 			toasts.info('Nothing to promote', 'Save the draft first.');
 			return;
@@ -306,6 +352,44 @@
 			taken: edge.taken,
 		})),
 	);
+
+	// Edge-level diff view: single derivation feeds both the text rows and
+	// the graph, so counts and colors always agree.
+	const diffAddedKeys = $derived(
+		new Set((diff?.addedEdges ?? []).map((edge) => `${edge.source}->${edge.target}`)),
+	);
+
+	const diffGraphNodes = $derived<DisplayNode[]>([
+		...nodes,
+		...(diff?.removedNodes ?? [])
+			.filter((id) => !nodes.some((node) => node.id === id))
+			.map((id) => ({
+				id,
+				label: `${id} (removed)`,
+				kind: 'removed',
+				status: 'failed',
+			})),
+	]);
+
+	const diffGraphEdges = $derived<DisplayEdge[]>([
+		...edges.map((edge) =>
+			diffAddedKeys.has(`${edge.source}->${edge.target}`)
+				? {
+						...edge,
+						status: 'completed',
+						label: edge.label ?? `+ ${edge.source} → ${edge.target}`,
+					}
+				: edge,
+		),
+		...(diff?.removedEdges ?? []).map((edge) => ({
+			id: `removed:${edge.source}->${edge.target}`,
+			source: edge.source,
+			target: edge.target,
+			kind: 'default',
+			status: 'failed',
+			label: `− ${edge.source} → ${edge.target}`,
+		})),
+	]);
 
 	const overlays = $derived.by<GraphOverlay[]>(() => {
 		if (!analysis) return [];
@@ -704,6 +788,22 @@
 				</Card>
 			</div>
 		{:else if tab === 'edit'}
+			<div class="mb-2 flex flex-wrap items-center gap-2 text-caption">
+				{#if !lockStore.supported}
+					<Badge variant="warning">No lock protection</Badge>
+				{:else if lockStore.held}
+					<Badge variant="success">Editing · you hold the lock</Badge>
+				{:else if lockStore.lockedByOther}
+					<Badge variant="danger">Read-only · held by {lockStore.displayHolder}</Badge>
+				{:else}
+					<Badge variant="outline">Unlocked</Badge>
+				{/if}
+				{#if lockStore.refreshError}
+					<span class="text-micro text-muted-foreground"
+						>Lock query failed; saving is disabled.</span
+					>
+				{/if}
+			</div>
 			{#if editIssues.length > 0}
 				<Card title="Validation issues" class="mb-2">
 					<ul class="space-y-1">
@@ -739,15 +839,15 @@
 				selectedId={editStore.selectedId}
 				onselect={(id) => (editStore.selectedId = id)}
 				editable
-				{editMode}
+				editMode={editMode && lockStore.canWrite}
 				editDirty={editStore.dirty}
 				canUndo={editStore.canUndo}
 				canRedo={editStore.canRedo}
 				{editBusy}
 				positions={editStore.positions}
 				issueIds={editIssueIds}
-				onenteredit={() => (editMode = true)}
-				onexitedit={() => (editMode = false)}
+				onenteredit={() => void enterEdit()}
+				onexitedit={exitEdit}
 				onundo={() => editStore.undo()}
 				onredo={() => editStore.redo()}
 				onsave={() => void saveEditDraft()}
@@ -827,8 +927,30 @@
 									</button>
 								{:else}—{/each}
 							</li>
-							<li>Added edges: {diff.addedEdges.join(', ') || '—'}</li>
-							<li>Removed edges: {diff.removedEdges.join(', ') || '—'}</li>
+							<li>
+								Added edges:
+								{#each diff.addedEdges as edge (`${edge.source}->${edge.target}`)}
+									<button
+										type="button"
+										class="mr-1 font-mono text-success underline-offset-2 hover:underline"
+										onclick={() => diffExplorer?.focus(edge.source)}
+									>
+										{edge.source} → {edge.target}
+									</button>
+								{:else}—{/each}
+							</li>
+							<li>
+								Removed edges:
+								{#each diff.removedEdges as edge (`${edge.source}->${edge.target}`)}
+									<button
+										type="button"
+										class="mr-1 font-mono text-destructive underline-offset-2 hover:underline"
+										onclick={() => diffExplorer?.focus(edge.source)}
+									>
+										{edge.source} → {edge.target}
+									</button>
+								{:else}—{/each}
+							</li>
 						</ul>
 					{/if}
 				</Card>
@@ -877,18 +999,8 @@
 				<div class="mt-3">
 					<GraphExplorer
 						bind:this={diffExplorer}
-						nodes={[
-							...nodes,
-							...diff.removedNodes
-								.filter((id) => !nodes.some((node) => node.id === id))
-								.map((id) => ({
-									id,
-									label: `${id} (removed)`,
-									kind: 'removed',
-									status: 'failed',
-								})),
-						]}
-						{edges}
+						nodes={diffGraphNodes}
+						edges={diffGraphEdges}
 						preset="workflow"
 						selectedId={graphNodeId}
 						onselect={(id) => (graphNodeId = id)}

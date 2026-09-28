@@ -74,6 +74,11 @@
 		issueIds?: string[];
 		pulseIds?: string[];
 		criticalIds?: string[];
+		failedIds?: string[];
+		heatTierById?: Record<string, number>;
+		decisionIds?: string[];
+		heatLabels?: Record<string, string>;
+		decisionLabels?: Record<string, string>;
 		onenteredit?: () => void;
 		onexitedit?: () => void;
 		onundo?: () => void;
@@ -121,6 +126,11 @@
 		issueIds = [],
 		pulseIds = [],
 		criticalIds = [],
+		failedIds = [],
+		heatTierById = {},
+		decisionIds = [],
+		heatLabels = {},
+		decisionLabels = {},
 		onenteredit,
 		onexitedit,
 		onundo,
@@ -198,6 +208,7 @@
 			...(selectedId ? [selectedId] : []),
 			...pulseIds,
 			...criticalIds,
+			...failedIds,
 		];
 		return new Set(
 			filtered.nodes.flatMap((node) =>
@@ -759,6 +770,8 @@
 				problemIds={issueIds}
 				{pulseIds}
 				{criticalIds}
+				{heatTierById}
+				{decisionIds}
 				{positions}
 				{editMode}
 				{edgeLabelLimit}
@@ -780,6 +793,9 @@
 				{#if capped.truncated || folded.auto.length > 0}
 					<Card title="Large graph">
 						<p class="text-caption text-muted-foreground">
+							Retention order: failed, running, critical path, then
+							selection. Non-critical groups fold first; leftovers sample
+							across kinds.
 							{#if folded.auto.length > 0}
 								Folded {folded.auto.length} non-critical group(s) ({folded.auto.join(
 									', ',
@@ -868,6 +884,22 @@
 									<div class="flex justify-between gap-2">
 										<dt class="text-muted-foreground">Iteration</dt>
 										<dd class="font-mono">{selected.iteration}</dd>
+									</div>
+								{/if}
+								{#if heatLabels[selected.id]}
+									<div class="flex justify-between gap-2">
+										<dt class="text-muted-foreground">Duration</dt>
+										<dd class="font-mono tabular-nums">
+											{heatLabels[selected.id]}
+										</dd>
+									</div>
+								{/if}
+								{#if decisionLabels[selected.id]}
+									<div class="flex justify-between gap-2">
+										<dt class="text-muted-foreground">Branches</dt>
+										<dd class="text-right font-mono">
+											{decisionLabels[selected.id]}
+										</dd>
 									</div>
 								{/if}
 								<div class="flex justify-between gap-2">

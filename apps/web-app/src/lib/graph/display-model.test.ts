@@ -28,6 +28,7 @@ import {
 	projectEdgeOverlay,
 	projectEdgeTone,
 	projectExecutionOverlay,
+	slowHeatTier,
 } from './execution-projection';
 
 function node(
@@ -319,10 +320,24 @@ describe('projectExecutionOverlay', () => {
 		expect(applied.find((entry) => entry.id === 'e1')?.status).toBe('running');
 		expect(applied.find((entry) => entry.id === 'e2')?.status).toBe('failed');
 	});
+	it('tiers slow nodes by duration share', () => {
+		const nodes = [node('a'), node('b'), node('c')];
+		const overlay = projectExecutionOverlay(nodes, {
+			slowNodes: [
+				{ node: 'a', durationMs: 100 },
+				{ node: 'b', durationMs: 500 },
+				{ node: 'c', durationMs: 900 },
+			],
+		});
+		expect(overlay.marks.get('a')?.heatTier).toBe(1);
+		expect(overlay.marks.get('b')?.heatTier).toBe(2);
+		expect(overlay.marks.get('c')?.heatTier).toBe(3);
+		expect(slowHeatTier(0, 900)).toBe(0);
+		expect(slowHeatTier(900, 900)).toBe(3);
+	});
 });
 
-describe('diffTopology', () => {
-	it('reports added and removed nodes and edges', () => {
+describe('diffTopology', () => {	it('reports added and removed nodes and edges', () => {
 		const diff = diffTopology(
 			[node('a'), node('b')],
 			[edge('e1', 'a', 'b')],
@@ -331,8 +346,8 @@ describe('diffTopology', () => {
 		);
 		expect(diff.addedNodes).toEqual(['c']);
 		expect(diff.removedNodes).toEqual(['a']);
-		expect(diff.addedEdges).toEqual(['b->c']);
-		expect(diff.removedEdges).toEqual(['a->b']);
+		expect(diff.addedEdges).toEqual([{ source: 'b', target: 'c' }]);
+		expect(diff.removedEdges).toEqual([{ source: 'a', target: 'b' }]);
 	});
 });
 

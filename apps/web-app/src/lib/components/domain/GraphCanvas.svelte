@@ -49,6 +49,10 @@
 		pulseIds?: string[];
 		/** Nodes on the critical path; rendered with a gold border. */
 		criticalIds?: string[];
+		/** Slow-node heat tier by node id (1-3); shape never changes. */
+		heatTierById?: Record<string, number>;
+		/** Decision points; rendered with a distinct dashed outline. */
+		decisionIds?: string[];
 		/** Position overrides (edit store); unset nodes use the preset layout. */
 		positions?: Record<string, CanvasPosition>;
 		/** Controlled edit mode: no auto layout, gestures emit intents. */
@@ -86,6 +90,8 @@
 		problemIds = [],
 		pulseIds = [],
 		criticalIds = [],
+		heatTierById = {},
+		decisionIds = [],
 		positions = undefined,
 		editMode = false,
 		edgeLabelLimit = 60,
@@ -118,6 +124,7 @@
 	const problems = $derived(new Set(problemIds));
 	const pulses = $derived(new Set(pulseIds));
 	const criticals = $derived(new Set(criticalIds));
+	const decisions = $derived(new Set(decisionIds));
 	const collapsed = $derived(new Set(collapsedIds));
 	// Latest props for gesture handlers registered once on mount. Derived
 	// values stay current without snapshot effects.
@@ -477,6 +484,14 @@
 				problems.has(node.id) ? 'problem' : '',
 				pulses.has(node.id) ? 'running' : '',
 				criticals.has(node.id) ? 'critical' : '',
+				decisions.has(node.id) ? 'decision' : '',
+				heatTierById[node.id] === 3
+					? 'heat-3'
+					: heatTierById[node.id] === 2
+						? 'heat-2'
+						: heatTierById[node.id] === 1
+							? 'heat-1'
+							: '',
 				highlight.size > 0
 					? highlight.has(node.id)
 						? 'highlighted'
@@ -805,6 +820,35 @@
 						},
 					},
 					{
+						selector: 'node.decision',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#7c3aed',
+							'border-style': 'dashed',
+						},
+					},
+					{
+						selector: 'node.heat-1',
+						style: {
+							'border-width': 2,
+							'border-color': '#fbbf24',
+						},
+					},
+					{
+						selector: 'node.heat-2',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#f97316',
+						},
+					},
+					{
+						selector: 'node.heat-3',
+						style: {
+							'border-width': 3,
+							'border-color': '#ea580c',
+						},
+					},
+					{
 						selector: 'node.highlighted',
 						style: {
 							'border-width': 3,
@@ -1028,6 +1072,8 @@
 		void problemIds;
 		void pulseIds;
 		void criticalIds;
+		void heatTierById;
+		void decisionIds;
 		void positions;
 		void collapsedIds;
 		void groupTitles;

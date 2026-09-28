@@ -6,11 +6,16 @@ import {
 	type ExecutionTone,
 } from './display-model';
 
+export interface SlowNodeRef {
+	node: string;
+	durationMs: number;
+}
+
 export interface ExecutionOverlayInput {
 	currentNode?: string | null;
 	failedNodes?: string[];
 	criticalPath?: string[];
-	slowNodes?: string[];
+	slowNodes?: Array<string | SlowNodeRef>;
 	decisionPoints?: string[];
 	executedNodes?: string[];
 	liveStatuses?: Record<string, string>;
@@ -22,11 +27,29 @@ export interface ProjectedNodeMark {
 	pulse: boolean;
 	critical: boolean;
 	slow: boolean;
+	heatTier: 0 | 1 | 2 | 3;
 	decision: boolean;
 }
 
 export interface ExecutionOverlay {
 	marks: Map<string, ProjectedNodeMark>;
+}
+
+/**
+ * Heat tier for a slow node duration relative to the slowest node.
+ * Tertiles of the max keep small graphs stable; tiny samples collapse to
+ * a single tier. Pure function for unit tests.
+ */
+export function slowHeatTier(
+	durationMs: number,
+	maxDurationMs: number,
+): 0 | 1 | 2 | 3 {
+	if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
+	if (!Number.isFinite(maxDurationMs) || maxDurationMs <= 0) return 1;
+	const ratio = durationMs / maxDurationMs;
+	if (ratio > 2 / 3) return 3;
+	if (ratio > 1 / 3) return 2;
+	return 1;
 }
 
 /**
@@ -41,9 +64,18 @@ export function projectExecutionOverlay(
 	const marks = new Map<string, ProjectedNodeMark>();
 	const failed = new Set(input.failedNodes ?? []);
 	const critical = new Set(input.criticalPath ?? []);
-	const slow = new Set(input.slowNodes ?? []);
 	const decisions = new Set(input.decisionPoints ?? []);
 	const executed = new Set(input.executedNodes ?? []);
+	const slowDurations = new Map<string, number>();
+	for (const entry of input.slowNodes ?? []) {
+		if (typeof entry === 'string') {
+			if (!slowDurations.has(entry)) slowDurations.set(entry, 0);
+		} else if (!slowDurations.has(entry.node)) {
+			slowDurations.set(entry.node, entry.durationMs);
+		}
+	}
+	const maxSlow = Math.max(0, ...slowDurations.values());
+	const slow = new Set(slowDurations.keys());
 	for (const node of nodes) {
 		let tone: ExecutionTone = 'neutral';
 		const live = input.liveStatuses?.[node.id];
@@ -54,12 +86,19 @@ export function projectExecutionOverlay(
 		if (slow.has(node.id)) tone = rankTone(tone, 'warning');
 		if (failed.has(node.id)) tone = rankTone(tone, 'error');
 		if (input.currentNode === node.id) tone = rankTone(tone, 'running');
+		const duration = slowDurations.get(node.id);
 		marks.set(node.id, {
 			id: node.id,
 			tone,
 			pulse: input.currentNode === node.id,
 			critical: critical.has(node.id),
 			slow: slow.has(node.id),
+			heatTier:
+				duration === undefined
+					? 0
+					: duration <= 0
+						? 1
+						: slowHeatTier(duration, maxSlow),
 			decision: decisions.has(node.id),
 		});
 	}
@@ -137,16 +176,23 @@ export function applyEdgeOverlay(
 	});
 }
 
+export interface DiffEdgeRef {
+	source: string;
+	target: string;
+}
+
 export interface TopologyDiff {
 	addedNodes: string[];
 	removedNodes: string[];
-	addedEdges: string[];
-	removedEdges: string[];
+	addedEdges: DiffEdgeRef[];
+	removedEdges: DiffEdgeRef[];
 }
 
 /**
  * Structural diff between two topologies, computed client-side. The result
  * feeds the projection layer as an overlay; neither input is mutated.
+ * Edges compare by source-target pairs and carry their endpoints so the
+ * version graph can render added and removed edges, not just list them.
  */
 export function diffTopology(
 	beforeNodes: DisplayNode[],
@@ -157,15 +203,21 @@ export function diffTopology(
 	const beforeNodeIds = new Set(beforeNodes.map((node) => node.id));
 	const afterNodeIds = new Set(afterNodes.map((node) => node.id));
 	const key = (edge: DisplayEdge): string => `${edge.source}->${edge.target}`;
+	const ref = (edge: DisplayEdge): DiffEdgeRef => ({
+		source: edge.source,
+		target: edge.target,
+	});
 	const beforeEdgeKeys = new Set(beforeEdges.map(key));
 	const afterEdgeKeys = new Set(afterEdges.map(key));
 	return {
 		addedNodes: [...afterNodeIds].filter((id) => !beforeNodeIds.has(id)),
 		removedNodes: [...beforeNodeIds].filter((id) => !afterNodeIds.has(id)),
-		addedEdges: [...afterEdgeKeys].filter((edge) => !beforeEdgeKeys.has(edge)),
-		removedEdges: [...beforeEdgeKeys].filter(
-			(edge) => !afterEdgeKeys.has(edge),
-		),
+		addedEdges: afterEdges
+			.filter((edge) => !beforeEdgeKeys.has(key(edge)))
+			.map(ref),
+		removedEdges: beforeEdges
+			.filter((edge) => !afterEdgeKeys.has(key(edge)))
+			.map(ref),
 	};
 }
 

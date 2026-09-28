@@ -127,10 +127,16 @@
 	const criticalAll = $derived([
 		...new Set([...criticalPath, ...execution.analysis.criticalPath]),
 	]);
-	const slowAll = $derived(
-		execution.analysis.slowNodes.map((entry) => entry.node),
-	);
-	const decisionAll = $derived(execution.analysis.decisionPoints);
+	const slowEntries = $derived([
+		...execution.analysis.slowNodes,
+		...slowNodes,
+	]);
+
+	const slowAll = $derived(slowEntries);
+
+	const decisionAll = $derived([
+		...new Set([...decisionPoints, ...execution.analysis.decisionPoints]),
+	]);
 
 	const completedFrames = $derived(
 		callStack.filter((frame) =>
@@ -195,6 +201,51 @@
 			.filter((mark) => mark.critical)
 			.map((mark) => mark.id),
 	);
+
+	const heatTierById = $derived(
+		Object.fromEntries(
+			[...executionOverlay.marks.values()]
+				.filter((mark) => mark.heatTier > 0)
+				.map((mark) => [mark.id, mark.heatTier]),
+		),
+	);
+
+	const decisionIds = $derived(
+		[...executionOverlay.marks.values()]
+			.filter((mark) => mark.decision)
+			.map((mark) => mark.id),
+	);
+
+	const heatLabels = $derived.by(() => {
+		const durations = new Map(
+			slowEntries.map((entry) => [entry.node, entry.durationMs]),
+		);
+		return Object.fromEntries(
+			[...executionOverlay.marks.values()]
+				.filter((mark) => mark.slow)
+				.map((mark) => {
+					const duration = durations.get(mark.id);
+					return [
+						mark.id,
+						typeof duration === 'number'
+							? formatDuration(duration)
+							: 'slow node',
+					];
+				}),
+		);
+	});
+
+	const decisionLabels = $derived.by(() => {
+		const labels: Record<string, string> = {};
+		for (const nodeId of decisionIds) {
+			const branches = graphEdges
+				.filter((edge) => edge.source === nodeId && (edge.label ?? '').trim())
+				.map((edge) => edge.label as string);
+			labels[nodeId] =
+				branches.length > 0 ? branches.slice(0, 3).join(' / ') : 'branch node';
+		}
+		return labels;
+	});
 
 	const filteredTools = $derived.by(() => {
 		const needle = toolFilter.trim().toLowerCase();
@@ -332,8 +383,12 @@
 				ids: decisionAll,
 			});
 		}
-		if (slowAll.length > 0) {
-			list.push({ id: 'slow', label: 'Slow nodes', ids: slowAll });
+		if (slowEntries.length > 0) {
+			list.push({
+				id: 'slow',
+				label: 'Slow nodes',
+				ids: [...new Set(slowEntries.map((entry) => entry.node))],
+			});
 		}
 		if (activeOverlay === '__neighborhood') {
 			list.push({
@@ -708,6 +763,11 @@
 				onoverlay={(id) => (activeOverlay = id)}
 				{pulseIds}
 				{criticalIds}
+				failedIds={failedAll}
+				{heatTierById}
+				{decisionIds}
+				{heatLabels}
+				{decisionLabels}
 			>
 				{#snippet inspector()}
 					{#if graphNodeId}

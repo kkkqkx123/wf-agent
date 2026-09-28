@@ -191,8 +191,8 @@ interface DiffEdgeDto {
 export interface VersionDiff {
 	addedNodes: string[];
 	removedNodes: string[];
-	addedEdges: string[];
-	removedEdges: string[];
+	addedEdges: Array<{ source: string; target: string }>;
+	removedEdges: Array<{ source: string; target: string }>;
 }
 
 /** Structural diff between two saved versions, computed client-side. */

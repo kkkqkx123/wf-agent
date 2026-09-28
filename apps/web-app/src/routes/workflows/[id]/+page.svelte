@@ -131,6 +131,30 @@
 		editStore.applyMove(id, position);
 	}
 
+	function handleMoveNodes(
+		moves: Array<{ id: string; position: CanvasPosition }>,
+	): void {
+		editStore.applyMoves(moves);
+	}
+
+	function handleDeleteGroups(ids: string[]): void {
+		for (const id of ids) editStore.removeGroup(id);
+		toasts.info(
+			'Groups deleted',
+			`${ids.length} group(s) removed from the canvas.`,
+		);
+	}
+
+	/** Jump from the graph detail card to the node row in the Nodes list. */
+	function jumpToNodeRow(id: string): void {
+		graphNodeId = id;
+		requestAnimationFrame(() => {
+			document
+				.getElementById(`wf-node-${id}`)
+				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		});
+	}
+
 	function handleAddNode(position: CanvasPosition): void {
 		let stamp = Date.now();
 		let id = `node-${stamp}`;
@@ -150,7 +174,10 @@
 	function handleConnect(source: string, target: string): void {
 		editStore.connect(source, target);
 		editStore.selectedId = target;
-		toasts.success(`Edge ${source} → ${target} added`, 'Save the draft to keep it.');
+		toasts.success(
+			`Edge ${source} → ${target} added`,
+			'Save the draft to keep it.',
+		);
 	}
 
 	function handleDeleteNodes(ids: string[]): void {
@@ -630,12 +657,16 @@
 				overlays={effectiveOverlays}
 				{activeOverlay}
 				onoverlay={(id) => (activeOverlay = id)}
+				onjumpparam={jumpToNodeRow}
 			/>
 			<div class="mt-3 grid gap-3 lg:grid-cols-2">
 				<Card title="Nodes">
 					<ul class="space-y-1.5">
 						{#each detail.graph.nodes as node (node.id)}
-							<li class="flex items-center justify-between gap-2 text-caption">
+							<li
+								id={`wf-node-${node.id}`}
+								class="flex items-center justify-between gap-2 text-caption"
+							>
 								<button
 									type="button"
 									class="truncate font-mono underline-offset-2 hover:underline"
@@ -723,10 +754,12 @@
 				onvalidate={() => void validateEditDraft()}
 				onpromote={() => void promoteEditDraft()}
 				onmovenode={handleMoveNode}
+				onmovenodes={handleMoveNodes}
 				onaddnode={handleAddNode}
 				ondeleteedge={handleDeleteEdge}
 				onconnect={handleConnect}
 				ondeletenodes={handleDeleteNodes}
+				ondeletegroups={handleDeleteGroups}
 			/>
 		{:else if tab === 'versions'}
 			<Card title="Version history" bodyClass="p-0">

@@ -1,9 +1,15 @@
 import type { DisplayEdge, DisplayNode } from './display-model';
-import { SvelteSet } from 'svelte/store';
+import { groupTitleId } from './group-view';
+import { SvelteSet } from 'svelte/reactivity';
 
 export interface GraphPosition {
 	x: number;
 	y: number;
+}
+
+export interface GraphMove {
+	id: string;
+	position: GraphPosition;
 }
 
 interface HistoryEntry {
@@ -78,6 +84,46 @@ export class GraphEditStore {
 		if (!this.nodes.some((node) => node.id === id)) return;
 		this.commit();
 		this.positions = { ...this.positions, [id]: { ...position } };
+	}
+
+	/** Distinct group ids present in the loaded nodes, in stable order. */
+	groupIds(): string[] {
+		const ids = new SvelteSet<string>();
+		for (const node of this.nodes) {
+			if (node.groupId) ids.add(node.groupId);
+		}
+		return [...ids].sort();
+	}
+
+	/** Member node ids of a group, in stable order. */
+	membersOf(groupId: string): string[] {
+		return this.nodes
+			.filter((node) => node.groupId === groupId)
+			.map((node) => node.id)
+			.sort();
+	}
+
+	/**
+	 * Apply several position updates as one history entry, so group drags
+	 * (title plus members) undo in a single step. Unknown ids are ignored.
+	 */
+	applyMoves(moves: GraphMove[]): void {
+		const targets = moves.filter((move) => this.isPositionTarget(move.id));
+		if (targets.length === 0) return;
+		this.commit();
+		const next = { ...this.positions };
+		for (const move of targets) next[move.id] = { ...move.position };
+		this.positions = next;
+	}
+
+	/** Delete a whole group: members, their edges and the title position. */
+	removeGroup(groupId: string): void {
+		const members = this.membersOf(groupId);
+		if (members.length === 0) return;
+		this.removeNodes(members);
+		const { [groupTitleId(groupId)]: _dropped, ...rest } = this.positions;
+		void _dropped;
+		this.positions = rest;
 	}
 
 	addNode(node: DisplayNode, position?: GraphPosition): void {
@@ -199,8 +245,14 @@ export class GraphEditStore {
 		return JSON.stringify({ nodes: this.nodes, edges: this.edges });
 	}
 
+	private isPositionTarget(id: string): boolean {
+		if (this.nodes.some((node) => node.id === id)) return true;
+		return this.groupIds().some((groupId) => groupTitleId(groupId) === id);
+	}
+
 	private prunePositions(): void {
 		const alive = new SvelteSet(this.nodes.map((node) => node.id));
+		for (const groupId of this.groupIds()) alive.add(groupTitleId(groupId));
 		const pruned: Record<string, GraphPosition> = {};
 		for (const [id, position] of Object.entries(this.positions)) {
 			if (alive.has(id)) pruned[id] = position;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,8 +13,20 @@
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import GraphCanvas, {
+		type CanvasContext,
+		type CanvasMove,
 		type CanvasPosition,
 	} from '$lib/components/domain/GraphCanvas.svelte';
+	import GraphContextMenu, {
+		type ContextMenuItem,
+	} from '$lib/components/domain/GraphContextMenu.svelte';
+	import {
+		deriveGroups,
+		foldForCap,
+		groupIdFromTitle,
+		isGroupTitleId,
+	} from '$lib/graph/group-view';
+	import { registerCanvasShortcuts } from '$lib/graph/canvas-shortcuts';
 	import {
 		capGraph,
 		distinctKinds,
@@ -69,10 +82,16 @@
 		onvalidate?: () => void;
 		onpromote?: () => void;
 		onmovenode?: (id: string, position: CanvasPosition) => void;
+		/** Batched move for group drags; undoes in a single step. */
+		onmovenodes?: (moves: CanvasMove[]) => void;
 		onaddnode?: (position: CanvasPosition) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		ondeletenodes?: (ids: string[]) => void;
+		/** Whole-group delete for collapsed-title selection. */
+		ondeletegroups?: (ids: string[]) => void;
+		/** Jump from the detail card to the node definition. */
+		onjumpparam?: (id: string) => void;
 		class?: string;
 	}
 
@@ -110,14 +129,18 @@
 		onvalidate,
 		onpromote,
 		onmovenode,
+		onmovenodes,
 		onaddnode,
 		ondeleteedge,
 		onconnect,
 		ondeletenodes,
+		ondeletegroups,
+		onjumpparam,
 		class: className = '',
 	}: Props = $props();
 
 	let canvas: GraphCanvas | null = $state(null);
+	let explorerRoot: HTMLDivElement | null = $state(null);
 	function initialLayout(kind: GraphPreset): GraphLayoutKind {
 		return kind === 'decision' ? 'columns' : 'layered';
 	}
@@ -125,6 +148,9 @@
 	let showFilters = $state(false);
 	let query = $state('');
 	let hiddenKinds = $state<string[]>([]);
+	let collapsedIds = $state<string[]>([]);
+	let minimapMode = $state<'auto' | 'on' | 'off'>('auto');
+	let matchIndex = $state(0);
 
 	const kinds = $derived(distinctKinds(nodes));
 	const activeIds = $derived(
@@ -141,7 +167,8 @@
 			if (
 				needle &&
 				!node.label.toLowerCase().includes(needle) &&
-				!node.id.toLowerCase().includes(needle)
+				!node.id.toLowerCase().includes(needle) &&
+				!(node.groupId ?? '').toLowerCase().includes(needle)
 			) {
 				return false;
 			}
@@ -156,21 +183,265 @@
 		};
 	});
 
-	const capped = $derived(capGraph(filtered.nodes, filtered.edges));
+	// Groups fold before the node cap: non-critical groups collapse first so
+	// truncation drops structure last, not first.
+	const groups = $derived(deriveGroups(filtered.nodes));
+	const groupMemberCounts = $derived.by(() => {
+		const counts: Record<string, number> = {};
+		for (const node of filtered.nodes) {
+			if (node.groupId) counts[node.groupId] = (counts[node.groupId] ?? 0) + 1;
+		}
+		return counts;
+	});
+	const protectedGroups = $derived.by(() => {
+		const watched = [
+			...(selectedId ? [selectedId] : []),
+			...pulseIds,
+			...criticalIds,
+		];
+		return new Set(
+			filtered.nodes.flatMap((node) =>
+				node.groupId && watched.includes(node.id) ? [node.groupId] : [],
+			),
+		);
+	});
+	const folded = $derived(
+		foldForCap(
+			filtered.nodes,
+			filtered.edges,
+			new Set(collapsedIds),
+			protectedGroups,
+		),
+	);
+	const foldedView = $derived(folded.view);
+
+	const capped = $derived(capGraph(foldedView.nodes, foldedView.edges));
 
 	const selected = $derived(
-		nodes.find((node) => node.id === selectedId) ?? null,
+		capped.nodes.find((node) => node.id === selectedId) ??
+			foldedView.nodes.find((node) => node.id === selectedId) ??
+			null,
 	);
 
 	const selectedNeighbors = $derived.by(() => {
 		if (!selectedId) return { predecessors: 0, successors: 0 };
 		let predecessors = 0;
 		let successors = 0;
-		for (const edge of edges) {
+		for (const edge of foldedView.edges) {
 			if (edge.target === selectedId) predecessors += 1;
 			if (edge.source === selectedId) successors += 1;
 		}
 		return { predecessors, successors };
+	});
+
+	function toggleGroup(groupId: string): void {
+		collapsedIds = collapsedIds.includes(groupId)
+			? collapsedIds.filter((entry) => entry !== groupId)
+			: [...collapsedIds, groupId];
+	}
+
+	function handleExpand(id: string): void {
+		// Double-clicking a group title folds back out instead of loading
+		// neighborhoods; every other node keeps the existing behavior.
+		const title = foldedView.titles[id];
+		if (title) {
+			toggleGroup(title.groupId);
+			return;
+		}
+		onexpand?.(id);
+	}
+
+	function handleDeleteSelected(): void {
+		const ids = canvas?.selectedNodeIds() ?? [];
+		const groupIds = ids
+			.filter((id) => isGroupTitleId(id))
+			.map((id) => foldedView.titles[id]?.groupId ?? groupIdFromTitle(id))
+			.filter(Boolean);
+		const nodeIds = ids.filter((id) => !isGroupTitleId(id));
+		if (groupIds.length > 0) ondeletegroups?.(groupIds);
+		if (nodeIds.length > 0) ondeletenodes?.(nodeIds);
+	}
+
+	// Search-locate: every capped node already matches the query, so matches
+	// are just the visible nodes in render order.
+	const matchIds = $derived(capped.nodes.map((node) => node.id));
+	const matchLabel = $derived(
+		matchIds.length === 0
+			? 'No matches'
+			: `${Math.min(matchIndex + 1, matchIds.length)} of ${matchIds.length}`,
+	);
+
+	$effect(() => {
+		void query;
+		void hiddenKinds;
+		void capped.nodes;
+		matchIndex = 0;
+	});
+
+	function stepMatch(delta: number): void {
+		if (matchIds.length === 0) return;
+		matchIndex = (matchIndex + delta + matchIds.length) % matchIds.length;
+		const id = matchIds[matchIndex];
+		if (id) void focus(id);
+	}
+
+	// Right-click menu: same actions as the toolbar, no new semantics.
+	interface PendingMenu {
+		kind: 'node' | 'edge' | 'group' | 'blank';
+		id: string | null;
+		x: number;
+		y: number;
+	}
+
+	let contextMenu = $state<PendingMenu | null>(null);
+
+	function openContext(info: CanvasContext): void {
+		const kind =
+			info.kind === 'node' && isGroupTitleId(info.id ?? '')
+				? 'group'
+				: info.kind;
+		contextMenu = { kind, id: info.id, x: info.x, y: info.y };
+	}
+
+	const menuTitle = $derived(
+		!contextMenu || contextMenu.kind === 'blank'
+			? 'Canvas'
+			: contextMenu.kind === 'group'
+				? `Group ${foldedView.titles[contextMenu.id ?? '']?.label ?? ''}`
+				: contextMenu.kind === 'edge'
+					? `Edge ${contextMenu.id ?? ''}`
+					: `Node ${contextMenu.id ?? ''}`,
+	);
+
+	const menuItems = $derived.by((): ContextMenuItem[] => {
+		if (!contextMenu) return [];
+		const write = editMode;
+		if (contextMenu.kind === 'node') {
+			return [
+				{ id: 'locate', label: 'Focus node' },
+				...(onjumpparam
+					? [{ id: 'params', label: 'Locate in definition' }]
+					: []),
+				{
+					id: 'delete-node',
+					label: 'Delete node',
+					danger: true,
+					disabled: !write,
+				},
+			];
+		}
+		if (contextMenu.kind === 'group') {
+			const title = contextMenu.id
+				? foldedView.titles[contextMenu.id]
+				: undefined;
+			const collapsedNow = title ? folded.collapsed.has(title.groupId) : false;
+			return [
+				{
+					id: 'toggle-group',
+					label: collapsedNow ? 'Expand group' : 'Collapse group',
+				},
+				{
+					id: 'delete-group',
+					label: 'Delete group',
+					danger: true,
+					disabled: !write,
+				},
+			];
+		}
+		if (contextMenu.kind === 'edge') {
+			return [
+				{ id: 'focus-source', label: 'Focus source node' },
+				{ id: 'focus-target', label: 'Focus target node' },
+				{
+					id: 'delete-edge',
+					label: 'Delete edge',
+					danger: true,
+					disabled: !write,
+				},
+			];
+		}
+		return [
+			{ id: 'fit', label: 'Fit view' },
+			{ id: 'relayout', label: 'Re-run layout' },
+			{
+				id: 'edit-toggle',
+				label: editMode ? 'Exit edit mode' : 'Enter edit mode',
+				disabled: !editable,
+			},
+		];
+	});
+
+	function menuAction(action: string): void {
+		const menu = contextMenu;
+		contextMenu = null;
+		if (!menu) return;
+		const id = menu.id;
+		switch (action) {
+			case 'locate':
+				if (id) void focus(id);
+				break;
+			case 'params':
+				if (id) onjumpparam?.(id);
+				break;
+			case 'delete-node':
+				if (id) ondeletenodes?.([id]);
+				break;
+			case 'toggle-group': {
+				const title = id ? foldedView.titles[id] : undefined;
+				if (title) toggleGroup(title.groupId);
+				break;
+			}
+			case 'delete-group': {
+				const title = id ? foldedView.titles[id] : undefined;
+				if (title) ondeletegroups?.([title.groupId]);
+				break;
+			}
+			case 'delete-edge':
+				if (id) ondeleteedge?.(id);
+				break;
+			case 'focus-source':
+			case 'focus-target': {
+				const edge = foldedView.edges.find((entry) => entry.id === id);
+				const endpoint =
+					action === 'focus-source' ? edge?.source : edge?.target;
+				if (endpoint) void focus(endpoint);
+				break;
+			}
+			case 'fit':
+				canvas?.fit();
+				break;
+			case 'relayout':
+				canvas?.relayout();
+				break;
+			case 'edit-toggle':
+				if (editMode) onexitedit?.();
+				else onenteredit?.();
+				break;
+			default:
+				break;
+		}
+	}
+
+	$effect(() => {
+		const root = explorerRoot;
+		if (!root) return;
+		return registerCanvasShortcuts(root, () => ({
+			fit: () => canvas?.fit(),
+			relayout: () => canvas?.relayout(),
+			selectAll: () => canvas?.selectAll(),
+			deleteSelected: () => handleDeleteSelected(),
+			undo: () => onundo?.(),
+			redo: () => onredo?.(),
+			toggleEdit: () => {
+				if (!editable) return;
+				if (editMode) onexitedit?.();
+				else onenteredit?.();
+			},
+			save: () => onsave?.(),
+			canWrite: () => editMode,
+			onreadonlywrite: () =>
+				toasts.info('Read-only canvas', 'Enter edit mode to change the graph.'),
+		}));
 	});
 
 	function toggleKind(kind: string): void {
@@ -199,7 +470,14 @@
 	}
 
 	/** Focus a node from outside (version diff rows, validation issues). */
-	export function focus(id: string): void {
+	export async function focus(id: string): Promise<void> {
+		if (foldedView.hiddenIds.has(id)) {
+			const groupId = filtered.nodes.find((node) => node.id === id)?.groupId;
+			if (groupId) {
+				collapsedIds = collapsedIds.filter((entry) => entry !== groupId);
+				await tick();
+			}
+		}
 		onselect?.(id);
 		canvas?.zoomTo(id);
 	}
@@ -226,7 +504,10 @@
 	];
 </script>
 
-<div class={cn('flex min-h-0 flex-col gap-2', className)}>
+<div
+	bind:this={explorerRoot}
+	class={cn('flex min-h-0 flex-col gap-2', className)}
+>
 	<div class="flex flex-wrap items-center gap-1.5">
 		<IconButton icon="plus" label="Zoom in" onclick={() => canvas?.zoomIn()} />
 		<IconButton
@@ -236,12 +517,12 @@
 		/>
 		<IconButton
 			icon="maximize"
-			label="Fit to view"
+			label="Fit to view (F)"
 			onclick={() => canvas?.fit()}
 		/>
 		<IconButton
 			icon="refresh"
-			label="Re-run layout"
+			label="Re-run layout (R)"
 			onclick={() => canvas?.relayout()}
 		/>
 		<Select
@@ -257,6 +538,24 @@
 			label={showFilters ? 'Hide filters' : 'Show filters'}
 			onclick={() => (showFilters = !showFilters)}
 		/>
+		<Button
+			variant={minimapMode === 'off' ? 'outline' : 'default'}
+			size="sm"
+			onclick={() =>
+				(minimapMode =
+					minimapMode === 'auto'
+						? 'on'
+						: minimapMode === 'on'
+							? 'off'
+							: 'auto')}
+			title="Cycle minimap auto / on / off"
+		>
+			Minimap {minimapMode === 'auto'
+				? 'auto'
+				: minimapMode === 'on'
+					? 'on'
+					: 'off'}
+		</Button>
 		<Button
 			variant="outline"
 			size="sm"
@@ -301,14 +600,7 @@
 				>
 					Redo
 				</Button>
-				<Button
-					variant="outline"
-					size="sm"
-					onclick={() => {
-						const ids = canvas?.selectedNodeIds() ?? [];
-						if (ids.length > 0) ondeletenodes?.(ids);
-					}}
-				>
+				<Button variant="outline" size="sm" onclick={handleDeleteSelected}>
 					Delete selected
 				</Button>
 				<Button
@@ -330,6 +622,9 @@
 			{/if}
 		{/if}
 		<span class="ml-auto text-micro text-muted-foreground">
+			{#if folded.auto.length > 0}
+				Folded {folded.auto.length} group(s) ·
+			{/if}
 			{#if capped.truncated}
 				Showing {capped.nodes.length} of {capped.total} nodes ·
 			{/if}
@@ -340,9 +635,8 @@
 	{#if editMode}
 		<p class="text-micro text-muted-foreground">
 			Drag nodes to move · double-click empty canvas to add a node · click an
-			edge to delete it · shift-click another node to connect from the
-			selection · Delete selected removes the selection. Layout is frozen
-			while editing.
+			edge to delete it · shift-click another node to connect from the selection
+			· Delete selected removes the selection. Layout is frozen while editing.
 		</p>
 	{/if}
 	{#if overlays.length > 0}
@@ -360,15 +654,53 @@
 			{/each}
 		</div>
 	{/if}
+	{#if groups.length > 0}
+		<div class="flex flex-wrap items-center gap-1.5">
+			<span class="text-micro text-muted-foreground">Groups:</span>
+			{#each groups as group (group.id)}
+				<Button
+					variant={folded.collapsed.has(group.id) ? 'default' : 'outline'}
+					size="sm"
+					onclick={() => toggleGroup(group.id)}
+				>
+					{group.label}
+					<Badge variant="neutral" class="ml-1"
+						>{groupMemberCounts[group.id] ?? 0}</Badge
+					>
+				</Button>
+			{/each}
+		</div>
+	{/if}
 
 	{#if showFilters}
 		<Card title="Filters" class="shrink-0">
 			<div class="flex flex-wrap items-center gap-2">
 				<Input
 					bind:value={query}
-					placeholder="Search nodes…"
+					placeholder="Search nodes… (Enter to locate)"
+					onkeydown={(event) => {
+						if (event.key === 'Enter') {
+							event.preventDefault();
+							stepMatch(event.shiftKey ? -1 : 1);
+						}
+					}}
 					class="h-7 w-44"
 				/>
+				{#if query.trim()}
+					<span class="text-micro text-muted-foreground">{matchLabel}</span>
+					<IconButton
+						icon="chevron-left"
+						label="Previous match"
+						disabled={matchIds.length === 0}
+						onclick={() => stepMatch(-1)}
+					/>
+					<IconButton
+						icon="chevron-right"
+						label="Next match"
+						disabled={matchIds.length === 0}
+						onclick={() => stepMatch(1)}
+					/>
+				{/if}
 				{#each kinds as kind (kind)}
 					<label
 						class="flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-caption"
@@ -425,29 +757,41 @@
 				{selectedId}
 				highlightIds={[...activeIds]}
 				problemIds={issueIds}
-				pulseIds={pulseIds}
-				criticalIds={criticalIds}
+				{pulseIds}
+				{criticalIds}
 				{positions}
 				{editMode}
 				{edgeLabelLimit}
+				minimap={minimapMode}
+				collapsedIds={[...folded.collapsed]}
+				groupTitles={foldedView.titles}
 				onselect={(id) => onselect?.(id)}
-				onexpand={(id) => onexpand?.(id)}
+				onexpand={handleExpand}
 				onboxselect={handleBoxSelect}
 				onmovenode={(id, position) => onmovenode?.(id, position)}
+				ongroupmove={(moves) => onmovenodes?.(moves)}
 				onbackgrounddoubleclick={(position) => onaddnode?.(position)}
 				ondeleteedge={(id) => ondeleteedge?.(id)}
 				onconnect={(source, target) => onconnect?.(source, target)}
+				oncontext={openContext}
 				class="min-h-0"
 			/>
 			<div class="flex min-h-0 flex-col gap-2">
-				{#if capped.truncated}
+				{#if capped.truncated || folded.auto.length > 0}
 					<Card title="Large graph">
 						<p class="text-caption text-muted-foreground">
-							Showing {capped.nodes.length} of {capped.total} nodes, sampled across
-							kinds ({aggregatedCounts
-								.map((entry) => `${entry.kind} ${entry.count}`)
-								.join(' · ')}). Fold to one kind or use filters; double-click a
-							node to expand its neighborhood.
+							{#if folded.auto.length > 0}
+								Folded {folded.auto.length} non-critical group(s) ({folded.auto.join(
+									', ',
+								)}) to preserve structure.
+							{/if}
+							{#if capped.truncated}
+								Showing {capped.nodes.length} of {capped.total} nodes, sampled across
+								kinds ({aggregatedCounts
+									.map((entry) => `${entry.kind} ${entry.count}`)
+									.join(' · ')}). Fold to one kind or use filters; double-click
+								a node to expand its neighborhood.
+							{/if}
 						</p>
 						<div class="mt-2 flex flex-wrap gap-1.5">
 							{#each aggregatedCounts.slice(0, 4) as entry (entry.kind)}
@@ -482,53 +826,86 @@
 								onclick={() => onselect?.(null)}
 							/>
 						{/snippet}
-						<dl class="space-y-1 text-caption">
-							<div class="flex justify-between gap-2">
-								<dt class="text-muted-foreground">Kind</dt>
-								<dd class="font-mono">{selected.kind}</dd>
-							</div>
-							{#if selected.status}
+						{#if isGroupTitleId(selected.id)}
+							{@const title = foldedView.titles[selected.id]}
+							<p class="text-caption text-muted-foreground">
+								Group · {title?.memberIds.length ?? 0} member(s) ·
+								{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
+								out
+							</p>
+							{#if title}
+								<div class="mt-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() => toggleGroup(title.groupId)}
+									>
+										{folded.collapsed.has(title.groupId)
+											? 'Expand group'
+											: 'Collapse group'}
+									</Button>
+								</div>
+							{/if}
+						{:else}
+							<dl class="space-y-1 text-caption">
 								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">Status</dt>
-									<dd>
-										<StatusBadge
-											status={selected.status}
-											size="sm"
-											dot={false}
-										/>
+									<dt class="text-muted-foreground">Kind</dt>
+									<dd class="font-mono">{selected.kind}</dd>
+								</div>
+								{#if selected.status}
+									<div class="flex justify-between gap-2">
+										<dt class="text-muted-foreground">Status</dt>
+										<dd>
+											<StatusBadge
+												status={selected.status}
+												size="sm"
+												dot={false}
+											/>
+										</dd>
+									</div>
+								{/if}
+								{#if selected.iteration !== undefined}
+									<div class="flex justify-between gap-2">
+										<dt class="text-muted-foreground">Iteration</dt>
+										<dd class="font-mono">{selected.iteration}</dd>
+									</div>
+								{/if}
+								<div class="flex justify-between gap-2">
+									<dt class="text-muted-foreground">Links</dt>
+									<dd class="font-mono">
+										{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
+										out
 									</dd>
 								</div>
-							{/if}
-							{#if selected.iteration !== undefined}
-								<div class="flex justify-between gap-2">
-									<dt class="text-muted-foreground">Iteration</dt>
-									<dd class="font-mono">{selected.iteration}</dd>
+							</dl>
+							{#if inspector}
+								<div class="mt-2 border-t border-border pt-2">
+									{@render inspector()}
 								</div>
 							{/if}
-							<div class="flex justify-between gap-2">
-								<dt class="text-muted-foreground">Links</dt>
-								<dd class="font-mono">
-									{selectedNeighbors.predecessors} in · {selectedNeighbors.successors}
-									out
-								</dd>
-							</div>
-						</dl>
-						{#if inspector}
-							<div class="mt-2 border-t border-border pt-2">
-								{@render inspector()}
-							</div>
-						{/if}
-						{#if onexpand}
-							<div class="mt-2">
-								<Button
-									variant="outline"
-									size="sm"
-									onclick={() => selected && onexpand?.(selected.id)}
-								>
-									<Icon name="git-commit" size={13} />
-									{expandLabel}
-								</Button>
-							</div>
+							{#if onexpand}
+								<div class="mt-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() => selected && onexpand?.(selected.id)}
+									>
+										<Icon name="git-commit" size={13} />
+										{expandLabel}
+									</Button>
+								</div>
+							{/if}
+							{#if onjumpparam}
+								<div class="mt-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() => selected && onjumpparam?.(selected.id)}
+									>
+										Locate in definition
+									</Button>
+								</div>
+							{/if}
 						{/if}
 					</Card>
 				{/if}
@@ -562,5 +939,17 @@
 				</Card>
 			</div>
 		</div>
+	{/if}
+	{#if contextMenu}
+		{#key `${contextMenu.kind}:${contextMenu.id ?? ''}:${contextMenu.x}:${contextMenu.y}`}
+			<GraphContextMenu
+				x={contextMenu.x}
+				y={contextMenu.y}
+				title={menuTitle}
+				items={menuItems}
+				onaction={menuAction}
+				onclose={() => (contextMenu = null)}
+			/>
+		{/key}
 	{/if}
 </div>

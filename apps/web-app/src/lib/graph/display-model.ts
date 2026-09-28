@@ -15,6 +15,8 @@ export interface DisplayNode {
 	kind: string;
 	status?: string;
 	iteration?: number;
+	/** Frontend-only group membership; empty means ungrouped. */
+	groupId?: string;
 }
 
 export interface DisplayEdge {
@@ -152,8 +154,7 @@ const TONE_HEX: Record<string, string> = {
 export function statusHex(status: string | null | undefined): string {
 	if (!status) return TONE_HEX.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (normalized === 'cached' || normalized === 'info')
-		return TONE_HEX.info;
+	if (normalized === 'cached' || normalized === 'info') return TONE_HEX.info;
 	const tone = toneForStatus(status);
 	switch (tone) {
 		case 'success':
@@ -292,29 +293,7 @@ export function capGraph(
 	};
 }
 
-const COLUMN_GAP = 200;
-const ROW_GAP = 72;
-
-/**
- * Preset positions for decision graphs: one column per iteration, rows in
- * arrival order. Computed here so the renderer only applies them.
- */
-export function columnPositions(
-	nodes: DisplayNode[],
-): Map<string, { x: number; y: number }> {
-	const rows = new Map<number, number>();
-	const positions = new Map<string, { x: number; y: number }>();
-	for (const node of nodes) {
-		const iteration = node.iteration ?? 0;
-		const row = rows.get(iteration) ?? 0;
-		rows.set(iteration, row + 1);
-		positions.set(node.id, {
-			x: 40 + iteration * COLUMN_GAP,
-			y: 40 + row * ROW_GAP,
-		});
-	}
-	return positions;
-}
+/** Short label for canvas rendering; long names truncate with ellipsis. */
 
 /** Short label for canvas rendering; long names truncate with ellipsis. */
 export function shortLabel(label: string, max: number = 18): string {
@@ -403,77 +382,4 @@ export function statusForTone(tone: ExecutionTone): string | undefined {
 		default:
 			return undefined;
 	}
-}
-
-const LAYER_X_GAP = 220;
-const LAYER_Y_GAP = 72;
-
-/**
- * Layered DAG positions: depth from entry nodes via longest-path ranks, rows
- * in stable id order, snapped to a grid so edges stay axis-aligned.
- * Cyclic leftovers fall one layer past the deepest rank instead of failing.
- * Pure function; the renderer only applies the result.
- */
-export function layeredPositions(
-	nodes: DisplayNode[],
-	edges: DisplayEdge[],
-): Map<string, { x: number; y: number }> {
-	const ids = nodes.map((node) => node.id);
-	const incoming = new Map<string, number>();
-	const outgoing = new Map<string, string[]>();
-	for (const id of ids) {
-		incoming.set(id, 0);
-		outgoing.set(id, []);
-	}
-	for (const edge of edges) {
-		if (!incoming.has(edge.source) || !incoming.has(edge.target)) continue;
-		if (edge.source === edge.target) continue;
-		incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
-		outgoing.get(edge.source)?.push(edge.target);
-	}
-	const depth = new Map<string, number>();
-	const queue: string[] = [];
-	for (const id of ids) {
-		if ((incoming.get(id) ?? 0) === 0) {
-			depth.set(id, 0);
-			queue.push(id);
-		}
-	}
-	const remaining = new Map(incoming);
-	while (queue.length > 0) {
-		const current = queue.shift() as string;
-		const currentDepth = depth.get(current) ?? 0;
-		for (const next of outgoing.get(current) ?? []) {
-			if (currentDepth + 1 > (depth.get(next) ?? -1)) {
-				depth.set(next, currentDepth + 1);
-			}
-			remaining.set(next, (remaining.get(next) ?? 1) - 1);
-			if ((remaining.get(next) ?? 0) <= 0) queue.push(next);
-		}
-	}
-	let maxDepth = 0;
-	for (const value of depth.values()) maxDepth = Math.max(maxDepth, value);
-	for (const id of ids) {
-		if (!depth.has(id)) {
-			maxDepth += 1;
-			depth.set(id, maxDepth);
-		}
-	}
-	const layers = new Map<number, string[]>();
-	for (const id of [...ids].sort()) {
-		const rank = depth.get(id) ?? 0;
-		const layer = layers.get(rank) ?? [];
-		layer.push(id);
-		layers.set(rank, layer);
-	}
-	const positions = new Map<string, { x: number; y: number }>();
-	for (const [rank, members] of layers) {
-		members.forEach((id, index) => {
-			positions.set(id, {
-				x: 40 + rank * LAYER_X_GAP,
-				y: 40 + index * LAYER_Y_GAP,
-			});
-		});
-	}
-	return positions;
 }

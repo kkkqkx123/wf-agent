@@ -55,7 +55,7 @@
 	import { openEventStream, type StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/store';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -175,7 +175,9 @@
 		}),
 	);
 
-	const overlayNodes = $derived(applyExecutionOverlay(graphNodes, executionOverlay));
+	const overlayNodes = $derived(
+		applyExecutionOverlay(graphNodes, executionOverlay),
+	);
 
 	const overlayEdges = $derived.by(() => {
 		const tones = projectEdgeOverlay(graphEdges, executionOverlay);

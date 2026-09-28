@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-	capGraph,
+	connectedComponents,
 	columnPositions,
+	layeredPositions,
+	snapToGrid,
+} from './layout';
+import {
+	capGraph,
 	distinctKinds,
 	isDashedEdge,
-	layeredPositions,
 	legendFor,
 	nodeShape,
 	rankTone,
@@ -107,7 +111,7 @@ describe('columnPositions', () => {
 			node('c', 'decision', { iteration: 1 }),
 		]);
 		expect(positions.get('a')).toEqual({ x: 40, y: 40 });
-		expect(positions.get('b')).toEqual({ x: 40, y: 112 });
+		expect(positions.get('b')).toEqual({ x: 40, y: 120 });
 		expect(positions.get('c')).toEqual({ x: 240, y: 40 });
 	});
 });
@@ -171,15 +175,22 @@ describe('execution tones', () => {
 });
 
 describe('layeredPositions', () => {
-	it('ranks nodes by depth and snaps rows to a grid', () => {
+	it('flows chains left to right on the grid', () => {
 		const nodes = [node('a'), node('b'), node('c')];
 		const positions = layeredPositions(nodes, [
 			edge('e1', 'a', 'b'),
 			edge('e2', 'b', 'c'),
 		]);
-		expect(positions.get('a')).toEqual({ x: 40, y: 40 });
-		expect(positions.get('b')).toEqual({ x: 260, y: 40 });
-		expect(positions.get('c')).toEqual({ x: 480, y: 40 });
+		expect(positions.size).toBe(3);
+		const ax = positions.get('a')?.x ?? 0;
+		const bx = positions.get('b')?.x ?? 0;
+		const cx = positions.get('c')?.x ?? 0;
+		expect(bx).toBeGreaterThan(ax);
+		expect(cx).toBeGreaterThan(bx);
+		for (const position of positions.values()) {
+			expect(position.x % 20).toBe(0);
+			expect(position.y % 20).toBe(0);
+		}
 	});
 	it('places cyclic leftovers instead of dropping them', () => {
 		const nodes = [node('a'), node('b')];
@@ -188,6 +199,78 @@ describe('layeredPositions', () => {
 			edge('e2', 'b', 'a'),
 		]);
 		expect(positions.size).toBe(2);
+	});
+	it('lays disconnected components side by side', () => {
+		const positions = layeredPositions(
+			[node('a', 'step'), node('b', 'step'), node('c', 'step')],
+			[edge('e1', 'a', 'b')],
+		);
+		const ax = positions.get('a')?.x ?? 0;
+		const cx = positions.get('c')?.x ?? 0;
+		expect(cx).toBeGreaterThan(ax);
+		expect((positions.get('c')?.x ?? 0) % 20).toBe(0);
+		expect((positions.get('c')?.y ?? 0) % 20).toBe(0);
+	});
+	it('lanes tool calls under their caller', () => {
+		const positions = layeredPositions(
+			[
+				node('r', 'step'),
+				node('a-step', 'step'),
+				node('b-step', 'step'),
+				node('z-tool', 'tool_call'),
+				node('m-tool', 'tool_call'),
+			],
+			[
+				edge('e1', 'r', 'a-step'),
+				edge('e2', 'r', 'b-step'),
+				edge('e3', 'a-step', 'z-tool'),
+				edge('e4', 'b-step', 'm-tool'),
+			],
+		);
+		const callerA = positions.get('a-step');
+		const callerB = positions.get('b-step');
+		const zed = positions.get('z-tool');
+		const em = positions.get('m-tool');
+		expect(zed?.x ?? 0).toBeGreaterThan(callerA?.x ?? 0);
+		expect(em?.x ?? 0).toBeGreaterThan(callerB?.x ?? 0);
+		expect(zed?.x).toBe(em?.x);
+		expect(zed?.y ?? 0).toBeLessThan(em?.y ?? 0);
+	});
+	it('docks notes below their component', () => {
+		const positions = layeredPositions(
+			[node('a', 'step'), node('n', 'note')],
+			[edge('e1', 'a', 'n')],
+		);
+		expect(positions.get('n')?.x).toBe(positions.get('a')?.x);
+		expect(positions.get('n')?.y ?? 0).toBeGreaterThan(
+			positions.get('a')?.y ?? 0,
+		);
+	});
+});
+
+describe('connectedComponents', () => {
+	it('splits isolated nodes into their own components', () => {
+		expect(
+			connectedComponents(
+				[node('b'), node('a'), node('c')],
+				[edge('e', 'a', 'b')],
+			),
+		).toEqual([['a', 'b'], ['c']]);
+	});
+	it('ignores dangling and self edges', () => {
+		expect(
+			connectedComponents(
+				[node('a')],
+				[edge('e1', 'a', 'a'), edge('e2', 'a', 'ghost')],
+			),
+		).toEqual([['a']]);
+	});
+});
+
+describe('snapToGrid', () => {
+	it('rounds to the grid', () => {
+		expect(snapToGrid(41)).toBe(40);
+		expect(snapToGrid(260)).toBe(260);
 	});
 });
 

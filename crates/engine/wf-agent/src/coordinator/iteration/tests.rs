@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use wf_llm::mock::MockLlmClient;
-use wf_llm::LlmGateway;
+use wf_llm::{LlmGateway, LlmResponseSpec};
 use wf_types::llm::MessageStreamEvent;
 use wf_types::message::{LlmFunctionCall, LlmToolCall, Message, MessageContentValue};
 use wf_types::Id;
@@ -310,4 +310,189 @@ async fn test_stream_abort_event_published_to_bus() {
     let meta = event.metadata.unwrap();
     assert_eq!(meta["reason"], serde_json::json!("dead loop detected"));
     assert_eq!(meta["profile_id"], serde_json::json!("mock"));
+}
+
+// ── Blocking-mode iteration behavior ─────────────────────────────────────
+
+fn blocking_gateway(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
+    let gateway = LlmGateway::new();
+    gateway.register_mock("mock", mock);
+    Arc::new(gateway)
+}
+
+fn echo_registry() -> Arc<wf_tools::registry::ToolRegistry> {
+    let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    registry.register_tool(wf_types::tool::Tool {
+        id: "echo".to_string(),
+        name: "echo".to_string(),
+        description: "Echo the given text back".to_string(),
+        tool_type: wf_types::tool::ToolType::Stateless,
+        parameters: None,
+        metadata: None,
+        config: None,
+        enabled: Some(true),
+        strict: None,
+        default_timeout_ms: None,
+    });
+    registry.register_stateless_handler(
+        "echo",
+        Arc::new(|params, _ctx| {
+            Ok(serde_json::json!({
+                "echoed": params.get("text").cloned().unwrap_or(Value::Null)
+            }))
+        }),
+    );
+    registry
+}
+
+async fn running_entity(id: &str) -> AgentLoopEntity {
+    let entity = AgentLoopEntity::new(Id::from(id.to_string()))
+        .with_model("mock".to_string())
+        .with_available_tool_names(vec!["echo".to_string()]);
+    entity.state.write().await.start().unwrap();
+    entity
+}
+
+fn user_message(text: &str) -> Message {
+    Message {
+        id: Id::from(wf_common::generate_id()),
+        role: wf_types::message::MessageRole::User,
+        content: MessageContentValue::Text(text.to_string()),
+        timestamp: wf_common::now(),
+        tool_call_id: None,
+        tool_name: None,
+        tool_calls: None,
+        thinking: None,
+        metadata: None,
+    }
+}
+
+async fn blocking_call(
+    mock: Arc<MockLlmClient>,
+    registry: Arc<wf_tools::registry::ToolRegistry>,
+    entity: &AgentLoopEntity,
+) -> AgentResult<IterationResult> {
+    let coordinator = AgentIterationCoordinator::new(blocking_gateway(mock), registry, None);
+    coordinator.execute_iteration(entity).await
+}
+
+#[tokio::test]
+async fn blocking_text_response_completes_the_iteration() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("plain answer"));
+
+    let entity = running_entity("agent-block-text").await;
+    entity.conversation().write().await.add_message(user_message("hi"));
+
+    let result = blocking_call(mock, echo_registry(), &entity)
+        .await
+        .expect("iteration must succeed");
+    assert_eq!(result.content, Value::String("plain answer".to_string()));
+    assert_eq!(result.tool_call_count, 0);
+    assert!(result.completion_data.is_none());
+    assert!(!result.should_continue);
+    // The assistant reply lands in the conversation.
+    assert_eq!(entity.conversation().read().await.messages().len(), 2);
+}
+
+#[tokio::test]
+async fn blocking_tool_call_executes_and_continues() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![LlmToolCall {
+        id: "call-1".to_string(),
+        r#type: "function".to_string(),
+        function: LlmFunctionCall {
+            name: "echo".to_string(),
+            arguments: r#"{"text":"ping"}"#.to_string(),
+        },
+    }]));
+
+    let entity = running_entity("agent-block-tool").await;
+    entity.conversation().write().await.add_message(user_message("run"));
+
+    let result = blocking_call(mock, echo_registry(), &entity)
+        .await
+        .expect("iteration must succeed");
+    assert_eq!(result.tool_call_count, 1);
+    assert!(result.should_continue, "no attempt_completion means continue");
+    let messages = entity.conversation().read().await.messages().to_vec();
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[2].role, wf_types::message::MessageRole::Tool);
+    assert_eq!(messages[2].tool_call_id.as_deref(), Some("call-1"));
+}
+
+#[tokio::test]
+async fn blocking_attempt_completion_ends_the_loop() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![LlmToolCall {
+        id: "call-2".to_string(),
+        r#type: "function".to_string(),
+        function: LlmFunctionCall {
+            name: "attempt_completion".to_string(),
+            arguments: r#"{"result":"all done"}"#.to_string(),
+        },
+    }]));
+
+    let entity = running_entity("agent-block-done").await;
+    entity.conversation().write().await.add_message(user_message("finish"));
+
+    let result = blocking_call(mock, echo_registry(), &entity)
+        .await
+        .expect("iteration must succeed");
+    assert!(!result.should_continue);
+    assert_eq!(
+        result.completion_data,
+        Some(Value::String(r#"{"result":"all done"}"#.to_string()))
+    );
+}
+
+#[tokio::test]
+async fn blocking_llm_error_maps_to_agent_llm_error() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script_error(wf_llm::error::LlmError::ProviderError {
+        status: Some(500),
+        message: "provider down".to_string(),
+    });
+
+    let entity = running_entity("agent-block-err").await;
+    entity.conversation().write().await.add_message(user_message("hi"));
+
+    let err = blocking_call(mock, echo_registry(), &entity)
+        .await
+        .expect_err("llm failure must fail the iteration");
+    assert!(
+        matches!(err, crate::error::AgentError::LlmError(_)),
+        "unexpected error shape: {err}"
+    );
+}
+
+#[tokio::test]
+async fn blocking_iteration_advances_the_iteration_counter() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("answer"));
+
+    let entity = running_entity("agent-block-count").await;
+    let before = entity.state.read().await.current_iteration();
+
+    blocking_call(mock, echo_registry(), &entity)
+        .await
+        .expect("iteration must succeed");
+
+    let after = entity.state.read().await.current_iteration();
+    assert_eq!(after, before + 1);
+}
+
+#[tokio::test]
+async fn pre_call_interruption_settles_without_hitting_the_llm() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("never consumed"));
+
+    let entity = running_entity("agent-block-interrupt").await;
+    entity.interruption().pause().expect("pause");
+
+    let result = blocking_call(mock.clone(), echo_registry(), &entity)
+        .await
+        .expect("interrupted iteration is not an error");
+    assert!(!result.should_continue);
+    assert_eq!(mock.recorded_count(), 0, "the LLM must not be called");
 }

@@ -245,3 +245,112 @@ pub fn create_graph_registry() -> WorkflowGraphRegistry {
 pub fn create_execution_registry() -> WorkflowExecutionRegistry {
     ConcurrentRegistry::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn graph(start: &str) -> WorkflowGraphStructure {
+        serde_json::from_str(&format!(
+            r#"{{
+                "nodes": [{{ "id": "{start}", "node_type": "Script" }}],
+                "edges": [],
+                "adjacency_list": {{}},
+                "reverse_adjacency_list": {{}},
+                "end_node_ids": ["{start}"]
+            }}"#
+        ))
+        .expect("test graph must deserialize")
+    }
+
+    fn definition(name: &str) -> ScriptDefinition {
+        serde_json::from_str(&format!(
+            r#"{{ "name": "{name}", "content": "print(1)", "language": "lua" }}"#
+        ))
+        .expect("test script definition must deserialize")
+    }
+
+    #[test]
+    fn script_registry_round_trips_definitions() {
+        let registry = ScriptRegistry::new();
+        registry.register_script("s1", "lua", "return 1");
+        assert!(registry.get("s1").is_some());
+        let got = registry.get("s1").expect("s1 must exist");
+        assert_eq!(got.language.as_deref(), Some("lua"));
+        assert_eq!(got.content.as_deref(), Some("return 1"));
+        assert!(registry.get("missing").is_none());
+    }
+
+    #[test]
+    fn mutable_registry_rejects_duplicate_keys() {
+        let registry = ScriptRegistry::new();
+        registry
+            .register("dup".to_string(), Arc::new(definition("dup")))
+            .expect("first register must succeed");
+        assert!(matches!(
+            registry.register("dup".to_string(), Arc::new(definition("dup"))),
+            Err(wf_core::registry::RegistryError::AlreadyExists { .. })
+        ));
+    }
+
+    #[test]
+    fn mutable_registry_replace_unregister_and_clear() {
+        let registry = ScriptRegistry::new();
+        registry
+            .register("k".to_string(), Arc::new(definition("k")))
+            .expect("register");
+        let old = registry
+            .register_or_replace("k".to_string(), Arc::new(definition("k2")))
+            .expect("replace returns the old value");
+        assert_eq!(old.name, "k");
+        assert_eq!(registry.len(), 1);
+        assert!(registry.has("k"));
+
+        let removed = registry.unregister("k").expect("unregister returns value");
+        assert_eq!(removed.name, "k2");
+        assert!(registry.is_empty());
+        assert_eq!(registry.list().len(), 0);
+        registry.clear();
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn workflow_registry_stores_graphs_scripts_and_flows() {
+        let registry = WorkflowRegistry::new();
+        registry.register_graph("wf-1", graph("start"));
+        assert!(registry.lookup_graph("wf-1").is_some());
+        assert!(registry.lookup_graph("wf-2").is_none());
+
+        registry.register_script("sc-1", "lua", "return 2");
+        let script = registry.lookup_script("sc-1").expect("script");
+        assert_eq!(script.content.as_deref(), Some("return 2"));
+
+        registry.register_flow(ScriptFlow {
+            name: "flow-1".to_string(),
+            branches: vec![],
+        });
+        assert!(registry.lookup_flow("flow-1").is_some());
+        // Re-registering a flow replaces it (register_or_replace semantics).
+        registry.register_flow(ScriptFlow {
+            name: "flow-1".to_string(),
+            branches: vec![],
+        });
+        assert!(registry.lookup_flow("flow-1").is_some());
+    }
+
+    #[test]
+    fn global_registry_helpers_use_the_shared_instance() {
+        register_graph("global-wf", graph("n0"));
+        assert!(lookup_graph("global-wf").is_some());
+        register_script("global-sc", "lua", "return 3");
+        assert!(lookup_script("global-sc").is_some());
+        register_flow(ScriptFlow {
+            name: "global-flow".to_string(),
+            branches: vec![],
+        });
+        assert!(lookup_flow("global-flow").is_some());
+
+        // The free functions must land in the same process-wide registry.
+        assert!(WorkflowRegistry::global().lookup_graph("global-wf").is_some());
+    }
+}

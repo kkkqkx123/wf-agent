@@ -436,3 +436,196 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         self.completed_nodes.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(node_id: &str) -> NodeExecutionRecord {
+        NodeExecutionRecord {
+            node_id: node_id.to_string(),
+            node_name: node_id.to_string(),
+            node_type: "script".to_string(),
+            start_time: 1_000,
+            end_time: Some(1_500),
+            success: true,
+            error: None,
+            input: None,
+            result: Some(serde_json::json!({"ok": true})),
+            branch_id: None,
+        }
+    }
+
+    fn error_record(message: &str) -> ErrorRecord {
+        ErrorRecord::new("exec-1".to_string(), message.to_string(), None, None, None)
+    }
+
+    #[test]
+    fn start_sets_running_and_records_start_time() {
+        let mut state = WorkflowExecutionState::new();
+        assert_eq!(state.status(), ExecutionStatus::Created);
+        state.start().expect("start must succeed");
+        assert!(state.is_running());
+        assert!(state.start_time > 0);
+        assert!(!state.is_completed());
+        assert!(!state.is_failed());
+        assert!(!state.is_cancelled());
+        assert!(!state.is_paused());
+    }
+
+    #[test]
+    fn illegal_transitions_are_rejected() {
+        let mut state = WorkflowExecutionState::new();
+        // Created -> Completed is not in the transition table.
+        assert!(state.complete().is_err());
+        // Running -> Completed is legal, then terminal states never transition.
+        state.start().expect("start must succeed");
+        state.complete().expect("complete must succeed");
+        assert!(state.is_completed());
+        assert!(state.pause().is_err());
+        assert!(state.fail("late".to_string()).is_err());
+        assert!(state.cancel().is_err());
+        assert!(state.start().is_err());
+    }
+
+    #[test]
+    fn pause_resume_cycle_is_legal() {
+        let mut state = WorkflowExecutionState::new();
+        state.start().expect("start");
+        state.pause().expect("pause");
+        assert!(state.is_paused());
+        state.resume().expect("resume");
+        assert!(state.is_running());
+    }
+
+    #[test]
+    fn fail_and_timeout_record_error_and_end_time() {
+        let mut state = WorkflowExecutionState::new();
+        state.start().expect("start");
+        state.fail("boom".to_string()).expect("fail");
+        assert!(state.is_failed());
+        assert_eq!(state.error.as_deref(), Some("boom"));
+        assert!(state.end_time.is_some());
+
+        let mut state2 = WorkflowExecutionState::new();
+        state2.start().expect("start");
+        state2.timeout("too slow".to_string()).expect("timeout");
+        assert_eq!(state2.status, ExecutionStatus::Timeout);
+        assert_eq!(state2.error.as_deref(), Some("too slow"));
+    }
+
+    #[test]
+    fn running_to_running_is_idempotent_for_checkpoint_resume() {
+        let mut state = WorkflowExecutionState::new();
+        state.start().expect("start");
+        let first = state.start_time;
+        state.start().expect("re-start while running must succeed");
+        assert!(state.is_running());
+        assert_eq!(state.start_time, first, "start time must not be reset");
+    }
+
+    #[test]
+    fn node_execution_records_are_tracked_and_restorable() {
+        let mut state = WorkflowExecutionState::new();
+        state.mark_node_completed("n1".to_string());
+        state.record_node_execution(record("n1"));
+        assert_eq!(state.completed_nodes, &["n1".to_string()]);
+        assert_eq!(state.node_execution_history.len(), 1);
+
+        let mut restored = WorkflowExecutionState::new();
+        restored.restore_node_execution_history(vec![record("n1"), record("n2")]);
+        assert_eq!(restored.node_execution_history.len(), 2);
+        assert_eq!(restored.node_execution_history[1].node_id, "n2");
+    }
+
+    #[test]
+    fn error_records_are_appended() {
+        let mut state = WorkflowExecutionState::new();
+        state.add_error_record(error_record("first"));
+        state.add_error_record(error_record("second"));
+        assert_eq!(state.error_records.len(), 2);
+        assert_eq!(state.error_records[0].error, "first");
+    }
+
+    #[test]
+    fn interruption_statistics_are_derived_from_records() {
+        let mut state = WorkflowExecutionState::new();
+        // No records -> default (zeroed) statistics.
+        let empty = state.interruption_statistics();
+        assert_eq!(empty.total, 0);
+        assert_eq!(empty.recovery_rate, 0.0);
+
+        state.record_interruption(serde_json::json!({
+            "type": "pause", "duration_ms": 100, "recovered": true
+        }));
+        state.record_interruption(serde_json::json!({
+            "type": "error_suspend", "duration_ms": 300, "recovered": false
+        }));
+        state.record_event(serde_json::json!({"type": "custom"}));
+
+        let stats = state.interruption_statistics();
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.type_distribution.get("pause"), Some(&1));
+        assert_eq!(stats.type_distribution.get("error_suspend"), Some(&1));
+        assert_eq!(stats.avg_duration_ms, 200);
+        assert!((stats.recovery_rate - 0.5).abs() < f64::EPSILON);
+        assert_eq!(state.event_records.len(), 1);
+    }
+
+    #[test]
+    fn timeout_counter_increments() {
+        let mut state = WorkflowExecutionState::new();
+        assert_eq!(state.timeout_count, 0);
+        state.increment_timeout_count();
+        state.increment_timeout_count();
+        assert_eq!(state.timeout_count, 2);
+    }
+
+    #[tokio::test]
+    async fn snapshot_and_restore_round_trip_preserves_all_fields() {
+        let mut state = WorkflowExecutionState::new();
+        state.start().expect("start");
+        state.set_current_node(Some("node_a".to_string()));
+        state.mark_node_completed("node_a".to_string());
+        state.record_node_execution(record("node_a"));
+        state.add_error_record(error_record("e1"));
+        state.record_interruption(serde_json::json!({"type": "pause"}));
+        state.record_event(serde_json::json!({"kind": "event"}));
+        state.increment_timeout_count();
+
+        let snapshot = state.create_snapshot().await.expect("snapshot");
+        assert_eq!(snapshot.status, ExecutionStatus::Running);
+        assert_eq!(snapshot.current_node_id.as_deref(), Some("node_a"));
+        assert_eq!(snapshot.completed_nodes, vec!["node_a".to_string()]);
+        assert_eq!(snapshot.timeout_count, 1);
+
+        let mut restored = WorkflowExecutionState::new();
+        restored
+            .restore_from_snapshot(snapshot)
+            .await
+            .expect("restore");
+        assert_eq!(restored.status, ExecutionStatus::Running);
+        assert_eq!(restored.current_node_id(), Some("node_a"));
+        assert_eq!(restored.completed_nodes(), &["node_a".to_string()]);
+        assert_eq!(restored.node_execution_history().len(), 1);
+        assert_eq!(restored.error_records().len(), 1);
+        assert_eq!(restored.interruption_records().len(), 1);
+        assert_eq!(restored.event_records().len(), 1);
+        assert_eq!(restored.timeout_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_clears_progress_but_keeps_status() {
+        let mut state = WorkflowExecutionState::new();
+        state.start().expect("start");
+        state.mark_node_completed("n1".to_string());
+        state.fail("err".to_string()).expect("fail");
+        assert!(!state.is_empty());
+
+        state.cleanup().await.expect("cleanup");
+        assert!(state.is_empty());
+        assert_eq!(state.completed_nodes.len(), 0);
+        assert_eq!(state.error, None);
+        assert!(state.is_failed(), "cleanup must not reset the status");
+    }
+}

@@ -118,6 +118,17 @@ impl WorkflowCoordinator {
         if let Some(ref parent_id) = self.ctx.parent_execution_id {
             ctx = ctx.with_parent_execution(parent_id.clone());
         }
+        ctx = ctx.with_hierarchy(
+            self.ctx.ancestors.clone(),
+            self.entity
+                .as_ref()
+                .map(|e| e.get_hierarchy_depth())
+                .unwrap_or(self.ctx.depth),
+            self.entity
+                .as_ref()
+                .and_then(|e| e.get_root_execution_id())
+                .or_else(|| self.ctx.root_execution_id.clone()),
+        );
         ctx.event_bus = self.ctx.event_bus.clone();
         ctx.handler_registry = Some(self.handlers.clone());
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));

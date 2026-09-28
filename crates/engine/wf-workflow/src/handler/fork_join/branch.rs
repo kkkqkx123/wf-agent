@@ -43,6 +43,9 @@ pub struct BranchContext {
 /// environment shared by every branch of the fork.
 pub struct BranchRunContext {
     pub parent_execution_id: wf_types::Id,
+    pub parent_ancestors: Vec<wf_types::Id>,
+    pub parent_depth: u32,
+    pub parent_root: Option<wf_types::Id>,
     pub node_id: String,
     pub graph: Option<WorkflowGraphStructure>,
     pub join_node_id: Option<String>,
@@ -181,8 +184,13 @@ async fn run_branch_inner(
                         BranchResult::success(&path_id, ctx.branch_input)
                     } else {
                         match execute_branch(
-                            &branch_execution_id,
-                            &ctx.parent_execution_id,
+                            BranchHierarchy {
+                                execution_id: branch_execution_id.clone(),
+                                parent_execution_id: ctx.parent_execution_id.clone(),
+                                parent_ancestors: ctx.parent_ancestors.clone(),
+                                parent_depth: ctx.parent_depth,
+                                parent_root: ctx.parent_root.clone(),
+                            },
                             &path_id,
                             ctx.branch_input,
                             subgraph,
@@ -205,16 +213,30 @@ async fn run_branch_inner(
     result
 }
 
+/// Execution-hierarchy context inherited by a fork branch from its parent.
+struct BranchHierarchy {
+    execution_id: wf_types::Id,
+    parent_execution_id: wf_types::Id,
+    parent_ancestors: Vec<wf_types::Id>,
+    parent_depth: u32,
+    parent_root: Option<wf_types::Id>,
+}
+
 async fn execute_branch(
-    branch_execution_id: &wf_types::Id,
-    parent_execution_id: &wf_types::Id,
+    hierarchy: BranchHierarchy,
     branch_id: &str,
     input: Value,
     subgraph: WorkflowGraphStructure,
     branch_ctx: BranchContext,
     cancellation: Option<CancellationToken>,
 ) -> WorkflowResult<BranchResult> {
-    let execution_id = branch_execution_id.clone();
+    let BranchHierarchy {
+        execution_id,
+        parent_execution_id,
+        parent_ancestors,
+        parent_depth,
+        parent_root,
+    } = hierarchy;
     let workflow_id = wf_common::generate_id();
 
     let options = WorkflowExecutionOptions {
@@ -232,6 +254,11 @@ async fn execute_branch(
     let tool_registry = branch_ctx
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
+    let mut child_ancestors = parent_ancestors.to_vec();
+    if child_ancestors.last() != Some(&parent_execution_id) {
+        child_ancestors.push(parent_execution_id.clone());
+    }
+    let child_root = parent_root.unwrap_or_else(|| parent_execution_id.clone());
     let mut exec_ctx = ExecutorContext::new(
         execution_id.clone(),
         workflow_id.clone(),
@@ -239,7 +266,8 @@ async fn execute_branch(
         tool_registry,
         options,
     )
-    .with_parent_execution(parent_execution_id.clone());
+    .with_parent_execution(parent_execution_id.clone())
+    .with_hierarchy(child_ancestors.clone(), parent_depth + 1, Some(child_root));
     if let Some(ref regs) = branch_ctx.resource_registries {
         exec_ctx = exec_ctx.with_resource_registries(regs.clone());
     }
@@ -263,7 +291,10 @@ async fn execute_branch(
 
     let branch_variables = exec_ctx.variables.clone();
 
-    let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
+    let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id)
+        .with_parent_execution_id(parent_execution_id.clone())
+        .with_ancestors(child_ancestors)
+        .with_hierarchy_depth(parent_depth + 1);
 
     let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, branch_ctx.handlers)?.with_entity(entity);

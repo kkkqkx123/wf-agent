@@ -61,6 +61,11 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
         tctx = tctx.with_cancellation(token.clone());
     }
     tctx = tctx.with_parent_timeouts(ctx.parent_node_timeout_ms, ctx.parent_max_execution_time_ms);
+    tctx = tctx.with_hierarchy(
+        ctx.ancestors.clone(),
+        ctx.depth,
+        ctx.root_execution_id.clone(),
+    );
     Ok(tctx)
 }
 

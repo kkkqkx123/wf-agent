@@ -995,9 +995,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         if let Some(manager) = &self.file_checkpoint_manager {
             if let Err(err) = manager.restore_latest(&entity.execution_id) {
                 tracing::warn!(
-                    "file checkpoint restore failed for entity {}: {}",
-                    entity.execution_id,
-                    err
+                    checkpoint_id = %checkpoint_id,
+                    entity_id = %entity.execution_id,
+                    error = %err,
+                    "file checkpoint restore failed for state checkpoint; state restore still stands"
                 );
             }
         }
@@ -1115,6 +1116,22 @@ impl WorkflowCheckpointCoordinator {
         crate::coordinator::base::merge_description_back(
             &self.state_manager,
             checkpoint_id,
+            "workflow_execution",
+            entity_id,
+            description,
+        )
+        .await
+    }
+
+    pub async fn reuse_duplicate(
+        &self,
+        latest: &CheckpointStorageMetadata,
+        entity_id: &str,
+        description: Option<&str>,
+    ) -> String {
+        crate::coordinator::base::reuse_duplicate_checkpoint(
+            &self.state_manager,
+            latest,
             "workflow_execution",
             entity_id,
             description,

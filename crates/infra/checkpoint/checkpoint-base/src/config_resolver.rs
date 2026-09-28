@@ -16,10 +16,11 @@ pub enum CheckpointConfigSource {
 }
 
 impl CheckpointConfigSource {
-    /// Layered-resolution precedence: lower value is applied first and is
-    /// overridden by later layers (runtime overrides workflow, etc.).
-    /// Named `precedence`, not `priority`, so the override-order rank is not
-    /// confused with the numeric `priority` ordering fields.
+    /// Layered-resolution precedence: lower value means higher precedence and
+    /// wins on first match (runtime wins over workflow, etc.). Trigger lists
+    /// use first non-empty wins; content, retention and error handling fill
+    /// gaps from lower layers. Named `precedence`, not `priority`, so the
+    /// match-order rank is not confused with numeric `priority` fields.
     pub fn precedence(&self) -> u8 {
         match self {
             Self::Runtime => 0,

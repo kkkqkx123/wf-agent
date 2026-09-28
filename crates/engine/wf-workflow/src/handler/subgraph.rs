@@ -105,13 +105,23 @@ pub(crate) async fn execute_subgraph(
     };
 
     // Subgraphs are independent workflow entities with their own
-    // execution_id, and thus their own variable store.
+    // execution_id, and thus their own variable store. The ancestor chain
+    // extends the parent chain with the parent id so deep nesting keeps
+    // full ancestry across checkpoint restore.
     let execution_id = wf_common::generate_id();
     let sub_workflow_id = wf_common::generate_id();
+    let mut child_ancestors = ctx.ancestors.clone();
+    if child_ancestors.last() != Some(&ctx.execution_id) {
+        child_ancestors.push(ctx.execution_id.clone());
+    }
+    let child_root = ctx
+        .root_execution_id
+        .clone()
+        .unwrap_or_else(|| ctx.execution_id.clone());
 
     let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
         .with_parent_execution_id(ctx.execution_id.clone())
-        .with_ancestors(vec![ctx.execution_id.clone()])
+        .with_ancestors(child_ancestors.clone())
         .with_hierarchy_depth(ctx.depth + 1);
     // Capture the child's cancellation signal before the entity moves into
     // the coordinator.
@@ -137,7 +147,8 @@ pub(crate) async fn execute_subgraph(
         tool_registry,
         options,
     )
-    .with_parent_execution(ctx.execution_id.clone());
+    .with_parent_execution(ctx.execution_id.clone())
+    .with_hierarchy(child_ancestors, ctx.depth + 1, Some(child_root));
     let exec_ctx = match &ctx.metrics {
         Some(metrics) => exec_ctx.with_metrics(metrics.clone()),
         None => exec_ctx,

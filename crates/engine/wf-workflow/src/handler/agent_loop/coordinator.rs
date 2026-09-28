@@ -20,7 +20,8 @@ pub(crate) fn build_coordinator(
         .tool_registry
         .clone()
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
-    let mut coordinator = AgentLoopCoordinator::new(gateway, tool_registry);
+    let mut coordinator = AgentLoopCoordinator::new(gateway, tool_registry)
+        .with_parent_execution_id(Some(ctx.execution_id.clone()));
     if let Some(ref bus) = ctx.event_bus {
         coordinator = coordinator.with_event_bus(bus.clone());
     }

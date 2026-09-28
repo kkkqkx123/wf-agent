@@ -131,6 +131,39 @@ where
         })
 }
 
+/// Shared duplicate-gate reuse: when progress coordinates compare equal the
+/// caller reuses the latest row instead of persisting a duplicate. A changed
+/// description merges back into the latest row; an unchanged or absent
+/// description keeps the latest id. Merge failures fall back to the latest id
+/// so a metadata write never blocks checkpointing.
+pub async fn reuse_duplicate_checkpoint<M>(
+    manager: &M,
+    latest: &CheckpointStorageMetadata,
+    entity_type: &str,
+    entity_id: &str,
+    description: Option<&str>,
+) -> String
+where
+    M: CheckpointStateManager,
+    M::Checkpoint: CheckpointBlob,
+{
+    if let Some(text) = description {
+        let current = latest
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        if current != Some(text) {
+            if let Ok(merged) =
+                merge_description_back(manager, &latest.id, entity_type, entity_id, text).await
+            {
+                return merged.id;
+            }
+        }
+    }
+    latest.id.clone()
+}
+
 /// Blob surface the shared description merge needs: mutable metadata map.
 /// Both checkpoint types share the same core shape, so one blanket
 /// implementation covers them.

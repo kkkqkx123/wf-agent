@@ -216,35 +216,21 @@ impl AgentCheckpointIntegration {
                 &current.as_fields(),
                 PROGRESS_COORD_KEYS,
             ) {
-                if let Some(ref text) = description {
-                    let current = latest
-                        .custom_fields
-                        .as_ref()
-                        .and_then(|fields| fields.get("description"))
-                        .and_then(|v| v.as_str());
-                    if current != Some(text.as_str()) {
-                        if let Ok(merged) = self
-                            .inner
-                            .merge_description_back(&latest.id, entity.id().as_str(), text)
-                            .await
-                        {
-                            tracing::debug!(
-                                entity_id = %entity.id(),
-                                checkpoint_id = %merged.id,
-                                trigger = ?trigger,
-                                "duplicate checkpoint merged back into latest, no new row persisted"
-                            );
-                            return Ok(merged.id);
-                        }
-                    }
-                }
+                let reused = self
+                    .inner
+                    .reuse_duplicate(
+                        &latest,
+                        entity.id().as_str(),
+                        description.as_deref(),
+                    )
+                    .await;
                 tracing::debug!(
                     entity_id = %entity.id(),
-                    checkpoint_id = %latest.id,
+                    checkpoint_id = %reused,
                     trigger = ?trigger,
                     "duplicate checkpoint merged back into latest, no new row persisted"
                 );
-                return Ok(latest.id);
+                return Ok(reused);
             }
         }
         let snapshot = self.build_snapshot(entity).await;
@@ -559,7 +545,47 @@ impl AgentCheckpointIntegration {
         }
     }
 
+    async fn entity_hierarchy(
+        entity: &AgentLoopEntity,
+    ) -> Option<wf_types::execution::ExecutionHierarchy> {
+        use wf_execution_shared::types::execution_entity::ExecutionEntity;
+        let children = entity.child_execution_ids().read().await.clone();
+        let parent = entity.parent_execution_id().cloned();
+        if parent.is_none() && children.is_empty() {
+            return None;
+        }
+        let ancestors = entity.ancestors();
+        Some(wf_types::execution::ExecutionHierarchy {
+            workflow_id: entity.definition_id().clone(),
+            execution_id: entity.id().clone(),
+            parent_execution_id: parent,
+            depth: entity.get_hierarchy_depth(),
+            root_execution_id: entity.get_root_execution_id(),
+            ancestors: if ancestors.is_empty() {
+                None
+            } else {
+                Some(ancestors.to_vec())
+            },
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(
+                    children
+                        .into_iter()
+                        .map(|child_id| wf_types::execution::ChildExecutionReference {
+                            child_type: wf_types::execution::ExecutionType::AgentLoop,
+                            child_id,
+                            created_at: wf_common::now(),
+                            fork_path_id: None,
+                        })
+                        .collect(),
+                )
+            },
+        })
+    }
+
     async fn build_snapshot(&self, entity: &AgentLoopEntity) -> AgentStateSnapshot {
+        let hierarchy = Self::entity_hierarchy(entity).await;
         let state = entity.state.read().await;
         let session = entity.conversation().read().await.snapshot_state();
         let (messages, conversation_view, seq_start, seq_end, next_seq, ledger, tracker) = {
@@ -691,7 +717,7 @@ impl AgentCheckpointIntegration {
                 }
             },
             trigger_state: None,
-            hierarchy: None,
+            hierarchy,
             messages: None,
             tool_discovery_state: serde_json::to_value(state.tool_discovery()).ok(),
             permanently_failed_tools: {

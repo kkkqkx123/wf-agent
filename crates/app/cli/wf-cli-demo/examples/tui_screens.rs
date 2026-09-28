@@ -225,6 +225,8 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Settings => "Settings",
         ScreenKind::Dashboard => "Dashboard",
         ScreenKind::Help => "Help",
+        ScreenKind::AgentLoops => "Agent Loops",
+        ScreenKind::Insights => "Insights",
     }
 }
 
@@ -238,6 +240,8 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Settings => Color::White,
         ScreenKind::Dashboard => Color::Cyan,
         ScreenKind::Help => Color::DarkGray,
+        ScreenKind::AgentLoops => Color::LightGreen,
+        ScreenKind::Insights => Color::LightBlue,
     }
 }
 
@@ -350,6 +354,7 @@ impl DemoState {
             ScreenKind::Search => synthetic_search_results(),
             ScreenKind::Settings => synthetic_settings(),
             ScreenKind::Help => ScreenData::None,
+            ScreenKind::AgentLoops | ScreenKind::Insights => ScreenData::None,
         };
         self.screen_selected = 0;
     }

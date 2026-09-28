@@ -57,6 +57,11 @@ pub struct TriggerContext {
     /// a triggered sub-workflow falls back to it when no explicit timeout is
     /// declared on the action.
     pub parent_max_execution_time_ms: Option<u64>,
+    /// Hierarchy position of the owning execution, carried so triggered
+    /// sub-workflows resolve full ancestry without the parent entity handle.
+    pub ancestors: Vec<Id>,
+    pub depth: u32,
+    pub root_execution_id: Option<Id>,
 }
 
 impl TriggerContext {
@@ -78,6 +83,9 @@ impl TriggerContext {
             session_cache: None,
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
+            ancestors: Vec::new(),
+            depth: 0,
+            root_execution_id: None,
         }
     }
 
@@ -153,6 +161,13 @@ impl TriggerContext {
     ) -> Self {
         self.parent_node_timeout_ms = node_timeout_ms;
         self.parent_max_execution_time_ms = max_execution_time_ms;
+        self
+    }
+
+    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
+        self.ancestors = ancestors;
+        self.depth = depth;
+        self.root_execution_id = root;
         self
     }
 }

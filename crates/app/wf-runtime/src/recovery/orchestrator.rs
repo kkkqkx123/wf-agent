@@ -50,7 +50,9 @@ impl RecoveryOrchestrator {
                 result.skipped.push(skip_item(execution));
             }
             for execution in &incomplete_agents {
-                result.skipped.push(skip_agent_item(execution));
+                result
+                    .skipped
+                    .push(skip_agent_item_with_lookup(ctx, execution).await);
             }
             return Ok(result);
         };
@@ -83,7 +85,7 @@ impl RecoveryOrchestrator {
         }
 
         for execution in &incomplete_agents {
-            let item = skip_agent_item(execution);
+            let item = skip_agent_item_with_lookup(ctx, execution).await;
             warn!(
                 execution_id = %item.execution_id,
                 note = %item.note.as_deref().unwrap_or("unknown"),
@@ -116,6 +118,27 @@ fn skip_agent_item(execution: &wf_types::AgentExecution) -> RecoveryItem {
             "agent executions are not auto-recovered; resume explicitly from checkpoint with the loop config"
                 .to_string(),
         ),
+    }
+}
+
+async fn skip_agent_item_with_lookup(
+    ctx: &wf_api::ApiContext,
+    execution: &wf_types::AgentExecution,
+) -> RecoveryItem {
+    use wf_checkpoint::state::{AgentCheckpointStateManager, CheckpointStateManager};
+    let manager = AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    match manager.get_latest(execution.id.as_str()).await {
+        Ok(Some(latest)) => RecoveryItem {
+            execution_id: execution.id.to_string(),
+            status: format!("{:?}", execution.status),
+            current_node_id: None,
+            recovered: false,
+            note: Some(format!(
+                "agent executions are not auto-recovered; resume explicitly from checkpoint {} with the loop config",
+                latest.id
+            )),
+        },
+        _ => skip_agent_item(execution),
     }
 }
 

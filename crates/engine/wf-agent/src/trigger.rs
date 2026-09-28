@@ -151,10 +151,19 @@ impl TriggeredAgentExecutionManager {
         &self,
         config: TriggeredAgentExecutionConfig,
         child_config: AgentLoopConfig,
-        child_input: AgentLoopInput,
+        mut child_input: AgentLoopInput,
     ) -> AgentResult<TriggeredTaskSubmission> {
         let task_id = wf_common::generate_id();
         let parent = config.parent.clone();
+
+        // Link the real child execution to its parent: the executor builds
+        // a fresh entity from this input, so the parent association must
+        // travel in the input context. Without it the real child runs as
+        // an orphan while only the shadow entity below carries the lineage.
+        child_input.context.insert(
+            "parent_execution_id".to_string(),
+            Value::String(parent.id().to_string()),
+        );
 
         // Register the child on the parent entity. The child entity id is a
         // newly generated execution id (not the agent definition id): reusing
@@ -225,17 +234,23 @@ impl TriggeredAgentExecutionManager {
                 )
                 .await;
             // SUBAGENT_STOP: child finished (success or failure); mounted on
-            // the parent entity's hook configuration.
+            // the parent entity's hook configuration. The reported id is
+            // the real child execution id when the run produced one,
+            // falling back to the shadow placeholder only on early failure.
             let mut stop_data = HashMap::new();
+            let report_child_id = match &result {
+                Ok(output) => output.agent_loop_id.to_string(),
+                Err(_) => child_execution_id.clone(),
+            };
             stop_data.insert(
                 "child_execution_id".to_string(),
-                Value::String(child_execution_id),
+                Value::String(report_child_id),
             );
             stop_data.insert("agent_id".to_string(), Value::String(child_agent_id));
             match &result {
-                Ok(value) => {
+                Ok(output) => {
                     stop_data.insert("success".to_string(), Value::Bool(true));
-                    stop_data.insert("result".to_string(), value.clone());
+                    stop_data.insert("result".to_string(), output.result.clone());
                 }
                 Err(e) => {
                     stop_data.insert("success".to_string(), Value::Bool(false));
@@ -279,22 +294,29 @@ impl TriggeredAgentExecutionManager {
                                 event_bus.as_deref(),
                             )
                             .await;
-                            (true, None, Some(output.result))
+                            (
+                                true,
+                                None,
+                                Some(output.result.clone()),
+                                Some(output.agent_loop_id.to_string()),
+                            )
                         }
-                        Err(e) => (false, Some(e.to_string()), None),
+                        Err(e) => (false, Some(e.to_string()), None, None),
                     },
                     _ = parent_token.cancelled() => {
-                        (false, Some("parent aborted".to_string()), None)
+                        (false, Some("parent aborted".to_string()), None, None)
                     }
                 };
                 parent_clone.unregister_child(child_entity.id()).await;
                 running_tasks.remove(&task_id);
                 // SUBAGENT_STOP: background child finished (success,
-                // failure, or parent abort).
+                // failure, or parent abort). Prefer the real child id from
+                // the completed run; the shadow placeholder is only a
+                // fallback for early failure or abort.
                 let mut stop_data = HashMap::new();
                 stop_data.insert(
                     "child_execution_id".to_string(),
-                    Value::String(child_execution_id),
+                    Value::String(outcome.3.clone().unwrap_or(child_execution_id)),
                 );
                 stop_data.insert("agent_id".to_string(), Value::String(child_agent_id));
                 stop_data.insert("success".to_string(), Value::Bool(outcome.0));
@@ -320,7 +342,9 @@ impl TriggeredAgentExecutionManager {
 
     /// Run a child agent to completion, write its result back into the
     /// parent and unregister it. A child failure is reported back but does
-    /// not touch the parent's execution state.
+    /// not touch the parent's execution state. Returns the full child
+    /// output so callers report the real child execution id instead of
+    /// the shadow placeholder.
     async fn execute_child(
         &self,
         parent: Arc<AgentLoopEntity>,
@@ -328,7 +352,7 @@ impl TriggeredAgentExecutionManager {
         child_config: AgentLoopConfig,
         child_input: AgentLoopInput,
         delivery: ChildDelivery,
-    ) -> AgentResult<Value> {
+    ) -> AgentResult<wf_tools::callback::AgentLoopOutput> {
         let ChildDelivery {
             result_variable,
             timeout_ms,
@@ -372,7 +396,7 @@ impl TriggeredAgentExecutionManager {
         )
         .await;
         parent.unregister_child(child_entity.id()).await;
-        Ok(output.result)
+        Ok(output)
     }
 
     /// Number of background child executions currently in flight.

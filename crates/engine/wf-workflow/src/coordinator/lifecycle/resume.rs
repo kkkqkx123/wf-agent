@@ -28,19 +28,11 @@ impl WorkflowLifecycleCoordinator {
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         hooks: Vec<HookDefinition>,
     ) -> WorkflowResult<(WorkflowCoordinator, String)> {
-        use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
-        use wf_checkpoint::coordinator::CheckpointCoordinator;
         use wf_checkpoint::state::CheckpointStateManager;
         use wf_checkpoint::state::WorkflowCheckpointStateManager;
 
         let state_manager = WorkflowCheckpointStateManager::new(self.store.clone());
-        let mut cp_coordinator = WorkflowCheckpointCoordinator::new(state_manager);
-        if let Some(ref manager) = self.file_checkpoint_manager {
-            cp_coordinator = cp_coordinator.with_file_checkpoint_manager(manager.clone());
-        }
-
-        let metadata = cp_coordinator
-            .state_manager()
+        let metadata = state_manager
             .get_latest(execution_id)
             .await
             .map_err(|e| {
@@ -55,8 +47,42 @@ impl WorkflowLifecycleCoordinator {
                     execution_id
                 ))
             })?;
+        self.build_resumed_coordinator_from_checkpoint(
+            &metadata.id,
+            workflow_id,
+            graph,
+            handlers,
+            tool_registry,
+            hooks,
+        )
+        .await
+    }
 
-        let restored = cp_coordinator.restore(&metadata.id).await.map_err(|e| {
+    /// Rebuild a coordinator from an explicit checkpoint id, so callers can
+    /// resume a historical point rather than only the newest row. Terminal
+    /// snapshots stay rejected; continuation otherwise mirrors the newest
+    /// path, including budget inheritance and error-suspend rebuild.
+    pub(super) async fn build_resumed_coordinator_from_checkpoint(
+        &self,
+        checkpoint_id: &str,
+        workflow_id: wf_types::Id,
+        graph: WorkflowGraphStructure,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
+        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+        hooks: Vec<HookDefinition>,
+    ) -> WorkflowResult<(WorkflowCoordinator, String)> {
+        use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+
+        let mut cp_coordinator =
+            WorkflowCheckpointCoordinator::new(wf_checkpoint::state::WorkflowCheckpointStateManager::new(
+                self.store.clone(),
+            ));
+        if let Some(ref manager) = self.file_checkpoint_manager {
+            cp_coordinator = cp_coordinator.with_file_checkpoint_manager(manager.clone());
+        }
+
+        let restored = cp_coordinator.restore(checkpoint_id).await.map_err(|e| {
             crate::error::WorkflowError::CoordinatorError(format!(
                 "checkpoint restore failed: {}",
                 e
@@ -69,7 +95,7 @@ impl WorkflowLifecycleCoordinator {
             let status = PersistedStatus::from_str(&snapshot.status).map_err(|e| {
                 crate::error::WorkflowError::CoordinatorError(format!(
                     "checkpoint {} carries unrecognized status '{}': {}",
-                    metadata.id, snapshot.status, e
+                    checkpoint_id, snapshot.status, e
                 ))
             })?;
             use PersistedStatus as S;
@@ -80,7 +106,7 @@ impl WorkflowLifecycleCoordinator {
                 return Err(crate::error::WorkflowError::StateTransitionError(format!(
                     "checkpoint {} records terminal status '{}': \
                      resume only continues a live run, start a new execution to re-drive it",
-                    metadata.id, snapshot.status
+                    checkpoint_id, snapshot.status
                 )));
             }
         }
@@ -207,6 +233,39 @@ impl WorkflowLifecycleCoordinator {
         let (mut coordinator, snapshot_execution_id) = self
             .build_resumed_coordinator(
                 execution_id,
+                workflow_id,
+                graph,
+                handlers,
+                tool_registry,
+                hooks,
+            )
+            .await?;
+
+        let result = coordinator.execute().await;
+        match result {
+            Ok(output) => Ok(WorkflowOutput {
+                execution_id: wf_types::Id::from(snapshot_execution_id),
+                result: output,
+            }),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Resume from an explicit checkpoint id, so historical points can branch
+    /// without first becoming the newest row. Shares the newest-path rebuild
+    /// and terminal rejection; completed nodes still skip on continue.
+    pub async fn resume_workflow_from_checkpoint(
+        &self,
+        checkpoint_id: &str,
+        workflow_id: wf_types::Id,
+        graph: WorkflowGraphStructure,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
+        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+        hooks: Vec<HookDefinition>,
+    ) -> WorkflowResult<WorkflowOutput> {
+        let (mut coordinator, snapshot_execution_id) = self
+            .build_resumed_coordinator_from_checkpoint(
+                checkpoint_id,
                 workflow_id,
                 graph,
                 handlers,

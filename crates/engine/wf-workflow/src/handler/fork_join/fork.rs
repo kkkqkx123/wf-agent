@@ -107,6 +107,9 @@ struct ForkRuntime {
     fork_registry: Option<Arc<wf_execution_shared::fork::ForkRegistry>>,
     branch_ctx: BranchContext,
     execution_id: wf_types::Id,
+    parent_ancestors: Vec<wf_types::Id>,
+    parent_depth: u32,
+    parent_root: Option<wf_types::Id>,
     node_id: String,
 }
 
@@ -114,6 +117,9 @@ impl ForkRuntime {
     fn branch_run_context(&self, child_execution_timeout: u64) -> BranchRunContext {
         BranchRunContext {
             parent_execution_id: self.execution_id.clone(),
+            parent_ancestors: self.parent_ancestors.clone(),
+            parent_depth: self.parent_depth,
+            parent_root: self.parent_root.clone(),
             node_id: self.node_id.clone(),
             graph: self.graph.clone(),
             join_node_id: self.join_node_id.clone(),
@@ -346,6 +352,9 @@ impl ForkHandler {
                 fork_registry: registry,
             },
             execution_id: execution_id.clone(),
+            parent_ancestors: ctx.ancestors.clone(),
+            parent_depth: ctx.depth,
+            parent_root: ctx.root_execution_id.clone(),
             node_id: node_id.clone(),
         };
 

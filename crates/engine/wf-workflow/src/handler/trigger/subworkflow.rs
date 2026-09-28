@@ -28,6 +28,7 @@ use wf_types::workflow_execution::WorkflowExecutionOptions;
 /// Everything needed to run a triggered sub-workflow.
 pub(crate) struct TriggeredSubworkflowRun {
     pub triggered_workflow_id: String,
+    pub execution_id: wf_types::Id,
     pub graph: wf_types::workflow_execution::WorkflowGraphStructure,
     pub handlers: Arc<HashMap<StaticNodeType, Box<dyn crate::handler::NodeHandler>>>,
     pub tool_registry: Arc<ToolRegistry>,
@@ -88,6 +89,7 @@ pub(crate) async fn handle_execute_subworkflow(
         let execution_id = wf_common::generate_id();
         let run = TriggeredSubworkflowRun {
             triggered_workflow_id: triggered_workflow_id.clone(),
+            execution_id: execution_id.clone(),
             graph,
             handlers,
             tool_registry,
@@ -135,6 +137,7 @@ pub(crate) async fn handle_execute_subworkflow(
     let execution_id = wf_common::generate_id();
     let run = TriggeredSubworkflowRun {
         triggered_workflow_id: triggered_workflow_id.clone(),
+        execution_id: execution_id.clone(),
         graph,
         handlers,
         tool_registry,
@@ -208,9 +211,20 @@ async fn run_triggered_subworkflow(
         loop_max_iterations_cap: None,
     };
 
-    let execution_id = wf_common::generate_id();
+    let execution_id = run.execution_id.clone();
     let sub_workflow_id = wf_common::generate_id();
-    let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
+    let mut child_ancestors = ctx.ancestors.clone();
+    if child_ancestors.last() != Some(&ctx.execution_id) {
+        child_ancestors.push(ctx.execution_id.clone());
+    }
+    let child_root = ctx
+        .root_execution_id
+        .clone()
+        .unwrap_or_else(|| ctx.execution_id.clone());
+    let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
+        .with_parent_execution_id(ctx.execution_id.clone())
+        .with_ancestors(child_ancestors.clone())
+        .with_hierarchy_depth(ctx.depth + 1);
     let mut exec_ctx = ExecutorContext::new(
         execution_id,
         sub_workflow_id,
@@ -218,7 +232,8 @@ async fn run_triggered_subworkflow(
         run.tool_registry,
         options,
     )
-    .with_parent_execution(ctx.execution_id.clone());
+    .with_parent_execution(ctx.execution_id.clone())
+    .with_hierarchy(child_ancestors, ctx.depth + 1, Some(child_root));
     if let Some(metrics) = &ctx.metrics {
         exec_ctx = exec_ctx.with_metrics(metrics.clone());
     }

@@ -27,6 +27,14 @@ pub struct ExecutorContext {
     pub variables: Arc<DashMap<String, Value>>,
     pub options: WorkflowExecutionOptions,
     pub parent_execution_id: Option<Id>,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Carried so nested executions resolve full ancestry without access
+    /// to the parent entity handle.
+    pub ancestors: Vec<Id>,
+    /// Nesting depth of the owning execution (0 = root).
+    pub depth: u32,
+    /// Root execution id of the hierarchy (own id for a root run).
+    pub root_execution_id: Option<Id>,
     pub metrics: Option<Arc<MetricsRegistry>>,
     /// Execution-scoped token usage tracker shared by LLM nodes.
     pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
@@ -73,6 +81,9 @@ impl ExecutorContext {
             variables: Arc::new(DashMap::new()),
             options,
             parent_execution_id: None,
+            ancestors: Vec::new(),
+            depth: 0,
+            root_execution_id: None,
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
             hook_handler_registry: None,
@@ -97,6 +108,18 @@ impl ExecutorContext {
 
     pub fn with_parent_execution(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self
+    }
+
+    pub fn with_hierarchy(
+        mut self,
+        ancestors: Vec<Id>,
+        depth: u32,
+        root: Option<Id>,
+    ) -> Self {
+        self.ancestors = ancestors;
+        self.depth = depth;
+        self.root_execution_id = root;
         self
     }
 
@@ -187,6 +210,12 @@ pub struct NodeExecutionContext {
     pub variables: Arc<DashMap<String, Value>>,
     pub parent_execution_id: Option<Id>,
     pub depth: u32,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Populated from the owning entity so nested executions resolve full
+    /// ancestry without access to the parent entity handle.
+    pub ancestors: Vec<Id>,
+    /// Root execution id of the hierarchy (own id for a root run).
+    pub root_execution_id: Option<Id>,
     pub event_bus: Option<Arc<EventBus>>,
     /// Handler registry inherited from the parent execution (strongly
     /// typed; `None` only when no registry was wired, which nested
@@ -278,6 +307,8 @@ impl NodeExecutionContext {
             variables,
             parent_execution_id: None,
             depth: 0,
+            ancestors: Vec::new(),
+            root_execution_id: None,
             event_bus: None,
             handler_registry: None,
             graph_structure: None,
@@ -316,6 +347,18 @@ impl NodeExecutionContext {
 
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
+        self
+    }
+
+    pub fn with_hierarchy(
+        mut self,
+        ancestors: Vec<Id>,
+        depth: u32,
+        root: Option<Id>,
+    ) -> Self {
+        self.ancestors = ancestors;
+        self.depth = depth;
+        self.root_execution_id = root;
         self
     }
 

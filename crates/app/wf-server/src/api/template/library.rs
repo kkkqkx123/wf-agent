@@ -5,7 +5,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -562,7 +562,7 @@ pub(crate) async fn handle_export_agent_template(
     Path(path): Path<IdPath>,
     Query(query): Query<LibraryExportQuery>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::get_agent_template(&state.ctx, &path.id).await {
+    match wf_api::template::template_library::get_agent_template(&state.ctx, &path.id) {
         Ok(template) => {
             if query.download.unwrap_or(false) {
                 match serde_json::to_string_pretty(&template) {

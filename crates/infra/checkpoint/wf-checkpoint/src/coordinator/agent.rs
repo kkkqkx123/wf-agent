@@ -1000,9 +1000,10 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         if let Some(manager) = &self.file_checkpoint_manager {
             if let Err(err) = manager.restore_latest(&entity.agent_loop_id) {
                 tracing::warn!(
-                    "file checkpoint restore failed for entity {}: {}",
-                    entity.agent_loop_id,
-                    err
+                    checkpoint_id = %checkpoint_id,
+                    entity_id = %entity.agent_loop_id,
+                    error = %err,
+                    "file checkpoint restore failed for state checkpoint; state restore still stands"
                 );
             }
         }
@@ -1138,6 +1139,22 @@ impl AgentCheckpointCoordinator {
         crate::coordinator::base::merge_description_back(
             &self.state_manager,
             checkpoint_id,
+            "agent_loop",
+            entity_id,
+            description,
+        )
+        .await
+    }
+
+    pub async fn reuse_duplicate(
+        &self,
+        latest: &CheckpointStorageMetadata,
+        entity_id: &str,
+        description: Option<&str>,
+    ) -> String {
+        crate::coordinator::base::reuse_duplicate_checkpoint(
+            &self.state_manager,
+            latest,
             "agent_loop",
             entity_id,
             description,

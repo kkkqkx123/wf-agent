@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use wf_core::EventBus;
@@ -183,14 +184,40 @@ fn spawn_non_blocking(
             .to_string();
         let run_ctx = runtime.branch_run_context(child_execution_timeout);
         let log_id = path_id.clone();
+        // Settle a panicking branch into the registry so a JOIN waiting on
+        // this fork sees a typed failure instead of a transport timeout.
+        let panic_registry = runtime.fork_registry.clone();
         let handle = tokio::spawn(async move {
-            let result = run_branch(idx, path, branch_execution_id, run_ctx).await;
+            // Panic isolation for the fire-and-forget path: a panicking
+            // branch must still settle as a failure instead of staying
+            // Running in the registry. Mirrors the joined-path guard in
+            // `run_parallel`.
+            let outcome =
+                std::panic::AssertUnwindSafe(async { run_branch(idx, path, branch_execution_id, run_ctx).await })
+                    .catch_unwind()
+                    .await;
+            let result = match outcome {
+                Ok(result) => result,
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "unknown panic payload".to_string());
+                    tracing::error!(branch = %log_id, "fork branch panicked");
+                    BranchResult::failure(&log_id, format!("fork branch panicked: {message}"))
+                }
+            };
             if !result.success {
                 tracing::warn!(
                     branch = %log_id,
                     error = ?result.failure,
                     "fire-and-forget fork branch ended with failure"
                 );
+            }
+            if let Some(registry) = &panic_registry {
+                let error = result.failure.as_ref().map(|f| f.detail.clone());
+                registry.settle(&log_id, result.success, result.output.clone(), error, None);
             }
         });
         if let Some(registry) = &runtime.fork_registry {

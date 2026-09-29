@@ -501,28 +501,37 @@
 				</Card>
 
 				<Card title="Providers">
-					<ul class="divide-y divide-border">
-						{#each providers as provider (provider.id)}
-							<li
-								class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
-							>
-								<div class="min-w-0">
-									<p class="truncate text-body">{provider.name}</p>
-									<p
-										class="truncate font-mono text-micro text-muted-foreground"
-									>
-										{provider.baseUrl}
-									</p>
-								</div>
-								<div class="flex shrink-0 items-center gap-2">
-									<span class="text-caption text-muted-foreground"
-										>{provider.models} models</span
-									>
-									<StatusBadge status={provider.status} size="sm" />
-								</div>
-							</li>
-						{/each}
-					</ul>
+					{#if providers.length === 0}
+						<EmptyState
+							icon="database"
+							title="No providers configured"
+							description="Providers appear here once a model backend is connected."
+							class="py-6"
+						/>
+					{:else}
+						<ul class="divide-y divide-border">
+							{#each providers as provider (provider.id)}
+								<li
+									class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
+								>
+									<div class="min-w-0">
+										<p class="truncate text-body">{provider.name}</p>
+										<p
+											class="truncate font-mono text-micro text-muted-foreground"
+										>
+											{provider.baseUrl}
+										</p>
+									</div>
+									<div class="flex shrink-0 items-center gap-2">
+										<span class="text-caption text-muted-foreground"
+											>{provider.models} models</span
+										>
+										<StatusBadge status={provider.status} size="sm" />
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</Card>
 			</div>
 		{:else if tab === 'tools'}

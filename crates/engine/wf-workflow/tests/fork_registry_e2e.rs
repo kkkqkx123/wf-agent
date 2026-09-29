@@ -47,6 +47,15 @@ impl NodeHandler for BranchScript {
             .and_then(|c| c.get("hang"))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let panic_requested = ctx
+            .node_config
+            .as_ref()
+            .and_then(|c| c.get("panic"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if panic_requested {
+            panic!("branch exploded");
+        }
         let delay = ctx
             .node_config
             .as_ref()
@@ -450,6 +459,68 @@ async fn branches_run_with_independent_execution_ids() {
     assert_eq!(
         parents[0], parents[1],
         "both branches share the same parent (fork) execution id"
+    );
+}
+
+/// A non-blocking branch that panics must settle in the fork registry as a
+/// failed branch (not stay Running), so a JOIN waiting on it completes with
+/// the failure visible instead of timing out with a transport error.
+#[tokio::test]
+async fn non_blocking_panicking_branch_settles_as_failure() {
+    let g = graph(
+        vec![
+            node("start", "START", serde_json::json!({})),
+            node(
+                "fork",
+                "FORK",
+                serde_json::json!({
+                    "fork_paths": [
+                        {"path_id": "p1", "child_node_id": "a"},
+                        {"path_id": "p2", "child_node_id": "boom"}
+                    ],
+                    "wait_for_completion": false
+                }),
+            ),
+            node(
+                "a",
+                "SCRIPT",
+                serde_json::json!({"name": "a", "script_name": "sA", "risk": "medium"}),
+            ),
+            node(
+                "boom",
+                "SCRIPT",
+                serde_json::json!({"name": "boom", "panic": true, "script_name": "sBoom", "risk": "medium"}),
+            ),
+            node(
+                "join",
+                "JOIN",
+                serde_json::json!({"fork_path_ids": ["p1", "p2"], "join_strategy": "wait_for_all", "timeout": 3000}),
+            ),
+            node("end", "END", serde_json::json!({})),
+        ],
+        vec![
+            edge("start", "fork"),
+            edge("fork", "a"),
+            edge("fork", "boom"),
+            edge("a", "join"),
+            edge("boom", "join"),
+            edge("join", "end"),
+        ],
+        "start",
+        vec!["end"],
+    );
+
+    let mut reg = HandlerRegistry::new();
+    reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));
+    reg.register(Box::new(BranchScript));
+    let result = run_workflow(g, reg.into_arc()).await;
+    // Without panic settlement the branch stays Running and the JOIN hits its
+    // timeout, failing the workflow. With settlement the JOIN observes the
+    // failed branch and completes.
+    let output = result.expect("settled panic branch must not time out the join");
+    assert!(
+        output.get("from").is_some(),
+        "join aggregated the surviving branch output"
     );
 }
 

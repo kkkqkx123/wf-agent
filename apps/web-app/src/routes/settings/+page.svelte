@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -7,6 +8,7 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import UnsavedChangesDialog from '$lib/components/domain/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
@@ -57,8 +59,35 @@
 
 	let pageSize = $derived(String(behavior.pageSize));
 
+	// Only the execution and notification sections persist server-side;
+	// appearance and workspace apply instantly in this browser.
+	const serverSection = $derived(
+		section === 'execution' || section === 'notifications',
+	);
+	// Server controls stay disabled until the backend document arrives.
+	const serverUnreachable = $derived(
+		!behavior.loaded && behavior.error !== null,
+	);
+
+	let unsavedOpen = $state(false);
+	let unsavedBusy = $state(false);
+	let pendingNavUrl = $state<string | null>(null);
+
 	onMount(() => {
 		void behavior.load();
+		const guardUnload = (event: BeforeUnloadEvent): void => {
+			if (behavior.dirty) event.preventDefault();
+		};
+		window.addEventListener('beforeunload', guardUnload);
+		return () => window.removeEventListener('beforeunload', guardUnload);
+	});
+
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload) return;
+		if (!behavior.dirty) return;
+		navigation.cancel();
+		pendingNavUrl = navigation.to?.url.toString() ?? null;
+		unsavedOpen = true;
 	});
 
 	async function saveBehavior(): Promise<void> {
@@ -78,6 +107,35 @@
 			toasts.success('Defaults restored');
 		}
 	}
+
+	function proceedPending(): void {
+		const target = pendingNavUrl;
+		pendingNavUrl = null;
+		if (target) void goto(target);
+	}
+
+	async function saveAndProceed(): Promise<void> {
+		unsavedBusy = true;
+		try {
+			await saveBehavior();
+			if (behavior.error) return;
+			unsavedOpen = false;
+			proceedPending();
+		} finally {
+			unsavedBusy = false;
+		}
+	}
+
+	async function discardAndProceed(): Promise<void> {
+		unsavedBusy = true;
+		try {
+			await behavior.load();
+			unsavedOpen = false;
+			proceedPending();
+		} finally {
+			unsavedBusy = false;
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -86,29 +144,35 @@
 		description="Appearance applies instantly and stays local. Execution and notification preferences are stored server-side and need Save."
 	>
 		{#snippet actions()}
-			{#if behavior.dirty}
-				<span
-					class="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
-					>Unsaved changes</span
+			{#if serverSection}
+				{#if behavior.dirty}
+					<span
+						class="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
+						>Unsaved changes</span
+					>
+				{/if}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={behavior.saving || serverUnreachable}
+					onclick={() => void restoreBehavior()}
 				>
+					<Icon name="history" size={13} />
+					Restore defaults
+				</Button>
+				<Button
+					size="sm"
+					disabled={behavior.saving || serverUnreachable}
+					onclick={() => void saveBehavior()}
+				>
+					<Icon name="check" size={13} />
+					{behavior.saving ? 'Saving…' : 'Save server preferences'}
+				</Button>
+			{:else}
+				<span class="text-caption text-muted-foreground">
+					Local preferences apply instantly.
+				</span>
 			{/if}
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={behavior.saving || (behavior.error !== null && !behavior.loaded)}
-				onclick={() => void restoreBehavior()}
-			>
-				<Icon name="history" size={13} />
-				Restore defaults
-			</Button>
-			<Button
-				size="sm"
-				disabled={behavior.saving || (behavior.error !== null && !behavior.loaded)}
-				onclick={() => void saveBehavior()}
-			>
-				<Icon name="check" size={13} />
-				{behavior.saving ? 'Saving…' : 'Save server preferences'}
-			</Button>
 		{/snippet}
 	</PageHeader>
 
@@ -214,6 +278,7 @@
 							options={PAGE_SIZE_OPTIONS}
 							placeholder="Page size"
 							class="w-40"
+							disabled={serverUnreachable}
 							onchange={(value) => {
 								behavior.pageSize = Number(value) || 50;
 							}}
@@ -223,6 +288,7 @@
 						<Switch
 							checked={behavior.autoRefresh}
 							label="Auto refresh lists"
+							disabled={serverUnreachable}
 							onchange={() => {
 								behavior.autoRefresh = !behavior.autoRefresh;
 							}}
@@ -231,6 +297,7 @@
 							checked={behavior.streamFollow}
 							label="Follow stream tail"
 							class="mt-2"
+							disabled={serverUnreachable}
 							onchange={() => {
 								behavior.streamFollow = !behavior.streamFollow;
 							}}
@@ -265,6 +332,7 @@
 						<Switch
 							checked={behavior.reduceMotion}
 							label="Always reduce motion"
+							disabled={serverUnreachable}
 							onchange={() => {
 								behavior.reduceMotion = !behavior.reduceMotion;
 							}}
@@ -315,3 +383,12 @@
 		</div>
 	</div>
 </div>
+
+<UnsavedChangesDialog
+	bind:open={unsavedOpen}
+	description="Server preferences have unsaved edits. Leaving discards the local changes."
+	saveLabel="Save & leave"
+	busy={unsavedBusy}
+	ondiscard={() => void discardAndProceed()}
+	onsave={() => void saveAndProceed()}
+/>

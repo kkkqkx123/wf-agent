@@ -14,6 +14,7 @@
 		size?: 'sm' | 'md';
 		placeholder?: string;
 		class?: string;
+		disabled?: boolean;
 		onchange?: (value: string) => void;
 	}
 
@@ -23,6 +24,7 @@
 		size = 'md',
 		placeholder = 'Select…',
 		class: className = '',
+		disabled = false,
 		onchange,
 	}: Props = $props();
 </script>
@@ -30,9 +32,10 @@
 <div class={cn('relative inline-flex items-center', className)}>
 	<select
 		bind:value
+		{disabled}
 		onchange={() => onchange?.(value)}
 		class={cn(
-			'w-full appearance-none rounded-md border border-input bg-card pl-2.5 pr-7 text-body text-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))]',
+			'w-full appearance-none rounded-md border border-input bg-card pl-2.5 pr-7 text-body text-foreground transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[hsl(var(--ring))] disabled:cursor-not-allowed disabled:opacity-60',
 			size === 'sm' ? 'h-7 text-small' : 'h-8.5',
 		)}
 	>

@@ -681,6 +681,16 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 }
 
 /**
+ * Draft payloads wrap the free-form definition in a `definition` envelope
+ * on some endpoints and return it bare on others; normalize to the
+ * definition record either way.
+ */
+function unwrapDraftDefinition(record: unknown): Record<string, unknown> {
+	if (!isRecord(record)) return {};
+	return isRecord(record.definition) ? record.definition : record;
+}
+
+/**
  * Read-only topology of a workflow draft. Drafts are free-form and may be
  * incomplete, so every field degrades to a placeholder instead of failing.
  */
@@ -693,11 +703,7 @@ export async function getWorkflowDraftTopology(
 		}),
 	);
 	const record = requireData(data, `Draft ${draftId} missing`);
-	const definition = isRecord(record)
-		? isRecord(record.definition)
-			? record.definition
-			: record
-		: {};
+	const definition = unwrapDraftDefinition(record);
 	return {
 		nodes: asNodeList(definition.nodes).map((node, index) => ({
 			id: textField(node, ['id', 'node_id'], `node-${index}`),

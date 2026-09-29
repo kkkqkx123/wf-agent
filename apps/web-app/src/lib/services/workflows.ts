@@ -237,27 +237,36 @@ export async function diffWorkflowVersions(
 
 /**
  * Editable drafts with validation attached. Drafts may be incomplete, so
- * each entry carries its current validation issues.
+ * each entry carries its current validation issues. The upstream list
+ * already returns full definitions, so the raw row is retained for
+ * inspection instead of narrowed to display fields.
  */
 export async function listWorkflowDrafts(): Promise<WorkflowDraft[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/workflows/drafts'),
 	);
 	requireData(data, 'Draft list');
-	const rows = Array.isArray(data) ? (data as DefinitionDto[]) : [];
+	const rows = Array.isArray(data)
+		? (data as Array<DefinitionDto & Record<string, unknown>>)
+		: [];
 	const validated = await Promise.allSettled(
 		rows.map((row) =>
-			validateWorkflowDraft(String(row.id ?? '')).then((issues) => ({
-				id: String(row.id ?? ''),
-				name:
-					typeof row.name === 'string' ? row.name : String(row.id ?? ''),
-				updatedAt: toIso(
-					(typeof row.updated_at === 'number' ? row.updated_at : null) ??
-						(typeof row.created_at === 'number' ? row.created_at : null),
-				),
-				valid: issues.length === 0,
-				issues: issues.map((issue) => `${issue.field}: ${issue.message}`),
-			})),
+			validateWorkflowDraft(String(row.id ?? '')).then(
+				(issues): WorkflowDraft => ({
+					id: String(row.id ?? ''),
+					name:
+						typeof row.name === 'string' ? row.name : String(row.id ?? ''),
+					updatedAt: toIso(
+						(typeof row.updated_at === 'number' ? row.updated_at : null) ??
+							(typeof row.created_at === 'number' ? row.created_at : null),
+					),
+					valid: issues.length === 0,
+					issues: issues.map(
+						(issue) => `${issue.field}: ${issue.message}`,
+					),
+					definition: { ...row },
+				}),
+			),
 		),
 	);
 	return validated

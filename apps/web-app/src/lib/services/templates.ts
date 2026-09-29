@@ -2,6 +2,7 @@ import { client, downloadFile, request } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import { ApiHttpError } from '$lib/api/envelope';
 import { backendEdgeType } from '$lib/graph/display-model';
+import { issueTargetsNode } from '$lib/graph/execution-projection';
 import { asRecordList, graphField } from '$lib/services/graph';
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 import type { KeyValue, Template, TemplateKind } from '$lib/types/models';
@@ -209,7 +210,102 @@ export async function getTemplateDetail(
 }
 
 /**
- * Server-side validation for an edited definition. Returns issue strings;
+ * Unified validation issue shared by the template drawer, the workflow
+ * editor and the tool dialog. Local issues come from client field checks,
+ * server issues from rule endpoints; both render in one list and locate
+ * through the same field and node targeting.
+ */
+export interface TemplateIssue {
+	source: 'local' | 'server';
+	field: string | null;
+	message: string;
+	nodeId: string | null;
+}
+
+interface FieldCheck {
+	field: string;
+	message: string;
+}
+
+function missingFieldChecks(
+	kind: TemplateKind,
+	record: Record<string, unknown>,
+): FieldCheck[] {
+	const checks: FieldCheck[] = [];
+	if (typeof record.name !== 'string' || !record.name.trim()) {
+		checks.push({ field: 'name', message: 'name: required' });
+	}
+	if (
+		kind === 'trigger' &&
+		(typeof record.trigger_type !== 'string' || !record.trigger_type.trim())
+	) {
+		checks.push({ field: 'trigger_type', message: 'trigger_type: required' });
+	}
+	if (
+		kind === 'node' &&
+		(typeof record.node_type !== 'string' || !record.node_type.trim())
+	) {
+		checks.push({ field: 'node_type', message: 'node_type: required' });
+	}
+	return checks;
+}
+
+function asLocalIssues(checks: FieldCheck[]): TemplateIssue[] {
+	return checks.map((check) => ({
+		source: 'local' as const,
+		field: check.field,
+		message: check.message,
+		nodeId: null,
+	}));
+}
+
+/**
+ * Synchronous local checks for live editor hints. Workflow and agent kinds
+ * only validate through the server gate, so they report nothing here.
+ */
+export function localTemplateIssues(
+	kind: TemplateKind,
+	definition: unknown,
+): TemplateIssue[] {
+	if (kind === 'workflow' || kind === 'agent') return [];
+	const record =
+		definition && typeof definition === 'object'
+			? (definition as Record<string, unknown>)
+			: null;
+	if (!record) {
+		return [
+			{
+				source: 'local',
+				field: null,
+				message: 'Definition must be a JSON object',
+				nodeId: null,
+			},
+		];
+	}
+	return asLocalIssues(missingFieldChecks(kind, record));
+}
+
+/**
+ * Map server rule issues to the unified model, resolving the first canvas
+ * node whose id appears as a field-path segment. Unmatched issues stay
+ * global with a null node id.
+ */
+export function serverTemplateIssues(
+	issues: Array<{ field: string; message: string }>,
+	nodes: DisplayNode[],
+): TemplateIssue[] {
+	return issues.map((issue) => ({
+		source: 'server' as const,
+		field: issue.field,
+		message: issue.message,
+		nodeId:
+			nodes.find((node) => issueTargetsNode(issue.field, node.id))?.id ??
+			null,
+	}));
+}
+
+/**
+ * Server-side validation for an edited definition. Returns unified issues;
  * empty means the definition validates. Node and trigger templates have no
  * dry-run endpoint, so they run the client field gate here and validate
  * for real on save.
@@ -217,7 +313,7 @@ export async function getTemplateDetail(
 export async function validateTemplateDefinition(
 	kind: TemplateKind,
 	definition: unknown,
-): Promise<string[]> {
+): Promise<TemplateIssue[]> {
 	if (kind === 'workflow') {
 		try {
 			await call<unknown>(
@@ -225,7 +321,14 @@ export async function validateTemplateDefinition(
 			);
 			return [];
 		} catch (e) {
-			return [e instanceof Error ? e.message : 'Workflow invalid'];
+			return [
+				{
+					source: 'server',
+					field: null,
+					message: e instanceof Error ? e.message : 'Workflow invalid',
+					nodeId: null,
+				},
+			];
 		}
 	}
 	if (kind === 'agent') {
@@ -235,31 +338,17 @@ export async function validateTemplateDefinition(
 			);
 			return [];
 		} catch (e) {
-			return [e instanceof Error ? e.message : 'Agent invalid'];
+			return [
+				{
+					source: 'server',
+					field: null,
+					message: e instanceof Error ? e.message : 'Agent invalid',
+					nodeId: null,
+				},
+			];
 		}
 	}
-	const issues: string[] = [];
-	const record =
-		definition && typeof definition === 'object'
-			? (definition as Record<string, unknown>)
-			: null;
-	if (!record) return ['Definition must be a JSON object'];
-	if (typeof record.name !== 'string' || !record.name.trim()) {
-		issues.push('name: required');
-	}
-	if (
-		kind === 'trigger' &&
-		(typeof record.trigger_type !== 'string' || !record.trigger_type.trim())
-	) {
-		issues.push('trigger_type: required');
-	}
-	if (
-		kind === 'node' &&
-		(typeof record.node_type !== 'string' || !record.node_type.trim())
-	) {
-		issues.push('node_type: required');
-	}
-	return issues;
+	return localTemplateIssues(kind, definition);
 }
 
 /**
@@ -483,7 +572,9 @@ const VERSION_FIELD: TemplateFormField = {
  * Structured fields per kind, matching the backend shapes: node metadata
  * carries no category/tags/version, trigger metadata carries category/tags
  * but no version, library definitions carry name/description/version while
- * their category/tags live on the outer template record.
+ * their category/tags live on the outer template record. Library kinds
+ * expose category/tags in the same field table; the edit session maps
+ * those two keys to the outer record so they never land inside definition.
  */
 export function templateFormFields(kind: TemplateKind): TemplateFormField[] {
 	if (kind === 'node') {
@@ -512,7 +603,7 @@ export function templateFormFields(kind: TemplateKind): TemplateFormField[] {
 			TAGS_FIELD,
 		];
 	}
-	return [NAME_FIELD, DESCRIPTION_FIELD, VERSION_FIELD];
+	return [NAME_FIELD, DESCRIPTION_FIELD, VERSION_FIELD, CATEGORY_FIELD, TAGS_FIELD];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -584,6 +675,41 @@ export function jsonErrorLine(text: string, message: string): number | null {
 	if (!match) return null;
 	const position = Math.min(Number(match[1]), text.length);
 	return text.slice(0, position).split('\n').length;
+}
+
+/**
+ * Locate a dotted field path within JSON source for issue navigation. The
+ * last path segment is matched as a JSON key first, then as plain text.
+ */
+export function jsonFieldLine(text: string, field: string): number | null {
+	const segment = field.split('.').filter(Boolean).pop() ?? field;
+	if (!segment) return null;
+	const lines = text.split('\n');
+	const keyIndex = lines.findIndex((line) => line.includes(`"${segment}"`));
+	if (keyIndex >= 0) return keyIndex + 1;
+	const rawIndex = lines.findIndex((line) => line.includes(segment));
+	return rawIndex >= 0 ? rawIndex + 1 : null;
+}
+
+/**
+ * Normalize form strings for dirty comparison so spacing differences
+ * (for example tag separators) never report a false modification.
+ */
+export function normalizeTemplateForm(
+	form: Record<string, string>,
+): Record<string, string> {
+	const normalized: Record<string, string> = {};
+	for (const [key, value] of Object.entries(form)) {
+		normalized[key] = value.trim();
+	}
+	if (normalized.tags) {
+		normalized.tags = normalized.tags
+			.split(',')
+			.map((tag) => tag.trim())
+			.filter(Boolean)
+			.join(',');
+	}
+	return normalized;
 }
 
 // ── semantic summary ─────────────────────────────────────────────
@@ -822,6 +948,7 @@ export function templateBackendDefinition(
 		id: fallbackId,
 		name: templateField(record, ['name'], '') || fallbackName,
 		nodes: nodes.map((node, index) => ({
+			...node,
 			id: templateField(node, ['id', 'node_id'], `node-${index}`),
 			node_type: templateField(node, ['node_type', 'kind', 'type'], 'STEP'),
 			name: templateField(
@@ -831,6 +958,7 @@ export function templateBackendDefinition(
 			),
 		})),
 		edges: asRecordList(record.edges).map((edge, index) => ({
+			...edge,
 			id: templateField(edge, ['id', 'edge_id'], `edge-${index}`),
 			source_node_id: templateField(
 				edge,
@@ -850,4 +978,220 @@ export function templateBackendDefinition(
 				: {}),
 		})),
 	};
+}
+
+/** Hint lines for canvas nodes that still carry the minimal new-node skeleton. */
+export function skeletonNodeHints(nodes: DisplayNode[]): string[] {
+	return nodes
+		.filter((node) => node.label === node.id)
+		.map(
+			(node) =>
+				`node ${node.id} still uses the default name; set a name and type or complete details in JSON`,
+		);
+}
+
+function isLibraryKind(kind: TemplateKind): boolean {
+	return kind !== 'node' && kind !== 'trigger';
+}
+
+function cloneStructured<T>(value: T): T {
+	if (value === undefined || value === null) return value;
+	try {
+		return JSON.parse(JSON.stringify(value)) as T;
+	} catch {
+		return value;
+	}
+}
+
+function sessionTextFor(kind: TemplateKind, full: unknown): string {
+	return JSON.stringify(templateEditTarget(kind, full) ?? null, null, 2);
+}
+
+function emptySessionFull(kind: TemplateKind): unknown {
+	return isLibraryKind(kind) ? { definition: {} } : {};
+}
+
+/**
+ * Structured edit session shared by the template drawer tabs. The last
+ * valid document is the single source of truth; the JSON tab only edits a
+ * text projection of it. Failed parses keep the previous document so the
+ * form and canvas never clear, and graph conflicts compare a snapshot
+ * revision instead of raw text equality.
+ */
+export class TemplateEditSession {
+	private kind: TemplateKind = 'node';
+	private full: unknown = {};
+	private textValue = '';
+	private syntaxMessage: string | null = null;
+	private revision = 0;
+	private graphLoadedAt = -1;
+	private baseline = '';
+
+	get text(): string {
+		return this.textValue;
+	}
+
+	get syntaxError(): string | null {
+		return this.syntaxMessage;
+	}
+
+	/** Whether the text projection drifted from the last clean baseline. */
+	get textDirty(): boolean {
+		return this.textValue !== this.baseline;
+	}
+
+	load(kind: TemplateKind, raw: unknown): void {
+		this.kind = kind;
+		const base = raw ?? emptySessionFull(kind);
+		this.full = cloneStructured(base);
+		if (this.full === null || this.full === undefined) {
+			this.full = emptySessionFull(kind);
+		}
+		this.textValue = sessionTextFor(kind, this.full);
+		this.syntaxMessage = null;
+		this.revision = 0;
+		this.graphLoadedAt = -1;
+		this.baseline = this.textValue;
+	}
+
+	/** Record the current text as clean after a save or discard. */
+	markClean(): void {
+		this.baseline = this.textValue;
+	}
+
+	loadEmpty(kind: TemplateKind): void {
+		this.load(kind, emptySessionFull(kind));
+	}
+
+	setKind(kind: TemplateKind): void {
+		if (kind === this.kind) return;
+		this.kind = kind;
+		try {
+			const parsed: unknown = JSON.parse(this.textValue);
+			this.syntaxMessage = null;
+			if (isLibraryKind(kind)) {
+				this.full = { ...asRecord(this.full), definition: parsed };
+			} else {
+				this.full = parsed;
+			}
+			this.revision += 1;
+		} catch {
+			this.full = emptySessionFull(kind);
+			this.revision += 1;
+		}
+	}
+
+	applyText(next: string): void {
+		this.textValue = next;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(next);
+		} catch (e) {
+			this.syntaxMessage =
+				e instanceof Error ? e.message : 'Invalid JSON';
+			return;
+		}
+		if (isLibraryKind(this.kind)) {
+			const current = templateEditTarget(this.kind, this.full);
+			if (JSON.stringify(parsed) === JSON.stringify(current ?? null)) {
+				this.syntaxMessage = null;
+				return;
+			}
+			this.full = { ...asRecord(this.full), definition: parsed };
+		} else {
+			if (JSON.stringify(parsed) === JSON.stringify(this.full ?? null)) {
+				this.syntaxMessage = null;
+				return;
+			}
+			this.full = parsed;
+		}
+		this.syntaxMessage = null;
+		this.revision += 1;
+	}
+
+	definition(): unknown {
+		return templateEditTarget(this.kind, this.full);
+	}
+
+	fullValue(): unknown {
+		return this.full;
+	}
+
+	formSnapshot(): Record<string, string> {
+		const form = formFromDefinition(
+			this.kind,
+			templateEditTarget(this.kind, this.full),
+		);
+		if (isLibraryKind(this.kind)) {
+			const outer = asRecord(this.full);
+			form.category = fieldText(
+				outer.category ?? outer.template_category,
+			);
+			form.tags = fieldText(outer.tags ?? outer.template_tags);
+		}
+		return form;
+	}
+
+	applyForm(form: Record<string, string>): void {
+		if (isLibraryKind(this.kind)) {
+			const definition = asRecord(
+				templateEditTarget(this.kind, this.full),
+			);
+			const merged = formToDefinition(this.kind, form, definition);
+			delete merged.category;
+			delete merged.tags;
+			delete merged.template_category;
+			delete merged.template_tags;
+			const outer = { ...asRecord(this.full) };
+			const category = (form.category ?? '').trim();
+			if (category) {
+				outer.category = category;
+			} else {
+				delete outer.category;
+			}
+			delete outer.template_category;
+			const tagsText = (form.tags ?? '').trim();
+			if (tagsText) {
+				outer.tags = tagsText
+					.split(',')
+					.map((tag) => tag.trim())
+					.filter(Boolean);
+			} else {
+				delete outer.tags;
+			}
+			delete outer.template_tags;
+			this.full = { ...outer, definition: merged };
+		} else {
+			this.full = formToDefinition(
+				this.kind,
+				form,
+				templateEditTarget(this.kind, this.full) ?? {},
+			);
+		}
+		this.revision += 1;
+		this.textValue = sessionTextFor(this.kind, this.full);
+		this.syntaxMessage = null;
+	}
+
+	topology(): TemplateTopology {
+		return parseTemplateTopology(this.full);
+	}
+
+	noteGraphLoaded(): void {
+		this.graphLoadedAt = this.revision;
+	}
+
+	hasGraphConflict(graphDirty: boolean): boolean {
+		return (
+			graphDirty && this.graphLoadedAt >= 0 && this.graphLoadedAt !== this.revision
+		);
+	}
+
+	mergeGraph(nodes: DisplayNode[], edges: DisplayEdge[]): void {
+		this.full = mergeTemplateGraph(this.full, nodes, edges);
+		this.revision += 1;
+		this.textValue = sessionTextFor(this.kind, this.full);
+		this.syntaxMessage = null;
+		this.graphLoadedAt = this.revision;
+	}
 }

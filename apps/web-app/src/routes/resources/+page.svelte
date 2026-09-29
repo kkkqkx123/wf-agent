@@ -12,10 +12,11 @@
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import IssueList from '$lib/components/domain/IssueList.svelte';
 	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
-	import { jsonErrorLine } from '$lib/services/templates';
+	import { jsonErrorLine, type TemplateIssue } from '$lib/services/templates';
 	import {
 		executeTool,
 		formFromToolParams,
@@ -111,6 +112,14 @@
 			toolValidatedSnapshot !== toolParams,
 	);
 	const toolShowValid = $derived(toolValidated && !toolValidationStale);
+	const toolTemplateIssues = $derived<TemplateIssue[]>(
+		toolIssues.map((message) => ({
+			source: 'server',
+			field: null,
+			message,
+			nodeId: null,
+		})),
+	);
 
 	let skillDialogOpen = $state(false);
 	let activeSkill = $state<Skill | null>(null);
@@ -796,11 +805,9 @@
 		</div>
 	{/if}
 	{#if toolIssues.length > 0}
-		<ul class="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
-			{#each toolIssues as issue, index (index)}
-				<li class="text-caption text-destructive">{issue}</li>
-			{/each}
-		</ul>
+		<div class="mt-2">
+			<IssueList issues={toolTemplateIssues} />
+		</div>
 	{:else if toolShowValid}
 		<p class="mt-2 text-caption text-success">Parameters are valid.</p>
 	{:else if toolValidationStale}

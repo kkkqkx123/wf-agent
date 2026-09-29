@@ -52,10 +52,15 @@ export class WorkflowLockStore {
 	holderName = $state('');
 	supported = $state(true);
 	refreshError = $state<string | null>(null);
+	/** A previously held lease changed hands or expired. Sticky until re-acquired or acknowledged. */
+	lockLost = $state(false);
+	/** Who holds the lease at loss time; empty when the lease simply expired. */
+	lockLostBy = $state('');
 
 	private workflowId = $state('');
 	private ownerId = $state('');
 	private ownerName = $state('');
+	private leaseActive = false;
 	private heartbeatTimer: number | null = null;
 	private pollTimer: number | null = null;
 
@@ -119,6 +124,8 @@ export class WorkflowLockStore {
 		this.holderId = null;
 		this.holderName = '';
 		this.refreshError = null;
+		this.leaseActive = false;
+		this.acknowledgeLockLoss();
 		if (!workflowId || !browser) return;
 		void this.refresh();
 		this.pollTimer = window.setInterval(() => {
@@ -136,6 +143,8 @@ export class WorkflowLockStore {
 			});
 			this.applyHolder(lock.ownerId, lock.ownerName);
 			this.refreshError = null;
+			this.leaseActive = lock.ownerId === this.ownerId;
+			if (this.leaseActive) this.acknowledgeLockLoss();
 			this.startHeartbeat();
 			return lock.ownerId === this.ownerId;
 		} catch (e) {
@@ -151,6 +160,7 @@ export class WorkflowLockStore {
 
 	async release(): Promise<void> {
 		this.stopHeartbeat();
+		this.leaseActive = false;
 		if (!this.workflowId || !this.supported || !this.held) return;
 		try {
 			await releaseWorkflowLock(this.workflowId, this.ownerId);
@@ -166,11 +176,18 @@ export class WorkflowLockStore {
 
 	dispose(): void {
 		this.stopHeartbeat();
+		this.leaseActive = false;
 		if (this.pollTimer !== null) {
 			window.clearInterval(this.pollTimer);
 			this.pollTimer = null;
 		}
 		this.workflowId = '';
+	}
+
+	/** Clear a recorded lease loss after the user acted on it. */
+	acknowledgeLockLoss(): void {
+		this.lockLost = false;
+		this.lockLostBy = '';
 	}
 
 	private async refresh(): Promise<void> {
@@ -211,6 +228,13 @@ export class WorkflowLockStore {
 	}
 
 	private applyHolder(ownerId: string | null, ownerName: string): void {
+		// Our own release clears the holder first, so a held-to-foreign
+		// transition here always means the lease was stolen or expired.
+		if (this.leaseActive && this.ownerId !== '' && ownerId !== this.ownerId) {
+			this.lockLost = true;
+			this.lockLostBy = ownerName;
+			this.leaseActive = false;
+		}
 		this.holderId = ownerId;
 		this.holderName = ownerName;
 	}

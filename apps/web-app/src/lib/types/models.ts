@@ -159,6 +159,8 @@ export interface WorkflowDraft {
 	updatedAt: string;
 	valid: boolean;
 	issues: string[];
+	/** Full upstream definition retained for inspection; drafts may be incomplete. */
+	definition: Record<string, unknown> | null;
 }
 
 export interface Workflow {

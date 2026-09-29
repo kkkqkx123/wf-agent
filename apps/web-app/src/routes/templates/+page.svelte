@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
@@ -12,22 +12,20 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Sheet from '$lib/components/ui/Sheet.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
+	import TemplateEditPanel, {
+		type TemplateEditTab,
+	} from '$lib/components/domain/TemplateEditPanel.svelte';
+	import TemplateImportDialog from '$lib/components/domain/TemplateImportDialog.svelte';
+	import UnsavedChangesDialog from '$lib/components/domain/UnsavedChangesDialog.svelte';
 	import {
 		saveWorkflowDraft,
 		validateWorkflowDraft,
 	} from '$lib/services/graph';
-	import { issueNodeIds } from '$lib/graph/execution-projection';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
-	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import { createWorkflow } from '$lib/services/workflows';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
@@ -36,26 +34,25 @@
 		allocateGraphNodeId,
 		deleteTemplate,
 		exportTemplate,
-		formFromDefinition,
-		formToDefinition,
 		getTemplateDetail,
 		importTemplate,
-		jsonErrorLine,
 		listFeaturedTemplates,
 		listTemplates,
-		mergeTemplateGraph,
-		parseTemplateTopology,
+		localTemplateIssues,
+		normalizeTemplateForm,
 		saveTemplate,
+		serverTemplateIssues,
 		summarizeTemplate,
 		templateBackendDefinition,
-		templateEditTarget,
 		templateFormFields,
+		TemplateEditSession,
 		validateTemplateDefinition,
 		type TemplateDetail,
+		type TemplateIssue,
 	} from '$lib/services/templates';
 	import type { Template, TemplateKind } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { formatNumber } from '$lib/utils/format';
+	import { formatNumber, slugify } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [
@@ -91,19 +88,13 @@
 	let detailError = $state<string | null>(null);
 
 	let editMode = $state(false);
-	type TemplateEditTab = 'json' | 'form' | 'graph';
 	let editTab = $state<TemplateEditTab>('json');
 	let editText = $state('');
 	let formState = $state<Record<string, string>>({});
-	let editor = $state<{
-		scrollToLine: (line: number) => void;
-	} | null>(null);
 	let syntaxError = $state<string | null>(null);
 	let validationState = $state<'idle' | 'valid' | 'invalid'>('idle');
-	let validationIssues = $state<string[]>([]);
-	let serverIssues = $state<string[]>([]);
-	let serverIssueIds = $state<string[]>([]);
-	let templateNodeId = $state<string | null>(null);
+	let serverIssues = $state<TemplateIssue[]>([]);
+	let validatedText = $state<string | null>(null);
 	let draftBusy = $state(false);
 	let saveBusy = $state(false);
 	let deleteArmed = $state(false);
@@ -112,11 +103,30 @@
 	// Controlled graph edit state for workflow templates. The canvas only
 	// emits intents; every mutation lands here and re-renders from it.
 	const templateEditStore = new GraphEditStore();
-	let graphSeed = $state('');
-	let graphConflictOpen = $state(false);
-	let templateExplorer = $state<{ focus: (id: string) => void } | null>(
-		null,
-	);
+	const session = new TemplateEditSession();
+	let graphRequest = $state(0);
+
+	let unsavedOpen = $state(false);
+	let pendingNavUrl = $state<string | null>(null);
+
+	// Keep the session document fresh while typing; failed parses retain
+	// the last valid document so the form and canvas never clear.
+	$effect(() => {
+		if (editMode || drawerId === null) {
+			session.applyText(editText);
+			syntaxError = session.syntaxError;
+		}
+	});
+
+	// Explicit check results only describe the validated text; any later
+	// edit returns the badge and server issues to idle.
+	$effect(() => {
+		if (validatedText !== null && editText !== validatedText) {
+			validatedText = null;
+			serverIssues = [];
+			validationState = 'idle';
+		}
+	});
 
 	let createName = $state('');
 	let createId = $state('');
@@ -126,16 +136,7 @@
 	let importText = $state('');
 	let importError = $state<string | null>(null);
 	let importBusy = $state(false);
-	let importEditor = $state<{
-		scrollToLine: (line: number) => void;
-	} | null>(null);
 
-	const errorLine = $derived(
-		syntaxError ? jsonErrorLine(editText, syntaxError) : null,
-	);
-	const importErrorLine = $derived(
-		importError ? jsonErrorLine(importText, importError) : null,
-	);
 	const formFields = $derived(templateFormFields(drawerKind));
 	const summary = $derived(
 		detail ? summarizeTemplate(drawerKind, detail.raw) : [],
@@ -171,17 +172,11 @@
 		editMode = false;
 		editTab = 'json';
 		formState = {};
+		session.loadEmpty(row.kind);
 		detail = null;
 		detailError = null;
 		deleteArmed = false;
-		validationState = 'idle';
-		validationIssues = [];
-		serverIssues = [];
-		serverIssueIds = [];
-		templateNodeId = null;
-		syntaxError = null;
-		graphSeed = '';
-		graphConflictOpen = false;
+		resetEditState();
 		templateEditStore.load([], []);
 		drawerOpen = true;
 		await loadDetail(row.kind, row.id);
@@ -206,123 +201,65 @@
 		detail = null;
 		editMode = true;
 		editTab = 'json';
-		formState = {};
+		session.loadEmpty('node');
+		formState = session.formSnapshot();
 		createName = '';
 		createId = '';
 		editText = '';
-		syntaxError = null;
-		validationState = 'idle';
-		validationIssues = [];
-		serverIssues = [];
-		serverIssueIds = [];
-		templateNodeId = null;
+		resetEditState();
 		deleteArmed = false;
-		graphSeed = '';
-		graphConflictOpen = false;
 		templateEditStore.load([], []);
 		drawerOpen = true;
 	}
 
-	function parseEditText(): { value: unknown; error: string | null } {
-		try {
-			return { value: JSON.parse(editText), error: null };
-		} catch (e) {
-			return {
-				value: null,
-				error: e instanceof Error ? e.message : 'Invalid JSON',
-			};
+	/** Fold the active tab back into the session before validate or save. */
+	function flushEditState(): void {
+		if (editTab === 'form') {
+			session.applyForm(formState);
+			editText = session.text;
+		} else if (
+			editTab === 'graph' &&
+			drawerKind === 'workflow' &&
+			templateEditStore.dirty
+		) {
+			session.mergeGraph(templateEditStore.nodes, templateEditStore.edges);
+			editText = session.text;
 		}
 	}
 
-	function enterForm(): void {
-		const { value } = parseEditText();
-		formState = formFromDefinition(drawerKind, templateEditTarget(drawerKind, value));
-		editTab = 'form';
-	}
-
-	function syncFormToText(): void {
-		const { value } = parseEditText();
-		const current = templateEditTarget(drawerKind, value);
-		const merged = formToDefinition(
-			drawerKind,
-			formState,
-			current && typeof current === 'object' ? current : {},
+	/** Unsaved JSON, form and canvas changes block implicit drawer closes. */
+	function editDirty(): boolean {
+		if (!editMode) return false;
+		if (session.textDirty) return true;
+		if (templateEditStore.dirty) return true;
+		return (
+			JSON.stringify(normalizeTemplateForm(formState)) !==
+			JSON.stringify(normalizeTemplateForm(session.formSnapshot()))
 		);
-		if (drawerKind === 'node' || drawerKind === 'trigger') {
-			editText = JSON.stringify(merged, null, 2);
-			return;
-		}
-		const base =
-			value && typeof value === 'object' && !Array.isArray(value)
-				? (value as Record<string, unknown>)
-				: {};
-		editText = JSON.stringify({ ...base, definition: merged }, null, 2);
 	}
 
-	function switchEditTab(tab: TemplateEditTab): void {
-		if (tab === 'graph' && drawerKind !== 'workflow') return;
-		if (editTab === 'graph' && tab !== 'graph') {
-			syncGraphToText();
-		}
-		if (editTab === 'form' && tab !== 'form') syncFormToText();
-		if (tab === 'form' && editTab !== 'form') {
-			if (editTab === 'graph') syncGraphToText();
-			enterForm();
-		}
-		if (tab === 'graph') {
-			if (
-				templateEditStore.dirty &&
-				editText !== graphSeed &&
-				graphSeed !== ''
-			) {
-				graphConflictOpen = true;
-				return;
-			}
-			loadTemplateStore();
-		}
-		editTab = tab;
+	function resetEditState(): void {
+		editMode = false;
+		syntaxError = null;
+		validationState = 'idle';
+		serverIssues = [];
+		validatedText = null;
 	}
 
-	/** Load the graph store from the current JSON text. */
-	function loadTemplateStore(): void {
-		templateEditStore.load(templateGraphNodes, templateGraphEdges);
-		graphSeed = editText;
-		templateNodeId = templateEditStore.selectedId;
-	}
-
-	/**
-	 * Merge the graph store back into the JSON text with lossless entry
-	 * preservation; every other template field stays untouched.
-	 */
-	function syncGraphToText(): void {
-		if (drawerKind !== 'workflow') return;
-		if (!templateEditStore.dirty && editText === graphSeed) return;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(editText);
-		} catch {
-			return;
+	function requestDrawerClose(): void {
+		if (editDirty()) {
+			drawerOpen = true;
+			unsavedOpen = true;
 		}
-		const merged = mergeTemplateGraph(
-			parsed,
-			templateEditStore.nodes,
-			templateEditStore.edges,
-		);
-		editText = JSON.stringify(merged, null, 2);
-		graphSeed = editText;
 	}
 
-	function discardGraphChanges(): void {
-		graphConflictOpen = false;
-		loadTemplateStore();
-		editTab = 'graph';
-	}
-
-	function keepGraphChanges(): void {
-		graphConflictOpen = false;
-		syncGraphToText();
-		loadTemplateStore();
-		editTab = 'graph';
+	function discardDrawerEdits(): void {
+		unsavedOpen = false;
+		resetEditState();
+		drawerOpen = false;
+		const target = pendingNavUrl;
+		pendingNavUrl = null;
+		if (target) void goto(target);
 	}
 
 	function handleTemplateMoveNode(id: string, position: CanvasPosition): void {
@@ -340,7 +277,6 @@
 		const id = allocateGraphNodeId(existing);
 		templateEditStore.addNode({ id, label: id, kind: 'STEP' }, position);
 		templateEditStore.selectedId = id;
-		templateNodeId = id;
 	}
 
 	function handleTemplateConnect(source: string, target: string): void {
@@ -356,13 +292,11 @@
 			toasts.info('Cannot connect', reason);
 			return;
 		}
-		templateNodeId = target;
 		templateEditStore.selectedId = target;
 	}
 
 	function handleTemplateDeleteNodes(ids: string[]): void {
 		templateEditStore.removeNodes(ids);
-		if (templateNodeId && ids.includes(templateNodeId)) templateNodeId = null;
 	}
 
 	function handleTemplateDeleteGroups(ids: string[]): void {
@@ -373,17 +307,6 @@
 		);
 	}
 
-	const templateSelectedNode = $derived(
-		templateNodeId
-			? (templateEditStore.nodes.find((node) => node.id === templateNodeId) ?? null)
-			: null,
-	);
-
-	const combinedTemplateIssues = $derived([
-		...validationIssues,
-		...serverIssues,
-	]);
-
 	function editedPayload(parsed: unknown): unknown {
 		if (drawerKind === 'node' || drawerKind === 'trigger') return parsed;
 		const base =
@@ -392,55 +315,6 @@
 				: {};
 		return { ...base, definition: parsed };
 	}
-
-	/** Parsed workflow topology from the JSON tab; errors stay on JSON. */
-	const templateTopology = $derived.by(() => {
-		if (drawerKind !== 'workflow') {
-			return { nodes: [], edges: [], error: null as string | null };
-		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(editText);
-		} catch (e) {
-			return {
-				nodes: [],
-				edges: [],
-				error: e instanceof Error ? e.message : 'Invalid JSON',
-			};
-		}
-		const topology = parseTemplateTopology(parsed);
-		return { ...topology, error: null as string | null };
-	});
-
-	const templateGraphNodes = $derived<DisplayNode[]>(templateTopology.nodes);
-	const templateGraphEdges = $derived<DisplayEdge[]>(
-		templateTopology.edges.filter((edge) => edge.source && edge.target),
-	);
-
-	const templateNodeSnippet = $derived.by(() => {
-		if (!templateNodeId) return null;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(editText);
-		} catch {
-			return null;
-		}
-		const target = templateEditTarget(drawerKind, parsed);
-		const topology = parseTemplateTopology(
-			drawerKind === 'node' || drawerKind === 'trigger'
-				? { definition: { nodes: [target], edges: [] } }
-				: parsed,
-		);
-		const match = [...topology.nodes, ...topology.edges].find(
-			(entry) => entry.id === templateNodeId,
-		);
-		if (!match) return null;
-		const stored = templateEditStore.nodes.find(
-			(node) => node.id === templateNodeId,
-		);
-		const live = stored ?? match;
-		return JSON.stringify(live, null, 2);
-	});
 
 	function buildBackendDefinition(value: unknown): Record<string, unknown> {
 		return templateBackendDefinition(
@@ -457,9 +331,11 @@
 	 * true when the server reports no issues.
 	 */
 	async function runTemplateServerGate(): Promise<boolean> {
-		if (editTab === 'form') syncFormToText();
-		if (editTab === 'graph') syncGraphToText();
-		const { value, error } = parseEditText();
+		flushEditState();
+		session.applyText(editText);
+		syntaxError = session.syntaxError;
+		const value = session.definition();
+		const error = session.syntaxError;
 		if (error || value === undefined) {
 			syntaxError = error;
 			toasts.error('Template invalid', 'Fix the JSON syntax first.');
@@ -479,8 +355,11 @@
 		try {
 			const draftId = await saveWorkflowDraft(definition);
 			const issues = await validateWorkflowDraft(draftId);
-			serverIssues = issues.map((issue) => `${issue.field}: ${issue.message}`);
-			serverIssueIds = [...issueNodeIds(issues, templateGraphNodes).keys()];
+			serverIssues = serverTemplateIssues(
+				issues,
+				session.topology().nodes,
+			);
+			validatedText = editText;
 			if (issues.length > 0) {
 				toasts.warning(`Server reports ${issues.length} issue(s)`);
 				return false;
@@ -499,22 +378,25 @@
 	}
 
 	async function runValidate(): Promise<boolean> {
-		if (editTab === 'form') syncFormToText();
-		if (editTab === 'graph') syncGraphToText();
-		const { value, error } = parseEditText();
+		flushEditState();
+		session.applyText(editText);
+		const value = session.definition();
+		const error = session.syntaxError;
 		syntaxError = error;
 		if (error || value === undefined) {
 			validationState = 'invalid';
-			validationIssues = [];
 			return false;
 		}
-		const issues = await validateTemplateDefinition(
-			drawerKind,
-			templateEditTarget(drawerKind, value),
-		);
-		validationIssues = issues;
-		validationState = issues.length === 0 ? 'valid' : 'invalid';
-		return issues.length === 0;
+		const issues = await validateTemplateDefinition(drawerKind, value);
+		if (drawerKind === 'workflow' || drawerKind === 'agent') {
+			serverIssues = issues;
+		} else {
+			serverIssues = [];
+		}
+		const combined = [...localTemplateIssues(drawerKind, value), ...serverIssues];
+		validationState = combined.length === 0 ? 'valid' : 'invalid';
+		validatedText = editText;
+		return combined.length === 0;
 	}
 
 	async function runSave(): Promise<void> {
@@ -530,7 +412,7 @@
 				return;
 			}
 		}
-		const { value } = parseEditText();
+		const value = session.definition();
 		saveBusy = true;
 		try {
 			if (drawerId === null) {
@@ -559,19 +441,13 @@
 		}
 	}
 
-	function slugify(name: string): string {
-		return name
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '');
-	}
-
 	async function runOpenAsWorkflow(): Promise<void> {
 		if (drawerKind !== 'workflow') return;
-		if (editTab === 'form') syncFormToText();
-		if (editTab === 'graph') syncGraphToText();
-		const { value, error } = parseEditText();
+		flushEditState();
+		session.applyText(editText);
+		syntaxError = session.syntaxError;
+		const value = session.definition();
+		const error = session.syntaxError;
 		if (error || value === undefined) {
 			toasts.error('Template invalid', 'Fix the JSON syntax first.');
 			return;
@@ -677,6 +553,19 @@
 
 	onMount(() => {
 		void reload();
+		const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+			if (drawerOpen && editDirty()) event.preventDefault();
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
+	});
+
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload) return;
+		if (!drawerOpen || !editDirty()) return;
+		navigation.cancel();
+		pendingNavUrl = navigation.to?.url.toString() ?? null;
+		unsavedOpen = true;
 	});
 
 	const filtered = $derived(
@@ -824,6 +713,7 @@
 		? 'New template'
 		: (detail?.template.name ?? 'Template detail')}
 	width="32rem"
+	onclose={requestDrawerClose}
 >
 	{#if drawerId !== null && detailLoading}
 		<Skeleton lines={6} />
@@ -846,7 +736,8 @@
 						placeholder="Kind"
 						onchange={(value) => {
 							drawerKind = value as TemplateKind;
-							formState = {};
+							session.setKind(drawerKind);
+							formState = session.formSnapshot();
 						}}
 					/>
 					<input
@@ -881,280 +772,35 @@
 			{/if}
 
 			{#if editMode || drawerId === null}
-				<div class="flex items-center justify-between gap-2">
-					<Segmented
-						items={drawerKind === 'workflow'
-							? [
-									{ id: 'json', label: 'JSON' },
-									{ id: 'form', label: 'Form' },
-									{ id: 'graph', label: 'Graph' },
-								]
-							: [
-									{ id: 'json', label: 'JSON' },
-									{ id: 'form', label: 'Form' },
-								]}
-						value={editTab}
-						size="sm"
-						onchange={(id) => switchEditTab(id as TemplateEditTab)}
-					/>
-					{#if validationState === 'valid'}
-						<Badge variant="success">Valid</Badge>
-					{:else if validationState === 'invalid'}
-						<Badge variant="danger">Invalid</Badge>
-					{/if}
-				</div>
-				{#if editTab === 'form'}
-					<div class="space-y-2">
-						{#each formFields as field (field.key)}
-							<label class="block">
-								<span class="mb-1 block text-caption text-muted-foreground">
-									{field.label}{#if field.required}<span
-											class="text-destructive"
-										>
-											*</span
-										>{/if}
-								</span>
-								{#if field.multiline}
-									<Textarea
-										bind:value={formState[field.key]}
-										placeholder={field.label}
-										class="min-h-16 text-small"
-									/>
-								{:else}
-									<Input
-										bind:value={formState[field.key]}
-										placeholder={field.label}
-										size="sm"
-										class="w-full"
-									/>
-								{/if}
-							</label>
-						{/each}
-						<p class="text-micro text-muted-foreground">
-							Form edits the core fields; the remaining definition stays in JSON
-							mode.
-						</p>
-					</div>
-				{:else if editTab === 'graph'}
-					{#if drawerKind !== 'workflow'}
-						<p class="text-caption text-muted-foreground">
-							Graph preview is only available for workflow templates.
-						</p>
-					{:else if templateTopology.error}
-						<p class="text-caption text-destructive">
-							JSON error: {templateTopology.error}. Fix it in the JSON tab
-							first.
-						</p>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={() => switchEditTab('json')}
-						>
-							Back to JSON
-						</Button>
-					{:else if templateGraphNodes.length === 0}
-						<p class="text-caption text-muted-foreground">
-							No nodes array in the definition yet.
-						</p>
-					{:else}
-						<p class="text-micro text-muted-foreground">
-							Drag nodes to move · double-click empty canvas to add a node ·
-							click an edge to delete it · shift-click another node to connect.
-						</p>
-						<GraphExplorer
-							bind:this={templateExplorer}
-							nodes={templateEditStore.nodes}
-							edges={templateEditStore.edges}
-							preset="workflow"
-							selectedId={templateNodeId}
-							onselect={(id) => {
-								templateNodeId = id;
-								templateEditStore.selectedId = id;
-							}}
-							editable
-							editMode
-							editDirty={templateEditStore.dirty}
-							canUndo={templateEditStore.canUndo}
-							canRedo={templateEditStore.canRedo}
-							positions={templateEditStore.positions}
-							issueIds={serverIssueIds}
-							onundo={() => templateEditStore.undo()}
-							onredo={() => templateEditStore.redo()}
-							onsave={() => void runSave()}
-							onmovenode={handleTemplateMoveNode}
-							onmovenodes={handleTemplateMoveNodes}
-							onaddnode={handleTemplateAddNode}
-							ondeleteedge={(id) => templateEditStore.removeEdge(id)}
-							onconnect={handleTemplateConnect}
-							ondeletenodes={handleTemplateDeleteNodes}
-							ondeletegroups={handleTemplateDeleteGroups}
-							onjumpparam={(id) => (templateNodeId = id)}
-						/>
-						{#if templateSelectedNode}
-							{#key templateNodeId}
-								<div class="grid grid-cols-2 gap-2">
-									<label class="block">
-										<span class="mb-1 block text-caption text-muted-foreground"
-											>Node name</span
-										>
-										<input
-											value={templateSelectedNode.label}
-											placeholder="Node name"
-											class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
-											oninput={(event) => {
-												const next = (event.currentTarget as HTMLInputElement)
-													.value;
-												if (templateNodeId) {
-													templateEditStore.updateNode(templateNodeId, {
-														label: next || templateNodeId,
-													});
-												}
-											}}
-										/>
-									</label>
-									<label class="block">
-										<span class="mb-1 block text-caption text-muted-foreground"
-											>Node type</span
-										>
-										<input
-											value={templateSelectedNode.kind}
-											placeholder="STEP"
-											class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
-											oninput={(event) => {
-												const next = (event.currentTarget as HTMLInputElement)
-													.value;
-												if (templateNodeId) {
-													templateEditStore.updateNode(templateNodeId, {
-														kind: next.trim() || 'STEP',
-													});
-												}
-											}}
-										/>
-									</label>
-								</div>
-							{/key}
-						{/if}
-						{#if templateNodeSnippet}
-							<pre
-								class="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{templateNodeSnippet}</pre>
-							<p class="text-micro text-muted-foreground">
-								Topology fields edit above; other stored fields merge back on
-								save. {combinedTemplateIssues.length > 0
-									? `${combinedTemplateIssues.length} issue(s) need attention.`
-									: ''}
-							</p>
-						{/if}
-						{#if serverIssues.length > 0}
-							<ul
-								class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
-							>
-								{#each serverIssues as issue, index (index)}
-									<li
-										class="flex items-center justify-between gap-2 text-caption text-destructive"
-									>
-										<span class="min-w-0 truncate">{issue}</span>
-										<button
-											type="button"
-											class="shrink-0 underline-offset-2 hover:underline"
-											onclick={() => {
-												const target = serverIssueIds.find((id) =>
-													issue.includes(id),
-												);
-												if (target) templateExplorer?.focus(target);
-											}}
-										>
-											Locate
-										</button>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-						<div class="flex flex-wrap items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={draftBusy}
-								onclick={() => void runTemplateServerGate()}
-							>
-								{draftBusy ? 'Checking…' : 'Check with server rules'}
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={openWorkflowBusy}
-								onclick={() => void runOpenAsWorkflow()}
-							>
-								{openWorkflowBusy ? 'Opening…' : 'Open as workflow'}
-							</Button>
-							<span class="text-micro text-muted-foreground">
-								Graph edits merge into JSON on save; issues map back to
-								graph nodes.
-							</span>
-						</div>
-					{/if}
-				{:else}
-					<JsonEditor
-						bind:this={editor}
-						bind:value={editText}
-						{errorLine}
-						placeholder={'{\n  "name": "my-template",\n  …\n}'}
-						minHeight="16rem"
-					/>
-				{/if}
-				{#if syntaxError}
-					<div
-						class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
-					>
-						<p class="text-caption text-destructive">
-							JSON syntax{#if errorLine}
-								(line {errorLine}){/if}: {syntaxError}
-						</p>
-						{#if errorLine}
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => editor?.scrollToLine(errorLine ?? 1)}
-							>
-								Go to line
-							</Button>
-						{/if}
-					</div>
-				{/if}
-				{#if validationIssues.length > 0}
-					<ul
-						class="space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
-					>
-						{#each validationIssues as issue, index (index)}
-							<li class="text-caption text-destructive">{issue}</li>
-						{/each}
-					</ul>
-				{/if}
-				<div class="flex items-center gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void runValidate()}
-					>
-						Validate
-					</Button>
-					<Button size="sm" disabled={saveBusy} onclick={() => void runSave()}>
-						{saveBusy ? 'Saving…' : drawerId === null ? 'Create' : 'Save'}
-					</Button>
-					{#if drawerId !== null}
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => {
-								editMode = false;
-								syntaxError = null;
-								validationState = 'idle';
-								validationIssues = [];
-							}}
-						>
-							Cancel
-						</Button>
-					{/if}
-				</div>
+			<TemplateEditPanel
+				kind={drawerKind}
+				tab={editTab}
+				isNew={drawerId === null}
+				{validationState}
+				fields={formFields}
+				bind:formState
+				bind:editText
+				{syntaxError}
+				{serverIssues}
+				{session}
+				store={templateEditStore}
+				{draftBusy}
+				{saveBusy}
+				{openWorkflowBusy}
+				{graphRequest}
+				ontabchange={(next) => (editTab = next)}
+				onvalidate={() => void runValidate()}
+				onsave={() => void runSave()}
+				oncancel={resetEditState}
+				onservercheck={() => void runTemplateServerGate()}
+				onopenworkflow={() => void runOpenAsWorkflow()}
+				onmovenode={handleTemplateMoveNode}
+				onmovenodes={handleTemplateMoveNodes}
+				onaddnode={handleTemplateAddNode}
+				onconnect={handleTemplateConnect}
+				ondeletenodes={handleTemplateDeleteNodes}
+				ondeletegroups={handleTemplateDeleteGroups}
+			/>
 			{:else if detail}
 				{@const current = detail}
 				{#if summary.length > 0}
@@ -1175,14 +821,13 @@
 						onclick={() => {
 							editMode = true;
 							editTab = 'json';
-							formState = {};
-							editText =
-								drawerKind === 'node' || drawerKind === 'trigger'
-									? JSON.stringify(current.raw, null, 2)
-									: current.definitionJson;
+							session.load(drawerKind, current.raw);
+							formState = session.formSnapshot();
+							editText = session.text;
 							syntaxError = null;
 							validationState = 'idle';
-							validationIssues = [];
+							serverIssues = [];
+							validatedText = null;
 						}}
 					>
 						<Icon name="pencil" size={13} />
@@ -1196,20 +841,18 @@
 						<Button
 							variant="outline"
 							size="sm"
-							onclick={() => {
-								editMode = true;
-								formState = {};
-								editText = current.definitionJson;
-								syntaxError = null;
-								validationState = 'idle';
-								validationIssues = [];
-								serverIssues = [];
-								serverIssueIds = [];
-								templateNodeId = null;
-								templateEditStore.load([], []);
-								graphSeed = '';
-								switchEditTab('graph');
-							}}
+						onclick={() => {
+							editMode = true;
+							editTab = 'graph';
+							session.load(drawerKind, current.raw);
+							formState = session.formSnapshot();
+							editText = session.text;
+							syntaxError = null;
+							validationState = 'idle';
+							serverIssues = [];
+							validatedText = null;
+							graphRequest += 1;
+						}}
 						>
 							Edit graph
 						</Button>
@@ -1255,78 +898,18 @@
 	{/snippet}
 </Sheet>
 
-<Dialog
-	bind:open={graphConflictOpen}
-	title="Graph and JSON diverge"
-	description="The graph has unsaved changes and the JSON changed underneath. Choose which side to keep."
->
-	<p class="text-caption text-muted-foreground">
-		Overwrite the JSON with the graph, or discard the graph and reload from
-		the JSON. No automatic merge is attempted.
-	</p>
-	{#snippet footer()}
-		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={discardGraphChanges}>
-				Discard graph
-			</Button>
-			<Button size="sm" onclick={keepGraphChanges}>Keep graph</Button>
-		</div>
-	{/snippet}
-</Dialog>
-
-<Dialog
+<TemplateImportDialog
 	bind:open={importOpen}
-	title="Import template"
-	description="Import any template kind from JSON text."
->
-	<Select
-		value={importKind}
-		options={[
-			{ value: 'node', label: 'Node' },
-			{ value: 'trigger', label: 'Trigger' },
-			{ value: 'agent', label: 'Agent' },
-			{ value: 'workflow', label: 'Workflow' },
-		]}
-		size="sm"
-		placeholder="Kind"
-		class="mb-2 w-40"
-		onchange={(value) => (importKind = value as TemplateKind)}
-	/>
-	<JsonEditor
-		bind:this={importEditor}
-		bind:value={importText}
-		errorLine={importErrorLine}
-		placeholder={'{\n  "id": "my-template",\n  …\n}'}
-		label="Import template JSON"
-		minHeight="12rem"
-	/>
-	{#if importError}
-		<div
-			class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
-		>
-			<p class="text-caption text-destructive">
-				JSON syntax{#if importErrorLine}
-					(line {importErrorLine}){/if}: {importError}
-			</p>
-			{#if importErrorLine}
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => importEditor?.scrollToLine(importErrorLine ?? 1)}
-				>
-					Go to line
-				</Button>
-			{/if}
-		</div>
-	{/if}
-	{#snippet footer()}
-		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={() => (importOpen = false)}>
-				Cancel
-			</Button>
-			<Button size="sm" disabled={importBusy} onclick={() => void runImport()}>
-				{importBusy ? 'Importing…' : 'Import'}
-			</Button>
-		</div>
-	{/snippet}
-</Dialog>
+	bind:kind={importKind}
+	bind:text={importText}
+	error={importError}
+	busy={importBusy}
+	onimport={() => void runImport()}
+	ondiscard={() => (importError = null)}
+/>
+
+<UnsavedChangesDialog
+	bind:open={unsavedOpen}
+	description="The template drawer has unsaved edits. Leaving discards the JSON, form and canvas changes."
+	ondiscard={discardDrawerEdits}
+/>

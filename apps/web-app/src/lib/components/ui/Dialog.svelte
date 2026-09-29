@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import IconButton from './IconButton.svelte';
+	import { trapFocus } from '$lib/utils/focus-trap';
 	import { cn } from '$lib/utils/cn';
 
 	interface Props {
@@ -24,6 +25,16 @@
 		children,
 		footer,
 	}: Props = $props();
+
+	const titleId = $props.id();
+
+	let panel = $state<HTMLDivElement | null>(null);
+
+	$effect(() => {
+		if (!open || !panel) return;
+		const trap = trapFocus(panel);
+		return () => trap.destroy();
+	});
 
 	function close(): void {
 		open = false;
@@ -50,9 +61,11 @@
 			onclick={close}
 		></button>
 		<div
+			bind:this={panel}
 			role="dialog"
 			aria-modal="true"
-			aria-label={title}
+			aria-labelledby={`${titleId}-title`}
+			tabindex="-1"
 			style:width
 			class={cn(
 				'animate-panel-in relative max-h-[85vh] w-full overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-popover',
@@ -63,7 +76,9 @@
 				class="flex items-start justify-between gap-3 border-b border-border px-4 py-3"
 			>
 				<div class="min-w-0">
-					<h2 class="text-title font-semibold">{title}</h2>
+					<h2 id={`${titleId}-title`} class="text-title font-semibold">
+						{title}
+					</h2>
 					{#if description}
 						<p class="mt-0.5 text-caption text-muted-foreground">
 							{description}

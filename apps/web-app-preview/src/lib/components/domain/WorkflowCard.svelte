@@ -2,7 +2,7 @@
 	import type { Workflow } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
-	import StatusBadge from './StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { formatPercent, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
 

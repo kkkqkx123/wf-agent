@@ -1,3 +1,4 @@
+import type { StatusTone } from '$lib/utils/status';
 import { cn } from '$lib/utils/cn';
 
 export type Size = 'sm' | 'md' | 'lg';
@@ -67,3 +68,24 @@ export const SURFACE_PANEL =
 	'rounded-lg border border-border bg-card text-card-foreground shadow-sm';
 
 export const MUTED_TEXT = 'text-muted-foreground';
+
+/**
+ * Text color per state tone. The neutral tone is deliberately omitted so each
+ * surface chooses its own fallback: "no tone" reads as muted next to a hint,
+ * but a metric value stays at full foreground strength.
+ */
+const TONE_TEXT: Partial<Record<StatusTone, string>> = {
+	success: 'text-success',
+	danger: 'text-destructive',
+	warning: 'text-warning',
+	info: 'text-info',
+	running: 'text-running',
+};
+
+/** Resolves a state tone onto its text color class. */
+export function toneText(
+	tone: StatusTone | null | undefined,
+	fallback: string = MUTED_TEXT,
+): string {
+	return (tone && TONE_TEXT[tone]) || fallback;
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { TimelineEntry } from '$lib/types/models';
-	import StatusBadge from './StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { statusTone } from '$lib/utils/status';
 	import { formatDateTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';

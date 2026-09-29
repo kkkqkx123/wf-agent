@@ -8,7 +8,9 @@
 		shown: number;
 		hasMore: boolean;
 		loading?: boolean;
-		pageSize: number;
+		pageSize?: number;
+		/** Auto-load the next page when the sentinel scrolls into view. */
+		autoLoad?: boolean;
 		class?: string;
 		onloadmore?: () => void;
 	}
@@ -17,10 +19,28 @@
 		shown,
 		hasMore,
 		loading = false,
-		pageSize,
+		pageSize = 50,
+		autoLoad = false,
 		class: className = '',
 		onloadmore,
 	}: Props = $props();
+
+	let sentinel: HTMLElement | null = $state(null);
+
+	// Auto-load fires when the sentinel becomes visible; loading guards keep a
+	// slow page from being requested twice while it is in flight.
+	$effect(() => {
+		if (!autoLoad || !sentinel) return;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0];
+				if (entry.isIntersecting && hasMore && !loading) onloadmore?.();
+			},
+			{ rootMargin: '10rem' },
+		);
+		observer.observe(sentinel);
+		return () => observer.disconnect();
+	});
 </script>
 
 <div
@@ -51,3 +71,7 @@
 		</Button>
 	</div>
 </div>
+
+{#if autoLoad && hasMore}
+	<div bind:this={sentinel} aria-hidden="true" class="h-px w-full"></div>
+{/if}

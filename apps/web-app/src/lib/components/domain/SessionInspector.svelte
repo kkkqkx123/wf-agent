@@ -9,7 +9,7 @@
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import Timeline from '$lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';

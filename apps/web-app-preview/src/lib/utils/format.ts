@@ -5,6 +5,15 @@ const TIME_UNITS: Array<[limit: number, divisor: number, suffix: string]> = [
 	[2_592_000_000, 86_400_000, 'd'],
 ];
 
+/** URL-safe identifier derived from a display name. */
+export function slugify(name: string): string {
+	return name
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '');
+}
+
 /** Compact elapsed label such as `12s`, `4m`, `3h`, `2d`. */
 export function formatDuration(ms: number | null | undefined): string {
 	if (ms === null || ms === undefined || Number.isNaN(ms)) return '—';

@@ -17,6 +17,7 @@ class BehaviorStore {
 	reduceMotion = $state(DEFAULT_BEHAVIOR.reduceMotion);
 
 	saving = $state(false);
+	loading = $state(false);
 	error = $state<string | null>(null);
 	loaded = $state(false);
 	private snapshot = $state<string>('');
@@ -26,6 +27,7 @@ class BehaviorStore {
 	}
 
 	async load(): Promise<void> {
+		this.loading = true;
 		try {
 			const stored = await loadBehavior();
 			this.pageSize = stored.pageSize;
@@ -37,6 +39,8 @@ class BehaviorStore {
 			this.snapshot = JSON.stringify(this.current());
 		} catch (e) {
 			this.error = errorMessage(e);
+		} finally {
+			this.loading = false;
 		}
 	}
 

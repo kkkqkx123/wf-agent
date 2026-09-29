@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -11,11 +10,15 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
+	import IssueList from '$lib/components/domain/IssueList.svelte';
+	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
-	import { jsonErrorLine } from '$lib/services/templates';
+	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import { jsonErrorLine, type TemplateIssue } from '$lib/services/templates';
 	import {
 		executeTool,
 		formFromToolParams,
@@ -95,6 +98,7 @@
 	} | null>(null);
 	let toolIssues = $state<string[]>([]);
 	let toolValidated = $state(false);
+	let toolValidatedSnapshot = $state<string | null>(null);
 	let toolRun = $state<ToolRun | null>(null);
 	let toolBusy = $state(false);
 	let toolTab = $state<'form' | 'json'>('json');
@@ -104,11 +108,47 @@
 	const toolErrorLine = $derived(
 		toolSyntaxError ? jsonErrorLine(toolParams, toolSyntaxError) : null,
 	);
+	const toolValidationStale = $derived(
+		toolValidated &&
+			toolValidatedSnapshot !== null &&
+			toolValidatedSnapshot !== toolParams,
+	);
+	const toolShowValid = $derived(toolValidated && !toolValidationStale);
+	const toolTemplateIssues = $derived<TemplateIssue[]>(
+		toolIssues.map((message) => ({
+			source: 'server',
+			field: null,
+			message,
+			nodeId: null,
+		})),
+	);
 
 	let skillDialogOpen = $state(false);
 	let activeSkill = $state<Skill | null>(null);
 	let skillContent = $state('');
 	let skillContentError = $state<string | null>(null);
+	let skillFilter = $state('');
+
+	const skillFilteredContent = $derived(
+		skillFilter.trim()
+			? skillContent
+					.split('\n')
+					.filter((line) =>
+						line.toLowerCase().includes(skillFilter.trim().toLowerCase()),
+					)
+					.join('\n') || 'No lines match the filter.'
+			: skillContent,
+	);
+
+	async function copySkillContent(): Promise<void> {
+		if (!skillContent) return;
+		try {
+			await navigator.clipboard.writeText(skillContent);
+			toasts.success('Prompt copied');
+		} catch (e) {
+			toasts.error('Copy failed', e instanceof Error ? e.message : undefined);
+		}
+	}
 
 	onMount(() => {
 		void loadTab(tab);
@@ -199,6 +239,7 @@
 		toolSyntaxError = null;
 		toolIssues = [];
 		toolValidated = false;
+		toolValidatedSnapshot = null;
 		toolRun = null;
 		toolTab = 'json';
 		toolSchema = null;
@@ -284,15 +325,18 @@
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 			return;
 		}
 		toolBusy = true;
 		try {
 			toolIssues = await validateToolParams(activeTool.id, value);
 			toolValidated = true;
+			toolValidatedSnapshot = toolParams;
 		} catch (e) {
 			toolIssues = [e instanceof Error ? e.message : 'Validation failed.'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 		} finally {
 			toolBusy = false;
 		}
@@ -306,6 +350,7 @@
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 			return;
 		}
 		toolBusy = true;
@@ -326,6 +371,7 @@
 		activeSkill = skill;
 		skillContent = '';
 		skillContentError = null;
+		skillFilter = '';
 		skillDialogOpen = true;
 		try {
 			skillContent = await getSkillContent(skill.name);
@@ -334,12 +380,81 @@
 				e instanceof Error ? e.message : 'Prompt failed to load.';
 		}
 	}
+
+	const profileColumns: Column<ModelProfile>[] = [
+		{ key: 'name', header: 'Profile', cell: profileNameCell },
+		{
+			key: 'provider',
+			header: 'Provider',
+			text: (profile) => profile.provider,
+			cellClass: 'text-caption text-muted-foreground',
+		},
+		{
+			key: 'model',
+			header: 'Model',
+			text: (profile) => profile.model,
+			cellClass: 'font-mono text-caption',
+		},
+		{ key: 'status', header: 'Status', cell: profileStatusCell },
+		{
+			key: 'requests',
+			header: 'Requests',
+			align: 'right',
+			text: (profile) => formatNumber(profile.requests),
+			cellClass: 'tabular-nums text-caption',
+		},
+		{
+			key: 'tokens',
+			header: 'Tokens',
+			align: 'right',
+			text: (profile) => formatNumber(profile.tokens),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'cost',
+			header: 'Cost',
+			align: 'right',
+			text: (profile) =>
+				profile.cost === null ? '—' : `$${profile.cost.toFixed(2)}`,
+			cellClass: 'tabular-nums text-caption',
+		},
+	];
+
+	const scriptColumns: Column<Script>[] = [
+		{
+			key: 'name',
+			header: 'Script',
+			text: (script) => script.name,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'runtime',
+			header: 'Runtime',
+			text: (script) => script.runtime,
+			cellClass: 'text-caption text-muted-foreground',
+		},
+		{ key: 'state', header: 'State', cell: scriptStateCell },
+		{
+			key: 'runs',
+			header: 'Runs',
+			align: 'right',
+			text: (script) => formatNumber(script.runs),
+			cellClass: 'tabular-nums text-caption',
+		},
+		{
+			key: 'updated',
+			header: 'Updated',
+			align: 'right',
+			text: (script) => formatRelativeTime(script.updatedAt),
+			cellClass: 'text-caption text-muted-foreground',
+		},
+	];
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title="Models & tools"
-		description="Profiles, providers, tool registry, scripts and skills."
+		description="Read-only operations console for profiles, providers, tool registry, scripts and skills."
 	>
 		{#snippet actions()}
 			<IconButton
@@ -347,18 +462,15 @@
 				label="Refresh"
 				onclick={() => void reload()}
 			/>
-			<Button
-				size="sm"
-				disabled
-				title="Resource creation is not available in this release"
-			>
-				<Icon name="plus" size={13} />
-				New
-			</Button>
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="resources-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="resources-panel"
+	/>
 
 	<div
 		id="resources-panel"
@@ -378,86 +490,14 @@
 		{:else if tab === 'models'}
 			<div class="space-y-3">
 				<Card title="Model profiles" bodyClass="p-0">
-					<div class="overflow-x-auto">
-						<table class="w-full border-collapse text-body">
-							<thead>
-								<tr class="border-b border-border">
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Profile</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Provider</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Model</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Status</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Requests</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Tokens</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Cost</th
-									>
-								</tr>
-							</thead>
-							<tbody>
-								{#each modelProfiles as profile (profile.id)}
-									<tr
-										class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-									>
-										<td class="px-3 py-2.5">
-											<span class="flex items-center gap-1.5">
-												<span class="truncate">{profile.name}</span>
-												{#if profile.isDefault}
-													<Badge variant="info" class="text-[0.625rem]"
-														>default</Badge
-													>
-												{/if}
-											</span>
-										</td>
-										<td class="px-3 py-2.5 text-caption text-muted-foreground"
-											>{profile.provider}</td
-										>
-										<td class="px-3 py-2.5 font-mono text-caption"
-											>{profile.model}</td
-										>
-										<td class="px-3 py-2.5"
-											><StatusBadge status={profile.status} size="sm" /></td
-										>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption"
-										>
-											{formatNumber(profile.requests)}
-										</td>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption text-muted-foreground"
-										>
-											{formatNumber(profile.tokens)}
-										</td>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption"
-										>
-											{profile.cost === null
-												? '—'
-												: `$${profile.cost.toFixed(2)}`}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={profileColumns}
+						rows={modelProfiles}
+						rowKey={(profile) => profile.id}
+						emptyTitle="No model profiles"
+						emptyDescription="Profiles appear here once a provider exposes them."
+						virtualize={false}
+					/>
 				</Card>
 
 				<Card title="Providers">
@@ -505,7 +545,9 @@
 									onchange={(checked) => void toggleTool(tool.id, checked)}
 								/>
 							{/snippet}
-							<p class="text-caption text-muted-foreground">{tool.description}</p>
+							<p class="text-caption text-muted-foreground">
+								{tool.description}
+							</p>
 							<div
 								class="mt-2 flex items-center justify-between text-micro text-muted-foreground"
 							>
@@ -536,62 +578,14 @@
 			{/if}
 		{:else if tab === 'scripts'}
 			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Script</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Runtime</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>State</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Runs</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Updated</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each scripts as script (script.id)}
-								<tr
-									class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-								>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{script.name}</td
-									>
-									<td class="px-3 py-2.5 text-caption text-muted-foreground"
-										>{script.runtime}</td
-									>
-									<td class="px-3 py-2.5">
-										<StatusBadge
-											status={script.enabled ? 'enabled' : 'disabled'}
-											size="sm"
-										/>
-									</td>
-									<td class="px-3 py-2.5 text-right tabular-nums text-caption">
-										{formatNumber(script.runs)}
-									</td>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-									>
-										{formatRelativeTime(script.updatedAt)}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable
+					columns={scriptColumns}
+					rows={scripts}
+					rowKey={(script) => script.id}
+					emptyTitle="No scripts registered"
+					emptyDescription="Scripts appear here once the registry has entries."
+					virtualize={false}
+				/>
 			</Card>
 		{:else}
 			{#if skills.length === 0}
@@ -704,6 +698,13 @@
 									toolForm = { ...toolForm, [key]: value };
 								}}
 							/>
+						{:else if prop.type === 'object' || prop.type === 'array'}
+							<Textarea
+								bind:value={toolForm[key]}
+								placeholder={prop.description ?? key}
+								rows={3}
+								class="font-mono text-small"
+							/>
 						{:else}
 							<Input
 								bind:value={toolForm[key]}
@@ -715,7 +716,8 @@
 					</label>
 				{/each}
 				<p class="text-micro text-muted-foreground">
-					Form edits typed fields; remaining parameters stay in JSON mode.
+					Form edits typed fields; object and array values use JSON fragments in
+					the multiline box. Remaining parameters stay in JSON mode.
 				</p>
 			</div>
 		{:else}
@@ -741,9 +743,12 @@
 		/>
 	{/if}
 	{#if toolSyntaxError}
-		<div class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+		<div
+			class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+		>
 			<p class="text-caption text-destructive">
-				JSON syntax{#if toolErrorLine} (line {toolErrorLine}){/if}: {toolSyntaxError}
+				JSON syntax{#if toolErrorLine}
+					(line {toolErrorLine}){/if}: {toolSyntaxError}
 			</p>
 			{#if toolErrorLine}
 				<Button
@@ -757,13 +762,15 @@
 		</div>
 	{/if}
 	{#if toolIssues.length > 0}
-		<ul class="mt-2 space-y-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
-			{#each toolIssues as issue, index (index)}
-				<li class="text-caption text-destructive">{issue}</li>
-			{/each}
-		</ul>
-	{:else if toolValidated}
+		<div class="mt-2">
+			<IssueList issues={toolTemplateIssues} />
+		</div>
+	{:else if toolShowValid}
 		<p class="mt-2 text-caption text-success">Parameters are valid.</p>
+	{:else if toolValidationStale}
+		<p class="mt-2 text-caption text-muted-foreground">
+			Parameters changed after validation; validate again.
+		</p>
 	{/if}
 	{#if toolRun}
 		<div class="mt-2 rounded-md border border-border bg-muted/40 p-2">
@@ -771,7 +778,8 @@
 				{toolRun.success ? 'Succeeded' : `Failed: ${toolRun.error}`}
 			</p>
 			{#if toolRun.output}
-				<pre class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
+				<pre
+					class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
 			{/if}
 			<p class="mt-1 text-micro text-muted-foreground">
 				{toolRun.durationMs}ms · {toolRun.retries} retries
@@ -788,7 +796,11 @@
 			>
 				Validate
 			</Button>
-			<Button size="sm" disabled={toolBusy} onclick={() => void runToolExecute()}>
+			<Button
+				size="sm"
+				disabled={toolBusy}
+				onclick={() => void runToolExecute()}
+			>
 				{toolBusy ? 'Running…' : 'Run'}
 			</Button>
 		</div>
@@ -810,15 +822,50 @@
 	{:else if !skillContent}
 		<Skeleton lines={6} />
 	{:else}
+		<div class="mb-2 flex items-center gap-2">
+			<Input
+				bind:value={skillFilter}
+				placeholder="Filter lines…"
+				size="sm"
+				class="w-full"
+			/>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={() => void copySkillContent()}
+			>
+				Copy
+			</Button>
+		</div>
 		<pre
-			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small"
-		>{skillContent}</pre>
+			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small">{skillFilteredContent}</pre>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end">
-			<Button variant="ghost" size="sm" onclick={() => (skillDialogOpen = false)}>
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => (skillDialogOpen = false)}
+			>
 				Close
 			</Button>
 		</div>
 	{/snippet}
 </Dialog>
+
+{#snippet profileNameCell(profile: ModelProfile)}
+	<span class="flex items-center gap-1.5">
+		<span class="truncate">{profile.name}</span>
+		{#if profile.isDefault}
+			<Badge variant="info" class="text-[0.625rem]">default</Badge>
+		{/if}
+	</span>
+{/snippet}
+
+{#snippet profileStatusCell(profile: ModelProfile)}
+	<StatusBadge status={profile.status} size="sm" />
+{/snippet}
+
+{#snippet scriptStateCell(script: Script)}
+	<StatusBadge status={script.enabled ? 'enabled' : 'disabled'} size="sm" />
+{/snippet}

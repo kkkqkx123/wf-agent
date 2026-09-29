@@ -10,9 +10,11 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
-	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Textarea from '$lib/components/ui/Textarea.svelte';
@@ -378,6 +380,75 @@
 				e instanceof Error ? e.message : 'Prompt failed to load.';
 		}
 	}
+
+	const profileColumns: Column<ModelProfile>[] = [
+		{ key: 'name', header: 'Profile', cell: profileNameCell },
+		{
+			key: 'provider',
+			header: 'Provider',
+			text: (profile) => profile.provider,
+			cellClass: 'text-caption text-muted-foreground',
+		},
+		{
+			key: 'model',
+			header: 'Model',
+			text: (profile) => profile.model,
+			cellClass: 'font-mono text-caption',
+		},
+		{ key: 'status', header: 'Status', cell: profileStatusCell },
+		{
+			key: 'requests',
+			header: 'Requests',
+			align: 'right',
+			text: (profile) => formatNumber(profile.requests),
+			cellClass: 'tabular-nums text-caption',
+		},
+		{
+			key: 'tokens',
+			header: 'Tokens',
+			align: 'right',
+			text: (profile) => formatNumber(profile.tokens),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'cost',
+			header: 'Cost',
+			align: 'right',
+			text: (profile) =>
+				profile.cost === null ? '—' : `$${profile.cost.toFixed(2)}`,
+			cellClass: 'tabular-nums text-caption',
+		},
+	];
+
+	const scriptColumns: Column<Script>[] = [
+		{
+			key: 'name',
+			header: 'Script',
+			text: (script) => script.name,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'runtime',
+			header: 'Runtime',
+			text: (script) => script.runtime,
+			cellClass: 'text-caption text-muted-foreground',
+		},
+		{ key: 'state', header: 'State', cell: scriptStateCell },
+		{
+			key: 'runs',
+			header: 'Runs',
+			align: 'right',
+			text: (script) => formatNumber(script.runs),
+			cellClass: 'tabular-nums text-caption',
+		},
+		{
+			key: 'updated',
+			header: 'Updated',
+			align: 'right',
+			text: (script) => formatRelativeTime(script.updatedAt),
+			cellClass: 'text-caption text-muted-foreground',
+		},
+	];
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -419,86 +490,14 @@
 		{:else if tab === 'models'}
 			<div class="space-y-3">
 				<Card title="Model profiles" bodyClass="p-0">
-					<div class="overflow-x-auto">
-						<table class="w-full border-collapse text-body">
-							<thead>
-								<tr class="border-b border-border">
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Profile</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Provider</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Model</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Status</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Requests</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Tokens</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Cost</th
-									>
-								</tr>
-							</thead>
-							<tbody>
-								{#each modelProfiles as profile (profile.id)}
-									<tr
-										class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-									>
-										<td class="px-3 py-2.5">
-											<span class="flex items-center gap-1.5">
-												<span class="truncate">{profile.name}</span>
-												{#if profile.isDefault}
-													<Badge variant="info" class="text-[0.625rem]"
-														>default</Badge
-													>
-												{/if}
-											</span>
-										</td>
-										<td class="px-3 py-2.5 text-caption text-muted-foreground"
-											>{profile.provider}</td
-										>
-										<td class="px-3 py-2.5 font-mono text-caption"
-											>{profile.model}</td
-										>
-										<td class="px-3 py-2.5"
-											><StatusBadge status={profile.status} size="sm" /></td
-										>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption"
-										>
-											{formatNumber(profile.requests)}
-										</td>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption text-muted-foreground"
-										>
-											{formatNumber(profile.tokens)}
-										</td>
-										<td
-											class="px-3 py-2.5 text-right tabular-nums text-caption"
-										>
-											{profile.cost === null
-												? '—'
-												: `$${profile.cost.toFixed(2)}`}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={profileColumns}
+						rows={modelProfiles}
+						rowKey={(profile) => profile.id}
+						emptyTitle="No model profiles"
+						emptyDescription="Profiles appear here once a provider exposes them."
+						virtualize={false}
+					/>
 				</Card>
 
 				<Card title="Providers">
@@ -579,62 +578,14 @@
 			{/if}
 		{:else if tab === 'scripts'}
 			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Script</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Runtime</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>State</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Runs</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Updated</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each scripts as script (script.id)}
-								<tr
-									class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-								>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{script.name}</td
-									>
-									<td class="px-3 py-2.5 text-caption text-muted-foreground"
-										>{script.runtime}</td
-									>
-									<td class="px-3 py-2.5">
-										<StatusBadge
-											status={script.enabled ? 'enabled' : 'disabled'}
-											size="sm"
-										/>
-									</td>
-									<td class="px-3 py-2.5 text-right tabular-nums text-caption">
-										{formatNumber(script.runs)}
-									</td>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-									>
-										{formatRelativeTime(script.updatedAt)}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<DataTable
+					columns={scriptColumns}
+					rows={scripts}
+					rowKey={(script) => script.id}
+					emptyTitle="No scripts registered"
+					emptyDescription="Scripts appear here once the registry has entries."
+					virtualize={false}
+				/>
 			</Card>
 		{:else}
 			{#if skills.length === 0}
@@ -901,3 +852,20 @@
 		</div>
 	{/snippet}
 </Dialog>
+
+{#snippet profileNameCell(profile: ModelProfile)}
+	<span class="flex items-center gap-1.5">
+		<span class="truncate">{profile.name}</span>
+		{#if profile.isDefault}
+			<Badge variant="info" class="text-[0.625rem]">default</Badge>
+		{/if}
+	</span>
+{/snippet}
+
+{#snippet profileStatusCell(profile: ModelProfile)}
+	<StatusBadge status={profile.status} size="sm" />
+{/snippet}
+
+{#snippet scriptStateCell(script: Script)}
+	<StatusBadge status={script.enabled ? 'enabled' : 'disabled'} size="sm" />
+{/snippet}

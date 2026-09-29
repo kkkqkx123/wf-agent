@@ -2,6 +2,7 @@
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import type { IconName } from '$lib/components/icons/paths';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
+	import { toneText } from '$lib/components/ui/variants';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '$lib/utils/cn';
 
@@ -12,12 +13,8 @@
 		info: 'info',
 	};
 
-	const TONE_CLASS: Record<string, string> = {
-		success: 'text-success',
-		danger: 'text-destructive',
-		warning: 'text-warning',
-		info: 'text-info',
-	};
+	// An unrecognized toast tone still reads as informational, not muted.
+	const FALLBACK_TEXT = 'text-info';
 </script>
 
 {#if toasts.items.length > 0}
@@ -34,7 +31,7 @@
 				<Icon
 					name={TONE_ICON[toast.tone] ?? 'info'}
 					size={15}
-					class={cn('mt-0.5 shrink-0', TONE_CLASS[toast.tone] ?? 'text-info')}
+					class={cn('mt-0.5 shrink-0', toneText(toast.tone, FALLBACK_TEXT))}
 				/>
 				<div class="min-w-0 flex-1">
 					<p class="text-body font-medium text-foreground">{toast.title}</p>

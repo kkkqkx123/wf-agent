@@ -7,18 +7,22 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { listAgentLoops, getAgentLoopDetail } from '$lib/services/agent-loops';
+	import {
+		listAgentLoops,
+		getAgentLoopDetail,
+	} from '$lib/services/agent-loops';
 	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
 
 	const STATUS_OPTIONS = [
 		{ value: 'running', label: 'Running' },
@@ -35,6 +39,7 @@
 	let allLoops = $state<AgentLoop[]>([]);
 	let selected = $state<AgentLoopDetail | null>(null);
 	let listError = $state<string | null>(null);
+	let listLoading = $state(false);
 	let detailError = $state<string | null>(null);
 
 	onMount(() => {
@@ -43,6 +48,7 @@
 
 	async function reload(): Promise<void> {
 		listError = null;
+		listLoading = true;
 		try {
 			const page = await listAgentLoops();
 			allLoops = page.items;
@@ -52,6 +58,8 @@
 		} catch (e) {
 			listError = e instanceof Error ? e.message : 'Agent loops failed.';
 			allLoops = [];
+		} finally {
+			listLoading = false;
 		}
 	}
 
@@ -82,6 +90,49 @@
 				loop.tags.some((tag) => tag.toLowerCase().includes(needle));
 			return matchesStatus && matchesQuery;
 		}),
+	);
+
+	const loopColumns: Column<AgentLoop>[] = [
+		{ key: 'name', header: 'Loop', cell: loopNameCell },
+		{ key: 'status', header: 'Status', cell: loopStatusCell },
+		{
+			key: 'iteration',
+			header: 'Iteration',
+			text: (loop) => `${loop.iteration}/${loop.maxIterations}`,
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'model',
+			header: 'Model',
+			text: (loop) => loop.model,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'tokens',
+			header: 'Tokens',
+			align: 'right',
+			text: (loop) => formatNumber(loop.tokens),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'updated',
+			header: 'Updated',
+			align: 'right',
+			text: (loop) => formatRelativeTime(loop.updatedAt),
+			cellClass: 'text-caption text-muted-foreground',
+		},
+	];
+
+	const filteredCopy = $derived(
+		query.trim() || status
+			? {
+					title: 'No loops match',
+					description: 'Clear the filters to browse every loop.',
+				}
+			: {
+					title: 'No agent loops yet',
+					description: 'Start a run from the chat page to see loops here.',
+				},
 	);
 </script>
 
@@ -123,106 +174,28 @@
 				{/snippet}
 			</FilterBar>
 
-			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Loop</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Status</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Iteration</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Model</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Tokens</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Updated</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each filtered as loop (loop.id)}
-								<tr
-									class={cn(
-										'cursor-pointer border-b border-border/60 transition-colors last:border-0',
-										selectedId === loop.id
-											? 'bg-accent/70'
-											: 'hover:bg-accent/40',
-									)}
-									onclick={() => (selectedId = loop.id)}
-								>
-									<td class="px-3 py-2.5">
-										<span class="flex items-center gap-1.5">
-											{#if loop.starred}
-												<Icon
-													name="star"
-													size={12}
-													class="shrink-0 text-warning"
-												/>
-											{/if}
-											<span class="truncate">{loop.name}</span>
-										</span>
-									</td>
-									<td class="px-3 py-2.5"
-										><StatusBadge status={loop.status} size="sm" /></td
-									>
-									<td
-										class="px-3 py-2.5 tabular-nums text-caption text-muted-foreground"
-									>
-										{loop.iteration}/{loop.maxIterations}
-									</td>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{loop.model}</td
-									>
-									<td
-										class="px-3 py-2.5 text-right tabular-nums text-caption text-muted-foreground"
-									>
-										{formatNumber(loop.tokens)}
-									</td>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-									>
-										{formatRelativeTime(loop.updatedAt)}
-									</td>
-								</tr>
-							{:else}
-								<tr>
-									<td colspan="6">
-										{#if listError}
-											<ErrorState
-												title="Agent loops failed to load"
-												description={listError}
-												onretry={() => void reload()}
-												class="py-6"
-											/>
-										{:else}
-											<EmptyState
-												icon="loop"
-												title="No loops match"
-												class="py-6"
-											/>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</Card>
+			<PageState
+				loading={listLoading}
+				error={listError}
+				errorTitle="Agent loops failed to load"
+				empty={filtered.length === 0}
+				emptyIcon="loop"
+				emptyTitle={filteredCopy.title}
+				emptyDescription={filteredCopy.description}
+				onretry={() => void reload()}
+				class="rounded-lg border border-border bg-card"
+			>
+				<Card bodyClass="p-0">
+					<DataTable
+						columns={loopColumns}
+						rows={filtered}
+						rowKey={(loop) => loop.id}
+						selectedKey={selectedId}
+						onrowclick={(loop) => (selectedId = loop.id)}
+						virtualize={false}
+					/>
+				</Card>
+			</PageState>
 		</div>
 	</div>
 
@@ -239,8 +212,7 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError =
-									e instanceof Error ? e.message : 'Detail failed.';
+								detailError = e instanceof Error ? e.message : 'Detail failed.';
 							});
 					}
 				}}
@@ -326,3 +298,16 @@
 		{/if}
 	{/snippet}
 </SplitView>
+
+{#snippet loopNameCell(loop: AgentLoop)}
+	<span class="flex items-center gap-1.5">
+		{#if loop.starred}
+			<Icon name="star" size={12} class="shrink-0 text-warning" />
+		{/if}
+		<span class="truncate">{loop.name}</span>
+	</span>
+{/snippet}
+
+{#snippet loopStatusCell(loop: AgentLoop)}
+	<StatusBadge status={loop.status} size="sm" />
+{/snippet}

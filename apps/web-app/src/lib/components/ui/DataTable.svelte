@@ -106,13 +106,24 @@
 						onrowclick && 'cursor-pointer',
 						selectedKey === rowKey(row) ? 'bg-accent/70' : 'hover:bg-accent/40',
 					)}
+					tabindex={onrowclick ? 0 : undefined}
+					aria-selected={onrowclick && selectedKey !== null
+						? selectedKey === rowKey(row)
+						: undefined}
 					onclick={() => onrowclick?.(row)}
+					onkeydown={(event) => {
+						if (!onrowclick) return;
+						if (event.key !== 'Enter' && event.key !== ' ') return;
+						event.preventDefault();
+						onrowclick(row);
+					}}
 				>
 					{#each columns as column (column.key)}
 						<td
 							class={cn(
 								dense ? 'px-3 py-1.5' : 'px-3 py-2.5',
 								ALIGN[column.align ?? 'left'],
+								column.cellClass,
 							)}
 						>
 							{#if column.cell}

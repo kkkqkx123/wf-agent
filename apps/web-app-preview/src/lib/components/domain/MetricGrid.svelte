@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toneText } from '$lib/components/ui/variants';
 	import type { Metric } from '$lib/types/models';
 	import { cn } from '$lib/utils/cn';
 
@@ -10,14 +11,8 @@
 
 	let { metrics, columns = 6, class: className = '' }: Props = $props();
 
-	const TONE_TEXT = {
-		success: 'text-success',
-		danger: 'text-destructive',
-		warning: 'text-warning',
-		running: 'text-running',
-		info: 'text-info',
-		neutral: 'text-foreground',
-	} as const;
+	// A metric value without an explicit tone keeps full foreground strength.
+	const NEUTRAL_TEXT = 'text-foreground';
 </script>
 
 <div
@@ -33,7 +28,7 @@
 			<p
 				class={cn(
 					'mt-1 text-heading font-semibold tabular-nums',
-					TONE_TEXT[metric.tone ?? 'neutral'],
+					toneText(metric.tone, NEUTRAL_TEXT),
 				)}
 			>
 				{metric.value}

@@ -14,7 +14,8 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import GraphExplorer, {
 		type GraphOverlay,
@@ -70,6 +71,7 @@
 	let detailError = $state<string | null>(null);
 	let loopMessages = $state<LoopMessage[]>([]);
 	let messagesError = $state<string | null>(null);
+	let messagesLoading = $state(false);
 	let loopVariables = $state<LoopVariable[]>([]);
 	let variablesError = $state<string | null>(null);
 	let loopCheckpoints = $state<Checkpoint[]>([]);
@@ -122,9 +124,9 @@
 	const peakToolCount = $derived(
 		Math.max(
 			1,
-			...((analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? []).map(
+			...(analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? []).map(
 				(entry) => entry.count,
-			)),
+			),
 		),
 	);
 
@@ -147,7 +149,16 @@
 			if (current === 'messages' && seenMessages !== id) {
 				seenMessages = id;
 				messagesError = null;
-				loopMessages = await getAgentLoopMessages(id);
+				messagesLoading = true;
+				try {
+					loopMessages = await getAgentLoopMessages(id);
+				} catch (e) {
+					seenMessages = '';
+					loopMessages = [];
+					messagesError = e instanceof Error ? e.message : 'Messages failed.';
+				} finally {
+					messagesLoading = false;
+				}
 			} else if (current === 'variables' && seenVariables !== id) {
 				seenVariables = id;
 				variablesError = null;
@@ -340,11 +351,7 @@
 				>
 					Confirm cancel
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => (cancelArmed = false)}
-				>
+				<Button variant="ghost" size="sm" onclick={() => (cancelArmed = false)}>
 					Keep
 				</Button>
 			{:else}
@@ -383,26 +390,28 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if tab === 'messages'}
-			{#if messagesError}
-				<ErrorState
-					title="Messages failed to load"
-					description={messagesError}
-					onretry={() => {
-						const id = page.params.id;
-						if (id) {
-							seenMessages = '';
-							void loadTab(id, 'messages');
-						}
-					}}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
+			<PageState
+				loading={messagesLoading}
+				error={messagesError}
+				errorTitle="Messages failed to load"
+				empty={loopMessages.length === 0}
+				emptyTitle="No messages recorded"
+				emptyDescription="Loop messages appear here once the run exchanges prompts with the model."
+				onretry={() => {
+					const id = page.params.id;
+					if (id) {
+						seenMessages = '';
+						void loadTab(id, 'messages');
+					}
+				}}
+				class="rounded-lg border border-border bg-card"
+			>
 				<div class="mx-auto flex max-w-3xl flex-col gap-3">
 					{#each loopMessages as message (message.id)}
 						<MessageBubble {message} />
 					{/each}
 				</div>
-			{/if}
+			</PageState>
 
 			<div
 				class="mx-auto mt-4 flex max-w-3xl items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"
@@ -414,8 +423,7 @@
 					size="sm"
 					onclick={() => {
 						const id = page.params.id;
-						if (id)
-							void goto(resolve(`/chat?id=${encodeURIComponent(id)}`));
+						if (id) void goto(resolve(`/chat?id=${encodeURIComponent(id)}`));
 					}}
 				>
 					Continue in chat
@@ -447,7 +455,10 @@
 			{/if}
 		{:else if tab === 'graph'}
 			{#if !detail}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else}
 				<GraphExplorer
 					{nodes}
@@ -455,7 +466,7 @@
 					preset="decision"
 					selectedId={graphNodeId}
 					onselect={(id) => (graphNodeId = id)}
-					overlays={overlays}
+					{overlays}
 					{activeOverlay}
 					onoverlay={(id) => (activeOverlay = id)}
 				/>
@@ -477,7 +488,11 @@
 									<span class="text-micro tabular-nums text-muted-foreground">
 										{formatDuration(iteration.durationMs)}
 									</span>
-									<StatusBadge status={iteration.status} size="sm" dot={false} />
+									<StatusBadge
+										status={iteration.status}
+										size="sm"
+										dot={false}
+									/>
 								</div>
 							</li>
 						{/each}
@@ -486,7 +501,10 @@
 			{/if}
 		{:else if tab === 'analysis'}
 			{#if analysisLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if analysisError}
 				<ErrorState
 					title="Analysis failed to load"
@@ -501,9 +519,12 @@
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else}
-				{@const rootCause = analysis?.rootCause ?? detail?.analysis.rootCause ?? null}
-				{@const errorChain = analysis?.errorChain ?? detail?.analysis.errorChain ?? []}
-				{@const recoveryHints = analysis?.recoveryHints ?? detail?.analysis.recoveryHints ?? []}
+				{@const rootCause =
+					analysis?.rootCause ?? detail?.analysis.rootCause ?? null}
+				{@const errorChain =
+					analysis?.errorChain ?? detail?.analysis.errorChain ?? []}
+				{@const recoveryHints =
+					analysis?.recoveryHints ?? detail?.analysis.recoveryHints ?? []}
 				<div class="grid gap-3 lg:grid-cols-2">
 					<Card title="Error analysis">
 						<p class="text-caption">
@@ -599,7 +620,9 @@
 									{checkpoint.restorable ? 'restorable' : 'locked'}
 								</Badge>
 							{/snippet}
-							<p class="text-caption text-muted-foreground">{checkpoint.note}</p>
+							<p class="text-caption text-muted-foreground">
+								{checkpoint.note}
+							</p>
 							<p class="mt-1 text-micro text-muted-foreground">
 								{checkpoint.actor} · {formatDateTime(checkpoint.createdAt)}
 							</p>

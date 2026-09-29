@@ -10,10 +10,12 @@
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import ExecutionCard from '$lib/components/domain/ExecutionCard.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
-	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import CursorPager from '$lib/components/domain/CursorPager.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
+	import CursorPager from '$lib/components/ui/CursorPager.svelte';
 	import { onMount } from 'svelte';
 	import {
 		listExecutions,
@@ -23,7 +25,6 @@
 	import type { Execution, ExecutionDetail, Metric } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
 
 	const STATUS_OPTIONS = [
 		{ value: 'running', label: 'Running' },
@@ -126,6 +127,34 @@
 	);
 
 	const selected = $derived(detail);
+
+	const executionColumns: Column<Execution>[] = [
+		{
+			key: 'id',
+			header: 'Execution',
+			text: (execution) => execution.id,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'workflow',
+			header: 'Workflow',
+			text: (execution) => execution.workflowName,
+		},
+		{ key: 'status', header: 'Status', cell: executionStatusCell },
+		{
+			key: 'started',
+			header: 'Started',
+			text: (execution) => formatDateTime(execution.startedAt),
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+		{
+			key: 'tasks',
+			header: 'Tasks',
+			align: 'right',
+			text: (execution) => `${execution.tasksDone}/${execution.tasksTotal}`,
+			cellClass: 'tabular-nums text-caption text-muted-foreground',
+		},
+	];
 </script>
 
 <SplitView
@@ -206,65 +235,14 @@
 				</div>
 			{:else}
 				<Card bodyClass="p-0">
-					<div class="overflow-x-auto">
-						<table class="w-full border-collapse text-body">
-							<thead>
-								<tr class="border-b border-border">
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Execution</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Workflow</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Status</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Started</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Tasks</th
-									>
-								</tr>
-							</thead>
-							<tbody>
-								{#each filtered as execution (execution.id)}
-									<tr
-										class={cn(
-											'cursor-pointer border-b border-border/60 transition-colors last:border-0',
-											selectedId === execution.id
-												? 'bg-accent/70'
-												: 'hover:bg-accent/40',
-										)}
-										onclick={() => (selectedId = execution.id)}
-									>
-										<td class="px-3 py-2 font-mono text-caption"
-											>{execution.id}</td
-										>
-										<td class="px-3 py-2">{execution.workflowName}</td>
-										<td class="px-3 py-2"
-											><StatusBadge status={execution.status} size="sm" /></td
-										>
-										<td
-											class="px-3 py-2 tabular-nums text-caption text-muted-foreground"
-										>
-											{formatDateTime(execution.startedAt)}
-										</td>
-										<td
-											class="px-3 py-2 text-right tabular-nums text-caption text-muted-foreground"
-										>
-											{execution.tasksDone}/{execution.tasksTotal}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={executionColumns}
+						rows={filtered}
+						rowKey={(execution) => execution.id}
+						selectedKey={selectedId}
+						onrowclick={(execution) => (selectedId = execution.id)}
+						virtualize={false}
+					/>
 				</Card>
 			{/if}
 
@@ -285,3 +263,7 @@
 		{/if}
 	{/snippet}
 </SplitView>
+
+{#snippet executionStatusCell(execution: Execution)}
+	<StatusBadge status={execution.status} size="sm" />
+{/snippet}

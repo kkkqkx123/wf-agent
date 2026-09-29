@@ -6,10 +6,9 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		cancelExecution,
 		getExecutionDetail,
@@ -23,10 +22,18 @@
 
 	let execution = $state<ExecutionDetail | null>(null);
 	let loadError = $state<string | null>(null);
+	let loading = $state(false);
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
 
-	const TAB_IDS = ['overview', 'graph', 'timeline', 'tools', 'analysis', 'state'];
+	const TAB_IDS = [
+		'overview',
+		'graph',
+		'timeline',
+		'tools',
+		'analysis',
+		'state',
+	];
 	const requestedTab = parseListParams(page.url).tab;
 	let tab = $state(
 		requestedTab && TAB_IDS.includes(requestedTab) ? requestedTab : 'overview',
@@ -38,11 +45,14 @@
 
 	async function load(id: string): Promise<void> {
 		loadError = null;
+		loading = true;
 		try {
 			execution = await getExecutionDetail(id);
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : 'Failed to load execution.';
 			execution = null;
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -146,22 +156,26 @@
 	</PageHeader>
 
 	<div class="min-h-0 flex-1 overflow-hidden px-4 pb-4">
-		{#if loadError && !execution}
-			<ErrorState
-				title="Execution failed to load"
-				description={loadError}
-				onretry={() => {
-					const id = page.params.id;
-					if (id) void load(id);
-				}}
-				class="rounded-lg border border-border bg-card"
-			/>
-		{:else if !execution}
-			<Skeleton lines={6} class="h-full rounded-lg border border-border bg-card p-4" />
-		{:else}
-			<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
-				<ExecutionInspector {execution} bind:tab />
+		<PageState
+			{loading}
+			error={loadError}
+			errorTitle="Execution failed to load"
+			empty={!execution}
+			emptyTitle="Execution not found"
+			emptyDescription="This execution is no longer available. It may have been pruned, or the link points at an unknown id."
+			onretry={() => {
+				const id = page.params.id;
+				if (id) void load(id);
+			}}
+			class="h-full rounded-lg border border-border bg-card"
+		>
+			<div
+				class="h-full overflow-hidden rounded-lg border border-border bg-card"
+			>
+				{#if execution}
+					<ExecutionInspector {execution} bind:tab />
+				{/if}
 			</div>
-		{/if}
+		</PageState>
 	</div>
 </div>

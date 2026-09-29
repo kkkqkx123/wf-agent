@@ -2,7 +2,7 @@
 	import type { Execution } from '$lib/types/models';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import StatusBadge from './StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { statusTone } from '$lib/utils/status';
 	import {
 		formatDuration,

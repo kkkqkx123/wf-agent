@@ -7,11 +7,12 @@
 	import Card from '$lib/components/ui/Card.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
+	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
 	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		cleanupTriggerExecutions,
@@ -52,6 +53,8 @@
 	let lastDispatch = $state<string | null>(null);
 	let recordsError = $state<string | null>(null);
 	let recordsLoading = $state(false);
+	let hooksError = $state<string | null>(null);
+	let hooksLoading = $state(false);
 	let cleanupArmed = $state(false);
 	let cleanupBusy = $state(false);
 
@@ -98,8 +101,18 @@
 			}
 		} else if (current === 'hooks' && !seenHooks) {
 			seenHooks = true;
-			hooks = await listHooks();
-			if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			hooksLoading = true;
+			hooksError = null;
+			try {
+				hooks = await listHooks();
+				if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			} catch (e) {
+				seenHooks = false;
+				hooks = [];
+				hooksError = e instanceof Error ? e.message : 'Hook registry failed.';
+			} finally {
+				hooksLoading = false;
+			}
 		}
 	}
 
@@ -152,6 +165,34 @@
 			dispatchBusy = false;
 		}
 	}
+
+	const recordColumns: Column<TriggerRecord>[] = [
+		{
+			key: 'trigger',
+			header: 'Trigger',
+			text: (record) => record.triggerName,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'workflow',
+			header: 'Workflow',
+			text: (record) => record.workflowName,
+		},
+		{
+			key: 'execution',
+			header: 'Execution',
+			text: (record) => record.executionId,
+			cellClass: 'font-mono text-caption text-muted-foreground',
+		},
+		{ key: 'status', header: 'Status', cell: recordStatusCell },
+		{
+			key: 'fired',
+			header: 'Fired',
+			align: 'right',
+			text: (record) => formatRelativeTime(record.firedAt),
+			cellClass: 'text-caption text-muted-foreground',
+		},
+	];
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -208,85 +249,36 @@
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tab === 'records'}
-			{#if recordsLoading}
-				<Skeleton
-					lines={5}
-					class="rounded-lg border border-border bg-card p-4"
-				/>
-			{:else if recordsError}
-				<ErrorState
-					title="Trigger records failed to load"
-					description={recordsError}
-					onretry={() => void reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
+			<PageState
+				loading={recordsLoading}
+				error={recordsError}
+				errorTitle="Trigger records failed to load"
+				empty={triggerRecords.length === 0}
+				emptyTitle="No trigger records"
+				emptyDescription="Fired triggers appear here once a workflow or hook fires."
+				onretry={() => void reload()}
+			>
 				<Card bodyClass="p-0">
-					<div class="overflow-x-auto">
-						<table class="w-full border-collapse text-body">
-							<thead>
-								<tr class="border-b border-border">
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Trigger</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Workflow</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Execution</th
-									>
-									<th
-										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-										>Status</th
-									>
-									<th
-										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-										>Fired</th
-									>
-								</tr>
-							</thead>
-							<tbody>
-								{#each triggerRecords as record (record.id)}
-									<tr
-										class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-									>
-										<td class="px-3 py-2.5 font-mono text-caption"
-											>{record.triggerName}</td
-										>
-										<td class="px-3 py-2.5">{record.workflowName}</td>
-										<td
-											class="px-3 py-2.5 font-mono text-caption text-muted-foreground"
-										>
-											{record.executionId}
-										</td>
-										<td class="px-3 py-2.5"
-											><StatusBadge status={record.status} size="sm" /></td
-										>
-										<td
-											class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-										>
-											{formatRelativeTime(record.firedAt)}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
-					</div>
+					<DataTable
+						columns={recordColumns}
+						rows={triggerRecords}
+						rowKey={(record) => record.id}
+						virtualize={false}
+					/>
 				</Card>
-			{/if}
+			</PageState>
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
 				<Card title="Hooks">
-					{#if hooks.length === 0}
-						<p class="text-caption text-muted-foreground">
-							The backend exposes no hook registry endpoint, so there is nothing
-							to pick. Enter a hook name manually on the right to dispatch a
-							test payload.
-						</p>
-					{:else}
+					<PageState
+						loading={hooksLoading}
+						error={hooksError}
+						errorTitle="Hook registry failed to load"
+						empty={hooks.length === 0}
+						emptyTitle="No hooks registered"
+						emptyDescription="The backend exposes no hook registry endpoint, so there is nothing to pick. Enter a hook name manually on the right to dispatch a test payload."
+						onretry={() => void reload()}
+					>
 						<ul class="space-y-1">
 							{#each hooks as hook (hook.name)}
 								<li>
@@ -313,7 +305,7 @@
 								</li>
 							{/each}
 						</ul>
-					{/if}
+					</PageState>
 				</Card>
 
 				<Card title="Dispatch test payload">
@@ -393,3 +385,7 @@
 		{/if}
 	</div>
 </div>
+
+{#snippet recordStatusCell(record: TriggerRecord)}
+	<StatusBadge status={record.status} size="sm" />
+{/snippet}

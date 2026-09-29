@@ -9,7 +9,8 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		listEvents,
 		listDependencies,
@@ -46,6 +47,8 @@
 	let events = $state<EventRecord[]>([]);
 	let dependencies = $state<Dependency[]>([]);
 	let diagnostics = $state<Diagnostic[]>([]);
+	let loading = $state(false);
+	let loadError = $state<string | null>(null);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenStream = $state(false);
@@ -61,25 +64,32 @@
 	});
 
 	async function loadTab(current: string): Promise<void> {
+		const pending =
+			current === 'stream'
+				? !seenStream
+				: current === 'dependencies'
+					? !seenDeps
+					: !seenOps;
+		if (!pending) return;
+		loading = true;
+		loadError = null;
 		try {
-			if (current === 'stream' && !seenStream) {
+			if (current === 'stream') {
 				seenStream = true;
-				const eventPage = await listEvents({ limit: 200 }).catch(() => ({
-					items: [],
-					hasMore: false,
-					limit: 0,
-					offset: 0,
-				}));
+				const eventPage = await listEvents({ limit: 200 });
 				events = eventPage.items;
-			} else if (current === 'dependencies' && !seenDeps) {
+			} else if (current === 'dependencies') {
 				seenDeps = true;
-				dependencies = await listDependencies().catch(() => []);
-			} else if (current === 'operations' && !seenOps) {
+				dependencies = await listDependencies();
+			} else {
 				seenOps = true;
-				diagnostics = await getDiagnostics().catch(() => []);
+				diagnostics = await getDiagnostics();
 			}
 		} catch (e) {
 			console.error('Failed to load events segment:', e);
+			loadError = e instanceof Error ? e.message : 'Event request failed';
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -111,6 +121,42 @@
 			);
 		}),
 	);
+
+	function emptyCopyFor(current: string): {
+		title: string;
+		description: string;
+	} {
+		if (current === 'dependencies') {
+			return {
+				title: 'No dependencies recorded',
+				description:
+					'Caller and callee links appear once tool and script calls are traced.',
+			};
+		}
+		if (current === 'operations') {
+			return {
+				title: 'No diagnostics reported',
+				description:
+					'Runtime diagnostics appear once the backend publishes health checks.',
+			};
+		}
+		return {
+			title: query.trim() ? 'No matching events' : 'No events captured',
+			description: query.trim()
+				? 'No event matches the current filter. Clear the filter to see the full stream.'
+				: 'Event records appear here once a workflow run or agent loop emits them.',
+		};
+	}
+
+	const isEmpty = $derived(
+		tab === 'stream'
+			? filtered.length === 0
+			: tab === 'dependencies'
+				? dependencies.length === 0
+				: diagnostics.length === 0,
+	);
+
+	const emptyCopy = $derived(emptyCopyFor(tab));
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -173,145 +219,156 @@
 					>{filtered.length} events</span
 				>
 			</div>
+		{/if}
 
-			<Card bodyClass="p-0">
-				<ul class="divide-y divide-border">
-					{#each filtered as event (event.id)}
-						<li>
-							<button
-								type="button"
-								onclick={() =>
-									(expandedId = expandedId === event.id ? null : event.id)}
-								class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/40"
-							>
-								<span class="w-40 shrink-0 truncate font-mono text-caption"
-									>{event.type}</span
+		<PageState
+			{loading}
+			error={loadError}
+			empty={isEmpty}
+			emptyTitle={emptyCopy.title}
+			emptyDescription={emptyCopy.description}
+			onretry={() => void reload()}
+		>
+			{#if tab === 'stream'}
+				<Card bodyClass="p-0">
+					<ul class="divide-y divide-border">
+						{#each filtered as event (event.id)}
+							<li>
+								<button
+									type="button"
+									onclick={() =>
+										(expandedId = expandedId === event.id ? null : event.id)}
+									class="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/40"
 								>
-								<span
-									class="min-w-0 flex-1 truncate text-caption text-muted-foreground"
-								>
-									{event.source}
-								</span>
-								{#if event.executionId}
-									<Badge variant="outline" class="shrink-0 text-[0.625rem]"
-										>{event.executionId}</Badge
+									<span class="w-40 shrink-0 truncate font-mono text-caption"
+										>{event.type}</span
 									>
+									<span
+										class="min-w-0 flex-1 truncate text-caption text-muted-foreground"
+									>
+										{event.source}
+									</span>
+									{#if event.executionId}
+										<Badge variant="outline" class="shrink-0 text-[0.625rem]"
+											>{event.executionId}</Badge
+										>
+									{/if}
+									<span
+										class="w-28 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
+									>
+										{formatRelativeTime(event.at)}
+									</span>
+									<Icon
+										name="chevron-down"
+										size={13}
+										class="shrink-0 text-muted-foreground transition-transform {expandedId ===
+										event.id
+											? 'rotate-180'
+											: ''}"
+									/>
+								</button>
+								{#if expandedId === event.id}
+									<div
+										class="animate-panel-in border-t border-border bg-muted/40 px-3 py-2"
+									>
+										<pre
+											class="overflow-x-auto font-mono text-micro">{event.payload}</pre>
+										<p class="mt-1 text-micro text-muted-foreground">
+											{formatDateTime(event.at)}
+										</p>
+									</div>
 								{/if}
-								<span
-									class="w-28 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
-								>
-									{formatRelativeTime(event.at)}
-								</span>
-								<Icon
-									name="chevron-down"
-									size={13}
-									class="shrink-0 text-muted-foreground transition-transform {expandedId ===
-									event.id
-										? 'rotate-180'
-										: ''}"
-								/>
-							</button>
-							{#if expandedId === event.id}
-								<div
-									class="animate-panel-in border-t border-border bg-muted/40 px-3 py-2"
-								>
-									<pre
-										class="overflow-x-auto font-mono text-micro">{event.payload}</pre>
-									<p class="mt-1 text-micro text-muted-foreground">
-										{formatDateTime(event.at)}
+							</li>
+						{/each}
+					</ul>
+				</Card>
+			{:else if tab === 'dependencies'}
+				<Card title="Callers and impact">
+					<ul class="divide-y divide-border">
+						{#each dependencies as dependency (dependency.id)}
+							<li
+								class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
+							>
+								<div class="min-w-0">
+									<p class="truncate text-caption">
+										<span class="font-mono">{dependency.caller}</span>
+										<Icon
+											name="arrow-right"
+											size={12}
+											class="mx-1 inline text-muted-foreground"
+										/>
+										<span class="font-mono">{dependency.callee}</span>
+									</p>
+									<p class="mt-0.5 text-micro text-muted-foreground">
+										{dependency.kind} · {formatRelativeTime(
+											dependency.lastCalledAt,
+										)}
 									</p>
 								</div>
-							{/if}
-						</li>
+								<span
+									class="shrink-0 text-caption tabular-nums text-muted-foreground"
+								>
+									{formatNumber(dependency.calls)} calls
+								</span>
+							</li>
+						{/each}
+					</ul>
+				</Card>
+			{:else}
+				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+					{#each diagnostics as diagnostic (diagnostic.name)}
+						<Card title={diagnostic.name}>
+							{#snippet actions()}
+								<StatusBadge status={diagnostic.status} size="sm" />
+							{/snippet}
+							<p class="text-heading font-semibold tabular-nums">
+								{diagnostic.value}
+							</p>
+							<p class="mt-1 text-caption text-muted-foreground">
+								{diagnostic.detail}
+							</p>
+						</Card>
 					{/each}
-				</ul>
-			</Card>
-		{:else if tab === 'dependencies'}
-			<Card title="Callers and impact">
-				<ul class="divide-y divide-border">
-					{#each dependencies as dependency (dependency.id)}
-						<li
-							class="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
-						>
-							<div class="min-w-0">
-								<p class="truncate text-caption">
-									<span class="font-mono">{dependency.caller}</span>
-									<Icon
-										name="arrow-right"
-										size={12}
-										class="mx-1 inline text-muted-foreground"
-									/>
-									<span class="font-mono">{dependency.callee}</span>
-								</p>
-								<p class="mt-0.5 text-micro text-muted-foreground">
-									{dependency.kind} · {formatRelativeTime(
-										dependency.lastCalledAt,
-									)}
-								</p>
-							</div>
-							<span
-								class="shrink-0 text-caption tabular-nums text-muted-foreground"
-							>
-								{formatNumber(dependency.calls)} calls
-							</span>
-						</li>
-					{/each}
-				</ul>
-			</Card>
-		{:else}
-			<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-				{#each diagnostics as diagnostic (diagnostic.name)}
-					<Card title={diagnostic.name}>
-						{#snippet actions()}
-							<StatusBadge status={diagnostic.status} size="sm" />
-						{/snippet}
-						<p class="text-heading font-semibold tabular-nums">
-							{diagnostic.value}
-						</p>
-						<p class="mt-1 text-caption text-muted-foreground">
-							{diagnostic.detail}
-						</p>
-					</Card>
-				{/each}
-			</div>
-
-			<Card title="Runtime operations" class="mt-3">
-				<div class="flex flex-wrap gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => toasts.info('Storage diagnostics queued')}
-					>
-						<Icon name="database" size={13} />
-						Storage diagnostics
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => toasts.info('System diagnostics queued')}
-					>
-						<Icon name="gauge" size={13} />
-						System diagnostics
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => toasts.info('Metrics snapshot queued')}
-					>
-						<Icon name="chart" size={13} />
-						Metrics snapshot
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() =>
-							toasts.warning('Expiry cleanup requires confirmation')}
-					>
-						<Icon name="clock" size={13} />
-						Clean expired
-					</Button>
 				</div>
-			</Card>
-		{/if}
+
+				<Card title="Runtime operations" class="mt-3">
+					<div class="flex flex-wrap gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => toasts.info('Storage diagnostics queued')}
+						>
+							<Icon name="database" size={13} />
+							Storage diagnostics
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => toasts.info('System diagnostics queued')}
+						>
+							<Icon name="gauge" size={13} />
+							System diagnostics
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => toasts.info('Metrics snapshot queued')}
+						>
+							<Icon name="chart" size={13} />
+							Metrics snapshot
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() =>
+								toasts.warning('Expiry cleanup requires confirmation')}
+						>
+							<Icon name="clock" size={13} />
+							Clean expired
+						</Button>
+					</div>
+				</Card>
+			{/if}
+		</PageState>
 	</div>
 </div>

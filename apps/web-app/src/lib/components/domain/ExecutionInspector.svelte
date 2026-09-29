@@ -8,7 +8,7 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from './StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
 	import Timeline from './Timeline.svelte';

@@ -11,7 +11,7 @@
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';

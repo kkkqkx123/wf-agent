@@ -34,7 +34,7 @@
 	};
 
 	const TOKEN_PATTERN =
-		/("(?:[^"\\]|\\.)*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}\[\]:,])/g;
+		/("(?:(?!["\\])|.)*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b|([{}[\]:,])/g;
 
 	function tokenize(text: string): Token[] {
 		const tokens: Token[] = [];
@@ -116,16 +116,16 @@
 >
 	<div class="w-11 shrink-0 overflow-hidden bg-muted/40 select-none">
 		<div bind:this={gutterInner} class="px-2 py-2 text-right">
-			{#each lines as _, index (index)}
+			{#each lines.map((_, idx) => idx) as idx (idx)}
 				<div
 					class={cn(
 						'font-mono text-small leading-6 tabular-nums',
-						errorLine === index + 1
+						errorLine === idx + 1
 							? 'rounded bg-destructive/15 font-medium text-destructive'
 							: 'text-muted-foreground',
 					)}
 				>
-					{index + 1}
+					{idx + 1}
 				</div>
 			{/each}
 		</div>
@@ -138,8 +138,9 @@
 		<div class="grid w-max min-w-full">
 			<pre
 				aria-hidden="true"
-				class="col-start-1 row-start-1 px-3 py-2 font-mono text-small leading-6 whitespace-pre"
-			>{#each tokens as token, index (index)}<span class={TONE_CLASS[token.tone]}>{token.text}</span>{/each}</pre>
+				class="col-start-1 row-start-1 px-3 py-2 font-mono text-small leading-6 whitespace-pre">{#each tokens as token, index (index)}<span
+						class={TONE_CLASS[token.tone]}>{token.text}</span
+					>{/each}</pre>
 			<textarea
 				bind:this={area}
 				bind:value

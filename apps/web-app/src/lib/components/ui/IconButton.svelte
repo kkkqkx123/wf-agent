@@ -9,7 +9,8 @@
 		icon: IconName;
 		label: string;
 		variant?: ButtonVariant;
-		size?: number;
+		/** Icon size in pixels. Named apart from Button's `size` steps (sm/md/lg). */
+		iconSize?: number;
 		compact?: boolean;
 		active?: boolean;
 		class?: string;
@@ -19,7 +20,7 @@
 		icon,
 		label,
 		variant = 'ghost',
-		size = 16,
+		iconSize = 16,
 		compact = false,
 		active = false,
 		class: className = '',
@@ -38,5 +39,5 @@
 	)}
 	{...rest}
 >
-	<Icon name={icon} {size} />
+	<Icon name={icon} size={iconSize} />
 </button>

@@ -15,6 +15,10 @@ export interface DisplayNode {
 	kind: string;
 	status?: string;
 	iteration?: number;
+	/** Frontend-only group membership; empty means ungrouped. */
+	groupId?: string;
+	/** Human label for the group; falls back to the group id. */
+	groupLabel?: string;
 }
 
 export interface DisplayEdge {
@@ -23,11 +27,69 @@ export interface DisplayEdge {
 	target: string;
 	label?: string;
 	kind?: string;
+	status?: string;
+	taken?: boolean;
+}
+
+/**
+ * What a node does, independent of backend naming variants. The renderer
+ * dispatches on this instead of branching on raw kind strings, so new
+ * node families (notes, triggers, agent cards) extend one mapping.
+ */
+export type NodeRenderKind =
+	'terminal' | 'decision' | 'tool' | 'trigger' | 'note' | 'agent' | 'step';
+
+const TRIGGER_KINDS = new Set([
+	'trigger',
+	'TRIGGER',
+	'webhook',
+	'WEBHOOK',
+	'schedule',
+	'SCHEDULE',
+	'cron',
+	'CRON',
+]);
+
+const NOTE_KINDS = new Set([
+	'note',
+	'NOTE',
+	'comment',
+	'COMMENT',
+	'annotation',
+]);
+
+const AGENT_KINDS = new Set(['agent', 'AGENT', 'subagent', 'SUBAGENT']);
+
+/** Canonical render role for a backend node kind within a preset. */
+export function renderKind(kind: string, preset: GraphPreset): NodeRenderKind {
+	const normalized = (kind ?? '').trim().toLowerCase();
+	if (TERMINAL_KINDS.has(kind) || TERMINAL_KINDS.has(normalized)) {
+		return 'terminal';
+	}
+	if (
+		normalized === 'decision' ||
+		normalized === 'branch' ||
+		(preset === 'decision' && (ERROR_KINDS.has(kind) || normalized === 'error'))
+	) {
+		return 'decision';
+	}
+	if (TOOL_KINDS.has(kind) || TOOL_KINDS.has(normalized)) return 'tool';
+	if (TRIGGER_KINDS.has(kind) || TRIGGER_KINDS.has(normalized))
+		return 'trigger';
+	if (NOTE_KINDS.has(kind) || NOTE_KINDS.has(normalized)) return 'note';
+	if (AGENT_KINDS.has(kind) || AGENT_KINDS.has(normalized)) return 'agent';
+	return 'step';
 }
 
 export interface LegendEntry {
 	label: string;
-	shape: 'ellipse' | 'diamond' | 'rounded' | 'hexagon' | 'line-solid' | 'line-dashed';
+	shape:
+		| 'ellipse'
+		| 'diamond'
+		| 'rounded'
+		| 'hexagon'
+		| 'line-solid'
+		| 'line-dashed';
 	color: string;
 }
 
@@ -53,25 +115,37 @@ const TOOL_KINDS = new Set([
 
 /** Cytoscape shape name for a node kind within a preset. */
 export function nodeShape(kind: string, preset: GraphPreset): string {
+	switch (renderKind(kind, preset)) {
+		case 'terminal':
+			return 'ellipse';
+		case 'decision':
+			return 'diamond';
+		case 'tool':
+			return preset === 'workflow' ? 'round-rectangle' : 'hexagon';
+		default:
+			return 'round-rectangle';
+	}
+}
+
+/** Backend edge type for a display edge kind; conditional and error routes survive round-trips. */
+export function backendEdgeType(kind: string | undefined): string {
 	const normalized = (kind ?? '').trim().toLowerCase();
-	if (TERMINAL_KINDS.has(kind) || TERMINAL_KINDS.has(normalized)) {
-		return 'ellipse';
-	}
 	if (
-		preset === 'decision' &&
-		(ERROR_KINDS.has(kind) || ERROR_KINDS.has(normalized))
+		normalized === 'conditional' ||
+		normalized === 'condition' ||
+		normalized === 'branch'
 	) {
-		return 'diamond';
+		return 'CONDITIONAL';
 	}
-	if (TOOL_KINDS.has(kind) || TOOL_KINDS.has(normalized)) {
-		return preset === 'workflow' ? 'round-rectangle' : 'hexagon';
-	}
-	if (normalized === 'decision' || normalized === 'branch') return 'diamond';
-	return 'round-rectangle';
+	if (normalized === 'error' || normalized === 'error_route') return 'ERROR';
+	return 'DEFAULT';
 }
 
 /** Whether an edge renders dashed (conditional, error-route, untaken). */
-export function isDashedEdge(kind: string | undefined, taken: boolean = true): boolean {
+export function isDashedEdge(
+	kind: string | undefined,
+	taken: boolean = true,
+): boolean {
 	if (!taken) return true;
 	const normalized = (kind ?? '').trim().toLowerCase();
 	return (
@@ -96,28 +170,20 @@ const TONE_HEX: Record<string, string> = {
 export function statusHex(status: string | null | undefined): string {
 	if (!status) return TONE_HEX.neutral;
 	const normalized = status.trim().toLowerCase();
-	if (
-		['completed', 'complete', 'success', 'succeeded', 'done', 'ok', 'active', 'enabled'].includes(
-			normalized,
-		)
-	) {
-		return TONE_HEX.success;
-	}
-	if (
-		['failed', 'failure', 'error', 'errored', 'timeout', 'aborted'].includes(
-			normalized,
-		)
-	) {
-		return TONE_HEX.danger;
-	}
-	if (['running', 'in_progress', 'executing', 'streaming', 'started'].includes(normalized)) {
-		return TONE_HEX.running;
-	}
-	if (['paused', 'pending', 'queued', 'waiting', 'retrying'].includes(normalized)) {
-		return TONE_HEX.warning;
-	}
 	if (normalized === 'cached' || normalized === 'info') return TONE_HEX.info;
-	return TONE_HEX.neutral;
+	const tone = toneForStatus(status);
+	switch (tone) {
+		case 'success':
+			return TONE_HEX.success;
+		case 'error':
+			return TONE_HEX.danger;
+		case 'running':
+			return TONE_HEX.running;
+		case 'warning':
+			return TONE_HEX.warning;
+		default:
+			return TONE_HEX.neutral;
+	}
 }
 
 /** Legend entries for a preset. */
@@ -141,7 +207,9 @@ export function distinctKinds(nodes: DisplayNode[]): string[] {
 }
 
 /** Per-kind node counts, for the large-graph aggregation notice. */
-export function kindCounts(nodes: DisplayNode[]): Array<{ kind: string; count: number }> {
+export function kindCounts(
+	nodes: DisplayNode[],
+): Array<{ kind: string; count: number }> {
 	const counts = new Map<string, number>();
 	for (const node of nodes) {
 		const kind = node.kind || 'unknown';
@@ -198,24 +266,50 @@ export interface CappedGraph {
 /**
  * Enforce the node cap with round-robin sampling across kinds, so a large
  * graph keeps every kind represented instead of cutting off the tail.
+ * Retained ids (failed, running, critical path, selection) are kept first
+ * in the given order; leftovers fill the remaining budget by sampling.
  * Edges survive only when both endpoints survive.
  */
 export function capGraph(
 	nodes: DisplayNode[],
 	edges: DisplayEdge[],
 	cap: number = GRAPH_NODE_CAP,
+	retainIds: Iterable<string> = [],
 ): CappedGraph {
 	if (nodes.length <= cap) {
 		return { nodes, edges, truncated: false, total: nodes.length };
 	}
+	const byId = new Map(nodes.map((node) => [node.id, node]));
+	const retained: DisplayNode[] = [];
+	const retainedIds = new Set<string>();
+	for (const id of new Set(retainIds)) {
+		if (retained.length >= cap) break;
+		const node = byId.get(id);
+		if (node && !retainedIds.has(id)) {
+			retained.push(node);
+			retainedIds.add(id);
+		}
+	}
+	if (retained.length >= cap) {
+		const keptIds = new Set(retained.map((node) => node.id));
+		return {
+			nodes: retained,
+			edges: edges.filter(
+				(edge) => keptIds.has(edge.source) && keptIds.has(edge.target),
+			),
+			truncated: true,
+			total: nodes.length,
+		};
+	}
+	const rest = nodes.filter((node) => !retainedIds.has(node.id));
 	const buckets = new Map<string, DisplayNode[]>();
-	for (const node of nodes) {
+	for (const node of rest) {
 		const kind = node.kind || 'unknown';
 		const bucket = buckets.get(kind) ?? [];
 		bucket.push(node);
 		buckets.set(kind, bucket);
 	}
-	const kept: DisplayNode[] = [];
+	const kept: DisplayNode[] = [...retained];
 	const kinds = [...buckets.keys()];
 	let round = 0;
 	let progressed = true;
@@ -241,32 +335,93 @@ export function capGraph(
 	};
 }
 
-const COLUMN_GAP = 200;
-const ROW_GAP = 72;
-
-/**
- * Preset positions for decision graphs: one column per iteration, rows in
- * arrival order. Computed here so the renderer only applies them.
- */
-export function columnPositions(
-	nodes: DisplayNode[],
-): Map<string, { x: number; y: number }> {
-	const rows = new Map<number, number>();
-	const positions = new Map<string, { x: number; y: number }>();
-	for (const node of nodes) {
-		const iteration = node.iteration ?? 0;
-		const row = rows.get(iteration) ?? 0;
-		rows.set(iteration, row + 1);
-		positions.set(node.id, {
-			x: 40 + iteration * COLUMN_GAP,
-			y: 40 + row * ROW_GAP,
-		});
-	}
-	return positions;
-}
+/** Short label for canvas rendering; long names truncate with ellipsis. */
 
 /** Short label for canvas rendering; long names truncate with ellipsis. */
 export function shortLabel(label: string, max: number = 18): string {
 	const trimmed = (label ?? '').trim() || 'unnamed';
 	return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
+}
+
+/**
+ * Canonical execution tone. When several signals apply to one node the
+ * highest-ranked tone wins, so colors never depend on update order.
+ */
+export type ExecutionTone =
+	'running' | 'error' | 'warning' | 'success' | 'neutral';
+
+const TONE_RANK: Record<ExecutionTone, number> = {
+	running: 4,
+	error: 3,
+	warning: 2,
+	success: 1,
+	neutral: 0,
+};
+
+/** Normalize any backend status string to a canonical execution tone. */
+export function toneForStatus(
+	status: string | null | undefined,
+): ExecutionTone {
+	if (!status) return 'neutral';
+	const normalized = status.trim().toLowerCase();
+	if (
+		['running', 'in_progress', 'executing', 'streaming', 'started'].includes(
+			normalized,
+		)
+	) {
+		return 'running';
+	}
+	if (
+		['failed', 'failure', 'error', 'errored', 'timeout', 'aborted'].includes(
+			normalized,
+		)
+	) {
+		return 'error';
+	}
+	if (
+		['paused', 'pending', 'queued', 'waiting', 'retrying', 'cached'].includes(
+			normalized,
+		)
+	) {
+		return 'warning';
+	}
+	if (
+		[
+			'completed',
+			'complete',
+			'success',
+			'succeeded',
+			'done',
+			'ok',
+			'active',
+			'enabled',
+		].includes(normalized)
+	) {
+		return 'success';
+	}
+	return 'neutral';
+}
+
+/** Higher-ranked tone wins; used to merge execution, validation and edit signals. */
+export function rankTone(
+	current: ExecutionTone,
+	next: ExecutionTone,
+): ExecutionTone {
+	return TONE_RANK[next] > TONE_RANK[current] ? next : current;
+}
+
+/** Status value the canvas understands for a canonical tone. */
+export function statusForTone(tone: ExecutionTone): string | undefined {
+	switch (tone) {
+		case 'running':
+			return 'running';
+		case 'error':
+			return 'failed';
+		case 'warning':
+			return 'pending';
+		case 'success':
+			return 'completed';
+		default:
+			return undefined;
+	}
 }

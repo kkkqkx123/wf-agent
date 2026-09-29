@@ -34,26 +34,59 @@
 
 	let open = $state(false);
 	let root: HTMLDivElement | undefined = $state();
+	let menu: HTMLDivElement | undefined = $state();
 
 	function toggle(): void {
 		open = !open;
 	}
 
+	function close(returnFocus = true): void {
+		open = false;
+		if (returnFocus) root?.querySelector('button')?.focus();
+	}
+
 	function select(item: MenuItem): void {
 		if (item.disabled) return;
-		open = false;
+		close();
 		item.onselect?.();
 	}
+
+	$effect(() => {
+		if (!open || !menu) return;
+		menu.querySelector<HTMLButtonElement>('button[role="menuitem"]')?.focus();
+	});
 
 	function onwindowclick(event: MouseEvent): void {
 		if (!open) return;
 		const target = event.target as Node | null;
 		if (target && root?.contains(target)) return;
-		open = false;
+		close(false);
 	}
 
 	function onkeydown(event: KeyboardEvent): void {
-		if (event.key === 'Escape') open = false;
+		if (event.key === 'Escape') close();
+	}
+
+	function onmenukeydown(event: KeyboardEvent): void {
+		const buttons = Array.from(
+			menu?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ??
+				[],
+		).filter((button) => !button.disabled);
+		if (buttons.length === 0) return;
+		const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+		if (event.key === 'ArrowDown') {
+			event.preventDefault();
+			buttons[(index + 1) % buttons.length]?.focus();
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			buttons[(index - 1 + buttons.length) % buttons.length]?.focus();
+		} else if (event.key === 'Home') {
+			event.preventDefault();
+			buttons[0]?.focus();
+		} else if (event.key === 'End') {
+			event.preventDefault();
+			buttons[buttons.length - 1]?.focus();
+		}
 	}
 </script>
 
@@ -71,12 +104,22 @@
 			{@render trigger()}
 		</button>
 	{:else}
-		<IconButton icon="more-horizontal" {label} compact onclick={toggle} />
+		<IconButton
+			icon="more-horizontal"
+			{label}
+			compact
+			aria-haspopup="menu"
+			aria-expanded={open}
+			onclick={toggle}
+		/>
 	{/if}
 
 	{#if open}
 		<div
+			bind:this={menu}
 			role="menu"
+			tabindex="-1"
+			onkeydown={onmenukeydown}
 			style:width
 			class={cn(
 				'animate-panel-in absolute top-full z-40 mt-1 overflow-hidden rounded-lg border border-border bg-popover p-1 text-body shadow-popover',

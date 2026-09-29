@@ -6,8 +6,10 @@
 	import type { IconName } from '$lib/components/icons/paths';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import StatusBadge from './StatusBadge.svelte';
-	import JsonViewer from './JsonViewer.svelte';
+	import { toneText } from '$lib/components/ui/variants';
+	import type { StatusTone } from '$lib/utils/status';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import JsonViewer from '$lib/components/ui/JsonViewer.svelte';
 	import { approveApproval, rejectApproval } from '$lib/services/checkpoints';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
@@ -76,25 +78,23 @@
 		risk: 'alert-triangle',
 	};
 
-	const KIND_TONE: Record<string, string> = {
-		bash: 'text-success',
-		script: 'text-success',
-		file: 'text-info',
-		search: 'text-warning',
-		approval: 'text-running',
-		mcp: 'text-muted-foreground',
-		network: 'text-muted-foreground',
-		memory: 'text-info',
-		knowledge: 'text-info',
-		agent: 'text-warning',
-		interaction: 'text-running',
-		workflow: 'text-info',
-		utility: 'text-muted-foreground',
-		risk: 'text-warning',
+	// Kinds absent from the map (mcp, network, utility) fall back to muted.
+	const KIND_TONE: Record<string, StatusTone> = {
+		bash: 'success',
+		script: 'success',
+		file: 'info',
+		search: 'warning',
+		approval: 'running',
+		memory: 'info',
+		knowledge: 'info',
+		agent: 'warning',
+		interaction: 'running',
+		workflow: 'info',
+		risk: 'warning',
 	};
 
 	const icon = $derived(KIND_ICON[entry.kind] ?? 'blocks');
-	const tone = $derived(KIND_TONE[entry.kind] ?? 'text-muted-foreground');
+	const tone = $derived(toneText(KIND_TONE[entry.kind]));
 </script>
 
 <article

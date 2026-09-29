@@ -4,7 +4,7 @@
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import {
@@ -46,11 +46,12 @@
 			<ErrorState title="Failed to load dashboard" description={error} />
 		{:else if !stats}
 			<div
-				class="grid gap-2"
-				style:grid-template-columns="repeat(auto-fit, minmax(min(100%, 9rem), 1fr))"
+				class="grid gap-2 grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]"
 			>
-				{#each Array(4) as _, i (i)}
-					<div class="h-20 animate-pulse rounded-lg border border-border bg-muted" />
+				{#each Array(4).map((_, idx) => idx) as idx (idx)}
+					<div
+						class="h-20 animate-pulse rounded-lg border border-border bg-muted"
+					></div>
 				{/each}
 			</div>
 		{:else}
@@ -73,7 +74,9 @@
 						description="Run a workflow or start an agent loop to see activity here"
 					/>
 				{:else}
-					<ul class="mt-2 divide-y divide-border rounded-lg border border-border bg-card">
+					<ul
+						class="mt-2 divide-y divide-border rounded-lg border border-border bg-card"
+					>
 						{#each stats.recentExecutions as execution (execution.id)}
 							<li>
 								<button
@@ -82,12 +85,20 @@
 									onclick={() =>
 										goto(resolve('/executions/[id]', { id: execution.id }))}
 								>
-									<Icon name="activity" size={15} class="shrink-0 text-muted-foreground" />
+									<Icon
+										name="activity"
+										size={15}
+										class="shrink-0 text-muted-foreground"
+									/>
 									<span class="min-w-0 flex-1 truncate text-body">
-										{execution.workflowName || execution.workflowId || execution.id}
+										{execution.workflowName ||
+											execution.workflowId ||
+											execution.id}
 									</span>
 									<StatusBadge status={execution.status} />
-									<span class="hidden shrink-0 text-micro text-muted-foreground sm:block">
+									<span
+										class="hidden shrink-0 text-micro text-muted-foreground sm:block"
+									>
 										{execution.id.slice(0, 8)}
 									</span>
 								</button>

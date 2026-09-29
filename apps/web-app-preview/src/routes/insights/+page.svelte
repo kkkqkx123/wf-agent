@@ -11,7 +11,8 @@
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		exportQuery,
 		getQueryResult,
@@ -62,6 +63,9 @@
 		truncated: false,
 	});
 	let queryBusy = $state(false);
+	let queryError = $state<string | null>(null);
+	let loading = $state(false);
+	let loadError = $state<string | null>(null);
 	let auditReports = $state<AuditReport[]>([]);
 	let errorAnalyses = $state<ErrorAnalysis[]>([]);
 	let perfNodes = $state<PerfNode[]>([]);
@@ -81,22 +85,36 @@
 	});
 
 	async function loadTab(current: string): Promise<void> {
+		const pending =
+			current === 'query'
+				? !seenQuery
+				: current === 'audit'
+					? !seenAudit
+					: current === 'errors'
+						? !seenErrors
+						: !seenPerf;
+		if (!pending) return;
+		loading = true;
+		loadError = null;
 		try {
-			if (current === 'query' && !seenQuery) {
+			if (current === 'query') {
 				seenQuery = true;
 				queryResult = await getQueryResult();
-			} else if (current === 'audit' && !seenAudit) {
+			} else if (current === 'audit') {
 				seenAudit = true;
 				auditReports = await listInsightAuditReports();
-			} else if (current === 'errors' && !seenErrors) {
+			} else if (current === 'errors') {
 				seenErrors = true;
 				errorAnalyses = await listErrorAnalyses();
-			} else if (current === 'performance' && !seenPerf) {
+			} else {
 				seenPerf = true;
 				perfNodes = await listPerformanceNodes();
 			}
 		} catch (e) {
 			console.error('Failed to load insights segment:', e);
+			loadError = e instanceof Error ? e.message : 'Insight request failed';
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -110,15 +128,14 @@
 
 	async function runAdhocQuery(): Promise<void> {
 		queryBusy = true;
+		queryError = null;
 		try {
 			queryResult = await runQuery({ limit: 50 });
 			seenQuery = true;
 			toasts.success('Default scope executed');
 		} catch (e) {
-			toasts.error(
-				'Query failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			queryError = e instanceof Error ? e.message : 'Query request failed';
+			toasts.error('Query failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			queryBusy = false;
 		}
@@ -129,10 +146,7 @@
 			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
 			toasts.success('Export queued');
 		} catch (e) {
-			toasts.error(
-				'Export failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Export failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -199,6 +213,41 @@
 		},
 		{ key: 'status', header: 'State', text: (row) => row.status },
 	];
+
+	function emptyCopyFor(current: string): {
+		title: string;
+		description: string;
+	} {
+		if (current === 'audit') {
+			return {
+				title: 'No audit reports',
+				description:
+					'Audit reports are produced per execution; run a workflow to generate one.',
+			};
+		}
+		if (current === 'errors') {
+			return {
+				title: 'No error analysis',
+				description:
+					'Error analysis is produced per execution and appears after a failed run.',
+			};
+		}
+		return {
+			title: 'No performance data',
+			description:
+				'Node timings appear once executions report per-node duration.',
+		};
+	}
+
+	const segmentEmpty = $derived(
+		tab === 'audit'
+			? auditReports.length === 0
+			: tab === 'errors'
+				? errorAnalyses.length === 0
+				: perfNodes.length === 0,
+	);
+
+	const segmentCopy = $derived(emptyCopyFor(tab));
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -223,7 +272,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="insights-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="insights-panel"
+	/>
 
 	<div
 		id="insights-panel"
@@ -240,8 +294,8 @@
 					/>
 					<p class="mt-1 text-micro text-muted-foreground">
 						The statement box is a local draft. The query endpoint takes
-						structured filters, so Run executes the default execution scope
-						and reports that scope only until statement execution lands.
+						structured filters, so Run executes the default execution scope and
+						reports that scope only until statement execution lands.
 					</p>
 					<div class="mt-2 flex items-center gap-2">
 						<Button
@@ -267,111 +321,138 @@
 					description="{formatNumber(queryResult.rows.length)} rows"
 					bodyClass="p-0"
 				>
-					<DataTable
-						columns={rowColumns}
-						rows={queryResult.rows}
-						rowKey={(row) =>
-							String(
-								row.execution_id ?? row.id ?? JSON.stringify(row).slice(0, 48),
-							)}
-						dense
-					/>
+					<PageState
+						loading={queryBusy}
+						error={queryError}
+						empty={queryResult.rows.length === 0}
+						emptyTitle="No rows returned"
+						emptyDescription="Run the default execution scope to populate the result grid."
+					>
+						<DataTable
+							columns={rowColumns}
+							rows={queryResult.rows}
+							rowKey={(row) =>
+								String(
+									row.execution_id ??
+										row.id ??
+										JSON.stringify(row).slice(0, 48),
+								)}
+							dense
+						/>
+					</PageState>
 				</Card>
 			</div>
-		{:else if tab === 'audit'}
-			<Card title="Audit reports" bodyClass="p-0">
-				<DataTable
-					columns={auditColumns}
-					rows={auditReports}
-					rowKey={(row) => row.id}
-					emptyDescription="The backend exposes per-execution audit reports only, with no global aggregator yet."
-				/>
-			</Card>
-			<div class="mt-3 flex flex-wrap gap-2">
-				{#each auditReports.slice(0, 3) as report (report.id)}
-					<Card class="min-w-56 flex-1" title={report.executionId}>
-						<div class="flex items-center justify-between gap-2">
-							<StatusBadge status={report.status} size="sm" />
-							<span class="text-micro text-muted-foreground">
-								{formatRelativeTime(report.generatedAt)}
-							</span>
-						</div>
-						<p class="mt-2 text-caption text-muted-foreground">
-							{formatNumber(report.nodes)} nodes · {formatNumber(
-								report.toolCalls,
-							)} tool calls
-						</p>
-						{#snippet footer()}
-							<Button variant="ghost" size="sm" href="/insights"
-								>Open read-only report</Button
-							>
-						{/snippet}
-					</Card>
-				{/each}
-			</div>
-		{:else if tab === 'errors'}
-			<Card title="Error analysis" bodyClass="p-0">
-				<DataTable
-					columns={errorColumns}
-					rows={errorAnalyses}
-					rowKey={(row) => row.id}
-					emptyDescription="The backend exposes per-execution error analysis only, with no global aggregator yet."
-				/>
-			</Card>
-			<div class="mt-3 grid gap-3 lg:grid-cols-2">
-				{#each errorAnalyses.slice(0, 2) as error (error.id)}
-					<Card title={error.category}>
-						{#snippet actions()}
-							<StatusBadge status={error.status} size="sm" />
-						{/snippet}
-						<p class="text-caption">{error.rootCause}</p>
-						<div class="mt-2 flex flex-wrap items-center gap-1.5">
-							{#if error.similar.length > 0}
-								<span class="text-micro text-muted-foreground">similar:</span>
-								{#each error.similar as id (id)}
-									<Badge variant="outline" class="text-[0.625rem]">{id}</Badge>
-								{/each}
-							{:else}
-								<span class="text-micro text-muted-foreground"
-									>no similar errors</span
-								>
-							{/if}
-						</div>
-					</Card>
-				{/each}
-			</div>
 		{:else}
-			<Card title="Node performance">
-				<ul class="space-y-3">
-					{#each perfNodes as node (node.node)}
-						<li>
-							<div class="flex items-center justify-between gap-3 text-caption">
-								<span class="truncate font-mono">{node.node}</span>
-								<span class="shrink-0 tabular-nums text-muted-foreground">
-									{formatDuration(node.avgMs)} avg · {formatDuration(
-										node.p95Ms,
-									)} p95
-								</span>
-							</div>
-							<div class="mt-1 flex items-center gap-2">
-								<span
-									class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-								>
-									<span
-										class="block h-full rounded-full bg-chart-1"
-										style:width="{node.share * 100}%"
-									></span>
-								</span>
-								<span
-									class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
-								>
-									{Math.round(node.share * 100)}%
-								</span>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</Card>
+			<PageState
+				{loading}
+				error={loadError}
+				empty={segmentEmpty}
+				emptyTitle={segmentCopy.title}
+				emptyDescription={segmentCopy.description}
+				onretry={() => void reload()}
+			>
+				{#if tab === 'audit'}
+					<Card title="Audit reports" bodyClass="p-0">
+						<DataTable
+							columns={auditColumns}
+							rows={auditReports}
+							rowKey={(row) => row.id}
+							emptyDescription="The backend exposes per-execution audit reports only, with no global aggregator yet."
+						/>
+					</Card>
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each auditReports.slice(0, 3) as report (report.id)}
+							<Card class="min-w-56 flex-1" title={report.executionId}>
+								<div class="flex items-center justify-between gap-2">
+									<StatusBadge status={report.status} size="sm" />
+									<span class="text-micro text-muted-foreground">
+										{formatRelativeTime(report.generatedAt)}
+									</span>
+								</div>
+								<p class="mt-2 text-caption text-muted-foreground">
+									{formatNumber(report.nodes)} nodes · {formatNumber(
+										report.toolCalls,
+									)} tool calls
+								</p>
+								{#snippet footer()}
+									<Button variant="ghost" size="sm" href="/insights"
+										>Open read-only report</Button
+									>
+								{/snippet}
+							</Card>
+						{/each}
+					</div>
+				{:else if tab === 'errors'}
+					<Card title="Error analysis" bodyClass="p-0">
+						<DataTable
+							columns={errorColumns}
+							rows={errorAnalyses}
+							rowKey={(row) => row.id}
+							emptyDescription="The backend exposes per-execution error analysis only, with no global aggregator yet."
+						/>
+					</Card>
+					<div class="mt-3 grid gap-3 lg:grid-cols-2">
+						{#each errorAnalyses.slice(0, 2) as error (error.id)}
+							<Card title={error.category}>
+								{#snippet actions()}
+									<StatusBadge status={error.status} size="sm" />
+								{/snippet}
+								<p class="text-caption">{error.rootCause}</p>
+								<div class="mt-2 flex flex-wrap items-center gap-1.5">
+									{#if error.similar.length > 0}
+										<span class="text-micro text-muted-foreground"
+											>similar:</span
+										>
+										{#each error.similar as id (id)}
+											<Badge variant="outline" class="text-[0.625rem]"
+												>{id}</Badge
+											>
+										{/each}
+									{:else}
+										<span class="text-micro text-muted-foreground"
+											>no similar errors</span
+										>
+									{/if}
+								</div>
+							</Card>
+						{/each}
+					</div>
+				{:else}
+					<Card title="Node performance">
+						<ul class="space-y-3">
+							{#each perfNodes as node (node.node)}
+								<li>
+									<div
+										class="flex items-center justify-between gap-3 text-caption"
+									>
+										<span class="truncate font-mono">{node.node}</span>
+										<span class="shrink-0 tabular-nums text-muted-foreground">
+											{formatDuration(node.avgMs)} avg · {formatDuration(
+												node.p95Ms,
+											)} p95
+										</span>
+									</div>
+									<div class="mt-1 flex items-center gap-2">
+										<span
+											class="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+										>
+											<span
+												class="block h-full rounded-full bg-chart-1"
+												style:width="{node.share * 100}%"
+											></span>
+										</span>
+										<span
+											class="w-10 shrink-0 text-right text-micro tabular-nums text-muted-foreground"
+										>
+											{Math.round(node.share * 100)}%
+										</span>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					</Card>
+				{/if}
+			</PageState>
 		{/if}
 	</div>
 </div>

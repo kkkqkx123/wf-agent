@@ -5,7 +5,6 @@
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
@@ -14,11 +13,12 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
 	import WorkflowCard from '$lib/components/domain/WorkflowCard.svelte';
 	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+	import FilterBar from '$lib/components/ui/FilterBar.svelte';
 	import {
 		createMinimalWorkflow,
 		importWorkflow,
@@ -54,6 +54,7 @@
 	let allWorkflows = $state<Workflow[]>([]);
 	let selected = $state<WorkflowDetail | null>(null);
 	let listError = $state<string | null>(null);
+	let listLoading = $state(false);
 	let detailError = $state<string | null>(null);
 
 	let importOpen = $state(false);
@@ -70,6 +71,7 @@
 
 	async function reload(): Promise<void> {
 		listError = null;
+		listLoading = true;
 		try {
 			const page = await listWorkflows({ limit: 200 });
 			allWorkflows = page.items;
@@ -79,6 +81,8 @@
 		} catch (e) {
 			listError = e instanceof Error ? e.message : 'Workflows failed.';
 			allWorkflows = [];
+		} finally {
+			listLoading = false;
 		}
 	}
 
@@ -180,6 +184,19 @@
 			return matchesStatus && matchesQuery;
 		}),
 	);
+
+	const filteredCopy = $derived(
+		query.trim() || status
+			? {
+					title: 'No workflows match',
+					description: 'Clear the filters to browse every definition.',
+				}
+			: {
+					title: 'No workflows yet',
+					description:
+						'Create a definition or import one to start orchestrating runs.',
+				},
+	);
 </script>
 
 <SplitView
@@ -238,21 +255,17 @@
 				{/snippet}
 			</FilterBar>
 
-			{#if listError}
-				<ErrorState
-					title="Workflows failed to load"
-					description={listError}
-					onretry={() => void reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else if filtered.length === 0}
-				<EmptyState
-					icon="workflow"
-					title="No workflows match"
-					description="Clear the filters to browse every definition."
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
+			<PageState
+				loading={listLoading}
+				error={listError}
+				errorTitle="Workflows failed to load"
+				empty={filtered.length === 0}
+				emptyIcon="workflow"
+				emptyTitle={filteredCopy.title}
+				emptyDescription={filteredCopy.description}
+				onretry={() => void reload()}
+				class="rounded-lg border border-border bg-card"
+			>
 				<div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
 					{#each filtered as workflow (workflow.id)}
 						<WorkflowCard
@@ -262,7 +275,7 @@
 						/>
 					{/each}
 				</div>
-			{/if}
+			</PageState>
 		</div>
 	</div>
 

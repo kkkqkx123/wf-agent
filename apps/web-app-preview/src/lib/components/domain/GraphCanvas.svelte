@@ -3,9 +3,13 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { browser } from '$app/environment';
 	import type cytoscape from 'cytoscape';
-	import type { Core, ElementDefinition } from 'cytoscape';
+	import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
 	import {
 		columnPositions,
+		layeredPositions,
+		pushOverlapped,
+	} from '$lib/graph/layout';
+	import {
 		isDashedEdge,
 		nodeShape,
 		scoreEdgeLabel,
@@ -16,7 +20,25 @@
 		type GraphLayoutKind,
 		type GraphPreset,
 	} from '$lib/graph/display-model';
+	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
 	import { cn } from '$lib/utils/cn';
+
+	export interface CanvasPosition {
+		x: number;
+		y: number;
+	}
+
+	export interface CanvasMove {
+		id: string;
+		position: CanvasPosition;
+	}
+
+	export interface CanvasContext {
+		kind: 'node' | 'edge' | 'blank';
+		id: string | null;
+		x: number;
+		y: number;
+	}
 
 	interface Props {
 		nodes: DisplayNode[];
@@ -25,11 +47,52 @@
 		layout?: GraphLayoutKind;
 		selectedId?: string | null;
 		highlightIds?: string[];
+		/** Node ids carrying server validation problems. */
+		problemIds?: string[];
+		/** Nodes currently running; rendered with an emphasized border. */
+		pulseIds?: string[];
+		/** Failed nodes; rendered with a solid failure border. The running
+		 * pulse keeps precedence on the current node. */
+		failedIds?: string[];
+		/** Nodes on the critical path; rendered with a gold border. */
+		criticalIds?: string[];
+		/** Slow-node heat tier by node id (1-3); shape never changes. */
+		heatTierById?: Record<string, number>;
+		/** Decision points; rendered with a distinct dashed outline. */
+		decisionIds?: string[];
+		/** Hover text by node id (slow-node duration, decision branches).
+		 * Same information the selected card shows; the canvas only
+		 * surfaces it on hover. */
+		tooltipLabels?: Record<string, string>;
+		/** Position overrides (edit store); unset nodes use the preset layout. */
+		positions?: Record<string, CanvasPosition>;
+		/** Controlled edit mode: no auto layout, gestures emit intents. */
+		editMode?: boolean;
 		edgeLabelLimit?: number;
+		/** Height class for the canvas container (mini maps use h-56). */
+		heightClass?: string;
 		class?: string;
+		/** Collapsed group ids; members are already folded out by the caller. */
+		collapsedIds?: string[];
+		/** Hidden member ids behind collapsed titles; never valid endpoints. */
+		hiddenIds?: string[];
+		/** Pre-cap group titles for collapsed-drag member math. */
+		groupTitles?: Record<string, GroupTitle>;
+		/** Minimap visibility: auto shows it only on large graphs. */
+		minimap?: 'auto' | 'on' | 'off';
 		onselect?: (id: string) => void;
 		onexpand?: (id: string) => void;
 		onboxselect?: (ids: string[]) => void;
+		onmovenode?: (id: string, position: CanvasPosition) => void;
+		/** Batched move for group drags; undoes in a single step. */
+		ongroupmove?: (moves: CanvasMove[]) => void;
+		/** Right-click context, positioned in client coordinates. */
+		oncontext?: (info: CanvasContext) => void;
+		onbackgrounddoubleclick?: (position: CanvasPosition) => void;
+		ondeleteedge?: (id: string) => void;
+		onconnect?: (source: string, target: string) => void;
+		/** Rejected connect attempt with a human-readable reason. */
+		onconnectreject?: (reason: string) => void;
 	}
 
 	let {
@@ -39,13 +102,35 @@
 		layout = 'layered',
 		selectedId = null,
 		highlightIds = [],
+		problemIds = [],
+		pulseIds = [],
+		failedIds = [],
+		criticalIds = [],
+		heatTierById = {},
+		decisionIds = [],
+		tooltipLabels = {},
+		positions = undefined,
+		editMode = false,
 		edgeLabelLimit = 60,
+		heightClass = 'h-96',
 		class: className = '',
+		collapsedIds = [],
+		hiddenIds = [],
+		groupTitles = {},
+		minimap = 'auto',
 		onselect,
 		onexpand,
 		onboxselect,
+		onmovenode,
+		ongroupmove,
+		oncontext,
+		onbackgrounddoubleclick,
+		ondeleteedge,
+		onconnect,
+		onconnectreject,
 	}: Props = $props();
 
+	let wrapper: HTMLDivElement | null = $state(null);
 	let container: HTMLDivElement | null = $state(null);
 	let cy: Core | null = $state(null);
 	let ready = $state(false);
@@ -53,25 +138,537 @@
 	// Zoomed-out canvases hide non-essential edge labels; the flag only
 	// flips when crossing the threshold so zoom gestures stay cheap.
 	let zoomedOut = $state(false);
+	// Hover tooltip for heat/decision labels. Shown after a short delay so
+	// panning across nodes does not flicker; hidden on leave, drag, zoom,
+	// pan and tap. The same text lives in the selected card, so the
+	// tooltip is hidden from assistive technology.
+	let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
+	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearHoverTip(): void {
+		if (hoverTimer !== null) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		hoverTip = null;
+	}
+
+	function requestHoverTip(id: string, clientX: number, clientY: number): void {
+		clearHoverTip();
+		const text = tooltipLabels[id];
+		if (!text || !wrapper) return;
+		const rect = wrapper.getBoundingClientRect();
+		hoverTimer = setTimeout(() => {
+			hoverTip = {
+				x: clientX - rect.left + 12,
+				y: clientY - rect.top + 12,
+				text,
+			};
+			hoverTimer = null;
+		}, 350);
+	}
 
 	const highlight = $derived(new Set(highlightIds));
+	const problems = $derived(new Set(problemIds));
+	const pulses = $derived(new Set(pulseIds));
+	const failed = $derived(new Set(failedIds));
+	const criticals = $derived(new Set(criticalIds));
+	const decisions = $derived(new Set(decisionIds));
+	const collapsed = $derived(new Set(collapsedIds));
+	// Latest props for gesture handlers registered once on mount. Derived
+	// values stay current without snapshot effects.
+	const selectedSnapshot = $derived(selectedId);
+	const editSnapshot = $derived(editMode);
+	const connectHandler = $derived(onconnect);
+	const connectRejectHandler = $derived(onconnectreject);
+	const selectHandler = $derived(onselect);
+	const expandHandler = $derived(onexpand);
+	// Snapshots for gesture handlers registered once on mount.
+	const positionsSnapshot = $derived(positions);
+	const groupTitlesSnapshot = $derived(groupTitles);
+	const hiddenSnapshot = $derived(new Set(hiddenIds));
+	const groupMoveHandler = $derived(ongroupmove);
+	const moveHandler = $derived(onmovenode);
+	const contextHandler = $derived(oncontext);
+	const grabStart = new SvelteMap<string, CanvasPosition>();
+
+	const MINIMAP_AUTO_THRESHOLD = 100;
+	const MINI_W = 148;
+	const MINI_H = 104;
+
+	interface MiniBounds {
+		minX: number;
+		minY: number;
+		w: number;
+		h: number;
+	}
+
+	interface MiniOverview {
+		items: Array<{ id: string; x: number; y: number }>;
+		boxes: Array<{
+			id: string;
+			x1: number;
+			y1: number;
+			x2: number;
+			y2: number;
+		}>;
+		bounds: MiniBounds;
+		view: { x1: number; y1: number; x2: number; y2: number };
+	}
+
+	let overview = $state<MiniOverview | null>(null);
+	let miniDrag = $state(false);
+	let lastMiniRefresh = 0;
+
+	const showMinimap = $derived(
+		minimap === 'on' ||
+			(minimap === 'auto' && nodes.length >= MINIMAP_AUTO_THRESHOLD),
+	);
+
+	/**
+	 * Snapshot node dots, group outlines plus the viewport for the minimap.
+	 * Structure only: execution colors stay on the main canvas so hot
+	 * updates never redraw the overview.
+	 */
+	function refreshOverview(): void {
+		const core = cy;
+		if (!core || !showMinimap) {
+			if (overview) overview = null;
+			return;
+		}
+		const items: Array<{ id: string; x: number; y: number }> = [];
+		core
+			.nodes()
+			.filter((node) => !node.isParent())
+			.forEach((node) => {
+				const position = node.position();
+				items.push({ id: node.id(), x: position.x, y: position.y });
+			});
+		const boxes: Array<{
+			id: string;
+			x1: number;
+			y1: number;
+			x2: number;
+			y2: number;
+		}> = [];
+		core
+			.nodes()
+			.filter((node) => node.isParent())
+			.forEach((parent) => {
+				let x1 = Number.POSITIVE_INFINITY;
+				let y1 = Number.POSITIVE_INFINITY;
+				let x2 = Number.NEGATIVE_INFINITY;
+				let y2 = Number.NEGATIVE_INFINITY;
+				let count = 0;
+				parent.children().forEach((child) => {
+					const position = child.position();
+					x1 = Math.min(x1, position.x);
+					y1 = Math.min(y1, position.y);
+					x2 = Math.max(x2, position.x);
+					y2 = Math.max(y2, position.y);
+					count += 1;
+				});
+				if (count === 0) return;
+				const pad = 30;
+				boxes.push({
+					id: parent.id(),
+					x1: x1 - pad,
+					y1: y1 - pad,
+					x2: x2 + pad,
+					y2: y2 + pad,
+				});
+			});
+		core
+			.nodes()
+			.filter(
+				(node) =>
+					!node.isParent() && (node.id() as string).startsWith('group:'),
+			)
+			.forEach((title) => {
+				const position = title.position();
+				boxes.push({
+					id: title.id(),
+					x1: position.x - 80,
+					y1: position.y - 20,
+					x2: position.x + 80,
+					y2: position.y + 20,
+				});
+			});
+		if (items.length === 0 && boxes.length === 0) {
+			if (overview) overview = null;
+			return;
+		}
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		for (const item of items) {
+			minX = Math.min(minX, item.x);
+			minY = Math.min(minY, item.y);
+			maxX = Math.max(maxX, item.x);
+			maxY = Math.max(maxY, item.y);
+		}
+		for (const box of boxes) {
+			minX = Math.min(minX, box.x1);
+			minY = Math.min(minY, box.y1);
+			maxX = Math.max(maxX, box.x2);
+			maxY = Math.max(maxY, box.y2);
+		}
+		const pad = 60;
+		minX -= pad;
+		minY -= pad;
+		maxX += pad;
+		maxY += pad;
+		const extent = core.extent();
+		overview = {
+			items,
+			boxes,
+			bounds: {
+				minX,
+				minY,
+				w: maxX - minX || 1,
+				h: maxY - minY || 1,
+			},
+			view: { x1: extent.x1, y1: extent.y1, x2: extent.x2, y2: extent.y2 },
+		};
+	}
+
+	function requestMiniRefresh(): void {
+		const now = Date.now();
+		if (now - lastMiniRefresh < 150) return;
+		lastMiniRefresh = now;
+		refreshOverview();
+	}
+
+	function miniXY(x: number, y: number): { x: number; y: number } {
+		const bounds = overview?.bounds;
+		if (!bounds) return { x: 0, y: 0 };
+		return {
+			x: ((x - bounds.minX) / bounds.w) * MINI_W,
+			y: ((y - bounds.minY) / bounds.h) * MINI_H,
+		};
+	}
+
+	function miniPoint(event: PointerEvent): { x: number; y: number } {
+		const svg = event.currentTarget as SVGSVGElement;
+		const rect = svg.getBoundingClientRect();
+		const bounds = overview?.bounds;
+		if (!bounds || rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+		return {
+			x: bounds.minX + ((event.clientX - rect.left) / rect.width) * bounds.w,
+			y: bounds.minY + ((event.clientY - rect.top) / rect.height) * bounds.h,
+		};
+	}
+
+	function onMiniDown(event: PointerEvent): void {
+		if (!overview) return;
+		miniDrag = true;
+		(event.currentTarget as Element).setPointerCapture(event.pointerId);
+		const point = miniPoint(event);
+		panTo(point.x, point.y);
+	}
+
+	function onMiniMove(event: PointerEvent): void {
+		if (!miniDrag || !overview) return;
+		const point = miniPoint(event);
+		panTo(point.x, point.y);
+	}
+
+	function onMiniUp(): void {
+		miniDrag = false;
+	}
+
+	function roundPosition(position: CanvasPosition): CanvasPosition {
+		return { x: Math.round(position.x), y: Math.round(position.y) };
+	}
+
+	/**
+	 * Moves for a collapsed-title drag: the title plus every member shifted
+	 * by the same delta. Members without a stored position are stacked under
+	 * the new title position instead of jumping to the origin.
+	 */
+	function titleDragMoves(titleId: string, next: CanvasPosition): CanvasMove[] {
+		const title = groupTitlesSnapshot[titleId];
+		const start =
+			grabStart.get(titleId) ?? positionsSnapshot?.[titleId] ?? next;
+		const delta = { x: next.x - start.x, y: next.y - start.y };
+		const moves: CanvasMove[] = [{ id: titleId, position: next }];
+		(title?.memberIds ?? []).forEach((memberId, index) => {
+			const base = positionsSnapshot?.[memberId];
+			moves.push({
+				id: memberId,
+				position: base
+					? { x: base.x + delta.x, y: base.y + delta.y }
+					: {
+							x: next.x - 120 + (index % 4) * 80,
+							y: next.y + 60 + Math.floor(index / 4) * 60,
+						},
+			});
+		});
+		return moves;
+	}
+
+	interface ConnectSpot {
+		id: string;
+		x: number;
+		y: number;
+	}
+
+	interface ConnectDrag {
+		source: string;
+		sx: number;
+		sy: number;
+		px: number;
+		py: number;
+		target: string | null;
+	}
+
+	let hotspots = $state<ConnectSpot[]>([]);
+	let connectDrag = $state<ConnectDrag | null>(null);
+
+	/** Hotspot dots at node edges; edit mode only, hidden while connecting. */
+	function refreshHotspots(): void {
+		const core = cy;
+		if (!core || !editSnapshot || connectDrag) {
+			if (hotspots.length > 0) hotspots = [];
+			return;
+		}
+		const zoom = core.zoom();
+		const spots: ConnectSpot[] = [];
+		core
+			.nodes()
+			.filter((node) => {
+				if (node.isParent()) return false;
+				const id = node.id() as string;
+				if (isGroupTitleId(id)) return false;
+				if (hiddenSnapshot.has(id)) return false;
+				return true;
+			})
+			.forEach((node) => {
+				const rendered = node.renderedPosition();
+				if (!rendered) return;
+				spots.push({
+					id: node.id(),
+					x: rendered.x + (node.width() * zoom) / 2,
+					y: rendered.y,
+				});
+			});
+		hotspots = spots;
+	}
+
+	function connectRejectReason(source: string, target: string): string | null {
+		if (!editSnapshot) return 'Read-only canvas. Enter edit mode to connect.';
+		if (!source || !target) return 'Choose another node to connect.';
+		if (source === target) return 'Cannot self-connect.';
+		if (
+			target.startsWith('groupbox:') ||
+			source.startsWith('groupbox:') ||
+			isGroupTitleId(source) ||
+			isGroupTitleId(target)
+		) {
+			return 'Groups cannot connect directly. Expand the group first.';
+		}
+		if (hiddenSnapshot.has(source) || hiddenSnapshot.has(target)) {
+			return 'Hidden group members cannot connect. Expand the group first.';
+		}
+		if (
+			edges.some((edge) => edge.source === source && edge.target === target)
+		) {
+			return 'Edge already exists.';
+		}
+		return null;
+	}
+
+	function connectValid(source: string, target: string): boolean {
+		return connectRejectReason(source, target) === null;
+	}
+
+	function nodeAtPoint(px: number, py: number): string | null {
+		const core = cy;
+		if (!core) return null;
+		const zoom = core.zoom();
+		const hit = core
+			.nodes()
+			.filter((node) => {
+				if (node.isParent()) return false;
+				const rendered = node.renderedPosition();
+				if (!rendered) return false;
+				const halfW = (node.width() * zoom) / 2 + 8;
+				const halfH = (node.height() * zoom) / 2 + 8;
+				return (
+					Math.abs(px - rendered.x) <= halfW &&
+					Math.abs(py - rendered.y) <= halfH
+				);
+			})
+			.first();
+		return hit.empty() ? null : (hit.id() as string);
+	}
+
+	function paintConnectTarget(
+		previous: string | null,
+		next: string | null,
+	): void {
+		const core = cy;
+		if (!core || previous === next) return;
+		if (previous) {
+			core.getElementById(previous).removeClass('connect-ok connect-bad');
+		}
+		if (next && connectDrag) {
+			core
+				.getElementById(next)
+				.addClass(
+					connectValid(connectDrag.source, next) ? 'connect-ok' : 'connect-bad',
+				);
+		}
+	}
+
+	function setNodesGrabbable(enabled: boolean): void {
+		const core = cy;
+		if (!core) return;
+		if (enabled && editSnapshot) {
+			core.autoungrabify(false);
+			core.nodes().grabify();
+		} else {
+			core.nodes().ungrabify();
+			core.autoungrabify(true);
+		}
+	}
+
+	function endConnectDrag(commit: boolean): void {
+		window.removeEventListener('pointermove', onConnectMove);
+		window.removeEventListener('pointerup', onConnectUp);
+		window.removeEventListener('keydown', onConnectKey);
+		const drag = connectDrag;
+		connectDrag = null;
+		const core = cy;
+		if (core) core.elements().removeClass('connect-ok connect-bad');
+		setNodesGrabbable(true);
+		refreshHotspots();
+		if (!commit || !drag || !drag.target) return;
+		const reason = connectRejectReason(drag.source, drag.target);
+		if (reason === null) {
+			connectHandler?.(drag.source, drag.target);
+		} else if (reason !== 'Edge already exists.') {
+			connectRejectHandler?.(reason);
+		}
+	}
+
+	function onConnectMove(event: PointerEvent): void {
+		const drag = connectDrag;
+		if (!drag || !wrapper) return;
+		const rect = wrapper.getBoundingClientRect();
+		const px = event.clientX - rect.left;
+		const py = event.clientY - rect.top;
+		const target = nodeAtPoint(px, py);
+		paintConnectTarget(drag.target, target);
+		connectDrag = { ...drag, px, py, target };
+	}
+
+	function onConnectUp(): void {
+		endConnectDrag(true);
+	}
+
+	function onConnectKey(event: KeyboardEvent): void {
+		if (event.key === 'Escape') endConnectDrag(false);
+	}
+
+	function startConnect(event: PointerEvent, spot: ConnectSpot): void {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!editSnapshot) {
+			connectRejectHandler?.('Read-only canvas. Enter edit mode to connect.');
+			return;
+		}
+		if (hiddenSnapshot.has(spot.id) || isGroupTitleId(spot.id)) {
+			connectRejectHandler?.('Hidden group members cannot connect.');
+			return;
+		}
+		endConnectDrag(false);
+		connectDrag = {
+			source: spot.id,
+			sx: spot.x,
+			sy: spot.y,
+			px: spot.x,
+			py: spot.y,
+			target: null,
+		};
+		setNodesGrabbable(false);
+		refreshHotspots();
+		window.addEventListener('pointermove', onConnectMove);
+		window.addEventListener('pointerup', onConnectUp);
+		window.addEventListener('keydown', onConnectKey);
+	}
+
+	function presetPositions(): Record<string, { x: number; y: number }> {
+		if (layout === 'columns') {
+			return Object.fromEntries(columnPositions(nodes));
+		}
+		if (layout === 'layered') {
+			return Object.fromEntries(layeredPositions(nodes, edges));
+		}
+		return {};
+	}
 
 	function elementDefs(): ElementDefinition[] {
-		const positions: Record<string, { x: number; y: number }> =
-			layout === 'columns' ? Object.fromEntries(columnPositions(nodes)) : {};
+		const computed = presetPositions();
+		// Expanded groups render as compound parent boxes; collapsed groups
+		// arrive pre-folded as title nodes with their members excluded.
+		const boxIds = [
+			...new Set(
+				nodes.flatMap((node) =>
+					node.groupId &&
+					!collapsed.has(node.groupId) &&
+					!isGroupTitleId(node.id)
+						? [node.groupId]
+						: [],
+				),
+			),
+		];
+		function titleEmphasis(id: string): string[] {
+			if (!isGroupTitleId(id)) return [];
+			const title = groupTitles[id];
+			const members = title?.memberIds ?? [];
+			if (members.length === 0) return [];
+			if (members.some((member) => pulses.has(member))) return ['running'];
+			if (members.some((member) => failed.has(member))) return ['failed'];
+			if (members.some((member) => problems.has(member))) return ['problem'];
+			if (members.some((member) => criticals.has(member))) return ['critical'];
+			return [];
+		}
+
 		const defs: ElementDefinition[] = nodes.map((node) => ({
 			group: 'nodes' as const,
 			data: {
 				id: node.id,
-				label: shortLabel(node.label),
+				label:
+					isGroupTitleId(node.id) && groupTitles[node.id]
+						? `${groupTitles[node.id].label} (${groupTitles[node.id].memberIds.length})`
+						: shortLabel(node.label),
 				fullLabel: node.label,
 				kind: node.kind,
 				shape: nodeShape(node.kind, preset),
 				color: statusHex(node.status),
+				...(node.groupId && boxIds.includes(node.groupId)
+					? { parent: `groupbox:${node.groupId}` }
+					: {}),
 			},
-			position: positions[node.id],
+			position: positions?.[node.id] ?? computed[node.id],
 			classes: [
 				selectedId === node.id ? 'selected' : '',
+				isGroupTitleId(node.id) ? 'group-title' : '',
+				...titleEmphasis(node.id),
+				problems.has(node.id) ? 'problem' : '',
+				pulses.has(node.id) ? 'running' : '',
+				failed.has(node.id) ? 'failed' : '',
+				criticals.has(node.id) ? 'critical' : '',
+				decisions.has(node.id) ? 'decision' : '',
+				heatTierById[node.id] === 3
+					? 'heat-3'
+					: heatTierById[node.id] === 2
+						? 'heat-2'
+						: heatTierById[node.id] === 1
+							? 'heat-1'
+							: '',
 				highlight.size > 0
 					? highlight.has(node.id)
 						? 'highlighted'
@@ -81,6 +678,13 @@
 				.filter(Boolean)
 				.join(' '),
 		}));
+		for (const groupId of boxIds) {
+			defs.push({
+				group: 'nodes' as const,
+				data: { id: `groupbox:${groupId}`, label: groupId },
+				classes: 'group-box',
+			});
+		}
 		for (const edge of edges) {
 			const touchesSelection =
 				selectedId !== null &&
@@ -92,7 +696,13 @@
 					source: edge.source,
 					target: edge.target,
 					label: edgeLabelFor(edge, touchesSelection),
-					lineStyle: isDashedEdge(edge.kind) ? 'dashed' : 'solid',
+					lineStyle: isDashedEdge(edge.kind, edge.taken ?? true)
+						? 'dashed'
+						: 'solid',
+					color:
+						statusHex(edge.status) === '#71717a'
+							? '#71717a'
+							: statusHex(edge.status),
 				},
 			});
 		}
@@ -132,9 +742,7 @@
 				id: edge.id,
 				score:
 					scoreEdgeLabel(edge) +
-					(highlight.has(edge.source) || highlight.has(edge.target)
-						? 50
-						: 0),
+					(highlight.has(edge.source) || highlight.has(edge.target) ? 50 : 0),
 			}))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, edgeLabelLimit)
@@ -148,6 +756,7 @@
 	function layoutOptions(): Record<string, unknown> {
 		switch (layout) {
 			case 'columns':
+			case 'layered':
 				return { name: 'preset', padding: 30, fit: true };
 			case 'force':
 				return {
@@ -160,22 +769,16 @@
 			case 'grid':
 				return { name: 'grid', padding: 30, fit: true, avoidOverlap: true };
 			default:
-				return {
-					name: 'breadthfirst',
-					directed: true,
-					padding: 30,
-					spacingFactor: 1.15,
-					circle: false,
-					grid: true,
-					fit: true,
-				};
+				return { name: 'preset', padding: 30, fit: true };
 		}
 	}
 
 	function syncElements(): void {
 		if (!cy) return;
 		const defs = elementDefs();
-		const wanted = new SvelteMap(defs.map((def) => [def.data.id as string, def]));
+		const wanted = new SvelteMap(
+			defs.map((def) => [def.data.id as string, def]),
+		);
 		cy.batch(() => {
 			if (!cy) return;
 			cy.elements().forEach((element) => {
@@ -186,9 +789,21 @@
 					return;
 				}
 				element.data({ ...element.data(), ...def.data });
+				// Compound parents are sized by their children; only
+				// childless nodes take explicit positions. Parent links only
+				// change across remove/add cycles, so presence is enough.
+				if (element.isNode() && element.isChildless()) {
+					const parent = (def.data as { parent?: string }).parent;
+					const hasParent = !element.parent().empty();
+					if (parent && !hasParent) {
+						element.move({ parent });
+					} else if (!parent && hasParent) {
+						element.move({ parent: null });
+					}
+				}
 				const classes = (def.classes ?? '') as string;
 				element.classes(classes);
-				if (def.position && element.isNode()) {
+				if (def.position && element.isNode() && element.isChildless()) {
 					element.position(def.position);
 				}
 				wanted.delete(id);
@@ -203,6 +818,10 @@
 		if (!cy) return;
 		cy.layout(layoutOptions() as never).run();
 	}
+
+	// Set when relayout runs in edit mode; consumed on layoutstop so the
+	// rearranged positions persist as a single undoable store update.
+	let pendingLayoutCommit = false;
 
 	export function zoomIn(): void {
 		if (!cy) return;
@@ -255,8 +874,43 @@
 		core.fit(eles, 40);
 	}
 
+	export function panTo(x: number, y: number): void {
+		if (!cy || !container) return;
+		const zoom = cy.zoom();
+		void cy.animate(
+			{
+				pan: {
+					x: container.clientWidth / 2 - x * zoom,
+					y: container.clientHeight / 2 - y * zoom,
+				},
+			},
+			{ duration: 200 },
+		);
+	}
+
+	/** Select every non-box node (shortcut delete workflow). */
+	export function selectAll(): void {
+		cy?.nodes()
+			.filter((node) => !node.isParent())
+			.select();
+	}
+
 	export function relayout(): void {
+		// In edit mode the rearranged positions flow back to the store as
+		// one history entry; elsewhere the layout is purely visual.
+		pendingLayoutCommit = editSnapshot && !!groupMoveHandler;
 		runLayout();
+	}
+
+	/** Ids currently selected on the canvas (edit toolbar delete). */
+	export function selectedNodeIds(): string[] {
+		const boxed =
+			cy
+				?.nodes(':selected')
+				.filter((node) => !node.isParent())
+				.map((node) => node.id() as string) ?? [];
+		if (boxed.length > 0) return boxed;
+		return selectedId ? [selectedId] : [];
 	}
 
 	export function exportPng(): boolean {
@@ -321,6 +975,64 @@
 						},
 					},
 					{
+						selector: 'node.problem',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#dc2626',
+							'border-style': 'dashed',
+						},
+					},
+					{
+						selector: 'node.failed',
+						style: {
+							'border-width': 3,
+							'border-color': '#ef4444',
+						},
+					},
+					{
+						selector: 'node.running',
+						style: {
+							'border-width': 3,
+							'border-color': '#2563eb',
+						},
+					},
+					{
+						selector: 'node.critical',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#f59e0b',
+						},
+					},
+					{
+						selector: 'node.decision',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#7c3aed',
+							'border-style': 'dashed',
+						},
+					},
+					{
+						selector: 'node.heat-1',
+						style: {
+							'border-width': 2,
+							'border-color': '#fbbf24',
+						},
+					},
+					{
+						selector: 'node.heat-2',
+						style: {
+							'border-width': 2.5,
+							'border-color': '#f97316',
+						},
+					},
+					{
+						selector: 'node.heat-3',
+						style: {
+							'border-width': 3,
+							'border-color': '#ea580c',
+						},
+					},
+					{
 						selector: 'node.highlighted',
 						style: {
 							'border-width': 3,
@@ -335,10 +1047,10 @@
 						selector: 'edge',
 						style: {
 							width: 1.5,
-							'line-color': '#71717a',
+							'line-color': 'data(color)',
 							'line-style': 'data(lineStyle)',
 							'target-arrow-shape': 'triangle',
-							'target-arrow-color': '#71717a',
+							'target-arrow-color': 'data(color)',
 							'curve-style': 'bezier',
 							label: 'data(label)',
 							color: '#a1a1aa',
@@ -350,26 +1062,262 @@
 						},
 					},
 					{
+						selector: 'node.group-title',
+						style: {
+							width: 160,
+							'border-width': 2,
+							'border-style': 'dashed',
+							'border-color': '#71717a',
+						},
+					},
+					{
+						selector: 'node.group-title.failed',
+						style: {
+							'border-width': 3,
+							'border-style': 'solid',
+							'border-color': '#ef4444',
+						},
+					},
+					{
+						selector: 'node.group-title.running',
+						style: {
+							'border-width': 3,
+							'border-style': 'solid',
+							'border-color': '#2563eb',
+						},
+					},
+					{
+						selector: 'node.group-title.problem',
+						style: {
+							'border-width': 2.5,
+							'border-style': 'dashed',
+							'border-color': '#dc2626',
+						},
+					},
+					{
+						selector: 'node.group-title.critical',
+						style: {
+							'border-width': 2.5,
+							'border-style': 'dashed',
+							'border-color': '#f59e0b',
+						},
+					},
+					{
+						selector: 'node.group-box',
+						style: {
+							'background-opacity': 0.15,
+							'background-color': '#52525b',
+							'border-width': 1,
+							'border-style': 'dashed',
+							'border-color': '#a1a1aa',
+							label: 'data(label)',
+							color: '#d4d4d8',
+							'font-size': 10,
+							'text-valign': 'top',
+							'text-halign': 'center',
+							padding: '14px',
+						},
+					},
+					{
+						selector: 'node.connect-ok',
+						style: {
+							'border-width': 3,
+							'border-color': '#16a34a',
+						},
+					},
+					{
+						selector: 'node.connect-bad',
+						style: { opacity: 0.45 },
+					},
+					{
 						selector: 'edge.dimmed',
 						style: { opacity: 0.25 },
 					},
 				] as unknown as cytoscape.StylesheetJson,
 			});
+			function livePositions(): Record<string, CanvasPosition> {
+				const core = cy;
+				const table: Record<string, CanvasPosition> = {};
+				if (core) {
+					core
+						.nodes()
+						.filter((node) => !node.isParent())
+						.forEach((node) => {
+							table[node.id() as string] = roundPosition(
+								node.position() as CanvasPosition,
+							);
+						});
+				}
+				return { ...(positionsSnapshot ?? {}), ...table };
+			}
+
+			function withPushes(moves: CanvasMove[]): CanvasMove[] {
+				if (moves.length === 0) return moves;
+				const pushed = pushOverlapped(moves, livePositions());
+				if (pushed.length === 0) return moves;
+				const seen = new Set(moves.map((move) => move.id));
+				const extra = pushed.filter((move) => !seen.has(move.id));
+				return [...moves, ...extra];
+			}
+
 			instance.on('tap', 'node', (event) => {
+				clearHoverTip();
 				const id = event.target.id() as string;
+				if (connectDrag) return;
+				if (editSnapshot) {
+					const original = (event as unknown as { originalEvent?: MouseEvent })
+						.originalEvent;
+					const from = selectedSnapshot;
+					if (original?.shiftKey && from && from !== id) {
+						const reason = connectRejectReason(from, id);
+						if (reason === null) {
+							connectHandler?.(from, id);
+							return;
+						}
+						if (reason !== 'Edge already exists.') {
+							connectRejectHandler?.(reason);
+						} else {
+							return;
+						}
+					}
+				}
 				const now = Date.now();
 				if (lastTap && lastTap.id === id && now - lastTap.at < 350) {
 					lastTap = null;
-					onexpand?.(id);
+					expandHandler?.(id);
 					return;
 				}
 				lastTap = { id, at: now };
-				onselect?.(id);
+				selectHandler?.(id);
+			});
+			// Edit intents: the canvas never mutates business state itself,
+			// it only reports what the user did back to the edit store.
+			instance.on('tap', 'edge', (event) => {
+				if (!editMode) return;
+				ondeleteedge?.(event.target.id() as string);
+			});
+			instance.on('grab', 'node', (event) => {
+				clearHoverTip();
+				const target = event.target;
+				grabStart.set(
+					target.id() as string,
+					roundPosition(target.position() as CanvasPosition),
+				);
+			});
+			instance.on('dragfree', 'node', (event) => {
+				requestMiniRefresh();
+				refreshHotspots();
+				if (!editMode) return;
+				const target = event.target;
+				const id = target.id() as string;
+				const position = roundPosition(target.position() as CanvasPosition);
+				if (isGroupTitleId(id)) {
+					groupMoveHandler?.(withPushes(titleDragMoves(id, position)));
+					return;
+				}
+				if (id.startsWith('groupbox:')) {
+					// A group box moves as one unit; report every member so
+					// the store persists the drag as a single history entry.
+					const moves: CanvasMove[] = [];
+					target.children().forEach((child: NodeSingular) => {
+						moves.push({
+							id: child.id() as string,
+							position: roundPosition(child.position() as CanvasPosition),
+						});
+					});
+					if (moves.length > 0) {
+						groupMoveHandler?.(withPushes(moves));
+						return;
+					}
+				}
+				// Expanded members move alone; pushed neighbors join the same
+				// batched move so overlap resolution undoes atomically.
+				const single: CanvasMove[] = [{ id, position }];
+				const combined = withPushes(single);
+				if (combined.length > 1) {
+					groupMoveHandler?.(combined);
+					return;
+				}
+				moveHandler?.(id, position);
+			});
+			instance.on('dblclick', (event) => {
+				if (!editMode) return;
+				if (event.target !== instance) return;
+				const position = (event as unknown as { position: CanvasPosition })
+					.position;
+				onbackgrounddoubleclick?.({
+					x: Math.round(position.x),
+					y: Math.round(position.y),
+				});
+			});
+			instance.on('mouseover', 'node', (event) => {
+				const original = (event as unknown as { originalEvent?: MouseEvent })
+					.originalEvent;
+				requestHoverTip(
+					event.target.id() as string,
+					original?.clientX ?? 0,
+					original?.clientY ?? 0,
+				);
+			});
+			instance.on('mouseout', 'node', () => {
+				clearHoverTip();
 			});
 			const core = instance;
 			core.on('zoom', () => {
+				clearHoverTip();
 				const out = core.zoom() < 0.6;
 				if (out !== zoomedOut) zoomedOut = out;
+				requestMiniRefresh();
+				refreshHotspots();
+			});
+			core.on('pan', () => {
+				clearHoverTip();
+				requestMiniRefresh();
+				refreshHotspots();
+			});
+			core.on('layoutstop', () => {
+				refreshOverview();
+				refreshHotspots();
+				if (pendingLayoutCommit) {
+					pendingLayoutCommit = false;
+					const moves: CanvasMove[] = [];
+					core
+						.nodes()
+						.filter((node) => !node.isParent())
+						.forEach((node) => {
+							moves.push({
+								id: node.id() as string,
+								position: roundPosition(node.position() as CanvasPosition),
+							});
+						});
+					if (moves.length > 0) groupMoveHandler?.(moves);
+				}
+			});
+			core.on('cxttap', (event) => {
+				const original = (event as unknown as { originalEvent?: MouseEvent })
+					.originalEvent;
+				const info = {
+					x: original?.clientX ?? 0,
+					y: original?.clientY ?? 0,
+				};
+				const target = event.target as unknown as {
+					id?: () => unknown;
+					isEdge?: () => boolean;
+				};
+				if (target === instance || typeof target?.id !== 'function') {
+					contextHandler?.({ kind: 'blank', id: null, ...info });
+					return;
+				}
+				const id = target.id() as string;
+				if (id.startsWith('groupbox:')) {
+					contextHandler?.({ kind: 'blank', id: null, ...info });
+					return;
+				}
+				contextHandler?.({
+					kind: target.isEdge?.() ? 'edge' : 'node',
+					id,
+					...info,
+				});
 			});
 			core.on('boxend', () => {
 				const ids = core.$('node:selected').map((node) => node.id());
@@ -380,6 +1328,7 @@
 		})();
 		return () => {
 			cancelled = true;
+			clearHoverTip();
 			instance?.destroy();
 			cy = null;
 		};
@@ -391,26 +1340,95 @@
 		void edges;
 		void selectedId;
 		void highlightIds;
+		void problemIds;
+		void pulseIds;
+		void failedIds;
+		void criticalIds;
+		void heatTierById;
+		void decisionIds;
+		void positions;
+		void collapsedIds;
+		void hiddenIds;
+		void groupTitles;
 		void preset;
 		void edgeLabelLimit;
 		void zoomedOut;
+		void showMinimap;
 		syncElements();
+		refreshOverview();
+		refreshHotspots();
 	});
 
 	$effect(() => {
-		if (!ready) return;
+		if (!ready || !cy) return;
+		void editMode;
+		if (connectDrag) return;
+		if (editMode) {
+			cy.autoungrabify(false);
+			cy.nodes().grabify();
+		} else {
+			cy.nodes().ungrabify();
+			cy.autoungrabify(true);
+		}
+		if (!editMode && connectDrag) endConnectDrag(false);
+		refreshHotspots();
+	});
+
+	$effect(() => {
+		if (!ready || editMode) return;
 		void layout;
 		runLayout();
 	});
 </script>
 
 <div
+	bind:this={wrapper}
+	role="application"
+	aria-label="Graph canvas workspace"
 	class={cn(
 		'relative overflow-hidden rounded-lg border border-border bg-muted/30',
 		className,
 	)}
+	oncontextmenu={(event) => event.preventDefault()}
 >
-	<div bind:this={container} class="h-96 w-full" role="img" aria-label="Graph canvas"></div>
+	<div
+		bind:this={container}
+		class={`w-full ${heightClass}`}
+		role="img"
+		aria-label="Graph canvas"
+	></div>
+	{#if editMode && !connectDrag}
+		{#each hotspots as spot (spot.id)}
+			<button
+				type="button"
+				aria-label="Connect from {spot.id}"
+				title="Drag to connect from {spot.id}"
+				class="absolute z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border border-info bg-card hover:bg-info"
+				style:left={`${spot.x}px`}
+				style:top={`${spot.y}px`}
+				onpointerdown={(event) => startConnect(event, spot)}
+			></button>
+		{/each}
+	{/if}
+	{#if connectDrag}
+		<svg
+			class="pointer-events-none absolute inset-0 z-10 h-full w-full"
+			role="presentation"
+		>
+			<line
+				x1={connectDrag.sx}
+				y1={connectDrag.sy}
+				x2={connectDrag.px}
+				y2={connectDrag.py}
+				class={connectDrag.target &&
+				connectValid(connectDrag.source, connectDrag.target)
+					? 'stroke-success'
+					: 'stroke-destructive'}
+				stroke-width="2"
+				stroke-dasharray="5 4"
+			/>
+		</svg>
+	{/if}
 	{#if !ready}
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-caption text-muted-foreground"
@@ -424,9 +1442,71 @@
 			No nodes to display.
 		</div>
 	{/if}
+	{#if hoverTip}
+		<div
+			class="pointer-events-none absolute z-20 max-w-56 rounded-md border border-border bg-card px-2 py-1 text-micro text-foreground shadow-md"
+			style:left={`${hoverTip.x}px`}
+			style:top={`${hoverTip.y}px`}
+			aria-hidden="true"
+		>
+			{hoverTip.text}
+		</div>
+	{/if}
 	<div
 		class="pointer-events-none absolute right-2 bottom-2 rounded-md border border-border bg-card/90 px-2 py-1 text-micro text-muted-foreground"
 	>
 		{nodes.length} nodes · {edges.length} edges
 	</div>
+	{#if showMinimap && overview}
+		{@const topLeft = miniXY(overview.view.x1, overview.view.y1)}
+		{@const bottomRight = miniXY(overview.view.x2, overview.view.y2)}
+		<div
+			class="absolute bottom-2 left-2 rounded-md border border-border bg-card/90 p-1"
+		>
+			<svg
+				width={MINI_W}
+				height={MINI_H}
+				role="img"
+				aria-label="Graph minimap"
+				class="block cursor-crosshair touch-none"
+				onpointerdown={onMiniDown}
+				onpointermove={onMiniMove}
+				onpointerup={onMiniUp}
+				onpointercancel={onMiniUp}
+			>
+				{#each overview.boxes as box (box.id)}
+					{@const boxTopLeft = miniXY(box.x1, box.y1)}
+					{@const boxBottomRight = miniXY(box.x2, box.y2)}
+					<rect
+						x={Math.min(boxTopLeft.x, boxBottomRight.x)}
+						y={Math.min(boxTopLeft.y, boxBottomRight.y)}
+						width={Math.max(2, Math.abs(boxBottomRight.x - boxTopLeft.x))}
+						height={Math.max(2, Math.abs(boxBottomRight.y - boxTopLeft.y))}
+						class="fill-transparent stroke-muted-foreground"
+						stroke-width="1"
+						stroke-dasharray="3 2"
+					/>
+				{/each}
+				{#each overview.items as item (item.id)}
+					{@const point = miniXY(item.x, item.y)}
+					<rect
+						x={point.x - 1.5}
+						y={point.y - 1.5}
+						width="3"
+						height="3"
+						rx="0.75"
+						class="fill-muted-foreground"
+					/>
+				{/each}
+				<rect
+					x={Math.min(topLeft.x, bottomRight.x)}
+					y={Math.min(topLeft.y, bottomRight.y)}
+					width={Math.abs(bottomRight.x - topLeft.x)}
+					height={Math.abs(bottomRight.y - topLeft.y)}
+					class="fill-transparent stroke-info"
+					stroke-width="1.5"
+				/>
+			</svg>
+		</div>
+	{/if}
 </div>

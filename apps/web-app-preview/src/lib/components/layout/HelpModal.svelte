@@ -1,6 +1,8 @@
 <script lang="ts">
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
+	import { CANVAS_SHORTCUT_HELP } from '$lib/graph/canvas-shortcuts';
+	import { goto } from '$app/navigation';
 
 	interface Shortcut {
 		keys: string;
@@ -16,12 +18,27 @@
 		{ keys: 'Ctrl+K', action: 'Global search' },
 		{ keys: 'F1', action: 'Open this help overlay' },
 		{ keys: 'Esc', action: 'Close dialogs and overlays' },
+		...CANVAS_SHORTCUT_HELP.map((entry) => ({
+			keys: entry.keys,
+			action: `Canvas: ${entry.action}`,
+		})),
 	];
 
 	const links: Link[] = [
-		{ href: '/docs/user-guide.md', label: 'User guide' },
+		{ href: `/docs/user-guide.md`, label: 'User guide' },
 		{ href: 'https://github.com/atomgit-com/wf-agent#readme', label: 'README' },
 	];
+
+	function navigateTo(href: string): void {
+		if (href.startsWith('http://') || href.startsWith('https://')) {
+			window.open(href, '_blank', 'noopener,noreferrer');
+		} else {
+			// The installed Kit version does not export resolve(); href values
+			// here are already root-relative, so goto() is sufficient.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			goto(href);
+		}
+	}
 </script>
 
 <Dialog
@@ -55,14 +72,16 @@
 		<ul class="mt-1 space-y-1">
 			{#each links as link (link.href)}
 				<li>
-					<a
-						href={link.href}
-						target="_blank"
-						rel="noreferrer"
+					<button
+						type="button"
+						onclick={(e) => {
+							e.preventDefault();
+							navigateTo(link.href);
+						}}
 						class="text-body text-info hover:underline"
 					>
 						{link.label}
-					</a>
+					</button>
 				</li>
 			{/each}
 		</ul>

@@ -14,7 +14,8 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import GraphExplorer, {
 		type GraphOverlay,
@@ -70,6 +71,7 @@
 	let detailError = $state<string | null>(null);
 	let loopMessages = $state<LoopMessage[]>([]);
 	let messagesError = $state<string | null>(null);
+	let messagesLoading = $state(false);
 	let loopVariables = $state<LoopVariable[]>([]);
 	let variablesError = $state<string | null>(null);
 	let loopCheckpoints = $state<Checkpoint[]>([]);
@@ -147,7 +149,16 @@
 			if (current === 'messages' && seenMessages !== id) {
 				seenMessages = id;
 				messagesError = null;
-				loopMessages = await getAgentLoopMessages(id);
+				messagesLoading = true;
+				try {
+					loopMessages = await getAgentLoopMessages(id);
+				} catch (e) {
+					seenMessages = '';
+					loopMessages = [];
+					messagesError = e instanceof Error ? e.message : 'Messages failed.';
+				} finally {
+					messagesLoading = false;
+				}
 			} else if (current === 'variables' && seenVariables !== id) {
 				seenVariables = id;
 				variablesError = null;
@@ -379,26 +390,28 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if tab === 'messages'}
-			{#if messagesError}
-				<ErrorState
-					title="Messages failed to load"
-					description={messagesError}
-					onretry={() => {
-						const id = page.params.id;
-						if (id) {
-							seenMessages = '';
-							void loadTab(id, 'messages');
-						}
-					}}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
+			<PageState
+				loading={messagesLoading}
+				error={messagesError}
+				errorTitle="Messages failed to load"
+				empty={loopMessages.length === 0}
+				emptyTitle="No messages recorded"
+				emptyDescription="Loop messages appear here once the run exchanges prompts with the model."
+				onretry={() => {
+					const id = page.params.id;
+					if (id) {
+						seenMessages = '';
+						void loadTab(id, 'messages');
+					}
+				}}
+				class="rounded-lg border border-border bg-card"
+			>
 				<div class="mx-auto flex max-w-3xl flex-col gap-3">
 					{#each loopMessages as message (message.id)}
 						<MessageBubble {message} />
 					{/each}
 				</div>
-			{/if}
+			</PageState>
 
 			<div
 				class="mx-auto mt-4 flex max-w-3xl items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"

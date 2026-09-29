@@ -8,7 +8,8 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import UnsavedChangesDialog from '$lib/components/domain/UnsavedChangesDialog.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
@@ -254,97 +255,102 @@
 						</p>
 					</Card>
 				</div>
-			{:else if section === 'execution'}
-				<div class="space-y-3">
-					<p class="text-caption text-muted-foreground">
-						Server-side section. Changes only take effect after Save in the
-						header.
-					</p>
-					{#if behavior.error}
-						<p class="text-caption text-destructive">
-							{#if behavior.loaded}
-								Server preferences update failed ({behavior.error}); edits stay
-								local until Save succeeds.
-							{:else}
-								Server preferences unavailable ({behavior.error}); edits are
-								kept locally and Save stays disabled until the backend is
-								reachable.
+			{:else if serverSection}
+				<PageState
+					loading={behavior.loading}
+					error={serverUnreachable ? behavior.error : null}
+					errorTitle="Server preferences unavailable"
+					onretry={() => void behavior.load()}
+				>
+					{#if section === 'execution'}
+						<div class="space-y-3">
+							<p class="text-caption text-muted-foreground">
+								Server-side section. Changes only take effect after Save in the
+								header.
+							</p>
+							{#if behavior.loaded && behavior.error}
+								<p class="text-caption text-destructive">
+									Server preferences update failed ({behavior.error}); edits
+									stay local until Save succeeds.
+								</p>
 							{/if}
-						</p>
-					{/if}
-					<Card
-						title="Paging"
-						description="Cursor pages have no total; this sets the requested page size. Stored server-side."
-					>
-						<Select
-							value={pageSize}
-							options={PAGE_SIZE_OPTIONS}
-							placeholder="Page size"
-							class="w-40"
-							disabled={serverUnreachable}
-							onchange={(value) => {
-								behavior.pageSize = Number(value) || 50;
-							}}
-						/>
-					</Card>
-					<Card title="Live updates" description="Stored server-side.">
-						<Switch
-							checked={behavior.autoRefresh}
-							label="Auto refresh lists"
-							disabled={serverUnreachable}
-							onchange={() => {
-								behavior.autoRefresh = !behavior.autoRefresh;
-							}}
-						/>
-						<Switch
-							checked={behavior.streamFollow}
-							label="Follow stream tail"
-							class="mt-2"
-							disabled={serverUnreachable}
-							onchange={() => {
-								behavior.streamFollow = !behavior.streamFollow;
-							}}
-						/>
-					</Card>
-				</div>
-			{:else if section === 'notifications'}
-				<div class="space-y-3">
-					<p class="text-caption text-muted-foreground">
-						Toast previews apply instantly; the accessibility preference below
-						is stored server-side and needs Save.
-					</p>
-					<Card title="Toasts">
-						<div class="mt-1 flex gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => toasts.success('Saved', 'Preference applied')}
+							<Card
+								title="Paging"
+								description="Cursor pages have no total; this sets the requested page size. Stored server-side."
 							>
-								Test success toast
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => toasts.error('Blocked', 'Retry may be required')}
-							>
-								Test error toast
-							</Button>
+								<Select
+									value={pageSize}
+									options={PAGE_SIZE_OPTIONS}
+									placeholder="Page size"
+									class="w-40"
+									disabled={serverUnreachable}
+									onchange={(value) => {
+										behavior.pageSize = Number(value) || 50;
+									}}
+								/>
+							</Card>
+							<Card title="Live updates" description="Stored server-side.">
+								<Switch
+									checked={behavior.autoRefresh}
+									label="Auto refresh lists"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.autoRefresh = !behavior.autoRefresh;
+									}}
+								/>
+								<Switch
+									checked={behavior.streamFollow}
+									label="Follow stream tail"
+									class="mt-2"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.streamFollow = !behavior.streamFollow;
+									}}
+								/>
+							</Card>
 						</div>
-					</Card>
-					<Card title="Accessibility" description="Stored server-side.">
-						<Switch
-							checked={behavior.reduceMotion}
-							label="Always reduce motion"
-							disabled={serverUnreachable}
-							onchange={() => {
-								behavior.reduceMotion = !behavior.reduceMotion;
-							}}
-						/>
-						<p class="mt-2 text-caption text-muted-foreground">
-							The OS reduced-motion preference is honoured automatically.
-						</p>
-					</Card>
-				</div>
+					{:else}
+						<div class="space-y-3">
+							<p class="text-caption text-muted-foreground">
+								Toast previews apply instantly; the accessibility preference
+								below is stored server-side and needs Save.
+							</p>
+							<Card title="Toasts">
+								<div class="mt-1 flex gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() =>
+											toasts.success('Saved', 'Preference applied')}
+									>
+										Test success toast
+									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() =>
+											toasts.error('Blocked', 'Retry may be required')}
+									>
+										Test error toast
+									</Button>
+								</div>
+							</Card>
+							<Card title="Accessibility" description="Stored server-side.">
+								<Switch
+									checked={behavior.reduceMotion}
+									label="Always reduce motion"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.reduceMotion = !behavior.reduceMotion;
+									}}
+								/>
+								<p class="mt-2 text-caption text-muted-foreground">
+									The OS reduced-motion preference is honoured automatically.
+								</p>
+							</Card>
+						</div>
+					{/if}
+				</PageState>
 			{:else}
 				<div class="space-y-3">
 					<Card title="Shell">

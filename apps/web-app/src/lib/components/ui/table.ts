@@ -11,4 +11,6 @@ export interface Column<T> {
 	width?: string;
 	text?: (row: T) => string;
 	cell?: Snippet<[T]>;
+	/** Extra classes for every cell in this column, e.g. monospace or numeric. */
+	cellClass?: string;
 }

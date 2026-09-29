@@ -9,11 +9,17 @@
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import Timeline from '$lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
-	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
+	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
+	import {
+		applyExecutionOverlay,
+		matchDecisionNodeId,
+		projectExecutionOverlay,
+	} from '$lib/graph/execution-projection';
+	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { Column } from '$lib/components/ui/table';
 	import {
 		getAgentLoop,
@@ -60,6 +66,14 @@
 		/** Bumping this refetches the sources already loaded for the session. */
 		revision?: number;
 		busy?: boolean;
+		/** Live tool statuses keyed by tool name; merged over history. */
+		liveStatuses?: Record<string, string>;
+		/** Node id pulsed as currently running. */
+		liveNode?: string | null;
+		/** Focusing a node from outside (tool card clicks). */
+		focusId?: string | null;
+		/** Bubble graph selection up (tool list filtering). */
+		onnodeselect?: (id: string | null) => void;
 		/** When absent the checkpoint list stays read-only. */
 		onrestore?: (checkpoint: Checkpoint) => void;
 		class?: string;
@@ -71,6 +85,10 @@
 		tabs = INSPECTOR_TABS,
 		revision = 0,
 		busy = false,
+		liveStatuses = {},
+		liveNode = null,
+		focusId = null,
+		onnodeselect,
 		onrestore,
 		class: className = '',
 	}: Props = $props();
@@ -154,10 +172,127 @@
 		{ key: 'key', header: 'Key', text: (row) => row.key },
 		{ key: 'value', header: 'Value', text: (row) => row.value },
 	];
+
+	// Decision graph as display nodes, so history and live progress share
+	// one projection bridge instead of a static snapshot.
+	const decisionNodes = $derived<DisplayNode[]>(
+		(graph.data?.nodes ?? []).map((node) => ({
+			id: node.id,
+			label: node.label,
+			kind: node.kind,
+			status: node.status,
+			iteration: node.iteration,
+		})),
+	);
+	const decisionEdges = $derived<DisplayEdge[]>(
+		(graph.data?.edges ?? []).map((edge) => ({
+			id: edge.id,
+			source: edge.from,
+			target: edge.to,
+			label: edge.label,
+			kind: edge.kind,
+			taken: edge.taken,
+		})),
+	);
+
+	/** Shared bridge: history and live frames resolve names identically. */
+	function matchDecisionNode(name: string): string | null {
+		return matchDecisionNodeId(decisionNodes, name);
+	}
+
+	// Worst tool-call status per node from recorded iterations; live frames
+	// override history while a run is active.
+	const historyNodeStatuses = $derived.by(() => {
+		const statuses: Record<string, string> = {};
+		const rank = (status: string): number =>
+			status === 'failed' ? 2 : status === 'running' ? 1 : 0;
+		for (const iteration of iterationList) {
+			for (const call of iteration.toolCalls) {
+				const nodeId = matchDecisionNode(call.name);
+				if (!nodeId) continue;
+				const status = call.status === 'completed' ? 'completed' : 'failed';
+				if (rank(status) >= rank(statuses[nodeId] ?? 'completed')) {
+					statuses[nodeId] = status;
+				}
+			}
+		}
+		return statuses;
+	});
+
+	const liveNodeStatuses = $derived.by(() => {
+		const statuses: Record<string, string> = {};
+		for (const [name, status] of Object.entries(liveStatuses)) {
+			const nodeId = matchDecisionNode(name);
+			if (nodeId) statuses[nodeId] = status;
+		}
+		return statuses;
+	});
+
+	const decisionOverlayNodes = $derived.by(() => {
+		const overlay = projectExecutionOverlay(decisionNodes, {
+			currentNode: liveNode,
+			liveStatuses: { ...historyNodeStatuses, ...liveNodeStatuses },
+			executedNodes: iterationList.flatMap((iteration) =>
+				iteration.toolCalls
+					.filter((call) => call.status === 'completed')
+					.map((call) => matchDecisionNode(call.name))
+					.filter((id): id is string => id !== null),
+			),
+		});
+		return applyExecutionOverlay(decisionNodes, overlay);
+	});
+
+	let selectedGraphNode = $state<string | null>(null);
+	let graphExplorer = $state<{ focus: (id: string) => void } | null>(null);
+
+	$effect(() => {
+		if (focusId) graphExplorer?.focus(focusId);
+	});
+
+	function handleGraphSelect(id: string | null): void {
+		selectedGraphNode = id;
+		onnodeselect?.(id);
+	}
+
+	/** History tool cards focus the graph like live tool cards do. */
+	function handleToolFocus(entry: { id: string; name: string }): void {
+		const nodeId = matchDecisionNode(entry.name);
+		if (!nodeId) return;
+		selectedGraphNode = nodeId;
+		onnodeselect?.(nodeId);
+		graphExplorer?.focus(nodeId);
+	}
+
+	const selectedGraphIteration = $derived(
+		decisionNodes.find((node) => node.id === selectedGraphNode)?.iteration ??
+			null,
+	);
+
+	const visibleIterations = $derived(
+		selectedGraphIteration === null
+			? iterationList
+			: iterationList.filter(
+					(iteration) => iteration.index === selectedGraphIteration,
+				),
+	);
+
+	const visibleTools = $derived(
+		selectedGraphNode === null
+			? toolCalls
+			: toolCalls.filter(
+					(call) => matchDecisionNode(call.name) === selectedGraphNode,
+				),
+	);
 </script>
 
 <div class={cn('flex min-h-0 flex-col', className)}>
-	<Segmented {items} bind:value={tab} size="sm" class="shrink-0 px-1" panelId="session-panel" />
+	<Segmented
+		{items}
+		bind:value={tab}
+		size="sm"
+		class="shrink-0 px-1"
+		panelId="session-panel"
+	/>
 
 	<div
 		id="session-panel"
@@ -211,15 +346,41 @@
 				</Card>
 			{/if}
 		{:else if tab === 'graph'}
-			<WorkflowGraph graph={graph.data ?? { nodes: [], edges: [] }} />
+			<GraphExplorer
+				bind:this={graphExplorer}
+				nodes={decisionOverlayNodes}
+				edges={decisionEdges}
+				preset="decision"
+				loading={graph.loading && graph.data === null}
+				error={graph.error}
+				onretry={() => void graph.reload()}
+				selectedId={selectedGraphNode}
+				onselect={handleGraphSelect}
+			/>
 		{:else if tab === 'iterations'}
-			{#if iterationList.length === 0}
+			{#if selectedGraphNode !== null}
+				<div class="mb-2 flex items-center gap-2">
+					<p class="text-micro text-muted-foreground">
+						Filtered by graph node “{selectedGraphNode}”
+					</p>
+					<button
+						type="button"
+						class="text-micro text-foreground underline-offset-2 hover:underline"
+						onclick={() => handleGraphSelect(null)}
+					>
+						Clear
+					</button>
+				</div>
+			{/if}
+			{#if visibleIterations.length === 0}
 				<p class="text-caption text-muted-foreground">
-					No iteration records for this session.
+					{selectedGraphNode !== null
+						? 'No iterations for the selected graph node.'
+						: 'No iteration records for this session.'}
 				</p>
 			{:else}
 				<ul class="space-y-2">
-					{#each iterationList as iteration (iteration.index)}
+					{#each visibleIterations as iteration (iteration.index)}
 						<li
 							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 						>
@@ -290,14 +451,53 @@
 				</div>
 			{/if}
 		{:else if tab === 'tools'}
-			{#if toolCalls.length === 0}
+			{#if selectedGraphNode !== null}
+				<div class="mb-2 flex items-center gap-2">
+					<p class="text-micro text-muted-foreground">
+						Filtered by graph node “{selectedGraphNode}”
+					</p>
+					<button
+						type="button"
+						class="text-micro text-foreground underline-offset-2 hover:underline"
+						onclick={() => handleGraphSelect(null)}
+					>
+						Clear
+					</button>
+				</div>
+			{/if}
+			{#if visibleTools.length === 0}
 				<p class="text-caption text-muted-foreground">
-					No tool calls recorded for this session.
+					{selectedGraphNode !== null
+						? 'No tool calls for the selected graph node.'
+						: 'No tool calls recorded for this session.'}
 				</p>
 			{:else}
 				<div class="space-y-2">
-					{#each toolCalls as entry (entry.id)}
-						<ToolCallCard {entry} />
+					{#each visibleTools as entry (entry.id)}
+						{@const toolNodeId = matchDecisionNode(entry.name)}
+						<div
+							role="button"
+							tabindex={toolNodeId ? 0 : -1}
+							aria-label={toolNodeId
+								? `Locate tool ${entry.name} on decision graph`
+								: `Tool ${entry.name}`}
+							onclick={() => handleToolFocus(entry)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									handleToolFocus(entry);
+								}
+							}}
+							class={cn(
+								'rounded-lg',
+								toolNodeId && 'cursor-pointer',
+								toolNodeId &&
+									selectedGraphNode === toolNodeId &&
+									'ring-2 ring-warning',
+							)}
+						>
+							<ToolCallCard {entry} />
+						</div>
 					{/each}
 				</div>
 			{/if}

@@ -12,7 +12,7 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import GraphExplorer, {
 		type GraphOverlay,
 	} from '$lib/components/domain/GraphExplorer.svelte';
@@ -20,7 +20,7 @@
 	import WorkflowVersionsPanel from '$lib/components/domain/WorkflowVersionsPanel.svelte';
 	import WorkflowDraftsPanel from '$lib/components/domain/WorkflowDraftsPanel.svelte';
 	import WorkflowRunsPanel from '$lib/components/domain/WorkflowRunsPanel.svelte';
-	import UnsavedChangesDialog from '$lib/components/domain/UnsavedChangesDialog.svelte';
+	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
 	import {
 		executeWorkflow,
 		exportWorkflow,
@@ -684,6 +684,10 @@
 									<StatusBadge status={node.status} size="sm" dot={false} />
 								</span>
 							</li>
+						{:else}
+							<li class="text-caption text-muted-foreground">
+								This definition has no nodes yet.
+							</li>
 						{/each}
 					</ul>
 				</Card>
@@ -703,6 +707,10 @@
 										>{edge.label}</Badge
 									>
 								{/if}
+							</li>
+						{:else}
+							<li class="text-caption text-muted-foreground">
+								This definition has no edges yet.
 							</li>
 						{/each}
 					</ul>

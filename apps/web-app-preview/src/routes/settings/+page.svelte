@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -7,6 +8,8 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
@@ -57,8 +60,36 @@
 
 	let pageSize = $derived(String(behavior.pageSize));
 
+	// Only the execution and notification sections persist in the server
+	// cross-device behavior track; appearance and workspace are the local
+	// first-paint track and apply instantly in this browser.
+	const serverSection = $derived(
+		section === 'execution' || section === 'notifications',
+	);
+	// Server controls stay disabled until the backend document arrives.
+	const serverUnreachable = $derived(
+		!behavior.loaded && behavior.error !== null,
+	);
+
+	let unsavedOpen = $state(false);
+	let unsavedBusy = $state(false);
+	let pendingNavUrl = $state<string | null>(null);
+
 	onMount(() => {
 		void behavior.load();
+		const guardUnload = (event: BeforeUnloadEvent): void => {
+			if (behavior.dirty) event.preventDefault();
+		};
+		window.addEventListener('beforeunload', guardUnload);
+		return () => window.removeEventListener('beforeunload', guardUnload);
+	});
+
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload) return;
+		if (!behavior.dirty) return;
+		navigation.cancel();
+		pendingNavUrl = navigation.to?.url.toString() ?? null;
+		unsavedOpen = true;
 	});
 
 	async function saveBehavior(): Promise<void> {
@@ -78,31 +109,74 @@
 			toasts.success('Defaults restored');
 		}
 	}
+
+	function proceedPending(): void {
+		const target = pendingNavUrl;
+		pendingNavUrl = null;
+		// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		if (target) void goto(target);
+	}
+
+	async function saveAndProceed(): Promise<void> {
+		unsavedBusy = true;
+		try {
+			await saveBehavior();
+			if (behavior.error) return;
+			unsavedOpen = false;
+			proceedPending();
+		} finally {
+			unsavedBusy = false;
+		}
+	}
+
+	async function discardAndProceed(): Promise<void> {
+		unsavedBusy = true;
+		try {
+			await behavior.load();
+			unsavedOpen = false;
+			proceedPending();
+		} finally {
+			unsavedBusy = false;
+		}
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title="Settings"
-		description="Appearance, execution defaults and notification behaviour."
+		description="Appearance and workspace stay local and apply instantly. Execution and notification preferences are cross-device server behavior and need Save."
 	>
 		{#snippet actions()}
-			<Button
-				variant="outline"
-				size="sm"
-				disabled={behavior.saving}
-				onclick={() => void restoreBehavior()}
-			>
-				<Icon name="history" size={13} />
-				Restore defaults
-			</Button>
-			<Button
-				size="sm"
-				disabled={behavior.saving}
-				onclick={() => void saveBehavior()}
-			>
-				<Icon name="check" size={13} />
-				{behavior.saving ? 'Saving…' : 'Save'}
-			</Button>
+			{#if serverSection}
+				{#if behavior.dirty}
+					<span
+						class="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
+						>Unsaved changes</span
+					>
+				{/if}
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={behavior.saving || serverUnreachable}
+					onclick={() => void restoreBehavior()}
+				>
+					<Icon name="history" size={13} />
+					Restore defaults
+				</Button>
+				<Button
+					size="sm"
+					disabled={behavior.saving || serverUnreachable}
+					onclick={() => void saveBehavior()}
+				>
+					<Icon name="check" size={13} />
+					{behavior.saving ? 'Saving…' : 'Save server preferences'}
+				</Button>
+			{:else}
+				<span class="text-caption text-muted-foreground">
+					Local preferences apply instantly.
+				</span>
+			{/if}
 		{/snippet}
 	</PageHeader>
 
@@ -181,87 +255,102 @@
 						</p>
 					</Card>
 				</div>
-			{:else if section === 'execution'}
-				<div class="space-y-3">
-					<p class="text-caption text-muted-foreground">
-						Unlike Appearance, which applies instantly, changes here only
-						take effect when you press Save in the header.
-					</p>
-					{#if behavior.error}
-						<p class="text-caption text-destructive">
-							Server preferences unavailable ({behavior.error});
-							edits below still apply once the backend is reachable.
-						</p>
-					{/if}
-					<Card
-						title="Paging"
-						description="Cursor pages have no total; this sets the requested page size. Stored server-side."
-					>
-						<Select
-							value={pageSize}
-							options={PAGE_SIZE_OPTIONS}
-							placeholder="Page size"
-							class="w-40"
-							onchange={(value) => {
-								behavior.pageSize = Number(value) || 50;
-							}}
-						/>
-					</Card>
-					<Card title="Live updates" description="Stored server-side.">
-						<Switch
-							checked={behavior.autoRefresh}
-							label="Auto refresh lists"
-							onchange={() => {
-								behavior.autoRefresh = !behavior.autoRefresh;
-							}}
-						/>
-						<Switch
-							checked={behavior.streamFollow}
-							label="Follow stream tail"
-							class="mt-2"
-							onchange={() => {
-								behavior.streamFollow = !behavior.streamFollow;
-							}}
-						/>
-					</Card>
-				</div>
-			{:else if section === 'notifications'}
-				<div class="space-y-3">
-					<p class="text-caption text-muted-foreground">
-						Toast previews apply instantly; the accessibility preference
-						below is stored server-side and needs Save.
-					</p>
-					<Card title="Toasts">
-						<div class="mt-1 flex gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => toasts.success('Saved', 'Preference applied')}
+			{:else if serverSection}
+				<PageState
+					loading={behavior.loading}
+					error={serverUnreachable ? behavior.error : null}
+					errorTitle="Server preferences unavailable"
+					onretry={() => void behavior.load()}
+				>
+					{#if section === 'execution'}
+						<div class="space-y-3">
+							<p class="text-caption text-muted-foreground">
+								Server-side section. Changes only take effect after Save in the
+								header.
+							</p>
+							{#if behavior.loaded && behavior.error}
+								<p class="text-caption text-destructive">
+									Server preferences update failed ({behavior.error}); edits
+									stay local until Save succeeds.
+								</p>
+							{/if}
+							<Card
+								title="Paging"
+								description="Cursor pages have no total; this sets the requested page size. Stored server-side."
 							>
-								Test success toast
-							</Button>
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => toasts.error('Blocked', 'Retry may be required')}
-							>
-								Test error toast
-							</Button>
+								<Select
+									value={pageSize}
+									options={PAGE_SIZE_OPTIONS}
+									placeholder="Page size"
+									class="w-40"
+									disabled={serverUnreachable}
+									onchange={(value) => {
+										behavior.pageSize = Number(value) || 50;
+									}}
+								/>
+							</Card>
+							<Card title="Live updates" description="Stored server-side.">
+								<Switch
+									checked={behavior.autoRefresh}
+									label="Auto refresh lists"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.autoRefresh = !behavior.autoRefresh;
+									}}
+								/>
+								<Switch
+									checked={behavior.streamFollow}
+									label="Follow stream tail"
+									class="mt-2"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.streamFollow = !behavior.streamFollow;
+									}}
+								/>
+							</Card>
 						</div>
-					</Card>
-					<Card title="Accessibility" description="Stored server-side.">
-						<Switch
-							checked={behavior.reduceMotion}
-							label="Always reduce motion"
-							onchange={() => {
-								behavior.reduceMotion = !behavior.reduceMotion;
-							}}
-						/>
-						<p class="mt-2 text-caption text-muted-foreground">
-							The OS reduced-motion preference is honoured automatically.
-						</p>
-					</Card>
-				</div>
+					{:else}
+						<div class="space-y-3">
+							<p class="text-caption text-muted-foreground">
+								Toast previews apply instantly; the accessibility preference
+								below is stored server-side and needs Save.
+							</p>
+							<Card title="Toasts">
+								<div class="mt-1 flex gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() =>
+											toasts.success('Saved', 'Preference applied')}
+									>
+										Test success toast
+									</Button>
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() =>
+											toasts.error('Blocked', 'Retry may be required')}
+									>
+										Test error toast
+									</Button>
+								</div>
+							</Card>
+							<Card title="Accessibility" description="Stored server-side.">
+								<Switch
+									checked={behavior.reduceMotion}
+									label="Always reduce motion"
+									disabled={serverUnreachable}
+									onchange={() => {
+										behavior.reduceMotion = !behavior.reduceMotion;
+									}}
+								/>
+								<p class="mt-2 text-caption text-muted-foreground">
+									The OS reduced-motion preference is honoured automatically.
+								</p>
+							</Card>
+						</div>
+					{/if}
+				</PageState>
 			{:else}
 				<div class="space-y-3">
 					<Card title="Shell">
@@ -303,3 +392,12 @@
 		</div>
 	</div>
 </div>
+
+<UnsavedChangesDialog
+	bind:open={unsavedOpen}
+	description="Server preferences have unsaved edits. Leaving discards the local changes."
+	saveLabel="Save & leave"
+	busy={unsavedBusy}
+	ondiscard={() => void discardAndProceed()}
+	onsave={() => void saveAndProceed()}
+/>

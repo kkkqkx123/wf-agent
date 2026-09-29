@@ -6,12 +6,14 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import PageState from '$lib/components/layout/PageState.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import DataTable from '$lib/components/ui/DataTable.svelte';
+	import type { Column } from '$lib/components/ui/table';
+	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
+	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		cleanupTriggerExecutions,
 		listTriggerHistory,
@@ -43,10 +45,22 @@
 	let hooks = $state<Hook[]>([]);
 	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
+	let payloadError = $state<string | null>(null);
+	let payloadEditor = $state<{ scrollToLine: (line: number) => void } | null>(
+		null,
+	);
+	let dispatchBusy = $state(false);
+	let lastDispatch = $state<string | null>(null);
 	let recordsError = $state<string | null>(null);
 	let recordsLoading = $state(false);
+	let hooksError = $state<string | null>(null);
+	let hooksLoading = $state(false);
 	let cleanupArmed = $state(false);
 	let cleanupBusy = $state(false);
+
+	const payloadErrorLine = $derived(
+		payloadError ? jsonErrorLine(payload, payloadError) : null,
+	);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenRecords = $state(false);
@@ -87,8 +101,18 @@
 			}
 		} else if (current === 'hooks' && !seenHooks) {
 			seenHooks = true;
-			hooks = await listHooks();
-			if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			hooksLoading = true;
+			hooksError = null;
+			try {
+				hooks = await listHooks();
+				if (!hookName && hooks.length > 0) hookName = hooks[0].name;
+			} catch (e) {
+				seenHooks = false;
+				hooks = [];
+				hooksError = e instanceof Error ? e.message : 'Hook registry failed.';
+			} finally {
+				hooksLoading = false;
+			}
 		}
 	}
 
@@ -117,18 +141,58 @@
 	}
 
 	async function dispatch(): Promise<void> {
-		if (!hookName) return;
+		if (!hookName || dispatchBusy) return;
+		let parsed: unknown;
 		try {
-			const parsed: unknown = JSON.parse(payload);
-			const result = await fireHook(hookName, parsed);
-			toasts.success(`Test dispatched to ${hookName}: ${result.status}`);
+			parsed = JSON.parse(payload);
+			payloadError = null;
 		} catch (e) {
+			payloadError = e instanceof Error ? e.message : 'Invalid JSON';
+			return;
+		}
+		dispatchBusy = true;
+		try {
+			const result = await fireHook(hookName, parsed);
+			lastDispatch = `Test dispatched to ${hookName}: ${result.status}`;
+			toasts.success(lastDispatch);
+		} catch (e) {
+			lastDispatch = null;
 			toasts.error(
 				'Dispatch failed',
 				e instanceof Error ? e.message : undefined,
 			);
+		} finally {
+			dispatchBusy = false;
 		}
 	}
+
+	const recordColumns: Column<TriggerRecord>[] = [
+		{
+			key: 'trigger',
+			header: 'Trigger',
+			text: (record) => record.triggerName,
+			cellClass: 'font-mono text-caption',
+		},
+		{
+			key: 'workflow',
+			header: 'Workflow',
+			text: (record) => record.workflowName,
+		},
+		{
+			key: 'execution',
+			header: 'Execution',
+			text: (record) => record.executionId,
+			cellClass: 'font-mono text-caption text-muted-foreground',
+		},
+		{ key: 'status', header: 'Status', cell: recordStatusCell },
+		{
+			key: 'fired',
+			header: 'Fired',
+			align: 'right',
+			text: (record) => formatRelativeTime(record.firedAt),
+			cellClass: 'text-caption text-muted-foreground',
+		},
+	];
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -151,7 +215,11 @@
 				>
 					Confirm cleanup (30d+)
 				</Button>
-				<Button variant="ghost" size="sm" onclick={() => (cleanupArmed = false)}>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => (cleanupArmed = false)}
+				>
 					Keep
 				</Button>
 			{:else}
@@ -167,7 +235,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="triggers-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="triggers-panel"
+	/>
 
 	<div
 		id="triggers-panel"
@@ -176,133 +249,130 @@
 		class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
 	>
 		{#if tab === 'records'}
-			{#if recordsLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
-			{:else if recordsError}
-				<ErrorState
-					title="Trigger records failed to load"
-					description={recordsError}
-					onretry={() => void reload()}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else}
-			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Trigger</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Workflow</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Execution</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Status</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Fired</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each triggerRecords as record (record.id)}
-								<tr
-									class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-								>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{record.triggerName}</td
-									>
-									<td class="px-3 py-2.5">{record.workflowName}</td>
-									<td
-										class="px-3 py-2.5 font-mono text-caption text-muted-foreground"
-									>
-										{record.executionId}
-									</td>
-									<td class="px-3 py-2.5"
-										><StatusBadge status={record.status} size="sm" /></td
-									>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
-									>
-										{formatRelativeTime(record.firedAt)}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</Card>
-			{/if}
+			<PageState
+				loading={recordsLoading}
+				error={recordsError}
+				errorTitle="Trigger records failed to load"
+				empty={triggerRecords.length === 0}
+				emptyTitle="No trigger records"
+				emptyDescription="Fired triggers appear here once a workflow or hook fires."
+				onretry={() => void reload()}
+			>
+				<Card bodyClass="p-0">
+					<DataTable
+						columns={recordColumns}
+						rows={triggerRecords}
+						rowKey={(record) => record.id}
+						virtualize={false}
+					/>
+				</Card>
+			</PageState>
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
 				<Card title="Hooks">
-					{#if hooks.length === 0}
-						<p class="text-caption text-muted-foreground">
-							The backend exposes no hook registry endpoint, so there is
-							nothing to pick. Enter a hook name manually on the right to
-							dispatch a test payload.
-						</p>
-					{:else}
-					<ul class="space-y-1">
-						{#each hooks as hook (hook.name)}
-							<li>
-								<button
-									type="button"
-									onclick={() => (hookName = hook.name)}
-									class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
-									hook.name
-										? 'border-[hsl(var(--ring))] bg-accent'
-										: 'border-transparent hover:bg-accent/60'}"
-								>
-									<span class="block font-mono text-caption">{hook.name}</span>
-									<span class="block text-micro text-muted-foreground"
-										>{hook.description}</span
+					<PageState
+						loading={hooksLoading}
+						error={hooksError}
+						errorTitle="Hook registry failed to load"
+						empty={hooks.length === 0}
+						emptyTitle="No hooks registered"
+						emptyDescription="The backend exposes no hook registry endpoint, so there is nothing to pick. Enter a hook name manually on the right to dispatch a test payload."
+						onretry={() => void reload()}
+					>
+						<ul class="space-y-1">
+							{#each hooks as hook (hook.name)}
+								<li>
+									<button
+										type="button"
+										onclick={() => (hookName = hook.name)}
+										class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
+										hook.name
+											? 'border-[hsl(var(--ring))] bg-accent'
+											: 'border-transparent hover:bg-accent/60'}"
 									>
-									<span class="mt-1 flex items-center gap-2">
-										<StatusBadge status={hook.lastStatus} size="sm" />
-										<span class="text-micro text-muted-foreground">
-											{hook.deliveries} deliveries
+										<span class="block font-mono text-caption">{hook.name}</span
+										>
+										<span class="block text-micro text-muted-foreground"
+											>{hook.description}</span
+										>
+										<span class="mt-1 flex items-center gap-2">
+											<StatusBadge status={hook.lastStatus} size="sm" />
+											<span class="text-micro text-muted-foreground">
+												{hook.deliveries} deliveries
+											</span>
 										</span>
-									</span>
-								</button>
-							</li>
-						{/each}
-					</ul>
-					{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</PageState>
 				</Card>
 
 				<Card title="Dispatch test payload">
 					<div class="space-y-2">
 						<label class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
-								>Hook name</span
+								>Hook name{#if hooks.length === 0}
+									<span class="ml-1 text-micro">· manual mode, no registry</span
+									>{/if}</span
 							>
-							<Input bind:value={hookName} />
+							<Input
+								bind:value={hookName}
+								placeholder={hooks.length === 0
+									? 'Enter hook name manually'
+									: 'Pick from the list or type a name'}
+							/>
 						</label>
-						<label class="block">
+						<div class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
 								>Payload</span
 							>
-							<Textarea
+							<JsonEditor
+								bind:this={payloadEditor}
 								bind:value={payload}
-								class="min-h-40 font-mono text-caption"
+								errorLine={payloadErrorLine}
+								placeholder={'{\n  "repo": "wf-agent"\n}'}
+								label="Hook payload"
+								minHeight="10rem"
 							/>
-						</label>
+						</div>
+						{#if payloadError}
+							<div
+								class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+							>
+								<p class="text-caption text-destructive">
+									JSON syntax{#if payloadErrorLine}
+										(line {payloadErrorLine}){/if}: {payloadError}
+								</p>
+								{#if payloadErrorLine}
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() =>
+											payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
+									>
+										Go to line
+									</Button>
+								{/if}
+							</div>
+						{/if}
 						<div class="flex items-center gap-2">
-							<Button size="sm" onclick={() => void dispatch()}>
+							<Button
+								size="sm"
+								disabled={dispatchBusy || !hookName.trim()}
+								onclick={() => void dispatch()}
+							>
 								<Icon name="zap" size={13} />
-								Send test
+								{dispatchBusy ? 'Sending…' : 'Send test'}
 							</Button>
 						</div>
+						{#if lastDispatch}
+							<p
+								class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption"
+							>
+								{lastDispatch}
+							</p>
+						{/if}
 						<p class="text-micro text-muted-foreground">
 							Last delivery {formatDateTime(
 								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??
@@ -315,3 +385,7 @@
 		{/if}
 	</div>
 </div>
+
+{#snippet recordStatusCell(record: TriggerRecord)}
+	<StatusBadge status={record.status} size="sm" />
+{/snippet}

@@ -6,8 +6,9 @@ import {
 import type { Behavior } from '$lib/services/preferences';
 
 /**
- * Behavioral defaults shared with the backend preference document. The fields
- * start at their defaults so the UI is usable before the document arrives.
+ * Server cross-device behavior track shared with the backend preference
+ * document. The fields start at their defaults so the UI is usable before
+ * the document arrives.
  */
 class BehaviorStore {
 	pageSize = $state(DEFAULT_BEHAVIOR.pageSize);
@@ -16,9 +17,17 @@ class BehaviorStore {
 	reduceMotion = $state(DEFAULT_BEHAVIOR.reduceMotion);
 
 	saving = $state(false);
+	loading = $state(false);
 	error = $state<string | null>(null);
+	loaded = $state(false);
+	private snapshot = $state<string>('');
+
+	get dirty(): boolean {
+		return JSON.stringify(this.current()) !== this.snapshot;
+	}
 
 	async load(): Promise<void> {
+		this.loading = true;
 		try {
 			const stored = await loadBehavior();
 			this.pageSize = stored.pageSize;
@@ -26,8 +35,12 @@ class BehaviorStore {
 			this.streamFollow = stored.streamFollow;
 			this.reduceMotion = stored.reduceMotion;
 			this.error = null;
+			this.loaded = true;
+			this.snapshot = JSON.stringify(this.current());
 		} catch (e) {
 			this.error = errorMessage(e);
+		} finally {
+			this.loading = false;
 		}
 	}
 
@@ -36,6 +49,8 @@ class BehaviorStore {
 		try {
 			await saveBehavior(this.current());
 			this.error = null;
+			this.loaded = true;
+			this.snapshot = JSON.stringify(this.current());
 		} catch (e) {
 			this.error = errorMessage(e);
 		} finally {

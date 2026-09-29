@@ -12,15 +12,15 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import GraphCanvas, {
 		type CanvasContext,
 		type CanvasMove,
 		type CanvasPosition,
 	} from '$lib/components/domain/GraphCanvas.svelte';
-	import GraphContextMenu, {
+	import ContextMenu, {
 		type ContextMenuItem,
-	} from '$lib/components/domain/GraphContextMenu.svelte';
+	} from '$lib/components/ui/ContextMenu.svelte';
 	import {
 		deriveGroups,
 		foldForCap,
@@ -1185,7 +1185,7 @@
 	{/if}
 	{#if contextMenu}
 		{#key `${contextMenu.kind}:${contextMenu.id ?? ''}:${contextMenu.x}:${contextMenu.y}`}
-			<GraphContextMenu
+			<ContextMenu
 				x={contextMenu.x}
 				y={contextMenu.y}
 				title={menuTitle}

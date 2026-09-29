@@ -14,6 +14,17 @@ export type MinimapMode = 'auto' | 'on' | 'off';
 export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
 
+/** Inspector width presets, cycled in order by the split view header. */
+export const INSPECTOR_WIDTH_STEPS = [
+	{ width: 280, label: 'narrow' },
+	{ width: 360, label: 'default' },
+	{ width: 460, label: 'wide' },
+] as const;
+
+export const INSPECTOR_WIDTH_MIN = 240;
+export const INSPECTOR_WIDTH_MAX = 640;
+export const INSPECTOR_WIDTH_DEFAULT = 360;
+
 const STORAGE_KEY = 'wf-ui-preferences';
 
 interface PersistedPreferences {
@@ -21,6 +32,7 @@ interface PersistedPreferences {
 	density?: Density;
 	sidebarCollapsed?: boolean;
 	sidebarWidth?: number;
+	inspectorWidth?: number;
 	inspectorPinned?: boolean;
 	minimapMode?: MinimapMode;
 }
@@ -46,6 +58,7 @@ class PreferencesStore {
 	density = $state<Density>('default');
 	sidebarCollapsed = $state(false);
 	sidebarWidth = $state(240);
+	inspectorWidth = $state(INSPECTOR_WIDTH_DEFAULT);
 	inspectorPinned = $state(false);
 	minimapMode = $state<MinimapMode>('auto');
 
@@ -73,6 +86,12 @@ class PreferencesStore {
 			Number.isFinite(stored.sidebarWidth)
 		) {
 			this.sidebarWidth = clampSidebarWidth(stored.sidebarWidth);
+		}
+		if (
+			typeof stored.inspectorWidth === 'number' &&
+			Number.isFinite(stored.inspectorWidth)
+		) {
+			this.inspectorWidth = clampInspectorWidth(stored.inspectorWidth);
 		}
 		if (typeof stored.inspectorPinned === 'boolean') {
 			this.inspectorPinned = stored.inspectorPinned;
@@ -110,6 +129,30 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	/** Preset name for the current inspector width, used for the button label. */
+	get inspectorWidthLabel(): string {
+		return (
+			INSPECTOR_WIDTH_STEPS.find((step) => step.width === this.inspectorWidth)
+				?.label ?? `${Math.round(this.inspectorWidth)}px`
+		);
+	}
+
+	setInspectorWidth(width: number): void {
+		this.inspectorWidth = clampInspectorWidth(width);
+		this.persist();
+	}
+
+	/** Steps through the width presets, wrapping back to the first one. */
+	cycleInspectorWidth(): void {
+		const current = INSPECTOR_WIDTH_STEPS.findIndex(
+			(step) => step.width === this.inspectorWidth,
+		);
+		const next =
+			INSPECTOR_WIDTH_STEPS[(current + 1) % INSPECTOR_WIDTH_STEPS.length] ??
+			INSPECTOR_WIDTH_STEPS[1];
+		this.setInspectorWidth(next.width);
+	}
+
 	toggleInspectorPinned(): void {
 		this.inspectorPinned = !this.inspectorPinned;
 		this.persist();
@@ -130,6 +173,7 @@ class PreferencesStore {
 					density: this.density,
 					sidebarCollapsed: this.sidebarCollapsed,
 					sidebarWidth: this.sidebarWidth,
+					inspectorWidth: this.inspectorWidth,
 					inspectorPinned: this.inspectorPinned,
 					minimapMode: this.minimapMode,
 				} satisfies PersistedPreferences),
@@ -144,6 +188,13 @@ function clampSidebarWidth(width: number): number {
 	return Math.min(
 		SIDEBAR_WIDTH_MAX,
 		Math.max(SIDEBAR_WIDTH_MIN, Math.round(width)),
+	);
+}
+
+function clampInspectorWidth(width: number): number {
+	return Math.min(
+		INSPECTOR_WIDTH_MAX,
+		Math.max(INSPECTOR_WIDTH_MIN, Math.round(width)),
 	);
 }
 

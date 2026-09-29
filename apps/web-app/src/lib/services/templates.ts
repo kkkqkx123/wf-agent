@@ -1,6 +1,9 @@
 import { client, downloadFile, request } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import { ApiHttpError } from '$lib/api/envelope';
+import { backendEdgeType } from '$lib/graph/display-model';
+import { asRecordList, graphField } from '$lib/services/graph';
+import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 import type { KeyValue, Template, TemplateKind } from '$lib/types/models';
 
 interface TemplateDto {
@@ -667,4 +670,184 @@ export function summarizeTemplate(kind: TemplateKind, raw: unknown): KeyValue[] 
 		});
 	}
 	return summary;
+}
+
+// ── shared topology editing ──────────────────────────────────────
+
+/** First non-empty string field with legacy key fallbacks. */
+export function templateField(
+	record: Record<string, unknown>,
+	keys: string[],
+	fallback: string,
+): string {
+	return graphField(record, keys, fallback);
+}
+
+/** Backend edge type shared by template pages and graph stores. */
+export function templateEdgeType(kind: string): string {
+	return backendEdgeType(kind);
+}
+
+/** Definition-level object a form edits, unwrapped for library kinds. */
+export function templateEditTarget(kind: TemplateKind, value: unknown): unknown {
+	if (kind === 'node' || kind === 'trigger') return value;
+	return (value as Record<string, unknown>)?.definition ?? value;
+}
+
+export interface TemplateTopology {
+	nodes: DisplayNode[];
+	edges: DisplayEdge[];
+}
+
+/** Parsed workflow topology from a stored value with alias-tolerant fields. */
+export function parseTemplateTopology(value: unknown): TemplateTopology {
+	const target =
+		value && typeof value === 'object' && !Array.isArray(value)
+			? (value as Record<string, unknown>).definition &&
+				typeof (value as Record<string, unknown>).definition === 'object'
+				? ((value as Record<string, unknown>).definition as Record<
+						string,
+						unknown
+					>)
+				: (value as Record<string, unknown>)
+			: {};
+	return {
+		nodes: asRecordList(target.nodes).map((node, index) => ({
+			id: templateField(node, ['id', 'node_id'], `node-${index}`),
+			label: templateField(
+				node,
+				['name', 'label', 'id', 'node_id'],
+				`node-${index}`,
+			),
+			kind: templateField(node, ['node_type', 'kind', 'type'], 'STEP'),
+		})),
+		edges: asRecordList(target.edges)
+			.map((edge, index) => ({
+				id: templateField(edge, ['id', 'edge_id'], `edge-${index}`),
+				source: templateField(edge, ['source_node_id', 'from', 'source'], ''),
+				target: templateField(edge, ['target_node_id', 'to', 'target'], ''),
+				label:
+					typeof edge.condition === 'string' && edge.condition
+						? edge.condition
+						: undefined,
+				kind: templateField(edge, ['type', 'edge_type', 'kind'], 'DEFAULT'),
+			}))
+			.filter((edge) => edge.source && edge.target),
+	};
+}
+
+/** Deterministic node id within one editing session. */
+export function allocateGraphNodeId(existing: Set<string>): string {
+	let counter = existing.size + 1;
+	let candidate = `node-${counter}`;
+	while (existing.has(candidate)) {
+		counter += 1;
+		candidate = `node-${counter}`;
+	}
+	return candidate;
+}
+
+/**
+ * Merge graph store state back into a stored template value. Only node and
+ * edge arrays are replaced, and unknown entry fields survive by matching ids.
+ */
+export function mergeTemplateGraph(
+	value: unknown,
+	nodes: DisplayNode[],
+	edges: DisplayEdge[],
+): unknown {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+	const record = value as Record<string, unknown>;
+	const hasDefinition =
+		record.definition &&
+		typeof record.definition === 'object' &&
+		!Array.isArray(record.definition);
+	const target = (
+		hasDefinition ? record.definition : record
+	) as Record<string, unknown>;
+	const prevNodes = asRecordList(target.nodes);
+	const prevEdges = asRecordList(target.edges);
+	const nodeById = new Map(
+		prevNodes.map((node) => [
+			templateField(node, ['id', 'node_id'], ''),
+			node,
+		]),
+	);
+	const edgeById = new Map(
+		prevEdges.map((edge) => [
+			templateField(edge, ['id', 'edge_id'], ''),
+			edge,
+		]),
+	);
+	const nextNodes = nodes.map((node, index) => {
+		const prev = nodeById.get(node.id) ?? {};
+		return {
+			...prev,
+			id: node.id || templateField(prev, ['id', 'node_id'], `node-${index}`),
+			node_type: node.kind,
+			name: node.label,
+		};
+	});
+	const nextEdges = edges.map((edge, index) => {
+		const prev = edgeById.get(edge.id) ?? {};
+		return {
+			...prev,
+			id: edge.id || templateField(prev, ['id', 'edge_id'], `edge-${index}`),
+			source_node_id: edge.source,
+			target_node_id: edge.target,
+			type: templateEdgeType(edge.kind ?? 'DEFAULT'),
+			...(edge.label ? { condition: edge.label } : {}),
+		};
+	});
+	const nextTarget = { ...target, nodes: nextNodes, edges: nextEdges };
+	if (hasDefinition) return { ...record, definition: nextTarget };
+	return { ...record, ...nextTarget };
+}
+
+/** Backend-shaped workflow definition for draft save and validation. */
+export function templateBackendDefinition(
+	kind: TemplateKind,
+	value: unknown,
+	fallbackId: string,
+	fallbackName: string,
+): Record<string, unknown> {
+	const target = templateEditTarget(kind, value);
+	const record =
+		target && typeof target === 'object' && !Array.isArray(target)
+			? (target as Record<string, unknown>)
+			: {};
+	const nodes = asRecordList(record.nodes);
+	if (nodes.length === 0) throw new Error('No nodes array in definition');
+	return {
+		id: fallbackId,
+		name: templateField(record, ['name'], '') || fallbackName,
+		nodes: nodes.map((node, index) => ({
+			id: templateField(node, ['id', 'node_id'], `node-${index}`),
+			node_type: templateField(node, ['node_type', 'kind', 'type'], 'STEP'),
+			name: templateField(
+				node,
+				['name', 'label', 'id', 'node_id'],
+				`node-${index}`,
+			),
+		})),
+		edges: asRecordList(record.edges).map((edge, index) => ({
+			id: templateField(edge, ['id', 'edge_id'], `edge-${index}`),
+			source_node_id: templateField(
+				edge,
+				['source_node_id', 'from', 'source'],
+				'',
+			),
+			target_node_id: templateField(
+				edge,
+				['target_node_id', 'to', 'target'],
+				'',
+			),
+			type: templateEdgeType(
+				templateField(edge, ['type', 'edge_type', 'kind'], 'DEFAULT'),
+			),
+			...(typeof edge.condition === 'string' && edge.condition
+				? { condition: edge.condition }
+				: {}),
+		})),
+	};
 }

@@ -207,6 +207,7 @@ export function formFromToolParams(
 
 function coerceField(type: string, text: string): unknown {
 	const trimmed = text.trim();
+	if (!trimmed) return trimmed;
 	if (type === 'number' || type === 'integer') {
 		const parsed = Number(trimmed);
 		return Number.isNaN(parsed) ? trimmed : parsed;
@@ -216,7 +217,12 @@ function coerceField(type: string, text: string): unknown {
 		if (trimmed === 'false') return false;
 		return trimmed;
 	}
-	if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+	if (
+		type === 'object' ||
+		type === 'array' ||
+		trimmed.startsWith('{') ||
+		trimmed.startsWith('[')
+	) {
 		try {
 			return JSON.parse(trimmed) as unknown;
 		} catch {

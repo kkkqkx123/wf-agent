@@ -543,7 +543,7 @@ export async function getExecutionCriticalPath(
 	);
 }
 
-function textField(
+export function graphField(
 	record: Record<string, unknown>,
 	keys: string[],
 	fallback: string,
@@ -555,13 +555,25 @@ function textField(
 	return fallback;
 }
 
-function asNodeList(value: unknown): Record<string, unknown>[] {
+export function asRecordList(value: unknown): Record<string, unknown>[] {
 	return Array.isArray(value)
 		? value.filter(
 				(entry): entry is Record<string, unknown> =>
 					!!entry && typeof entry === 'object' && !Array.isArray(entry),
 			)
 		: [];
+}
+
+function textField(
+	record: Record<string, unknown>,
+	keys: string[],
+	fallback: string,
+): string {
+	return graphField(record, keys, fallback);
+}
+
+function asNodeList(value: unknown): Record<string, unknown>[] {
+	return asRecordList(value);
 }
 
 /**

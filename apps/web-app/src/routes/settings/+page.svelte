@@ -83,13 +83,19 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title="Settings"
-		description="Appearance, execution defaults and notification behaviour."
+		description="Appearance applies instantly and stays local. Execution and notification preferences are stored server-side and need Save."
 	>
 		{#snippet actions()}
+			{#if behavior.dirty}
+				<span
+					class="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
+					>Unsaved changes</span
+				>
+			{/if}
 			<Button
 				variant="outline"
 				size="sm"
-				disabled={behavior.saving}
+				disabled={behavior.saving || (behavior.error !== null && !behavior.loaded)}
 				onclick={() => void restoreBehavior()}
 			>
 				<Icon name="history" size={13} />
@@ -97,11 +103,11 @@
 			</Button>
 			<Button
 				size="sm"
-				disabled={behavior.saving}
+				disabled={behavior.saving || (behavior.error !== null && !behavior.loaded)}
 				onclick={() => void saveBehavior()}
 			>
 				<Icon name="check" size={13} />
-				{behavior.saving ? 'Saving…' : 'Save'}
+				{behavior.saving ? 'Saving…' : 'Save server preferences'}
 			</Button>
 		{/snippet}
 	</PageHeader>
@@ -184,13 +190,19 @@
 			{:else if section === 'execution'}
 				<div class="space-y-3">
 					<p class="text-caption text-muted-foreground">
-						Unlike Appearance, which applies instantly, changes here only
-						take effect when you press Save in the header.
+						Server-side section. Changes only take effect after Save in the
+						header.
 					</p>
 					{#if behavior.error}
 						<p class="text-caption text-destructive">
-							Server preferences unavailable ({behavior.error});
-							edits below still apply once the backend is reachable.
+							{#if behavior.loaded}
+								Server preferences update failed ({behavior.error}); edits
+								stay local until Save succeeds.
+							{:else}
+								Server preferences unavailable ({behavior.error}); edits are
+								kept locally and Save stays disabled until the backend is
+								reachable.
+							{/if}
 						</p>
 					{/if}
 					<Card

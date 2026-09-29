@@ -54,6 +54,7 @@
 	} from '$lib/graph/execution-projection';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
+	import { allocateGraphNodeId } from '$lib/services/templates';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import type { ValidationIssue } from '$lib/types/models';
 
@@ -132,14 +133,21 @@
 	});
 
 	// A lost lease drops back to read-only; dirty canvas content stays so
-	// it can be copied elsewhere.
+	// it can be saved elsewhere instead of silently discarded.
 	$effect(() => {
 		if (editMode && lockStore.lockedByOther) {
 			editMode = false;
-			toasts.warning(
-				'Edit lock lost',
-				`Held by ${lockStore.displayHolder}. Canvas is read-only.`,
-			);
+			if (editStore.dirty) {
+				toasts.warning(
+					'Edit lock lost with unsaved changes',
+					`Held by ${lockStore.displayHolder}. Canvas kept your edits read-only; copy or re-acquire the lock to save.`,
+				);
+			} else {
+				toasts.warning(
+					'Edit lock lost',
+					`Held by ${lockStore.displayHolder}. Canvas is read-only.`,
+				);
+			}
 		}
 	});
 
@@ -195,12 +203,8 @@
 	}
 
 	function handleAddNode(position: CanvasPosition): void {
-		let stamp = Date.now();
-		let id = `node-${stamp}`;
-		while (editStore.nodes.some((node) => node.id === id)) {
-			stamp += 1;
-			id = `node-${stamp}`;
-		}
+		const existing = new Set(editStore.nodes.map((node) => node.id));
+		const id = allocateGraphNodeId(existing);
 		editStore.addNode({ id, label: id, kind: 'STEP' }, position);
 		editStore.selectedId = id;
 		toasts.success(`Node ${id} added`, 'Save the draft to keep it.');

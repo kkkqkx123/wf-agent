@@ -6,12 +6,13 @@
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
+	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		cleanupTriggerExecutions,
 		listTriggerHistory,
@@ -43,10 +44,20 @@
 	let hooks = $state<Hook[]>([]);
 	let hookName = $state('');
 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
+	let payloadError = $state<string | null>(null);
+	let payloadEditor = $state<{ scrollToLine: (line: number) => void } | null>(
+		null,
+	);
+	let dispatchBusy = $state(false);
+	let lastDispatch = $state<string | null>(null);
 	let recordsError = $state<string | null>(null);
 	let recordsLoading = $state(false);
 	let cleanupArmed = $state(false);
 	let cleanupBusy = $state(false);
+
+	const payloadErrorLine = $derived(
+		payloadError ? jsonErrorLine(payload, payloadError) : null,
+	);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenRecords = $state(false);
@@ -117,16 +128,28 @@
 	}
 
 	async function dispatch(): Promise<void> {
-		if (!hookName) return;
+		if (!hookName || dispatchBusy) return;
+		let parsed: unknown;
 		try {
-			const parsed: unknown = JSON.parse(payload);
-			const result = await fireHook(hookName, parsed);
-			toasts.success(`Test dispatched to ${hookName}: ${result.status}`);
+			parsed = JSON.parse(payload);
+			payloadError = null;
 		} catch (e) {
+			payloadError = e instanceof Error ? e.message : 'Invalid JSON';
+			return;
+		}
+		dispatchBusy = true;
+		try {
+			const result = await fireHook(hookName, parsed);
+			lastDispatch = `Test dispatched to ${hookName}: ${result.status}`;
+			toasts.success(lastDispatch);
+		} catch (e) {
+			lastDispatch = null;
 			toasts.error(
 				'Dispatch failed',
 				e instanceof Error ? e.message : undefined,
 			);
+		} finally {
+			dispatchBusy = false;
 		}
 	}
 </script>
@@ -284,25 +307,64 @@
 					<div class="space-y-2">
 						<label class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
-								>Hook name</span
+								>Hook name{#if hooks.length === 0}
+									<span class="ml-1 text-micro">· manual mode, no registry</span
+									>{/if}</span
 							>
-							<Input bind:value={hookName} />
+							<Input
+								bind:value={hookName}
+								placeholder={hooks.length === 0
+									? 'Enter hook name manually'
+									: 'Pick from the list or type a name'}
+							/>
 						</label>
-						<label class="block">
+						<div class="block">
 							<span class="mb-1 block text-caption text-muted-foreground"
 								>Payload</span
 							>
-							<Textarea
+							<JsonEditor
+								bind:this={payloadEditor}
 								bind:value={payload}
-								class="min-h-40 font-mono text-caption"
+								errorLine={payloadErrorLine}
+								placeholder={'{\n  "repo": "wf-agent"\n}'}
+								label="Hook payload"
+								minHeight="10rem"
 							/>
-						</label>
+						</div>
+						{#if payloadError}
+							<div
+								class="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+							>
+								<p class="text-caption text-destructive">
+									JSON syntax{#if payloadErrorLine}
+										(line {payloadErrorLine}){/if}: {payloadError}
+								</p>
+								{#if payloadErrorLine}
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
+									>
+										Go to line
+									</Button>
+								{/if}
+							</div>
+						{/if}
 						<div class="flex items-center gap-2">
-							<Button size="sm" onclick={() => void dispatch()}>
+							<Button
+								size="sm"
+								disabled={dispatchBusy || !hookName.trim()}
+								onclick={() => void dispatch()}
+							>
 								<Icon name="zap" size={13} />
-								Send test
+								{dispatchBusy ? 'Sending…' : 'Send test'}
 							</Button>
 						</div>
+						{#if lastDispatch}
+							<p class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption">
+								{lastDispatch}
+							</p>
+						{/if}
 						<p class="text-micro text-muted-foreground">
 							Last delivery {formatDateTime(
 								hooks.find((hook) => hook.name === hookName)?.lastDeliveredAt ??

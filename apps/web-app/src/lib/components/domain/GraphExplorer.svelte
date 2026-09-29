@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import type { Snippet } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -158,10 +159,12 @@
 
 	let canvas: GraphCanvas | null = $state(null);
 	let explorerRoot: HTMLDivElement | null = $state(null);
-	function initialLayout(kind: GraphPreset): GraphLayoutKind {
-		return kind === 'decision' ? 'columns' : 'layered';
+	// Layout is chosen once at mount from the preset; users can change it
+	// afterwards via the toolbar, so live-reactivity would clobber that.
+	function initialLayout(): GraphLayoutKind {
+		return preset === 'decision' ? 'columns' : 'layered';
 	}
-	let layout = $state<GraphLayoutKind>(initialLayout(preset));
+	let layout = $state<GraphLayoutKind>(initialLayout());
 	let showFilters = $state(false);
 	let query = $state('');
 	let hiddenKinds = $state<string[]>([]);
@@ -390,7 +393,7 @@
 				: layout === 'layered'
 					? layeredPositions(capped.nodes, capped.edges)
 					: new Map<string, { x: number; y: number }>();
-		const resolved = new Map<string, { x: number; y: number }>();
+		const resolved = new SvelteMap<string, { x: number; y: number }>();
 		for (const id of ids) {
 			const override = positions?.[id];
 			const computed = base.get(id);

@@ -1,4 +1,5 @@
 import type { DisplayEdge, DisplayNode } from './display-model';
+import { backendEdgeType } from './display-model';
 import { groupTitleId } from './group-view';
 import { SvelteSet } from 'svelte/reactivity';
 
@@ -22,20 +23,6 @@ function snapshot(nodes: DisplayNode[], edges: DisplayEdge[]): HistoryEntry {
 		nodes: nodes.map((node) => ({ ...node })),
 		edges: edges.map((edge) => ({ ...edge })),
 	};
-}
-
-/** Backend edge type for a display edge kind; conditional and error routes survive round-trips. */
-function draftEdgeType(kind: string | undefined): string {
-	const normalized = (kind ?? '').trim().toLowerCase();
-	if (
-		normalized === 'conditional' ||
-		normalized === 'condition' ||
-		normalized === 'branch'
-	) {
-		return 'CONDITIONAL';
-	}
-	if (normalized === 'error' || normalized === 'error_route') return 'ERROR';
-	return 'DEFAULT';
 }
 
 /**
@@ -86,7 +73,7 @@ export class GraphEditStore {
 		options?: { hiddenIds?: Iterable<string> },
 	): string | null {
 		if (!this.nodes.some((node) => node.id === id)) return 'Unknown node.';
-		if (options?.hiddenIds && new Set(options.hiddenIds).has(id)) {
+		if (options?.hiddenIds && new SvelteSet(options.hiddenIds).has(id)) {
 			return 'Hidden group members cannot move.';
 		}
 		this.commit();
@@ -121,7 +108,7 @@ export class GraphEditStore {
 		moves: GraphMove[],
 		options?: { hiddenIds?: Iterable<string> },
 	): string[] {
-		const hidden = options?.hiddenIds ? new Set(options.hiddenIds) : null;
+		const hidden = options?.hiddenIds ? new SvelteSet(options.hiddenIds) : null;
 		const rejected: string[] = [];
 		const targets = moves.filter((move) => {
 			if (!this.isPositionTarget(move.id)) return false;
@@ -195,7 +182,7 @@ export class GraphEditStore {
 		options?: { hiddenIds?: Iterable<string> },
 	): string | null {
 		if (!source || !target || source === target) return 'Cannot self-connect.';
-		const hidden = options?.hiddenIds ? new Set(options.hiddenIds) : null;
+		const hidden = options?.hiddenIds ? new SvelteSet(options.hiddenIds) : null;
 		if (hidden?.has(source) || hidden?.has(target)) {
 			return 'Hidden group members cannot connect.';
 		}
@@ -252,6 +239,15 @@ export class GraphEditStore {
 		this.future = [...this.future];
 	}
 
+	/** Update topology attributes of one node with undo support. */
+	updateNode(id: string, patch: Partial<Pick<DisplayNode, 'label' | 'kind'>>): void {
+		if (!this.nodes.some((node) => node.id === id)) return;
+		this.commit();
+		this.nodes = this.nodes.map((node) =>
+			node.id === id ? { ...node, ...patch } : node,
+		);
+	}
+
 	/** Backend-shaped definition for the draft save endpoint. */
 	toDraftDefinition(workflowId: string, name: string): Record<string, unknown> {
 		return {
@@ -266,7 +262,7 @@ export class GraphEditStore {
 				id: edge.id,
 				source_node_id: edge.source,
 				target_node_id: edge.target,
-				type: draftEdgeType(edge.kind),
+				type: backendEdgeType(edge.kind),
 				...(edge.label ? { condition: edge.label, label: edge.label } : {}),
 			})),
 		};

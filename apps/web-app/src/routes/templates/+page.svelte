@@ -33,6 +33,7 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import {
 		cloneTemplate,
+		allocateGraphNodeId,
 		deleteTemplate,
 		exportTemplate,
 		formFromDefinition,
@@ -42,8 +43,12 @@
 		jsonErrorLine,
 		listFeaturedTemplates,
 		listTemplates,
+		mergeTemplateGraph,
+		parseTemplateTopology,
 		saveTemplate,
 		summarizeTemplate,
+		templateBackendDefinition,
+		templateEditTarget,
 		templateFormFields,
 		validateTemplateDefinition,
 		type TemplateDetail,
@@ -229,21 +234,15 @@
 		}
 	}
 
-	/** Definition-level object the form edits (unwrapped for library kinds). */
-	function editTarget(value: unknown): unknown {
-		if (drawerKind === 'node' || drawerKind === 'trigger') return value;
-		return (value as Record<string, unknown>)?.definition ?? value;
-	}
-
 	function enterForm(): void {
 		const { value } = parseEditText();
-		formState = formFromDefinition(drawerKind, editTarget(value));
+		formState = formFromDefinition(drawerKind, templateEditTarget(drawerKind, value));
 		editTab = 'form';
 	}
 
 	function syncFormToText(): void {
 		const { value } = parseEditText();
-		const current = editTarget(value);
+		const current = templateEditTarget(drawerKind, value);
 		const merged = formToDefinition(
 			drawerKind,
 			formState,
@@ -292,8 +291,8 @@
 	}
 
 	/**
-	 * Merge the graph store back into the JSON text. Only the node and edge
-	 * arrays are rewritten; every other template field is preserved.
+	 * Merge the graph store back into the JSON text with lossless entry
+	 * preservation; every other template field stays untouched.
 	 */
 	function syncGraphToText(): void {
 		if (drawerKind !== 'workflow') return;
@@ -304,41 +303,12 @@
 		} catch {
 			return;
 		}
-		const nodes = templateEditStore.nodes.map((node) => ({
-			id: node.id,
-			node_type: node.kind,
-			name: node.label,
-		}));
-		const edges = templateEditStore.edges.map((edge) => ({
-			id: edge.id,
-			source_node_id: edge.source,
-			target_node_id: edge.target,
-			type: templateEdgeType(edge.kind ?? 'DEFAULT'),
-			...(edge.label ? { condition: edge.label } : {}),
-		}));
-		if (
-			parsed &&
-			typeof parsed === 'object' &&
-			!Array.isArray(parsed) &&
-			(parsed as Record<string, unknown>).definition &&
-			typeof (parsed as Record<string, unknown>).definition === 'object'
-		) {
-			const record = parsed as Record<string, unknown>;
-			record.definition = {
-				...(record.definition as Record<string, unknown>),
-				nodes,
-				edges,
-			};
-			editText = JSON.stringify(record, null, 2);
-		} else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			editText = JSON.stringify(
-				{ ...(parsed as Record<string, unknown>), nodes, edges },
-				null,
-				2,
-			);
-		} else {
-			return;
-		}
+		const merged = mergeTemplateGraph(
+			parsed,
+			templateEditStore.nodes,
+			templateEditStore.edges,
+		);
+		editText = JSON.stringify(merged, null, 2);
 		graphSeed = editText;
 	}
 
@@ -366,12 +336,8 @@
 	}
 
 	function handleTemplateAddNode(position: CanvasPosition): void {
-		let stamp = Date.now();
-		let id = `node-${stamp}`;
-		while (templateEditStore.nodes.some((node) => node.id === id)) {
-			stamp += 1;
-			id = `node-${stamp}`;
-		}
+		const existing = new Set(templateEditStore.nodes.map((node) => node.id));
+		const id = allocateGraphNodeId(existing);
 		templateEditStore.addNode({ id, label: id, kind: 'STEP' }, position);
 		templateEditStore.selectedId = id;
 		templateNodeId = id;
@@ -407,6 +373,17 @@
 		);
 	}
 
+	const templateSelectedNode = $derived(
+		templateNodeId
+			? (templateEditStore.nodes.find((node) => node.id === templateNodeId) ?? null)
+			: null,
+	);
+
+	const combinedTemplateIssues = $derived([
+		...validationIssues,
+		...serverIssues,
+	]);
+
 	function editedPayload(parsed: unknown): unknown {
 		if (drawerKind === 'node' || drawerKind === 'trigger') return parsed;
 		const base =
@@ -414,40 +391,6 @@
 				? (detail.raw as Record<string, unknown>)
 				: {};
 		return { ...base, definition: parsed };
-	}
-
-	function templateField(
-		record: Record<string, unknown>,
-		keys: string[],
-		fallback: string,
-	): string {
-		for (const key of keys) {
-			const value = record[key];
-			if (typeof value === 'string' && value) return value;
-		}
-		return fallback;
-	}
-
-	function asRecordList(value: unknown): Record<string, unknown>[] {
-		return Array.isArray(value)
-			? value.filter(
-					(entry): entry is Record<string, unknown> =>
-						!!entry && typeof entry === 'object' && !Array.isArray(entry),
-				)
-			: [];
-	}
-
-	function templateEdgeType(kind: string): string {
-		const normalized = kind.trim().toLowerCase();
-		if (
-			normalized === 'conditional' ||
-			normalized === 'condition' ||
-			normalized === 'branch'
-		) {
-			return 'CONDITIONAL';
-		}
-		if (normalized === 'error' || normalized === 'error_route') return 'ERROR';
-		return 'DEFAULT';
 	}
 
 	/** Parsed workflow topology from the JSON tab; errors stay on JSON. */
@@ -465,38 +408,8 @@
 				error: e instanceof Error ? e.message : 'Invalid JSON',
 			};
 		}
-		const target =
-			parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-				? (parsed as Record<string, unknown>).definition &&
-					typeof (parsed as Record<string, unknown>).definition === 'object'
-					? ((parsed as Record<string, unknown>).definition as Record<
-							string,
-							unknown
-						>)
-					: (parsed as Record<string, unknown>)
-				: {};
-		return {
-			nodes: asRecordList(target.nodes).map((node, index) => ({
-				id: templateField(node, ['id', 'node_id'], `node-${index}`),
-				label: templateField(
-					node,
-					['name', 'label', 'id', 'node_id'],
-					`node-${index}`,
-				),
-				kind: templateField(node, ['node_type', 'kind', 'type'], 'STEP'),
-			})),
-			edges: asRecordList(target.edges).map((edge, index) => ({
-				id: templateField(edge, ['id', 'edge_id'], `edge-${index}`),
-				source: templateField(edge, ['source_node_id', 'from', 'source'], ''),
-				target: templateField(edge, ['target_node_id', 'to', 'target'], ''),
-				label:
-					typeof edge.condition === 'string' && edge.condition
-						? edge.condition
-						: undefined,
-				kind: templateField(edge, ['type', 'edge_type', 'kind'], 'DEFAULT'),
-			})),
-			error: null as string | null,
-		};
+		const topology = parseTemplateTopology(parsed);
+		return { ...topology, error: null as string | null };
 	});
 
 	const templateGraphNodes = $derived<DisplayNode[]>(templateTopology.nodes);
@@ -512,69 +425,30 @@
 		} catch {
 			return null;
 		}
-		const target =
-			parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-				? (parsed as Record<string, unknown>).definition &&
-					typeof (parsed as Record<string, unknown>).definition === 'object'
-					? ((parsed as Record<string, unknown>).definition as Record<
-							string,
-							unknown
-						>)
-					: (parsed as Record<string, unknown>)
-				: {};
-		const match = [
-			...asRecordList(target.nodes),
-			...asRecordList(target.edges),
-		].find(
-			(entry) =>
-				templateField(entry, ['id', 'node_id', 'edge_id'], '') ===
-				templateNodeId,
+		const target = templateEditTarget(drawerKind, parsed);
+		const topology = parseTemplateTopology(
+			drawerKind === 'node' || drawerKind === 'trigger'
+				? { definition: { nodes: [target], edges: [] } }
+				: parsed,
 		);
-		return match ? JSON.stringify(match, null, 2) : null;
+		const match = [...topology.nodes, ...topology.edges].find(
+			(entry) => entry.id === templateNodeId,
+		);
+		if (!match) return null;
+		const stored = templateEditStore.nodes.find(
+			(node) => node.id === templateNodeId,
+		);
+		const live = stored ?? match;
+		return JSON.stringify(live, null, 2);
 	});
 
-	/** Backend-shaped definition for draft save and server validation. */
-	function templateBackendDefinition(value: unknown): Record<string, unknown> {
-		const target = editTarget(value);
-		const record =
-			target && typeof target === 'object' && !Array.isArray(target)
-				? (target as Record<string, unknown>)
-				: {};
-		const nodes = asRecordList(record.nodes);
-		if (nodes.length === 0) throw new Error('No nodes array in definition');
-		return {
-			id: `template-${drawerId ?? createId.trim() ?? 'new'}`,
-			name:
-				templateField(record, ['name'], '') || `template-${drawerId ?? 'new'}`,
-			nodes: nodes.map((node, index) => ({
-				id: templateField(node, ['id', 'node_id'], `node-${index}`),
-				node_type: templateField(node, ['node_type', 'kind', 'type'], 'STEP'),
-				name: templateField(
-					node,
-					['name', 'label', 'id', 'node_id'],
-					`node-${index}`,
-				),
-			})),
-			edges: asRecordList(record.edges).map((edge, index) => ({
-				id: templateField(edge, ['id', 'edge_id'], `edge-${index}`),
-				source_node_id: templateField(
-					edge,
-					['source_node_id', 'from', 'source'],
-					'',
-				),
-				target_node_id: templateField(
-					edge,
-					['target_node_id', 'to', 'target'],
-					'',
-				),
-				type: templateEdgeType(
-					templateField(edge, ['type', 'edge_type', 'kind'], 'DEFAULT'),
-				),
-				...(typeof edge.condition === 'string' && edge.condition
-					? { condition: edge.condition }
-					: {}),
-			})),
-		};
+	function buildBackendDefinition(value: unknown): Record<string, unknown> {
+		return templateBackendDefinition(
+			drawerKind,
+			value,
+			`template-${drawerId ?? createId.trim() ?? 'new'}`,
+			`template-${drawerId ?? 'new'}`,
+		);
 	}
 
 	/**
@@ -593,7 +467,7 @@
 		}
 		let definition: Record<string, unknown>;
 		try {
-			definition = templateBackendDefinition(value);
+			definition = buildBackendDefinition(value);
 		} catch (e) {
 			toasts.error(
 				'Template invalid',
@@ -636,7 +510,7 @@
 		}
 		const issues = await validateTemplateDefinition(
 			drawerKind,
-			editTarget(value),
+			templateEditTarget(drawerKind, value),
 		);
 		validationIssues = issues;
 		validationState = issues.length === 0 ? 'valid' : 'invalid';
@@ -704,7 +578,7 @@
 		}
 		let definition: Record<string, unknown>;
 		try {
-			definition = templateBackendDefinition(value);
+			definition = buildBackendDefinition(value);
 		} catch (e) {
 			toasts.error(
 				'Template invalid',
@@ -1116,9 +990,59 @@
 							ondeletegroups={handleTemplateDeleteGroups}
 							onjumpparam={(id) => (templateNodeId = id)}
 						/>
+						{#if templateSelectedNode}
+							{#key templateNodeId}
+								<div class="grid grid-cols-2 gap-2">
+									<label class="block">
+										<span class="mb-1 block text-caption text-muted-foreground"
+											>Node name</span
+										>
+										<input
+											value={templateSelectedNode.label}
+											placeholder="Node name"
+											class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
+											oninput={(event) => {
+												const next = (event.currentTarget as HTMLInputElement)
+													.value;
+												if (templateNodeId) {
+													templateEditStore.updateNode(templateNodeId, {
+														label: next || templateNodeId,
+													});
+												}
+											}}
+										/>
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-caption text-muted-foreground"
+											>Node type</span
+										>
+										<input
+											value={templateSelectedNode.kind}
+											placeholder="STEP"
+											class="h-7 w-full rounded-md border border-input bg-card px-2.5 text-small"
+											oninput={(event) => {
+												const next = (event.currentTarget as HTMLInputElement)
+													.value;
+												if (templateNodeId) {
+													templateEditStore.updateNode(templateNodeId, {
+														kind: next.trim() || 'STEP',
+													});
+												}
+											}}
+										/>
+									</label>
+								</div>
+							{/key}
+						{/if}
 						{#if templateNodeSnippet}
 							<pre
 								class="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{templateNodeSnippet}</pre>
+							<p class="text-micro text-muted-foreground">
+								Topology fields edit above; other stored fields merge back on
+								save. {combinedTemplateIssues.length > 0
+									? `${combinedTemplateIssues.length} issue(s) need attention.`
+									: ''}
+							</p>
 						{/if}
 						{#if serverIssues.length > 0}
 							<ul

@@ -50,7 +50,7 @@
 				style:grid-template-columns="repeat(auto-fit, minmax(min(100%, 9rem), 1fr))"
 			>
 				{#each Array(4).map((_, idx) => idx) as idx (idx)}
-					<div class="h-20 animate-pulse rounded-lg border border-border bg-muted" />
+					<div class="h-20 animate-pulse rounded-lg border border-border bg-muted"></div>
 				{/each}
 			</div>
 		{:else}

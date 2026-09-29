@@ -17,6 +17,12 @@ class BehaviorStore {
 
 	saving = $state(false);
 	error = $state<string | null>(null);
+	loaded = $state(false);
+	private snapshot = $state<string>('');
+
+	get dirty(): boolean {
+		return JSON.stringify(this.current()) !== this.snapshot;
+	}
 
 	async load(): Promise<void> {
 		try {
@@ -26,6 +32,8 @@ class BehaviorStore {
 			this.streamFollow = stored.streamFollow;
 			this.reduceMotion = stored.reduceMotion;
 			this.error = null;
+			this.loaded = true;
+			this.snapshot = JSON.stringify(this.current());
 		} catch (e) {
 			this.error = errorMessage(e);
 		}
@@ -36,6 +44,8 @@ class BehaviorStore {
 		try {
 			await saveBehavior(this.current());
 			this.error = null;
+			this.loaded = true;
+			this.snapshot = JSON.stringify(this.current());
 		} catch (e) {
 			this.error = errorMessage(e);
 		} finally {

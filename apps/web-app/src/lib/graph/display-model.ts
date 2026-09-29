@@ -127,6 +127,20 @@ export function nodeShape(kind: string, preset: GraphPreset): string {
 	}
 }
 
+/** Backend edge type for a display edge kind; conditional and error routes survive round-trips. */
+export function backendEdgeType(kind: string | undefined): string {
+	const normalized = (kind ?? '').trim().toLowerCase();
+	if (
+		normalized === 'conditional' ||
+		normalized === 'condition' ||
+		normalized === 'branch'
+	) {
+		return 'CONDITIONAL';
+	}
+	if (normalized === 'error' || normalized === 'error_route') return 'ERROR';
+	return 'DEFAULT';
+}
+
 /** Whether an edge renders dashed (conditional, error-route, untaken). */
 export function isDashedEdge(
 	kind: string | undefined,

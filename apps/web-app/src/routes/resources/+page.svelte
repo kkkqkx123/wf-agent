@@ -95,6 +95,7 @@
 	} | null>(null);
 	let toolIssues = $state<string[]>([]);
 	let toolValidated = $state(false);
+	let toolValidatedSnapshot = $state<string | null>(null);
 	let toolRun = $state<ToolRun | null>(null);
 	let toolBusy = $state(false);
 	let toolTab = $state<'form' | 'json'>('json');
@@ -104,11 +105,42 @@
 	const toolErrorLine = $derived(
 		toolSyntaxError ? jsonErrorLine(toolParams, toolSyntaxError) : null,
 	);
+	const toolValidationStale = $derived(
+		toolValidated &&
+			toolValidatedSnapshot !== null &&
+			toolValidatedSnapshot !== toolParams,
+	);
+	const toolShowValid = $derived(toolValidated && !toolValidationStale);
 
 	let skillDialogOpen = $state(false);
 	let activeSkill = $state<Skill | null>(null);
 	let skillContent = $state('');
 	let skillContentError = $state<string | null>(null);
+	let skillFilter = $state('');
+
+	const skillFilteredContent = $derived(
+		skillFilter.trim()
+			? skillContent
+					.split('\n')
+					.filter((line) =>
+						line.toLowerCase().includes(skillFilter.trim().toLowerCase()),
+					)
+					.join('\n') || 'No lines match the filter.'
+			: skillContent,
+	);
+
+	async function copySkillContent(): Promise<void> {
+		if (!skillContent) return;
+		try {
+			await navigator.clipboard.writeText(skillContent);
+			toasts.success('Prompt copied');
+		} catch (e) {
+			toasts.error(
+				'Copy failed',
+				e instanceof Error ? e.message : undefined,
+			);
+		}
+	}
 
 	onMount(() => {
 		void loadTab(tab);
@@ -199,6 +231,7 @@
 		toolSyntaxError = null;
 		toolIssues = [];
 		toolValidated = false;
+		toolValidatedSnapshot = null;
 		toolRun = null;
 		toolTab = 'json';
 		toolSchema = null;
@@ -284,15 +317,18 @@
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 			return;
 		}
 		toolBusy = true;
 		try {
 			toolIssues = await validateToolParams(activeTool.id, value);
 			toolValidated = true;
+			toolValidatedSnapshot = toolParams;
 		} catch (e) {
 			toolIssues = [e instanceof Error ? e.message : 'Validation failed.'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 		} finally {
 			toolBusy = false;
 		}
@@ -306,6 +342,7 @@
 		if (!value) {
 			toolIssues = [error ?? 'Invalid JSON'];
 			toolValidated = false;
+			toolValidatedSnapshot = null;
 			return;
 		}
 		toolBusy = true;
@@ -326,6 +363,7 @@
 		activeSkill = skill;
 		skillContent = '';
 		skillContentError = null;
+		skillFilter = '';
 		skillDialogOpen = true;
 		try {
 			skillContent = await getSkillContent(skill.name);
@@ -715,7 +753,8 @@
 					</label>
 				{/each}
 				<p class="text-micro text-muted-foreground">
-					Form edits typed fields; remaining parameters stay in JSON mode.
+					Form edits typed fields; object and array values use JSON fragments.
+					Remaining parameters stay in JSON mode.
 				</p>
 			</div>
 		{:else}
@@ -762,8 +801,12 @@
 				<li class="text-caption text-destructive">{issue}</li>
 			{/each}
 		</ul>
-	{:else if toolValidated}
+	{:else if toolShowValid}
 		<p class="mt-2 text-caption text-success">Parameters are valid.</p>
+	{:else if toolValidationStale}
+		<p class="mt-2 text-caption text-muted-foreground">
+			Parameters changed after validation; validate again.
+		</p>
 	{/if}
 	{#if toolRun}
 		<div class="mt-2 rounded-md border border-border bg-muted/40 p-2">
@@ -810,9 +853,20 @@
 	{:else if !skillContent}
 		<Skeleton lines={6} />
 	{:else}
+		<div class="mb-2 flex items-center gap-2">
+			<Input
+				bind:value={skillFilter}
+				placeholder="Filter lines…"
+				size="sm"
+				class="w-full"
+			/>
+			<Button variant="outline" size="sm" onclick={() => void copySkillContent()}>
+				Copy
+			</Button>
+		</div>
 		<pre
 			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small"
-		>{skillContent}</pre>
+		>{skillFilteredContent}</pre>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end">

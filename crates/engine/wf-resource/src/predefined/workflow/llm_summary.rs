@@ -39,9 +39,9 @@ pub fn create_llm_summary_workflow_with_profile(
                 "Receive the full conversation history from the main workflow execution".into(),
             ),
             config: Some(json!({
-                "messageInputs": [{
-                    "sourceContextId": "conversationHistory",
-                    "internalName": "current",
+                "message_inputs": [{
+                    "source_context_id": "conversationHistory",
+                    "internal_name": "current",
                     "required": true,
                     "description": "Full conversation history to be compressed"
                 }]
@@ -80,9 +80,9 @@ pub fn create_llm_summary_workflow_with_profile(
                     .into(),
             ),
             config: Some(json!({
-                "messageOutputs": [{
-                    "internalName": "compressed",
-                    "targetContextId": "current",
+                "message_outputs": [{
+                    "internal_name": "compressed",
+                    "target_context_id": "current",
                     "description": "Compressed conversation summary"
                 }]
             })),

@@ -768,17 +768,26 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn resume_from_engine_checkpoint_branch_and_in_place() {
+    /// Run one agent loop and return `(loop_id, first_checkpoint_id)`.
+    ///
+    /// Shared setup for the resume tests: each test needs its own completed
+    /// loop with at least one engine checkpoint, and keeping the setup here
+    /// (rather than repeating a long fixture) keeps the per-test futures
+    /// small. The resume tests each drive a full coordinator run, which is
+    /// the deepest stack user in this crate, so they stay split instead of
+    /// chaining several runs inside one test.
+    async fn run_loop_with_checkpoint(
+        ctx: &Arc<ApiContext>,
+        message: &str,
+    ) -> (String, String) {
         use wf_checkpoint::state::CheckpointStateManager;
 
-        let ctx = make_ctx();
         let output = run(
-            &ctx,
-            RunAgentLoopParams::new(resume_config(), resume_input("hi")),
+            ctx,
+            RunAgentLoopParams::new(resume_config(), resume_input(message)),
         )
         .await
-        .expect("initial run completes");
+        .expect("run completes");
         let loop_id = output.agent_loop_id.to_string();
 
         let state_manager = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
@@ -792,7 +801,13 @@ mod tests {
             !checkpoints.is_empty(),
             "message backstop must persist engine checkpoints"
         );
-        let checkpoint_id = checkpoints[0].id.to_string();
+        (loop_id, checkpoints[0].id.to_string())
+    }
+
+    #[tokio::test]
+    async fn resume_from_engine_checkpoint_branches_under_new_execution_id() {
+        let ctx = make_ctx();
+        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
 
         // Branch (default): a fresh execution id continues the restored
         // state; the source id is untouched.
@@ -810,6 +825,12 @@ mod tests {
             loop_id,
             "branch resume must not reuse the source execution id"
         );
+    }
+
+    #[tokio::test]
+    async fn resume_from_engine_checkpoint_in_place_keeps_execution_id() {
+        let ctx = make_ctx();
+        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
 
         // In-place: the completed source is terminal, so continuation under
         // the source id is accepted and appends to the same partition.
@@ -823,16 +844,15 @@ mod tests {
         .await
         .expect("in-place resume completes");
         assert_eq!(continued.agent_loop_id.to_string(), loop_id);
+    }
 
-        // Ownership: a checkpoint of another loop is rejected, as is an
-        // unknown checkpoint id.
-        let other = run(
-            &ctx,
-            RunAgentLoopParams::new(resume_config(), resume_input("other")),
-        )
-        .await
-        .expect("second run completes");
-        let other_id = other.agent_loop_id.to_string();
+    #[tokio::test]
+    async fn resume_rejects_foreign_and_unknown_checkpoints() {
+        let ctx = make_ctx();
+        let (loop_id, checkpoint_id) = run_loop_with_checkpoint(&ctx, "hi").await;
+
+        // Ownership: a checkpoint of another loop is rejected.
+        let (other_id, _) = run_loop_with_checkpoint(&ctx, "other").await;
         assert_ne!(other_id, loop_id);
         let err = resume_from_checkpoint(
             &ctx,
@@ -844,6 +864,8 @@ mod tests {
         .await
         .expect_err("cross-loop checkpoint must be rejected");
         assert!(matches!(err, ApiError::Validation(_)));
+
+        // An unknown checkpoint id is rejected too.
         let err = resume_from_checkpoint(
             &ctx,
             &loop_id,

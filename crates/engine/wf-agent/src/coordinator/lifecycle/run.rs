@@ -122,7 +122,10 @@ impl AgentLoopCoordinator {
         // to COMPLETED events on the bus); the consumer is aborted once the
         // loop finishes.
         let consumer = self.spawn_compression_consumer(&entity, entity.conversation().clone());
-        let outcome = self.execute_inner(config, entity.clone(), mode, sink).await;
+        // Boxed for the same reason as the execution coordinator: the inner
+        // body sets up the iteration coordinator and drives the first
+        // checkpoints, so its future is large and must not be inlined here.
+        let outcome = Box::pin(self.execute_inner(config, entity.clone(), mode, sink)).await;
         if let Some(handle) = consumer {
             handle.abort();
         }
@@ -257,9 +260,16 @@ impl AgentLoopCoordinator {
             )));
         }
         let start = wf_common::now();
-        let outcome = execution_coordinator
-            .execute(&entity, max_iterations, config.max_execution_time)
-            .await;
+        // The execution coordinator's future inlines the whole iteration
+        // loop (including the checkpoint path), which is the single largest
+        // consumer of this call stack. Boxing it keeps that state machine on
+        // the heap so a nested run does not compound frames here.
+        let outcome = Box::pin(execution_coordinator.execute(
+            &entity,
+            max_iterations,
+            config.max_execution_time,
+        ))
+        .await;
 
         match outcome {
             Ok((result, iterations)) => {

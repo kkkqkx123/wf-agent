@@ -38,27 +38,55 @@ impl CheckpointSerializer {
         codec: CheckpointCodec,
         compression: CompressionStrategy,
     ) -> Result<Vec<u8>, CheckpointError> {
-        let data = match codec {
+        let data = Self::encode(value, codec)?;
+        if Self::should_compress(data.len(), compression) {
+            compress_gzip(&data)
+        } else {
+            Ok(data)
+        }
+    }
+
+    /// Serialize with an optional compression strategy on the async path.
+    /// The gzip backend allocates large internal deflate buffers, so the
+    /// compression step is offloaded to a blocking worker: a checkpoint
+    /// save often sits at the bottom of a deep async stack, and inflating
+    /// that stack with the compressor's own working set is what tips a
+    /// nested agent run into a stack overflow. `None`/below-threshold
+    /// payloads skip the worker entirely.
+    pub async fn serialize_with_compression_async<T: Serialize>(
+        value: &T,
+        codec: CheckpointCodec,
+        compression: CompressionStrategy,
+    ) -> Result<Vec<u8>, CheckpointError> {
+        let data = Self::encode(value, codec)?;
+        if !Self::should_compress(data.len(), compression) {
+            return Ok(data);
+        }
+        tokio::task::spawn_blocking(move || compress_gzip(&data))
+            .await
+            .map_err(|e| {
+                CheckpointError::Serialization(format!("gzip compress task failed: {e}"))
+            })?
+    }
+
+    fn encode<T: Serialize>(value: &T, codec: CheckpointCodec) -> Result<Vec<u8>, CheckpointError> {
+        match codec {
             CheckpointCodec::Bincode => {
                 let data = bincode::serialize(value)?;
                 let mut result = Vec::with_capacity(data.len() + 1);
                 result.push(BINCODE_MAGIC);
                 result.extend_from_slice(&data);
-                result
+                Ok(result)
             }
-            CheckpointCodec::Json => serde_json::to_vec(value)?,
-        };
+            CheckpointCodec::Json => Ok(serde_json::to_vec(value)?),
+        }
+    }
 
-        let compress = match compression {
+    fn should_compress(len: usize, compression: CompressionStrategy) -> bool {
+        match compression {
             CompressionStrategy::None => false,
             CompressionStrategy::Gzip => true,
-            CompressionStrategy::Auto => data.len() > COMPRESSION_THRESHOLD,
-        };
-
-        if compress {
-            compress_gzip(&data)
-        } else {
-            Ok(data)
+            CompressionStrategy::Auto => len > COMPRESSION_THRESHOLD,
         }
     }
 
@@ -327,5 +355,31 @@ mod tests {
         assert_eq!(json, r#"{"from":"running","to":"completed"}"#);
         let back: FieldChange = serde_json::from_str(&json).unwrap();
         assert_eq!(back, change);
+    }
+
+    #[tokio::test]
+    async fn async_compression_matches_sync_result() {
+        let large = TestData {
+            id: "x".repeat(COMPRESSION_THRESHOLD + 200),
+            value: 7,
+        };
+        let sync = CheckpointSerializer::serialize_with_compression(
+            &large,
+            CheckpointCodec::Json,
+            CompressionStrategy::Auto,
+        )
+        .unwrap();
+        let asynced = CheckpointSerializer::serialize_with_compression_async(
+            &large,
+            CheckpointCodec::Json,
+            CompressionStrategy::Auto,
+        )
+        .await
+        .unwrap();
+        assert_eq!(&asynced[..2], &GZIP_MAGIC);
+        assert_eq!(sync, asynced);
+
+        let restored: TestData = CheckpointSerializer::auto_deserialize(&asynced).unwrap();
+        assert_eq!(restored, large);
     }
 }

@@ -944,12 +944,19 @@ impl AgentDiffCalculator {
     /// Append-only message diff: when the current history extends the previous
     /// one (common prefix by id), only the suffix is stored with its base
     /// sequence. Otherwise a legacy full replacement is emitted.
+    ///
+    /// The comparison borrows both sides instead of cloning whole message
+    /// histories: these snapshots carry the entire conversation, and cloning
+    /// them here doubles the peak memory held across the surrounding async
+    /// checkpoint stack. Only the emitted suffix is materialized.
     fn diff_messages_append_only(
         previous: &wf_types::checkpoint::agent::AgentStateSnapshot,
         current: &wf_types::checkpoint::agent::AgentStateSnapshot,
     ) -> (Option<Vec<wf_types::message::Message>>, Option<u64>) {
-        let prev = previous.conversation_snapshot.clone().unwrap_or_default();
-        let curr = current.conversation_snapshot.clone().unwrap_or_default();
+        let prev: &[wf_types::message::Message] =
+            previous.conversation_snapshot.as_deref().unwrap_or(&[]);
+        let curr: &[wf_types::message::Message] =
+            current.conversation_snapshot.as_deref().unwrap_or(&[]);
         if prev == curr {
             return (None, None);
         }
@@ -968,7 +975,7 @@ impl AgentDiffCalculator {
             }
             return (Some(suffix), Some(base_seq));
         }
-        (Some(curr), None)
+        (Some(curr.to_vec()), None)
     }
 }
 

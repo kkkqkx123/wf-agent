@@ -484,11 +484,15 @@ where
         // strategy (payloads larger than the compression threshold are gzip
         // compressed; smaller payloads stay plain). Reads transparently
         // detect gzip via magic bytes, so the switch is format-compatible.
-        let data = CheckpointSerializer::serialize_with_compression(
+        // The async variant keeps the compressor's deflate working set off
+        // the caller's stack (checkpoint saves sit deep inside nested
+        // execution futures).
+        let data = CheckpointSerializer::serialize_with_compression_async(
             checkpoint,
             CheckpointCodec::Json,
             CompressionStrategy::Auto,
-        )?;
+        )
+        .await?;
 
         let (chain_root_id, chain_position) = self
             .compute_chain_info(&id, &checkpoint_type, previous_checkpoint_id.as_deref())

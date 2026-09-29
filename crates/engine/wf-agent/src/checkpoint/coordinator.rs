@@ -133,7 +133,11 @@ impl AgentCheckpointIntegration {
         if !self.should_checkpoint(&trigger, iteration) {
             return Ok(false);
         }
-        self.create_checkpoint(entity, trigger, description).await?;
+        // Boxed so the whole checkpoint-creation state machine (snapshot,
+        // serialize, persist) is heap-allocated rather than inlined into the
+        // iteration executor's frame. This call runs on every boundary
+        // checkpoint, deep inside the nested-execution stack.
+        Box::pin(self.create_checkpoint(entity, trigger, description)).await?;
         Ok(true)
     }
 
@@ -233,6 +237,11 @@ impl AgentCheckpointIntegration {
                 return Ok(reused);
             }
         }
+        // The snapshot and the checkpoint futures are large (the snapshot
+        // embeds the whole conversation) and this runs at the bottom of a
+        // deep nested-execution stack. The build and persist futures are
+        // boxed so their state machines live on the heap instead of being
+        // inlined into this frame.
         let snapshot = self.build_snapshot(entity).await;
         let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
         let mut ctx = self
@@ -249,10 +258,8 @@ impl AgentCheckpointIntegration {
                 .get_or_insert_default()
                 .insert("description".to_string(), serde_json::json!(text));
         }
-        let checkpoint = self.inner.build(ctx, snapshot).await?;
-        self.inner
-            .persist(&checkpoint, entity.id().as_str())
-            .await?;
+        let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
+        Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
         // The state checkpoint is durable at this point; a failed file
         // snapshot means restore will carry state without file history, so
         // the gap must be visible rather than silently swallowed.

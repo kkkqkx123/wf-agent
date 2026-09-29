@@ -407,6 +407,9 @@ impl WorkflowCheckpointIntegration {
                 return Ok(reused);
             }
         }
+        // The snapshot and the checkpoint futures are large and this runs at
+        // the bottom of a deep nested-execution stack; the build/persist
+        // futures are boxed so their state machines stay off this frame.
         let snapshot = self.build_snapshot(entity).await;
         let ancestors: Vec<String> = entity.ancestors().iter().map(|id| id.to_string()).collect();
         let ctx = self
@@ -418,10 +421,8 @@ impl WorkflowCheckpointIntegration {
                 &ancestors,
             )
             .await?;
-        let checkpoint = self.inner.build(ctx, snapshot).await?;
-        self.inner
-            .persist(&checkpoint, entity.id().as_str())
-            .await?;
+        let checkpoint = Box::pin(self.inner.build(ctx, snapshot)).await?;
+        Box::pin(self.inner.persist(&checkpoint, entity.id().as_str())).await?;
         let file_snapshot_status = match self
             .inner
             .save_file_snapshot(&checkpoint.id, entity.id().as_str())

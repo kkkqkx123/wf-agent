@@ -1,9 +1,9 @@
 use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage,
     AgentTemplateStorage, CheckpointStorage, MessageStorage, MetricsStorage, NodeTemplateStorage,
-    ScriptStorage, TaskStorage, ToolDefinitionStorage, ToolStorage, TriggerExecutionStorage,
-    TriggerTemplateStorage, UserInteractionStorage, VariableStorage, WorkflowDraftStorage,
-    WorkflowExecutionStorage, WorkflowStorage,
+    ScriptStorage, TaskStorage, TemplateUsageStorage, ToolDefinitionStorage, ToolStorage,
+    TriggerExecutionStorage, TriggerTemplateStorage, UserInteractionStorage, VariableStorage,
+    WorkflowDraftStorage, WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
@@ -303,6 +303,10 @@ define_storage_entities!(
     variable,
     "variable",
     VariableStorage,
+    TemplateUsage,
+    template_usage,
+    "template_usage",
+    TemplateUsageStorage,
 );
 
 /// One operation of a cross-entity atomic batch: which entity store it

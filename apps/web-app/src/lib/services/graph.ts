@@ -375,6 +375,15 @@ export async function validateWorkflowDraft(
 	}));
 }
 
+/** Delete a workflow draft used only for a validation check. */
+export async function deleteWorkflowDraft(id: string): Promise<void> {
+	await call<unknown>(
+		client.DELETE('/api/v1/workflows/drafts/{id}', {
+			params: { path: { id } },
+		}),
+	);
+}
+
 /** Draft promotion report (typed). */
 export async function promoteWorkflowDraft(id: string): Promise<PromoteReport> {
 	const data = await call<components['schemas']['PromoteReportDoc'] | null>(

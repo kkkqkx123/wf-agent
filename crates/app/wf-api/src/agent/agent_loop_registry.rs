@@ -19,7 +19,9 @@ pub use history::{
     aggregate_execution_statistics, execution_path, execution_statistics, iteration_history,
     iteration_history_summary,
 };
-pub use summary::{count, get_status, has, list_by_status, statistics, summaries, summary, update_status};
+pub use summary::{
+    count, get_status, has, list_by_status, statistics, summaries, summary, update_status,
+};
 pub use timeline::{context_evolution, execution_timeline, variable_history};
 pub use types::{
     AgentExecutionStatistics, AgentLoopFilter, AgentLoopStatistics, AgentLoopSummary,

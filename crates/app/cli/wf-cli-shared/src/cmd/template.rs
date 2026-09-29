@@ -43,7 +43,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             if let Some(a) = author {
                 filter.author = Some(a.clone());
             }
-            let list = template_library::query(ctx, &filter)?;
+            let list = template_library::query(ctx, &filter).await?;
             let data = serde_json::to_value(&list)?;
             render_envelope(cli.output, OutputEnvelope::success("template-list", data))
         }
@@ -52,7 +52,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 name: Some(id.clone()),
                 ..Default::default()
             };
-            let list = template_library::query(ctx, &filter)?;
+            let list = template_library::query(ctx, &filter).await?;
             if let Some(t) = list.into_iter().find(|t| t.id == *id || t.name == *id) {
                 let data = serde_json::to_value(&t)?;
                 render_envelope(
@@ -111,7 +111,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
             _ => {
-                template_library::delete_workflow_template(ctx, id)?;
+                template_library::delete_workflow_template(ctx, id).await?;
                 let data = serde_json::json!({"deleted": id, "kind": "workflow"});
                 render_envelope(
                     cli.output,

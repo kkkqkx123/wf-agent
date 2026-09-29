@@ -8,9 +8,7 @@
 use serde::Serialize;
 
 use crate::audit::resolver::{resolve_agent, resolve_workflow};
-use crate::audit::views::{
-    IterationAuditView, NodeExecutionAuditView, MAX_AUDIT_TIMELINE_ENTRIES,
-};
+use crate::audit::views::{IterationAuditView, NodeExecutionAuditView, MAX_AUDIT_TIMELINE_ENTRIES};
 use crate::entity::execution::{resolve_execution, ExecutionDomain};
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;

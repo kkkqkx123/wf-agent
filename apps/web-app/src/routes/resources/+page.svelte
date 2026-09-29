@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -384,7 +383,7 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title="Models & tools"
-		description="Profiles, providers, tool registry, scripts and skills."
+		description="Read-only operations console for profiles, providers, tool registry, scripts and skills."
 	>
 		{#snippet actions()}
 			<IconButton
@@ -392,14 +391,6 @@
 				label="Refresh"
 				onclick={() => void reload()}
 			/>
-			<Button
-				size="sm"
-				disabled
-				title="Resource creation is not available in this release"
-			>
-				<Icon name="plus" size={13} />
-				New
-			</Button>
 		{/snippet}
 	</PageHeader>
 

@@ -14,6 +14,7 @@ use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdap
 use crate::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
 use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
+use crate::adapter::template_usage::{TemplateUsageListOptions, TemplateUsageStorageAdapter};
 use crate::adapter::tool::{ToolListOptions, ToolStorageAdapter};
 use crate::adapter::tool_definition::{ToolDefinitionListOptions, ToolDefinitionStorageAdapter};
 use crate::adapter::trigger_execution::{
@@ -117,6 +118,11 @@ make_base_adapter!(
     VariableStorage,
     wf_types::VariableStorageMetadata,
     VariableListOptions
+);
+make_base_adapter!(
+    TemplateUsageStorage,
+    wf_types::TemplateUsageMetadata,
+    TemplateUsageListOptions
 );
 
 // ─── WorkflowStorageAdapter ───
@@ -625,6 +631,46 @@ impl<S: Store + StoreExt> VariableStorageAdapter for VariableStorage<S> {
             deleted += 1;
         }
         Ok(deleted)
+    }
+}
+
+// ─── TemplateUsageStorageAdapter ───
+
+fn template_usage_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+impl<S: Store + StoreExt> TemplateUsageStorageAdapter for TemplateUsageStorage<S> {
+    async fn increment(&self, template_id: &str, kind: &str) -> Result<u64, StorageError> {
+        let now = template_usage_now();
+        let mut record =
+            self.entity_store
+                .load(template_id)
+                .await?
+                .unwrap_or(wf_types::TemplateUsageMetadata {
+                    id: template_id.to_string(),
+                    template_id: template_id.to_string(),
+                    kind: kind.to_string(),
+                    count: 0,
+                    created_at: now,
+                    updated_at: now,
+                });
+        record.count += 1;
+        record.updated_at = now;
+        self.entity_store.save(&record).await?;
+        Ok(record.count)
+    }
+
+    async fn get_count(&self, template_id: &str) -> Result<u64, StorageError> {
+        Ok(self
+            .entity_store
+            .load(template_id)
+            .await?
+            .map(|record| record.count)
+            .unwrap_or(0))
     }
 }
 

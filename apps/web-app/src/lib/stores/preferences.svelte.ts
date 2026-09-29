@@ -1,5 +1,12 @@
 import { browser } from '$app/environment';
 
+/**
+ * Local first-paint appearance track: theme, density, and shell geometry
+ * under the `wf-ui-preferences` key. Applied before first paint so the UI
+ * never flashes; cross-device behavior lives in the server preference
+ * document (`services/preferences.ts`) instead.
+ */
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Density = 'compact' | 'default' | 'comfortable';
 export type MinimapMode = 'auto' | 'on' | 'off';

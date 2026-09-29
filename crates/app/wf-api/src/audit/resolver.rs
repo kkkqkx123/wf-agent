@@ -8,9 +8,7 @@ use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent_execution::LlmCallRecord;
 
-use crate::audit::views::{
-    IterationAuditView, NodeExecutionAuditView,
-};
+use crate::audit::views::{IterationAuditView, NodeExecutionAuditView};
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 

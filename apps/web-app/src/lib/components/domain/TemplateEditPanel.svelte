@@ -27,6 +27,7 @@
 		type TemplateIssue,
 	} from '$lib/services/templates';
 	import type { TemplateKind } from '$lib/types/models';
+	import { toasts } from '$lib/stores/toast.svelte';
 
 	interface Props {
 		kind: TemplateKind;
@@ -203,7 +204,17 @@
 		if (next === 'graph' && kind !== 'workflow') return false;
 		highlightField = null;
 		if (tab === 'graph' && next !== 'graph') {
-			syncGraphToText();
+			// Document wins on conflict: reload the canvas and drop the
+			// unmerged intents instead of merging stale topology.
+			if (session.hasGraphConflict(store.dirty)) {
+				loadStore();
+				toasts.info(
+					'Graph reloaded',
+					'The document changed; unmerged canvas edits were discarded.',
+				);
+			} else {
+				syncGraphToText();
+			}
 		}
 		if (tab === 'form' && next !== 'form') syncFormToText();
 		if (next === 'form' && tab !== 'form') {
@@ -242,13 +253,6 @@
 
 	function discardGraphChanges(): void {
 		conflictOpen = false;
-		loadStore();
-		ontabchange('graph');
-	}
-
-	function keepGraphChanges(): void {
-		conflictOpen = false;
-		syncGraphToText();
 		loadStore();
 		ontabchange('graph');
 	}
@@ -316,7 +320,10 @@
 						bind:value={formState[field.key]}
 						placeholder={field.label}
 						class="min-h-16 text-small"
-						oninput={() => (highlightField = null)}
+						oninput={() => {
+							highlightField = null;
+							syncFormToText();
+						}}
 					/>
 				{:else}
 					<Input
@@ -324,7 +331,10 @@
 						placeholder={field.label}
 						size="sm"
 						class="w-full"
-						oninput={() => (highlightField = null)}
+						oninput={() => {
+							highlightField = null;
+							syncFormToText();
+						}}
 					/>
 				{/if}
 			</label>
@@ -512,19 +522,16 @@
 
 <Dialog
 	bind:open={conflictOpen}
-	title="Graph and JSON diverge"
-	description="The graph has unsaved changes and the JSON changed underneath. Choose which side to keep."
+	title="Graph reloaded from document"
+	description="The document changed while the canvas had unsaved edits. The canvas reloaded from the document."
 >
 	<p class="text-caption text-muted-foreground">
-		Overwrite the JSON with the graph, or discard the graph and reload from the
-		JSON. No automatic merge is attempted.
+		Unmerged canvas edits were discarded; the document is the single source of
+		truth. No automatic merge is attempted.
 	</p>
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={discardGraphChanges}>
-				Discard graph
-			</Button>
-			<Button size="sm" onclick={keepGraphChanges}>Keep graph</Button>
+			<Button size="sm" onclick={discardGraphChanges}>Got it</Button>
 		</div>
 	{/snippet}
 </Dialog>

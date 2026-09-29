@@ -2,10 +2,12 @@ import { client } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
 
 /**
- * Behavioral defaults kept in the server-side preference document so they
- * follow the user across browsers. Look-and-feel (theme, density, shell
- * geometry) has to be applied before first paint and therefore stays in
- * `stores/preferences.svelte.ts`; the two key groups never mix.
+ * Server cross-device behavior track: kept in the server-side preference
+ * document so values follow the user across browsers. First-paint look and
+ * feel (theme, density, shell geometry) has to be applied before first
+ * paint and therefore stays in `stores/preferences.svelte.ts`; the two
+ * tracks never mix. `appearance.reduce-motion` lives in this document but
+ * governs behavior accessibility, not first-paint appearance.
  */
 export interface Behavior {
 	pageSize: number;

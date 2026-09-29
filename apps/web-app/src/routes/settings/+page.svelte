@@ -59,8 +59,9 @@
 
 	let pageSize = $derived(String(behavior.pageSize));
 
-	// Only the execution and notification sections persist server-side;
-	// appearance and workspace apply instantly in this browser.
+	// Only the execution and notification sections persist in the server
+	// cross-device behavior track; appearance and workspace are the local
+	// first-paint track and apply instantly in this browser.
 	const serverSection = $derived(
 		section === 'execution' || section === 'notifications',
 	);
@@ -143,7 +144,7 @@
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
 		title="Settings"
-		description="Appearance applies instantly and stays local. Execution and notification preferences are stored server-side and need Save."
+		description="Appearance and workspace stay local and apply instantly. Execution and notification preferences are cross-device server behavior and need Save."
 	>
 		{#snippet actions()}
 			{#if serverSection}

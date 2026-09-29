@@ -351,6 +351,27 @@ impl Entity for wf_types::VariableStorageMetadata {
     }
 }
 
+impl Entity for wf_types::TemplateUsageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "template_usage"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "templateId": self.template_id,
+            "kind": self.kind,
+            "count": self.count,
+            "updatedAt": self.updated_at,
+        })
+    }
+}
+
 impl Entity for wf_types::tool::Tool {
     type Metadata = Value;
 

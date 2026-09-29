@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
@@ -62,9 +61,6 @@ pub struct ApiContext {
     pub workflow_executions: WorkflowExecutionRegistry,
     /// Live agent loop execution handles (pause/resume/cancel/status queries).
     pub agent_loops: Arc<AgentLoopRegistry>,
-    /// Template usage counters (workflow/agent template library), keyed by
-    /// template id. In-memory analytics; not persisted.
-    pub template_usage: Arc<DashMap<String, u64>>,
     /// Node handlers shared by every workflow execution.
     handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     /// Shared user interaction handler slot (agent config approval / follow-up
@@ -136,7 +132,6 @@ impl ApiContext {
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
-            template_usage: Arc::new(DashMap::new()),
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
@@ -181,7 +176,6 @@ impl ApiContext {
             checkpoint_store: Arc::new(storage.checkpoint.store().clone()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
-            template_usage: Arc::new(DashMap::new()),
             user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))

@@ -1,5 +1,5 @@
 import { client, downloadFile, request } from '$lib/api/client';
-import { call, extractPage, requireData } from '$lib/api/envelope';
+import { call, requireData } from '$lib/api/envelope';
 import { ApiHttpError } from '$lib/api/envelope';
 import { backendEdgeType } from '$lib/graph/display-model';
 import { issueTargetsNode } from '$lib/graph/execution-projection';
@@ -39,60 +39,25 @@ function toTemplate(d: TemplateDto, fallbackKind: TemplateKind): Template {
 }
 
 /**
- * Browse the template library. The `/templates/library` aggregator only
- * covers the workflow and agent registries, so `all` merges those with the
- * node and trigger registries instead of hard-splitting by kind upstream.
+ * Browse the template library. The unified library surface covers all four
+ * kinds, so every browse goes through one request.
  */
 export async function listTemplates(params: {
 	kind: 'all' | TemplateKind;
 }): Promise<Template[]> {
 	const { kind } = params;
-	if (kind === 'all') {
-		const [library, nodes, triggers] = await Promise.all([
-			listLibraryTemplates(),
-			listRegistryTemplates('node'),
-			listRegistryTemplates('trigger'),
-		]);
-		return [...library, ...nodes, ...triggers];
-	}
-	if (kind === 'node' || kind === 'trigger') {
-		return listRegistryTemplates(kind);
-	}
 	const data = await call<unknown>(
 		client.GET('/api/v1/templates/library', {
-			params: { query: { kind } },
+			params: { query: kind === 'all' ? {} : { kind } },
 		}),
 	);
 	requireData(data, `Template library (${kind})`);
 	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
-		toTemplate(d, kind),
+		toTemplate(
+			d,
+			normalizeKind(d.kind) ?? (kind === 'all' ? 'workflow' : kind),
+		),
 	);
-}
-
-async function listLibraryTemplates(): Promise<Template[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/templates/library', { params: { query: {} } }),
-	);
-	requireData(data, 'Template library');
-	return (Array.isArray(data) ? (data as TemplateDto[]) : []).map((d) =>
-		toTemplate(d, d.kind === 'agent' ? 'agent' : 'workflow'),
-	);
-}
-
-async function listRegistryTemplates(
-	kind: 'node' | 'trigger',
-): Promise<Template[]> {
-	const data = await call<unknown>(
-		kind === 'node'
-			? client.GET('/api/v1/templates/node', {
-					params: { query: { limit: 100 } },
-				})
-			: client.GET('/api/v1/templates/trigger', {
-					params: { query: { limit: 100 } },
-				}),
-	);
-	requireData(data, `Template registry (${kind})`);
-	return extractPage<TemplateDto>(data).items.map((d) => toTemplate(d, kind));
 }
 
 /** Public and enabled templates, most used first. */
@@ -106,40 +71,34 @@ export async function listFeaturedTemplates(): Promise<Template[]> {
 	);
 }
 
-/** Copy a template into a new entry, returning the new id. */
+/** Copy a template into a new entry through the server, returning the new id. */
 export async function cloneTemplate(
 	id: string,
 	kind: TemplateKind,
 	newName: string,
 ): Promise<string> {
-	if (kind === 'workflow' || kind === 'agent') {
-		const data = await call<{ id?: unknown }>(
-			client.POST('/api/v1/templates/library/{id}/clone', {
-				params: { path: { id } },
-				body: { kind, new_name: newName },
-			}),
-		);
-		const newId = typeof data?.id === 'string' ? data.id : '';
-		if (!newId) throw new Error('Clone returned no id');
-		return newId;
-	}
-	const detail = await getTemplateDetail(id, kind);
-	const raw = (
-		detail.raw && typeof detail.raw === 'object' ? detail.raw : {}
-	) as Record<string, unknown>;
-	const now = Date.now();
-	const suffix =
-		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-			? crypto.randomUUID().slice(0, 8)
-			: Math.random().toString(36).slice(2, 10);
-	const copy = {
-		...raw,
-		id: `${id}-copy-${suffix}`,
-		name: newName,
-		created_at: now,
-		updated_at: now,
-	};
-	return saveTemplate(kind, null, copy);
+	const data = await call<{ id?: unknown }>(
+		client.POST('/api/v1/templates/library/{id}/clone', {
+			params: { path: { id } },
+			body: { kind, new_name: newName },
+		}),
+	);
+	const newId = typeof data?.id === 'string' ? data.id : '';
+	if (!newId) throw new Error('Clone returned no id');
+	return newId;
+}
+
+/**
+ * Explicit usage ping for one template. Callers fire it after a clone,
+ * open-as-workflow, or export download; repeated calls each count once.
+ */
+export async function recordTemplateUsage(id: string): Promise<number> {
+	const data = await call<number>(
+		client.POST('/api/v1/templates/library/{id}/usage', {
+			params: { path: { id } },
+		}),
+	);
+	return typeof data === 'number' ? data : 0;
 }
 
 export interface TemplateDetail {

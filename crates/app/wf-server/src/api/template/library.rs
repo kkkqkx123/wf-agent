@@ -126,13 +126,15 @@ pub(crate) async fn handle_query_library(
     let kind = match query.kind.as_deref() {
         Some("workflow") => Some(wf_api::TemplateKind::Workflow),
         Some("agent") => Some(wf_api::TemplateKind::Agent),
+        Some("node") => Some(wf_api::TemplateKind::Node),
+        Some("trigger") => Some(wf_api::TemplateKind::Trigger),
+        Some("all") | None => None,
         Some(other) => {
             return crate::envelope::err(crate::envelope::ApiError::validation(format!(
                 "unknown template kind: {other}"
             )))
             .into_response()
         }
-        None => None,
     };
     let filter = wf_api::TemplateFilter {
         kind,
@@ -144,7 +146,7 @@ pub(crate) async fn handle_query_library(
             .map(|t| t.split(',').map(ToOwned::to_owned).collect()),
         author: query.author,
     };
-    match wf_api::template::template_library::query(&state.ctx, &filter) {
+    match wf_api::template::template_library::query_unified(&state.ctx, &filter).await {
         Ok(templates) => ok(templates
             .into_iter()
             .map(TemplateSummaryDoc::from)
@@ -172,7 +174,7 @@ pub(crate) async fn handle_library_featured(
     State(state): State<ApiState>,
     Query(query): Query<LimitQuery>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::featured(&state.ctx, query.limit) {
+    match wf_api::template::template_library::featured(&state.ctx, query.limit).await {
         Ok(templates) => ok(templates
             .into_iter()
             .map(TemplateSummaryDoc::from)
@@ -202,12 +204,15 @@ pub(crate) async fn handle_library_popular(
     Query(query): Query<CategoryLimitQuery>,
 ) -> impl IntoResponse {
     let result = match query.category {
-        Some(category) => wf_api::template::template_library::popular_in_category(
-            &state.ctx,
-            &category,
-            query.limit,
-        ),
-        None => wf_api::template::template_library::featured(&state.ctx, query.limit),
+        Some(category) => {
+            wf_api::template::template_library::popular_in_category(
+                &state.ctx,
+                &category,
+                query.limit,
+            )
+            .await
+        }
+        None => wf_api::template::template_library::featured(&state.ctx, query.limit).await,
     };
     match result {
         Ok(templates) => ok(templates
@@ -231,11 +236,10 @@ pub(crate) async fn handle_record_usage(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    wf_api::template::template_library::record_usage(&state.ctx, &path.id);
-    ok(wf_api::template::template_library::usage_count(
-        &state.ctx, &path.id,
-    ))
-    .into_response()
+    match wf_api::template::template_library::record_usage(&state.ctx, &path.id).await {
+        Ok(count) => ok(count).into_response(),
+        Err(e) => error_response(e),
+    }
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -261,6 +265,14 @@ pub(crate) async fn handle_clone_template(
     let new_name = body.new_name.unwrap_or_default();
     let result: Result<serde_json::Value, wf_api::ApiError> = if body.kind == "agent" {
         wf_api::template::template_library::clone_agent_template(&state.ctx, &path.id, &new_name)
+            .await
+            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+    } else if body.kind == "node" {
+        wf_api::template::node_template::clone_template(&state.ctx, &path.id, &new_name)
+            .await
+            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+    } else if body.kind == "trigger" {
+        wf_api::trigger::template::clone_template(&state.ctx, &path.id, &new_name)
             .await
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
     } else {
@@ -360,7 +372,7 @@ pub(crate) async fn handle_delete_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::delete_workflow_template(&state.ctx, &path.id) {
+    match wf_api::template::template_library::delete_workflow_template(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }

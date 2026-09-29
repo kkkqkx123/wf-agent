@@ -116,21 +116,23 @@ pub fn query_by_profile_type(
 }
 
 /// Featured templates: public + enabled, most used first.
-pub fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
-    Ok(crate::template::template_library::featured(ctx, limit)?
+pub async fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
+    Ok(crate::template::template_library::featured(ctx, limit)
+        .await?
         .into_iter()
         .filter(|t| t.kind == "agent")
         .collect())
 }
 
 /// Popular templates within a category, most used first.
-pub fn popular_in_category(
+pub async fn popular_in_category(
     ctx: &ApiContext,
     category: &str,
     limit: Option<usize>,
 ) -> ApiResult<Vec<TemplateSummary>> {
     Ok(
-        crate::template::template_library::popular_in_category(ctx, category, limit)?
+        crate::template::template_library::popular_in_category(ctx, category, limit)
+            .await?
             .into_iter()
             .filter(|t| t.kind == "agent")
             .collect(),
@@ -138,7 +140,7 @@ pub fn popular_in_category(
 }
 
 /// Uniform summaries across the matching agent templates.
-pub fn summaries(
+pub async fn summaries(
     ctx: &ApiContext,
     filter: Option<&AgentTemplateFilter>,
 ) -> ApiResult<Vec<TemplateSummary>> {
@@ -152,7 +154,8 @@ pub fn summaries(
             kind: Some(crate::template::template_library::TemplateKind::Agent),
             ..TemplateFilter::default()
         },
-    )?
+    )
+    .await?
     .into_iter()
     .filter(|s| ids.contains(&s.id))
     .collect())
@@ -258,13 +261,19 @@ mod tests {
     #[tokio::test]
     async fn featured_and_popular() {
         let ctx = make_ctx();
-        ctx.template_usage.insert("agent-b".to_string(), 5);
+        for _ in 0..5 {
+            crate::template::template_library::record_usage(&ctx, "agent-b")
+                .await
+                .unwrap();
+        }
 
-        let featured = featured(&ctx, Some(10)).unwrap();
+        let featured = featured(&ctx, Some(10)).await.unwrap();
         assert_eq!(featured.len(), 2);
         assert_eq!(featured[0].id, "agent-b");
 
-        let popular = popular_in_category(&ctx, "writing", Some(10)).unwrap();
+        let popular = popular_in_category(&ctx, "writing", Some(10))
+            .await
+            .unwrap();
         assert_eq!(popular.len(), 1);
         assert_eq!(popular[0].id, "agent-b");
     }

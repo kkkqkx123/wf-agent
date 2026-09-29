@@ -776,10 +776,7 @@ mod tests {
     /// small. The resume tests each drive a full coordinator run, which is
     /// the deepest stack user in this crate, so they stay split instead of
     /// chaining several runs inside one test.
-    async fn run_loop_with_checkpoint(
-        ctx: &Arc<ApiContext>,
-        message: &str,
-    ) -> (String, String) {
+    async fn run_loop_with_checkpoint(ctx: &Arc<ApiContext>, message: &str) -> (String, String) {
         use wf_checkpoint::state::CheckpointStateManager;
 
         let output = run(

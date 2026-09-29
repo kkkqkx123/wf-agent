@@ -6,8 +6,9 @@ import {
 import type { Behavior } from '$lib/services/preferences';
 
 /**
- * Behavioral defaults shared with the backend preference document. The fields
- * start at their defaults so the UI is usable before the document arrives.
+ * Server cross-device behavior track shared with the backend preference
+ * document. The fields start at their defaults so the UI is usable before
+ * the document arrives.
  */
 class BehaviorStore {
 	pageSize = $state(DEFAULT_BEHAVIOR.pageSize);

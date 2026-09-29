@@ -6,7 +6,9 @@ use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::ExecutionStatus;
 
-use crate::agent::agent_loop_registry::types::{AgentLoopFilter, AgentLoopStatistics, AgentLoopSummary};
+use crate::agent::agent_loop_registry::types::{
+    AgentLoopFilter, AgentLoopStatistics, AgentLoopSummary,
+};
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
 use crate::workflow::execution_state::{parse_status, status_str};
@@ -24,10 +26,7 @@ pub async fn summaries(
 }
 
 /// Get a single agent loop summary by id.
-pub async fn summary(
-    ctx: &ApiContext,
-    agent_loop_id: &str,
-) -> ApiResult<Option<AgentLoopSummary>> {
+pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<AgentLoopSummary>> {
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
         let summary = live_summary(&entity).await;
         return Ok(Some(summary));

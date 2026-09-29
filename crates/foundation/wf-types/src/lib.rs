@@ -61,6 +61,7 @@ pub use storage::MessageStorageMetadata;
 pub use storage::NodeTemplateStorageMetadata;
 pub use storage::ScriptStorageMetadata;
 pub use storage::TaskStorageMetadata;
+pub use storage::TemplateUsageMetadata;
 pub use storage::ToolStorageMetadata;
 pub use storage::TriggerTemplateStorageMetadata;
 pub use storage::UserInteractionStorageMetadata;

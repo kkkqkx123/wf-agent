@@ -129,7 +129,7 @@ pub(crate) async fn handle_agent_template_summaries(
     State(state): State<ApiState>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_template::summaries(&state.ctx, None) {
+    match wf_api::template::agent_template::summaries(&state.ctx, None).await {
         Ok(summaries) => {
             let (limit, offset) = resolve_page(&query);
             let window = summaries
@@ -163,7 +163,7 @@ pub(crate) async fn handle_agent_template_featured(
 ) -> impl IntoResponse {
     // Curated top-N catalog with caller-supplied cap; retained as a bare
     // array with no pagination.
-    match wf_api::template::agent_template::featured(&state.ctx, query.limit) {
+    match wf_api::template::agent_template::featured(&state.ctx, query.limit).await {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),
     }
@@ -191,12 +191,15 @@ pub(crate) async fn handle_agent_template_popular(
     let result = match query.category {
         // Curated top-N catalog with caller-supplied cap; retained as a bare
         // array with no pagination.
-        Some(category) => wf_api::template::agent_template::popular_in_category(
-            &state.ctx,
-            &category,
-            query.limit,
-        ),
-        None => wf_api::template::agent_template::featured(&state.ctx, query.limit),
+        Some(category) => {
+            wf_api::template::agent_template::popular_in_category(
+                &state.ctx,
+                &category,
+                query.limit,
+            )
+            .await
+        }
+        None => wf_api::template::agent_template::featured(&state.ctx, query.limit).await,
     };
     match result {
         Ok(templates) => ok(templates).into_response(),

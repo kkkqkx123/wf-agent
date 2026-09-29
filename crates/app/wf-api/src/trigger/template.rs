@@ -152,6 +152,16 @@ pub async fn search(
 /// anything is persisted: a scope violation rejects the save without
 /// touching storage or the registry.
 pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -> ApiResult<()> {
+    if template.name.trim().is_empty() {
+        return Err(crate::infra::error::ApiError::Validation(
+            "name: required".to_string(),
+        ));
+    }
+    if template.trigger_type.trim().is_empty() {
+        return Err(crate::infra::error::ApiError::Validation(
+            "trigger_type: required".to_string(),
+        ));
+    }
     let incoming = TriggerTemplate {
         name: template.name.clone(),
         description: template.description.clone(),
@@ -223,13 +233,18 @@ pub async fn get(ctx: &ApiContext, id: &str) -> ApiResult<TriggerTemplateStorage
 }
 
 pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
-    crate::infra::reference::delete_with_reference_check(
+    let deleted = crate::infra::reference::delete_with_reference_check(
         ctx,
         crate::infra::reference::ReferenceKind::Trigger,
         id,
         false,
     )
-    .await
+    .await?;
+    if deleted {
+        use wf_storage::adapter::base::BaseStorageAdapter;
+        let _ = ctx.storage.template_usage.delete(id).await;
+    }
+    Ok(deleted)
 }
 
 /// Export a template by name as a JSON string.
@@ -242,6 +257,34 @@ pub async fn import_template(ctx: &ApiContext, json: &str) -> ApiResult<String> 
     let template: TriggerTemplateStorageMetadata = crate::template::parse_import(json)?;
     save(ctx, &template).await?;
     Ok(template.id.to_string())
+}
+
+/// Clone a trigger template under a server-generated id.
+pub async fn clone_template(
+    ctx: &ApiContext,
+    id: &str,
+    new_name: &str,
+) -> ApiResult<TriggerTemplateStorageMetadata> {
+    let source = get(ctx, id).await?;
+    let now = wf_common::now();
+    let cloned = TriggerTemplateStorageMetadata {
+        id: format!("cloned-{}", wf_common::generate_id()),
+        name: new_name.to_string(),
+        trigger_type: source.trigger_type,
+        description: source.description,
+        category: source.category,
+        tags: source.tags,
+        enabled: source.enabled,
+        max_triggers: source.max_triggers,
+        priority: source.priority,
+        dispatch_mode: source.dispatch_mode,
+        condition: source.condition,
+        action_config: source.action_config,
+        created_at: now,
+        updated_at: now,
+    };
+    save(ctx, &cloned).await?;
+    Ok(cloned)
 }
 
 /// Classify a trigger template by the shape of its persisted condition:

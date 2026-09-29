@@ -3,10 +3,9 @@
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 
-use crate::agent::agent_loop_registry::summary::{summary, all_summaries};
+use crate::agent::agent_loop_registry::summary::{all_summaries, summary};
 use crate::agent::agent_loop_registry::types::{
-    ExecutionPath, ExecutionPathIteration, IterationDetail, IterationHistorySummary,
-    ToolCallInPath,
+    ExecutionPath, ExecutionPathIteration, IterationDetail, IterationHistorySummary, ToolCallInPath,
 };
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};

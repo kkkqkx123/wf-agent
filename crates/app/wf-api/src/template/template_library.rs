@@ -1,8 +1,10 @@
 //! Template library management.
 //!
 //! Reads the shared `wf-resource` registries (predefined + custom templates)
-//! and tracks usage counts in-memory on the shared context.
+//! and tracks usage counts in the persistent `template_usage` store, so
+//! featured and popular ordering survives restarts.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -24,6 +26,8 @@ const DEFAULT_FEATURED_LIMIT: usize = 10;
 pub enum TemplateKind {
     Workflow,
     Agent,
+    Node,
+    Trigger,
 }
 
 impl TemplateKind {
@@ -31,6 +35,8 @@ impl TemplateKind {
         match self {
             TemplateKind::Workflow => "workflow",
             TemplateKind::Agent => "agent",
+            TemplateKind::Node => "node",
+            TemplateKind::Trigger => "trigger",
         }
     }
 }
@@ -103,12 +109,14 @@ pub fn register_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate)
     Ok(())
 }
 
-pub fn delete_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+pub async fn delete_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
     ctx.registries
         .workflows
         .unregister(id)
         .map(|_| ())
-        .ok_or_else(|| not_found("workflow_template", id))
+        .ok_or_else(|| not_found("workflow_template", id))?;
+    let _ = ctx.storage.template_usage.delete(id).await;
+    Ok(())
 }
 
 /// Replace a workflow template in place; errors with `NotFound` when the
@@ -177,7 +185,9 @@ pub async fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> 
         .agent_templates
         .unregister(id)
         .map(|_| ())
-        .ok_or_else(|| not_found("agent_template", id))
+        .ok_or_else(|| not_found("agent_template", id))?;
+    let _ = ctx.storage.template_usage.delete(id).await;
+    Ok(())
 }
 
 /// Replace an agent template in place; errors with `NotFound` when the id
@@ -201,22 +211,24 @@ pub async fn update_agent_template(ctx: &ApiContext, template: &AgentTemplate) -
 // ── query ───────────────────────────────────────────────────────
 
 /// Query templates across both kinds with name / category / tags /
-/// author filters.
-pub fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<TemplateSummary>> {
+/// author filters. Usage counts join from the persistent usage store in one
+/// read so featured and popular ordering survives restarts.
+pub async fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<TemplateSummary>> {
     let mut summaries = Vec::new();
     let include_workflow = filter.kind.is_none_or(|k| k == TemplateKind::Workflow);
     let include_agent = filter.kind.is_none_or(|k| k == TemplateKind::Agent);
+    let usage = usage_map(ctx).await?;
 
     if include_workflow {
         summaries.extend(list_workflow_templates(ctx)?.into_iter().map(|t| {
-            let usage = usage_count(ctx, &t.id.to_string());
-            summary_from_workflow(t, usage)
+            let count = usage.get(&t.id.to_string()).copied().unwrap_or(0);
+            summary_from_workflow(t, count)
         }));
     }
     if include_agent {
         summaries.extend(list_agent_templates(ctx)?.into_iter().map(|t| {
-            let usage = usage_count(ctx, &t.id.to_string());
-            summary_from_agent(t, usage)
+            let count = usage.get(&t.id.to_string()).copied().unwrap_or(0);
+            summary_from_agent(t, count)
         }));
     }
 
@@ -240,7 +252,10 @@ pub fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<Templat
         .collect())
 }
 
-pub fn query_by_category(ctx: &ApiContext, category: &str) -> ApiResult<Vec<TemplateSummary>> {
+pub async fn query_by_category(
+    ctx: &ApiContext,
+    category: &str,
+) -> ApiResult<Vec<TemplateSummary>> {
     query(
         ctx,
         &TemplateFilter {
@@ -248,9 +263,10 @@ pub fn query_by_category(ctx: &ApiContext, category: &str) -> ApiResult<Vec<Temp
             ..TemplateFilter::default()
         },
     )
+    .await
 }
 
-pub fn query_by_tags(ctx: &ApiContext, tags: &[String]) -> ApiResult<Vec<TemplateSummary>> {
+pub async fn query_by_tags(ctx: &ApiContext, tags: &[String]) -> ApiResult<Vec<TemplateSummary>> {
     query(
         ctx,
         &TemplateFilter {
@@ -258,9 +274,10 @@ pub fn query_by_tags(ctx: &ApiContext, tags: &[String]) -> ApiResult<Vec<Templat
             ..TemplateFilter::default()
         },
     )
+    .await
 }
 
-pub fn query_by_author(ctx: &ApiContext, author: &str) -> ApiResult<Vec<TemplateSummary>> {
+pub async fn query_by_author(ctx: &ApiContext, author: &str) -> ApiResult<Vec<TemplateSummary>> {
     query(
         ctx,
         &TemplateFilter {
@@ -268,11 +285,83 @@ pub fn query_by_author(ctx: &ApiContext, author: &str) -> ApiResult<Vec<Template
             ..TemplateFilter::default()
         },
     )
+    .await
+}
+
+/// Unified query across all four template kinds. A missing kind means all.
+/// Workflow and agent entries come from the in-memory library, node and
+/// trigger entries from storage. Keeps the single-request library surface.
+pub async fn query_unified(
+    ctx: &ApiContext,
+    filter: &TemplateFilter,
+) -> ApiResult<Vec<TemplateSummary>> {
+    let include_workflow = filter.kind.is_none_or(|k| k == TemplateKind::Workflow);
+    let include_agent = filter.kind.is_none_or(|k| k == TemplateKind::Agent);
+    let include_node = filter.kind.is_none_or(|k| k == TemplateKind::Node);
+    let include_trigger = filter.kind.is_none_or(|k| k == TemplateKind::Trigger);
+
+    let mut summaries = Vec::new();
+    if include_workflow || include_agent {
+        let library_filter = TemplateFilter {
+            kind: if include_workflow && include_agent {
+                None
+            } else if include_workflow {
+                Some(TemplateKind::Workflow)
+            } else {
+                Some(TemplateKind::Agent)
+            },
+            name: filter.name.clone(),
+            category: filter.category.clone(),
+            tags: filter.tags.clone(),
+            author: filter.author.clone(),
+        };
+        summaries.extend(query(ctx, &library_filter).await?);
+    }
+    let basic = crate::template::BasicTemplateFilter {
+        name: filter.name.clone(),
+        category: filter.category.clone(),
+        tags: filter.tags.clone(),
+        author: filter.author.clone(),
+    };
+    if include_node {
+        let nodes = ctx.storage.node_template.list(None).await?;
+        let usage = usage_map(ctx).await?;
+        summaries.extend(nodes.into_iter().filter_map(|t| {
+            let count = usage.get(&t.id.to_string()).copied().unwrap_or(0);
+            let summary = summary_from_node(t, count);
+            basic
+                .matches(
+                    &summary.name,
+                    summary.category.as_deref(),
+                    summary.tags.as_deref(),
+                    summary.author.as_deref(),
+                )
+                .then_some(summary)
+        }));
+    }
+    if include_trigger {
+        let triggers = ctx.storage.trigger_template.list(None).await?;
+        let usage = usage_map(ctx).await?;
+        summaries.extend(triggers.into_iter().filter_map(|t| {
+            let count = usage.get(&t.id.to_string()).copied().unwrap_or(0);
+            let summary = summary_from_trigger(t, count);
+            basic
+                .matches(
+                    &summary.name,
+                    summary.category.as_deref(),
+                    summary.tags.as_deref(),
+                    summary.author.as_deref(),
+                )
+                .then_some(summary)
+        }));
+    }
+    Ok(summaries)
 }
 
 /// Featured templates: public + enabled, most used first.
-pub fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
-    let mut all = query(ctx, &TemplateFilter::default())?
+pub async fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
+    let mut all = query(ctx, &TemplateFilter::default())
+        .await?
         .into_iter()
         .filter(|t| t.is_public && t.enabled)
         .collect::<Vec<_>>();
@@ -282,12 +371,13 @@ pub fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<Templat
 }
 
 /// Popular templates within a category, most used first.
-pub fn popular_in_category(
+pub async fn popular_in_category(
     ctx: &ApiContext,
     category: &str,
     limit: Option<usize>,
 ) -> ApiResult<Vec<TemplateSummary>> {
-    let mut all = query_by_category(ctx, category)?
+    let mut all = query_by_category(ctx, category)
+        .await?
         .into_iter()
         .filter(|t| t.enabled)
         .collect::<Vec<_>>();
@@ -298,13 +388,69 @@ pub fn popular_in_category(
 
 // ── usage tracking ──────────────────────────────────────────────
 
-/// Increment the usage counter of a template (any kind).
-pub fn record_usage(ctx: &ApiContext, id: &str) {
-    *ctx.template_usage.entry(id.to_string()).or_insert(0) += 1;
+/// Usage counts keyed by template id, read once per query from the
+/// persistent store. Templates without a record count as zero.
+async fn usage_map(ctx: &ApiContext) -> ApiResult<HashMap<String, u64>> {
+    use wf_storage::adapter::base::BaseStorageAdapter;
+    let records = ctx.storage.template_usage.list(None).await?;
+    Ok(records
+        .into_iter()
+        .map(|record| (record.template_id, record.count))
+        .collect())
 }
 
-pub fn usage_count(ctx: &ApiContext, id: &str) -> u64 {
-    ctx.template_usage.get(id).map(|e| *e.value()).unwrap_or(0)
+/// Resolve the stored kind of a template id for first-use record creation.
+async fn resolve_usage_kind(ctx: &ApiContext, id: &str) -> String {
+    if ctx.registries.workflows.has(id) {
+        return TemplateKind::Workflow.as_str().to_string();
+    }
+    if ctx.registries.agent_templates.has(id) {
+        return TemplateKind::Agent.as_str().to_string();
+    }
+    use wf_storage::adapter::base::BaseStorageAdapter;
+    if ctx
+        .storage
+        .node_template
+        .load(id)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return TemplateKind::Node.as_str().to_string();
+    }
+    if ctx
+        .storage
+        .trigger_template
+        .load(id)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return TemplateKind::Trigger.as_str().to_string();
+    }
+    TemplateKind::Workflow.as_str().to_string()
+}
+
+/// Increment the usage counter of a template (any kind) and return the new
+/// count. Called explicitly when a template is instantiated, cloned, or
+/// exported; repeated calls each count once.
+pub async fn record_usage(ctx: &ApiContext, id: &str) -> ApiResult<u64> {
+    use wf_storage::adapter::template_usage::TemplateUsageStorageAdapter;
+    let kind = resolve_usage_kind(ctx, id).await;
+    ctx.storage
+        .template_usage
+        .increment(id, &kind)
+        .await
+        .map_err(crate::ApiError::from)
+}
+
+/// Current usage count of a template; zero when never recorded or when the
+/// store read fails, so library queries stay robust.
+pub async fn usage_count(ctx: &ApiContext, id: &str) -> u64 {
+    use wf_storage::adapter::template_usage::TemplateUsageStorageAdapter;
+    ctx.storage.template_usage.get_count(id).await.unwrap_or(0)
 }
 
 // ── clone ───────────────────────────────────────────────────────
@@ -396,6 +542,46 @@ fn summary_from_agent(template: AgentTemplate, usage_count: u64) -> TemplateSumm
         usage_count,
         created_at: template.definition.created_at,
         updated_at: template.definition.updated_at,
+    }
+}
+
+fn summary_from_node(
+    template: wf_types::NodeTemplateStorageMetadata,
+    usage_count: u64,
+) -> TemplateSummary {
+    TemplateSummary {
+        id: template.id.to_string(),
+        kind: TemplateKind::Node.as_str(),
+        name: template.name,
+        description: template.description.unwrap_or_default(),
+        category: None,
+        tags: None,
+        author: None,
+        is_public: true,
+        enabled: true,
+        usage_count,
+        created_at: template.created_at,
+        updated_at: template.updated_at,
+    }
+}
+
+fn summary_from_trigger(
+    template: wf_types::TriggerTemplateStorageMetadata,
+    usage_count: u64,
+) -> TemplateSummary {
+    TemplateSummary {
+        id: template.id.to_string(),
+        kind: TemplateKind::Trigger.as_str(),
+        name: template.name,
+        description: template.description.unwrap_or_default(),
+        category: template.category,
+        tags: template.tags,
+        author: None,
+        is_public: true,
+        enabled: template.enabled,
+        usage_count,
+        created_at: template.created_at,
+        updated_at: template.updated_at,
     }
 }
 
@@ -494,18 +680,18 @@ mod tests {
     async fn query_filters_and_kind() {
         let ctx = make_ctx();
 
-        let all = query(&ctx, &TemplateFilter::default()).unwrap();
+        let all = query(&ctx, &TemplateFilter::default()).await.unwrap();
         assert_eq!(all.len(), 3);
 
-        let by_category = query_by_category(&ctx, "analytics").unwrap();
+        let by_category = query_by_category(&ctx, "analytics").await.unwrap();
         assert_eq!(by_category.len(), 2);
         assert!(by_category.iter().all(|t| t.kind != "writing"));
 
-        let by_author = query_by_author(&ctx, "author-x").unwrap();
+        let by_author = query_by_author(&ctx, "author-x").await.unwrap();
         assert_eq!(by_author.len(), 1);
         assert_eq!(by_author[0].kind, "agent");
 
-        let by_tags = query_by_tags(&ctx, &["tag-b".to_string()]).unwrap();
+        let by_tags = query_by_tags(&ctx, &["tag-b".to_string()]).await.unwrap();
         assert_eq!(by_tags.len(), 1);
 
         let by_name = query(
@@ -515,6 +701,7 @@ mod tests {
                 ..TemplateFilter::default()
             },
         )
+        .await
         .unwrap();
         assert_eq!(by_name.len(), 2);
 
@@ -525,6 +712,7 @@ mod tests {
                 ..TemplateFilter::default()
             },
         )
+        .await
         .unwrap();
         assert_eq!(workflows_only.len(), 2);
     }
@@ -533,17 +721,34 @@ mod tests {
     async fn featured_and_usage_tracking() {
         let ctx = make_ctx();
 
-        record_usage(&ctx, "wf-b");
-        record_usage(&ctx, "wf-b");
-        record_usage(&ctx, "wf-a");
+        record_usage(&ctx, "wf-b").await.unwrap();
+        record_usage(&ctx, "wf-b").await.unwrap();
+        record_usage(&ctx, "wf-a").await.unwrap();
 
-        let featured = featured(&ctx, Some(10)).unwrap();
+        let featured = featured(&ctx, Some(10)).await.unwrap();
         assert_eq!(featured[0].id, "wf-b");
         assert_eq!(featured[0].usage_count, 2);
 
-        let popular = popular_in_category(&ctx, "analytics", Some(10)).unwrap();
+        let popular = popular_in_category(&ctx, "analytics", Some(10))
+            .await
+            .unwrap();
         assert_eq!(popular.len(), 2);
         assert_eq!(popular[0].id, "wf-a");
+    }
+
+    #[tokio::test]
+    async fn usage_survives_context_rebuild() {
+        let storage = StorageContext::new_memory();
+        let registries = Arc::new(ResourceRegistries::new());
+        register_item_skip(
+            &registries.workflows,
+            "wf-a".into(),
+            workflow_template("wf-a", "analytics"),
+        );
+        let ctx = Arc::new(ApiContext::new(storage, registries));
+        record_usage(&ctx, "wf-a").await.unwrap();
+        assert_eq!(usage_count(&ctx, "wf-a").await, 1);
+        assert_eq!(usage_count(&ctx, "missing").await, 0);
     }
 
     #[tokio::test]

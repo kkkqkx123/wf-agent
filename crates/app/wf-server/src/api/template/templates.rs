@@ -109,7 +109,7 @@ pub(crate) async fn handle_save_node_template(
     State(state): State<ApiState>,
     Json(template): Json<NodeTemplateStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::save_node_template_indexed(&state.ctx, &template).await {
+    match wf_api::template::node_template::save_node_template(&state.ctx, &template).await {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -148,7 +148,7 @@ pub(crate) async fn handle_update_node_template(
     Json(mut template): Json<NodeTemplateStorageMetadata>,
 ) -> impl IntoResponse {
     template.id = wf_api::Id::from(path.id.clone());
-    match wf_api::template::node_template::save_node_template_indexed(&state.ctx, &template).await {
+    match wf_api::template::node_template::save_node_template(&state.ctx, &template).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -166,8 +166,7 @@ pub(crate) async fn handle_delete_node_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::delete_node_template_indexed(&state.ctx, &path.id).await
-    {
+    match wf_api::template::node_template::delete_node_template(&state.ctx, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -226,7 +225,7 @@ pub(crate) async fn handle_import_node_template(
     State(state): State<ApiState>,
     Json(body): Json<ImportBody>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::import_template_indexed(&state.ctx, &body.json).await {
+    match wf_api::template::node_template::import_template(&state.ctx, &body.json).await {
         Ok(id) => ok(id).into_response(),
         Err(e) => error_response(e),
     }

@@ -109,42 +109,19 @@ pub(crate) async fn execute_subgraph(
     // parent hierarchy manager so the child linkage is the single source.
     let execution_id = wf_common::generate_id();
     let sub_workflow_id = wf_common::generate_id();
-    let child_manager = ctx.hierarchy_manager.as_ref().and_then(|parent| {
-        parent
-            .derive_child(
-                execution_id.clone(),
-                wf_types::execution::ExecutionType::Workflow,
-                None,
-            )
-            .ok()
-    });
-    let mut child_ancestors = ctx.ancestors.clone();
-    if child_ancestors.last() != Some(&ctx.execution_id) {
-        child_ancestors.push(ctx.execution_id.clone());
-    }
-    let child_root = ctx
-        .root_execution_id
-        .clone()
-        .unwrap_or_else(|| ctx.execution_id.clone());
-    let (child_ancestors, child_depth, child_root) = match child_manager.as_ref() {
-        Some(manager) => (
-            manager.ancestors(),
-            manager.depth(),
-            manager.root_execution_id(),
-        ),
-        None => (child_ancestors, ctx.depth + 1, child_root),
-    };
+    let parent_manager = ctx.hierarchy_manager.clone().ok_or_else(|| {
+        WorkflowError::SubgraphError("subgraph requires a parent hierarchy manager".to_string())
+    })?;
+    let child_manager = parent_manager
+        .derive_child(
+            execution_id.clone(),
+            wf_types::execution::ExecutionType::Workflow,
+            None,
+        )
+        .map_err(|e| WorkflowError::SubgraphError(e.to_string()))?;
 
-    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
-    if let Some(manager) = child_manager.clone() {
-        entity = entity.with_hierarchy_manager(manager);
-    } else {
-        entity = entity
-            .with_parent_execution_id(ctx.execution_id.clone())
-            .with_ancestors(child_ancestors.clone())
-            .with_hierarchy_depth(child_depth)
-            .with_root_execution_id(child_root.clone());
-    }
+    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
+        .with_hierarchy_manager(child_manager.clone());
     entity =
         entity.with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::Subgraph);
     // Capture the child's cancellation signal before the entity moves into
@@ -158,12 +135,20 @@ pub(crate) async fn execute_subgraph(
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
     let subgraph_metrics = ctx.metrics.as_ref().map(|m| m.subgraph());
-    let depth = ctx.depth + 1;
+    let depth = child_manager.depth();
     if let Some(metrics) = &subgraph_metrics {
         metrics.record_execution_start(&ctx.node_id, &ctx.execution_id, depth);
     }
     let start = wf_common::now();
 
+    // Subgraphs checkpoint through their own depth-adjusted integration;
+    // the scope propagates only when this child checkpoints.
+    let checkpoints_on = options.enable_checkpoints != Some(false);
+    let child_scope = if checkpoints_on {
+        ctx.checkpoint_scope.clone()
+    } else {
+        None
+    };
     let mut exec_ctx = ExecutorContext::new(
         execution_id,
         sub_workflow_id,
@@ -171,10 +156,9 @@ pub(crate) async fn execute_subgraph(
         tool_registry,
         options,
     )
-    .with_parent_execution(ctx.execution_id.clone())
-    .with_hierarchy(child_ancestors, child_depth, Some(child_root));
-    if let Some(manager) = child_manager {
-        exec_ctx = exec_ctx.with_hierarchy_manager(manager);
+    .with_hierarchy_manager(child_manager);
+    if let Some(scope) = child_scope.clone() {
+        exec_ctx = exec_ctx.with_checkpoint_scope(scope);
     }
     let exec_ctx = match &ctx.metrics {
         Some(metrics) => exec_ctx.with_metrics(metrics.clone()),
@@ -209,7 +193,15 @@ pub(crate) async fn execute_subgraph(
 
     let mut coordinator: WorkflowCoordinator =
         match WorkflowCoordinator::new(exec_ctx, subgraph, handlers) {
-            Ok(coordinator) => coordinator.with_entity(entity),
+            Ok(coordinator) => {
+                let mut coordinator = coordinator.with_entity(entity);
+                if let Some(scope) = child_scope.as_ref() {
+                    coordinator = coordinator.with_checkpoint(
+                        crate::checkpoint::WorkflowCheckpointIntegration::from_scope(scope, depth),
+                    );
+                }
+                coordinator
+            }
             Err(err) => {
                 if let Some(metrics) = &subgraph_metrics {
                     metrics.record_execution_complete(

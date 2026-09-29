@@ -240,7 +240,7 @@ impl AgentCheckpointIntegration {
             .prepare_with_hierarchy(
                 entity.id().as_str(),
                 trigger.clone(),
-                entity.parent_execution_id().map(|p| p.as_str()),
+                entity.parent_execution_id().as_deref(),
                 &ancestors,
             )
             .await?;
@@ -585,8 +585,9 @@ impl AgentCheckpointIntegration {
         entity: &AgentLoopEntity,
     ) -> Option<wf_types::execution::ExecutionHierarchy> {
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
-        let children = entity.hierarchy_manager().children();
-        let parent = entity.parent_execution_id().cloned();
+        let manager = entity.hierarchy_manager();
+        let children = manager.children();
+        let parent = manager.parent();
         if parent.is_none() && children.is_empty() {
             return None;
         }
@@ -594,9 +595,11 @@ impl AgentCheckpointIntegration {
         Some(wf_types::execution::ExecutionHierarchy {
             workflow_id: entity.definition_id().clone(),
             execution_id: entity.id().clone(),
-            parent_execution_id: parent,
+            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
             depth: entity.get_hierarchy_depth(),
             root_execution_id: entity.get_root_execution_id(),
+            root_execution_type: Some(manager.root_execution_type()),
             ancestors: if ancestors.is_empty() {
                 None
             } else {

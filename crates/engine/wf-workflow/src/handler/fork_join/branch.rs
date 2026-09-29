@@ -43,10 +43,8 @@ pub struct BranchContext {
 /// environment shared by every branch of the fork.
 pub struct BranchRunContext {
     pub parent_execution_id: wf_types::Id,
-    pub parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
-    pub parent_ancestors: Vec<wf_types::Id>,
-    pub parent_depth: u32,
-    pub parent_root: Option<wf_types::Id>,
+    pub parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     pub parent_checkpoints_enabled: Option<bool>,
     pub node_id: String,
     pub graph: Option<WorkflowGraphStructure>,
@@ -188,11 +186,8 @@ async fn run_branch_inner(
                         match execute_branch(
                             BranchHierarchy {
                                 execution_id: branch_execution_id.clone(),
-                                parent_execution_id: ctx.parent_execution_id.clone(),
                                 parent_manager: ctx.parent_manager.clone(),
-                                parent_ancestors: ctx.parent_ancestors.clone(),
-                                parent_depth: ctx.parent_depth,
-                                parent_root: ctx.parent_root.clone(),
+                                checkpoint_scope: ctx.checkpoint_scope.clone(),
                                 parent_checkpoints_enabled: ctx.parent_checkpoints_enabled,
                                 fork_node_id: ctx.node_id.clone(),
                             },
@@ -221,11 +216,8 @@ async fn run_branch_inner(
 /// Execution-hierarchy context inherited by a fork branch from its parent.
 struct BranchHierarchy {
     execution_id: wf_types::Id,
-    parent_execution_id: wf_types::Id,
-    parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
-    parent_ancestors: Vec<wf_types::Id>,
-    parent_depth: u32,
-    parent_root: Option<wf_types::Id>,
+    parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     parent_checkpoints_enabled: Option<bool>,
     fork_node_id: String,
 }
@@ -240,11 +232,8 @@ async fn execute_branch(
 ) -> WorkflowResult<BranchResult> {
     let BranchHierarchy {
         execution_id,
-        parent_execution_id,
         parent_manager,
-        parent_ancestors,
-        parent_depth,
-        parent_root,
+        checkpoint_scope,
         parent_checkpoints_enabled,
         fork_node_id,
     } = hierarchy;
@@ -266,28 +255,19 @@ async fn execute_branch(
         .tool_registry
         .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
     let fork_path = wf_types::execution::ForkPath::new(fork_node_id.clone(), branch_id.to_string());
-    let child_manager = parent_manager.as_ref().and_then(|parent| {
-        parent
-            .derive_child(
-                execution_id.clone(),
-                wf_types::execution::ExecutionType::Workflow,
-                Some(fork_path.clone()),
-            )
-            .ok()
-    });
-    let mut child_ancestors = parent_ancestors.to_vec();
-    if child_ancestors.last() != Some(&parent_execution_id) {
-        child_ancestors.push(parent_execution_id.clone());
-    }
-    let child_root = parent_root.unwrap_or_else(|| parent_execution_id.clone());
-    let (child_ancestors, child_depth, child_root) = match child_manager.as_ref() {
-        Some(manager) => (
-            manager.ancestors(),
-            manager.depth(),
-            manager.root_execution_id(),
-        ),
-        None => (child_ancestors, parent_depth + 1, child_root),
-    };
+    let child_manager = parent_manager
+        .derive_child(
+            execution_id.clone(),
+            wf_types::execution::ExecutionType::Workflow,
+            Some(fork_path.clone()),
+        )
+        .map_err(|e| WorkflowError::ForkJoinError(e.to_string()))?;
+    let child_depth = child_manager.depth();
+    // Branches checkpoint through their own depth-adjusted integration so a
+    // paused branch resumes from its own snapshot. No inherited scope (or an
+    // explicit disable) leaves the branch dark, and the scope is only
+    // propagated further when this branch checkpoints.
+    let checkpoints_on = options.enable_checkpoints != Some(false);
     let mut exec_ctx = ExecutorContext::new(
         execution_id.clone(),
         workflow_id.clone(),
@@ -295,14 +275,11 @@ async fn execute_branch(
         tool_registry,
         options,
     )
-    .with_parent_execution(parent_execution_id.clone())
-    .with_hierarchy(
-        child_ancestors.clone(),
-        child_depth,
-        Some(child_root.clone()),
-    );
-    if let Some(manager) = child_manager.clone() {
-        exec_ctx = exec_ctx.with_hierarchy_manager(manager);
+    .with_hierarchy_manager(child_manager.clone());
+    if checkpoints_on {
+        if let Some(scope) = checkpoint_scope.as_ref() {
+            exec_ctx = exec_ctx.with_checkpoint_scope(scope.clone());
+        }
     }
     if let Some(ref regs) = branch_ctx.resource_registries {
         exec_ctx = exec_ctx.with_resource_registries(regs.clone());
@@ -327,21 +304,20 @@ async fn execute_branch(
 
     let branch_variables = exec_ctx.variables.clone();
 
-    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
-    if let Some(manager) = child_manager {
-        entity = entity.with_hierarchy_manager(manager);
-    } else {
-        entity = entity
-            .with_parent_execution_id(parent_execution_id.clone())
-            .with_ancestors(child_ancestors)
-            .with_hierarchy_depth(child_depth)
-            .with_root_execution_id(child_root.clone());
-    }
+    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id)
+        .with_hierarchy_manager(child_manager);
     entity =
         entity.with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::ForkJoin);
 
     let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, branch_ctx.handlers)?.with_entity(entity);
+    if checkpoints_on {
+        if let Some(scope) = checkpoint_scope.as_ref() {
+            coordinator = coordinator.with_checkpoint(
+                crate::checkpoint::WorkflowCheckpointIntegration::from_scope(scope, child_depth),
+            );
+        }
+    }
     // Publish the branch's public variables after every completed node so
     // SYNC nodes can read the source branch's intermediate state.
     if let Some(registry) = &branch_ctx.fork_registry {

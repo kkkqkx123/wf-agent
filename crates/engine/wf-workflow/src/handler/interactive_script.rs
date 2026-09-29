@@ -322,17 +322,21 @@ impl InteractiveScriptHandler {
             llm_profile_id: llm_profile_id.clone(),
         };
         let session_id = wf_common::generate_id();
-        let mut ancestors = ctx
-            .parent_execution_id
-            .clone()
-            .into_iter()
-            .collect::<Vec<_>>();
-        ancestors.push(ctx.execution_id.clone());
+        let parent_manager = ctx.hierarchy_manager.clone().ok_or_else(|| {
+            WorkflowError::Internal(
+                "interactive script session requires a parent hierarchy manager".to_string(),
+            )
+        })?;
+        let child_manager = parent_manager
+            .derive_child(
+                session_id.clone(),
+                wf_types::execution::ExecutionType::Workflow,
+                None,
+            )
+            .map_err(|e| WorkflowError::Internal(e.to_string()))?;
         let entity = Arc::new(
             InteractiveScriptSessionEntity::new(session_id.clone(), session_config)
-                .with_hierarchy_depth(ctx.depth.saturating_add(1))
-                .with_ancestors(ancestors)
-                .with_parent_execution_id(ctx.execution_id.clone()),
+                .with_hierarchy_manager(child_manager),
         );
 
         let router = self

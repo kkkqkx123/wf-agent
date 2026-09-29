@@ -25,8 +25,6 @@ pub struct AgentLoopEntity {
     cancellation: tokio_util::sync::CancellationToken,
     hierarchy: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     effective_config: Option<wf_types::agent_execution::AgentLoopConfig>,
-    parent_execution_id: Option<Id>,
-    child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
     hooks: Vec<HookDefinition>,
     model: String,
     tool_call_protocol: Option<ToolCallProtocolConfig>,
@@ -49,16 +47,6 @@ pub struct AgentLoopEntity {
     max_pause_duration: Option<u64>,
     pause_timeout_handle: std::sync::RwLock<Option<TimeoutHandle>>,
     timeout_metrics: Option<Arc<TimeoutMetricsCollector>>,
-    /// Depth of this execution in the agent hierarchy (0 = root). Populated
-    /// when the run is linked to a parent execution.
-    hierarchy_depth: u32,
-    /// Root execution id of the hierarchy (own id for a root run). Resolved
-    /// when the run is linked to a parent execution.
-    root_execution_id: Option<Id>,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Resolved from the parent entity when the run is linked, so deep
-    /// hierarchies keep full ancestry across checkpoint restore.
-    ancestors: Vec<Id>,
     /// Permit held against the registry's concurrency gate for the duration
     /// of this execution. Released when the execution reaches a terminal
     /// state or when the entity is removed from the registry.
@@ -81,8 +69,6 @@ impl AgentLoopEntity {
             cancellation: tokio_util::sync::CancellationToken::new(),
             hierarchy,
             effective_config: None,
-            parent_execution_id: None,
-            child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             hooks: Vec::new(),
             model: String::new(),
             tool_call_protocol: None,
@@ -99,9 +85,6 @@ impl AgentLoopEntity {
             max_pause_duration: None,
             pause_timeout_handle: std::sync::RwLock::new(None),
             timeout_metrics: None,
-            hierarchy_depth: 0,
-            root_execution_id: None,
-            ancestors: Vec::new(),
             gate_permit: std::sync::RwLock::new(None),
         }
     }
@@ -115,10 +98,6 @@ impl AgentLoopEntity {
         manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy = manager;
-        self.parent_execution_id = self.hierarchy.parent_id();
-        self.ancestors = self.hierarchy.ancestors();
-        self.hierarchy_depth = self.hierarchy.depth();
-        self.root_execution_id = Some(self.hierarchy.root_execution_id());
         self
     }
 
@@ -132,12 +111,6 @@ impl AgentLoopEntity {
 
     pub fn effective_config(&self) -> Option<&wf_types::agent_execution::AgentLoopConfig> {
         self.effective_config.as_ref()
-    }
-
-    pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self.sync_manager_from_legacy();
-        self
     }
 
     /// Set the agent definition id (the `agent_id` of the loop config). The
@@ -220,52 +193,6 @@ impl AgentLoopEntity {
 
     pub fn timeout_metrics(&self) -> Option<Arc<TimeoutMetricsCollector>> {
         self.timeout_metrics.clone()
-    }
-
-    /// Record this execution's depth in the agent hierarchy (parent depth + 1).
-    pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
-        self.hierarchy_depth = depth;
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    /// Record the root execution id of the hierarchy this run belongs to.
-    pub fn with_root_execution_id(mut self, root: Id) -> Self {
-        self.root_execution_id = Some(root);
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    /// Record the full ancestor chain (oldest first, excluding self),
-    /// resolved from the parent execution at build time.
-    pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
-        self.ancestors = ancestors;
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    fn sync_manager_from_legacy(&mut self) {
-        use wf_core::hierarchy::manager::ParentExecutionContext;
-        let parent = self
-            .parent_execution_id
-            .clone()
-            .map(|parent_id| ParentExecutionContext {
-                parent_id,
-                parent_type: wf_types::execution::ExecutionType::AgentLoop,
-            });
-        let root_id = self
-            .root_execution_id
-            .clone()
-            .or_else(|| self.ancestors.first().cloned())
-            .or_else(|| self.parent_execution_id.clone())
-            .unwrap_or_else(|| self.id.clone());
-        self.hierarchy.sync_restored(
-            parent,
-            self.ancestors.clone(),
-            self.hierarchy_depth,
-            root_id,
-            wf_types::execution::ExecutionType::AgentLoop,
-        );
     }
 
     pub fn id(&self) -> &Id {
@@ -376,23 +303,34 @@ impl AgentLoopEntity {
         self.max_pause_duration
     }
 
-    pub fn parent_execution_id(&self) -> Option<&Id> {
-        self.parent_execution_id.as_ref()
+    pub fn parent_execution_id(&self) -> Option<Id> {
+        self.hierarchy.parent_id()
     }
 
-    pub fn ancestors(&self) -> &[Id] {
-        &self.ancestors
+    pub fn ancestors(&self) -> Vec<Id> {
+        self.hierarchy.ancestors()
     }
 
-    pub fn child_execution_ids(&self) -> &Arc<tokio::sync::RwLock<Vec<Id>>> {
-        &self.child_execution_ids
+    pub fn child_ids(&self) -> Vec<Id> {
+        let mut ids: Vec<Id> = self
+            .hierarchy
+            .children()
+            .into_iter()
+            .map(|c| c.child_id)
+            .collect();
+        ids.sort();
+        ids
     }
 
     pub async fn register_child(&self, child_id: Id) {
-        self.child_execution_ids
-            .write()
-            .await
-            .push(child_id.clone());
+        let already = self
+            .hierarchy
+            .children()
+            .iter()
+            .any(|c| c.child_id == child_id);
+        if already {
+            return;
+        }
         self.hierarchy
             .register_child_ref(wf_types::execution::ChildExecutionReference {
                 child_type: wf_types::execution::ExecutionType::AgentLoop,
@@ -406,18 +344,10 @@ impl AgentLoopEntity {
         &self,
         child_ref: wf_types::execution::ChildExecutionReference,
     ) {
-        self.child_execution_ids
-            .write()
-            .await
-            .push(child_ref.child_id.clone());
         self.hierarchy.register_child_ref(child_ref);
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
-        self.child_execution_ids
-            .write()
-            .await
-            .retain(|id| id != child_id);
         for child_type in [
             wf_types::execution::ExecutionType::Workflow,
             wf_types::execution::ExecutionType::AgentLoop,

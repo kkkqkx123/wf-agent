@@ -115,16 +115,13 @@ impl WorkflowLifecycleCoordinator {
             workflow_id.clone(),
         );
         if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
-            if let Some(parent_id) = hierarchy.parent_execution_id.clone() {
-                entity = entity.with_parent_execution_id(parent_id);
-            }
-            if let Some(ancestors) = hierarchy.ancestors.clone() {
-                entity = entity.with_ancestors(ancestors);
-            }
-            entity = entity.with_hierarchy_depth(hierarchy.depth);
-            if let Some(root) = hierarchy.root_execution_id.clone() {
-                entity = entity.with_root_execution_id(root);
-            }
+            let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+                entity.id().clone(),
+                wf_types::execution::ExecutionType::Workflow,
+                hierarchy,
+                wf_types::execution::ExecutionType::Workflow,
+            );
+            entity = entity.with_hierarchy_manager(manager);
         }
         if let Some(children) = snapshot.hierarchy.as_ref().and_then(|h| h.children.clone()) {
             for child in children {

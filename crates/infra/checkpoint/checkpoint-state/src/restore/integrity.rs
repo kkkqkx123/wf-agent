@@ -209,8 +209,10 @@ mod tests {
             workflow_id: "wf-1".to_string(),
             execution_id: "exec-1".to_string(),
             parent_execution_id: parent.map(|p| p.to_string()),
+            parent_execution_type: None,
             depth: 0,
             root_execution_id: None,
+            root_execution_type: None,
             ancestors: None,
             children: Some(
                 children

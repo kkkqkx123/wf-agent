@@ -839,12 +839,7 @@ mod tests {
             .expect("parent entity present");
         let mut linked = false;
         for _ in 0..100 {
-            if parent_entity
-                .child_execution_ids()
-                .read()
-                .await
-                .contains(&child.execution_id)
-            {
+            if parent_entity.child_ids().contains(&child.execution_id) {
                 linked = true;
                 break;
             }
@@ -880,8 +875,21 @@ mod tests {
             .with_max_concurrent(16);
 
         // A registered parent at depth 1 would push the child to depth 2.
+        let parent_manager =
+            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                Id::from("depth-root".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+            ));
+        let deep_manager = parent_manager
+            .derive_child(
+                Id::from("depth-parent".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+                None,
+            )
+            .expect("derive depth-1 parent");
         let deep_parent = Arc::new(
-            AgentLoopEntity::new(Id::from("depth-parent".to_string())).with_hierarchy_depth(1),
+            AgentLoopEntity::new(Id::from("depth-parent".to_string()))
+                .with_hierarchy_manager(deep_manager),
         );
         executor
             .agent_registry()

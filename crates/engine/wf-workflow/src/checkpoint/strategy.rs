@@ -121,6 +121,14 @@ impl NodeCheckpointStrategy {
         }
     }
 
+    pub fn for_depth(depth: u32) -> Self {
+        if depth == 0 {
+            Self::every_node()
+        } else {
+            Self::every_n_nodes(5)
+        }
+    }
+
     pub fn from_policy(policy: &UnifiedCheckpointPolicy) -> Self {
         Self {
             inner: CadencedCheckpointStrategy::from_policy(policy, map_trigger),

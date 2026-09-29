@@ -4,9 +4,8 @@ use crate::error::WorkflowResult;
 pub struct WorkflowExecutionBuilder {
     id: Option<wf_types::Id>,
     workflow_id: Option<wf_types::Id>,
-    parent_execution_id: Option<wf_types::Id>,
-    ancestors: Vec<wf_types::Id>,
-    hierarchy_depth: Option<u32>,
+    hierarchy_manager:
+        Option<std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
 }
 
@@ -21,9 +20,7 @@ impl WorkflowExecutionBuilder {
         Self {
             id: None,
             workflow_id: None,
-            parent_execution_id: None,
-            ancestors: Vec::new(),
-            hierarchy_depth: None,
+            hierarchy_manager: None,
             execution_type: None,
         }
     }
@@ -38,18 +35,11 @@ impl WorkflowExecutionBuilder {
         self
     }
 
-    pub fn with_parent_execution_id(mut self, parent_id: wf_types::Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self
-    }
-
-    pub fn with_ancestors(mut self, ancestors: Vec<wf_types::Id>) -> Self {
-        self.ancestors = ancestors;
-        self
-    }
-
-    pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
-        self.hierarchy_depth = Some(depth);
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: std::sync::Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy_manager = Some(manager);
         self
     }
 
@@ -67,14 +57,8 @@ impl WorkflowExecutionBuilder {
 
         let mut entity = WorkflowExecutionEntity::new(id, workflow_id);
 
-        if let Some(parent_id) = self.parent_execution_id {
-            entity = entity.with_parent_execution_id(parent_id);
-        }
-        if !self.ancestors.is_empty() {
-            entity = entity.with_ancestors(self.ancestors);
-        }
-        if let Some(depth) = self.hierarchy_depth {
-            entity = entity.with_hierarchy_depth(depth);
+        if let Some(manager) = self.hierarchy_manager {
+            entity = entity.with_hierarchy_manager(manager);
         }
         if let Some(execution_type) = self.execution_type {
             entity = entity.with_execution_type(execution_type);

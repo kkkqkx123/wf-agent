@@ -107,10 +107,8 @@ struct ForkRuntime {
     fork_registry: Option<Arc<wf_execution_shared::fork::ForkRegistry>>,
     branch_ctx: BranchContext,
     execution_id: wf_types::Id,
-    parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
-    parent_ancestors: Vec<wf_types::Id>,
-    parent_depth: u32,
-    parent_root: Option<wf_types::Id>,
+    parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     parent_checkpoints_enabled: Option<bool>,
     node_id: String,
 }
@@ -120,9 +118,7 @@ impl ForkRuntime {
         BranchRunContext {
             parent_execution_id: self.execution_id.clone(),
             parent_manager: self.parent_manager.clone(),
-            parent_ancestors: self.parent_ancestors.clone(),
-            parent_depth: self.parent_depth,
-            parent_root: self.parent_root.clone(),
+            checkpoint_scope: self.checkpoint_scope.clone(),
             parent_checkpoints_enabled: self.parent_checkpoints_enabled,
             node_id: self.node_id.clone(),
             graph: self.graph.clone(),
@@ -353,6 +349,10 @@ impl ForkHandler {
                     )),
                 });
             }
+        } else {
+            return Err(crate::error::WorkflowError::ForkJoinError(
+                "fork requires a parent hierarchy manager".to_string(),
+            ));
         }
 
         let runtime = ForkRuntime {
@@ -374,10 +374,12 @@ impl ForkHandler {
                 fork_registry: registry,
             },
             execution_id: execution_id.clone(),
-            parent_manager: ctx.hierarchy_manager.clone(),
-            parent_ancestors: ctx.ancestors.clone(),
-            parent_depth: ctx.depth,
-            parent_root: ctx.root_execution_id.clone(),
+            parent_manager: ctx.hierarchy_manager.clone().ok_or_else(|| {
+                crate::error::WorkflowError::ForkJoinError(
+                    "fork requires a parent hierarchy manager".to_string(),
+                )
+            })?,
+            checkpoint_scope: ctx.checkpoint_scope.clone(),
             parent_checkpoints_enabled: ctx.parent_checkpoints_enabled,
             node_id: node_id.clone(),
         };

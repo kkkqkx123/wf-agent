@@ -92,12 +92,12 @@ impl RecoveryTarget {
         }
     }
 
+    /// Fork branch of this target, when known from the parent snapshot.
+    /// Fork paths live in the parent hierarchy children, not in the child
+    /// record itself, so the scanner reports targets by root and depth and
+    /// fork resolution happens through the parent checkpoint at restore time.
     pub fn fork_branch(&self) -> Option<String> {
-        let children_empty = true;
-        let _ = children_empty;
-        match self {
-            Self::Workflow(_) | Self::Agent(_) => None,
-        }
+        None
     }
 
     pub fn is_workflow(&self) -> bool {

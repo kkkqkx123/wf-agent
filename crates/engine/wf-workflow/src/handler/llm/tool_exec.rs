@@ -171,7 +171,7 @@ pub async fn execute_tool_call(
             .with_node_id(ctx.node_id.clone())
             .with_cancellation(ctx.cancellation.clone());
     if let Some(manager) = file_checkpoint {
-        let parent = ctx.parent_execution_id.as_ref().map(|id| id.to_string());
+        let parent = ctx.parent_id().map(|id| id.to_string());
         // A write-capable tool must not run untracked: when the session
         // cannot be built the call fails visibly instead of executing
         // without file-checkpoint attribution.

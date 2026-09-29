@@ -16,9 +16,7 @@ use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookEmitter;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookHandlerRegistry;
-use wf_execution_shared::types::execution_entity::{
-    child_ancestors, child_depth, child_root, ExecutionEntity,
-};
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
@@ -171,14 +169,23 @@ impl TriggeredAgentExecutionManager {
         // one execution identity, causing partition mixing in file
         // checkpointing (each execution must be its own actor).
         let child_execution_id = Id::from(wf_common::generate_id());
-        // Seed the child's ancestor chain from the live parent so nested
-        // triggered runs keep full ancestry (parent's chain + parent id).
-        let parent_ref = parent.as_ref();
-        let child_entity = AgentLoopEntity::new(child_execution_id)
-            .with_parent_execution_id(parent.id().clone())
-            .with_hierarchy_depth(child_depth(parent_ref))
-            .with_root_execution_id(child_root(parent_ref))
-            .with_ancestors(child_ancestors(parent_ref));
+        let child_manager = parent.as_ref().hierarchy_manager().derive_child(
+            child_execution_id.clone(),
+            wf_types::execution::ExecutionType::AgentLoop,
+            None,
+        );
+        let child_manager = match child_manager {
+            Ok(manager) => manager,
+            Err(e) => {
+                let message = e.to_string();
+                if message.contains("maximum hierarchy depth") {
+                    return Err(crate::error::AgentError::HierarchyLimitReached(message));
+                }
+                return Err(crate::error::AgentError::Validation(message));
+            }
+        };
+        let child_entity =
+            AgentLoopEntity::new(child_execution_id).with_hierarchy_manager(child_manager);
         parent.register_child(child_entity.id().clone()).await;
 
         // SUBAGENT_START: child registered and about to run; mounted on the
@@ -584,7 +591,7 @@ mod tests {
             Some(&Value::from("child ok"))
         );
         drop(state);
-        assert_eq!(parent.child_execution_ids().read().await.len(), 0);
+        assert_eq!(parent.child_ids().len(), 0);
     }
 
     #[tokio::test]
@@ -615,7 +622,7 @@ mod tests {
         assert!(result.is_err());
         // Parent state untouched, child unregistered.
         assert!(!parent.state.read().await.is_failed());
-        assert_eq!(parent.child_execution_ids().read().await.len(), 0);
+        assert_eq!(parent.child_ids().len(), 0);
     }
 
     #[tokio::test]
@@ -664,15 +671,13 @@ mod tests {
 
         // Wait for the background task to finish.
         for _ in 0..50 {
-            if counter.load(Ordering::SeqCst) > 0
-                && parent.child_execution_ids().read().await.is_empty()
-            {
+            if counter.load(Ordering::SeqCst) > 0 && parent.child_ids().is_empty() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         assert_eq!(counter.load(Ordering::SeqCst), 1);
-        assert_eq!(parent.child_execution_ids().read().await.len(), 0);
+        assert_eq!(parent.child_ids().len(), 0);
     }
 
     #[tokio::test]
@@ -713,7 +718,7 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert_eq!(parent.child_execution_ids().read().await.len(), 0);
+        assert_eq!(parent.child_ids().len(), 0);
     }
 
     /// Records hook dispatches into a shared log (hook types for ordering,

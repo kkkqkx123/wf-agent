@@ -277,7 +277,57 @@ impl ExecutionHierarchyManager {
         Ok(child)
     }
 
+    /// Rebuild a manager from a persisted snapshot hierarchy. The parent
+    /// type falls back to `default_parent_type` when the snapshot predates
+    /// it; the root falls back through explicit root, ancestor chain head,
+    /// parent, then self. Registered children keep their full references
+    /// (type, fork path, creation time).
+    pub fn restore(
+        execution_id: Id,
+        execution_type: ExecutionType,
+        hierarchy: &wf_types::execution::ExecutionHierarchy,
+        default_parent_type: ExecutionType,
+    ) -> Arc<Self> {
+        let manager = Arc::new(Self::new(execution_id, execution_type));
+        let parent =
+            hierarchy
+                .parent_execution_id
+                .clone()
+                .map(|parent_id| ParentExecutionContext {
+                    parent_type: hierarchy
+                        .parent_execution_type
+                        .clone()
+                        .unwrap_or(default_parent_type),
+                    parent_id,
+                });
+        let ancestors = hierarchy.ancestors.clone().unwrap_or_default();
+        let root_id = hierarchy
+            .root_execution_id
+            .clone()
+            .or_else(|| ancestors.first().cloned())
+            .or_else(|| parent.as_ref().map(|p| p.parent_id.clone()))
+            .unwrap_or_else(|| manager.execution_id());
+        let root_type = hierarchy.root_execution_type.clone().unwrap_or_else(|| {
+            if root_id == manager.execution_id() {
+                manager.execution_type()
+            } else {
+                manager.root_execution_type()
+            }
+        });
+        manager.sync_restored(parent, ancestors, hierarchy.depth, root_id, root_type);
+        if let Some(children) = hierarchy.children.as_ref() {
+            for child in children {
+                manager.register_child_ref(child.clone());
+            }
+        }
+        manager
+    }
+
     pub fn register_child_ref(&self, child_ref: ChildExecutionReference) {
+        self.add_child(child_ref);
+    }
+
+    pub fn register_complete_child_ref(&self, child_ref: ChildExecutionReference) {
         self.add_child(child_ref);
     }
 
@@ -737,5 +787,58 @@ mod tests {
             metadata,
         );
         assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
+    }
+
+    #[test]
+    fn test_derive_child_carries_depth_root_ancestors() {
+        let parent = Arc::new(ExecutionHierarchyManager::new(
+            "root".to_string(),
+            ExecutionType::Workflow,
+        ));
+        let child = parent
+            .derive_child("child".to_string(), ExecutionType::Workflow, None)
+            .unwrap();
+        assert_eq!(child.depth(), 1);
+        assert_eq!(child.root_execution_id(), "root");
+        assert_eq!(child.ancestors(), vec!["root".to_string()]);
+        assert_eq!(parent.children().len(), 1);
+    }
+
+    #[test]
+    fn test_derive_child_registers_fork_path() {
+        let parent = Arc::new(ExecutionHierarchyManager::new(
+            "root".to_string(),
+            ExecutionType::Workflow,
+        ));
+        let fork = ForkPath::new("fork-1", "path-a");
+        let child = parent
+            .derive_child("branch-1".to_string(), ExecutionType::Workflow, Some(fork))
+            .unwrap();
+        assert_eq!(child.depth(), 1);
+        let children = parent.children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].fork_node_id(), Some("fork-1"));
+        assert_eq!(children[0].branch_path_id(), Some("path-a"));
+    }
+
+    #[test]
+    fn test_derive_child_rejects_self_and_beyond_max_depth() {
+        let parent = Arc::new(ExecutionHierarchyManager::new(
+            "root".to_string(),
+            ExecutionType::Workflow,
+        ));
+        assert!(parent
+            .derive_child("root".to_string(), ExecutionType::Workflow, None)
+            .is_err());
+        let mut current = parent;
+        for i in 0..MAX_DEPTH {
+            let next = current
+                .derive_child(format!("deep-{i}"), ExecutionType::Workflow, None)
+                .unwrap();
+            current = next;
+        }
+        assert!(current
+            .derive_child("too-deep".to_string(), ExecutionType::Workflow, None)
+            .is_err());
     }
 }

@@ -119,7 +119,7 @@ async fn sync_child_writes_result_variable_and_unregisters() {
             .get("trigger_result"),
         Some(&serde_json::Value::from("child ok"))
     );
-    assert_eq!(p.child_execution_ids().read().await.len(), 0);
+    assert_eq!(p.child_ids().len(), 0);
 }
 
 #[tokio::test]
@@ -143,7 +143,7 @@ async fn child_failure_does_not_fail_parent() {
         .await;
     assert!(result.is_err());
     assert!(!p.state.read().await.is_failed());
-    assert_eq!(p.child_execution_ids().read().await.len(), 0);
+    assert_eq!(p.child_ids().len(), 0);
 }
 
 #[tokio::test]
@@ -186,7 +186,7 @@ async fn async_child_submits_immediately_and_writes_back() {
     assert_eq!(submission.status, "QUEUED");
     for _ in 0..50 {
         if counter.load(Ordering::SeqCst) > 0
-            && p.child_execution_ids().read().await.is_empty()
+            && p.child_ids().is_empty()
             && p.state
                 .read()
                 .await
@@ -240,7 +240,7 @@ async fn sync_child_timeout_is_reported() {
         )
         .await;
     assert!(result.is_err());
-    assert_eq!(p.child_execution_ids().read().await.len(), 0);
+    assert_eq!(p.child_ids().len(), 0);
 }
 
 #[test]

@@ -57,12 +57,12 @@ pub struct TriggerContext {
     /// a triggered sub-workflow falls back to it when no explicit timeout is
     /// declared on the action.
     pub parent_max_execution_time_ms: Option<u64>,
-    /// Hierarchy position of the owning execution, carried so triggered
-    /// sub-workflows resolve full ancestry without the parent entity handle.
-    pub ancestors: Vec<Id>,
-    pub depth: u32,
-    pub root_execution_id: Option<Id>,
+    /// Hierarchy manager of the owning execution; triggered sub-workflows
+    /// derive their child manager from it instead of copying ancestry.
     pub hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    /// Checkpoint wiring inherited from the owning execution (see
+    /// [`wf_execution_shared::CheckpointScope`]).
+    pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     pub parent_checkpoints_enabled: Option<bool>,
 }
 
@@ -85,10 +85,8 @@ impl TriggerContext {
             session_cache: None,
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
-            ancestors: Vec::new(),
-            depth: 0,
-            root_execution_id: None,
             hierarchy_manager: None,
+            checkpoint_scope: None,
             parent_checkpoints_enabled: None,
         }
     }
@@ -173,19 +171,30 @@ impl TriggerContext {
         self
     }
 
-    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
-        self.ancestors = ancestors;
-        self.depth = depth;
-        self.root_execution_id = root;
-        self
-    }
-
     pub fn with_hierarchy_manager(
         mut self,
         manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self
+    }
+
+    pub fn with_checkpoint_scope(mut self, scope: wf_execution_shared::CheckpointScope) -> Self {
+        self.checkpoint_scope = Some(scope);
+        self
+    }
+
+    /// Require the owning execution's hierarchy manager; triggered
+    /// sub-workflows cannot link ancestry without it.
+    pub fn require_hierarchy_manager(
+        &self,
+    ) -> crate::error::WorkflowResult<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>
+    {
+        self.hierarchy_manager.clone().ok_or_else(|| {
+            crate::error::WorkflowError::TriggerError(
+                "triggered sub-workflow requires a parent hierarchy manager".to_string(),
+            )
+        })
     }
 }
 

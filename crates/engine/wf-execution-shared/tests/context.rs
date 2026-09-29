@@ -51,7 +51,10 @@ fn executor_context_new_sets_defaults() {
     assert_eq!(ctx.execution_id, "exec-1");
     assert_eq!(ctx.workflow_id, "wf-1");
     assert!(ctx.variables.is_empty());
-    assert!(ctx.parent_execution_id.is_none());
+    assert!(ctx.parent_id().is_none());
+    assert_eq!(ctx.depth(), 0);
+    assert!(ctx.root_id().is_none());
+    assert!(ctx.ancestor_chain().is_empty());
     assert!(ctx.metrics.is_none());
     assert!(ctx.token_tracker.is_some());
     assert!(ctx.hook_handler_registry.is_none());
@@ -69,12 +72,33 @@ async fn executor_context_with_token_limit_updates_tracker() {
 
 #[test]
 fn executor_context_builder_chain_sets_parent_and_readonly() {
+    use wf_core::hierarchy::manager::ExecutionHierarchyManager;
     let mut names = HashSet::new();
     names.insert("api_key".to_string());
-    let ctx = test_executor_context()
-        .with_parent_execution("parent-1".to_string())
-        .with_readonly_variables(Arc::new(names));
-    assert_eq!(ctx.parent_execution_id.as_deref(), Some("parent-1"));
+    let manager = Arc::new(ExecutionHierarchyManager::new(
+        "exec-1".to_string(),
+        wf_types::execution::ExecutionType::Workflow,
+    ));
+    let child = manager
+        .derive_child(
+            "child-1".to_string(),
+            wf_types::execution::ExecutionType::Workflow,
+            None,
+        )
+        .expect("derive");
+    let ctx = ExecutorContext::new(
+        "child-1".to_string(),
+        "wf-1".to_string(),
+        None,
+        Arc::new(ToolRegistry::new()),
+        test_options(),
+    )
+    .with_hierarchy_manager(child)
+    .with_readonly_variables(Arc::new(names));
+    assert_eq!(ctx.parent_id().as_deref(), Some("exec-1"));
+    assert_eq!(ctx.depth(), 1);
+    assert_eq!(ctx.root_id().as_deref(), Some("exec-1"));
+    assert_eq!(ctx.ancestor_chain(), vec!["exec-1".to_string()]);
     let readonly = ctx.readonly_variables.expect("readonly set");
     assert!(readonly.contains("api_key"));
 }
@@ -107,17 +131,21 @@ fn node_context_internal_variable_bypass_writes_engine_state() {
 
 #[test]
 fn node_context_builder_chain_sets_identity_fields() {
+    use wf_core::hierarchy::manager::ExecutionHierarchyManager;
     let cache = Arc::new(std::sync::Mutex::new(HashMap::<String, Value>::new()));
+    let manager = Arc::new(ExecutionHierarchyManager::new(
+        "exec-1".to_string(),
+        wf_types::execution::ExecutionType::Workflow,
+    ));
     let ctx = test_node_context()
         .with_node_name("greet")
         .with_node_config(json!({"mode": "strict"}))
-        .with_depth(3)
-        .with_parent_execution("parent-1".to_string())
+        .with_hierarchy_manager(manager)
         .with_session_cache(cache);
     assert_eq!(ctx.node_name.as_deref(), Some("greet"));
     assert_eq!(ctx.node_config, Some(json!({"mode": "strict"})));
-    assert_eq!(ctx.depth, 3);
-    assert_eq!(ctx.parent_execution_id.as_deref(), Some("parent-1"));
+    assert_eq!(ctx.depth(), 0);
+    assert!(ctx.parent_id().is_none());
     assert!(ctx.session_cache.is_some());
     assert_eq!(ctx.input_shape, NodeInputShape::None);
 }

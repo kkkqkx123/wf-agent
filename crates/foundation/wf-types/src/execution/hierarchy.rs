@@ -19,9 +19,13 @@ pub struct ExecutionHierarchy {
     pub execution_id: super::super::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_id: Option<super::super::Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_execution_type: Option<ExecutionType>,
     pub depth: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_execution_id: Option<super::super::Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_execution_type: Option<ExecutionType>,
     /// Root-to-parent execution id chain (oldest first, excluding self).
     /// Carried through checkpoints so deep hierarchies survive
     /// cross-process restore; `None` when the chain is unknown (legacy

@@ -82,7 +82,7 @@ impl AgentLoopCoordinator {
             // Parent association for agent-to-agent nesting: the manager
             // derive path already registered the child on the parent manager,
             // so only link when the manager has no record yet.
-            if let Some(parent_id) = entity.parent_execution_id().cloned() {
+            if let Some(parent_id) = entity.parent_execution_id() {
                 if let Some(parent) = registry.get(&parent_id) {
                     let already = parent
                         .hierarchy_manager()

@@ -36,6 +36,14 @@ pub struct WorkflowCheckpointIntegration {
     /// fired, with status). Captured into the snapshot `trigger_states`
     /// field for auditability.
     trigger_states: Option<Arc<TriggerStateRegistry>>,
+    /// Live fork registries of the execution (keyed by fork node id). Read
+    /// at snapshot time so the aggregation record carries live branch
+    /// statuses instead of placeholder values.
+    fork_registries:
+        Arc<std::collections::HashMap<String, Arc<wf_execution_shared::fork::ForkRegistry>>>,
+    /// Checkpoint event bus (mirrored here so child scopes inherit it; the
+    /// inner coordinator holds the working copy).
+    checkpoint_event_bus: Option<CheckpointEventBus>,
 }
 
 impl WorkflowCheckpointIntegration {
@@ -50,10 +58,13 @@ impl WorkflowCheckpointIntegration {
             event_bus: None,
             execution_events: None,
             trigger_states: None,
+            fork_registries: Arc::new(std::collections::HashMap::new()),
+            checkpoint_event_bus: None,
         }
     }
 
     pub fn with_event_bus(mut self, bus: CheckpointEventBus) -> Self {
+        self.checkpoint_event_bus = Some(bus.clone());
         self.inner = self.inner.with_event_bus(bus);
         self
     }
@@ -75,6 +86,49 @@ impl WorkflowCheckpointIntegration {
     pub fn with_trigger_state_registry(mut self, registry: Arc<TriggerStateRegistry>) -> Self {
         self.trigger_states = Some(registry);
         self
+    }
+
+    /// Register the live fork registries; the aggregation record resolves
+    /// each branch path status from them at snapshot time.
+    pub fn with_fork_registries(
+        mut self,
+        registries: Arc<
+            std::collections::HashMap<String, Arc<wf_execution_shared::fork::ForkRegistry>>,
+        >,
+    ) -> Self {
+        self.fork_registries = registries;
+        self
+    }
+
+    /// Extract the depth-independent checkpoint wiring so child executions
+    /// can build their own integration from it. The cadence counter and
+    /// fork registries stay with this execution and are never shared.
+    pub fn scope(&self) -> wf_execution_shared::CheckpointScope {
+        let mut scope = wf_execution_shared::CheckpointScope::new(self.public_store.clone());
+        if let Some(bus) = self.checkpoint_event_bus.clone() {
+            scope = scope.with_event_bus(bus);
+        }
+        if let Some(bus) = self.execution_events.clone() {
+            scope = scope.with_execution_events(bus);
+        }
+        scope
+    }
+
+    /// Build a child integration from an inherited scope. The strategy is
+    /// resolved for the child's depth (sparse below the root); the store
+    /// and event buses are shared, the cadence counter starts fresh.
+    pub fn from_scope(scope: &wf_execution_shared::CheckpointScope, child_depth: u32) -> Self {
+        let mut integration = Self::new(
+            scope.store.clone(),
+            NodeCheckpointStrategy::for_depth(child_depth),
+        );
+        if let Some(bus) = scope.event_bus.clone() {
+            integration = integration.with_event_bus(bus);
+        }
+        if let Some(bus) = scope.execution_events.clone() {
+            integration = integration.with_execution_event_bus(bus);
+        }
+        integration
     }
 
     /// Attach the file checkpoint manager: file snapshots are created on
@@ -360,7 +414,7 @@ impl WorkflowCheckpointIntegration {
             .prepare_with_hierarchy(
                 entity.id().as_str(),
                 trigger.clone(),
-                entity.parent_execution_id().map(|p| p.as_str()),
+                entity.parent_execution_id().as_deref(),
                 &ancestors,
             )
             .await?;
@@ -504,8 +558,9 @@ impl WorkflowCheckpointIntegration {
         entity: &WorkflowExecutionEntity,
     ) -> Option<wf_types::execution::ExecutionHierarchy> {
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
-        let children = entity.hierarchy_manager().children();
-        let parent = entity.parent_execution_id().cloned();
+        let manager = entity.hierarchy_manager();
+        let children = manager.children();
+        let parent = manager.parent();
         if parent.is_none() && children.is_empty() {
             return None;
         }
@@ -513,9 +568,11 @@ impl WorkflowCheckpointIntegration {
         Some(wf_types::execution::ExecutionHierarchy {
             workflow_id: entity.workflow_id().clone(),
             execution_id: entity.id().clone(),
-            parent_execution_id: parent,
+            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
             depth: entity.get_hierarchy_depth(),
             root_execution_id: entity.get_root_execution_id(),
+            root_execution_type: Some(manager.root_execution_type()),
             ancestors: if ancestors.is_empty() {
                 None
             } else {
@@ -529,30 +586,26 @@ impl WorkflowCheckpointIntegration {
         })
     }
 
-    fn fork_aggregation_state(entity: &WorkflowExecutionEntity) -> Option<serde_json::Value> {
+    fn fork_aggregation_state(
+        &self,
+        entity: &WorkflowExecutionEntity,
+    ) -> Option<serde_json::Value> {
+        use wf_execution_shared::fork::{fork_aggregation_state, ForkChildStatus};
         let children = entity.hierarchy_manager().children();
-        let fork_children: Vec<&wf_types::execution::ChildExecutionReference> =
-            children.iter().filter(|c| c.fork_path.is_some()).collect();
-        if fork_children.is_empty() {
-            return None;
-        }
-        let mut path_statuses = serde_json::Map::new();
-        let mut fork_nodes = std::collections::HashSet::new();
-        for child in fork_children {
-            if let Some(fork) = child.fork_path.as_ref() {
-                path_statuses.insert(
-                    fork.branch_path_id.clone(),
-                    serde_json::Value::String("PENDING".to_string()),
-                );
-                fork_nodes.insert(fork.fork_node_id.clone());
-            }
-        }
-        let fork_node_id = fork_nodes.iter().next().cloned().unwrap_or_default();
-        Some(serde_json::json!({
-            "forkNodeId": fork_node_id,
-            "pathStatuses": serde_json::Value::Object(path_statuses),
-            "isAggregationComplete": false,
-        }))
+        let registries = self.fork_registries.clone();
+        fork_aggregation_state(&children, |child_id| {
+            children
+                .iter()
+                .find(|c| c.child_id == *child_id)
+                .and_then(|c| c.fork_path.as_ref())
+                .and_then(|fork| {
+                    registries
+                        .get(&fork.fork_node_id)
+                        .and_then(|registry| registry.get(&fork.branch_path_id))
+                })
+                .map(|record| ForkChildStatus::from(record.status))
+                .unwrap_or(ForkChildStatus::Pending)
+        })
     }
 
     async fn build_snapshot(
@@ -754,7 +807,7 @@ impl WorkflowCheckpointIntegration {
                 entity.variables(),
                 state.start_time(),
             ),
-            fork_join_aggregation_state: Self::fork_aggregation_state(entity),
+            fork_join_aggregation_state: self.fork_aggregation_state(entity),
             hook_execution_context: None,
             error_suspend: state.error_suspend().cloned(),
         }

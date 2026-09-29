@@ -269,9 +269,18 @@ pub async fn auto_resume(
         })?;
     let coordinator = coordinator(ctx);
     let checkpoint_id = latest.id.clone();
-    let outcome = crate::infra::error::with_timeout(
-        Duration::from_millis(DEFAULT_AGENT_TIMEOUT_MS),
-        async move {
+    let timeout_ms = ctx
+        .storage
+        .agent_execution
+        .load(agent_loop_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|record| record.loop_config)
+        .map(|config| agent_timeout_ms(&config))
+        .unwrap_or(DEFAULT_AGENT_TIMEOUT_MS);
+    let outcome =
+        crate::infra::error::with_timeout(Duration::from_millis(timeout_ms), async move {
             coordinator
                 .auto_resume_from_checkpoint(&checkpoint_id)
                 .await
@@ -291,9 +300,8 @@ pub async fn auto_resume(
                         ApiError::execution(format!("agent auto-resume failed: {e}"))
                     }
                 })
-        },
-    )
-    .await?;
+        })
+        .await?;
     persist_conversation(ctx, &outcome.agent_loop_id, &outcome.conversation).await;
     Ok(outcome)
 }

@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use tokio::sync::Notify;
+use wf_types::execution::ChildExecutionReference;
 use wf_types::Id;
 
 /// Runtime status of one fork branch.
@@ -12,6 +13,86 @@ pub enum BranchStatus {
     Completed,
     Failed,
     Cancelled,
+}
+
+/// Snapshot-facing status of one fork branch. Uses the same vocabulary as
+/// the restore-side `forkJoinAggregationState.pathStatuses` record
+/// (`PENDING` / `COMPLETED` / `FAILED`) so snapshots and inference agree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForkChildStatus {
+    Pending,
+    Completed,
+    Failed,
+}
+
+impl From<BranchStatus> for ForkChildStatus {
+    fn from(status: BranchStatus) -> Self {
+        match status {
+            BranchStatus::Running => ForkChildStatus::Pending,
+            BranchStatus::Completed => ForkChildStatus::Completed,
+            BranchStatus::Failed | BranchStatus::Cancelled => ForkChildStatus::Failed,
+        }
+    }
+}
+
+/// Build the `forkJoinAggregationState` snapshot record from the parent's
+/// fork child references. `status_of` resolves each child's live status
+/// (fork registry record, live entity status, or `Pending` when unknown).
+/// Paths are sorted by branch path id for deterministic snapshots.
+/// Returns `None` when the execution launched no fork branches.
+pub fn fork_aggregation_state(
+    children: &[ChildExecutionReference],
+    status_of: impl Fn(&Id) -> ForkChildStatus,
+) -> Option<Value> {
+    let mut fork_children: Vec<&ChildExecutionReference> =
+        children.iter().filter(|c| c.fork_path.is_some()).collect();
+    if fork_children.is_empty() {
+        return None;
+    }
+    fork_children.sort_by(|a, b| {
+        a.fork_path
+            .as_ref()
+            .map(|p| p.branch_path_id.as_str())
+            .cmp(&b.fork_path.as_ref().map(|p| p.branch_path_id.as_str()))
+    });
+    let mut path_statuses = serde_json::Map::new();
+    let mut branch_children = serde_json::Map::new();
+    let mut complete = true;
+    for child in &fork_children {
+        let Some(fork) = child.fork_path.as_ref() else {
+            continue;
+        };
+        let status = status_of(&child.child_id);
+        if status == ForkChildStatus::Pending {
+            complete = false;
+        }
+        path_statuses.insert(
+            fork.branch_path_id.clone(),
+            Value::String(
+                match status {
+                    ForkChildStatus::Pending => "PENDING",
+                    ForkChildStatus::Completed => "COMPLETED",
+                    ForkChildStatus::Failed => "FAILED",
+                }
+                .to_string(),
+            ),
+        );
+        branch_children.insert(
+            fork.branch_path_id.clone(),
+            Value::String(child.child_id.to_string()),
+        );
+    }
+    let fork_node_id = fork_children
+        .first()
+        .and_then(|c| c.fork_path.as_ref())
+        .map(|f| f.fork_node_id.clone())
+        .unwrap_or_default();
+    Some(serde_json::json!({
+        "forkNodeId": fork_node_id,
+        "pathStatuses": Value::Object(path_statuses),
+        "branchChildren": Value::Object(branch_children),
+        "isAggregationComplete": complete,
+    }))
 }
 
 /// Live record of one fork branch, shared between the fork handler, the
@@ -346,5 +427,90 @@ impl ForkRegistry {
         map.entry(path_id.to_string())
             .or_insert_with(|| Arc::new(Notify::new()))
             .clone()
+    }
+}
+
+#[cfg(test)]
+mod aggregation_tests {
+    use super::*;
+    use wf_types::execution::{ChildExecutionReference, ExecutionType, ForkPath};
+
+    fn fork_child(id: &str, path: &str) -> ChildExecutionReference {
+        ChildExecutionReference {
+            child_type: ExecutionType::Workflow,
+            child_id: id.to_string(),
+            created_at: 0,
+            fork_path: Some(ForkPath::new("fork-1", path.to_string())),
+        }
+    }
+
+    #[test]
+    fn no_fork_children_yields_no_record() {
+        let children = vec![ChildExecutionReference {
+            child_type: ExecutionType::Workflow,
+            child_id: "plain".to_string(),
+            created_at: 0,
+            fork_path: None,
+        }];
+        assert!(fork_aggregation_state(&children, |_| ForkChildStatus::Pending).is_none());
+    }
+
+    #[test]
+    fn live_statuses_drive_path_statuses_and_completion() {
+        let children = vec![fork_child("b-slow", "slow"), fork_child("a-fast", "fast")];
+        let record = fork_aggregation_state(&children, |id| {
+            if id.as_str() == "a-fast" {
+                ForkChildStatus::Completed
+            } else {
+                ForkChildStatus::Pending
+            }
+        })
+        .expect("record built");
+        assert_eq!(record["forkNodeId"], serde_json::json!("fork-1"));
+        assert_eq!(
+            record["pathStatuses"]["fast"],
+            serde_json::json!("COMPLETED")
+        );
+        assert_eq!(record["pathStatuses"]["slow"], serde_json::json!("PENDING"));
+        assert_eq!(
+            record["branchChildren"]["fast"],
+            serde_json::json!("a-fast")
+        );
+        assert_eq!(record["isAggregationComplete"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn settled_branches_mark_aggregation_complete() {
+        let children = vec![fork_child("b-2", "p2"), fork_child("b-1", "p1")];
+        let record = fork_aggregation_state(&children, |id| {
+            if id.as_str() == "b-1" {
+                ForkChildStatus::Completed
+            } else {
+                ForkChildStatus::Failed
+            }
+        })
+        .expect("record built");
+        assert_eq!(record["isAggregationComplete"], serde_json::json!(true));
+        assert_eq!(record["pathStatuses"]["p2"], serde_json::json!("FAILED"));
+    }
+
+    #[test]
+    fn registry_status_maps_onto_snapshot_vocabulary() {
+        assert_eq!(
+            ForkChildStatus::from(BranchStatus::Running),
+            ForkChildStatus::Pending
+        );
+        assert_eq!(
+            ForkChildStatus::from(BranchStatus::Completed),
+            ForkChildStatus::Completed
+        );
+        assert_eq!(
+            ForkChildStatus::from(BranchStatus::Failed),
+            ForkChildStatus::Failed
+        );
+        assert_eq!(
+            ForkChildStatus::from(BranchStatus::Cancelled),
+            ForkChildStatus::Failed
+        );
     }
 }

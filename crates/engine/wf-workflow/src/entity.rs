@@ -19,16 +19,6 @@ pub struct WorkflowExecutionEntity {
     node_results: Arc<DashMap<String, Value>>,
     pub current_node_id: Arc<tokio::sync::RwLock<Option<String>>>,
     hierarchy: Arc<ExecutionHierarchyManager>,
-    parent_execution_id: Option<Id>,
-    child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Resolved from the parent entity when the run is linked, so deep
-    /// hierarchies keep full ancestry across checkpoint restore.
-    ancestors: Vec<Id>,
-    /// Root execution id of the hierarchy (own id for a root run).
-    root_execution_id: Option<Id>,
-    /// Nesting depth in the execution hierarchy (0 = root).
-    hierarchy_depth: u32,
     execution_type: Option<wf_types::workflow_execution::WorkflowExecutionType>,
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
@@ -51,11 +41,6 @@ impl WorkflowExecutionEntity {
             node_results: Arc::new(DashMap::new()),
             current_node_id: Arc::new(tokio::sync::RwLock::new(None)),
             hierarchy,
-            parent_execution_id: None,
-            child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            ancestors: Vec::new(),
-            root_execution_id: None,
-            hierarchy_depth: 0,
             execution_type: None,
             output: Arc::new(tokio::sync::RwLock::new(None)),
         }
@@ -67,62 +52,7 @@ impl WorkflowExecutionEntity {
 
     pub fn with_hierarchy_manager(mut self, manager: Arc<ExecutionHierarchyManager>) -> Self {
         self.hierarchy = manager;
-        self.parent_execution_id = self.hierarchy.parent_id();
-        self.ancestors = self.hierarchy.ancestors();
-        self.hierarchy_depth = self.hierarchy.depth();
-        self.root_execution_id = Some(self.hierarchy.root_execution_id());
         self
-    }
-
-    pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    /// Record the full ancestor chain (oldest first, excluding self),
-    /// resolved from the parent execution at build time.
-    pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
-        self.ancestors = ancestors;
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    /// Set the nesting depth in the execution hierarchy (0 = root).
-    pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
-        self.hierarchy_depth = depth;
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    pub fn with_root_execution_id(mut self, root: Id) -> Self {
-        self.root_execution_id = Some(root);
-        self.sync_manager_from_legacy();
-        self
-    }
-
-    fn sync_manager_from_legacy(&mut self) {
-        use wf_core::hierarchy::manager::ParentExecutionContext;
-        let parent = self
-            .parent_execution_id
-            .clone()
-            .map(|parent_id| ParentExecutionContext {
-                parent_id,
-                parent_type: wf_types::execution::ExecutionType::Workflow,
-            });
-        let root_id = self
-            .root_execution_id
-            .clone()
-            .or_else(|| self.ancestors.first().cloned())
-            .or_else(|| self.parent_execution_id.clone())
-            .unwrap_or_else(|| self.id.clone());
-        self.hierarchy.sync_restored(
-            parent,
-            self.ancestors.clone(),
-            self.hierarchy_depth,
-            root_id,
-            wf_types::execution::ExecutionType::Workflow,
-        );
     }
 
     pub fn with_execution_type(
@@ -157,16 +87,23 @@ impl WorkflowExecutionEntity {
         &self.node_results
     }
 
-    pub fn child_execution_ids(&self) -> &Arc<tokio::sync::RwLock<Vec<Id>>> {
-        &self.child_execution_ids
+    pub fn child_ids(&self) -> Vec<Id> {
+        let mut ids: Vec<Id> = self
+            .hierarchy
+            .children()
+            .into_iter()
+            .map(|c| c.child_id)
+            .collect();
+        ids.sort();
+        ids
     }
 
-    pub fn parent_execution_id(&self) -> Option<&Id> {
-        self.parent_execution_id.as_ref()
+    pub fn parent_execution_id(&self) -> Option<Id> {
+        self.hierarchy.parent_id()
     }
 
-    pub fn ancestors(&self) -> &[Id] {
-        &self.ancestors
+    pub fn ancestors(&self) -> Vec<Id> {
+        self.hierarchy.ancestors()
     }
 
     /// The final execution output; `None` until the execution settles.
@@ -196,10 +133,14 @@ impl WorkflowExecutionEntity {
     }
 
     pub async fn register_child(&self, child_id: Id) {
-        self.child_execution_ids
-            .write()
-            .await
-            .push(child_id.clone());
+        let already = self
+            .hierarchy
+            .children()
+            .iter()
+            .any(|c| c.child_id == child_id);
+        if already {
+            return;
+        }
         self.hierarchy
             .register_child_ref(wf_types::execution::ChildExecutionReference {
                 child_type: wf_types::execution::ExecutionType::Workflow,
@@ -213,18 +154,10 @@ impl WorkflowExecutionEntity {
         &self,
         child_ref: wf_types::execution::ChildExecutionReference,
     ) {
-        self.child_execution_ids
-            .write()
-            .await
-            .push(child_ref.child_id.clone());
         self.hierarchy.register_child_ref(child_ref);
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
-        self.child_execution_ids
-            .write()
-            .await
-            .retain(|id| id != child_id);
         for child_type in [
             wf_types::execution::ExecutionType::Workflow,
             wf_types::execution::ExecutionType::AgentLoop,
@@ -435,22 +368,51 @@ mod tests {
 
     #[test]
     fn root_execution_id_falls_back_through_the_hierarchy() {
-        // Root: ancestors empty, no parent -> self.
+        use std::sync::Arc;
+        use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+        use wf_types::execution::ExecutionHierarchy;
+        // Root: no parent -> self.
         let root = WorkflowExecutionEntity::new("root".to_string(), "wf-1".to_string());
         assert_eq!(root.get_root_execution_id(), Some("root".to_string()));
         assert_eq!(root.get_ancestors(), Vec::<Id>::new());
         assert_eq!(root.get_hierarchy_depth(), 0);
 
-        // Child with only a parent -> parent is the root.
+        // Child derived from the root manager -> parent is the root.
+        let child_manager = Arc::new(ExecutionHierarchyManager::new(
+            "root".to_string(),
+            wf_types::execution::ExecutionType::Workflow,
+        ))
+        .derive_child(
+            "child".to_string(),
+            wf_types::execution::ExecutionType::Workflow,
+            None,
+        )
+        .expect("derive");
         let child = WorkflowExecutionEntity::new("child".to_string(), "wf-1".to_string())
-            .with_parent_execution_id("root".to_string());
+            .with_hierarchy_manager(child_manager);
         assert_eq!(child.get_root_execution_id(), Some("root".to_string()));
 
-        // Grandchild with a full ancestor chain -> oldest ancestor is the root.
+        // Grandchild restored from a snapshot hierarchy -> oldest ancestor
+        // is the root, depth and chain preserved.
+        let hierarchy = ExecutionHierarchy {
+            workflow_id: "wf-1".to_string(),
+            execution_id: "gc".to_string(),
+            parent_execution_id: Some("child".to_string()),
+            parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
+            depth: 2,
+            root_execution_id: Some("root".to_string()),
+            root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
+            ancestors: Some(vec!["root".to_string(), "child".to_string()]),
+            children: None,
+        };
+        let restored_manager = ExecutionHierarchyManager::restore(
+            "gc".to_string(),
+            wf_types::execution::ExecutionType::Workflow,
+            &hierarchy,
+            wf_types::execution::ExecutionType::Workflow,
+        );
         let grandchild = WorkflowExecutionEntity::new("gc".to_string(), "wf-1".to_string())
-            .with_parent_execution_id("child".to_string())
-            .with_ancestors(vec!["root".to_string(), "child".to_string()])
-            .with_hierarchy_depth(2);
+            .with_hierarchy_manager(restored_manager);
         assert_eq!(grandchild.get_root_execution_id(), Some("root".to_string()));
         assert_eq!(
             grandchild.get_ancestors(),
@@ -464,16 +426,12 @@ mod tests {
         let entity = WorkflowExecutionEntity::new("exec-1".to_string(), "wf-1".to_string());
         entity.register_child("child-1".to_string()).await;
         entity.register_child("child-2".to_string()).await;
-        {
-            let ids = entity.child_execution_ids.read().await;
-            assert_eq!(
-                ids.as_slice(),
-                &["child-1".to_string(), "child-2".to_string()]
-            );
-        }
+        assert_eq!(
+            entity.child_ids().as_slice(),
+            &["child-1".to_string(), "child-2".to_string()]
+        );
         entity.unregister_child(&"child-1".to_string()).await;
-        let ids = entity.child_execution_ids.read().await;
-        assert_eq!(ids.as_slice(), &["child-2".to_string()]);
+        assert_eq!(entity.child_ids().as_slice(), &["child-2".to_string()]);
     }
 
     #[tokio::test]

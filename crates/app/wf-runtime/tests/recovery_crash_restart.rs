@@ -280,3 +280,127 @@ async fn kill_restart_without_checkpoint_is_skipped() {
         Some("no checkpoint available for this execution")
     );
 }
+
+#[tokio::test]
+async fn kill_restart_child_without_checkpoint_points_at_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("runtime.db");
+    let db = db.to_str().unwrap();
+
+    // ---- Process 1: a checkpointed partial parent run, then "crash" ----
+    let parent_id = {
+        let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+            .await
+            .unwrap();
+        storage
+            .workflow
+            .save(&make_multi_step_definition("wf-kill-child"))
+            .await
+            .unwrap();
+        let ctx = make_api_ctx(storage, db).await;
+        let mut options = wf_types::workflow_execution::WorkflowExecutionOptions {
+            input: None,
+            max_steps: None,
+            timeout: None,
+            max_execution_time: None,
+            enable_checkpoints: Some(true),
+            node_timeout: None,
+            max_pause_duration: None,
+            max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
+        };
+        options.max_steps = Some(2);
+        let output = wf_api::workflow::workflow_execution::execute(
+            &ctx,
+            wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
+                workflow_id: "wf-kill-child".into(),
+                input: Some(serde_json::json!({"greeting": "hi"})),
+                options: Some(options),
+            },
+        )
+        .await
+        .expect("partial run completes");
+        output.execution_id.to_string()
+    };
+    // Simulated crash: everything (contexts, pools) is dropped here.
+
+    // ---- Process 2: restart; the parent record still claims Running and a
+    // checkpoint-less child record points at it ----
+    let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+        .await
+        .unwrap();
+    storage
+        .workflow_execution
+        .update_status(&parent_id, &ExecutionStatus::Running)
+        .await
+        .unwrap();
+    storage
+        .workflow_execution
+        .save(&WorkflowExecution {
+            id: "child-1".into(),
+            workflow_id: "wf-kill-child".into(),
+            workflow_version: None,
+            status: ExecutionStatus::Running,
+            current_node_id: Some("v1".into()),
+            graph: None,
+            variables: None,
+            input: None,
+            output: None,
+            node_results: None,
+            errors: None,
+            started_at: 0,
+            completed_at: None,
+            error: None,
+            execution_type: None,
+            fork_join_context: None,
+            hierarchy: Some(wf_types::execution::ExecutionHierarchy {
+                workflow_id: "wf-kill-child".into(),
+                execution_id: "child-1".into(),
+                parent_execution_id: Some(parent_id.clone()),
+                parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
+                depth: 1,
+                root_execution_id: Some(parent_id.clone()),
+                root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
+                ancestors: Some(vec![parent_id.clone()]),
+                children: None,
+            }),
+        })
+        .await
+        .unwrap();
+
+    let api_ctx = make_api_ctx(storage, db).await;
+    let orchestrator = RecoveryOrchestrator::new(RecoveryScanner::new(
+        api_ctx.storage.workflow_execution.clone(),
+    ))
+    .with_recovery_executor(Arc::new(ApiRecoveryExecutor));
+    let result = orchestrator.recover_all(&api_ctx).await.unwrap();
+
+    assert_eq!(
+        result.failed.len(),
+        0,
+        "no recovery failures: {:?}",
+        result.failed
+    );
+    assert_eq!(
+        result.recovered.len(),
+        1,
+        "parent recovered: {:?}",
+        result.skipped
+    );
+    assert_eq!(result.recovered[0].execution_id, parent_id);
+    assert_eq!(result.recovered[0].status, "Completed");
+
+    // The child has no independent checkpoint, so it is skipped — but the
+    // skip reason names the checkpointed parent instead of going quiet.
+    assert_eq!(result.skipped.len(), 1);
+    assert_eq!(result.skipped[0].execution_id, "child-1");
+    assert!(!result.skipped[0].recovered);
+    let note = result.skipped[0]
+        .note
+        .as_deref()
+        .expect("skip reason recorded");
+    assert!(
+        note.contains(&parent_id) && note.contains("resume parent instead"),
+        "skip reason points at the parent: {note}"
+    );
+}

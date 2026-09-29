@@ -23,16 +23,16 @@ pub struct InteractiveScriptSessionEntity {
     interruption: InterruptionState,
     pub(super) cancellation: tokio_util::sync::CancellationToken,
     shell_session_id: std::sync::RwLock<Option<String>>,
-    parent_execution_id: Option<Id>,
-    child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
-    hierarchy_depth: u32,
-    root_execution_id: Option<Id>,
-    ancestors: Vec<Id>,
+    hierarchy: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
 }
 
 impl InteractiveScriptSessionEntity {
     pub fn new(id: Id, config: InteractiveScriptSessionConfig) -> Self {
         let command = config.command.clone();
+        let hierarchy = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            id.clone(),
+            wf_types::execution::ExecutionType::Workflow,
+        ));
         Self {
             id,
             config,
@@ -43,31 +43,15 @@ impl InteractiveScriptSessionEntity {
             interruption: InterruptionState::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
             shell_session_id: std::sync::RwLock::new(None),
-            parent_execution_id: None,
-            child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
-            hierarchy_depth: 0,
-            root_execution_id: None,
-            ancestors: Vec::new(),
+            hierarchy,
         }
     }
 
-    pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self
-    }
-
-    pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
-        self.hierarchy_depth = depth;
-        self
-    }
-
-    pub fn with_root_execution_id(mut self, root_id: Id) -> Self {
-        self.root_execution_id = Some(root_id);
-        self
-    }
-
-    pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
-        self.ancestors = ancestors;
+    pub fn with_hierarchy_manager(
+        mut self,
+        manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    ) -> Self {
+        self.hierarchy = manager;
         self
     }
 
@@ -195,15 +179,21 @@ impl ExecutionEntity for InteractiveScriptSessionEntity {
     }
 
     fn get_hierarchy_depth(&self) -> u32 {
-        self.hierarchy_depth
+        self.hierarchy.depth()
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {
-        self.root_execution_id.clone()
+        Some(self.hierarchy.root_execution_id())
     }
 
     fn get_ancestors(&self) -> Vec<Id> {
-        self.ancestors.clone()
+        self.hierarchy.ancestors()
+    }
+
+    fn hierarchy_manager(
+        &self,
+    ) -> Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>> {
+        Some(self.hierarchy.clone())
     }
 }
 
@@ -211,7 +201,6 @@ impl crate::types::state_manager::StateManager<InteractiveScriptSessionSnapshot>
     for InteractiveScriptSessionEntity
 {
     async fn cleanup(&mut self) -> Result<(), crate::error::ExecutionSharedError> {
-        self.child_execution_ids.write().await.clear();
         if let Ok(mut slot) = self.shell_session_id.write() {
             *slot = None;
         }
@@ -234,9 +223,14 @@ impl crate::types::state_manager::StateManager<InteractiveScriptSessionSnapshot>
             completed_rounds: state.completed_rounds,
             waiting_for_input: state.waiting_for_input,
             current_prompt: state.current_prompt.clone(),
-            parent_execution_id: self.parent_execution_id.as_ref().map(|id| id.to_string()),
-            hierarchy_depth: self.hierarchy_depth,
-            ancestors: self.ancestors.iter().map(|id| id.to_string()).collect(),
+            parent_execution_id: self.hierarchy.parent_id().map(|id| id.to_string()),
+            hierarchy_depth: self.hierarchy.depth(),
+            ancestors: self
+                .hierarchy
+                .ancestors()
+                .iter()
+                .map(|id| id.to_string())
+                .collect(),
         })
     }
 

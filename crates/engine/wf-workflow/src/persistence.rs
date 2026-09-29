@@ -137,8 +137,9 @@ pub async fn build_workflow_execution(
 }
 
 async fn build_persisted_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
-    let children = entity.hierarchy_manager().children();
-    let parent = entity.parent_execution_id().cloned();
+    let manager = entity.hierarchy_manager();
+    let children = manager.children();
+    let parent = manager.parent();
     let ancestors = entity.get_ancestors();
     if parent.is_none() && children.is_empty() && ancestors.is_empty() {
         return None;
@@ -146,9 +147,11 @@ async fn build_persisted_hierarchy(entity: &WorkflowExecutionEntity) -> Option<E
     Some(ExecutionHierarchy {
         workflow_id: entity.workflow_id().clone(),
         execution_id: entity.id().clone(),
-        parent_execution_id: parent,
+        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
         depth: entity.get_hierarchy_depth(),
         root_execution_id: entity.get_root_execution_id(),
+        root_execution_type: Some(manager.root_execution_type()),
         ancestors: if ancestors.is_empty() {
             None
         } else {
@@ -207,11 +210,20 @@ mod tests {
 
     #[tokio::test]
     async fn child_record_carries_depth_root_and_children() {
+        let root_manager =
+            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                "root".to_string(),
+                wf_types::execution::ExecutionType::Workflow,
+            ));
+        let child_manager = root_manager
+            .derive_child(
+                "child".to_string(),
+                wf_types::execution::ExecutionType::Workflow,
+                None,
+            )
+            .expect("derive");
         let entity = WorkflowExecutionEntity::new("child".to_string(), "wf-1".to_string())
-            .with_parent_execution_id("root".to_string())
-            .with_ancestors(vec!["root".to_string()])
-            .with_hierarchy_depth(1)
-            .with_root_execution_id("root".to_string())
+            .with_hierarchy_manager(child_manager)
             .with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::Subgraph);
         entity.register_child("gc".to_string()).await;
         let record =

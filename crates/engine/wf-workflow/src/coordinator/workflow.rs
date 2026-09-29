@@ -239,7 +239,8 @@ impl WorkflowCoordinator {
     }
 
     pub fn with_checkpoint(mut self, checkpoint: WorkflowCheckpointIntegration) -> Self {
-        self.checkpoint = Some(checkpoint);
+        self.ctx.checkpoint_scope = Some(checkpoint.scope());
+        self.checkpoint = Some(checkpoint.with_fork_registries(self.ctx.fork_registries.clone()));
         self
     }
 

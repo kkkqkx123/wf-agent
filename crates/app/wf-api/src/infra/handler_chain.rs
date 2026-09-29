@@ -177,14 +177,22 @@ impl NodeHandler for TemplateSubgraphHandler {
             .clone()
             .unwrap_or_else(|| Arc::new(wf_tools::registry::ToolRegistry::new()));
 
+        let child_id = wf_types::Id::new();
         let mut exec_ctx = ExecutorContext::new(
-            wf_types::Id::new(),
+            child_id.clone(),
             wf_types::Id::from(self.workflow_id.clone()),
             event_bus,
             tool_registry,
             options,
-        )
-        .with_parent_execution(ctx.execution_id.clone());
+        );
+        if let Some(parent) = ctx.hierarchy_manager.clone() {
+            let child_manager = parent
+                .derive_child(child_id, wf_types::execution::ExecutionType::Workflow, None)
+                .map_err(|e| {
+                    wf_execution_shared::error::ExecutionSharedError::StateError(e.to_string())
+                })?;
+            exec_ctx = exec_ctx.with_hierarchy_manager(child_manager);
+        }
         if let Some(metrics) = &ctx.metrics {
             exec_ctx = exec_ctx.with_metrics(metrics.clone());
         }

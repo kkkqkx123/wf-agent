@@ -96,7 +96,7 @@ impl NodeHandler for IdCaptureScript {
     ) -> wf_execution_shared::error::ExecutionSharedResult<NodeExecutionResult> {
         self.captured.lock().unwrap().push((
             ctx.execution_id.to_string(),
-            ctx.parent_execution_id.as_ref().map(|id| id.to_string()),
+            ctx.parent_id().map(|id| id.to_string()),
         ));
         Ok(NodeExecutionResult::simple(serde_json::json!({
             "id": ctx.execution_id.to_string(),

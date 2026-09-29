@@ -1,6 +1,7 @@
 pub mod agent_prompt;
 pub mod approval;
 pub mod chat;
+pub mod checkpoint_scope;
 pub mod context;
 pub mod context_store;
 pub mod conversation_session;
@@ -24,6 +25,7 @@ pub mod types;
 
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 pub use chat::{ChatSession, ChatTemplate};
+pub use checkpoint_scope::CheckpointScope;
 pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult, NodeInputShape};
 pub use error::{ExecutionSharedError, ExecutionSharedResult, InterruptionKind};
 pub use event_metrics_bridge::EventMetricsBridge;
@@ -32,7 +34,7 @@ pub use execution_loop::{
     LoopDecision,
 };
 pub use execution_state::ExecutionStateManager;
-pub use fork::{BranchRecord, BranchStatus, ForkRegistry};
+pub use fork::{BranchRecord, BranchStatus, ForkChildStatus, ForkRegistry};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
     evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,

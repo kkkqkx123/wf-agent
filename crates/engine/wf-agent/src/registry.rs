@@ -47,7 +47,7 @@ impl AgentExecutionRecord {
             start_time: state.start_time(),
             end_time: state.end_time(),
             error: state.error().map(String::from),
-            parent_execution_id: entity.parent_execution_id().cloned(),
+            parent_execution_id: entity.parent_execution_id(),
         }
     }
 }
@@ -281,7 +281,7 @@ impl AgentLoopRegistry {
                     }
                 }
                 if let Some(parent_id) = &filter.parent_execution_id {
-                    if e.parent_execution_id() != Some(parent_id) {
+                    if e.parent_execution_id().as_ref() != Some(parent_id) {
                         return false;
                     }
                 }

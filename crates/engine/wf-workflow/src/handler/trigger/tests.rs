@@ -403,7 +403,18 @@ async fn test_trigger_execute_subworkflow() {
         reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
         reg.into_arc()
     };
-    let ctx = TriggerContext::new(Id::new(), Id::new()).with_handlers(handlers);
+    let parent_manager = std::sync::Arc::new(
+        wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            Id::new(),
+            wf_types::execution::ExecutionType::Workflow,
+        ),
+    );
+    let ctx = TriggerContext::new(
+        parent_manager.execution_id(),
+        Id::new(),
+    )
+    .with_handlers(handlers)
+    .with_hierarchy_manager(parent_manager);
 
     let mut output_mapping = HashMap::new();
     output_mapping.insert("mapped_sum".to_string(), serde_json::json!("sum"));

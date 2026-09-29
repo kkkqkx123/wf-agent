@@ -335,8 +335,13 @@ pub async fn resume(
         .with_plugin_handlers(ctx.plugin_handlers())
         .with_entity_arc(entity.clone())
         .with_state_manager(ctx.state_manager.clone());
-    coordinator = attach_checkpoints(coordinator, ctx, checkpoints_enabled);
-    let snapshot = entity_resume_snapshot(&entity).await;
+    coordinator = attach_checkpoints(
+        coordinator,
+        ctx,
+        checkpoints_enabled,
+        entity.get_hierarchy_depth(),
+    );
+    let snapshot = entity_resume_snapshot(ctx, &entity).await;
     coordinator.resume_from(&snapshot);
 
     entity.resume().await?;
@@ -408,31 +413,21 @@ pub async fn restore_checkpoint(
     // to the persisted execution record for older checkpoints.
     let (workflow_id, options) = restored_identity(ctx, &snapshot).await?;
 
-    // Build a fresh live entity backfilled from the restored snapshot.
+    // Build a fresh live entity backfilled from the restored snapshot. The
+    // hierarchy manager is rebuilt from the snapshot in one place so the
+    // restored parent, ancestors, depth, root and children stay consistent.
     let mut entity =
         WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
     if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
-        if let Some(parent_id) = hierarchy.parent_execution_id.clone() {
-            entity = entity.with_parent_execution_id(parent_id);
-        }
-        // Carry the persisted ancestor chain across the process boundary so
-        // deep hierarchies keep full ancestry after restore.
-        if let Some(ancestors) = hierarchy.ancestors.clone() {
-            entity = entity.with_ancestors(ancestors);
-        }
-        entity = entity.with_hierarchy_depth(hierarchy.depth);
-        if let Some(root) = hierarchy.root_execution_id.clone() {
-            entity = entity.with_root_execution_id(root);
-        }
+        let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+            entity.id().clone(),
+            wf_types::execution::ExecutionType::Workflow,
+            hierarchy,
+            wf_types::execution::ExecutionType::Workflow,
+        );
+        entity = entity.with_hierarchy_manager(manager);
     }
     let entity = Arc::new(entity);
-    if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
-        if let Some(children) = hierarchy.children.as_ref() {
-            for child in children {
-                entity.register_child_ref(child.clone()).await;
-            }
-        }
-    }
     for (name, value) in &snapshot.variable_state.variables {
         entity.set_variable(name.clone(), value.clone());
     }
@@ -728,6 +723,7 @@ fn message_contexts_from_vars(
 /// node results seed the coordinator's outputs and completed set, the
 /// current node restarts execution from there.
 async fn entity_resume_snapshot(
+    ctx: &ApiContext,
     entity: &WorkflowExecutionEntity,
 ) -> WorkflowExecutionStateSnapshot {
     let state = entity.state.read().await;
@@ -744,6 +740,7 @@ async fn entity_resume_snapshot(
     let node_execution_records = snapshot_node_records(&state);
     let message_contexts = message_contexts_from_vars(&variables);
     let hierarchy = build_hierarchy(entity).await;
+    let fork_join_aggregation_state = build_fork_aggregation_state(ctx, entity);
     WorkflowExecutionStateSnapshot {
         execution_id: entity.id().to_string(),
         status: state.status().as_str().to_string(),
@@ -764,7 +761,7 @@ async fn entity_resume_snapshot(
         event_records: None,
         hierarchy,
         execution_config: None,
-        fork_join_aggregation_state: None,
+        fork_join_aggregation_state,
         hook_execution_context: None,
         error_suspend: state.error_suspend().cloned(),
     }
@@ -844,7 +841,7 @@ async fn build_checkpoint_snapshot(
             // continuation only the remaining budget.
             "executed_ms": (wf_common::now() - state.start_time()).max(0),
         })),
-        fork_join_aggregation_state: build_fork_aggregation_state(entity),
+        fork_join_aggregation_state: build_fork_aggregation_state(ctx, entity),
         hook_execution_context: None,
         error_suspend: state.error_suspend().cloned(),
     }
@@ -855,9 +852,10 @@ async fn build_checkpoint_snapshot(
 /// times survive the snapshot instead of being refabricated.
 async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
     use wf_execution_shared::types::execution_entity::ExecutionEntity;
-    let children = entity.hierarchy_manager().children();
+    let manager = entity.hierarchy_manager();
+    let children = manager.children();
     let has_children = !children.is_empty();
-    let parent = entity.parent_execution_id().cloned();
+    let parent = manager.parent();
     let ancestors = entity.get_ancestors();
     if parent.is_none() && !has_children && ancestors.is_empty() {
         return None;
@@ -865,9 +863,11 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
     Some(ExecutionHierarchy {
         workflow_id: entity.workflow_id().clone(),
         execution_id: entity.id().clone(),
-        parent_execution_id: parent,
+        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
         depth: entity.get_hierarchy_depth(),
         root_execution_id: entity.get_root_execution_id(),
+        root_execution_type: Some(manager.root_execution_type()),
         ancestors: if ancestors.is_empty() {
             None
         } else {
@@ -877,27 +877,32 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
     })
 }
 
-fn build_fork_aggregation_state(entity: &WorkflowExecutionEntity) -> Option<serde_json::Value> {
+/// Build the fork aggregation record from the manager's fork children,
+/// resolving each branch path status from the live execution registry.
+/// A branch with no live handle reads as pending, matching the restore-side
+/// inference for not-yet-restored children.
+fn build_fork_aggregation_state(
+    ctx: &ApiContext,
+    entity: &WorkflowExecutionEntity,
+) -> Option<serde_json::Value> {
+    use wf_execution_shared::fork::{fork_aggregation_state, ForkChildStatus};
+    use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
     let children = entity.hierarchy_manager().children();
-    let mut path_statuses = serde_json::Map::new();
-    let mut fork_node_id: Option<String> = None;
-    for child in &children {
-        if let Some(fork) = child.fork_path.as_ref() {
-            path_statuses.insert(
-                fork.branch_path_id.clone(),
-                serde_json::Value::String("PENDING".to_string()),
-            );
-            fork_node_id = Some(fork.fork_node_id.clone());
+    fork_aggregation_state(&children, |child_id| {
+        match ctx
+            .execution_instance(child_id.as_str())
+            .map(|handle| handle.status())
+        {
+            Some(ExecutionStatus::Completed) => ForkChildStatus::Completed,
+            Some(
+                ExecutionStatus::Failed
+                | ExecutionStatus::Cancelled
+                | ExecutionStatus::Stopped
+                | ExecutionStatus::Timeout,
+            ) => ForkChildStatus::Failed,
+            _ => ForkChildStatus::Pending,
         }
-    }
-    if path_statuses.is_empty() {
-        return None;
-    }
-    Some(serde_json::json!({
-        "forkNodeId": fork_node_id.unwrap_or_default(),
-        "pathStatuses": serde_json::Value::Object(path_statuses),
-        "isAggregationComplete": false,
-    }))
+    })
 }
 
 /// Resolve the workflow identity and execution options needed to rebuild a
@@ -945,13 +950,13 @@ fn checkpoint_coordinator(ctx: &ApiContext) -> WorkflowCheckpointCoordinator {
 }
 
 /// Build the checkpoint integration mounted onto the coordinator of every
-/// execution that has checkpoints enabled. The default strategy snapshots
-/// after every completed node plus an unconditional start/end snapshot
-/// (start/end are not strategy-gated).
-fn checkpoint_integration(ctx: &ApiContext) -> WorkflowCheckpointIntegration {
+/// execution that has checkpoints enabled. Roots snapshot after every
+/// completed node; sub-executions use a sparser cadence to bound write
+/// amplification. Start/end snapshots are unconditional (not strategy-gated).
+fn checkpoint_integration(ctx: &ApiContext, depth: u32) -> WorkflowCheckpointIntegration {
     let mut integration = WorkflowCheckpointIntegration::new(
         ctx.checkpoint_store.clone(),
-        NodeCheckpointStrategy::default(),
+        NodeCheckpointStrategy::for_depth(depth),
     )
     .with_core_event_bus(ctx.event_bus.clone());
     if let Some(manager) = ctx.file_checkpoint_manager() {
@@ -966,9 +971,10 @@ fn attach_checkpoints(
     coordinator: WorkflowCoordinator,
     ctx: &ApiContext,
     checkpoints_enabled: bool,
+    depth: u32,
 ) -> WorkflowCoordinator {
     if checkpoints_enabled {
-        coordinator.with_checkpoint(checkpoint_integration(ctx))
+        coordinator.with_checkpoint(checkpoint_integration(ctx, depth))
     } else {
         coordinator
     }
@@ -1063,7 +1069,12 @@ async fn run_workflow(
         .with_entity_arc(entity.clone())
         .with_state_manager(ctx.state_manager.clone())
         .with_hooks(hooks);
-    coordinator = attach_checkpoints(coordinator, ctx, checkpoints_enabled);
+    coordinator = attach_checkpoints(
+        coordinator,
+        ctx,
+        checkpoints_enabled,
+        entity.get_hierarchy_depth(),
+    );
 
     let result = coordinator.execute().await;
     run_lifecycle_middleware(
@@ -1904,14 +1915,23 @@ mod tests {
 
     #[tokio::test]
     async fn build_hierarchy_carries_depth_root_and_children() {
+        let root_manager =
+            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                "root".to_string(),
+                wf_types::execution::ExecutionType::Workflow,
+            ));
+        let child_manager = root_manager
+            .derive_child(
+                "child".to_string(),
+                wf_types::execution::ExecutionType::Workflow,
+                None,
+            )
+            .expect("derive");
         let entity = wf_workflow::entity::WorkflowExecutionEntity::new(
             "child".to_string(),
             "wf-1".to_string(),
         )
-        .with_parent_execution_id("root".to_string())
-        .with_ancestors(vec!["root".to_string()])
-        .with_hierarchy_depth(1)
-        .with_root_execution_id("root".to_string());
+        .with_hierarchy_manager(child_manager);
         entity.register_child("gc".to_string()).await;
         let hierarchy = build_hierarchy(&entity).await.expect("hierarchy built");
         assert_eq!(hierarchy.depth, 1);

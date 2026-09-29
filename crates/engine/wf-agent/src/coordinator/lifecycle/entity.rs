@@ -6,7 +6,6 @@ use wf_types::Id;
 use super::AgentLoopCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
-use wf_execution_shared::types::execution_entity::{child_ancestors, child_depth, child_root};
 
 impl AgentLoopCoordinator {
     /// Normalize an inbound conversation to the target loop's exposure.
@@ -92,36 +91,53 @@ impl AgentLoopCoordinator {
             .with_model(config.model.clone());
 
         // Parent association: typed field first, `input.context` fallback.
-        // The parent hierarchy manager is the single source; the registry
-        // lookup is only a fallback when no manager handle was injected.
-        let parent_execution_id = self.parent_execution_id.clone().or_else(|| {
-            input
-                .context
-                .get("parent_execution_id")
-                .and_then(|v| v.as_str())
-                .map(Id::from)
-        });
+        // The parent hierarchy manager is the single source. When no
+        // manager handle was injected, the registry parent entity lends its
+        // manager for a derive; a parent id with no live parent is an
+        // explicit error instead of a half-linked legacy record. An empty
+        // id carries no identity and means "no parent".
+        let parent_execution_id = self
+            .parent_execution_id
+            .clone()
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                input
+                    .context
+                    .get("parent_execution_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(Id::from)
+            });
         if let Some(parent_id) = parent_execution_id {
-            if let Some(parent_manager) = self.parent_hierarchy_manager.clone() {
-                if let Ok(child_manager) = parent_manager.derive_child(
-                    entity.id().clone(),
-                    wf_types::execution::ExecutionType::AgentLoop,
-                    None,
-                ) {
+            let parent_manager = self.parent_hierarchy_manager.clone().or_else(|| {
+                self.entity_registry
+                    .as_ref()
+                    .and_then(|registry| registry.get(&parent_id))
+                    .map(|parent| parent.hierarchy_manager())
+            });
+            match parent_manager {
+                Some(parent_manager) => {
+                    let child_manager = parent_manager
+                        .derive_child(
+                            entity.id().clone(),
+                            wf_types::execution::ExecutionType::AgentLoop,
+                            None,
+                        )
+                        .map_err(|e| {
+                            let message = e.to_string();
+                            if message.contains("maximum hierarchy depth") {
+                                crate::error::AgentError::HierarchyLimitReached(message)
+                            } else {
+                                crate::error::AgentError::Validation(message)
+                            }
+                        })?;
                     entity = entity.with_hierarchy_manager(child_manager);
-                } else {
-                    entity = entity.with_parent_execution_id(parent_id.clone());
                 }
-            } else {
-                entity = entity.with_parent_execution_id(parent_id.clone());
-                if let Some(ref registry) = self.entity_registry {
-                    if let Some(parent) = registry.get(&parent_id) {
-                        let parent_ref = parent.as_ref();
-                        entity = entity
-                            .with_hierarchy_depth(child_depth(parent_ref))
-                            .with_root_execution_id(child_root(parent_ref))
-                            .with_ancestors(child_ancestors(parent_ref));
-                    }
+                None => {
+                    return Err(crate::error::AgentError::Validation(format!(
+                        "parent execution '{}' has no live hierarchy manager",
+                        parent_id
+                    )));
                 }
             }
         }

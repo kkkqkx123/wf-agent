@@ -104,7 +104,7 @@ fn skip_agent_item(execution: &wf_types::AgentExecution) -> RecoveryItem {
         current_node_id: None,
         recovered: false,
         note: Some(
-            "agent executions are not auto-recovered; resume explicitly from checkpoint with the loop config"
+            "agent executions require ApiRecoveryExecutor for auto-recovery; wire the executor or resume explicitly via auto_resume"
                 .to_string(),
         ),
     }
@@ -123,7 +123,7 @@ async fn skip_agent_item_with_lookup(
             current_node_id: None,
             recovered: false,
             note: Some(format!(
-                "agent executions are not auto-recovered; resume explicitly from checkpoint {} with the loop config",
+                "agent executions require ApiRecoveryExecutor for auto-recovery; resume explicitly via auto_resume from checkpoint {}",
                 latest.id
             )),
         },
@@ -310,8 +310,10 @@ mod tests {
                 workflow_id: "wf-1".into(),
                 execution_id: "child-1".into(),
                 parent_execution_id: Some("root-1".into()),
+                parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
                 depth: 1,
                 root_execution_id: Some("root-1".into()),
+                root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
                 ancestors: Some(vec!["root-1".into()]),
                 children: None,
             }),

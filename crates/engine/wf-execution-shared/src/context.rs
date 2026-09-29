@@ -27,15 +27,10 @@ pub struct ExecutorContext {
     pub resource_registries: Option<Arc<ResourceRegistries>>,
     pub variables: Arc<DashMap<String, Value>>,
     pub options: WorkflowExecutionOptions,
-    pub parent_execution_id: Option<Id>,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Carried so nested executions resolve full ancestry without access
-    /// to the parent entity handle.
-    pub ancestors: Vec<Id>,
-    /// Nesting depth of the owning execution (0 = root).
-    pub depth: u32,
-    /// Root execution id of the hierarchy (own id for a root run).
-    pub root_execution_id: Option<Id>,
+    /// Checkpoint wiring inherited from the parent execution. Child
+    /// executions build their own integration from it (depth-adjusted
+    /// strategy); `None` means checkpoints stay disabled below this point.
+    pub checkpoint_scope: Option<crate::checkpoint_scope::CheckpointScope>,
     pub metrics: Option<Arc<MetricsRegistry>>,
     /// Execution-scoped token usage tracker shared by LLM nodes.
     pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
@@ -82,10 +77,7 @@ impl ExecutorContext {
             resource_registries: None,
             variables: Arc::new(DashMap::new()),
             options,
-            parent_execution_id: None,
-            ancestors: Vec::new(),
-            depth: 0,
-            root_execution_id: None,
+            checkpoint_scope: None,
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
             hook_handler_registry: None,
@@ -108,24 +100,42 @@ impl ExecutorContext {
         self
     }
 
-    pub fn with_parent_execution(mut self, parent_id: Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self
-    }
-
-    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
-        self.ancestors = ancestors;
-        self.depth = depth;
-        self.root_execution_id = root;
-        self
-    }
-
     pub fn with_hierarchy_manager(
         mut self,
         manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     ) -> Self {
         self.hierarchy_manager = Some(manager);
         self
+    }
+
+    /// Parent execution id resolved from the hierarchy manager (`None`
+    /// for roots and manager-less contexts).
+    pub fn parent_id(&self) -> Option<Id> {
+        self.hierarchy_manager.as_ref().and_then(|m| m.parent_id())
+    }
+
+    /// Root-to-parent execution id chain (oldest first, excluding self),
+    /// resolved from the hierarchy manager (empty without one).
+    pub fn ancestor_chain(&self) -> Vec<Id> {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.ancestors())
+            .unwrap_or_default()
+    }
+
+    /// Nesting depth of the owning execution (0 = root or manager-less).
+    pub fn depth(&self) -> u32 {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.depth())
+            .unwrap_or(0)
+    }
+
+    /// Root execution id of the hierarchy (`None` without a manager).
+    pub fn root_id(&self) -> Option<Id> {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.root_execution_id())
     }
 
     pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
@@ -185,6 +195,16 @@ impl ExecutorContext {
         self.fork_registries = registries;
         self
     }
+
+    /// Inherit the parent's checkpoint wiring; spawned child executions
+    /// build their own depth-adjusted integration from it.
+    pub fn with_checkpoint_scope(
+        mut self,
+        scope: crate::checkpoint_scope::CheckpointScope,
+    ) -> Self {
+        self.checkpoint_scope = Some(scope);
+        self
+    }
 }
 
 /// How a node's `input` was produced from its incoming edges.
@@ -214,14 +234,9 @@ pub struct NodeExecutionContext {
     /// tell a bare object value apart from a merged multi-edge object.
     pub input_shape: NodeInputShape,
     pub variables: Arc<DashMap<String, Value>>,
-    pub parent_execution_id: Option<Id>,
-    pub depth: u32,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Populated from the owning entity so nested executions resolve full
-    /// ancestry without access to the parent entity handle.
-    pub ancestors: Vec<Id>,
-    /// Root execution id of the hierarchy (own id for a root run).
-    pub root_execution_id: Option<Id>,
+    /// Checkpoint wiring inherited from the parent execution (see
+    /// [`ExecutorContext::checkpoint_scope`]).
+    pub checkpoint_scope: Option<crate::checkpoint_scope::CheckpointScope>,
     pub event_bus: Option<Arc<EventBus>>,
     /// Handler registry inherited from the parent execution (strongly
     /// typed; `None` only when no registry was wired, which nested
@@ -317,10 +332,7 @@ impl NodeExecutionContext {
             input,
             input_shape: NodeInputShape::None,
             variables,
-            parent_execution_id: None,
-            depth: 0,
-            ancestors: Vec::new(),
-            root_execution_id: None,
+            checkpoint_scope: None,
             event_bus: None,
             handler_registry: None,
             graph_structure: None,
@@ -353,11 +365,6 @@ impl NodeExecutionContext {
         self
     }
 
-    pub fn with_parent_execution(mut self, parent_id: Id) -> Self {
-        self.parent_execution_id = Some(parent_id);
-        self
-    }
-
     pub fn with_hierarchy_manager(
         mut self,
         manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
@@ -366,15 +373,43 @@ impl NodeExecutionContext {
         self
     }
 
-    pub fn with_depth(mut self, depth: u32) -> Self {
-        self.depth = depth;
-        self
+    /// Parent execution id resolved from the hierarchy manager (`None`
+    /// for roots and manager-less contexts).
+    pub fn parent_id(&self) -> Option<Id> {
+        self.hierarchy_manager.as_ref().and_then(|m| m.parent_id())
     }
 
-    pub fn with_hierarchy(mut self, ancestors: Vec<Id>, depth: u32, root: Option<Id>) -> Self {
-        self.ancestors = ancestors;
-        self.depth = depth;
-        self.root_execution_id = root;
+    /// Root-to-parent execution id chain (oldest first, excluding self),
+    /// resolved from the hierarchy manager (empty without one).
+    pub fn ancestor_chain(&self) -> Vec<Id> {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.ancestors())
+            .unwrap_or_default()
+    }
+
+    /// Nesting depth of the owning execution (0 = root or manager-less).
+    pub fn depth(&self) -> u32 {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.depth())
+            .unwrap_or(0)
+    }
+
+    /// Root execution id of the hierarchy (`None` without a manager).
+    pub fn root_id(&self) -> Option<Id> {
+        self.hierarchy_manager
+            .as_ref()
+            .map(|m| m.root_execution_id())
+    }
+
+    /// Inherit the parent's checkpoint wiring; spawned child executions
+    /// build their own depth-adjusted integration from it.
+    pub fn with_checkpoint_scope(
+        mut self,
+        scope: crate::checkpoint_scope::CheckpointScope,
+    ) -> Self {
+        self.checkpoint_scope = Some(scope);
         self
     }
 

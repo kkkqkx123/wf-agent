@@ -54,6 +54,35 @@ impl ApiRecoveryExecutor {
             })?;
 
         let Some(latest) = latest.into_iter().next() else {
+            let parent_id = execution
+                .hierarchy
+                .as_ref()
+                .and_then(|h| {
+                    h.parent_execution_id
+                        .clone()
+                        .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
+                })
+                .map(|id| id.to_string());
+            if let Some(parent_id) = parent_id {
+                let parent_typed = wf_types::Id::from(parent_id.clone());
+                let parent_latest = state_manager
+                    .list_latest_by_entities(std::slice::from_ref(&parent_typed))
+                    .await
+                    .ok()
+                    .and_then(|rows| rows.into_iter().next());
+                if let Some(parent_cp) = parent_latest {
+                    return Ok(RecoveryItem {
+                        execution_id: execution.id.to_string(),
+                        status: format!("{:?}", execution.status),
+                        current_node_id: execution.current_node_id.clone(),
+                        recovered: false,
+                        note: Some(format!(
+                            "no independent checkpoint; parent {parent_id} holds child reference via checkpoint {}, resume parent instead",
+                            parent_cp.id
+                        )),
+                    });
+                }
+            }
             return Ok(RecoveryItem {
                 execution_id: execution.id.to_string(),
                 status: format!("{:?}", execution.status),

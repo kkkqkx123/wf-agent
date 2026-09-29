@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use wf_execution_shared::error::ExecutionSharedError;
-use wf_execution_shared::types::execution_entity::{
-    child_ancestors, child_depth, child_root, ExecutionEntity, ExecutionStatus,
-};
+use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 
 struct StubEntity {
     id: String,
@@ -124,10 +122,10 @@ fn status_terminal_classification() {
 }
 
 #[test]
-fn status_converts_to_persisted_shape_with_timeout_collapse() {
+fn status_converts_to_persisted_shape_preserving_timeout() {
     assert_eq!(
         wf_types::ExecutionStatus::from(ExecutionStatus::Timeout),
-        wf_types::ExecutionStatus::Failed
+        wf_types::ExecutionStatus::Timeout
     );
     assert_eq!(
         wf_types::ExecutionStatus::from(ExecutionStatus::Completed),
@@ -137,26 +135,6 @@ fn status_converts_to_persisted_shape_with_timeout_collapse() {
         wf_types::ExecutionStatus::from(ExecutionStatus::Running),
         wf_types::ExecutionStatus::Running
     );
-}
-
-#[test]
-fn child_helpers_extend_parent_chain() {
-    let parent = stub("p", ExecutionStatus::Running, 1, vec!["root"], Some("root"));
-    assert_eq!(
-        child_ancestors(&parent),
-        vec!["root".to_string(), "p".to_string()]
-    );
-    assert_eq!(child_depth(&parent), 2);
-    assert_eq!(child_root(&parent), "root".to_string());
-}
-
-#[test]
-fn child_helpers_dedupe_tail_and_fall_back_to_parent_id() {
-    let parent = stub("p", ExecutionStatus::Running, 0, vec!["p"], Some("root"));
-    assert_eq!(child_ancestors(&parent), vec!["p".to_string()]);
-
-    let orphan = stub("p", ExecutionStatus::Running, 0, vec![], None);
-    assert_eq!(child_root(&orphan), "p".to_string());
 }
 
 #[tokio::test]

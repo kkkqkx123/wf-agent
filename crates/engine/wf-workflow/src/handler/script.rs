@@ -299,7 +299,7 @@ impl ScriptHandler {
             capture_script_changes(
                 manager,
                 ctx.execution_id.as_str(),
-                ctx.parent_execution_id.as_deref(),
+                ctx.parent_id().as_deref(),
                 collector,
                 before,
             );

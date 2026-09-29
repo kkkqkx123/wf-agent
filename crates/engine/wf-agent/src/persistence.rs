@@ -119,8 +119,9 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
 }
 
 async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHierarchy> {
-    let children = entity.hierarchy_manager().children();
-    let parent = entity.parent_execution_id().cloned();
+    let manager = entity.hierarchy_manager();
+    let children = manager.children();
+    let parent = manager.parent();
     let ancestors = entity.get_ancestors();
     if parent.is_none() && children.is_empty() && ancestors.is_empty() {
         return None;
@@ -128,9 +129,11 @@ async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHier
     Some(ExecutionHierarchy {
         workflow_id: entity.definition_id().clone(),
         execution_id: entity.id().clone(),
-        parent_execution_id: parent,
+        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
         depth: entity.get_hierarchy_depth(),
         root_execution_id: entity.get_root_execution_id(),
+        root_execution_type: Some(manager.root_execution_type()),
         ancestors: if ancestors.is_empty() {
             None
         } else {
@@ -194,17 +197,31 @@ mod tests {
 
     #[tokio::test]
     async fn child_hierarchy_reaches_the_record() {
-        let entity = entity("loop-child")
-            .with_parent_execution_id(Id::from("loop-root".to_string()))
-            .with_ancestors(vec![Id::from("loop-root".to_string())])
-            .with_hierarchy_depth(1)
-            .with_root_execution_id(Id::from("loop-root".to_string()));
+        let root_manager =
+            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                Id::from("loop-root".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+            ));
+        let child_manager = root_manager
+            .derive_child(
+                Id::from("loop-child".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+                None,
+            )
+            .expect("derive");
+        let entity = entity("loop-child").with_hierarchy_manager(child_manager.clone());
+        // The derive already registered the child on the root manager; the
+        // entity registers its own grandchild below.
         entity.register_child(Id::from("loop-gc".to_string())).await;
         let persisted = build_agent_execution(&entity).await;
         let hierarchy = persisted.hierarchy.expect("child must carry hierarchy");
         assert_eq!(hierarchy.depth, 1);
         assert_eq!(hierarchy.root_execution_id.as_deref(), Some("loop-root"));
         assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("loop-root"));
+        assert_eq!(
+            hierarchy.parent_execution_type,
+            Some(wf_types::execution::ExecutionType::AgentLoop)
+        );
         assert_eq!(hierarchy.children.map(|c| c.len()), Some(1));
     }
 

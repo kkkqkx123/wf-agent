@@ -502,7 +502,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                     ),
                 ) => match elapsed {
                     Ok(result) => result,
-                    Err(_) => Err(WorkflowError::TriggerError(format!(
+                    Err(_) => Err(WorkflowError::ExecutionTimeout(format!(
                         "Triggered subworkflow '{}' timed out after {}ms",
                         triggered_workflow_id, timeout_ms
                     ))),
@@ -553,11 +553,14 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             let action_type = "execute_triggered_subworkflow";
 
             let callback = async move {
-                let run = runner.run(&workflow_id, input);
+                let run = tokio::time::timeout(
+                    std::time::Duration::from_millis(timeout_ms),
+                    runner.run(&workflow_id, input),
+                );
                 let (outcome, error) = tokio::select! {
                     output = run => {
                         match output {
-                            Ok(output) => {
+                            Ok(Ok(output)) => {
                                 if let Err(e) = handle_subworkflow_output(
                                     &contexts,
                                     &bus,
@@ -583,9 +586,17 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                     (TriggerExecutionOutcome::Completed, None)
                                 }
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 warn!("Triggered subworkflow '{}' failed: {}", workflow_id, e);
                                 (TriggerExecutionOutcome::Failed, Some(e.to_string()))
+                            }
+                            Err(_) => {
+                                let timed_out = WorkflowError::ExecutionTimeout(format!(
+                                    "Triggered subworkflow '{}' timed out after {}ms",
+                                    workflow_id, timeout_ms
+                                ));
+                                warn!("{}", timed_out);
+                                (TriggerExecutionOutcome::Failed, Some(timed_out.to_string()))
                             }
                         }
                     }

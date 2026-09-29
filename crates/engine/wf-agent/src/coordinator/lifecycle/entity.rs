@@ -124,11 +124,10 @@ impl AgentLoopCoordinator {
                             None,
                         )
                         .map_err(|e| {
-                            let message = e.to_string();
-                            if message.contains("maximum hierarchy depth") {
-                                crate::error::AgentError::HierarchyLimitReached(message)
+                            if e.is_hierarchy_depth_exceeded() {
+                                crate::error::AgentError::HierarchyLimitReached(e.to_string())
                             } else {
-                                crate::error::AgentError::Validation(message)
+                                crate::error::AgentError::Validation(e.to_string())
                             }
                         })?;
                     entity = entity.with_hierarchy_manager(child_manager);

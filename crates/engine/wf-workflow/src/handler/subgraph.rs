@@ -77,6 +77,40 @@ impl SubgraphHandler {
     }
 }
 
+/// Whether the SUBGRAPH node ignores a child failure and continues the
+/// parent instead of propagating it. Explicit opt-in only; absent or any
+/// other value keeps the fail-fast propagation.
+fn ignore_child_error(config: &Value) -> bool {
+    match config.get("on_child_error") {
+        Some(Value::String(s)) => matches!(s.as_str(), "ignore" | "continue" | "continue_on_error"),
+        Some(Value::Bool(true)) => true,
+        _ => false,
+    }
+}
+
+/// A child failure resolved into a marked success under the ignore policy:
+/// no output, no variable write-back, but the parent can tell the child
+/// did not complete normally.
+fn ignored_child_result(node_count: u64, err: &WorkflowError) -> NodeExecutionResult {
+    let mut ignored_metadata = HashMap::new();
+    ignored_metadata.insert(
+        "node_count".to_string(),
+        Value::Number(serde_json::Number::from(node_count)),
+    );
+    ignored_metadata.insert("child_error_ignored".to_string(), Value::Bool(true));
+    ignored_metadata.insert(
+        "child_error".to_string(),
+        Value::String(wf_types::workflow::error_branch::truncate_summary(
+            &err.to_string(),
+        )),
+    );
+    NodeExecutionResult {
+        output: Value::Null,
+        next_node_ids: Vec::new(),
+        metadata: ignored_metadata,
+    }
+}
+
 /// Shared subgraph execution helper: builds a child `ExecutorContext` and a
 /// `WorkflowCoordinator`, applies variable mappings, emits the subgraph
 /// start/complete events and records subgraph metrics. SUBGRAPH keeps its
@@ -189,6 +223,7 @@ pub(crate) async fn execute_subgraph(
         EventType::SubgraphStarted,
         &ctx.execution_id,
         &ctx.node_id,
+        None,
     );
 
     let mut coordinator: WorkflowCoordinator =
@@ -203,6 +238,25 @@ pub(crate) async fn execute_subgraph(
                 coordinator
             }
             Err(err) => {
+                if ignore_child_error(config) {
+                    emit_subgraph_event(
+                        ctx.event_bus.as_ref(),
+                        EventType::SubgraphCompleted,
+                        &ctx.execution_id,
+                        &ctx.node_id,
+                        Some("ignored"),
+                    );
+                    if let Some(metrics) = &subgraph_metrics {
+                        metrics.record_execution_complete(
+                            &ctx.node_id,
+                            &ctx.execution_id,
+                            true,
+                            (wf_common::now() - start) as f64,
+                            Some("subgraph_ignored"),
+                        );
+                    }
+                    return Ok(ignored_child_result(0, &err));
+                }
                 if let Some(metrics) = &subgraph_metrics {
                     metrics.record_execution_complete(
                         &ctx.node_id,
@@ -237,6 +291,7 @@ pub(crate) async fn execute_subgraph(
                 EventType::SubgraphCompleted,
                 &ctx.execution_id,
                 &ctx.node_id,
+                None,
             );
             if let Some(metrics) = &subgraph_metrics {
                 metrics.record_execution_complete(
@@ -250,6 +305,28 @@ pub(crate) async fn execute_subgraph(
             output
         }
         Err(err) => {
+            if ignore_child_error(config) {
+                emit_subgraph_event(
+                    ctx.event_bus.as_ref(),
+                    EventType::SubgraphCompleted,
+                    &ctx.execution_id,
+                    &ctx.node_id,
+                    Some("ignored"),
+                );
+                if let Some(metrics) = &subgraph_metrics {
+                    metrics.record_execution_complete(
+                        &ctx.node_id,
+                        &ctx.execution_id,
+                        true,
+                        (wf_common::now() - start) as f64,
+                        Some("subgraph_ignored"),
+                    );
+                }
+                return Ok(ignored_child_result(
+                    coordinator.completed_nodes().len() as u64,
+                    &err,
+                ));
+            }
             if let Some(metrics) = &subgraph_metrics {
                 metrics.record_execution_complete(
                     &ctx.node_id,
@@ -283,11 +360,16 @@ fn emit_subgraph_event(
     event_type: EventType,
     execution_id: &wf_types::Id,
     node_id: &str,
+    outcome: Option<&str>,
 ) {
     let Some(bus) = event_bus else {
         tracing::debug!(execution_id = %execution_id, node_id, ?event_type, "no event bus, skipping subgraph event");
         return;
     };
+    let mut metadata = HashMap::from([("node_id".to_string(), Value::String(node_id.to_string()))]);
+    if let Some(outcome) = outcome {
+        metadata.insert("outcome".to_string(), Value::String(outcome.to_string()));
+    }
     let event = BaseEvent {
         id: wf_types::Id::new(),
         r#type: event_type,
@@ -297,10 +379,7 @@ fn emit_subgraph_event(
         agent_loop_id: None,
 
         event_name: None,
-        metadata: Some(HashMap::from([(
-            "node_id".to_string(),
-            Value::String(node_id.to_string()),
-        )])),
+        metadata: Some(metadata),
     };
     bus.publish_logged(
         event,

@@ -87,6 +87,7 @@ pub fn analyze_workflow_error(e: &WorkflowError) -> ErrorAnalysis {
         },
         WorkflowError::ForkJoinError(_)
         | WorkflowError::SubgraphError(_)
+        | WorkflowError::HierarchyLimitReached(_)
         | WorkflowError::TriggerError(_) => ErrorAnalysis {
             kind: ErrorKind::Execution,
             error_type: ErrorType::Internal,

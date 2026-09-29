@@ -177,11 +177,12 @@ impl TriggeredAgentExecutionManager {
         let child_manager = match child_manager {
             Ok(manager) => manager,
             Err(e) => {
-                let message = e.to_string();
-                if message.contains("maximum hierarchy depth") {
-                    return Err(crate::error::AgentError::HierarchyLimitReached(message));
+                if e.is_hierarchy_depth_exceeded() {
+                    return Err(crate::error::AgentError::HierarchyLimitReached(
+                        e.to_string(),
+                    ));
                 }
-                return Err(crate::error::AgentError::Validation(message));
+                return Err(crate::error::AgentError::Validation(e.to_string()));
             }
         };
         let child_entity =
@@ -286,11 +287,32 @@ impl TriggeredAgentExecutionManager {
             let result_variable = config.result_variable.clone();
             let writeback = config.writeback;
             let anchor = config.anchor;
+            let timeout_ms = config.timeout_ms;
             running_tasks.insert(task_id.clone(), ());
             tokio::spawn(async move {
                 let child_run = executor(child_config, child_input);
+                let timed_run = async {
+                    match timeout_ms {
+                        Some(ms) if ms > 0 => {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_millis(ms),
+                                child_run,
+                            )
+                            .await
+                            {
+                                Ok(result) => result,
+                                Err(_) => Err(AgentError::ExecutionTimeout(format!(
+                                    "Triggered agent execution '{}' timed out after {}ms",
+                                    child_entity.id(),
+                                    ms
+                                ))),
+                            }
+                        }
+                        _ => child_run.await,
+                    }
+                };
                 let outcome = tokio::select! {
-                    run = child_run => match run {
+                    run = timed_run => match run {
                         Ok(output) => {
                             write_back_result(
                                 &parent_clone,

@@ -134,10 +134,10 @@ impl ExecutionHierarchyManager {
         };
 
         if new_depth > MAX_DEPTH {
-            return Err(CoreError::StateError(format!(
-                "maximum hierarchy depth exceeded: {} > {}",
-                new_depth, MAX_DEPTH
-            )));
+            return Err(CoreError::HierarchyDepthExceeded {
+                depth: new_depth,
+                max_depth: MAX_DEPTH,
+            });
         }
 
         inner.depth = new_depth;
@@ -172,10 +172,10 @@ impl ExecutionHierarchyManager {
         let mut inner = wf_common::lock::write_ok(self.inner.write());
         let new_depth = parent_depth.saturating_add(1);
         if new_depth > MAX_DEPTH {
-            return Err(CoreError::StateError(format!(
-                "maximum hierarchy depth exceeded: {} > {}",
-                new_depth, MAX_DEPTH
-            )));
+            return Err(CoreError::HierarchyDepthExceeded {
+                depth: new_depth,
+                max_depth: MAX_DEPTH,
+            });
         }
         inner.parent = Some(parent.clone());
         let mut chain = parent_ancestors.to_vec();
@@ -243,10 +243,10 @@ impl ExecutionHierarchyManager {
         }
         let new_depth = parent_depth.saturating_add(1);
         if new_depth > MAX_DEPTH {
-            return Err(CoreError::StateError(format!(
-                "maximum hierarchy depth exceeded: {} > {}",
-                new_depth, MAX_DEPTH
-            )));
+            return Err(CoreError::HierarchyDepthExceeded {
+                depth: new_depth,
+                max_depth: MAX_DEPTH,
+            });
         }
         let mut chain = parent_ancestors;
         if chain.last() != Some(&parent_id) {

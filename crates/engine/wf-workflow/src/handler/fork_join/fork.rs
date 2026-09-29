@@ -443,11 +443,31 @@ impl ForkHandler {
             Value::String(format!("{:?}", outcome)),
         );
 
+        if outcome == ForkOutcome::Failed {
+            let failures: Vec<String> = results
+                .iter()
+                .filter(|r| !r.success)
+                .map(|r| {
+                    format!(
+                        "{}[{}]: {}",
+                        r.branch_id,
+                        r.error_category()
+                            .map(|c| c.as_str())
+                            .unwrap_or("business_failure"),
+                        r.error_message().unwrap_or_default(),
+                    )
+                })
+                .collect();
+            return Err(WorkflowError::ForkJoinError(format!(
+                "fork '{}' failed: {}",
+                node_id,
+                failures.join("; "),
+            )));
+        }
+
         let mut next_nodes: Vec<String> = Vec::new();
-        if outcome != ForkOutcome::Failed {
-            if let Some(target) = &join_node_id {
-                next_nodes.push(target.clone());
-            }
+        if let Some(target) = &join_node_id {
+            next_nodes.push(target.clone());
         }
 
         let outputs: Vec<Value> = results

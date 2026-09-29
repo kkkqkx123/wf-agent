@@ -52,6 +52,9 @@ pub enum WorkflowError {
     #[error("Trigger error: {0}")]
     TriggerError(String),
 
+    #[error("Sub-workflow hierarchy limit reached: {0}")]
+    HierarchyLimitReached(String),
+
     #[error("Variable error: {0}")]
     VariableError(String),
 
@@ -83,9 +86,10 @@ pub type WorkflowResult<T> = Result<T, WorkflowError>;
 /// Bridge into the shared handler boundary. Typed failures keep their
 /// shared-side shape so routing never downgrades them. Engine diagnostics
 /// without a node context become a categorized `NodeFailure` with a
-/// placeholder id; validation-shaped diagnostics become `VariableError`.
-/// `HandlerError` is reserved for genuinely untyped handler internals.
-/// A nested shared error is unwrapped instead of being stringified twice.
+/// placeholder id and a source prefix; validation-shaped diagnostics become
+/// `VariableError`. `HandlerError` is reserved for genuinely untyped handler
+/// internals. A nested shared error is unwrapped instead of being stringified
+/// twice.
 impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
     fn from(value: WorkflowError) -> Self {
         use wf_execution_shared::error::ExecutionSharedError as Shared;
@@ -126,16 +130,52 @@ impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
             WorkflowError::HandlerNotFound { node_type } => {
                 Shared::VariableError(format!("Handler not found: {node_type}"))
             }
-            WorkflowError::CoordinatorError(detail)
-            | WorkflowError::ForkJoinError(detail)
-            | WorkflowError::SubgraphError(detail)
-            | WorkflowError::TriggerError(detail)
-            | WorkflowError::LoopError(detail)
-            | WorkflowError::OperationError(detail)
-            | WorkflowError::Internal(detail) => Shared::NodeFailure {
+            WorkflowError::CoordinatorError(detail) => Shared::NodeFailure {
                 node_id: "unknown".to_string(),
                 category: NodeErrorCategory::BusinessFailure,
-                detail,
+                detail: format!("coordinator: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::ForkJoinError(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("fork_join: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::SubgraphError(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("subgraph: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::TriggerError(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("trigger: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::HierarchyLimitReached(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("hierarchy_limit: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::LoopError(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("loop: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::OperationError(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("operation: {detail}"),
+                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+            },
+            WorkflowError::Internal(detail) => Shared::NodeFailure {
+                node_id: "unknown".to_string(),
+                category: NodeErrorCategory::BusinessFailure,
+                detail: format!("internal: {detail}"),
                 failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
             },
         }

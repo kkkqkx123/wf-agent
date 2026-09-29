@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_agent::entity::AgentLoopEntity;
+use wf_agent::error::AgentError;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::trigger::{
     AgentExecutorCallback, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
@@ -263,14 +264,32 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 let ledger = self.ledger.clone();
                 let ledger_template = template.clone();
                 let ledger_event = event.clone();
+                let timeout_ms = timeout.filter(|ms| *ms > 0);
                 // The ledger entry travels with the real outcome: recording
                 // happens when the run settles, and a shutdown-abandoned run
                 // is recorded too (outcome `abandoned`), so "triggered but
                 // never completed" stays auditable.
                 tokio::spawn(async move {
                     let run = executor(child_config, child_input);
+                    let timed_run = async {
+                        match timeout_ms {
+                            Some(ms) => match tokio::time::timeout(
+                                std::time::Duration::from_millis(ms),
+                                run,
+                            )
+                            .await
+                            {
+                                Ok(output) => output,
+                                Err(_) => Err(AgentError::ExecutionTimeout(format!(
+                                    "Triggered agent execution for trigger '{}' timed out after {}ms",
+                                    ledger_template.name, ms
+                                ))),
+                            },
+                            None => run.await,
+                        }
+                    };
                     let (outcome, error) = tokio::select! {
-                        output = run => match output {
+                        output = timed_run => match output {
                             Ok(_) => (TriggerExecutionOutcome::Completed, None),
                             Err(e) => {
                                 warn!("Triggered agent execution failed: {}", e);
@@ -401,7 +420,10 @@ impl AgentTriggerRunner {
                                 );
                                 (
                                     TriggerExecutionOutcome::Failed,
-                                    Some(format!("timed out after {}ms", ms)),
+                                    Some(format!(
+                                        "Execution timeout: Cold-started agent '{}' timed out after {}ms",
+                                        agent_id, ms
+                                    )),
                                 )
                             }
                         },

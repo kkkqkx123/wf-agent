@@ -72,16 +72,24 @@ impl TriggerActionRunner for CreationRunner {
                 std::time::Duration::from_millis(timeout_ms),
                 run,
             ) => match output {
-                Ok(Ok(_)) => (TriggerExecutionOutcome::Completed, None),
-                Ok(Err(e)) => (TriggerExecutionOutcome::Failed, Some(e.to_string())),
-                Err(_) => (TriggerExecutionOutcome::Failed, Some(format!(
-                    "Cold-started workflow '{}' timed out after {}ms",
-                    workflow_id, timeout_ms
-                ))),
+                Ok(Ok(_)) => (TriggerExecutionOutcome::Completed, None::<WorkflowError>),
+                Ok(Err(e)) => (TriggerExecutionOutcome::Failed, Some(e)),
+                Err(_) => (
+                    TriggerExecutionOutcome::Failed,
+                    Some(WorkflowError::ExecutionTimeout(format!(
+                        "Cold-started workflow '{}' timed out after {}ms",
+                        workflow_id, timeout_ms
+                    ))),
+                ),
             },
             _ = self.shutdown.cancelled() => (
                 TriggerExecutionOutcome::Abandoned,
-                Some("aborted at listener shutdown".to_string()),
+                Some(WorkflowError::SharedError(
+                    wf_execution_shared::error::ExecutionSharedError::InterruptionError {
+                        kind: wf_execution_shared::error::InterruptionKind::Stop,
+                        detail: "aborted at listener shutdown".to_string(),
+                    },
+                )),
             ),
         };
         if let Some(error) = &error {
@@ -97,7 +105,7 @@ impl TriggerActionRunner for CreationRunner {
             TriggerOutcome {
                 action_type: "execute_workflow",
                 outcome,
-                error: error.clone(),
+                error: error.as_ref().map(|e| e.to_string()),
                 execution_time_ms: wf_common::now() - start,
                 child_execution_id: None,
             },
@@ -106,9 +114,9 @@ impl TriggerActionRunner for CreationRunner {
         if outcome == TriggerExecutionOutcome::Completed {
             Ok(())
         } else {
-            Err(WorkflowError::TriggerError(error.unwrap_or_else(|| {
-                "cold-start workflow failed".to_string()
-            })))
+            Err(error.unwrap_or_else(|| {
+                WorkflowError::TriggerError("cold-start workflow failed".to_string())
+            }))
         }
     }
 }

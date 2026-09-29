@@ -136,7 +136,7 @@ mod tests {
         let report = health(&ctx).await.unwrap();
         assert!(report.healthy);
         assert_eq!(report.total_entries, 0);
-        assert_eq!(report.stores.len(), 20);
+        assert_eq!(report.stores.len(), ctx.storage.named_backends().len());
         assert!(report.stores.iter().all(|s| s.healthy));
     }
 

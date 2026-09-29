@@ -18,6 +18,11 @@ pub enum CoreError {
     InterruptionError(String),
     #[error("state error: {0}")]
     StateError(String),
+    /// A hierarchy link would exceed the maximum depth. Carries the
+    /// rejected depth and the limit so callers can distinguish an
+    /// overflow from other state misuse without parsing message text.
+    #[error("maximum hierarchy depth exceeded: {depth} > {max_depth}")]
+    HierarchyDepthExceeded { depth: u32, max_depth: u32 },
     #[error("internal: {0}")]
     Internal(String),
     #[error("task conflict: {0}")]
@@ -28,6 +33,11 @@ impl CoreError {
     /// Create a `TaskConflict` error for a duplicate task id.
     pub fn task_conflict(task_id: impl Into<String>) -> Self {
         CoreError::TaskConflict(task_id.into())
+    }
+
+    /// Whether this error reports a hierarchy depth overflow.
+    pub fn is_hierarchy_depth_exceeded(&self) -> bool {
+        matches!(self, CoreError::HierarchyDepthExceeded { .. })
     }
 }
 

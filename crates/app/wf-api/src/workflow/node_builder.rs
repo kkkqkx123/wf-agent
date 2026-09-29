@@ -253,6 +253,7 @@ impl NodeBuilder<NoType> {
             subgraph_id: Some(subgraph_id.into()),
             embed_id: None,
             async_: None,
+            on_child_error: None,
             variable_inputs: None,
             variable_outputs: None,
         };
@@ -340,6 +341,20 @@ impl<S> NodeBuilder<S> {
 }
 
 impl NodeBuilder<Typed> {
+    /// Declare the SUBGRAPH child failure policy: a failed child execution
+    /// resolves into a marked success instead of failing the parent.
+    /// Accepts the same ignore markers the runtime recognizes (`ignore`,
+    /// `continue`, `continue_on_error`).
+    pub fn with_subgraph_on_child_error(mut self, on_child_error: impl Into<String>) -> Self {
+        if let Value::Object(map) = &mut self.config {
+            map.insert(
+                "on_child_error".to_string(),
+                Value::String(on_child_error.into()),
+            );
+        }
+        self
+    }
+
     /// Build the static node. The node type is always assigned in this phase.
     pub fn build(self) -> BaseStaticNode {
         BaseStaticNode {
@@ -400,6 +415,19 @@ mod tests {
             join_config["fork_path_ids"],
             serde_json::json!(["p1", "p2"])
         );
+    }
+
+    #[test]
+    fn subgraph_ignore_policy_builds_canonical_config() {
+        let node = NodeBuilder::subgraph("sg", "child")
+            .with_subgraph_on_child_error("ignore")
+            .build();
+        let config = node.config.unwrap();
+        assert_eq!(config["subgraph_id"], "child");
+        assert_eq!(config["on_child_error"], "ignore");
+
+        let node = NodeBuilder::subgraph("sg", "child").build();
+        assert!(node.config.unwrap().get("on_child_error").is_none());
     }
 
     #[test]

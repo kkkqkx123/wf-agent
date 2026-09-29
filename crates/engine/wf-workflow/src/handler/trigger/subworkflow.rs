@@ -59,12 +59,18 @@ pub(crate) async fn handle_execute_subworkflow(
             _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
         };
 
-    let graph = lookup_graph(&triggered_workflow_id).ok_or_else(|| {
-        WorkflowError::TriggerError(format!(
+    let Some(graph) = lookup_graph(&triggered_workflow_id) else {
+        emit(
+            ctx,
+            EventType::TriggeredSubgraphFailed,
+            &format!("triggered_subworkflow_failed:{}", triggered_workflow_id),
+        )
+        .await;
+        return Err(WorkflowError::TriggerError(format!(
             "Triggered workflow '{}' not found in graph registry",
             triggered_workflow_id
-        ))
-    })?;
+        )));
+    };
 
     emit(
         ctx,
@@ -98,6 +104,7 @@ pub(crate) async fn handle_execute_subworkflow(
             timeout,
         };
         let exec_id = execution_id.clone();
+        let workflow_id_for_log = triggered_workflow_id.clone();
         tokio::spawn(async move {
             let subworkflow = run_triggered_subworkflow(&tctx, run);
             tokio::pin!(subworkflow);
@@ -111,6 +118,8 @@ pub(crate) async fn handle_execute_subworkflow(
                         _ = token.cancelled() => {
                             tracing::warn!(
                                 execution_id = %execution_id,
+                                triggered_workflow_id = %workflow_id_for_log,
+                                parent_execution_id = %tctx.execution_id,
                                 "fire-and-forget triggered sub-workflow abandoned: parent execution cancelled"
                             );
                             return;
@@ -120,8 +129,15 @@ pub(crate) async fn handle_execute_subworkflow(
                 None => subworkflow.await,
             };
             if let Err(e) = outcome {
+                emit(
+                    &tctx,
+                    EventType::TriggeredSubgraphFailed,
+                    &format!("triggered_subworkflow_failed:{}", workflow_id_for_log),
+                )
+                .await;
                 tracing::warn!(
                     execution_id = %execution_id,
+                    triggered_workflow_id = %workflow_id_for_log,
                     error = %e,
                     "fire-and-forget triggered sub-workflow ended with failure"
                 );
@@ -220,7 +236,13 @@ async fn run_triggered_subworkflow(
             wf_types::execution::ExecutionType::Workflow,
             None,
         )
-        .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
+        .map_err(|e| {
+            if e.is_hierarchy_depth_exceeded() {
+                WorkflowError::HierarchyLimitReached(e.to_string())
+            } else {
+                WorkflowError::TriggerError(e.to_string())
+            }
+        })?;
     let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
         .with_hierarchy_manager(child_manager.clone());
     entity = entity.with_execution_type(

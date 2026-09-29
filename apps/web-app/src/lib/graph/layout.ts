@@ -233,11 +233,7 @@ interface Box {
 	y2: number;
 }
 
-function nodeBox(
-	position: CanvasPoint,
-	width: number,
-	height: number,
-): Box {
+function nodeBox(position: CanvasPoint, width: number, height: number): Box {
 	return {
 		x1: position.x - width / 2,
 		y1: position.y - height / 2,

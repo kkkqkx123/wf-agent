@@ -37,7 +37,8 @@
 		const current = items.findIndex((item) => item.id === value);
 		if (current < 0) return;
 		let next: number;
-		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % items.length;
+		if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+			next = (current + 1) % items.length;
 		else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
 			next = (current - 1 + items.length) % items.length;
 		else if (event.key === 'Home') next = 0;

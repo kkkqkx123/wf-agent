@@ -174,7 +174,11 @@
 				>
 					Confirm cleanup (30d+)
 				</Button>
-				<Button variant="ghost" size="sm" onclick={() => (cleanupArmed = false)}>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={() => (cleanupArmed = false)}
+				>
 					Keep
 				</Button>
 			{:else}
@@ -190,7 +194,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="triggers-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="triggers-panel"
+	/>
 
 	<div
 		id="triggers-panel"
@@ -200,7 +209,10 @@
 	>
 		{#if tab === 'records'}
 			{#if recordsLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if recordsError}
 				<ErrorState
 					title="Trigger records failed to load"
@@ -209,97 +221,98 @@
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else}
-			<Card bodyClass="p-0">
-				<div class="overflow-x-auto">
-					<table class="w-full border-collapse text-body">
-						<thead>
-							<tr class="border-b border-border">
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Trigger</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Workflow</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Execution</th
-								>
-								<th
-									class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
-									>Status</th
-								>
-								<th
-									class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
-									>Fired</th
-								>
-							</tr>
-						</thead>
-						<tbody>
-							{#each triggerRecords as record (record.id)}
-								<tr
-									class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
-								>
-									<td class="px-3 py-2.5 font-mono text-caption"
-										>{record.triggerName}</td
+				<Card bodyClass="p-0">
+					<div class="overflow-x-auto">
+						<table class="w-full border-collapse text-body">
+							<thead>
+								<tr class="border-b border-border">
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Trigger</th
 									>
-									<td class="px-3 py-2.5">{record.workflowName}</td>
-									<td
-										class="px-3 py-2.5 font-mono text-caption text-muted-foreground"
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Workflow</th
 									>
-										{record.executionId}
-									</td>
-									<td class="px-3 py-2.5"
-										><StatusBadge status={record.status} size="sm" /></td
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Execution</th
 									>
-									<td
-										class="px-3 py-2.5 text-right text-caption text-muted-foreground"
+									<th
+										class="px-3 py-2 text-left text-micro uppercase tracking-wide text-muted-foreground"
+										>Status</th
 									>
-										{formatRelativeTime(record.firedAt)}
-									</td>
+									<th
+										class="px-3 py-2 text-right text-micro uppercase tracking-wide text-muted-foreground"
+										>Fired</th
+									>
 								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</Card>
+							</thead>
+							<tbody>
+								{#each triggerRecords as record (record.id)}
+									<tr
+										class="border-b border-border/60 transition-colors last:border-0 hover:bg-accent/40"
+									>
+										<td class="px-3 py-2.5 font-mono text-caption"
+											>{record.triggerName}</td
+										>
+										<td class="px-3 py-2.5">{record.workflowName}</td>
+										<td
+											class="px-3 py-2.5 font-mono text-caption text-muted-foreground"
+										>
+											{record.executionId}
+										</td>
+										<td class="px-3 py-2.5"
+											><StatusBadge status={record.status} size="sm" /></td
+										>
+										<td
+											class="px-3 py-2.5 text-right text-caption text-muted-foreground"
+										>
+											{formatRelativeTime(record.firedAt)}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</Card>
 			{/if}
 		{:else}
 			<div class="grid gap-3 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
 				<Card title="Hooks">
 					{#if hooks.length === 0}
 						<p class="text-caption text-muted-foreground">
-							The backend exposes no hook registry endpoint, so there is
-							nothing to pick. Enter a hook name manually on the right to
-							dispatch a test payload.
+							The backend exposes no hook registry endpoint, so there is nothing
+							to pick. Enter a hook name manually on the right to dispatch a
+							test payload.
 						</p>
 					{:else}
-					<ul class="space-y-1">
-						{#each hooks as hook (hook.name)}
-							<li>
-								<button
-									type="button"
-									onclick={() => (hookName = hook.name)}
-									class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
-									hook.name
-										? 'border-[hsl(var(--ring))] bg-accent'
-										: 'border-transparent hover:bg-accent/60'}"
-								>
-									<span class="block font-mono text-caption">{hook.name}</span>
-									<span class="block text-micro text-muted-foreground"
-										>{hook.description}</span
+						<ul class="space-y-1">
+							{#each hooks as hook (hook.name)}
+								<li>
+									<button
+										type="button"
+										onclick={() => (hookName = hook.name)}
+										class="w-full rounded-md border px-2.5 py-2 text-left transition-colors {hookName ===
+										hook.name
+											? 'border-[hsl(var(--ring))] bg-accent'
+											: 'border-transparent hover:bg-accent/60'}"
 									>
-									<span class="mt-1 flex items-center gap-2">
-										<StatusBadge status={hook.lastStatus} size="sm" />
-										<span class="text-micro text-muted-foreground">
-											{hook.deliveries} deliveries
+										<span class="block font-mono text-caption">{hook.name}</span
+										>
+										<span class="block text-micro text-muted-foreground"
+											>{hook.description}</span
+										>
+										<span class="mt-1 flex items-center gap-2">
+											<StatusBadge status={hook.lastStatus} size="sm" />
+											<span class="text-micro text-muted-foreground">
+												{hook.deliveries} deliveries
+											</span>
 										</span>
-									</span>
-								</button>
-							</li>
-						{/each}
-					</ul>
+									</button>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 				</Card>
 
@@ -343,7 +356,8 @@
 									<Button
 										variant="ghost"
 										size="sm"
-										onclick={() => payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
+										onclick={() =>
+											payloadEditor?.scrollToLine(payloadErrorLine ?? 1)}
 									>
 										Go to line
 									</Button>
@@ -361,7 +375,9 @@
 							</Button>
 						</div>
 						{#if lastDispatch}
-							<p class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption">
+							<p
+								class="rounded-md border border-border bg-muted/40 px-2 py-1.5 text-caption"
+							>
 								{lastDispatch}
 							</p>
 						{/if}

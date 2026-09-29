@@ -33,7 +33,8 @@
 		menu?.focus();
 		const closeOnWheel = (): void => onclose();
 		window.addEventListener('wheel', closeOnWheel, { capture: true });
-		return () => window.removeEventListener('wheel', closeOnWheel, { capture: true });
+		return () =>
+			window.removeEventListener('wheel', closeOnWheel, { capture: true });
 	});
 
 	function point(delta: number): void {

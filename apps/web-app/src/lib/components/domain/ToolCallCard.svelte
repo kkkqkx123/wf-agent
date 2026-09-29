@@ -29,9 +29,7 @@
 
 	const isApproval = $derived(entry.kind === 'approval');
 	const isGateway = $derived(entry.kind === 'network');
-	const isScript = $derived(
-		entry.kind === 'bash' || entry.kind === 'script',
-	);
+	const isScript = $derived(entry.kind === 'bash' || entry.kind === 'script');
 	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
 
 	function reviewApprovals(): void {

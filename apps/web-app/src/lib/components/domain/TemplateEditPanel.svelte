@@ -51,7 +51,9 @@
 		onservercheck: () => void;
 		onopenworkflow: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
-		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
+		onmovenodes: (
+			moves: Array<{ id: string; position: CanvasPosition }>,
+		) => void;
 		onaddnode: (position: CanvasPosition) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
@@ -111,15 +113,25 @@
 		syntaxError ? jsonErrorLine(editText, syntaxError) : null,
 	);
 
+	/** Single safe parse of the JSON projection shared by hints, topology and snippet. */
+	const parsedProjection = $derived.by<{
+		value: unknown;
+		error: string | null;
+	}>(() => {
+		try {
+			return { value: JSON.parse(editText) as unknown, error: null };
+		} catch (e) {
+			return {
+				value: undefined,
+				error: e instanceof Error ? e.message : 'Invalid JSON',
+			};
+		}
+	});
+
 	/** Live local hints from the JSON projection; server issues arrive via gate. */
 	const localIssues = $derived.by<TemplateIssue[]>(() => {
-		if (syntaxError) return [];
-		try {
-			const parsed: unknown = JSON.parse(editText);
-			return localTemplateIssues(kind, parsed);
-		} catch {
-			return [];
-		}
+		if (syntaxError || parsedProjection.value === undefined) return [];
+		return localTemplateIssues(kind, parsedProjection.value);
 	});
 
 	const combinedIssues = $derived([...localIssues, ...serverIssues]);
@@ -129,19 +141,15 @@
 		if (kind !== 'workflow') {
 			return { nodes: [], edges: [], error: null as string | null };
 		}
-		try {
-			const parsed: unknown = JSON.parse(editText);
-			const parsedTopology = parseTemplateTopology(parsed);
+		if (parsedProjection.value !== undefined) {
+			const parsedTopology = parseTemplateTopology(parsedProjection.value);
 			return { ...parsedTopology, error: null as string | null };
-		} catch (e) {
-			const fallback = session.topology();
-			return {
-				...fallback,
-				error:
-					session.syntaxError ??
-					(e instanceof Error ? e.message : 'Invalid JSON'),
-			};
 		}
+		const fallback = session.topology();
+		return {
+			...fallback,
+			error: session.syntaxError ?? parsedProjection.error ?? 'Invalid JSON',
+		};
 	});
 
 	const graphNodes = $derived<DisplayNode[]>(topology.nodes);
@@ -164,12 +172,10 @@
 
 	const nodeSnippet = $derived.by(() => {
 		if (!store.selectedId) return null;
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(editText);
-		} catch {
-			parsed = session.fullValue();
-		}
+		const parsed: unknown =
+			parsedProjection.value === undefined
+				? session.fullValue()
+				: parsedProjection.value;
 		const target = templateEditTarget(kind, parsed);
 		const parsedTopology = parseTemplateTopology(
 			kind === 'node' || kind === 'trigger'
@@ -324,8 +330,7 @@
 			</label>
 		{/each}
 		<p class="text-micro text-muted-foreground">
-			Form edits the core fields; the remaining definition stays in JSON
-			mode.
+			Form edits the core fields; the remaining definition stays in JSON mode.
 		</p>
 	</div>
 {:else if tab === 'graph'}
@@ -346,8 +351,8 @@
 		</p>
 	{:else}
 		<p class="text-micro text-muted-foreground">
-			Drag nodes to move · double-click empty canvas to add a node ·
-			click an edge to delete it · shift-click another node to connect.
+			Drag nodes to move · double-click empty canvas to add a node · click an
+			edge to delete it · shift-click another node to connect.
 		</p>
 		<GraphExplorer
 			bind:this={explorer}
@@ -423,8 +428,8 @@
 			<pre
 				class="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-micro">{nodeSnippet}</pre>
 			<p class="text-micro text-muted-foreground">
-				Topology fields edit above; other stored fields merge back on
-				save. {combinedIssues.length > 0
+				Topology fields edit above; other stored fields merge back on save. {combinedIssues.length >
+				0
 					? `${combinedIssues.length} issue(s) need attention.`
 					: ''}
 			</p>
@@ -456,8 +461,7 @@
 				{openWorkflowBusy ? 'Opening…' : 'Open as workflow'}
 			</Button>
 			<span class="text-micro text-muted-foreground">
-				Graph edits merge into JSON on save; issues map back to graph
-				nodes.
+				Graph edits merge into JSON on save; issues map back to graph nodes.
 			</span>
 		</div>
 	{/if}
@@ -502,9 +506,7 @@
 		{saveBusy ? 'Saving…' : isNew ? 'Create' : 'Save'}
 	</Button>
 	{#if !isNew}
-		<Button variant="ghost" size="sm" onclick={() => oncancel()}>
-			Cancel
-		</Button>
+		<Button variant="ghost" size="sm" onclick={() => oncancel()}>Cancel</Button>
 	{/if}
 </div>
 
@@ -514,8 +516,8 @@
 	description="The graph has unsaved changes and the JSON changed underneath. Choose which side to keep."
 >
 	<p class="text-caption text-muted-foreground">
-		Overwrite the JSON with the graph, or discard the graph and reload from
-		the JSON. No automatic merge is attempted.
+		Overwrite the JSON with the graph, or discard the graph and reload from the
+		JSON. No automatic merge is attempted.
 	</p>
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">

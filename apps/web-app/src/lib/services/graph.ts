@@ -564,18 +564,6 @@ export function asRecordList(value: unknown): Record<string, unknown>[] {
 		: [];
 }
 
-function textField(
-	record: Record<string, unknown>,
-	keys: string[],
-	fallback: string,
-): string {
-	return graphField(record, keys, fallback);
-}
-
-function asNodeList(value: unknown): Record<string, unknown>[] {
-	return asRecordList(value);
-}
-
 /**
  * Whole execution topology in one round trip. The split nodes/edges
  * endpoints re-resolve the same structure server-side, so prefer this for
@@ -595,24 +583,28 @@ export async function getExecutionGraph(
 	);
 	const view = isRecord(structure) ? structure : {};
 	return {
-		nodes: asNodeList(view.nodes).map((node, index) => ({
-			id: textField(node, ['id', 'node_id'], `node-${index}`),
-			label: textField(
+		nodes: asRecordList(view.nodes).map((node, index) => ({
+			id: graphField(node, ['id', 'node_id'], `node-${index}`),
+			label: graphField(
 				node,
 				['name', 'label', 'id', 'node_id'],
 				`node-${index}`,
 			),
-			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+			kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
-		edges: asNodeList(view.edges).map((edge, index) => ({
-			id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
-			from: textField(edge, ['source_node_id', 'from', 'source'], ''),
-			to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+		edges: asRecordList(view.edges).map((edge, index) => ({
+			id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
+			from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
+			to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
 			label:
 				typeof edge.condition === 'string' && edge.condition
 					? edge.condition
 					: undefined,
-			kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
+			kind: graphField(
+				edge,
+				['edge_type', 'type', 'kind'],
+				'default',
+			).toLowerCase(),
 		})),
 	};
 }
@@ -651,24 +643,28 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 			: [];
 	return {
 		graph: {
-			nodes: asNodeList(graphValue.nodes).map((node, index) => ({
-				id: textField(node, ['id', 'node_id'], `node-${index}`),
-				label: textField(
+			nodes: asRecordList(graphValue.nodes).map((node, index) => ({
+				id: graphField(node, ['id', 'node_id'], `node-${index}`),
+				label: graphField(
 					node,
 					['name', 'label', 'id', 'node_id'],
 					`node-${index}`,
 				),
-				kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+				kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 			})),
-			edges: asNodeList(graphValue.edges).map((edge, index) => ({
-				id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
-				from: textField(edge, ['source_node_id', 'from', 'source'], ''),
-				to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+			edges: asRecordList(graphValue.edges).map((edge, index) => ({
+				id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
+				from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
+				to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
 				label:
 					typeof edge.condition === 'string' && edge.condition
 						? edge.condition
 						: undefined,
-				kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
+				kind: graphField(
+					edge,
+					['edge_type', 'type', 'kind'],
+					'default',
+				).toLowerCase(),
 			})),
 		},
 		failedNodes: failedValue.filter(
@@ -705,24 +701,28 @@ export async function getWorkflowDraftTopology(
 	const record = requireData(data, `Draft ${draftId} missing`);
 	const definition = unwrapDraftDefinition(record);
 	return {
-		nodes: asNodeList(definition.nodes).map((node, index) => ({
-			id: textField(node, ['id', 'node_id'], `node-${index}`),
-			label: textField(
+		nodes: asRecordList(definition.nodes).map((node, index) => ({
+			id: graphField(node, ['id', 'node_id'], `node-${index}`),
+			label: graphField(
 				node,
 				['name', 'label', 'id', 'node_id'],
 				`node-${index}`,
 			),
-			kind: textField(node, ['node_type', 'kind', 'type'], 'unknown'),
+			kind: graphField(node, ['node_type', 'kind', 'type'], 'unknown'),
 		})),
-		edges: asNodeList(definition.edges).map((edge, index) => ({
-			id: textField(edge, ['id', 'edge_id'], `edge-${index}`),
-			from: textField(edge, ['source_node_id', 'from', 'source'], ''),
-			to: textField(edge, ['target_node_id', 'to', 'target'], ''),
+		edges: asRecordList(definition.edges).map((edge, index) => ({
+			id: graphField(edge, ['id', 'edge_id'], `edge-${index}`),
+			from: graphField(edge, ['source_node_id', 'from', 'source'], ''),
+			to: graphField(edge, ['target_node_id', 'to', 'target'], ''),
 			label:
 				typeof edge.condition === 'string' && edge.condition
 					? edge.condition
 					: undefined,
-			kind: textField(edge, ['edge_type', 'type', 'kind'], 'default').toLowerCase(),
+			kind: graphField(
+				edge,
+				['edge_type', 'type', 'kind'],
+				'default',
+			).toLowerCase(),
 		})),
 	};
 }

@@ -5,7 +5,10 @@ const KIND_BY_NAME: Array<{ match: RegExp; kind: string }> = [
 	{ match: /mcp/i, kind: 'mcp' },
 	{ match: /shell|bash|cli|command|exec|terminal/i, kind: 'bash' },
 	{ match: /file|read|write|glob|path|tree|diff/i, kind: 'file' },
-	{ match: /search|grep|web|fetch|http|rest|gateway|endpoint|url/i, kind: 'network' },
+	{
+		match: /search|grep|web|fetch|http|rest|gateway|endpoint|url/i,
+		kind: 'network',
+	},
 	{ match: /memory|remember|recall/i, kind: 'memory' },
 	{ match: /knowledge|doc|retriev/i, kind: 'knowledge' },
 	{ match: /agent|sub.?agent|spawn/i, kind: 'agent' },
@@ -44,7 +47,10 @@ function pickString(record: Record<string, unknown>, keys: string[]): string {
 	return '';
 }
 
-function pickInt(record: Record<string, unknown>, keys: string[]): number | null {
+function pickInt(
+	record: Record<string, unknown>,
+	keys: string[],
+): number | null {
 	for (const key of keys) {
 		const value = record[key];
 		if (typeof value === 'number' && Number.isFinite(value))

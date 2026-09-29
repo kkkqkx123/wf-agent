@@ -259,6 +259,8 @@
 		drawerOpen = false;
 		const target = pendingNavUrl;
 		pendingNavUrl = null;
+		// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		if (target) void goto(target);
 	}
 
@@ -355,10 +357,7 @@
 		try {
 			const draftId = await saveWorkflowDraft(definition);
 			const issues = await validateWorkflowDraft(draftId);
-			serverIssues = serverTemplateIssues(
-				issues,
-				session.topology().nodes,
-			);
+			serverIssues = serverTemplateIssues(issues, session.topology().nodes);
 			validatedText = editText;
 			if (issues.length > 0) {
 				toasts.warning(`Server reports ${issues.length} issue(s)`);
@@ -393,7 +392,10 @@
 		} else {
 			serverIssues = [];
 		}
-		const combined = [...localTemplateIssues(drawerKind, value), ...serverIssues];
+		const combined = [
+			...localTemplateIssues(drawerKind, value),
+			...serverIssues,
+		];
 		validationState = combined.length === 0 ? 'valid' : 'invalid';
 		validatedText = editText;
 		return combined.length === 0;
@@ -772,35 +774,35 @@
 			{/if}
 
 			{#if editMode || drawerId === null}
-			<TemplateEditPanel
-				kind={drawerKind}
-				tab={editTab}
-				isNew={drawerId === null}
-				{validationState}
-				fields={formFields}
-				bind:formState
-				bind:editText
-				{syntaxError}
-				{serverIssues}
-				{session}
-				store={templateEditStore}
-				{draftBusy}
-				{saveBusy}
-				{openWorkflowBusy}
-				{graphRequest}
-				ontabchange={(next) => (editTab = next)}
-				onvalidate={() => void runValidate()}
-				onsave={() => void runSave()}
-				oncancel={resetEditState}
-				onservercheck={() => void runTemplateServerGate()}
-				onopenworkflow={() => void runOpenAsWorkflow()}
-				onmovenode={handleTemplateMoveNode}
-				onmovenodes={handleTemplateMoveNodes}
-				onaddnode={handleTemplateAddNode}
-				onconnect={handleTemplateConnect}
-				ondeletenodes={handleTemplateDeleteNodes}
-				ondeletegroups={handleTemplateDeleteGroups}
-			/>
+				<TemplateEditPanel
+					kind={drawerKind}
+					tab={editTab}
+					isNew={drawerId === null}
+					{validationState}
+					fields={formFields}
+					bind:formState
+					bind:editText
+					{syntaxError}
+					{serverIssues}
+					{session}
+					store={templateEditStore}
+					{draftBusy}
+					{saveBusy}
+					{openWorkflowBusy}
+					{graphRequest}
+					ontabchange={(next) => (editTab = next)}
+					onvalidate={() => void runValidate()}
+					onsave={() => void runSave()}
+					oncancel={resetEditState}
+					onservercheck={() => void runTemplateServerGate()}
+					onopenworkflow={() => void runOpenAsWorkflow()}
+					onmovenode={handleTemplateMoveNode}
+					onmovenodes={handleTemplateMoveNodes}
+					onaddnode={handleTemplateAddNode}
+					onconnect={handleTemplateConnect}
+					ondeletenodes={handleTemplateDeleteNodes}
+					ondeletegroups={handleTemplateDeleteGroups}
+				/>
 			{:else if detail}
 				{@const current = detail}
 				{#if summary.length > 0}
@@ -841,18 +843,18 @@
 						<Button
 							variant="outline"
 							size="sm"
-						onclick={() => {
-							editMode = true;
-							editTab = 'graph';
-							session.load(drawerKind, current.raw);
-							formState = session.formSnapshot();
-							editText = session.text;
-							syntaxError = null;
-							validationState = 'idle';
-							serverIssues = [];
-							validatedText = null;
-							graphRequest += 1;
-						}}
+							onclick={() => {
+								editMode = true;
+								editTab = 'graph';
+								session.load(drawerKind, current.raw);
+								formState = session.formSnapshot();
+								editText = session.text;
+								syntaxError = null;
+								validationState = 'idle';
+								serverIssues = [];
+								validatedText = null;
+								graphRequest += 1;
+							}}
 						>
 							Edit graph
 						</Button>

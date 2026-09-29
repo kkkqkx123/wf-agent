@@ -68,10 +68,7 @@
 	{#each drafts as draft (draft.id)}
 		<Card title={draft.name}>
 			{#snippet actions()}
-				<StatusBadge
-					status={draft.valid ? 'completed' : 'failed'}
-					size="sm"
-				/>
+				<StatusBadge status={draft.valid ? 'completed' : 'failed'} size="sm" />
 			{/snippet}
 			<p class="text-caption text-muted-foreground">
 				Updated {formatDateTime(draft.updatedAt)}
@@ -79,14 +76,8 @@
 			{#if draft.issues.length > 0}
 				<ul class="mt-2 space-y-1">
 					{#each draft.issues as issue, index (index)}
-						<li
-							class="flex items-start gap-1.5 text-caption text-destructive"
-						>
-							<Icon
-								name="alert-circle"
-								size={12}
-								class="mt-0.5 shrink-0"
-							/>
+						<li class="flex items-start gap-1.5 text-caption text-destructive">
+							<Icon name="alert-circle" size={12} class="mt-0.5 shrink-0" />
 							<span>{issue}</span>
 						</li>
 					{/each}
@@ -94,9 +85,7 @@
 			{/if}
 			{#snippet footer()}
 				<div class="flex items-center gap-2">
-					<Button size="sm" onclick={() => onpromote(draft.id)}>
-						Promote
-					</Button>
+					<Button size="sm" onclick={() => onpromote(draft.id)}>Promote</Button>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -116,9 +105,7 @@
 						size="sm"
 						onclick={() => toggleDefinition(draft.id)}
 					>
-						{definitionId === draft.id
-							? 'Hide definition'
-							: 'View definition'}
+						{definitionId === draft.id ? 'Hide definition' : 'View definition'}
 					</Button>
 				</div>
 			{/snippet}

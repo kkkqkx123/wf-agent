@@ -25,7 +25,8 @@ export const NAV_GROUPS: NavGroup[] = [
 				href: '/dashboard',
 				label: 'Dashboard',
 				icon: 'gauge',
-				description: 'Aggregated metrics for workflows, executions and checkpoints',
+				description:
+					'Aggregated metrics for workflows, executions and checkpoints',
 			},
 		],
 	},

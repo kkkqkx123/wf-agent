@@ -44,7 +44,11 @@ export interface StreamCallbacks {
 	onReasoning?: (text: string) => void;
 	onIterationStart?: (iteration: number) => void;
 	onIterationEnd?: (iteration: number) => void;
-	onToolStart?: (toolCallId: string, toolName: string, toolKind?: string) => void;
+	onToolStart?: (
+		toolCallId: string,
+		toolName: string,
+		toolKind?: string,
+	) => void;
 	onToolEnd?: (tool: ToolLifecycle) => void;
 	onUsage?: (usage: UsageSnapshot) => void;
 	onSubAgent?: (id: string, name: string, success: boolean | null) => void;

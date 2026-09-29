@@ -122,9 +122,9 @@
 	const peakToolCount = $derived(
 		Math.max(
 			1,
-			...((analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? []).map(
+			...(analysis?.toolFrequency ?? detail?.analysis.toolFrequency ?? []).map(
 				(entry) => entry.count,
-			)),
+			),
 		),
 	);
 
@@ -340,11 +340,7 @@
 				>
 					Confirm cancel
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => (cancelArmed = false)}
-				>
+				<Button variant="ghost" size="sm" onclick={() => (cancelArmed = false)}>
 					Keep
 				</Button>
 			{:else}
@@ -414,8 +410,7 @@
 					size="sm"
 					onclick={() => {
 						const id = page.params.id;
-						if (id)
-							void goto(resolve(`/chat?id=${encodeURIComponent(id)}`));
+						if (id) void goto(resolve(`/chat?id=${encodeURIComponent(id)}`));
 					}}
 				>
 					Continue in chat
@@ -447,7 +442,10 @@
 			{/if}
 		{:else if tab === 'graph'}
 			{#if !detail}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else}
 				<GraphExplorer
 					{nodes}
@@ -455,7 +453,7 @@
 					preset="decision"
 					selectedId={graphNodeId}
 					onselect={(id) => (graphNodeId = id)}
-					overlays={overlays}
+					{overlays}
 					{activeOverlay}
 					onoverlay={(id) => (activeOverlay = id)}
 				/>
@@ -477,7 +475,11 @@
 									<span class="text-micro tabular-nums text-muted-foreground">
 										{formatDuration(iteration.durationMs)}
 									</span>
-									<StatusBadge status={iteration.status} size="sm" dot={false} />
+									<StatusBadge
+										status={iteration.status}
+										size="sm"
+										dot={false}
+									/>
 								</div>
 							</li>
 						{/each}
@@ -486,7 +488,10 @@
 			{/if}
 		{:else if tab === 'analysis'}
 			{#if analysisLoading}
-				<Skeleton lines={5} class="rounded-lg border border-border bg-card p-4" />
+				<Skeleton
+					lines={5}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{:else if analysisError}
 				<ErrorState
 					title="Analysis failed to load"
@@ -501,9 +506,12 @@
 					class="rounded-lg border border-border bg-card"
 				/>
 			{:else}
-				{@const rootCause = analysis?.rootCause ?? detail?.analysis.rootCause ?? null}
-				{@const errorChain = analysis?.errorChain ?? detail?.analysis.errorChain ?? []}
-				{@const recoveryHints = analysis?.recoveryHints ?? detail?.analysis.recoveryHints ?? []}
+				{@const rootCause =
+					analysis?.rootCause ?? detail?.analysis.rootCause ?? null}
+				{@const errorChain =
+					analysis?.errorChain ?? detail?.analysis.errorChain ?? []}
+				{@const recoveryHints =
+					analysis?.recoveryHints ?? detail?.analysis.recoveryHints ?? []}
 				<div class="grid gap-3 lg:grid-cols-2">
 					<Card title="Error analysis">
 						<p class="text-caption">
@@ -599,7 +607,9 @@
 									{checkpoint.restorable ? 'restorable' : 'locked'}
 								</Badge>
 							{/snippet}
-							<p class="text-caption text-muted-foreground">{checkpoint.note}</p>
+							<p class="text-caption text-muted-foreground">
+								{checkpoint.note}
+							</p>
 							<p class="mt-1 text-micro text-muted-foreground">
 								{checkpoint.actor} · {formatDateTime(checkpoint.createdAt)}
 							</p>

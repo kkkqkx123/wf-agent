@@ -158,8 +158,7 @@ export async function getWorkflowVersions(
 			(typeof d.created_at === 'number' ? d.created_at : null) ??
 				(typeof d.updated_at === 'number' ? d.updated_at : null),
 		),
-		author:
-			typeof d.metadata?.author === 'string' ? d.metadata.author : '',
+		author: typeof d.metadata?.author === 'string' ? d.metadata.author : '',
 		note: typeof d.name === 'string' ? d.name : '',
 		current: index === 0,
 	}));
@@ -175,7 +174,10 @@ export async function getWorkflowVersionDefinition(
 			params: { path: { id, version } },
 		}),
 	);
-	return requireData(data, `Version ${version} missing for workflow ${id}`) as DefinitionDto;
+	return requireData(
+		data,
+		`Version ${version} missing for workflow ${id}`,
+	) as DefinitionDto;
 }
 
 interface DiffNodeDto {
@@ -205,7 +207,12 @@ export async function diffWorkflowVersions(
 		getWorkflowVersionDefinition(id, from),
 		getWorkflowVersionDefinition(id, to),
 	]);
-	const toDisplay = (d: DefinitionDto): { nodes: { id: string }[]; edges: { source: string; target: string }[] } => ({
+	const toDisplay = (
+		d: DefinitionDto,
+	): {
+		nodes: { id: string }[];
+		edges: { source: string; target: string }[];
+	} => ({
 		nodes: (Array.isArray(d.nodes) ? (d.nodes as DiffNodeDto[]) : [])
 			.map((node) => String(node.id ?? ''))
 			.filter(Boolean)
@@ -220,13 +227,21 @@ export async function diffWorkflowVersions(
 	const before = toDisplay(a);
 	const after = toDisplay(b);
 	return diffTopology(
-		before.nodes.map((node) => ({ id: node.id, label: node.id, kind: 'unknown' })),
+		before.nodes.map((node) => ({
+			id: node.id,
+			label: node.id,
+			kind: 'unknown',
+		})),
 		before.edges.map((edge) => ({
 			id: `${edge.source}->${edge.target}`,
 			source: edge.source,
 			target: edge.target,
 		})),
-		after.nodes.map((node) => ({ id: node.id, label: node.id, kind: 'unknown' })),
+		after.nodes.map((node) => ({
+			id: node.id,
+			label: node.id,
+			kind: 'unknown',
+		})),
 		after.edges.map((edge) => ({
 			id: `${edge.source}->${edge.target}`,
 			source: edge.source,
@@ -242,9 +257,7 @@ export async function diffWorkflowVersions(
  * inspection instead of narrowed to display fields.
  */
 export async function listWorkflowDrafts(): Promise<WorkflowDraft[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/workflows/drafts'),
-	);
+	const data = await call<unknown>(client.GET('/api/v1/workflows/drafts'));
 	requireData(data, 'Draft list');
 	const rows = Array.isArray(data)
 		? (data as Array<DefinitionDto & Record<string, unknown>>)
@@ -254,16 +267,13 @@ export async function listWorkflowDrafts(): Promise<WorkflowDraft[]> {
 			validateWorkflowDraft(String(row.id ?? '')).then(
 				(issues): WorkflowDraft => ({
 					id: String(row.id ?? ''),
-					name:
-						typeof row.name === 'string' ? row.name : String(row.id ?? ''),
+					name: typeof row.name === 'string' ? row.name : String(row.id ?? ''),
 					updatedAt: toIso(
 						(typeof row.updated_at === 'number' ? row.updated_at : null) ??
 							(typeof row.created_at === 'number' ? row.created_at : null),
 					),
 					valid: issues.length === 0,
-					issues: issues.map(
-						(issue) => `${issue.field}: ${issue.message}`,
-					),
+					issues: issues.map((issue) => `${issue.field}: ${issue.message}`),
 					definition: { ...row },
 				}),
 			),
@@ -377,7 +387,11 @@ export async function importWorkflow(json: string): Promise<string> {
 export async function createMinimalWorkflow(name: string): Promise<Workflow> {
 	const now = Date.now();
 	const trimmed = name.trim() || `Workflow ${now}`;
-	const id = `wf-${now}`;
+	const suffix =
+		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+			? crypto.randomUUID().slice(0, 8)
+			: Math.random().toString(36).slice(2, 10);
+	const id = `wf-${suffix}`;
 	return createWorkflow(trimmed, {
 		id,
 		name: trimmed,

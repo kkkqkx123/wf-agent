@@ -135,9 +135,7 @@ export function buildGroupView(
 			.map((node) => (node.groupLabel ?? '').trim())
 			.find((label) => label.length > 0);
 		const label =
-			(options?.labels?.[groupId] ?? '').trim() ||
-			memberLabel ||
-			groupId;
+			(options?.labels?.[groupId] ?? '').trim() || memberLabel || groupId;
 		const status = aggregateGroupStatus(
 			list.map((node) => options?.statusById?.[node.id] ?? node.status),
 		);

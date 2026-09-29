@@ -75,9 +75,7 @@ export class WorkflowLockStore {
 
 	get lockedByOther(): boolean {
 		return (
-			this.supported &&
-			this.holderId !== null &&
-			this.holderId !== this.ownerId
+			this.supported && this.holderId !== null && this.holderId !== this.ownerId
 		);
 	}
 

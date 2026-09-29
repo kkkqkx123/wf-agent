@@ -127,12 +127,15 @@ export interface ToolParameterSchema {
 
 interface ToolParameterSchemaDto {
 	type?: string;
-	properties?: Record<string, {
-		type?: string;
-		description?: string;
-		enum?: unknown[];
-		default?: unknown;
-	}>;
+	properties?: Record<
+		string,
+		{
+			type?: string;
+			description?: string;
+			enum?: unknown[];
+			default?: unknown;
+		}
+	>;
 	required?: string[];
 }
 
@@ -158,7 +161,8 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 		for (const [key, prop] of Object.entries(rawSchema.properties)) {
 			properties[key] = {
 				type: typeof prop?.type === 'string' ? prop.type : 'string',
-				description: typeof prop?.description === 'string' ? prop.description : undefined,
+				description:
+					typeof prop?.description === 'string' ? prop.description : undefined,
 				enum: Array.isArray(prop?.enum) ? prop.enum : undefined,
 				default: prop?.default,
 			};
@@ -169,7 +173,8 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 		parameters:
 			rawSchema && typeof rawSchema === 'object'
 				? {
-						type: typeof rawSchema.type === 'string' ? rawSchema.type : 'object',
+						type:
+							typeof rawSchema.type === 'string' ? rawSchema.type : 'object',
 						properties,
 						required: Array.isArray(rawSchema.required)
 							? rawSchema.required.map(String)
@@ -181,7 +186,8 @@ export async function getToolDetail(toolId: string): Promise<ToolDetail> {
 
 function fieldText(value: unknown): string {
 	if (typeof value === 'string') return value;
-	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (typeof value === 'number' || typeof value === 'boolean')
+		return String(value);
 	if (value === undefined || value === null) return '';
 	return JSON.stringify(value);
 }

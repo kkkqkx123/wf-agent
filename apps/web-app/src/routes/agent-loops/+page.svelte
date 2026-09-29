@@ -15,7 +15,10 @@
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { listAgentLoops, getAgentLoopDetail } from '$lib/services/agent-loops';
+	import {
+		listAgentLoops,
+		getAgentLoopDetail,
+	} from '$lib/services/agent-loops';
 	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -239,8 +242,7 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError =
-									e instanceof Error ? e.message : 'Detail failed.';
+								detailError = e instanceof Error ? e.message : 'Detail failed.';
 							});
 					}
 				}}

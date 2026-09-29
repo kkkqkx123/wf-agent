@@ -160,10 +160,7 @@
 				(async () => {
 					if (change.session && change.session !== change.actor) {
 						try {
-							const paired = await getDiffActors(
-								change.actor,
-								change.session,
-							);
+							const paired = await getDiffActors(change.actor, change.session);
 							const hit = paired.find((diff) => diff.path === change.path);
 							if (hit) return [hit];
 						} catch {
@@ -219,7 +216,10 @@
 			() => toasts.error('Download unavailable'),
 		);
 	}
-	async function decideApproval(approval: Approval, granted: boolean): Promise<void> {
+	async function decideApproval(
+		approval: Approval,
+		granted: boolean,
+	): Promise<void> {
 		try {
 			if (granted) {
 				await approveApproval(approval.id);
@@ -259,7 +259,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="checkpoints-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="checkpoints-panel"
+	/>
 
 	<div
 		id="checkpoints-panel"
@@ -417,8 +422,7 @@
 								<JsonViewer value={previewContent.content} />
 							{:else}
 								<pre
-									class="max-h-64 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground"
-								>{previewContent.content}</pre>
+									class="max-h-64 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground">{previewContent.content}</pre>
 							{/if}
 							<p class="mt-1.5 text-micro tabular-nums text-muted-foreground">
 								{formatBytes(previewContent.size)}{previewContent.truncated
@@ -449,7 +453,8 @@
 											>{entry.snapshotId.slice(0, 10)}</span
 										>
 										<span class="min-w-0 flex-1 truncate">{entry.source}</span>
-										<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
+										<span
+											class="shrink-0 text-micro tabular-nums text-muted-foreground"
 											>{formatRelativeTime(
 												new Date(entry.timestamp).toISOString(),
 											)}</span

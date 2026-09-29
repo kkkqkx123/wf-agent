@@ -527,7 +527,10 @@ export async function approveApproval(id: string): Promise<void> {
 }
 
 /** Reject a pending approval request with an optional reason. */
-export async function rejectApproval(id: string, reason?: string): Promise<void> {
+export async function rejectApproval(
+	id: string,
+	reason?: string,
+): Promise<void> {
 	await call<unknown>(
 		request('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', {
 			params: { path: { id } },

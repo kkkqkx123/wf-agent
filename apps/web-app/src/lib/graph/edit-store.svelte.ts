@@ -240,7 +240,10 @@ export class GraphEditStore {
 	}
 
 	/** Update topology attributes of one node with undo support. */
-	updateNode(id: string, patch: Partial<Pick<DisplayNode, 'label' | 'kind'>>): void {
+	updateNode(
+		id: string,
+		patch: Partial<Pick<DisplayNode, 'label' | 'kind'>>,
+	): void {
 		if (!this.nodes.some((node) => node.id === id)) return;
 		this.commit();
 		this.nodes = this.nodes.map((node) =>
@@ -263,7 +266,7 @@ export class GraphEditStore {
 				source_node_id: edge.source,
 				target_node_id: edge.target,
 				type: backendEdgeType(edge.kind),
-				...(edge.label ? { condition: edge.label, label: edge.label } : {}),
+				...(edge.label ? { condition: edge.label } : {}),
 			})),
 		};
 	}

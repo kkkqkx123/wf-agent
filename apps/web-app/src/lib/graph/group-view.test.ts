@@ -110,10 +110,7 @@ describe('aggregateGroupTone', () => {
 
 describe('group labels and status', () => {
 	it('prefers real group labels over ids', () => {
-		const nodes = [
-			node('a', 'g', { groupLabel: 'Payments' }),
-			node('b', 'g'),
-		];
+		const nodes = [node('a', 'g', { groupLabel: 'Payments' }), node('b', 'g')];
 		expect(deriveGroups(nodes)).toEqual([{ id: 'g', label: 'Payments' }]);
 		const view = buildGroupView(nodes, [], new Set(['g']));
 		expect(view.titles['group:g']?.label).toBe('Payments');
@@ -125,9 +122,9 @@ describe('group labels and status', () => {
 		];
 		const view = buildGroupView(nodes, [], new Set(['g']));
 		expect(view.titles['group:g']?.status).toBe('failed');
-		expect(
-			view.nodes.find((entry) => entry.id === 'group:g')?.status,
-		).toBe('failed');
+		expect(view.nodes.find((entry) => entry.id === 'group:g')?.status).toBe(
+			'failed',
+		);
 		expect(aggregateGroupStatus(['completed', 'failed'])).toBe('failed');
 		expect(aggregateGroupStatus([])).toBeUndefined();
 	});

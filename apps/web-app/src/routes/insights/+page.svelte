@@ -115,10 +115,7 @@
 			seenQuery = true;
 			toasts.success('Default scope executed');
 		} catch (e) {
-			toasts.error(
-				'Query failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Query failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			queryBusy = false;
 		}
@@ -129,10 +126,7 @@
 			await exportQuery({ expressions: [], format: 'csv', limit: 50 });
 			toasts.success('Export queued');
 		} catch (e) {
-			toasts.error(
-				'Export failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Export failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -223,7 +217,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="insights-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="insights-panel"
+	/>
 
 	<div
 		id="insights-panel"
@@ -240,8 +239,8 @@
 					/>
 					<p class="mt-1 text-micro text-muted-foreground">
 						The statement box is a local draft. The query endpoint takes
-						structured filters, so Run executes the default execution scope
-						and reports that scope only until statement execution lands.
+						structured filters, so Run executes the default execution scope and
+						reports that scope only until statement execution lands.
 					</p>
 					<div class="mt-2 flex items-center gap-2">
 						<Button

@@ -16,6 +16,7 @@
 	import JsonEditor from '$lib/components/domain/JsonEditor.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import Textarea from '$lib/components/ui/Textarea.svelte';
 	import { jsonErrorLine, type TemplateIssue } from '$lib/services/templates';
 	import {
 		executeTool,
@@ -144,10 +145,7 @@
 			await navigator.clipboard.writeText(skillContent);
 			toasts.success('Prompt copied');
 		} catch (e) {
-			toasts.error(
-				'Copy failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Copy failed', e instanceof Error ? e.message : undefined);
 		}
 	}
 
@@ -405,7 +403,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="resources-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="resources-panel"
+	/>
 
 	<div
 		id="resources-panel"
@@ -552,7 +555,9 @@
 									onchange={(checked) => void toggleTool(tool.id, checked)}
 								/>
 							{/snippet}
-							<p class="text-caption text-muted-foreground">{tool.description}</p>
+							<p class="text-caption text-muted-foreground">
+								{tool.description}
+							</p>
 							<div
 								class="mt-2 flex items-center justify-between text-micro text-muted-foreground"
 							>
@@ -751,6 +756,13 @@
 									toolForm = { ...toolForm, [key]: value };
 								}}
 							/>
+						{:else if prop.type === 'object' || prop.type === 'array'}
+							<Textarea
+								bind:value={toolForm[key]}
+								placeholder={prop.description ?? key}
+								rows={3}
+								class="font-mono text-small"
+							/>
 						{:else}
 							<Input
 								bind:value={toolForm[key]}
@@ -762,8 +774,8 @@
 					</label>
 				{/each}
 				<p class="text-micro text-muted-foreground">
-					Form edits typed fields; object and array values use JSON fragments.
-					Remaining parameters stay in JSON mode.
+					Form edits typed fields; object and array values use JSON fragments in
+					the multiline box. Remaining parameters stay in JSON mode.
 				</p>
 			</div>
 		{:else}
@@ -789,9 +801,12 @@
 		/>
 	{/if}
 	{#if toolSyntaxError}
-		<div class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+		<div
+			class="mt-2 flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5"
+		>
 			<p class="text-caption text-destructive">
-				JSON syntax{#if toolErrorLine} (line {toolErrorLine}){/if}: {toolSyntaxError}
+				JSON syntax{#if toolErrorLine}
+					(line {toolErrorLine}){/if}: {toolSyntaxError}
 			</p>
 			{#if toolErrorLine}
 				<Button
@@ -821,7 +836,8 @@
 				{toolRun.success ? 'Succeeded' : `Failed: ${toolRun.error}`}
 			</p>
 			{#if toolRun.output}
-				<pre class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
+				<pre
+					class="mt-1 max-h-48 overflow-auto font-mono text-micro">{toolRun.output}</pre>
 			{/if}
 			<p class="mt-1 text-micro text-muted-foreground">
 				{toolRun.durationMs}ms · {toolRun.retries} retries
@@ -838,7 +854,11 @@
 			>
 				Validate
 			</Button>
-			<Button size="sm" disabled={toolBusy} onclick={() => void runToolExecute()}>
+			<Button
+				size="sm"
+				disabled={toolBusy}
+				onclick={() => void runToolExecute()}
+			>
 				{toolBusy ? 'Running…' : 'Run'}
 			</Button>
 		</div>
@@ -867,17 +887,24 @@
 				size="sm"
 				class="w-full"
 			/>
-			<Button variant="outline" size="sm" onclick={() => void copySkillContent()}>
+			<Button
+				variant="outline"
+				size="sm"
+				onclick={() => void copySkillContent()}
+			>
 				Copy
 			</Button>
 		</div>
 		<pre
-			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small"
-		>{skillFilteredContent}</pre>
+			class="max-h-96 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-small">{skillFilteredContent}</pre>
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end">
-			<Button variant="ghost" size="sm" onclick={() => (skillDialogOpen = false)}>
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => (skillDialogOpen = false)}
+			>
 				Close
 			</Button>
 		</div>

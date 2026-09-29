@@ -76,8 +76,7 @@ export async function fireHook(
 		),
 		`Hook dispatch missing for ${name}`,
 	);
-	const d =
-		typeof data === 'object' ? (data as Record<string, unknown>) : {};
+	const d = typeof data === 'object' ? (data as Record<string, unknown>) : {};
 	return {
 		status: String(d.status ?? 'fired'),
 		detail: String(d.detail ?? d.message ?? JSON.stringify(d).slice(0, 120)),

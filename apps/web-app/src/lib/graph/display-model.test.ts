@@ -300,19 +300,19 @@ describe('snapToGrid', () => {
 
 describe('pushOverlapped', () => {
 	it('pushes stationary nodes out of moved boxes', () => {
-		const pushed = pushOverlapped(
-			[{ id: 'a', position: { x: 100, y: 100 } }],
-			{ a: { x: 0, y: 0 }, b: { x: 110, y: 100 } },
-		);
+		const pushed = pushOverlapped([{ id: 'a', position: { x: 100, y: 100 } }], {
+			a: { x: 0, y: 0 },
+			b: { x: 110, y: 100 },
+		});
 		expect(pushed.map((entry) => entry.id)).toEqual(['b']);
 		expect(pushed[0]?.position.x % 20).toBe(0);
 	});
 	it('leaves distant nodes alone', () => {
 		expect(
-			pushOverlapped(
-				[{ id: 'a', position: { x: 0, y: 0 } }],
-				{ a: { x: 0, y: 0 }, b: { x: 500, y: 500 } },
-			),
+			pushOverlapped([{ id: 'a', position: { x: 0, y: 0 } }], {
+				a: { x: 0, y: 0 },
+				b: { x: 500, y: 500 },
+			}),
 		).toEqual([]);
 	});
 });

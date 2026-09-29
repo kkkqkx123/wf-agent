@@ -472,34 +472,34 @@
 						: 'No tool calls recorded for this session.'}
 				</p>
 			{:else}
-			<div class="space-y-2">
-				{#each visibleTools as entry (entry.id)}
-					{@const toolNodeId = matchDecisionNode(entry.name)}
-					<div
-						role="button"
-						tabindex={toolNodeId ? 0 : -1}
-						aria-label={toolNodeId
-							? `Locate tool ${entry.name} on decision graph`
-							: `Tool ${entry.name}`}
-						onclick={() => handleToolFocus(entry)}
-						onkeydown={(event) => {
-							if (event.key === 'Enter' || event.key === ' ') {
-								event.preventDefault();
-								handleToolFocus(entry);
-							}
-						}}
-						class={cn(
-							'rounded-lg',
-							toolNodeId && 'cursor-pointer',
-							toolNodeId &&
-								selectedGraphNode === toolNodeId &&
-								'ring-2 ring-warning',
-						)}
-					>
-						<ToolCallCard {entry} />
-					</div>
-				{/each}
-			</div>
+				<div class="space-y-2">
+					{#each visibleTools as entry (entry.id)}
+						{@const toolNodeId = matchDecisionNode(entry.name)}
+						<div
+							role="button"
+							tabindex={toolNodeId ? 0 : -1}
+							aria-label={toolNodeId
+								? `Locate tool ${entry.name} on decision graph`
+								: `Tool ${entry.name}`}
+							onclick={() => handleToolFocus(entry)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									handleToolFocus(entry);
+								}
+							}}
+							class={cn(
+								'rounded-lg',
+								toolNodeId && 'cursor-pointer',
+								toolNodeId &&
+									selectedGraphNode === toolNodeId &&
+									'ring-2 ring-warning',
+							)}
+						>
+							<ToolCallCard {entry} />
+						</div>
+					{/each}
+				</div>
 			{/if}
 		{:else if tab === 'timeline'}
 			{#if (timeline.data ?? []).length === 0}

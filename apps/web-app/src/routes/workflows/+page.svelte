@@ -114,10 +114,7 @@
 			newName = '';
 			await goto(resolve('/workflows/[id]', { id: workflow.id }));
 		} catch (e) {
-			toasts.error(
-				'Create failed',
-				e instanceof Error ? e.message : undefined,
-			);
+			toasts.error('Create failed', e instanceof Error ? e.message : undefined);
 		} finally {
 			newBusy = false;
 		}
@@ -282,8 +279,7 @@
 								selected = row;
 							})
 							.catch((e) => {
-								detailError =
-									e instanceof Error ? e.message : 'Detail failed.';
+								detailError = e instanceof Error ? e.message : 'Detail failed.';
 							});
 					}
 				}}
@@ -452,7 +448,9 @@
 		class="min-h-48 font-mono text-small"
 	/>
 	{#if importError}
-		<p class="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive">
+		<p
+			class="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-caption text-destructive"
+		>
 			{importError}
 		</p>
 	{/if}
@@ -468,7 +466,11 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={newOpen} title="New workflow" description="A minimal start → end definition to extend in the detail view.">
+<Dialog
+	bind:open={newOpen}
+	title="New workflow"
+	description="A minimal start → end definition to extend in the detail view."
+>
 	<Input bind:value={newName} placeholder="Workflow name" />
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">

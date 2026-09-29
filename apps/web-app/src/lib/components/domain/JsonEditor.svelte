@@ -138,8 +138,9 @@
 		<div class="grid w-max min-w-full">
 			<pre
 				aria-hidden="true"
-				class="col-start-1 row-start-1 px-3 py-2 font-mono text-small leading-6 whitespace-pre"
-			>{#each tokens as token, index (index)}<span class={TONE_CLASS[token.tone]}>{token.text}</span>{/each}</pre>
+				class="col-start-1 row-start-1 px-3 py-2 font-mono text-small leading-6 whitespace-pre">{#each tokens as token, index (index)}<span
+						class={TONE_CLASS[token.tone]}>{token.text}</span
+					>{/each}</pre>
 			<textarea
 				bind:this={area}
 				bind:value

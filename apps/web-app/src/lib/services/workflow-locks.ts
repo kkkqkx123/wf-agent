@@ -29,10 +29,7 @@ export async function getWorkflowLock(
 	workflowId: string,
 ): Promise<WorkflowLock | null> {
 	const data = await call<unknown>(
-		request(
-			'GET',
-			`/api/v1/workflows/${encodeURIComponent(workflowId)}/lock`,
-		),
+		request('GET', `/api/v1/workflows/${encodeURIComponent(workflowId)}/lock`),
 	);
 	if (data === null) return null;
 	return toLock(data);

@@ -111,6 +111,8 @@
 	function proceedPending(): void {
 		const target = pendingNavUrl;
 		pendingNavUrl = null;
+		// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		if (target) void goto(target);
 	}
 
@@ -260,8 +262,8 @@
 					{#if behavior.error}
 						<p class="text-caption text-destructive">
 							{#if behavior.loaded}
-								Server preferences update failed ({behavior.error}); edits
-								stay local until Save succeeds.
+								Server preferences update failed ({behavior.error}); edits stay
+								local until Save succeeds.
 							{:else}
 								Server preferences unavailable ({behavior.error}); edits are
 								kept locally and Save stays disabled until the backend is
@@ -307,8 +309,8 @@
 			{:else if section === 'notifications'}
 				<div class="space-y-3">
 					<p class="text-caption text-muted-foreground">
-						Toast previews apply instantly; the accessibility preference
-						below is stored server-side and needs Save.
+						Toast previews apply instantly; the accessibility preference below
+						is stored server-side and needs Save.
 					</p>
 					<Card title="Toasts">
 						<div class="mt-1 flex gap-2">

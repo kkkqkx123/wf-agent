@@ -1,5 +1,10 @@
 import { client, request } from '$lib/api/client';
-import { call, extractCapped, extractPage, requireData } from '$lib/api/envelope';
+import {
+	call,
+	extractCapped,
+	extractPage,
+	requireData,
+} from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	AgentLoop,
@@ -400,8 +405,7 @@ export async function getLoopRootCause(id: string): Promise<LoopRootCause> {
 		rootCauseId:
 			typeof data?.root_cause_id === 'string' ? data.root_cause_id : '',
 		error: typeof data?.error === 'string' ? data.error : '',
-		chainLength:
-			typeof data?.chain_length === 'number' ? data.chain_length : 0,
+		chainLength: typeof data?.chain_length === 'number' ? data.chain_length : 0,
 		suggestedAction:
 			typeof data?.suggested_action === 'string' ? data.suggested_action : null,
 	};

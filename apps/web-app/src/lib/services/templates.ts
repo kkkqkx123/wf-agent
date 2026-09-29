@@ -128,9 +128,13 @@ export async function cloneTemplate(
 		detail.raw && typeof detail.raw === 'object' ? detail.raw : {}
 	) as Record<string, unknown>;
 	const now = Date.now();
+	const suffix =
+		typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+			? crypto.randomUUID().slice(0, 8)
+			: Math.random().toString(36).slice(2, 10);
 	const copy = {
 		...raw,
-		id: `${id}-copy-${now.toString(36)}`,
+		id: `${id}-copy-${suffix}`,
 		name: newName,
 		created_at: now,
 		updated_at: now,
@@ -299,8 +303,7 @@ export function serverTemplateIssues(
 		field: issue.field,
 		message: issue.message,
 		nodeId:
-			nodes.find((node) => issueTargetsNode(issue.field, node.id))?.id ??
-			null,
+			nodes.find((node) => issueTargetsNode(issue.field, node.id))?.id ?? null,
 	}));
 }
 
@@ -383,9 +386,7 @@ export async function saveTemplate(
 						body,
 					}),
 				)
-			: await call<string>(
-					client.POST('/api/v1/templates/trigger', { body }),
-				);
+			: await call<string>(client.POST('/api/v1/templates/trigger', { body }));
 		const result = saved ?? id ?? '';
 		if (!result) throw new Error('Template save returned no id');
 		return result;
@@ -424,7 +425,8 @@ async function registerLibraryTemplate(
 			: await call<string>(
 					client.POST('/api/v1/templates/library/workflows', { body }),
 				);
-	if (!saved) throw new Error(`Template registration returned no id for ${kind}`);
+	if (!saved)
+		throw new Error(`Template registration returned no id for ${kind}`);
 	return saved;
 }
 
@@ -603,7 +605,13 @@ export function templateFormFields(kind: TemplateKind): TemplateFormField[] {
 			TAGS_FIELD,
 		];
 	}
-	return [NAME_FIELD, DESCRIPTION_FIELD, VERSION_FIELD, CATEGORY_FIELD, TAGS_FIELD];
+	return [
+		NAME_FIELD,
+		DESCRIPTION_FIELD,
+		VERSION_FIELD,
+		CATEGORY_FIELD,
+		TAGS_FIELD,
+	];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -718,7 +726,10 @@ export function normalizeTemplateForm(
  * Derive a short human summary from a stored template entry for the
  * read-only preview. Unknown shapes degrade to a version row only.
  */
-export function summarizeTemplate(kind: TemplateKind, raw: unknown): KeyValue[] {
+export function summarizeTemplate(
+	kind: TemplateKind,
+	raw: unknown,
+): KeyValue[] {
 	const record = asRecord(raw);
 	const definition = asRecord(record.definition ?? raw);
 	const summary: KeyValue[] = [];
@@ -729,21 +740,19 @@ export function summarizeTemplate(kind: TemplateKind, raw: unknown): KeyValue[] 
 	if (kind === 'workflow') {
 		const nodes = Array.isArray(definition.nodes) ? definition.nodes : null;
 		const edges = Array.isArray(definition.edges) ? definition.edges : null;
-		if (nodes !== null) summary.push({ key: 'Nodes', value: String(nodes.length) });
-		if (edges !== null) summary.push({ key: 'Edges', value: String(edges.length) });
+		if (nodes !== null)
+			summary.push({ key: 'Nodes', value: String(nodes.length) });
+		if (edges !== null)
+			summary.push({ key: 'Edges', value: String(edges.length) });
 		if (nodes !== null && edges !== null) {
 			const targets = new Set(
 				(edges as Array<Record<string, unknown>>).map((edge) =>
-					String(
-						edge.target_node_id ?? edge.to ?? edge.target ?? '',
-					),
+					String(edge.target_node_id ?? edge.to ?? edge.target ?? ''),
 				),
 			);
 			const sources = new Set(
 				(edges as Array<Record<string, unknown>>).map((edge) =>
-					String(
-						edge.source_node_id ?? edge.from ?? edge.source ?? '',
-					),
+					String(edge.source_node_id ?? edge.from ?? edge.source ?? ''),
 				),
 			);
 			const starts = (nodes as Array<Record<string, unknown>>)
@@ -815,7 +824,10 @@ export function templateEdgeType(kind: string): string {
 }
 
 /** Definition-level object a form edits, unwrapped for library kinds. */
-export function templateEditTarget(kind: TemplateKind, value: unknown): unknown {
+export function templateEditTarget(
+	kind: TemplateKind,
+	value: unknown,
+): unknown {
 	if (kind === 'node' || kind === 'trigger') return value;
 	return (value as Record<string, unknown>)?.definition ?? value;
 }
@@ -888,22 +900,17 @@ export function mergeTemplateGraph(
 		record.definition &&
 		typeof record.definition === 'object' &&
 		!Array.isArray(record.definition);
-	const target = (
-		hasDefinition ? record.definition : record
-	) as Record<string, unknown>;
+	const target = (hasDefinition ? record.definition : record) as Record<
+		string,
+		unknown
+	>;
 	const prevNodes = asRecordList(target.nodes);
 	const prevEdges = asRecordList(target.edges);
 	const nodeById = new Map(
-		prevNodes.map((node) => [
-			templateField(node, ['id', 'node_id'], ''),
-			node,
-		]),
+		prevNodes.map((node) => [templateField(node, ['id', 'node_id'], ''), node]),
 	);
 	const edgeById = new Map(
-		prevEdges.map((edge) => [
-			templateField(edge, ['id', 'edge_id'], ''),
-			edge,
-		]),
+		prevEdges.map((edge) => [templateField(edge, ['id', 'edge_id'], ''), edge]),
 	);
 	const nextNodes = nodes.map((node, index) => {
 		const prev = nodeById.get(node.id) ?? {};
@@ -1087,8 +1094,7 @@ export class TemplateEditSession {
 		try {
 			parsed = JSON.parse(next);
 		} catch (e) {
-			this.syntaxMessage =
-				e instanceof Error ? e.message : 'Invalid JSON';
+			this.syntaxMessage = e instanceof Error ? e.message : 'Invalid JSON';
 			return;
 		}
 		if (isLibraryKind(this.kind)) {
@@ -1124,9 +1130,7 @@ export class TemplateEditSession {
 		);
 		if (isLibraryKind(this.kind)) {
 			const outer = asRecord(this.full);
-			form.category = fieldText(
-				outer.category ?? outer.template_category,
-			);
+			form.category = fieldText(outer.category ?? outer.template_category);
 			form.tags = fieldText(outer.tags ?? outer.template_tags);
 		}
 		return form;
@@ -1134,9 +1138,7 @@ export class TemplateEditSession {
 
 	applyForm(form: Record<string, string>): void {
 		if (isLibraryKind(this.kind)) {
-			const definition = asRecord(
-				templateEditTarget(this.kind, this.full),
-			);
+			const definition = asRecord(templateEditTarget(this.kind, this.full));
 			const merged = formToDefinition(this.kind, form, definition);
 			delete merged.category;
 			delete merged.tags;
@@ -1183,7 +1185,9 @@ export class TemplateEditSession {
 
 	hasGraphConflict(graphDirty: boolean): boolean {
 		return (
-			graphDirty && this.graphLoadedAt >= 0 && this.graphLoadedAt !== this.revision
+			graphDirty &&
+			this.graphLoadedAt >= 0 &&
+			this.graphLoadedAt !== this.revision
 		);
 	}
 

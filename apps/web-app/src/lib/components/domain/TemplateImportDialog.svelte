@@ -100,9 +100,7 @@
 	{/if}
 	{#snippet footer()}
 		<div class="flex items-center justify-end gap-2">
-			<Button variant="ghost" size="sm" onclick={requestClose}>
-				Cancel
-			</Button>
+			<Button variant="ghost" size="sm" onclick={requestClose}>Cancel</Button>
 			<Button size="sm" disabled={busy} onclick={() => onimport()}>
 				{busy ? 'Importing…' : 'Import'}
 			</Button>

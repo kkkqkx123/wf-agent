@@ -107,7 +107,11 @@
 </script>
 
 <Card title="Version history" bodyClass="p-0">
-	<DataTable columns={versionColumns} rows={versions} rowKey={(row) => row.version} />
+	<DataTable
+		columns={versionColumns}
+		rows={versions}
+		rowKey={(row) => row.version}
+	/>
 </Card>
 <div class="mt-3 grid gap-3 lg:grid-cols-2">
 	<Card title="Compare versions">
@@ -253,7 +257,7 @@
 			nodes={diffGraphNodes}
 			edges={diffGraphEdges}
 			preset="workflow"
-			selectedId={selectedId}
+			{selectedId}
 			onselect={(id) => (selectedId = id)}
 			overlays={[
 				{ id: 'added', label: 'Added', ids: diff.addedNodes },

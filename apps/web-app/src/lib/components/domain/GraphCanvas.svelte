@@ -632,8 +632,7 @@
 			if (members.some((member) => pulses.has(member))) return ['running'];
 			if (members.some((member) => failed.has(member))) return ['failed'];
 			if (members.some((member) => problems.has(member))) return ['problem'];
-			if (members.some((member) => criticals.has(member)))
-				return ['critical'];
+			if (members.some((member) => criticals.has(member))) return ['critical'];
 			return [];
 		}
 

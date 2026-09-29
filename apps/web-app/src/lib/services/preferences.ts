@@ -73,9 +73,7 @@ function toDocument(behavior: Behavior): PreferenceDocument {
 
 export async function loadBehavior(): Promise<Behavior> {
 	const doc = requireData(
-		await call<PreferenceDocument>(
-			client.GET('/api/v1/preferences'),
-		),
+		await call<PreferenceDocument>(client.GET('/api/v1/preferences')),
 		'Server preferences',
 	);
 	return fromDocument(doc);

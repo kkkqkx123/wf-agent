@@ -127,10 +127,7 @@
 	const criticalAll = $derived([
 		...new Set([...criticalPath, ...execution.analysis.criticalPath]),
 	]);
-	const slowEntries = $derived([
-		...execution.analysis.slowNodes,
-		...slowNodes,
-	]);
+	const slowEntries = $derived([...execution.analysis.slowNodes, ...slowNodes]);
 
 	const slowAll = $derived(slowEntries);
 
@@ -280,11 +277,14 @@
 
 	const filteredTools = $derived.by(() => {
 		const needle = toolFilter.trim().toLowerCase();
-		const scoped = replayScope === null ? toolCalls : toolCalls.filter((tool) =>
-			replayScope.graphIds.has(tool.nodeId ?? '')
-				? replayScope.executed.has(tool.nodeId as string)
-				: true,
-		);
+		const scoped =
+			replayScope === null
+				? toolCalls
+				: toolCalls.filter((tool) =>
+						replayScope.graphIds.has(tool.nodeId ?? '')
+							? replayScope.executed.has(tool.nodeId as string)
+							: true,
+					);
 		if (!needle) return scoped;
 		return scoped.filter(
 			(tool) =>
@@ -361,13 +361,16 @@
 		);
 	}
 
-	const selectedAnalysisKind = $derived.by((): 'slow' | 'critical' | 'decision' | null => {
-		if (!graphNodeId) return null;
-		if (slowEntries.some((entry) => entry.node === graphNodeId)) return 'slow';
-		if (criticalAll.includes(graphNodeId)) return 'critical';
-		if (decisionAll.includes(graphNodeId)) return 'decision';
-		return null;
-	});
+	const selectedAnalysisKind = $derived.by(
+		(): 'slow' | 'critical' | 'decision' | null => {
+			if (!graphNodeId) return null;
+			if (slowEntries.some((entry) => entry.node === graphNodeId))
+				return 'slow';
+			if (criticalAll.includes(graphNodeId)) return 'critical';
+			if (decisionAll.includes(graphNodeId)) return 'decision';
+			return null;
+		},
+	);
 
 	function noteLiveEvent(event: EventRecord): void {
 		let meta: Record<string, unknown>;
@@ -869,7 +872,8 @@
 								type="button"
 								class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
 								onclick={() =>
-									selectedAnalysisKind && revealInAnalysis(selectedAnalysisKind)}
+									selectedAnalysisKind &&
+									revealInAnalysis(selectedAnalysisKind)}
 							>
 								Show in analysis
 							</button>
@@ -896,7 +900,10 @@
 				{/if}
 				<div class="flex items-start gap-3">
 					<Timeline entries={scopedTimeline} class="min-w-0 flex-1" />
-					<TimelineOutline entries={scopedTimeline} class="hidden w-44 xl:block" />
+					<TimelineOutline
+						entries={scopedTimeline}
+						class="hidden w-44 xl:block"
+					/>
 				</div>
 			{/if}
 		{:else if tab === 'tools'}
@@ -1007,7 +1014,10 @@
 						</ul>
 					</Card>
 					<Card title="Critical path">
-						<ol class="flex flex-wrap items-center gap-1.5" id="analysis-critical">
+						<ol
+							class="flex flex-wrap items-center gap-1.5"
+							id="analysis-critical"
+						>
 							{#each criticalAll as node (node)}
 								<li class="flex items-center gap-1.5">
 									<button

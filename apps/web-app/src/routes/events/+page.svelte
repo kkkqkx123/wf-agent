@@ -123,9 +123,9 @@
 				class="flex items-center gap-1.5 text-caption text-muted-foreground"
 			>
 				<span
-				class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot"
-				aria-hidden="true"
-			></span>
+					class="h-1.5 w-1.5 rounded-full bg-running animate-pulse-dot"
+					aria-hidden="true"
+				></span>
 				stream subscribed
 			</span>
 		{/snippet}
@@ -142,7 +142,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} bind:value={tab} class="px-4" panelId="events-panel" />
+	<Segmented
+		items={TABS}
+		bind:value={tab}
+		class="px-4"
+		panelId="events-panel"
+	/>
 
 	<div
 		id="events-panel"

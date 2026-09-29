@@ -1,5 +1,10 @@
 import { client } from '$lib/api/client';
-import { call, extractCapped, extractPage, requireData } from '$lib/api/envelope';
+import {
+	call,
+	extractCapped,
+	extractPage,
+	requireData,
+} from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
 	Execution,
@@ -99,9 +104,7 @@ export async function listExecutions(params?: {
 			},
 		}),
 	);
-	const page = extractPage<ExecutionDto>(
-		requireData(data, 'Execution list'),
-	);
+	const page = extractPage<ExecutionDto>(requireData(data, 'Execution list'));
 	return { ...page, items: page.items.map((d) => toExecution(d)) };
 }
 
@@ -360,7 +363,9 @@ interface TimelineDto {
 
 /** Owning graph node id carried in event metadata, if any. Workflow node
  * lifecycle events always set `node_id`; other events carry none. */
-function metadataNodeId(metadata: Record<string, unknown> | undefined): string | undefined {
+function metadataNodeId(
+	metadata: Record<string, unknown> | undefined,
+): string | undefined {
 	if (!metadata) return undefined;
 	for (const key of ['node_id', 'nodeId', 'node']) {
 		const value = metadata[key];

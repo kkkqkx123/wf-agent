@@ -26,7 +26,14 @@
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
 
-	const TAB_IDS = ['overview', 'graph', 'timeline', 'tools', 'analysis', 'state'];
+	const TAB_IDS = [
+		'overview',
+		'graph',
+		'timeline',
+		'tools',
+		'analysis',
+		'state',
+	];
 	const requestedTab = parseListParams(page.url).tab;
 	let tab = $state(
 		requestedTab && TAB_IDS.includes(requestedTab) ? requestedTab : 'overview',
@@ -157,9 +164,14 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if !execution}
-			<Skeleton lines={6} class="h-full rounded-lg border border-border bg-card p-4" />
+			<Skeleton
+				lines={6}
+				class="h-full rounded-lg border border-border bg-card p-4"
+			/>
 		{:else}
-			<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
+			<div
+				class="h-full overflow-hidden rounded-lg border border-border bg-card"
+			>
 				<ExecutionInspector {execution} bind:tab />
 			</div>
 		{/if}

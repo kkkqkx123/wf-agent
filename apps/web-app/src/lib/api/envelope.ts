@@ -74,10 +74,7 @@ export async function call<T>(
  * successful envelope carries no payload and the UI would otherwise render
  * an empty state that looks like genuine empty data.
  */
-export function requireData<T>(
-	data: T | null | undefined,
-	what: string,
-): T {
+export function requireData<T>(data: T | null | undefined, what: string): T {
 	if (data === null || data === undefined) {
 		throw new Error(`${what} missing: backend returned no payload`);
 	}

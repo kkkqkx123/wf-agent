@@ -22,7 +22,9 @@
 		onvalidate: () => void;
 		onpromote: () => void;
 		onmovenode: (id: string, position: CanvasPosition) => void;
-		onmovenodes: (moves: Array<{ id: string; position: CanvasPosition }>) => void;
+		onmovenodes: (
+			moves: Array<{ id: string; position: CanvasPosition }>,
+		) => void;
 		onaddnode: (position: CanvasPosition) => void;
 		ondeleteedge: (id: string) => void;
 		onconnect: (source: string, target: string) => void;
@@ -82,8 +84,8 @@
 			{:else}
 				The lease expired.
 			{/if}
-			The canvas is read-only and your edits are kept. Re-acquire the lock
-			to continue editing, or exit edit mode.
+			The canvas is read-only and your edits are kept. Re-acquire the lock to continue
+			editing, or exit edit mode.
 		</p>
 		{#snippet footer()}
 			<div class="flex items-center gap-2">

@@ -33,10 +33,7 @@
 		saveWorkflowDraft,
 		validateWorkflowDraft,
 	} from '$lib/services/graph';
-	import type {
-		GraphAnalysisResult,
-		WorkflowDetail,
-	} from '$lib/types/models';
+	import type { GraphAnalysisResult, WorkflowDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
@@ -170,6 +167,8 @@
 			const target = pendingNavUrl;
 			pendingNavUrl = null;
 			pendingTab = null;
+			// The target replays an intercepted navigation URL, which resolve() cannot rebuild.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
 			void goto(target);
 		} else if (pendingTab) {
 			tab = pendingTab;
@@ -274,10 +273,7 @@
 		const id = page.params.id;
 		if (!id || !detail) return;
 		if (!lockStore.canWrite) {
-			toasts.warning(
-				'Save blocked',
-				`Held by ${lockStore.displayHolder}.`,
-			);
+			toasts.warning('Save blocked', `Held by ${lockStore.displayHolder}.`);
 			return;
 		}
 		editBusy = true;
@@ -619,7 +615,12 @@
 		{/snippet}
 	</PageHeader>
 
-	<Segmented items={TABS} value={tab} onchange={(id) => requestTab(id)} class="px-4" />
+	<Segmented
+		items={TABS}
+		value={tab}
+		onchange={(id) => requestTab(id)}
+		class="px-4"
+	/>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 		{#if detailLoading}

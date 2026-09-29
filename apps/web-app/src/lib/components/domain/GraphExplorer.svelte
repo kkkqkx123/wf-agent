@@ -333,10 +333,7 @@
 
 	function guardConnect(source: string, target: string): boolean {
 		if (isHiddenNode(source) || isHiddenNode(target)) {
-			toasts.info(
-				'Hidden group member',
-				'Expand the group before connecting.',
-			);
+			toasts.info('Hidden group member', 'Expand the group before connecting.');
 			return false;
 		}
 		if (isGroupTitleId(source) || isGroupTitleId(target)) {
@@ -799,10 +796,10 @@
 
 	{#if editMode}
 		<p class="text-micro text-muted-foreground">
-			Drag nodes to move · drag a hotspot or shift-click another node to
-			connect from the selection · double-click empty canvas to add a node ·
-			click an edge to delete it · Delete selected removes the selection.
-			Layout is frozen while editing.
+			Drag nodes to move · drag a hotspot or shift-click another node to connect
+			from the selection · double-click empty canvas to add a node · click an
+			edge to delete it · Delete selected removes the selection. Layout is
+			frozen while editing.
 		</p>
 	{/if}
 	{#if overlays.length > 0}
@@ -1123,7 +1120,8 @@
 								<Button
 									variant="outline"
 									size="sm"
-									onclick={() => selected && void copyText(selected.id, 'Node id')}
+									onclick={() =>
+										selected && void copyText(selected.id, 'Node id')}
 								>
 									Copy node id
 								</Button>

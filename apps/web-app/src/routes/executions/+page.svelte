@@ -27,13 +27,18 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
 
+	/** Wire values of the backend execution status enum; the list endpoint
+	 * matches them with exact equality, so aliasing them would filter to
+	 * nothing. */
 	const STATUS_OPTIONS = [
+		{ value: 'created', label: 'Created' },
 		{ value: 'running', label: 'Running' },
 		{ value: 'paused', label: 'Paused' },
 		{ value: 'completed', label: 'Completed' },
 		{ value: 'failed', label: 'Failed' },
-		{ value: 'queued', label: 'Queued' },
+		{ value: 'stopped', label: 'Stopped' },
 		{ value: 'cancelled', label: 'Cancelled' },
+		{ value: 'timeout', label: 'Timeout' },
 	];
 
 	let query = $state('');
@@ -64,7 +69,10 @@
 		error = null;
 		try {
 			const [page, metrics] = await Promise.all([
-				listExecutions({ limit: EXECUTIONS_PAGE }),
+				listExecutions({
+					limit: EXECUTIONS_PAGE,
+					status: status || undefined,
+				}),
 				getExecutionStats(),
 			]);
 			allExecutions = { items: page.items, hasMore: page.hasMore };
@@ -86,6 +94,7 @@
 			const page = await listExecutions({
 				limit: EXECUTIONS_PAGE,
 				offset: allExecutions.items.length,
+				status: status || undefined,
 			});
 			allExecutions = {
 				items: [...allExecutions.items, ...page.items],
@@ -140,15 +149,16 @@
 				);
 			});
 	});
+	// The status travels to the server; the free-text query only narrows the
+	// page already fetched, which is why it filters names/ids instead of payloads.
 	const filtered = $derived(
 		allExecutions.items.filter((execution) => {
-			const matchesStatus = !status || execution.status === status;
 			const needle = query.trim().toLowerCase();
 			const matchesQuery =
 				!needle ||
 				execution.workflowName.toLowerCase().includes(needle) ||
 				execution.id.toLowerCase().includes(needle);
-			return matchesStatus && matchesQuery;
+			return matchesQuery;
 		}),
 	);
 
@@ -267,6 +277,7 @@
 				statusOptions={STATUS_OPTIONS}
 				placeholder="Filter by workflow or id…"
 				class="mb-3"
+				onstatuschange={() => void reload()}
 			>
 				{#snippet trailing()}
 					<span class="text-caption text-muted-foreground"

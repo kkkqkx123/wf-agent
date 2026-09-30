@@ -261,6 +261,7 @@
 				errorTitle="Workflows failed to load"
 				empty={filtered.length === 0}
 				emptyIcon="workflow"
+				emptyTone="brand"
 				emptyTitle={filteredCopy.title}
 				emptyDescription={filteredCopy.description}
 				onretry={() => void reload()}

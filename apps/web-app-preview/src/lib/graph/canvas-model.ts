@@ -51,3 +51,13 @@ export interface ConnectDrag {
 	py: number;
 	target: string | null;
 }
+
+/** A remote cursor rendered over the canvas. Coordinates are CSS pixels
+ * relative to the canvas wrapper, matching the hotspot overlay. */
+export interface PresenceCursor {
+	clientId: string;
+	name: string;
+	color: string;
+	x: number;
+	y: number;
+}

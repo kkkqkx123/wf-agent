@@ -26,6 +26,10 @@
 						{ compact: 0.94, default: 1, comfortable: 1.06 }[prefs.density] ||
 						1;
 					root.style.setProperty('--font-scale', String(scale));
+					var densityScale =
+						{ compact: 0.92, default: 1, comfortable: 1.08 }[prefs.density] ||
+						1;
+					root.style.setProperty('--density-scale', String(densityScale));
 					var meta = document.createElement('meta');
 					meta.name = 'theme-color';
 					meta.content = dark ? '#16181d' : '#ffffff';

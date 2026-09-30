@@ -43,6 +43,13 @@ const DENSITY_SCALE: Record<Density, number> = {
 	comfortable: 1.06,
 };
 
+/** Corner-radius scale per density; type keeps its own `--font-scale`. */
+const DENSITY_SPACING_SCALE: Record<Density, number> = {
+	compact: 0.92,
+	default: 1,
+	comfortable: 1.08,
+};
+
 function read(): PersistedPreferences {
 	if (!browser) return {};
 	try {
@@ -107,6 +114,10 @@ class PreferencesStore {
 
 	get fontScale(): number {
 		return DENSITY_SCALE[this.density];
+	}
+
+	get spacingScale(): number {
+		return DENSITY_SPACING_SCALE[this.density];
 	}
 
 	setTheme(mode: ThemeMode): void {

@@ -14,9 +14,17 @@
 
 	interface Props {
 		children: Snippet;
+		/** Named slots mirroring n8n BaseLayout. Absent slots fall back
+		 * to the default chrome; pass an empty snippet to hide one
+		 * (e.g. immersive canvas). `overlays` is additive: HelpModal and
+		 * the mobile nav sheet always render. */
+		header?: Snippet;
+		sidebar?: Snippet;
+		aside?: Snippet;
+		overlays?: Snippet;
 	}
 
-	let { children }: Props = $props();
+	let { children, header, sidebar, aside, overlays }: Props = $props();
 
 	const pathname = $derived(page.url.pathname);
 
@@ -33,8 +41,23 @@
 		return !!item && (item.href === href || item.href.startsWith(href));
 	}
 
+	function isTypingTarget(target: EventTarget | null): boolean {
+		if (!(target instanceof HTMLElement)) return false;
+		return (
+			target.tagName === 'INPUT' ||
+			target.tagName === 'TEXTAREA' ||
+			target.tagName === 'SELECT' ||
+			target.isContentEditable
+		);
+	}
+
 	function onwindowkeydown(event: KeyboardEvent): void {
 		if (event.key === 'F1') {
+			event.preventDefault();
+			ui.toggleHelp();
+			return;
+		}
+		if (event.key === '?' && !isTypingTarget(event.target)) {
 			event.preventDefault();
 			ui.toggleHelp();
 		}
@@ -44,20 +67,42 @@
 <svelte:window onkeydown={onwindowkeydown} />
 
 <div class="flex h-screen w-full overflow-hidden bg-background text-foreground">
-	<div class="hidden lg:flex">
-		<Sidebar />
-	</div>
+	{#if sidebar}
+		{@render sidebar()}
+	{:else}
+		<div class="hidden lg:flex">
+			<Sidebar />
+		</div>
+	{/if}
 
 	<div class="flex min-w-0 flex-1 flex-col">
-		<TopBar />
-		<main class="min-h-0 flex-1 overflow-hidden">
-			{@render children()}
-		</main>
+		{#if header}
+			{@render header()}
+		{:else}
+			<TopBar />
+		{/if}
+		<div class="flex min-h-0 flex-1">
+			<main class="min-h-0 min-w-0 flex-1 overflow-hidden">
+				{@render children()}
+			</main>
+			{#if aside}
+				<aside
+					class="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-border bg-card lg:flex xl:w-96"
+				>
+					<div class="min-h-0 flex-1 overflow-y-auto">
+						{@render aside()}
+					</div>
+				</aside>
+			{/if}
+		</div>
 	</div>
 </div>
 
 <!-- Narrow viewports swap the rail for a drawer. -->
 <HelpModal />
+{#if overlays}
+	{@render overlays()}
+{/if}
 <Sheet
 	bind:open={ui.mobileNavOpen}
 	title="Navigation"

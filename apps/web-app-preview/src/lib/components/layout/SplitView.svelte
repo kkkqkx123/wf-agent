@@ -13,6 +13,12 @@
 		inspectorWidth?: number;
 		inspectorOpen?: boolean;
 		oninspectorclose?: () => void;
+		/** Dual compare: a second inspector pane beside the first.
+		 * Wide viewports dock both; narrower ones stack both in one sheet. */
+		dual?: boolean;
+		secondaryTitle?: string;
+		secondary?: Snippet;
+		secondaryOpen?: boolean;
 		class?: string;
 		children: Snippet;
 		inspector?: Snippet;
@@ -23,6 +29,10 @@
 		inspectorWidth,
 		inspectorOpen = false,
 		oninspectorclose,
+		dual = false,
+		secondaryTitle = 'Compare',
+		secondary,
+		secondaryOpen,
 		class: className = '',
 		children,
 		inspector,
@@ -34,9 +44,17 @@
 
 	// Wide viewports dock the inspector; narrower ones overlay it as a sheet.
 	const docked = $derived(ui.inspectorDocked && inspectorOpen);
+	const secondaryVisible = $derived(
+		dual && secondary !== undefined && (secondaryOpen ?? true),
+	);
+	const dockedSecondary = $derived(ui.inspectorDocked && secondaryVisible);
+	const sheetTitle = $derived(
+		secondaryVisible ? `${inspectorTitle} · ${secondaryTitle}` : inspectorTitle,
+	);
 
 	$effect(() => {
-		if (!inspectorOpen) {
+		const anyOpen = inspectorOpen || secondaryVisible;
+		if (!anyOpen) {
 			ui.closeInspector();
 		} else if (!ui.inspectorDocked) {
 			ui.openInspector(inspectorTitle);
@@ -72,12 +90,30 @@
 			</div>
 		</aside>
 	{/if}
+	{#if secondary && dockedSecondary}
+		<Separator orientation="vertical" />
+		<aside
+			style:width={widthCss}
+			class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-card"
+		>
+			<div class="flex h-full min-h-0 flex-col">
+				<div
+					class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-3"
+				>
+					<h2 class="truncate text-title font-semibold">{secondaryTitle}</h2>
+				</div>
+				<div class="min-h-0 flex-1 overflow-y-auto">
+					{@render secondary()}
+				</div>
+			</div>
+		</aside>
+	{/if}
 </div>
 
-{#if inspector && !ui.inspectorDocked}
+{#if (inspector || secondaryVisible) && !ui.inspectorDocked}
 	<Sheet
 		open={ui.inspectorOpen}
-		title={inspectorTitle}
+		title={sheetTitle}
 		side="right"
 		width={widthCss}
 		onclose={() => {
@@ -85,6 +121,14 @@
 			oninspectorclose?.();
 		}}
 	>
-		{@render inspector()}
+		{#if inspector}
+			{@render inspector()}
+		{/if}
+		{#if secondary && secondaryVisible}
+			<div class="mt-4 border-t border-border pt-3">
+				<h3 class="mb-2 truncate text-title font-semibold">{secondaryTitle}</h3>
+				{@render secondary()}
+			</div>
+		{/if}
 	</Sheet>
 {/if}

@@ -16,6 +16,8 @@
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import NodeTracePanel from './NodeTracePanel.svelte';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import { extractMarkdownText } from '$lib/utils/markdown';
 	import GraphExplorer, {
 		type GraphOverlay,
 	} from '$lib/components/domain/GraphExplorer.svelte';
@@ -562,6 +564,23 @@
 		}
 	}
 
+	async function loadNodeTraces(id: string): Promise<void> {
+		seenTrace = id;
+		nodeTracesError = null;
+		nodeTracesLoading = true;
+		try {
+			const page = await getExecutionNodeTraces(id);
+			nodeTraces = page.items;
+			nodeTracesSkipped = page.skipped;
+		} catch (e) {
+			seenTrace = '';
+			nodeTraces = [];
+			nodeTracesError = e instanceof Error ? e.message : 'Node traces failed.';
+		} finally {
+			nodeTracesLoading = false;
+		}
+	}
+
 	async function expandNeighborhood(id: string): Promise<void> {
 		try {
 			const neighbors = await getExecutionGraphNeighbors(execution.id, id);
@@ -609,21 +628,12 @@
 				});
 		}
 		if (tab === 'trace' && seenTrace !== id) {
-			seenTrace = id;
-			nodeTracesError = null;
-			nodeTracesLoading = true;
-			void getExecutionNodeTraces(id)
-				.then((page) => {
-					nodeTraces = page.items;
-					nodeTracesSkipped = page.skipped;
-				})
-				.catch((e: unknown) => {
-					seenTrace = '';
-					nodeTraces = [];
-					nodeTracesError =
-						e instanceof Error ? e.message : 'Node traces failed.';
-				})
-				.finally(() => (nodeTracesLoading = false));
+			void loadNodeTraces(id);
+		}
+		// The overview live card reads the same trace snapshot; live runs
+		// pull it once so the current node output shows without visiting trace.
+		if (tab === 'overview' && seenTrace !== id && isLive) {
+			void loadNodeTraces(id);
 		}
 		if (tab === 'graph' && seenGraph !== id) {
 			seenGraph = id;
@@ -667,6 +677,19 @@
 				: tone === 'running'
 					? 'running'
 					: 'default',
+	);
+
+	/** Current node output for the overview card. Token deltas carry no node
+	 * attribution on the backend, so this renders the latest recorded output
+	 * of the current node, not a true per-node stream. */
+	const liveTrace = $derived(
+		execution.currentNode
+			? (nodeTraces.find((trace) => trace.nodeId === execution.currentNode) ??
+					null)
+			: null,
+	);
+	const liveMarkdown = $derived(
+		liveTrace ? extractMarkdownText(liveTrace.output) : null,
 	);
 </script>
 
@@ -748,6 +771,58 @@
 							execution.tasksTotal,
 						)} tasks
 					</p>
+				</Card>
+				<Card title="Live output">
+					{#if liveTrace}
+						<div class="flex items-center justify-between gap-2">
+							<p class="truncate font-mono text-caption text-foreground">
+								{liveTrace.nodeName || liveTrace.nodeId}
+							</p>
+							{#if isLive}
+								<span
+									class="flex shrink-0 items-center gap-1.5 text-micro text-muted-foreground"
+								>
+									<span
+										class="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-running"
+									></span>
+									Live
+								</span>
+							{/if}
+						</div>
+						<div class="mt-1.5">
+							{#if liveMarkdown !== null}
+								<StreamMarkdown content={liveMarkdown} done={!isLive} />
+							{:else}
+								<p
+									class="text-caption break-words whitespace-pre-wrap text-foreground"
+								>
+									{typeof liveTrace.output === 'string'
+										? liveTrace.output
+										: JSON.stringify(liveTrace.output ?? null)}
+								</p>
+							{/if}
+						</div>
+						{#if execution.currentNode}
+							<button
+								type="button"
+								class="mt-1.5 text-micro text-foreground underline-offset-2 hover:underline"
+								onclick={() =>
+									execution.currentNode && openNodeTrace(execution.currentNode)}
+							>
+								Open trace
+							</button>
+						{/if}
+					{:else if nodeTracesLoading}
+						<p class="text-caption text-muted-foreground">
+							Loading node output…
+						</p>
+					{:else}
+						<p class="text-caption text-muted-foreground">
+							{isLive
+								? 'Node output appears once a node has produced it.'
+								: 'Open the Trace tab to load node outputs.'}
+						</p>
+					{/if}
 				</Card>
 				<Card title="Status migration">
 					<ol class="space-y-1.5">

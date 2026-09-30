@@ -9,6 +9,7 @@
 	import Toaster from '$lib/components/layout/Toaster.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
+		applyDensityScale,
 		applyFontScale,
 		applyTheme,
 		listenToSystemTheme,
@@ -28,6 +29,7 @@
 	$effect(() => {
 		applyTheme(resolvedTheme());
 		applyFontScale(preferences.fontScale);
+		applyDensityScale(preferences.spacingScale);
 	});
 
 	$effect(() => listenToSystemTheme());
@@ -36,6 +38,11 @@
 <AppShell>
 	{@render children()}
 </AppShell>
+
+<!-- AppShell exposes header/sidebar/aside/overlays slots (n8n BaseLayout
+  pattern); this layout intentionally only injects children so every page
+  keeps the default chrome. Pages needing immersive canvas or a third rail
+  pass those slots instead of forking the shell. -->
 
 <CommandPalette />
 <Toaster />

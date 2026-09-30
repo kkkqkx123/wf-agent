@@ -7,11 +7,13 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import KeyValueList from './KeyValueList.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import { statusTone } from '@wf-agent/ui/status';
 	import { formatDateTime, formatDuration } from '$lib/utils/format';
+	import { extractMarkdownText } from '$lib/utils/markdown';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
@@ -42,6 +44,9 @@
 	/** Reasoning only exists for LLM nodes; rendering the section empty would
 	 * imply the backend returned nothing rather than "not an LLM node". */
 	const isLlmNode = $derived(trace.nodeType.trim().toUpperCase() === 'LLM');
+	/** String outputs read better as Markdown; structured values stay in the
+	 * JSON viewer. Historical records always render in their final state. */
+	const markdownOutput = $derived(extractMarkdownText(trace.output));
 </script>
 
 <article
@@ -139,7 +144,11 @@
 				>
 					Output
 				</p>
-				<JsonViewer value={trace.output} collapsed />
+				{#if markdownOutput !== null}
+					<StreamMarkdown content={markdownOutput} done />
+				{:else}
+					<JsonViewer value={trace.output} collapsed />
+				{/if}
 			</div>
 
 			{#if trace.toolDependencies.length > 0}
@@ -223,11 +232,7 @@
 										>
 									{/if}
 								</p>
-								<p
-									class="mt-0.5 text-micro break-words whitespace-pre-wrap text-foreground"
-								>
-									{step.content}
-								</p>
+								<StreamMarkdown content={step.content} done />
 								{#each step.conclusions as conclusion, index (index)}
 									<p class="mt-0.5 text-micro text-muted-foreground">
 										· {conclusion}

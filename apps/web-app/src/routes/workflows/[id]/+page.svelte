@@ -46,6 +46,7 @@
 		type TemplateIssue,
 	} from '$lib/services/templates';
 	import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
+	import { presence } from '$lib/stores/presence.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import type { ValidationIssue } from '$lib/types/models';
 
@@ -206,6 +207,14 @@
 	// Release failures only surface as a notice and never block navigation.
 	$effect(() => {
 		if (tab !== 'edit' && editMode) exitEdit();
+	});
+
+	// Presence follows the edit tab: cursors broadcast while editing and
+	// stop when leaving, so read-only views never emit.
+	$effect(() => {
+		if (tab !== 'edit' || !detail) return;
+		presence.join(detail.id);
+		return () => presence.leave();
 	});
 
 	function handleMoveNode(id: string, position: CanvasPosition): void {
@@ -618,6 +627,7 @@
 				Export
 			</Button>
 			<Button
+				variant="brand"
 				size="sm"
 				onclick={() => {
 					const id = page.params.id;
@@ -751,6 +761,8 @@
 				onconnect={handleConnect}
 				ondeletenodes={handleDeleteNodes}
 				ondeletegroups={handleDeleteGroups}
+				presence={presence.peers}
+				oncursormove={(position) => presence.move(position.x, position.y)}
 			/>
 		{:else if tab === 'versions'}
 			{#if detail}

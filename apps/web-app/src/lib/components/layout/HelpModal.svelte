@@ -14,15 +14,16 @@
 		label: string;
 	}
 
-	const shortcuts: Shortcut[] = [
+	const globalShortcuts: Shortcut[] = [
 		{ keys: 'Ctrl+K', action: 'Global search' },
-		{ keys: 'F1', action: 'Open this help overlay' },
+		{ keys: 'F1 or ?', action: 'Toggle this help overlay' },
 		{ keys: 'Esc', action: 'Close dialogs and overlays' },
-		...CANVAS_SHORTCUT_HELP.map((entry) => ({
-			keys: entry.keys,
-			action: `Canvas: ${entry.action}`,
-		})),
 	];
+
+	const canvasShortcuts: Shortcut[] = CANVAS_SHORTCUT_HELP.map((entry) => ({
+		keys: entry.keys,
+		action: entry.action,
+	}));
 
 	const links: Link[] = [
 		{ href: `/docs/user-guide.md`, label: 'User guide' },
@@ -49,10 +50,28 @@
 >
 	<section>
 		<p class="text-micro uppercase tracking-wide text-muted-foreground">
-			Shortcuts
+			Global shortcuts
 		</p>
 		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
-			{#each shortcuts as shortcut (shortcut.keys)}
+			{#each globalShortcuts as shortcut (shortcut.keys)}
+				<li class="flex items-center justify-between px-3 py-2">
+					<span class="text-body">{shortcut.action}</span>
+					<kbd
+						class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
+					>
+						{shortcut.keys}
+					</kbd>
+				</li>
+			{/each}
+		</ul>
+	</section>
+
+	<section class="mt-4">
+		<p class="text-micro uppercase tracking-wide text-muted-foreground">
+			Canvas shortcuts
+		</p>
+		<ul class="mt-1 divide-y divide-border rounded-md border border-border">
+			{#each canvasShortcuts as shortcut (shortcut.keys)}
 				<li class="flex items-center justify-between px-3 py-2">
 					<span class="text-body">{shortcut.action}</span>
 					<kbd

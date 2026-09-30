@@ -40,6 +40,9 @@
 	--running: 252 56% 54%;
 	--running-foreground: 0 0% 100%;
 
+	--brand: 24 95% 53%;
+	--brand-foreground: 0 0% 100%;
+
 	--border: 214 16% 91%;
 	--input: 214 16% 88%;
 	--ring: 220 20% 40%;
@@ -55,8 +58,9 @@
 	--chart-4: 280 52% 56%;
 	--chart-5: 0 68% 54%;
 
-	--radius: 0.5rem;
+	--radius: calc(0.5rem * var(--density-scale));
 	--font-scale: 1;
+	--density-scale: 1;
 
 	--shadow-frost:
 		0 1px 0 hsl(0 0% 100% / 0.6) inset, 0 8px 28px -18px hsl(220 20% 10% / 0.18);
@@ -104,6 +108,9 @@
 
 	--running: 252 60% 70%;
 	--running-foreground: 220 20% 10%;
+
+	--brand: 24 90% 62%;
+	--brand-foreground: 220 20% 10%;
 
 	--border: 217 13% 22%;
 	--input: 217 13% 26%;

@@ -4,7 +4,10 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
-	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
+	import type {
+		CanvasPosition,
+		PresenceCursor,
+	} from '$lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import { WorkflowLockStore } from '$lib/stores/workflow-lock.svelte';
 	import type { TemplateIssue } from '$lib/services/templates';
@@ -34,6 +37,10 @@
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
 		ondeletegroups: (ids: string[]) => void;
+		/** Remote cursors rendered over the canvas. */
+		presence?: PresenceCursor[];
+		/** Local pointer position in canvas-wrapper coordinates. */
+		oncursormove?: (position: CanvasPosition) => void;
 	}
 
 	let {
@@ -55,6 +62,8 @@
 		onconnect,
 		ondeletenodes,
 		ondeletegroups,
+		presence = [],
+		oncursormove,
 	}: Props = $props();
 
 	let explorer = $state<{ focus: (id: string) => void } | null>(null);
@@ -140,4 +149,6 @@
 	onconnect={(source, target) => onconnect(source, target)}
 	ondeletenodes={(ids) => ondeletenodes(ids)}
 	ondeletegroups={(ids) => ondeletegroups(ids)}
+	{presence}
+	{oncursormove}
 />

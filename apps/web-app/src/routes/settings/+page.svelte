@@ -241,7 +241,7 @@
 
 					<Card
 						title="Type density"
-						description="Scales interface type without changing layout units."
+						description="Scales interface type and corner roundness without changing layout units."
 					>
 						<Select
 							value={preferences.density}
@@ -251,7 +251,8 @@
 							onchange={(value) => preferences.setDensity(value as Density)}
 						/>
 						<p class="mt-2 text-caption text-muted-foreground">
-							Current scale {preferences.fontScale.toFixed(2)}×
+							Type {preferences.fontScale.toFixed(2)}× · corners
+							{preferences.spacingScale.toFixed(2)}×
 						</p>
 					</Card>
 				</div>

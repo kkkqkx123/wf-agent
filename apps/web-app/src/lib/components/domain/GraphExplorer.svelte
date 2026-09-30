@@ -17,6 +17,7 @@
 		type CanvasContext,
 		type CanvasMove,
 		type CanvasPosition,
+		type PresenceCursor,
 	} from '$lib/components/domain/GraphCanvas.svelte';
 	import AddNodeDrawer from '$lib/components/domain/AddNodeDrawer.svelte';
 	import ContextMenu, {
@@ -111,6 +112,10 @@
 		ondeletegroups?: (ids: string[]) => void;
 		/** Jump from the detail card to the node definition. */
 		onjumpparam?: (id: string) => void;
+		/** Remote cursors rendered over the canvas; omitted for read-only views. */
+		presence?: PresenceCursor[];
+		/** Local pointer position in canvas-wrapper coordinates. */
+		oncursormove?: (position: CanvasPosition) => void;
 		class?: string;
 	}
 
@@ -160,6 +165,8 @@
 		ondeletenodes,
 		ondeletegroups,
 		onjumpparam,
+		presence = [],
+		oncursormove,
 		class: className = '',
 	}: Props = $props();
 
@@ -962,6 +969,8 @@
 				{editMode}
 				{edgeLabelLimit}
 				minimap={preferences.minimapMode}
+				{presence}
+				{oncursormove}
 				collapsedIds={[...folded.collapsed]}
 				hiddenIds={[...foldedView.hiddenIds]}
 				groupTitles={foldedView.titles}

@@ -16,6 +16,7 @@
 	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
 	import type { Column } from '@wf-agent/ui/components/table';
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
 	import { onMount } from 'svelte';
 	import {
 		listExecutions,
@@ -39,6 +40,9 @@
 	let status = $state('');
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
+	let compareMode = $state(false);
+	let compareId = $state<string | null>(null);
+	let compareDetail = $state<ExecutionDetail | null>(null);
 	let allExecutions = $state<{ items: Execution[]; hasMore: boolean }>({
 		items: [],
 		hasMore: false,
@@ -114,6 +118,28 @@
 			});
 	});
 
+	$effect(() => {
+		const id = compareId;
+		if (!compareMode || !id) {
+			compareDetail = null;
+			return;
+		}
+		if (id === selectedId) {
+			compareDetail = null;
+			return;
+		}
+		void getExecutionDetail(id)
+			.then((row) => {
+				compareDetail = row;
+			})
+			.catch((e) => {
+				compareDetail = null;
+				toasts.error(
+					'Compare detail failed',
+					e instanceof Error ? e.message : undefined,
+				);
+			});
+	});
 	const filtered = $derived(
 		allExecutions.items.filter((execution) => {
 			const matchesStatus = !status || execution.status === status;
@@ -127,6 +153,38 @@
 	);
 
 	const selected = $derived(detail);
+	const compared = $derived(compareDetail);
+
+	// Compare candidates exclude the primary selection so A/B never render
+	// the same run twice. Labels stay short: the full id remains in detail.
+	const compareOptions = $derived(
+		filtered
+			.filter((execution) => execution.id !== selectedId)
+			.map((execution) => ({
+				value: execution.id,
+				label: `${execution.workflowName} · ${execution.id.slice(0, 8)}`,
+			})),
+	);
+
+	function toggleCompare(): void {
+		compareMode = !compareMode;
+		if (compareMode && !compareId) {
+			compareId = compareOptions[0]?.value ?? null;
+		}
+		if (!compareMode) {
+			compareId = null;
+			compareDetail = null;
+		}
+	}
+
+	function swapCompare(): void {
+		const primary = selectedId;
+		selectedId = compareId;
+		compareId = primary;
+		const primaryDetail = detail;
+		detail = compareDetail;
+		compareDetail = primaryDetail;
+	}
 
 	const executionColumns: Column<Execution>[] = [
 		{
@@ -160,6 +218,9 @@
 <SplitView
 	inspectorTitle="Execution detail"
 	inspectorOpen={selectedId !== null}
+	dual={compareMode}
+	secondaryTitle="Compare"
+	secondaryOpen={compareMode && compareId !== null}
 	class="h-full"
 >
 	<div class="flex h-full min-h-0 flex-col">
@@ -180,6 +241,15 @@
 				>
 					<Icon name={view === 'list' ? 'blocks' : 'menu'} size={13} />
 					{view === 'list' ? 'Table' : 'Cards'}
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					active={compareMode}
+					onclick={toggleCompare}
+				>
+					<Icon name="copy" size={13} />
+					Compare
 				</Button>
 				<Button size="sm" href="/workflows">
 					<Icon name="play" size={13} />
@@ -205,6 +275,35 @@
 				{/snippet}
 			</FilterBar>
 
+			{#if compareMode}
+				<div
+					class="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+				>
+					<span class="text-caption text-muted-foreground">
+						Compare A
+						<span class="font-mono">{selectedId?.slice(0, 8) ?? '—'}</span>
+						with B
+					</span>
+					<Select
+						value={compareId ?? ''}
+						options={compareOptions}
+						size="sm"
+						placeholder="Select execution B…"
+						class="w-64"
+						onchange={(value) => (compareId = value || null)}
+					/>
+					<IconButton
+						icon="arrow-right"
+						label="Swap A and B"
+						disabled={!selectedId || !compareId}
+						onclick={swapCompare}
+					/>
+					<span class="text-micro text-muted-foreground">
+						Two full details side by side; topology merge stays single.
+					</span>
+				</div>
+			{/if}
+
 			{#if loading}
 				<div class="space-y-2">
 					<Skeleton shape="block" height="72px" class="rounded-lg" />
@@ -219,6 +318,7 @@
 			{:else if filtered.length === 0}
 				<EmptyState
 					icon="activity"
+					tone="brand"
 					title="No executions match"
 					description="Adjust the status filter or clear the search to see more runs."
 					class="rounded-lg border border-border bg-card"
@@ -260,6 +360,19 @@
 	{#snippet inspector()}
 		{#if selected}
 			<ExecutionInspector execution={selected} />
+		{/if}
+	{/snippet}
+
+	{#snippet secondary()}
+		{#if compared}
+			<ExecutionInspector execution={compared} />
+		{:else}
+			<EmptyState
+				icon="copy"
+				title="Select execution B"
+				description="Pick a second run above to compare full details side by side."
+				class="m-3 rounded-lg border border-border bg-card"
+			/>
 		{/if}
 	{/snippet}
 </SplitView>

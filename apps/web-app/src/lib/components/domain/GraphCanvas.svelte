@@ -40,6 +40,7 @@
 		ConnectDrag,
 		ConnectSpot,
 		MiniOverview,
+		PresenceCursor,
 	} from '$lib/graph/canvas-model';
 	import { CANVAS_STYLESHEET } from '$lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
@@ -85,6 +86,10 @@
 		groupTitles?: Record<string, GroupTitle>;
 		/** Minimap visibility: auto shows it only on large graphs. */
 		minimap?: 'auto' | 'on' | 'off';
+		/** Remote cursors, in CSS pixels relative to the canvas wrapper. */
+		presence?: PresenceCursor[];
+		/** Local pointer position, in the same coordinate space. */
+		oncursormove?: (position: CanvasPosition) => void;
 		onselect?: (id: string) => void;
 		onexpand?: (id: string) => void;
 		onboxselect?: (ids: string[]) => void;
@@ -123,6 +128,8 @@
 		hiddenIds = [],
 		groupTitles = {},
 		minimap = 'auto',
+		presence = [],
+		oncursormove,
 		onselect,
 		onexpand,
 		onboxselect,
@@ -158,6 +165,16 @@
 			tooltipLabels,
 			wrapper?.getBoundingClientRect() ?? null,
 		);
+	}
+
+	function reportCursorMove(event: PointerEvent): void {
+		if (!oncursormove) return;
+		const rect = wrapper?.getBoundingClientRect();
+		if (!rect) return;
+		oncursormove({
+			x: event.clientX - rect.left,
+			y: event.clientY - rect.top,
+		});
 	}
 
 	const highlight = $derived(new Set(highlightIds));
@@ -977,6 +994,7 @@
 		className,
 	)}
 	oncontextmenu={(event) => event.preventDefault()}
+	onpointermove={reportCursorMove}
 >
 	<div
 		bind:this={container}
@@ -1038,6 +1056,26 @@
 		>
 			{hoverTip.text}
 		</div>
+	{/if}
+	{#if presence.length > 0}
+		{#each presence as peer (peer.clientId)}
+			<div
+				class="pointer-events-none absolute z-20"
+				style:left={`${peer.x}px`}
+				style:top={`${peer.y}px`}
+				aria-hidden="true"
+			>
+				<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+					<path d="M2 1 L12 7 L7.5 7.8 L6.2 12 Z" fill={peer.color} />
+				</svg>
+				<span
+					class="ml-3 rounded-full px-1.5 py-px text-micro whitespace-nowrap text-white"
+					style:background-color={peer.color}
+				>
+					{peer.name}
+				</span>
+			</div>
+		{/each}
 	{/if}
 	<div
 		class="pointer-events-none absolute right-2 bottom-2 rounded-md border border-border bg-card/90 px-2 py-1 text-micro text-muted-foreground"

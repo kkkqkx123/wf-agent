@@ -29,6 +29,8 @@
 	--color-info-foreground: hsl(var(--info-foreground));
 	--color-running: hsl(var(--running));
 	--color-running-foreground: hsl(var(--running-foreground));
+	--color-brand: hsl(var(--brand));
+	--color-brand-foreground: hsl(var(--brand-foreground));
 	--color-border: hsl(var(--border));
 	--color-input: hsl(var(--input));
 	--color-ring: hsl(var(--ring));

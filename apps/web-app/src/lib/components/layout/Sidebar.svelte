@@ -107,7 +107,7 @@
 				onclick={navigate}
 			>
 				<span
-					class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"
+					class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand text-brand-foreground"
 				>
 					<Icon name="workflow" size={14} />
 				</span>

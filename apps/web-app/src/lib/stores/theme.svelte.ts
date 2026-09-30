@@ -29,6 +29,11 @@ export function applyFontScale(scale: number): void {
 	document.documentElement.style.setProperty('--font-scale', String(scale));
 }
 
+export function applyDensityScale(scale: number): void {
+	if (!browser) return;
+	document.documentElement.style.setProperty('--density-scale', String(scale));
+}
+
 /** Subscribes to OS color-scheme changes; returns the unsubscribe hook. */
 export function listenToSystemTheme(): () => void {
 	if (!browser) return () => {};

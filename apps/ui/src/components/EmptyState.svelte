@@ -8,6 +8,8 @@
 		icon?: IconName;
 		title: string;
 		description?: string;
+		/** Brand tint for the icon medallion on primary list empties. */
+		tone?: 'default' | 'brand';
 		class?: string;
 		actions?: Snippet;
 	}
@@ -16,6 +18,7 @@
 		icon = 'search',
 		title,
 		description,
+		tone = 'default',
 		class: className = '',
 		actions,
 	}: Props = $props();
@@ -28,7 +31,12 @@
 	)}
 >
 	<div
-		class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground"
+		class={cn(
+			'flex h-10 w-10 items-center justify-center rounded-full border',
+			tone === 'brand'
+				? 'border-brand/30 bg-brand/10 text-brand'
+				: 'border-border bg-muted text-muted-foreground',
+		)}
 	>
 		<Icon name={icon} size={18} />
 	</div>

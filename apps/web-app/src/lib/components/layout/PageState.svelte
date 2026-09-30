@@ -13,6 +13,7 @@
 		emptyTitle?: string;
 		emptyDescription?: string;
 		emptyIcon?: IconName;
+		emptyTone?: 'default' | 'brand';
 		skeletonLines?: number;
 		errorTitle?: string;
 		class?: string;
@@ -28,6 +29,7 @@
 		emptyTitle = 'Nothing to show',
 		emptyDescription,
 		emptyIcon,
+		emptyTone = 'default',
 		skeletonLines = 5,
 		errorTitle = 'Failed to load',
 		class: className = '',
@@ -54,6 +56,7 @@
 	<EmptyState
 		title={emptyTitle}
 		description={emptyDescription}
+		tone={emptyTone}
 		class={className}
 		{...emptyIcon ? { icon: emptyIcon } : {}}
 	>

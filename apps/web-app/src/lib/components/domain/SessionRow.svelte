@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import type { AgentLoop } from '$lib/types/models';
 	import { formatRelativeTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		session: AgentLoop;

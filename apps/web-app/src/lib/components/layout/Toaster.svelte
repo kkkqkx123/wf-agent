@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import type { IconName } from '$lib/components/icons/paths';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import { toneText } from '$lib/components/ui/variants';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import { toneText } from '@wf-agent/ui/components/variants';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	const TONE_ICON: Record<string, IconName> = {
 		success: 'check-circle',

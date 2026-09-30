@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
 	import { navItemFor } from '$lib/config/navigation';
 	import { preferences, type ThemeMode } from '$lib/stores/preferences.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	const activeItem = $derived(navItemFor(page.url.pathname));
 	const theme = $derived(resolvedTheme());

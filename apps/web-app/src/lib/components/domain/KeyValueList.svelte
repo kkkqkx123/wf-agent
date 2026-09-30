@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { KeyValue } from '$lib/types/models';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		items: KeyValue[];

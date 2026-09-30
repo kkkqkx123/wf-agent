@@ -1,3 +1,5 @@
+import { formatNumber } from '@wf-agent/ui/format';
+
 const TIME_UNITS: Array<[limit: number, divisor: number, suffix: string]> = [
 	[60_000, 1000, 's'],
 	[3_600_000, 60_000, 'm'],
@@ -71,10 +73,9 @@ export function formatBytes(bytes: number | null | undefined): string {
 	return `${value.toFixed(digits)} ${BYTE_UNITS[unit]}`;
 }
 
-export function formatNumber(value: number | null | undefined): string {
-	if (value === null || value === undefined || Number.isNaN(value)) return '—';
-	return new Intl.NumberFormat('en-US').format(value);
-}
+/** Owned by the shared UI kit: the pager renders counts without reaching back
+ * into the application, and the rest of the app keeps one implementation. */
+export { formatNumber };
 
 export function formatPercent(
 	value: number | null | undefined,

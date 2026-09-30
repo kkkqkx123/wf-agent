@@ -351,6 +351,8 @@ description?: string（None 时字段省略）   updated_at: number
 
 **P1 起**：按 `06` 文档优先级清单，建议下一步为逐节点追踪卡（Dify）、Execution 筛选/重跑（n8n）、`@wf-agent/ui` 抽包。
 
+> 更新：这三项**已在 P1 完成**，细化方案与落地记录见 `docs/plan/frontend-viz-p1.md`。其中共享包抽取后，本文 7.x 节引用的 `web-app/src/lib/components/ui/*`、`web-app/src/lib/utils/cn|status` 路径已迁至 `apps/ui/src/`，引用本文行号时需以新路径为准。
+
 ---
 
 ## 11. 附录：参考文档与后端出处索引

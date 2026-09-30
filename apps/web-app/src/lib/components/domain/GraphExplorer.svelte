@@ -2,17 +2,17 @@
 	import { tick } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import GraphCanvas, {
 		type CanvasContext,
 		type CanvasMove,
@@ -21,7 +21,7 @@
 	import AddNodeDrawer from '$lib/components/domain/AddNodeDrawer.svelte';
 	import ContextMenu, {
 		type ContextMenuItem,
-	} from '$lib/components/ui/ContextMenu.svelte';
+	} from '@wf-agent/ui/components/ContextMenu.svelte';
 	import {
 		deriveGroups,
 		foldForCap,
@@ -48,7 +48,7 @@
 	} from '$lib/graph/display-model';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	export interface GraphOverlay {
 		id: string;

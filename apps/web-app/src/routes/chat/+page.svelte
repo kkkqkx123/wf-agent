@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';

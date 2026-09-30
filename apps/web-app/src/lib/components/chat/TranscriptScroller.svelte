@@ -1,6 +1,6 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
-	import Icon from '$lib/components/icons/Icon.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import {
 		FOLLOW_TAIL_SLACK_PX,
 		TRANSCRIPT_OVERSCAN_ROWS,
@@ -8,7 +8,7 @@
 		TRANSCRIPT_ROW_SIZE,
 		VIRTUALIZE_THRESHOLD,
 	} from '$lib/config/virtualization';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		items: T[];

@@ -3,19 +3,19 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import TemplateEditPanel, {
 		type TemplateEditTab,
 	} from '$lib/components/domain/TemplateEditPanel.svelte';
-	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
+	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		deleteWorkflowDraft,
 		saveWorkflowDraft,

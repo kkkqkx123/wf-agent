@@ -3,15 +3,15 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import TemplateImportDialog from '$lib/components/domain/TemplateImportDialog.svelte';
 	import {

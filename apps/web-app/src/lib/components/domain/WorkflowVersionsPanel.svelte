@@ -1,11 +1,11 @@
 <script lang="ts">
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import type { Column } from '$lib/components/ui/table';
+	import type { Column } from '@wf-agent/ui/components/table';
 	import {
 		diffWorkflowVersions,
 		type VersionDiff,

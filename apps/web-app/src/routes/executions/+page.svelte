@@ -1,21 +1,21 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import ExecutionCard from '$lib/components/domain/ExecutionCard.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
-	import FilterBar from '$lib/components/ui/FilterBar.svelte';
+	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import type { Column } from '$lib/components/ui/table';
-	import CursorPager from '$lib/components/ui/CursorPager.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import type { Column } from '@wf-agent/ui/components/table';
+	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import { onMount } from 'svelte';
 	import {
 		listExecutions,

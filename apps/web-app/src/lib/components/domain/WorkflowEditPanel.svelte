@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';

@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
 		getExecutionDetail,

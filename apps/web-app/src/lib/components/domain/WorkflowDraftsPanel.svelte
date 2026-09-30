@@ -1,13 +1,13 @@
 <script lang="ts">
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
-	import JsonViewer from '$lib/components/ui/JsonViewer.svelte';
+	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import { getWorkflowDraftTopology } from '$lib/services/graph';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import type { WorkflowDraft } from '$lib/types/models';

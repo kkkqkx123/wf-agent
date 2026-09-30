@@ -2,14 +2,14 @@
 	import { onMount } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Switch from '$lib/components/ui/Switch.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Switch from '@wf-agent/ui/components/Switch.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
+	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
 		type Density,
@@ -17,7 +17,7 @@
 	} from '$lib/stores/preferences.svelte';
 	import { behavior } from '$lib/stores/behavior.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const SECTIONS = [

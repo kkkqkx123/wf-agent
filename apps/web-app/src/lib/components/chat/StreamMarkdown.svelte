@@ -2,7 +2,7 @@
 	import MarkdownRender from 'markstream-svelte';
 	import 'markstream-svelte/index.css';
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		content: string;

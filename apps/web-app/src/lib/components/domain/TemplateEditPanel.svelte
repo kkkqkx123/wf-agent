@@ -3,15 +3,15 @@
 </script>
 
 <script lang="ts">
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
-	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
+	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import type { DisplayNode } from '$lib/graph/display-model';

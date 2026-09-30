@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import Icon from '$lib/components/icons/Icon.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import {
 		DEFAULT_NODE_TYPE,
@@ -12,7 +12,7 @@
 		type NodeTemplateSummary,
 	} from '$lib/services/node-templates';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		open: boolean;

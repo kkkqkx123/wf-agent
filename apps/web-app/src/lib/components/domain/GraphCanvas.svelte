@@ -43,7 +43,7 @@
 	} from '$lib/graph/canvas-model';
 	import { CANVAS_STYLESHEET } from '$lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		nodes: DisplayNode[];

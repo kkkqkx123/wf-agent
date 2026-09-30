@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Button from '$lib/components/ui/Button.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
-	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
+	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
+	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import { jsonErrorLine, type TemplateIssue } from '$lib/services/templates';
 	import {
 		executeTool,

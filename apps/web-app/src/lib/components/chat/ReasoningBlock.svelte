@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import { cn } from '$lib/utils/cn';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		content: string;

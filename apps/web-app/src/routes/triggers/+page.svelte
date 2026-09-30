@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import type { Column } from '$lib/components/ui/table';
-	import JsonEditor from '$lib/components/ui/JsonEditor.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import type { Column } from '@wf-agent/ui/components/table';
+	import JsonEditor from '@wf-agent/ui/components/JsonEditor.svelte';
 	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		cleanupTriggerExecutions,

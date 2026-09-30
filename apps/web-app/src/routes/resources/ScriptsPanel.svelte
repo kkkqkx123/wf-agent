@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import type { Column } from '$lib/components/ui/table';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import type { Column } from '@wf-agent/ui/components/table';
 	import type { Script } from '$lib/types/models';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 

@@ -4,7 +4,8 @@
   "private": true,
   "description": "Application modules for Modular Agent Framework",
   "workspaces": [
-    "web-app"
+    "web-app",
+    "ui"
   ],
   "scripts": {
     "build": "echo \"Build script for apps coming soon\"",

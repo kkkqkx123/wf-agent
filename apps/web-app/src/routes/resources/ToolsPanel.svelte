@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Card from '$lib/components/ui/Card.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Switch from '$lib/components/ui/Switch.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Switch from '@wf-agent/ui/components/Switch.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
 	import type { Tool } from '$lib/types/models';
 	import { formatNumber, formatPercent } from '$lib/utils/format';
 

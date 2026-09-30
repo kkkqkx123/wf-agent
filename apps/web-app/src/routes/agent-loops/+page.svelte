@@ -2,21 +2,21 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import type { Column } from '$lib/components/ui/table';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import type { Column } from '@wf-agent/ui/components/table';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import FilterBar from '$lib/components/ui/FilterBar.svelte';
-	import Progress from '$lib/components/ui/Progress.svelte';
+	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
+	import Progress from '@wf-agent/ui/components/Progress.svelte';
 	import {
 		listAgentLoops,
 		getAgentLoopDetail,

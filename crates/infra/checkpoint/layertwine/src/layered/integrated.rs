@@ -7,7 +7,9 @@
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{AgentInstanceId, PartitionId, PartitionType, SnapshotId, SourceType};
+use crate::core::types::{
+    AgentInstanceId, LayerType, PartitionId, PartitionType, SnapshotId, SourceType,
+};
 use crate::engine::diff::diff_to_line_diff;
 use crate::error::{LayertwineError, Result};
 use crate::layered::MergeResult;
@@ -154,6 +156,8 @@ where
         LayertwineError::NotFound(format!("approval agent partition {} not found", agent_id))
     })?;
 
+    crate::layered::transition::check_partition_layer(&approval_partition, &LayerType::Approval)?;
+
     // Use the approval partition's original baseline (history[0]) as the
     // integrated partition's initial snapshot. This ensures the merge baseline
     // is the common ancestor — the staged snapshot at the time of agent submission.
@@ -165,6 +169,11 @@ where
     })?;
     let integrated_partition =
         ensure_integrated_partition(storage, feature_name, *approval_baseline)?;
+
+    crate::layered::transition::check_partition_layer(
+        &integrated_partition,
+        &LayerType::Integrated,
+    )?;
 
     let approval_latest = latest_per_path(storage, &approval_partition.history)?;
     if approval_latest.is_empty() {

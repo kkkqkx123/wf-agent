@@ -4,10 +4,11 @@
 //! insertion, cycle prevention, generation tracking, and child queries.
 //!
 //! Note: DAG is built dynamically from Checkpoint relationships and is not persisted to storage.
-//! Division of labor: this DAG is the file-history storage view only.
-//! Retention decisions and dependency protection for execution state live in
-//! `wf-checkpoint` (`cleanup_policy` + `checkpoint_graph`); this module never
-//! deletes rows on its own.
+//! Division of labor: this DAG is the file-history storage view only, keyed by
+//! content ids with multi-parent edges. Retention decisions and dependency
+//! protection for execution state live in `wf-checkpoint` (`cleanup_policy` +
+//! `checkpoint_graph`), which tracks a linear string-id chain; this module
+//! never deletes rows on its own and must not be unified with that guard.
 
 use crate::core::types::CheckpointId;
 use std::collections::{HashMap, HashSet, VecDeque};

@@ -39,11 +39,12 @@ pub trait CheckpointBackend: Send + Sync {
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
 }
 
-/// Real layertwine backend adapter: persists opaque graph/workflow checkpoint
-/// blobs in the dedicated `graph_blobs` table (indexed `parent_id` /
-/// `branch_id` columns). Execution branch heads live in layertwine's native
-/// `branches` table; a branch created without a resolvable base head starts
-/// at the genesis sentinel (reported as `None` until its first checkpoint).
+/// Real layertwine backend adapter over three separate tables.
+/// Responsibility split inside this file: graph blobs live in `graph_blobs`,
+/// file-history commits live in `checkpoints`, execution branch heads live
+/// in the native `branches` table. A branch created without a resolvable
+/// base head starts at the genesis sentinel (reported as `None` until its
+/// first checkpoint).
 pub struct LayertwineBackend {
     storage: SqliteStorage,
 }
@@ -189,6 +190,7 @@ impl CheckpointBackend for LayertwineBackend {
     }
 }
 
+/// Execution branch heads: native `branches` table only.
 impl LayertwineBackend {
     /// Storage accessor for tests and diagnostics.
     pub fn storage(&self) -> &SqliteStorage {
@@ -199,6 +201,19 @@ impl LayertwineBackend {
     pub fn share(&self) -> Self {
         Self {
             storage: self.storage.share(),
+        }
+    }
+
+    fn lookup_native_branch(
+        &self,
+        branch: &str,
+    ) -> Result<Option<layertwine::checkpoint::branch::Branch>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        match self.storage.get_branch(branch) {
+            Ok(native) => Ok(Some(native)),
+            Err(layertwine::StorageError::NotFound(_)) => Ok(None),
+            Err(e) => Err(map_layertwine_error(e)),
         }
     }
 
@@ -219,12 +234,11 @@ impl LayertwineBackend {
                 "branch head must be a content id, got '{checkpoint_id}'"
             )));
         };
-        match self.storage.get_branch(branch) {
-            Ok(_) => self.storage.update_branch_head(branch, &head),
-            Err(layertwine::StorageError::NotFound(_)) => self
+        match self.lookup_native_branch(branch)? {
+            Some(_) => self.storage.update_branch_head(branch, &head),
+            None => self
                 .storage
                 .store_branch(&layertwine::checkpoint::branch::Branch::new(branch, head)),
-            Err(e) => Err(e),
         }
         .map_err(map_layertwine_error)?;
         Ok(())
@@ -233,37 +247,125 @@ impl LayertwineBackend {
     /// Read the branch head pointer from the native table. Headless branches
     /// (genesis sentinel) and missing branches both report `None`.
     pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        match self.storage.get_branch(branch) {
-            Ok(native) if is_genesis(&native.head) => Ok(None),
-            Ok(native) => Ok(Some(native.head.to_hex())),
-            Err(layertwine::StorageError::NotFound(_)) => Ok(None),
-            Err(e) => Err(map_layertwine_error(e)),
+        match self.lookup_native_branch(branch)? {
+            Some(native) if is_genesis(&native.head) => Ok(None),
+            Some(native) => Ok(Some(native.head.to_hex())),
+            None => Ok(None),
         }
     }
 
     /// Synchronous branch existence check against the native table.
     pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        match self.storage.get_branch(branch) {
-            Ok(_) => Ok(true),
-            Err(layertwine::StorageError::NotFound(_)) => Ok(false),
-            Err(e) => Err(map_layertwine_error(e)),
-        }
+        Ok(self.lookup_native_branch(branch)?.is_some())
     }
 
     /// Native head lookup shared by create-time base inheritance. Genesis
     /// heads count as absent so new branches do not inherit the sentinel.
     fn native_head(&self, branch: &str) -> Option<layertwine::core::types::CheckpointId> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        self.storage
-            .get_branch(branch)
+        self.lookup_native_branch(branch)
             .ok()
+            .flatten()
             .map(|b| b.head)
             .filter(|head| !is_genesis(head))
+    }
+
+    /// Execution-namespace branch names only. The namespace rule lives here
+    /// alongside the native table so callers never reimplement the filter.
+    pub fn list_execution_branch_names(&self) -> Result<Vec<String>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let native = self
+            .storage
+            .list_branches()
+            .map_err(map_layertwine_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        let mut names: Vec<String> = native
+            .into_iter()
+            .map(|branch| branch.name)
+            .filter(|name| crate::branch::is_execution_branch_name(name))
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+
+    /// Feature-namespace branch names only. Counterpart to the execution
+    /// listing above; the predicate itself lives in the naming module.
+    pub fn list_feature_branch_names(&self) -> Result<Vec<String>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let native = self
+            .storage
+            .list_branches()
+            .map_err(map_layertwine_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        let mut names: Vec<String> = native
+            .into_iter()
+            .map(|branch| branch.name)
+            .filter(|name| crate::branch::is_feature_branch_name(name))
+            .collect();
+        names.sort();
+        Ok(names)
+    }
+}
+
+/// Layered partition readiness: ensures the approval and staged partitions
+/// exist before merges run. The workspace-to-partition mapping stays with the
+/// caller; partition ids and seed handling stay here so file orchestration
+/// code never touches partition stores directly.
+impl LayertwineBackend {
+    /// Ensure the approval partition exists for the given agent, seeded from
+    /// the agent partition baseline.
+    pub(crate) fn ensure_approval_ready(
+        &self,
+        agent_id: &layertwine::core::types::AgentInstanceId,
+    ) -> Result<(), CheckpointError> {
+        use layertwine::storage::repository::PartitionStore;
+
+        let pid = layertwine::layered::agent::agent_partition_id(agent_id);
+        let partition = self
+            .storage
+            .get_partition(&pid)
+            .map_err(map_layertwine_error)?;
+        let baseline =
+            partition
+                .history
+                .first()
+                .copied()
+                .ok_or_else(|| CheckpointError::Corrupted {
+                    id: pid.to_string(),
+                    reason: "agent partition has empty history".to_string(),
+                })?;
+        layertwine::layered::approval::ensure_approval_agent_partition(
+            &self.storage,
+            agent_id,
+            baseline,
+        )
+        .map_err(map_layertwine_error)?;
+        Ok(())
+    }
+
+    /// Ensure the staged partition exists for the workspace, seeding it when
+    /// missing.
+    pub(crate) fn ensure_staged_ready(
+        &self,
+        workspace_key: Option<&str>,
+    ) -> Result<(), CheckpointError> {
+        use layertwine::storage::repository::PartitionStore;
+
+        let staged_pid = match workspace_key {
+            Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
+            None => layertwine::layered::staged::staged_partition_id(),
+        };
+        if self.storage.get_partition(&staged_pid).is_ok() {
+            return Ok(());
+        }
+        let seed = crate::file::util::seed_initial_snapshot(
+            &self.storage,
+            &layertwine::core::types::AgentInstanceId("staged".into()),
+        )?;
+        layertwine::layered::staged::ensure_staged_partition(&self.storage, seed, workspace_key)
+            .map_err(map_layertwine_error)?;
+        Ok(())
     }
 }
 
@@ -310,22 +412,7 @@ impl BranchStorageAdapter for LayertwineBackend {
     }
 
     async fn list_branches(&self) -> Result<Vec<String>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        let native = self
-            .storage
-            .list_branches()
-            .map_err(map_layertwine_error)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        let mut names: Vec<String> = native
-            .into_iter()
-            .map(|branch| branch.name)
-            .filter(|name| {
-                crate::branch::classify_branch(name) == crate::branch::BranchKind::Execution
-            })
-            .collect();
-        names.sort();
-        Ok(names)
+        self.list_execution_branch_names()
     }
 
     async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError> {

@@ -102,7 +102,7 @@ pub fn collect_protected_checkpoints(
     protected
 }
 
-/// Run garbage collection on the checkpoint repository.
+/// Run garbage collection on the file-history checkpoint repository.
 ///
 /// Mark-sweep algorithm:
 /// 1. Collect protected checkpoints (branch heads + ancestors
@@ -113,7 +113,9 @@ pub fn collect_protected_checkpoints(
 /// are content-addressed and immutable, so `removed_snapshots` counts the
 /// snapshot references dropped with the removed checkpoints. Shared rows are
 /// intentionally retained: use `referenced_snapshot_ids` to compute the live
-/// set before any physical snapshot reclamation.
+/// set before any physical snapshot reclamation. This collector is distinct
+/// from the execution-state cleanup policy, which selects candidates by age
+/// and count before applying chain protection.
 pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GcStats> {
     let protected = collect_protected_checkpoints(repo, retention);
     let all_checkpoints = repo.dag().all_nodes();

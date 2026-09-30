@@ -192,10 +192,11 @@ fn spawn_non_blocking(
             // branch must still settle as a failure instead of staying
             // Running in the registry. Mirrors the joined-path guard in
             // `run_parallel`.
-            let outcome =
-                std::panic::AssertUnwindSafe(async { run_branch(idx, path, branch_execution_id, run_ctx).await })
-                    .catch_unwind()
-                    .await;
+            let outcome = std::panic::AssertUnwindSafe(async {
+                run_branch(idx, path, branch_execution_id, run_ctx).await
+            })
+            .catch_unwind()
+            .await;
             let result = match outcome {
                 Ok(result) => result,
                 Err(payload) => {

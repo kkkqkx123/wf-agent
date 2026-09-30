@@ -8,7 +8,7 @@ use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{
-    AgentInstanceId, EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType,
+    AgentInstanceId, EditSessionId, LayerType, PartitionId, PartitionType, SnapshotId, SourceType,
 };
 use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot_content};
 use crate::engine::merge::apply_deltas;
@@ -386,6 +386,9 @@ where
             agent_id
         ))
     })?;
+
+    crate::layered::transition::check_partition_layer(&agent_partition, &LayerType::AgentEdit)?;
+    crate::layered::transition::check_partition_layer(&approval_partition, &LayerType::Approval)?;
 
     if approval_partition.history.is_empty() {
         return Err(LayertwineError::StateMachine(

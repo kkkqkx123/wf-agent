@@ -75,6 +75,10 @@ impl FileCheckpointManager {
         let mut applied = 0;
         for change in changes {
             let Ok(relative) = change.path.strip_prefix(base_dir) else {
+                tracing::warn!(
+                    path = %change.path.display(),
+                    "workspace change outside base directory; skipping"
+                );
                 continue;
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
@@ -244,5 +248,48 @@ impl FileCheckpointManager {
             }
         }
         Ok(stats)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::script_capture::{CollectedChange, CollectedChangeKind};
+    use wf_types::config::file_checkpoint::FailureBehavior;
+
+    #[test]
+    fn workspace_changes_outside_base_are_skipped_visibly() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        let outside = std::path::PathBuf::from("/tmp/outside-workspace.txt");
+        let inside_path = dir.path().join("inside.txt");
+        std::fs::write(&inside_path, b"hello").unwrap();
+        let changes = vec![
+            CollectedChange::new(outside, CollectedChangeKind::Add),
+            CollectedChange::new(inside_path, CollectedChangeKind::Add),
+        ];
+        let applied = manager
+            .apply_workspace_changes(&actor, dir.path(), &changes, FailureBehavior::Warn)
+            .unwrap();
+        assert_eq!(applied, 1);
+    }
+
+    #[test]
+    fn precise_events_outside_root_are_counted() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        let outside = std::path::PathBuf::from("/tmp/outside-precise.txt");
+        let events = vec![PreciseFileEvent::new(
+            outside.clone(),
+            PreciseFileEventKind::Modified,
+        )];
+        let stats = manager
+            .apply_precise_file_events(&actor, dir.path(), &events, FailureBehavior::Warn)
+            .unwrap();
+        assert_eq!(stats.applied, 0);
+        assert_eq!(stats.out_of_scope.len(), 1);
+        assert!(stats.out_of_scope[0].contains("outside-precise"));
     }
 }

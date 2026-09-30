@@ -6,7 +6,9 @@ use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType};
+use crate::core::types::{
+    EditSessionId, LayerType, PartitionId, PartitionType, SnapshotId, SourceType,
+};
 use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot_content};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
@@ -338,6 +340,9 @@ where
     let staged_partition = storage
         .get_partition(&staged_pid)
         .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
+
+    crate::layered::transition::check_partition_layer(&manual_partition, &LayerType::ManualEdit)?;
+    crate::layered::transition::check_partition_layer(&staged_partition, &LayerType::Staged)?;
 
     // If both point to the same snapshot, no merge needed
     if manual_partition.current_snapshot == staged_partition.current_snapshot {

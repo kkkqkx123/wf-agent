@@ -27,9 +27,9 @@ impl FeatureBranchStore {
     }
 
     fn ensure_feature(name: &str) -> Result<(), CheckpointError> {
-        if crate::branch::classify_branch(name) != crate::branch::BranchKind::Feature {
+        if !crate::branch::is_feature_branch_name(name) {
             return Err(CheckpointError::Branch(format!(
-                "feature branch name must not contain '/': '{name}'"
+                "feature branch name must be a bare name without '/': '{name}'"
             )));
         }
         Ok(())
@@ -72,7 +72,7 @@ impl FeatureBranchStore {
         Ok(branches
             .into_iter()
             .map(|b| b.name)
-            .filter(|n| crate::branch::classify_branch(n) == crate::branch::BranchKind::Feature)
+            .filter(|n| crate::branch::is_feature_branch_name(n))
             .collect())
     }
 }

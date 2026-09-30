@@ -2,6 +2,7 @@
 //!
 //! Define all allowed forward/reverse flow operations, and state machine irony checks.
 
+use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{EditSessionId, LayerType, PartitionId, SnapshotId};
 use crate::engine::merge::apply_deltas;
@@ -464,6 +465,23 @@ pub fn partition_type_matches_layer(partition_type: &str, target_layer: &LayerTy
         == Some(target_layer)
 }
 
+/// Verify a fetched partition actually resides in the expected layer.
+///
+/// Unlike `check_forward_valid`, which only validates the caller-supplied
+/// layer pair, this reads the partition's own type so a misrouted partition
+/// id fails fast with its actual layer instead of silently advancing the
+/// wrong partition's pointer.
+pub fn check_partition_layer(partition: &Partition, expected: &LayerType) -> Result<()> {
+    let actual = partition.partition_type.to_layer();
+    if actual == *expected {
+        return Ok(());
+    }
+    Err(LayertwineError::StateMachine(format!(
+        "layer mismatch: partition '{}' is {:?}, expected {:?}",
+        partition.name, actual, expected
+    )))
+}
+
 /// Reconstructs the complete text content from Snapshot's delta chains
 ///
 /// Read the original content from file_node and apply all deltas in turn.
@@ -590,6 +608,28 @@ mod tests {
                 assert!(result.is_err(), "expected Err for {:?} -> {:?}", from, to);
             }
         }
+    }
+
+    #[test]
+    fn test_check_partition_layer() {
+        use crate::core::types::ContentId;
+        let seed = ContentId::from_content(&[7u8; 8]);
+        let agent = Partition::new(
+            "agent_edit/a".to_string(),
+            PartitionType::Agent(AgentInstanceId("a".into())),
+            seed,
+        );
+        assert!(check_partition_layer(&agent, &LayerType::AgentEdit).is_ok());
+        let err = check_partition_layer(&agent, &LayerType::Staged).unwrap_err();
+        let message = format!("{err}");
+        assert!(
+            message.contains("agent_edit/a"),
+            "error names partition: {message}"
+        );
+        assert!(
+            message.contains("Staged"),
+            "error names expected layer: {message}"
+        );
     }
 
     #[test]

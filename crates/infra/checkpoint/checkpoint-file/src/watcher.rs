@@ -9,6 +9,7 @@ use tokio::sync::watch;
 use crate::file::FileCheckpointManager;
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use checkpoint_base::error::CheckpointError;
+use wf_common::lock::lock_ok;
 
 /// File change event kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,11 +190,7 @@ impl FileWatcher {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
-        self.state
-            .lock()
-            .expect("watcher state poisoned")
-            .pending
-            .clear();
+        lock_ok(self.state.lock()).pending.clear();
     }
 
     /// All changed files currently buffered, with absolute paths.
@@ -201,9 +198,7 @@ impl FileWatcher {
     /// claim ownership, so a concurrent `reset` could drop events observed
     /// here.
     pub fn get_changed_files(&self) -> Vec<FileChangeRecord> {
-        self.state
-            .lock()
-            .expect("watcher state poisoned")
+        lock_ok(self.state.lock())
             .changed
             .values()
             .cloned()
@@ -212,24 +207,14 @@ impl FileWatcher {
 
     /// Changed file paths (absolute) currently buffered.
     pub fn get_changed_paths(&self) -> Vec<PathBuf> {
-        self.state
-            .lock()
-            .expect("watcher state poisoned")
-            .changed
-            .keys()
-            .cloned()
-            .collect()
+        lock_ok(self.state.lock()).changed.keys().cloned().collect()
     }
 
     /// Whether a file has changed since the last batch consumption. Relative
     /// paths are resolved against the watched root.
     pub fn has_changed(&self, file_path: impl AsRef<Path>) -> bool {
         let absolute = self.resolve_absolute(file_path.as_ref());
-        self.state
-            .lock()
-            .expect("watcher state poisoned")
-            .changed
-            .contains_key(&absolute)
+        lock_ok(self.state.lock()).changed.contains_key(&absolute)
     }
 
     /// Atomically take the current `changed` map as an in-flight batch.
@@ -239,7 +224,7 @@ impl FileWatcher {
     /// consumed, on failure the unprocessed records must be returned via
     /// [`Self::requeue_batch`].
     pub fn take_batch(&self) -> Vec<FileChangeRecord> {
-        let mut state = self.state.lock().expect("watcher state poisoned");
+        let mut state = lock_ok(self.state.lock());
         let taken = std::mem::take(&mut state.changed);
         let mut out: Vec<FileChangeRecord> = taken.into_values().collect();
         out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -255,7 +240,7 @@ impl FileWatcher {
         if records.is_empty() {
             return;
         }
-        let mut state = self.state.lock().expect("watcher state poisoned");
+        let mut state = lock_ok(self.state.lock());
         for record in records {
             state.changed.entry(record.path.clone()).or_insert(record);
         }
@@ -263,11 +248,7 @@ impl FileWatcher {
 
     /// Number of buffered (not yet taken) change records.
     pub fn buffered_len(&self) -> usize {
-        self.state
-            .lock()
-            .expect("watcher state poisoned")
-            .changed
-            .len()
+        lock_ok(self.state.lock()).changed.len()
     }
 
     /// Clear buffered `changed` records. Pending (debounce-window) events
@@ -275,7 +256,7 @@ impl FileWatcher {
     /// clearing them would drop events. Prefer `take_batch` + success
     /// confirm over manual `reset` in production pumps.
     pub fn reset(&self) {
-        let mut state = self.state.lock().expect("watcher state poisoned");
+        let mut state = lock_ok(self.state.lock());
         state.changed.clear();
     }
 
@@ -293,7 +274,7 @@ impl FileWatcher {
     /// immediately without debounce.
     pub fn notify_file_change(&self, file_path: impl AsRef<Path>, kind: FileChangeKind) {
         let absolute = self.resolve_absolute(file_path.as_ref());
-        let mut state = self.state.lock().expect("watcher state poisoned");
+        let mut state = lock_ok(self.state.lock());
         state.changed.insert(
             absolute.clone(),
             FileChangeRecord::new(absolute, kind, now_millis()),
@@ -305,7 +286,7 @@ impl FileWatcher {
     pub fn notify_file_rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) {
         let from_abs = self.resolve_absolute(from.as_ref());
         let to_abs = self.resolve_absolute(to.as_ref());
-        let mut state = self.state.lock().expect("watcher state poisoned");
+        let mut state = lock_ok(self.state.lock());
         state.changed.insert(
             to_abs.clone(),
             FileChangeRecord::renamed(from_abs, to_abs, now_millis()),
@@ -341,7 +322,7 @@ async fn run_event_loop(
             }
             event = events.recv() => {
                 let Some(event) = event else { break; };
-                let mut guard = state.lock().expect("watcher state poisoned");
+                let mut guard = lock_ok(state.lock());
                 if let Some(records) = filter_event(&root, &scanner, &event) {
                     for record in records {
                         guard.pending.insert(record.path.clone(), record);
@@ -352,7 +333,7 @@ async fn run_event_loop(
                     let state = state.clone();
                     pending_flush = Some(tokio::spawn(async move {
                         tokio::time::sleep(debounce).await;
-                        state.lock().expect("watcher state poisoned").flush();
+                        lock_ok(state.lock()).flush();
                     }));
                 }
             }

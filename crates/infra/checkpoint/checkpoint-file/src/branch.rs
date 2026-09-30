@@ -5,5 +5,6 @@ pub mod naming;
 pub use feature::FeatureBranchStore;
 pub use manager::{BranchInfo, BranchManager, BranchStorageAdapter, ExecutionBranchManager};
 pub use naming::{
-    branch_entity_id, branch_entity_type, classify_branch, execution_branch_name, BranchKind,
+    branch_entity_id, branch_entity_type, classify_branch, execution_branch_name,
+    is_execution_branch_name, is_feature_branch_name, BranchKind, EXECUTION_BRANCH_PREFIX,
 };

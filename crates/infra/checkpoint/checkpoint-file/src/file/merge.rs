@@ -1,11 +1,11 @@
 use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use layertwine::core::types::{AgentInstanceId, CheckpointId};
 use layertwine::layered::agent;
-use layertwine::storage::repository::{CheckpointPersist, PartitionStore};
+use layertwine::storage::repository::CheckpointPersist;
 use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::event::CheckpointEventBus;
-use crate::file::util::{map_layertwine_error, seed_initial_snapshot};
+use crate::file::util::map_layertwine_error;
 use crate::file::FileCheckpointManager;
 use checkpoint_base::error::CheckpointError;
 
@@ -25,38 +25,17 @@ impl FileCheckpointManager {
         storage: &SqliteStorage,
         agent_id: &AgentInstanceId,
     ) -> Result<(), CheckpointError> {
-        let pid = agent::agent_partition_id(agent_id);
-        let partition = storage.get_partition(&pid).map_err(map_layertwine_error)?;
-        let baseline =
-            partition
-                .history
-                .first()
-                .copied()
-                .ok_or_else(|| CheckpointError::Corrupted {
-                    id: pid.to_string(),
-                    reason: "agent partition has empty history".to_string(),
-                })?;
-        layertwine::layered::approval::ensure_approval_agent_partition(storage, agent_id, baseline)
-            .map_err(map_layertwine_error)?;
-        Ok(())
+        let _ = storage;
+        self.store.branch_adapter.ensure_approval_ready(agent_id)
     }
 
     pub(crate) fn ensure_staged_ready(
         &self,
         storage: &SqliteStorage,
     ) -> Result<(), CheckpointError> {
+        let _ = storage;
         let ws = self.workspace_key();
-        let staged_pid = match ws.as_deref() {
-            Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
-            None => layertwine::layered::staged::staged_partition_id(),
-        };
-        if storage.get_partition(&staged_pid).is_ok() {
-            return Ok(());
-        }
-        let seed = seed_initial_snapshot(storage, &AgentInstanceId("staged".into()))?;
-        layertwine::layered::staged::ensure_staged_partition(storage, seed, ws.as_deref())
-            .map_err(map_layertwine_error)?;
-        Ok(())
+        self.store.branch_adapter.ensure_staged_ready(ws.as_deref())
     }
 
     /// Move the actor's changes into the approval layer (three-way merge

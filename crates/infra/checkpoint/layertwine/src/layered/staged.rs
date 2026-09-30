@@ -12,7 +12,9 @@ use crate::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{CheckpointId, PartitionId, PartitionType, SnapshotId, SourceType};
+use crate::core::types::{
+    CheckpointId, LayerType, PartitionId, PartitionType, SnapshotId, SourceType,
+};
 use crate::engine::diff::diff_to_line_diff;
 use crate::error::{LayertwineError, Result};
 use crate::layered::MergeResult;
@@ -140,6 +142,13 @@ where
     let feature_part = storage.get_partition(&integrated_pid).map_err(|_| {
         LayertwineError::NotFound(format!("integrated partition '{}' not found", feature_name))
     })?;
+    let staged_partition = storage
+        .get_partition(&staged_pid)
+        .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
+
+    crate::layered::transition::check_partition_layer(&feature_part, &LayerType::Integrated)?;
+    crate::layered::transition::check_partition_layer(&staged_partition, &LayerType::Staged)?;
+
     let baseline_id = feature_part.history.first().ok_or_else(|| {
         LayertwineError::StateMachine(format!(
             "integrated partition '{}' has empty history",
@@ -152,10 +161,6 @@ where
     let feature_snapshot = storage
         .get_snapshot(&feature_part.current_snapshot)
         .map_err(LayertwineError::Storage)?;
-
-    let staged_partition = storage
-        .get_partition(&staged_pid)
-        .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
 
     // If staged and feature already point to the same snapshot, no merge needed
     if staged_partition.current_snapshot == feature_part.current_snapshot {

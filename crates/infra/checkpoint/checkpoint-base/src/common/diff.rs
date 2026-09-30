@@ -1,3 +1,6 @@
+/// View-only presentation helpers over the single file-text diff algorithm.
+/// All line and word diffs delegate to `layertwine::engine`; this module adds
+/// headers, stats, and binary guards only and owns no diff algorithm.
 use layertwine::engine::diff as engine;
 
 /// Threshold for deciding whether a content slice should be treated as binary

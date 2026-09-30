@@ -166,6 +166,8 @@
 	const failed = $derived(new Set(failedIds));
 	const criticals = $derived(new Set(criticalIds));
 	const decisions = $derived(new Set(decisionIds));
+	// Backend kind per node, used for port-type connection validation.
+	const kindById = $derived(new Map(nodes.map((node) => [node.id, node.kind])));
 	const collapsed = $derived(new Set(collapsedIds));
 	// Latest props for gesture handlers registered once on mount. Derived
 	// values stay current without snapshot effects.
@@ -348,6 +350,8 @@
 			target,
 			edges,
 			hiddenIds: hiddenSnapshot,
+			sourceKind: kindById.get(source) ?? '',
+			targetKind: kindById.get(target) ?? '',
 		});
 	}
 
@@ -358,6 +362,8 @@
 			target,
 			edges,
 			hiddenIds: hiddenSnapshot,
+			sourceKind: kindById.get(source) ?? '',
+			targetKind: kindById.get(target) ?? '',
 		});
 	}
 
@@ -647,6 +653,18 @@
 		// one history entry; elsewhere the layout is purely visual.
 		pendingLayoutCommit = editSnapshot && !!groupMoveHandler;
 		runLayout();
+	}
+
+	/** Model coordinates at the centre of the visible viewport. */
+	export function viewportCenter(): CanvasPosition | null {
+		const core = cy;
+		if (!core || !container) return null;
+		const zoom = core.zoom();
+		const pan = core.pan();
+		return {
+			x: Math.round((container.clientWidth / 2 - pan.x) / zoom),
+			y: Math.round((container.clientHeight / 2 - pan.y) / zoom),
+		};
 	}
 
 	/** Ids currently selected on the canvas (edit toolbar delete). */

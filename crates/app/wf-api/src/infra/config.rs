@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_node_type_on_transform() {
+    fn keeps_plugin_node_type_on_transform() {
         let nodes = vec![WorkflowNodeConfig {
             id: "n1".into(),
             node_type: "LLMM".into(),
@@ -208,8 +208,11 @@ mod tests {
             description: None,
             config: None,
         }];
-        let err = transform_workflow_nodes(&nodes).unwrap_err();
-        assert!(matches!(err, crate::ApiError::Validation(_)));
+        let built = transform_workflow_nodes(&nodes).expect("plugin node type transforms");
+        assert_eq!(
+            built[0].node_type,
+            wf_types::node::StaticNodeType::Custom("LLMM".into())
+        );
     }
 
     #[test]

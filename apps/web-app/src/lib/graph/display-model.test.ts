@@ -10,6 +10,7 @@ import {
 } from './layout';
 import {
 	capGraph,
+	connectByPort,
 	distinctKinds,
 	isDashedEdge,
 	legendFor,
@@ -53,14 +54,21 @@ describe('nodeShape', () => {
 	it('maps terminals to ellipses', () => {
 		expect(nodeShape('START', 'workflow')).toBe('ellipse');
 		expect(nodeShape('end', 'decision')).toBe('ellipse');
+		expect(nodeShape('START_FROM_MESSAGE', 'workflow')).toBe('ellipse');
+		expect(nodeShape('CONTINUE_FROM_MESSAGE', 'workflow')).toBe('ellipse');
 	});
-	it('maps error kinds to diamonds in decision graphs', () => {
-		expect(nodeShape('error', 'decision')).toBe('diamond');
-		expect(nodeShape('error', 'workflow')).toBe('round-rectangle');
+	it('maps route nodes to diamonds', () => {
+		expect(nodeShape('route', 'decision')).toBe('diamond');
+		expect(nodeShape('ROUTE', 'workflow')).toBe('diamond');
 	});
-	it('maps tools to hexagons outside workflows', () => {
-		expect(nodeShape('tool_call', 'decision')).toBe('hexagon');
+	it('maps model calls to hexagons outside workflows', () => {
+		expect(nodeShape('LLM', 'decision')).toBe('hexagon');
 		expect(nodeShape('LLM', 'workflow')).toBe('round-rectangle');
+	});
+	it('renders unknown and plugin kinds as ordinary steps', () => {
+		expect(nodeShape('error', 'decision')).toBe('round-rectangle');
+		expect(nodeShape('tool_call', 'decision')).toBe('round-rectangle');
+		expect(nodeShape('acme.step', 'workflow')).toBe('round-rectangle');
 	});
 });
 
@@ -163,19 +171,40 @@ describe('shortLabel', () => {
 });
 
 describe('renderKind', () => {
-	it('classifies terminals, tools, triggers and agents', () => {
-		expect(renderKind('START', 'workflow')).toBe('terminal');
-		expect(renderKind('start_node', 'workflow')).toBe('terminal');
-		expect(renderKind('tool_call', 'decision')).toBe('tool');
-		expect(renderKind('webhook', 'workflow')).toBe('trigger');
-		expect(renderKind('subagent', 'decision')).toBe('agent');
-		expect(renderKind('note', 'workflow')).toBe('note');
-		expect(renderKind('custom', 'workflow')).toBe('step');
+	it('classifies builtin entry and exit types as terminals', () => {
+		expect(renderKind('START')).toBe('terminal');
+		expect(renderKind('END')).toBe('terminal');
+		expect(renderKind('START_FROM_MESSAGE')).toBe('terminal');
+		expect(renderKind('CONTINUE_FROM_MESSAGE')).toBe('terminal');
 	});
-	it('keeps decision shapes for branches and decision errors', () => {
-		expect(renderKind('branch', 'workflow')).toBe('decision');
-		expect(renderKind('error', 'decision')).toBe('decision');
-		expect(renderKind('error', 'workflow')).toBe('step');
+	it('classifies route nodes as decisions and model calls as tools', () => {
+		expect(renderKind('ROUTE')).toBe('decision');
+		expect(renderKind('llm')).toBe('tool');
+	});
+	it('treats every other builtin type as a step', () => {
+		expect(renderKind('SCRIPT')).toBe('step');
+		expect(renderKind('AGENT_LOOP')).toBe('step');
+		expect(renderKind('LOOP_START')).toBe('step');
+		expect(renderKind('USER_INTERACTION')).toBe('step');
+	});
+	it('never invents a role for kinds the backend does not define', () => {
+		for (const kind of [
+			'webhook',
+			'cron',
+			'trigger',
+			'note',
+			'comment',
+			'subagent',
+			'start_node',
+			'error',
+			'branch',
+		]) {
+			expect(renderKind(kind)).toBe('step');
+		}
+	});
+	it('renders plugin-contributed types as steps', () => {
+		expect(renderKind('acme.step')).toBe('step');
+		expect(renderKind('')).toBe('step');
 	});
 });
 
@@ -241,8 +270,8 @@ describe('layeredPositions', () => {
 				node('r', 'step'),
 				node('a-step', 'step'),
 				node('b-step', 'step'),
-				node('z-tool', 'tool_call'),
-				node('m-tool', 'tool_call'),
+				node('z-tool', 'LLM'),
+				node('m-tool', 'LLM'),
 			],
 			[
 				edge('e1', 'r', 'a-step'),
@@ -260,15 +289,16 @@ describe('layeredPositions', () => {
 		expect(zed?.x).toBe(em?.x);
 		expect(zed?.y ?? 0).toBeLessThan(em?.y ?? 0);
 	});
-	it('docks notes below their component', () => {
+	it('positions edge-free nodes instead of dropping them', () => {
 		const positions = layeredPositions(
-			[node('a', 'step'), node('n', 'note')],
-			[edge('e1', 'a', 'n')],
+			[node('a', 'SCRIPT'), node('b', 'LLM'), node('c', 'acme.step')],
+			[],
 		);
-		expect(positions.get('n')?.x).toBe(positions.get('a')?.x);
-		expect(positions.get('n')?.y ?? 0).toBeGreaterThan(
-			positions.get('a')?.y ?? 0,
-		);
+		expect(positions.size).toBe(3);
+		for (const position of positions.values()) {
+			expect(Number.isFinite(position.x)).toBe(true);
+			expect(Number.isFinite(position.y)).toBe(true);
+		}
 	});
 });
 
@@ -520,6 +550,47 @@ describe('buildVersionDiffView', () => {
 		});
 		expect(view.empty).toBe(true);
 		expect(view.addedEdges).toBe(0);
+	});
+});
+
+describe('connectByPort', () => {
+	it('rejects incoming edges into graph entries', () => {
+		expect(connectByPort({ sourceKind: 'LLM', targetKind: 'START' })).toBe(
+			'START node cannot have incoming edges',
+		);
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'start_from_message' }),
+		).toBe('START_FROM_MESSAGE node cannot have incoming edges');
+	});
+	it('rejects outgoing edges from graph exits', () => {
+		expect(connectByPort({ sourceKind: 'END', targetKind: 'SCRIPT' })).toBe(
+			'END node cannot have outgoing edges',
+		);
+		expect(
+			connectByPort({
+				sourceKind: 'continue_from_message',
+				targetKind: 'SCRIPT',
+			}),
+		).toBe('CONTINUE_FROM_MESSAGE node cannot have outgoing edges');
+	});
+	it('allows edges between ordinary kinds', () => {
+		expect(
+			connectByPort({ sourceKind: 'LLM', targetKind: 'SCRIPT' }),
+		).toBeNull();
+		expect(
+			connectByPort({ sourceKind: 'SCRIPT', targetKind: 'END' }),
+		).toBeNull();
+		expect(
+			connectByPort({ sourceKind: 'START', targetKind: 'LLM' }),
+		).toBeNull();
+	});
+	it('treats unrecognised kinds as ordinary nodes', () => {
+		expect(
+			connectByPort({ sourceKind: 'plugin-step', targetKind: 'SCRIPT' }),
+		).toBeNull();
+		expect(connectByPort({ sourceKind: '', targetKind: 'START' })).toBe(
+			'START node cannot have incoming edges',
+		);
 	});
 });
 

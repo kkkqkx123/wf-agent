@@ -4,19 +4,20 @@ use crate::error::{ConfigError, ConfigResult};
 use crate::processor::substitute::substitute_in_struct;
 use crate::validator::validate_required;
 
-use wf_types::node::StaticNodeType;
 use wf_types::workflow::node_template::NodeTemplate;
 
 pub fn validate_node_template(template: &NodeTemplate) -> ConfigResult<()> {
     validate_required(&template.id, "id")?;
     validate_required(&template.name, "name")?;
     validate_required(&template.node_type, "node_type")?;
-    if StaticNodeType::from_str_ci(&template.node_type).is_none() {
-        return Err(ConfigError::Validation(format!(
-            "unknown node_type '{}'; expected one of: {}",
-            template.node_type,
-            StaticNodeType::ALL.join(", ")
-        )));
+    // Names outside the builtin set are plugin-contributed types; the template
+    // layer cannot resolve them (the plugin registry is runtime state), so it
+    // only rejects blank names in the same way `StaticNodeType` deserialization
+    // does.
+    if template.node_type.trim().is_empty() {
+        return Err(ConfigError::Validation(
+            "node_type is required and cannot be blank".to_string(),
+        ));
     }
     if let Some(ref config) = template.default_config {
         validate_node_default_config(&template.node_type, config)?;
@@ -90,10 +91,17 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_node_type_rejected() {
+    fn test_blank_node_type_rejected() {
         let mut template = make_template();
-        template.node_type = "NOT_A_TYPE".to_string();
+        template.node_type = "   ".to_string();
         assert!(validate_node_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_plugin_node_type_accepted() {
+        let mut template = make_template();
+        template.node_type = "git-clone".to_string();
+        assert!(validate_node_template(&template).is_ok());
     }
 
     #[test]

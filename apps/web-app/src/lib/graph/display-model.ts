@@ -5,6 +5,12 @@
  * topology; coordinates and visual encoding always live here.
  */
 
+import {
+	nodePorts,
+	parseStaticNodeType,
+	type StaticNodeType,
+} from './node-kind';
+
 export type GraphPreset = 'workflow' | 'decision' | 'execution';
 
 export type GraphLayoutKind = 'layered' | 'columns' | 'force' | 'grid';
@@ -33,51 +39,42 @@ export interface DisplayEdge {
 
 /**
  * What a node does, independent of backend naming variants. The renderer
- * dispatches on this instead of branching on raw kind strings, so new
- * node families (notes, triggers, agent cards) extend one mapping.
+ * dispatches on this instead of branching on raw kind strings, so a new node
+ * family only has to add one entry to the sets below.
+ *
+ * The set members are backend `StaticNodeType` names and nothing else: any
+ * literal that the enum does not define would encode a contract the backend
+ * cannot honour.
  */
-export type NodeRenderKind =
-	'terminal' | 'decision' | 'tool' | 'trigger' | 'note' | 'agent' | 'step';
+export type NodeRenderKind = 'terminal' | 'decision' | 'tool' | 'step';
 
-const TRIGGER_KINDS = new Set([
-	'trigger',
-	'TRIGGER',
-	'webhook',
-	'WEBHOOK',
-	'schedule',
-	'SCHEDULE',
-	'cron',
-	'CRON',
+/** Graph entries and exits; drawn as ellipses. */
+const TERMINAL_TYPES = new Set<StaticNodeType>([
+	'START',
+	'END',
+	'START_FROM_MESSAGE',
+	'CONTINUE_FROM_MESSAGE',
 ]);
 
-const NOTE_KINDS = new Set([
-	'note',
-	'NOTE',
-	'comment',
-	'COMMENT',
-	'annotation',
-]);
+/** Types with more than one outgoing branch; drawn as diamonds. */
+const DECISION_TYPES = new Set<StaticNodeType>(['ROUTE']);
 
-const AGENT_KINDS = new Set(['agent', 'AGENT', 'subagent', 'SUBAGENT']);
+/** Model-invoking types; drawn as hexagons outside the workflow preset. */
+const TOOL_TYPES = new Set<StaticNodeType>(['LLM']);
 
-/** Canonical render role for a backend node kind within a preset. */
-export function renderKind(kind: string, preset: GraphPreset): NodeRenderKind {
-	const normalized = (kind ?? '').trim().toLowerCase();
-	if (TERMINAL_KINDS.has(kind) || TERMINAL_KINDS.has(normalized)) {
-		return 'terminal';
-	}
-	if (
-		normalized === 'decision' ||
-		normalized === 'branch' ||
-		(preset === 'decision' && (ERROR_KINDS.has(kind) || normalized === 'error'))
-	) {
-		return 'decision';
-	}
-	if (TOOL_KINDS.has(kind) || TOOL_KINDS.has(normalized)) return 'tool';
-	if (TRIGGER_KINDS.has(kind) || TRIGGER_KINDS.has(normalized))
-		return 'trigger';
-	if (NOTE_KINDS.has(kind) || NOTE_KINDS.has(normalized)) return 'note';
-	if (AGENT_KINDS.has(kind) || AGENT_KINDS.has(normalized)) return 'agent';
+/**
+ * Canonical render role for a backend node kind.
+ *
+ * Plugin-contributed types are not in `StaticNodeType`, so they have no entry
+ * here and render as ordinary steps; the same holds for kinds that cannot be
+ * parsed at all, which keeps a graph drawable instead of failing to render.
+ */
+export function renderKind(kind: string): NodeRenderKind {
+	const type = parseStaticNodeType(kind);
+	if (type === null) return 'step';
+	if (TERMINAL_TYPES.has(type)) return 'terminal';
+	if (DECISION_TYPES.has(type)) return 'decision';
+	if (TOOL_TYPES.has(type)) return 'tool';
 	return 'step';
 }
 
@@ -93,29 +90,9 @@ export interface LegendEntry {
 	color: string;
 }
 
-const TERMINAL_KINDS = new Set([
-	'start',
-	'end',
-	'START',
-	'END',
-	'start_node',
-	'end_node',
-]);
-
-const ERROR_KINDS = new Set(['error', 'ERROR', 'failed', 'FAILED']);
-
-const TOOL_KINDS = new Set([
-	'tool',
-	'tool_call',
-	'TOOL',
-	'TOOL_CALL',
-	'llm',
-	'LLM',
-]);
-
 /** Cytoscape shape name for a node kind within a preset. */
 export function nodeShape(kind: string, preset: GraphPreset): string {
-	switch (renderKind(kind, preset)) {
+	switch (renderKind(kind)) {
 		case 'terminal':
 			return 'ellipse';
 		case 'decision':
@@ -424,4 +401,27 @@ export function statusForTone(tone: ExecutionTone): string | undefined {
 		default:
 			return undefined;
 	}
+}
+
+export interface ConnectByPortCheck {
+	sourceKind: string;
+	targetKind: string;
+}
+
+/**
+ * Reject a connection whose endpoints break the backend boundary rules:
+ * entry nodes accept no incoming edge and exit nodes emit none. The reason
+ * strings match the backend graph validator so a canvas refusal reads the
+ * same as the server-side draft error.
+ */
+export function connectByPort(check: ConnectByPortCheck): string | null {
+	const sourceType = parseStaticNodeType(check.sourceKind);
+	const targetType = parseStaticNodeType(check.targetKind);
+	if (sourceType !== null && !nodePorts(sourceType).emitsOutput) {
+		return `${sourceType} node cannot have outgoing edges`;
+	}
+	if (targetType !== null && !nodePorts(targetType).acceptsInput) {
+		return `${targetType} node cannot have incoming edges`;
+	}
+	return null;
 }

@@ -25,7 +25,11 @@
 		onmovenodes: (
 			moves: Array<{ id: string; position: CanvasPosition }>,
 		) => void;
-		onaddnode: (position: CanvasPosition) => void;
+		onaddnode: (
+			position: CanvasPosition,
+			nodeType: string,
+			name: string | null,
+		) => void;
 		ondeleteedge: (id: string) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
@@ -131,7 +135,7 @@
 	onpromote={() => onpromote()}
 	onmovenode={(id, position) => onmovenode(id, position)}
 	onmovenodes={(moves) => onmovenodes(moves)}
-	onaddnode={(position) => onaddnode(position)}
+	onaddnode={(position, nodeType, name) => onaddnode(position, nodeType, name)}
 	ondeleteedge={(id) => ondeleteedge(id)}
 	onconnect={(source, target) => onconnect(source, target)}
 	ondeletenodes={(ids) => ondeletenodes(ids)}

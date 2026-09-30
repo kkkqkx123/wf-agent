@@ -1,4 +1,5 @@
 import type { DisplayEdge } from './display-model';
+import { connectByPort } from './display-model';
 import { isGroupTitleId } from './group-view';
 
 export interface ConnectCheck {
@@ -7,6 +8,10 @@ export interface ConnectCheck {
 	target: string;
 	edges: DisplayEdge[];
 	hiddenIds: Set<string>;
+	/** Backend kind of the source node; enables port-type validation. */
+	sourceKind?: string;
+	/** Backend kind of the target node; enables port-type validation. */
+	targetKind?: string;
 }
 
 /** Human-readable reason a connect attempt is rejected, or null when valid. */
@@ -29,6 +34,11 @@ export function describeConnectRejection(check: ConnectCheck): string | null {
 	if (edges.some((edge) => edge.source === source && edge.target === target)) {
 		return 'Edge already exists.';
 	}
+	const portReason = connectByPort({
+		sourceKind: check.sourceKind ?? '',
+		targetKind: check.targetKind ?? '',
+	});
+	if (portReason) return portReason;
 	return null;
 }
 

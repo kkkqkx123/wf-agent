@@ -45,6 +45,7 @@
 		serverTemplateIssues,
 		type TemplateIssue,
 	} from '$lib/services/templates';
+	import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import type { ValidationIssue } from '$lib/types/models';
 
@@ -104,6 +105,12 @@
 		editDraftId = null;
 		editIssues = [];
 		editMode = false;
+		// A node queued from the template library lands as the first edit so
+		// the user sees it without re-picking the template manually.
+		const pendingInsert = nodeInsertStore.consume();
+		if (pendingInsert) {
+			handleAddNode({ x: 0, y: 0 }, pendingInsert.nodeType, pendingInsert.name);
+		}
 	});
 
 	// A lost lease keeps the canvas read-only with a standing notice;
@@ -229,12 +236,20 @@
 		});
 	}
 
-	function handleAddNode(position: CanvasPosition): void {
+	function handleAddNode(
+		position: CanvasPosition,
+		nodeType: string,
+		name: string | null,
+	): void {
 		const existing = new Set(editStore.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
-		editStore.addNode({ id, label: id, kind: 'STEP' }, position);
+		const label = name?.trim() || id;
+		editStore.addNode({ id, label, kind: nodeType }, position);
 		editStore.selectedId = id;
-		toasts.success(`Node ${id} added`, 'Save the draft to keep it.');
+		toasts.success(
+			`Node ${id} added`,
+			`${nodeType}. Save the draft to keep it.`,
+		);
 	}
 
 	function handleDeleteEdge(id: string): void {

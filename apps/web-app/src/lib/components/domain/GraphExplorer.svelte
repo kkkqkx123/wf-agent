@@ -18,6 +18,7 @@
 		type CanvasMove,
 		type CanvasPosition,
 	} from '$lib/components/domain/GraphCanvas.svelte';
+	import AddNodeDrawer from '$lib/components/domain/AddNodeDrawer.svelte';
 	import ContextMenu, {
 		type ContextMenuItem,
 	} from '$lib/components/ui/ContextMenu.svelte';
@@ -97,7 +98,12 @@
 		onmovenode?: (id: string, position: CanvasPosition) => void;
 		/** Batched move for group drags; undoes in a single step. */
 		onmovenodes?: (moves: CanvasMove[]) => void;
-		onaddnode?: (position: CanvasPosition) => void;
+		/** `nodeType` is normalised: a builtin name or a plugin-contributed one. */
+		onaddnode?: (
+			position: CanvasPosition,
+			nodeType: string,
+			name: string | null,
+		) => void;
 		ondeleteedge?: (id: string) => void;
 		onconnect?: (source: string, target: string) => void;
 		ondeletenodes?: (ids: string[]) => void;
@@ -428,6 +434,23 @@
 	}
 
 	let contextMenu = $state<PendingMenu | null>(null);
+
+	let addNodeOpen = $state(false);
+	let pendingAddPosition = $state<CanvasPosition | null>(null);
+
+	function openAddNode(position: CanvasPosition | null): void {
+		pendingAddPosition = position;
+		addNodeOpen = true;
+	}
+
+	function handleAddNodeChoice(nodeType: string, name: string | null): void {
+		onaddnode?.(
+			pendingAddPosition ?? canvas?.viewportCenter() ?? { x: 0, y: 0 },
+			nodeType,
+			name,
+		);
+		pendingAddPosition = null;
+	}
 
 	function openContext(info: CanvasContext): void {
 		const kind =
@@ -761,6 +784,9 @@
 				>
 					Redo
 				</Button>
+				<Button variant="outline" size="sm" onclick={() => openAddNode(null)}>
+					Add node
+				</Button>
 				<Button variant="outline" size="sm" onclick={handleDeleteSelected}>
 					Delete selected
 				</Button>
@@ -797,9 +823,9 @@
 	{#if editMode}
 		<p class="text-micro text-muted-foreground">
 			Drag nodes to move · drag a hotspot or shift-click another node to connect
-			from the selection · double-click empty canvas to add a node · click an
-			edge to delete it · Delete selected removes the selection. Layout is
-			frozen while editing.
+			from the selection · double-click empty canvas or use Add node to pick a
+			template · click an edge to delete it · Delete selected removes the
+			selection. Layout is frozen while editing.
 		</p>
 	{/if}
 	{#if overlays.length > 0}
@@ -956,7 +982,7 @@
 					const visible = guardMoves(moves);
 					if (visible.length > 0) onmovenodes?.(visible);
 				}}
-				onbackgrounddoubleclick={(position) => onaddnode?.(position)}
+				onbackgrounddoubleclick={(position) => openAddNode(position)}
 				ondeleteedge={(id) => ondeleteedge?.(id)}
 				onconnect={(source, target) => {
 					if (guardConnect(source, target)) onconnect?.(source, target);
@@ -1195,4 +1221,10 @@
 			/>
 		{/key}
 	{/if}
+	<AddNodeDrawer
+		bind:open={addNodeOpen}
+		position={pendingAddPosition}
+		onselect={handleAddNodeChoice}
+		onclose={() => (pendingAddPosition = null)}
+	/>
 </div>

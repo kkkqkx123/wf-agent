@@ -227,33 +227,17 @@ pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> ConfigResult<Vec<Edge>> 
 }
 
 fn parse_node_type(type_str: &str, node_id: &str) -> ConfigResult<StaticNodeType> {
-    match type_str.to_uppercase().as_str() {
-        "START" => Ok(StaticNodeType::Start),
-        "END" => Ok(StaticNodeType::End),
-        "VARIABLE" => Ok(StaticNodeType::Variable),
-        "FORK" => Ok(StaticNodeType::Fork),
-        "JOIN" => Ok(StaticNodeType::Join),
-        "SYNC" => Ok(StaticNodeType::Sync),
-        "SUBGRAPH" => Ok(StaticNodeType::Subgraph),
-        "EMBED_GRAPH" => Ok(StaticNodeType::EmbedGraph),
-        "SCRIPT" => Ok(StaticNodeType::Script),
-        "INTERACTIVE_SCRIPT" => Ok(StaticNodeType::InteractiveScript),
-        "LLM" => Ok(StaticNodeType::Llm),
-        "TOOL_VISIBILITY" => Ok(StaticNodeType::ToolVisibility),
-        "USER_INTERACTION" => Ok(StaticNodeType::UserInteraction),
-        "ROUTE" => Ok(StaticNodeType::Route),
-        "CONTEXT_PROCESSOR" => Ok(StaticNodeType::ContextProcessor),
-        "LOOP_START" => Ok(StaticNodeType::LoopStart),
-        "LOOP_END" => Ok(StaticNodeType::LoopEnd),
-        "AGENT_LOOP" => Ok(StaticNodeType::AgentLoop),
-        "START_FROM_MESSAGE" => Ok(StaticNodeType::StartFromMessage),
-        "CONTINUE_FROM_MESSAGE" => Ok(StaticNodeType::ContinueFromMessage),
-        "EMBED_START" => Ok(StaticNodeType::EmbedStart),
-        "EMBED_END" => Ok(StaticNodeType::EmbedEnd),
-        _ => Err(ConfigError::Validation(format!(
-            "node '{node_id}' has unknown node type '{type_str}'"
-        ))),
+    if type_str.trim().is_empty() {
+        return Err(ConfigError::Validation(format!(
+            "node '{node_id}' has a blank node_type"
+        )));
     }
+    // Same rule as `StaticNodeType`'s deserialization: builtin names win
+    // (matched case-insensitively), anything else is a plugin-contributed type
+    // kept verbatim so it round-trips. Whether a plugin actually registered the
+    // name is decided at execution time by handler resolution.
+    Ok(StaticNodeType::from_str_ci(type_str)
+        .unwrap_or_else(|| StaticNodeType::Custom(type_str.to_string())))
 }
 
 fn generate_edge_id() -> String {
@@ -423,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transform_nodes_rejects_unknown_type() {
+    fn test_transform_nodes_keeps_plugin_types() {
         let configs = vec![WorkflowNodeConfig {
             id: "n1".to_string(),
             node_type: "LLMM".to_string(),
@@ -431,8 +415,21 @@ mod tests {
             description: None,
             config: None,
         }];
+        let nodes = transform_nodes(&configs).expect("plugin types are kept");
+        assert_eq!(nodes[0].node_type, StaticNodeType::Custom("LLMM".into()));
+    }
+
+    #[test]
+    fn test_transform_nodes_rejects_empty_type() {
+        let configs = vec![WorkflowNodeConfig {
+            id: "n1".to_string(),
+            node_type: "  ".to_string(),
+            name: None,
+            description: None,
+            config: None,
+        }];
         let err = transform_nodes(&configs).unwrap_err();
-        assert!(err.to_string().contains("unknown node type"));
+        assert!(err.to_string().contains("node_type"));
     }
 
     #[test]

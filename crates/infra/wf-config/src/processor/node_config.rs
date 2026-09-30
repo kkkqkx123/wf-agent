@@ -23,7 +23,9 @@ use self::variable::validate_variable_node;
 
 /// Validate the config of one workflow node by its node type.
 ///
-/// Unknown node types are rejected with an issue: there is no fallback type.
+/// Builtin node types have a dedicated validator; every other non-empty name
+/// is treated as a plugin-contributed type and passes without inspection,
+/// because its config schema is only known to the plugin that registered it.
 /// `config` is the node's config value (`WorkflowNode.inner` or
 /// `BaseStaticNode.config`). Node type names are case-insensitive.
 pub fn validate_node_config(
@@ -60,10 +62,9 @@ pub fn validate_node_config(
         | "LOOP_END"
         | "START_FROM_MESSAGE"
         | "CONTINUE_FROM_MESSAGE" => Vec::new(),
-        _ => vec![NodeConfigIssue::new(
-            common::node_path(node_id),
-            format!("Node '{node_id}' has unknown node type '{node_type}'"),
-        )],
+        // Plugin-contributed types have no builtin config schema, so there is
+        // nothing to check here; resolution happens when the graph is executed.
+        _ => Vec::new(),
     }
 }
 
@@ -338,10 +339,13 @@ mod tests {
     }
 
     #[test]
-    fn unknown_node_type_is_rejected() {
-        let errors = validate_node_config("LLMM", "n1", Some(&serde_json::json!({})));
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("unknown node type"));
+    fn plugin_node_types_pass_without_config_inspection() {
+        assert!(validate_node_config("LLMM", "n1", Some(&serde_json::json!({}))).is_empty());
+        assert!(validate_node_config("git-clone", "n2", None).is_empty());
+        assert!(
+            validate_node_config("Acme.Step", "n3", Some(&serde_json::json!({"any": 1})))
+                .is_empty()
+        );
     }
 
     #[test]

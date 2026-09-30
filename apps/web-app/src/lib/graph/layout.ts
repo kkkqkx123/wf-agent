@@ -1,9 +1,5 @@
 import dagre from 'dagre';
-import {
-	renderKind,
-	type DisplayEdge,
-	type DisplayNode,
-} from './display-model';
+import type { DisplayEdge, DisplayNode } from './display-model';
 
 const NODE_WIDTH = 120;
 const TITLE_WIDTH = 160;
@@ -13,7 +9,6 @@ const RANK_SEP = 100;
 /** Vertical separation between node bounding boxes in the same rank. */
 const NODE_SEP = 40;
 const COMPONENT_GAP = 120;
-const NOTE_GAP = 80;
 const ORIGIN = 40;
 export const GRID_SIZE = 20;
 
@@ -81,8 +76,8 @@ function nodeWidth(node: DisplayNode): number {
 
 /**
  * Layered DAG positions from dagre: left-to-right ranks, deterministic
- * insertion order, components laid side by side, notes docked below the
- * component of their host node. Pure function; the renderer applies it.
+ * insertion order, disconnected components laid side by side. Pure function;
+ * the renderer applies it.
  */
 export function layeredPositions(
 	nodes: DisplayNode[],
@@ -90,13 +85,7 @@ export function layeredPositions(
 ): Map<string, { x: number; y: number }> {
 	const positions = new Map<string, { x: number; y: number }>();
 	if (nodes.length === 0) return positions;
-	const kindOf = new Map(
-		nodes.map((node) => [node.id, renderKind(node.kind, 'workflow')] as const),
-	);
-	const flowNodes = nodes.filter((node) => kindOf.get(node.id) !== 'note');
-	const noteNodes = nodes
-		.filter((node) => kindOf.get(node.id) === 'note')
-		.sort((a, b) => (a.id < b.id ? -1 : 1));
+	const flowNodes = nodes;
 	const flowById = new Map(flowNodes.map((node) => [node.id, node]));
 	const flowEdges = validEdges(nodes, edges).filter(
 		(edge) => flowById.has(edge.source) && flowById.has(edge.target),
@@ -155,43 +144,6 @@ export function layeredPositions(
 		bottoms.push(snapToGrid(maxY + shiftY));
 		cursorX = snapToGrid(maxX + shiftX) + COMPONENT_GAP;
 	}
-	const notesPerComponent = new Map<number, number>();
-	const loneNotes: DisplayNode[] = [];
-	for (const note of noteNodes) {
-		const hosts = validEdges(nodes, edges)
-			.flatMap((edge) =>
-				edge.source === note.id
-					? [edge.target]
-					: edge.target === note.id
-						? [edge.source]
-						: [],
-			)
-			.filter((id) => flowById.has(id))
-			.sort();
-		const host = hosts[0];
-		const component = host ? componentOf.get(host) : undefined;
-		if (!host || component === undefined) {
-			loneNotes.push(note);
-			continue;
-		}
-		const count = notesPerComponent.get(component) ?? 0;
-		notesPerComponent.set(component, count + 1);
-		const hostPosition = positions.get(host);
-		if (!hostPosition) {
-			loneNotes.push(note);
-			continue;
-		}
-		positions.set(note.id, {
-			x: snapToGrid(hostPosition.x),
-			y: snapToGrid((bottoms[component] ?? ORIGIN) + NOTE_GAP * (count + 1)),
-		});
-	}
-	loneNotes.forEach((note, index) => {
-		positions.set(note.id, {
-			x: snapToGrid(cursorX + index * (NODE_WIDTH + NOTE_GAP)),
-			y: snapToGrid(ORIGIN),
-		});
-	});
 	return positions;
 }
 

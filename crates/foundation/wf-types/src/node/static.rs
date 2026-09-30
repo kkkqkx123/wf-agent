@@ -157,12 +157,16 @@ impl Serialize for StaticNodeType {
 impl<'de> Deserialize<'de> for StaticNodeType {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
-        Self::from_str_ci(&value).ok_or_else(|| {
-            de::Error::invalid_value(
+        if value.trim().is_empty() {
+            return Err(de::Error::invalid_value(
                 de::Unexpected::Str(&value),
-                &"a known node type or a plugin-contributed type name",
-            )
-        })
+                &"a non-empty node type name",
+            ));
+        }
+        // Builtin names win; anything else is a plugin-contributed type kept
+        // verbatim so it round-trips back to the same string. Callers that
+        // need the builtin set use `from_str_ci` directly.
+        Ok(Self::from_str_ci(&value).unwrap_or_else(|| Self::Custom(value)))
     }
 }
 
@@ -175,4 +179,53 @@ pub struct BaseStaticNode {
     pub config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_config: Option<super::NodeExecutionConfig>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_names_deserialize_case_insensitively() {
+        for name in StaticNodeType::ALL {
+            assert_eq!(parse(name), parse(&name.to_lowercase()));
+            assert_ne!(parse(name), custom(name));
+        }
+        assert_eq!(parse("llm"), StaticNodeType::Llm);
+    }
+
+    #[test]
+    fn unknown_names_become_custom_types() {
+        assert_eq!(parse("git-clone"), custom("git-clone"));
+        // Builtin matching is case-insensitive, so only genuinely unknown
+        // names fall through to Custom.
+        assert_eq!(parse("CUSTOM"), custom("CUSTOM"));
+    }
+
+    #[test]
+    fn custom_types_round_trip_verbatim() {
+        let parsed = parse("Acme.Step");
+        assert_eq!(parsed, custom("Acme.Step"));
+        let json = serde_json::to_string(&parsed).expect("serialize");
+        assert_eq!(json, "\"Acme.Step\"");
+        assert_eq!(parse("Acme.Step"), parsed);
+    }
+
+    #[test]
+    fn empty_names_are_rejected() {
+        assert!(serde_json::from_value::<StaticNodeType>(json("")).is_err());
+        assert!(serde_json::from_value::<StaticNodeType>(json("   ")).is_err());
+    }
+
+    fn json(value: &str) -> serde_json::Value {
+        serde_json::Value::String(value.to_string())
+    }
+
+    fn parse(value: &str) -> StaticNodeType {
+        serde_json::from_value::<StaticNodeType>(json(value)).expect("parse")
+    }
+
+    fn custom(name: &str) -> StaticNodeType {
+        StaticNodeType::Custom(name.to_string())
+    }
 }

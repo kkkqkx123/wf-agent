@@ -260,11 +260,9 @@ mod tests {
     }
 
     #[test]
-    fn unknown_node_type_is_rejected() {
+    fn plugin_node_type_is_accepted() {
         let g = graph_with(vec![node("x", "LLMM", serde_json::json!({}))]);
-        let errors = validate_node_configs(&g);
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("unknown node type"));
+        assert!(validate_node_configs(&g).is_empty());
     }
 
     #[test]

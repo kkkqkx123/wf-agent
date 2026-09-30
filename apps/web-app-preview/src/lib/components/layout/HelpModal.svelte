@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { CANVAS_SHORTCUT_HELP } from '$lib/graph/canvas-shortcuts';
 	import { goto } from '$app/navigation';

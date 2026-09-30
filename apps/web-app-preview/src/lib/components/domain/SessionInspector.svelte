@@ -1,15 +1,15 @@
 <script lang="ts">
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import DataTable from '$lib/components/ui/DataTable.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import DataTable from '@wf-agent/ui/components/DataTable.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import Timeline from '$lib/components/domain/Timeline.svelte';
 	import TimelineOutline from '$lib/components/domain/TimelineOutline.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
@@ -20,7 +20,7 @@
 		projectExecutionOverlay,
 	} from '$lib/graph/execution-projection';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
-	import type { Column } from '$lib/components/ui/table';
+	import type { Column } from '@wf-agent/ui/components/table';
 	import {
 		getAgentLoop,
 		getLoopGraph,
@@ -49,7 +49,7 @@
 		formatDuration,
 		formatNumber,
 	} from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface TabState {
 		loading: boolean;

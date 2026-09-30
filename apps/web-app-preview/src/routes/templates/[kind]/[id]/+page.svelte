@@ -3,19 +3,19 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import Select from '@wf-agent/ui/components/Select.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import TemplateEditPanel, {
 		type TemplateEditTab,
 	} from '$lib/components/domain/TemplateEditPanel.svelte';
-	import UnsavedChangesDialog from '$lib/components/ui/UnsavedChangesDialog.svelte';
+	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		deleteWorkflowDraft,
 		saveWorkflowDraft,
@@ -44,6 +44,8 @@
 		type TemplateIssue,
 	} from '$lib/services/templates';
 	import type { TemplateKind } from '$lib/types/models';
+	import { normalizeNodeType } from '$lib/graph/node-kind';
+	import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber, slugify } from '$lib/utils/format';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
@@ -563,6 +565,39 @@
 		enterEdit(next === 'graph' ? 'graph' : 'json');
 	}
 
+	/**
+	 * Node type this template inserts as: the stored `node_type` normalised
+	 * the way the backend will store it, or null when it is blank. Only node
+	 * templates carry `node_type`; trigger templates describe a trigger, never
+	 * a canvas node.
+	 */
+	const insertNodeType = $derived.by(() => {
+		if (isNew || kind !== 'node' || !detail) return null;
+		const raw =
+			detail.raw && typeof detail.raw === 'object'
+				? (detail.raw as Record<string, unknown>)
+				: null;
+		const value = raw?.node_type;
+		return typeof value === 'string' ? normalizeNodeType(value) : null;
+	});
+
+	/**
+	 * Queue the current node template for insertion into a workflow canvas,
+	 * then send the user to the workflow list to pick the target. Only node
+	 * templates can land on a canvas, and only when the stored `node_type` is
+	 * a non-blank name.
+	 */
+	function insertIntoCanvas(): void {
+		const nodeType = insertNodeType;
+		if (!detail || nodeType === null) return;
+		nodeInsertStore.set({ nodeType, name: detail.template.name });
+		toasts.success(
+			`${detail.template.name} queued`,
+			'Open a workflow and enter edit mode to place it.',
+		);
+		void goto(resolve('/workflows'));
+	}
+
 	function discardEditsAndLeave(): void {
 		unsavedOpen = false;
 		exitEdit();
@@ -611,6 +646,12 @@
 				: 'Template detail'}
 	>
 		{#snippet actions()}
+			{#if insertNodeType !== null}
+				<Button variant="outline" size="sm" onclick={insertIntoCanvas}>
+					<Icon name="blocks" size={13} />
+					Insert as {insertNodeType}
+				</Button>
+			{/if}
 			<Button variant="ghost" size="sm" href="/templates">
 				<Icon name="arrow-left" size={13} />
 				Library

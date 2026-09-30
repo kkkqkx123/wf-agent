@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import type { IconName } from '$lib/components/icons/paths';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { NAV_ITEMS } from '$lib/config/navigation';
 	import { listExecutions } from '$lib/services/executions';
 	import { listWorkflows } from '$lib/services/workflows';
@@ -11,7 +11,7 @@
 	import { unifiedSearch, type SearchHit } from '$lib/services/search';
 	import type { AgentLoop, Execution, Workflow } from '$lib/types/models';
 	import { ui } from '$lib/stores/ui.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface CommandItem {
 		id: string;

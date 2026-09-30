@@ -8,11 +8,13 @@
     "ui"
   ],
   "scripts": {
-    "build": "echo \"Build script for apps coming soon\"",
-    "dev": "echo \"Dev script for apps coming soon\"",
-    "test": "echo \"Test script for apps coming soon\"",
-    "format": "turbo run format",
-    "format:check": "turbo run format:check"
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "format:check": "npm run format:check --workspaces --if-present"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10"

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
 	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
 	import IssueList from '$lib/components/domain/IssueList.svelte';
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
@@ -25,7 +25,11 @@
 		onmovenodes: (
 			moves: Array<{ id: string; position: CanvasPosition }>,
 		) => void;
-		onaddnode: (position: CanvasPosition) => void;
+		onaddnode: (
+			position: CanvasPosition,
+			nodeType: string,
+			name: string | null,
+		) => void;
 		ondeleteedge: (id: string) => void;
 		onconnect: (source: string, target: string) => void;
 		ondeletenodes: (ids: string[]) => void;
@@ -131,7 +135,7 @@
 	onpromote={() => onpromote()}
 	onmovenode={(id, position) => onmovenode(id, position)}
 	onmovenodes={(moves) => onmovenodes(moves)}
-	onaddnode={(position) => onaddnode(position)}
+	onaddnode={(position, nodeType, name) => onaddnode(position, nodeType, name)}
 	ondeleteedge={(id) => ondeleteedge(id)}
 	onconnect={(source, target) => onconnect(source, target)}
 	ondeletenodes={(ids) => ondeletenodes(ids)}

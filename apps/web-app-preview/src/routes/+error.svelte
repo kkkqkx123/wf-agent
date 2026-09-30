@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Button from '$lib/components/ui/Button.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
 
 	// SvelteKit passes { status, message } when an error bubbles up from load/endpoint.
 	// eslint-disable-next-line svelte/valid-prop-names-in-kit-pages

@@ -2,23 +2,23 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Textarea from '$lib/components/ui/Textarea.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import SplitView from '$lib/components/layout/SplitView.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
 	import WorkflowCard from '$lib/components/domain/WorkflowCard.svelte';
 	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
-	import FilterBar from '$lib/components/ui/FilterBar.svelte';
+	import FilterBar from '@wf-agent/ui/components/FilterBar.svelte';
 	import {
 		createMinimalWorkflow,
 		importWorkflow,

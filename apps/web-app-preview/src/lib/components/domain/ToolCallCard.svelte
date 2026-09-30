@@ -2,18 +2,18 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import type { IconName } from '$lib/components/icons/paths';
-	import Button from '$lib/components/ui/Button.svelte';
-	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import { toneText } from '$lib/components/ui/variants';
-	import type { StatusTone } from '$lib/utils/status';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import JsonViewer from '$lib/components/ui/JsonViewer.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import { toneText } from '@wf-agent/ui/components/variants';
+	import type { StatusTone } from '@wf-agent/ui/status';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import { approveApproval, rejectApproval } from '$lib/services/checkpoints';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		entry: ToolCallEntry;

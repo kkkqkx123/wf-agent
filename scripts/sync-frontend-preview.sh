@@ -38,7 +38,7 @@ require_dir "$SRC_DIR" "source (apps/web-app)"
 require_dir "$DST_DIR" "target (apps/web-app-preview)"
  
 require_cmd rsync "incremental file sync"
-require_cmd jq "package.json dep merge"
+require_cmd node "package.json dep merge (no jq dependency)"
  
 # ---------------------------------------------------------------------------
 # Resolve preview-only markers (must exist so we never delete them)
@@ -123,9 +123,12 @@ INIT
 fi
  
 # Capture preview's identity fields before we overwrite anything.
-PREVIEW_NAME=$(jq -r '.name // ""' "$DST_DIR/package.json")
-PREVIEW_VERSION=$(jq -r '.version // "0.0.0"' "$DST_DIR/package.json")
-PREVIEW_DESC=$(jq -r '.description // ""' "$DST_DIR/package.json")
+read_pkg_field() {
+node -p 'const pkg=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); pkg[process.argv[2]] ?? ""' "$DST_DIR/package.json" "$1"
+}
+PREVIEW_NAME=$(read_pkg_field name)
+PREVIEW_VERSION=$(read_pkg_field version)
+PREVIEW_DESC=$(read_pkg_field description)
  
 # Merge strategy:
 #   - name / version / description → keep preview identity
@@ -137,37 +140,34 @@ PREVIEW_DESC=$(jq -r '.description // ""' "$DST_DIR/package.json")
 # jq takes two objects and lets us spell out the merge explicitly. No
 # "deep merge" magic — we control which keys win so this stays readable.
  
-jq -n \
---slurpfile src "$SRC_DIR/package.json" \
---slurpfile dst "$DST_DIR/package.json" \
---arg name "$PREVIEW_NAME" \
---arg version "$PREVIEW_VERSION" \
---arg description "$PREVIEW_DESC" '
-($src[0]) as $s |
-($dst[0]) as $d |
-{
-# Preview identity wins
-name:            ($name        // $d.name        // $s.name),
-version:         ($version     // $d.version     // $s.version),
-description:     ($description // $d.description // $s.description),
- 
-# Structural fields follow source
-type:            ($s.type            // $d.type),
-scripts:         ($s.scripts         // $d.scripts),
-engines:         ($s.engines         // $d.engines),
- 
-# Dependency blocks follow source so new deps propagate
-devDependencies: ($s.devDependencies // {}),
-dependencies:    ($s.dependencies    // {}),
- 
-# Optional metadata — preview keeps its own if present, else source
-keywords:        ($d.keywords        // $s.keywords),
-author:          ($d.author          // $s.author),
-license:         ($d.license         // $s.license),
-}
-' > "$DST_DIR/package.json.tmp"
+# jq is not available in all environments; use node (required for the
+# frontend toolchain anyway) to build the merged package.json.
+node "$SCRIPT_DIR/sync-frontend-preview-merge-pkg.cjs" \
+"$SRC_DIR/package.json" \
+"$DST_DIR/package.json" \
+"$PREVIEW_NAME" \
+"$PREVIEW_VERSION" \
+"$PREVIEW_DESC"
  
 mv "$DST_DIR/package.json.tmp" "$DST_DIR/package.json"
+
+# The preview imports shared UI primitives (@wf-agent/ui) exactly like the
+# source app does. web-app declares it as "file:../ui", which resolves to the
+# workspace package under the apps/ npm workspace. Re-inject it here
+# explicitly so the dependency survives even if the source app ever drops it.
+PREVIEW_HAS_UI=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).dependencies?.["@wf-agent/ui"] ?? ""' "$DST_DIR/package.json")
+if [ -z "$PREVIEW_HAS_UI" ]; then
+info "Injecting missing @wf-agent/ui dependency into preview package.json"
+node -e '
+const fs = require("node:fs");
+const path = process.argv[1];
+const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+pkg.dependencies = pkg.dependencies || {};
+pkg.dependencies["@wf-agent/ui"] = "file:../ui";
+fs.writeFileSync(path + ".tmp", JSON.stringify(pkg, null, "\t") + "\n");
+fs.renameSync(path + ".tmp", path);
+' "$DST_DIR/package.json"
+fi
  
 # ---------------------------------------------------------------------------
 # Summary

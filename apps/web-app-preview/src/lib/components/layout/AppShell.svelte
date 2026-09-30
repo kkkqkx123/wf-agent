@@ -4,13 +4,13 @@
 	import Sidebar from './Sidebar.svelte';
 	import TopBar from './TopBar.svelte';
 	import HelpModal from './HelpModal.svelte';
-	import Sheet from '$lib/components/ui/Sheet.svelte';
+	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
 	import { NAV_GROUPS, navItemFor } from '$lib/config/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import Icon from '$lib/components/icons/Icon.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		children: Snippet;

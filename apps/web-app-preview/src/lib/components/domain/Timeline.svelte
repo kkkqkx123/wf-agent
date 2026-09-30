@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { TimelineEntry } from '$lib/types/models';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import { statusTone } from '$lib/utils/status';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import { statusTone } from '@wf-agent/ui/status';
 	import { formatDateTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		entries: TimelineEntry[];

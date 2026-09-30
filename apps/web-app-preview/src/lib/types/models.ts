@@ -22,6 +22,10 @@ export interface Execution {
 	memoryPeakBytes: number | null;
 	starred?: boolean;
 	tags?: string[];
+	/** Workflow input captured with the execution; used to re-run it. */
+	input?: unknown;
+	/** Terminal failure message recorded on the execution, if any. */
+	error?: string | null;
 }
 
 export interface StackFrame {
@@ -29,6 +33,53 @@ export interface StackFrame {
 	depth: number;
 	enteredAt: string;
 	status: string;
+}
+
+export interface NodeTraceToolDependency {
+	toolName: string;
+	callCount: number;
+}
+
+/** One node execution record rebuilt by the backend, latest attempt wins. */
+export interface NodeTrace {
+	executionId: string;
+	nodeId: string;
+	nodeName: string;
+	nodeType: string;
+	status: string;
+	startedAt: string;
+	endedAt: string | null;
+	durationMs: number | null;
+	input: unknown;
+	output: unknown;
+	retryCount: number;
+	error: string | null;
+	toolDependencies: NodeTraceToolDependency[];
+}
+
+export interface NodeInputVariable {
+	name: string;
+	value: string;
+	type: string;
+	source: string | null;
+}
+
+/** Parameters and variables visible to a node when it executed. */
+export interface NodeInputContext {
+	nodeId: string;
+	nodeName: string;
+	nodeType: string;
+	inputParameters: KeyValue[];
+	availableVariables: NodeInputVariable[];
+	recordedAt: string | null;
+}
+
+export interface LlmReasoningStep {
+	stepId: string;
+	type: string;
+	content: string;
+	confidence: number | null;
+	conclusions: string[];
 }
 
 export interface ExecutionDetail extends Execution {

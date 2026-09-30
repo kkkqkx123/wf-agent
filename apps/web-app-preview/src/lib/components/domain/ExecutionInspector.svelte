@@ -1,19 +1,21 @@
 <script lang="ts">
 	import type {
 		ExecutionDetail,
+		NodeTrace,
 		TimelineEntry,
 		ToolCallEntry,
 	} from '$lib/types/models';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import KeyValueList from './KeyValueList.svelte';
-	import Progress from '$lib/components/ui/Progress.svelte';
+	import Progress from '@wf-agent/ui/components/Progress.svelte';
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
+	import NodeTracePanel from './NodeTracePanel.svelte';
 	import GraphExplorer, {
 		type GraphOverlay,
 	} from '$lib/components/domain/GraphExplorer.svelte';
@@ -25,6 +27,7 @@
 		getExecutionCallStack,
 		getExecutionMemory,
 	} from '$lib/services/executions';
+	import { getExecutionNodeTraces } from '$lib/services/node-trace';
 	import {
 		getExecutionCriticalPath,
 		getExecutionDecisionPoints,
@@ -43,8 +46,8 @@
 		formatNumber,
 		shortId,
 	} from '$lib/utils/format';
-	import { statusTone } from '$lib/utils/status';
-	import { cn } from '$lib/utils/cn';
+	import { statusTone } from '@wf-agent/ui/status';
+	import { cn } from '@wf-agent/ui/cn';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import {
 		applyEdgeOverlay,
@@ -74,6 +77,11 @@
 	let timeline = $state<TimelineEntry[]>([]);
 	let timelineError = $state<string | null>(null);
 
+	let nodeTraces = $state<NodeTrace[]>([]);
+	let nodeTracesSkipped = $state(0);
+	let nodeTracesError = $state<string | null>(null);
+	let nodeTracesLoading = $state(false);
+
 	let graphNodes = $state<DisplayNode[]>([]);
 	let graphEdges = $state<DisplayEdge[]>([]);
 	let graphError = $state<string | null>(null);
@@ -101,6 +109,7 @@
 
 	let seenTools = $state('');
 	let seenTimeline = $state('');
+	let seenTrace = $state('');
 	let seenGraph = $state('');
 	let seenAnalysis = $state('');
 	let seenState = $state('');
@@ -350,6 +359,12 @@
 		tab = 'tools';
 	}
 
+	/** Open the node trace list with the selected graph node expanded. */
+	function openNodeTrace(nodeId: string): void {
+		graphNodeId = nodeId;
+		tab = 'trace';
+	}
+
 	/** Jump from the graph selection back to the analysis row that
 	 * produced its mark. */
 	function revealInAnalysis(kind: 'slow' | 'critical' | 'decision'): void {
@@ -593,6 +608,23 @@
 					timelineError = e instanceof Error ? e.message : 'Timeline failed.';
 				});
 		}
+		if (tab === 'trace' && seenTrace !== id) {
+			seenTrace = id;
+			nodeTracesError = null;
+			nodeTracesLoading = true;
+			void getExecutionNodeTraces(id)
+				.then((page) => {
+					nodeTraces = page.items;
+					nodeTracesSkipped = page.skipped;
+				})
+				.catch((e: unknown) => {
+					seenTrace = '';
+					nodeTraces = [];
+					nodeTracesError =
+						e instanceof Error ? e.message : 'Node traces failed.';
+				})
+				.finally(() => (nodeTracesLoading = false));
+		}
 		if (tab === 'graph' && seenGraph !== id) {
 			seenGraph = id;
 			void loadGraph(id);
@@ -616,6 +648,7 @@
 	const TABS = [
 		{ id: 'overview', label: 'Overview' },
 		{ id: 'graph', label: 'Graph' },
+		{ id: 'trace', label: 'Trace' },
 		{ id: 'timeline', label: 'Timeline' },
 		{ id: 'tools', label: 'Tools' },
 		{ id: 'analysis', label: 'Analysis' },
@@ -867,6 +900,13 @@
 						>
 							Show tool calls for this node
 						</button>
+						<button
+							type="button"
+							class="mt-1 text-micro text-foreground underline-offset-2 hover:underline"
+							onclick={() => graphNodeId && openNodeTrace(graphNodeId)}
+						>
+							Show node trace
+						</button>
 						{#if selectedAnalysisKind}
 							<button
 								type="button"
@@ -881,6 +921,20 @@
 					{/if}
 				{/snippet}
 			</GraphExplorer>
+		{:else if tab === 'trace'}
+			<NodeTracePanel
+				executionId={execution.id}
+				traces={nodeTraces}
+				skipped={nodeTracesSkipped}
+				loading={nodeTracesLoading}
+				error={nodeTracesError}
+				selectedNodeId={graphNodeId}
+				onretry={() => {
+					seenTrace = '';
+					nodeTracesError = null;
+				}}
+				onlocate={(nodeId) => focusGraphNode(nodeId)}
+			/>
 		{:else if tab === 'timeline'}
 			{#if timelineError}
 				<ErrorState

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
 	import {
 		commandLabel,
 		matchCommands,

@@ -1,20 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Card from '$lib/components/ui/Card.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Segmented from '$lib/components/ui/Segmented.svelte';
-	import { toneText } from '$lib/components/ui/variants';
-	import type { StatusTone } from '$lib/utils/status';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
+	import { toneText } from '@wf-agent/ui/components/variants';
+	import type { StatusTone } from '@wf-agent/ui/status';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import DiffView from '$lib/components/ui/DiffView.svelte';
-	import JsonViewer from '$lib/components/ui/JsonViewer.svelte';
-	import CursorPager from '$lib/components/ui/CursorPager.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
+	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
+	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { downloadFile } from '$lib/api/client';
 	import {
@@ -40,7 +40,7 @@
 		formatDateTime,
 		formatRelativeTime,
 	} from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const TABS = [

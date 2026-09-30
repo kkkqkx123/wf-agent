@@ -1,15 +1,15 @@
 <script lang="ts">
 	import type { Execution } from '$lib/types/models';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import Progress from '$lib/components/ui/Progress.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import { statusTone } from '$lib/utils/status';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Progress from '@wf-agent/ui/components/Progress.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import { statusTone } from '@wf-agent/ui/status';
 	import {
 		formatDuration,
 		formatRelativeTime,
 		shortId,
 	} from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		execution: Execution;

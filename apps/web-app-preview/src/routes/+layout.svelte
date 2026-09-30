@@ -1,6 +1,9 @@
 <script lang="ts">
 	import '../app.css';
 	import type { Snippet } from 'svelte';
+	import { resolve } from '$app/paths';
+	import { setHrefResolver } from '@wf-agent/ui/link';
+	import { appPath } from '$lib/utils/route';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 	import CommandPalette from '$lib/components/layout/CommandPalette.svelte';
 	import Toaster from '$lib/components/layout/Toaster.svelte';
@@ -17,6 +20,10 @@
 	}
 
 	let { children }: Props = $props();
+
+	// The shared kit renders links without knowing the router; the base path
+	// configured for this app is the only thing it needs.
+	setHrefResolver((route) => resolve(appPath(route)));
 
 	$effect(() => {
 		applyTheme(resolvedTheme());

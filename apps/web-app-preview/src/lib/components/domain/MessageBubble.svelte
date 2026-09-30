@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { LoopMessage } from '$lib/types/models';
-	import Icon from '$lib/components/icons/Icon.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import type { IconName } from '$lib/components/icons/paths';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';
 	import { formatDateTime } from '$lib/utils/format';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		message: LoopMessage;

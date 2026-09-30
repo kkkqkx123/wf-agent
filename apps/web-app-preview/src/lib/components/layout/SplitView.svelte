@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import Sheet from '$lib/components/ui/Sheet.svelte';
-	import Separator from '$lib/components/ui/Separator.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
+	import Sheet from '@wf-agent/ui/components/Sheet.svelte';
+	import Separator from '@wf-agent/ui/components/Separator.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import { cn } from '$lib/utils/cn';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		inspectorTitle?: string;

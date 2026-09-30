@@ -1,10 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Skeleton from '$lib/components/ui/Skeleton.svelte';
-	import type { IconName } from '$lib/components/icons/paths';
-	import { cn } from '$lib/utils/cn';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
 		loading?: boolean;

@@ -4,8 +4,9 @@
  * amount of rendered content. Every list that windows reads its limits here.
  */
 
-/** Row count above which a list switches to windowed rendering. */
-export const VIRTUALIZE_THRESHOLD = 200;
+/** Row count above which a list switches to windowed rendering. The threshold
+ * lives with the shared table component so both frontends window alike. */
+export { DEFAULT_VIRTUALIZE_THRESHOLD as VIRTUALIZE_THRESHOLD } from '@wf-agent/ui/virtualization';
 
 /** Messages grouped into one windowed transcript row. */
 export const TRANSCRIPT_ROW_SIZE = 6;

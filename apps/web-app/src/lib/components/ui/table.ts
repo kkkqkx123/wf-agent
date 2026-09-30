@@ -13,4 +13,10 @@ export interface Column<T> {
 	cell?: Snippet<[T]>;
 	/** Extra classes for every cell in this column, e.g. monospace or numeric. */
 	cellClass?: string;
+	/**
+	 * Narrow-screen card placement. The first column becomes the card title
+	 * and the rest become detail rows unless marked otherwise; columns
+	 * marked as actions render in the card footer instead.
+	 */
+	card?: 'title' | 'detail' | 'actions';
 }

@@ -1,44 +1,49 @@
+<script lang="ts" module>
+	export type * from '$lib/graph/canvas-model';
+</script>
+
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { browser } from '$app/environment';
-	import type cytoscape from 'cytoscape';
 	import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
-	import {
-		columnPositions,
-		layeredPositions,
-		pushOverlapped,
-	} from '$lib/graph/layout';
-	import {
-		isDashedEdge,
-		nodeShape,
-		scoreEdgeLabel,
-		shortLabel,
-		statusHex,
-		type DisplayEdge,
-		type DisplayNode,
-		type GraphLayoutKind,
-		type GraphPreset,
+	import { pushOverlapped } from '$lib/graph/layout';
+	import type {
+		DisplayEdge,
+		DisplayNode,
+		GraphLayoutKind,
+		GraphPreset,
 	} from '$lib/graph/display-model';
+	import { buildElementDefs, rankEdgeIds } from '$lib/graph/canvas-elements';
+	import {
+		canvasLayoutOptions,
+		presetPositions as presetPositionsFor,
+	} from '$lib/graph/canvas-layout';
+	import {
+		describeConnectRejection,
+		isConnectValid,
+	} from '$lib/graph/canvas-connect';
+	import { roundPosition, titleDragMoves } from '$lib/graph/canvas-drag';
+	import {
+		computeMiniOverview,
+		MINIMAP_AUTO_THRESHOLD,
+		MINI_H,
+		MINI_W,
+		miniPointerToWorld,
+		projectToMini,
+	} from '$lib/graph/canvas-minimap';
+	import { HoverTip } from '$lib/graph/canvas-tooltip.svelte';
+	import type {
+		CanvasContext,
+		CanvasMove,
+		CanvasPosition,
+		ConnectDrag,
+		ConnectSpot,
+		MiniOverview,
+	} from '$lib/graph/canvas-model';
+	import { CANVAS_STYLESHEET } from '$lib/graph/canvas-style';
 	import { isGroupTitleId, type GroupTitle } from '$lib/graph/group-view';
 	import { cn } from '$lib/utils/cn';
-
-	export interface CanvasPosition {
-		x: number;
-		y: number;
-	}
-
-	export interface CanvasMove {
-		id: string;
-		position: CanvasPosition;
-	}
-
-	export interface CanvasContext {
-		kind: 'node' | 'edge' | 'blank';
-		id: string | null;
-		x: number;
-		y: number;
-	}
 
 	interface Props {
 		nodes: DisplayNode[];
@@ -138,34 +143,21 @@
 	// Zoomed-out canvases hide non-essential edge labels; the flag only
 	// flips when crossing the threshold so zoom gestures stay cheap.
 	let zoomedOut = $state(false);
-	// Hover tooltip for heat/decision labels. Shown after a short delay so
-	// panning across nodes does not flicker; hidden on leave, drag, zoom,
-	// pan and tap. The same text lives in the selected card, so the
-	// tooltip is hidden from assistive technology.
-	let hoverTip = $state<{ x: number; y: number; text: string } | null>(null);
-	let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+	let hover = new HoverTip();
+	const hoverTip = $derived(hover.current);
 
 	function clearHoverTip(): void {
-		if (hoverTimer !== null) {
-			clearTimeout(hoverTimer);
-			hoverTimer = null;
-		}
-		hoverTip = null;
+		hover.clear();
 	}
 
 	function requestHoverTip(id: string, clientX: number, clientY: number): void {
-		clearHoverTip();
-		const text = tooltipLabels[id];
-		if (!text || !wrapper) return;
-		const rect = wrapper.getBoundingClientRect();
-		hoverTimer = setTimeout(() => {
-			hoverTip = {
-				x: clientX - rect.left + 12,
-				y: clientY - rect.top + 12,
-				text,
-			};
-			hoverTimer = null;
-		}, 350);
+		hover.request(
+			id,
+			clientX,
+			clientY,
+			tooltipLabels,
+			wrapper?.getBoundingClientRect() ?? null,
+		);
 	}
 
 	const highlight = $derived(new Set(highlightIds));
@@ -191,30 +183,6 @@
 	const moveHandler = $derived(onmovenode);
 	const contextHandler = $derived(oncontext);
 	const grabStart = new SvelteMap<string, CanvasPosition>();
-
-	const MINIMAP_AUTO_THRESHOLD = 100;
-	const MINI_W = 148;
-	const MINI_H = 104;
-
-	interface MiniBounds {
-		minX: number;
-		minY: number;
-		w: number;
-		h: number;
-	}
-
-	interface MiniOverview {
-		items: Array<{ id: string; x: number; y: number }>;
-		boxes: Array<{
-			id: string;
-			x1: number;
-			y1: number;
-			x2: number;
-			y2: number;
-		}>;
-		bounds: MiniBounds;
-		view: { x1: number; y1: number; x2: number; y2: number };
-	}
 
 	let overview = $state<MiniOverview | null>(null);
 	let miniDrag = $state(false);
@@ -294,43 +262,8 @@
 					y2: position.y + 20,
 				});
 			});
-		if (items.length === 0 && boxes.length === 0) {
-			if (overview) overview = null;
-			return;
-		}
-		let minX = Number.POSITIVE_INFINITY;
-		let minY = Number.POSITIVE_INFINITY;
-		let maxX = Number.NEGATIVE_INFINITY;
-		let maxY = Number.NEGATIVE_INFINITY;
-		for (const item of items) {
-			minX = Math.min(minX, item.x);
-			minY = Math.min(minY, item.y);
-			maxX = Math.max(maxX, item.x);
-			maxY = Math.max(maxY, item.y);
-		}
-		for (const box of boxes) {
-			minX = Math.min(minX, box.x1);
-			minY = Math.min(minY, box.y1);
-			maxX = Math.max(maxX, box.x2);
-			maxY = Math.max(maxY, box.y2);
-		}
-		const pad = 60;
-		minX -= pad;
-		minY -= pad;
-		maxX += pad;
-		maxY += pad;
 		const extent = core.extent();
-		overview = {
-			items,
-			boxes,
-			bounds: {
-				minX,
-				minY,
-				w: maxX - minX || 1,
-				h: maxY - minY || 1,
-			},
-			view: { x1: extent.x1, y1: extent.y1, x2: extent.x2, y2: extent.y2 },
-		};
+		overview = computeMiniOverview(items, boxes, extent);
 	}
 
 	function requestMiniRefresh(): void {
@@ -343,21 +276,18 @@
 	function miniXY(x: number, y: number): { x: number; y: number } {
 		const bounds = overview?.bounds;
 		if (!bounds) return { x: 0, y: 0 };
-		return {
-			x: ((x - bounds.minX) / bounds.w) * MINI_W,
-			y: ((y - bounds.minY) / bounds.h) * MINI_H,
-		};
+		return projectToMini(x, y, bounds);
 	}
 
 	function miniPoint(event: PointerEvent): { x: number; y: number } {
 		const svg = event.currentTarget as SVGSVGElement;
 		const rect = svg.getBoundingClientRect();
-		const bounds = overview?.bounds;
-		if (!bounds || rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
-		return {
-			x: bounds.minX + ((event.clientX - rect.left) / rect.width) * bounds.w,
-			y: bounds.minY + ((event.clientY - rect.top) / rect.height) * bounds.h,
-		};
+		return miniPointerToWorld(
+			event.clientX,
+			event.clientY,
+			rect,
+			overview?.bounds,
+		);
 	}
 
 	function onMiniDown(event: PointerEvent): void {
@@ -376,51 +306,6 @@
 
 	function onMiniUp(): void {
 		miniDrag = false;
-	}
-
-	function roundPosition(position: CanvasPosition): CanvasPosition {
-		return { x: Math.round(position.x), y: Math.round(position.y) };
-	}
-
-	/**
-	 * Moves for a collapsed-title drag: the title plus every member shifted
-	 * by the same delta. Members without a stored position are stacked under
-	 * the new title position instead of jumping to the origin.
-	 */
-	function titleDragMoves(titleId: string, next: CanvasPosition): CanvasMove[] {
-		const title = groupTitlesSnapshot[titleId];
-		const start =
-			grabStart.get(titleId) ?? positionsSnapshot?.[titleId] ?? next;
-		const delta = { x: next.x - start.x, y: next.y - start.y };
-		const moves: CanvasMove[] = [{ id: titleId, position: next }];
-		(title?.memberIds ?? []).forEach((memberId, index) => {
-			const base = positionsSnapshot?.[memberId];
-			moves.push({
-				id: memberId,
-				position: base
-					? { x: base.x + delta.x, y: base.y + delta.y }
-					: {
-							x: next.x - 120 + (index % 4) * 80,
-							y: next.y + 60 + Math.floor(index / 4) * 60,
-						},
-			});
-		});
-		return moves;
-	}
-
-	interface ConnectSpot {
-		id: string;
-		x: number;
-		y: number;
-	}
-
-	interface ConnectDrag {
-		source: string;
-		sx: number;
-		sy: number;
-		px: number;
-		py: number;
-		target: string | null;
 	}
 
 	let hotspots = $state<ConnectSpot[]>([]);
@@ -457,30 +342,23 @@
 	}
 
 	function connectRejectReason(source: string, target: string): string | null {
-		if (!editSnapshot) return 'Read-only canvas. Enter edit mode to connect.';
-		if (!source || !target) return 'Choose another node to connect.';
-		if (source === target) return 'Cannot self-connect.';
-		if (
-			target.startsWith('groupbox:') ||
-			source.startsWith('groupbox:') ||
-			isGroupTitleId(source) ||
-			isGroupTitleId(target)
-		) {
-			return 'Groups cannot connect directly. Expand the group first.';
-		}
-		if (hiddenSnapshot.has(source) || hiddenSnapshot.has(target)) {
-			return 'Hidden group members cannot connect. Expand the group first.';
-		}
-		if (
-			edges.some((edge) => edge.source === source && edge.target === target)
-		) {
-			return 'Edge already exists.';
-		}
-		return null;
+		return describeConnectRejection({
+			editMode: editSnapshot,
+			source,
+			target,
+			edges,
+			hiddenIds: hiddenSnapshot,
+		});
 	}
 
 	function connectValid(source: string, target: string): boolean {
-		return connectRejectReason(source, target) === null;
+		return isConnectValid({
+			editMode: editSnapshot,
+			source,
+			target,
+			edges,
+			hiddenIds: hiddenSnapshot,
+		});
 	}
 
 	function nodeAtPoint(px: number, py: number): string | null {
@@ -600,127 +478,30 @@
 	}
 
 	function presetPositions(): Record<string, { x: number; y: number }> {
-		if (layout === 'columns') {
-			return Object.fromEntries(columnPositions(nodes));
-		}
-		if (layout === 'layered') {
-			return Object.fromEntries(layeredPositions(nodes, edges));
-		}
-		return {};
+		return presetPositionsFor(nodes, edges, layout);
 	}
 
 	function elementDefs(): ElementDefinition[] {
-		const computed = presetPositions();
-		// Expanded groups render as compound parent boxes; collapsed groups
-		// arrive pre-folded as title nodes with their members excluded.
-		const boxIds = [
-			...new Set(
-				nodes.flatMap((node) =>
-					node.groupId &&
-					!collapsed.has(node.groupId) &&
-					!isGroupTitleId(node.id)
-						? [node.groupId]
-						: [],
-				),
-			),
-		];
-		function titleEmphasis(id: string): string[] {
-			if (!isGroupTitleId(id)) return [];
-			const title = groupTitles[id];
-			const members = title?.memberIds ?? [];
-			if (members.length === 0) return [];
-			if (members.some((member) => pulses.has(member))) return ['running'];
-			if (members.some((member) => failed.has(member))) return ['failed'];
-			if (members.some((member) => problems.has(member))) return ['problem'];
-			if (members.some((member) => criticals.has(member))) return ['critical'];
-			return [];
-		}
-
-		const defs: ElementDefinition[] = nodes.map((node) => ({
-			group: 'nodes' as const,
-			data: {
-				id: node.id,
-				label:
-					isGroupTitleId(node.id) && groupTitles[node.id]
-						? `${groupTitles[node.id].label} (${groupTitles[node.id].memberIds.length})`
-						: shortLabel(node.label),
-				fullLabel: node.label,
-				kind: node.kind,
-				shape: nodeShape(node.kind, preset),
-				color: statusHex(node.status),
-				...(node.groupId && boxIds.includes(node.groupId)
-					? { parent: `groupbox:${node.groupId}` }
-					: {}),
-			},
-			position: positions?.[node.id] ?? computed[node.id],
-			classes: [
-				selectedId === node.id ? 'selected' : '',
-				isGroupTitleId(node.id) ? 'group-title' : '',
-				...titleEmphasis(node.id),
-				problems.has(node.id) ? 'problem' : '',
-				pulses.has(node.id) ? 'running' : '',
-				failed.has(node.id) ? 'failed' : '',
-				criticals.has(node.id) ? 'critical' : '',
-				decisions.has(node.id) ? 'decision' : '',
-				heatTierById[node.id] === 3
-					? 'heat-3'
-					: heatTierById[node.id] === 2
-						? 'heat-2'
-						: heatTierById[node.id] === 1
-							? 'heat-1'
-							: '',
-				highlight.size > 0
-					? highlight.has(node.id)
-						? 'highlighted'
-						: 'dimmed'
-					: '',
-			]
-				.filter(Boolean)
-				.join(' '),
-		}));
-		for (const groupId of boxIds) {
-			defs.push({
-				group: 'nodes' as const,
-				data: { id: `groupbox:${groupId}`, label: groupId },
-				classes: 'group-box',
-			});
-		}
-		for (const edge of edges) {
-			const touchesSelection =
-				selectedId !== null &&
-				(edge.source === selectedId || edge.target === selectedId);
-			defs.push({
-				group: 'edges' as const,
-				data: {
-					id: edge.id,
-					source: edge.source,
-					target: edge.target,
-					label: edgeLabelFor(edge, touchesSelection),
-					lineStyle: isDashedEdge(edge.kind, edge.taken ?? true)
-						? 'dashed'
-						: 'solid',
-					color:
-						statusHex(edge.status) === '#71717a'
-							? '#71717a'
-							: statusHex(edge.status),
-				},
-			});
-		}
-		return defs;
-	}
-
-	/**
-	 * Label visibility for one edge. Selection-adjacent labels always show.
-	 * Zoomed-out canvases hide the rest. Over-budget graphs rank the rest
-	 * by importance and keep only the top slice.
-	 */
-	function edgeLabelFor(edge: DisplayEdge, touchesSelection: boolean): string {
-		const label = edge.label ?? '';
-		if (!label) return '';
-		if (touchesSelection) return label;
-		if (zoomedOut) return '';
-		if (edges.length <= edgeLabelLimit) return label;
-		return rankedEdgeIds().has(edge.id) ? label : '';
+		return buildElementDefs({
+			nodes,
+			edges,
+			preset,
+			positions,
+			computed: presetPositions(),
+			collapsed,
+			highlight,
+			problems,
+			pulses,
+			failed,
+			criticals,
+			decisions,
+			heatTierById,
+			selectedId,
+			groupTitles,
+			edgeLabelLimit,
+			zoomedOut,
+			rankedEdgeIds: rankedEdgeIds(),
+		});
 	}
 
 	const rankedCache = new SvelteMap<string, Set<string>>();
@@ -729,48 +510,14 @@
 		const key = `${edges.length}:${edgeLabelLimit}:${selectedId ?? ''}:${[...highlight].sort().join(',')}`;
 		const cached = rankedCache.get(key);
 		if (cached) return cached;
-		const scored = edges
-			.filter(
-				(edge) =>
-					(edge.label ?? '').trim() &&
-					!(
-						selectedId !== null &&
-						(edge.source === selectedId || edge.target === selectedId)
-					),
-			)
-			.map((edge) => ({
-				id: edge.id,
-				score:
-					scoreEdgeLabel(edge) +
-					(highlight.has(edge.source) || highlight.has(edge.target) ? 50 : 0),
-			}))
-			.sort((a, b) => b.score - a.score)
-			.slice(0, edgeLabelLimit)
-			.map((entry) => entry.id);
-		const ranked = new Set(scored);
+		const ranked = rankEdgeIds(edges, edgeLabelLimit, selectedId, highlight);
 		rankedCache.clear();
 		rankedCache.set(key, ranked);
 		return ranked;
 	}
 
 	function layoutOptions(): Record<string, unknown> {
-		switch (layout) {
-			case 'columns':
-			case 'layered':
-				return { name: 'preset', padding: 30, fit: true };
-			case 'force':
-				return {
-					name: 'cose',
-					padding: 30,
-					animate: false,
-					randomize: true,
-					fit: true,
-				};
-			case 'grid':
-				return { name: 'grid', padding: 30, fit: true, avoidOverlap: true };
-			default:
-				return { name: 'preset', padding: 30, fit: true };
-		}
+		return canvasLayoutOptions(layout);
 	}
 
 	function syncElements(): void {
@@ -945,195 +692,7 @@
 				minZoom: 0.2,
 				maxZoom: 4,
 				boxSelectionEnabled: true,
-				// Data mappers (`data(field)`) are core cytoscape behavior but
-				// postdate the shipped stylesheet types, hence the cast.
-				style: [
-					{
-						selector: 'node',
-						style: {
-							shape: 'data(shape)',
-							width: 120,
-							height: 40,
-							'background-color': '#18181b',
-							'background-opacity': 0.9,
-							'border-width': 1.5,
-							'border-color': 'data(color)',
-							label: 'data(label)',
-							color: '#e4e4e7',
-							'font-size': 10,
-							'text-valign': 'center',
-							'text-halign': 'center',
-							'text-wrap': 'ellipsis',
-							'text-max-width': 104,
-						},
-					},
-					{
-						selector: 'node.selected',
-						style: {
-							'border-width': 3,
-							'border-color': '#fafafa',
-						},
-					},
-					{
-						selector: 'node.problem',
-						style: {
-							'border-width': 2.5,
-							'border-color': '#dc2626',
-							'border-style': 'dashed',
-						},
-					},
-					{
-						selector: 'node.failed',
-						style: {
-							'border-width': 3,
-							'border-color': '#ef4444',
-						},
-					},
-					{
-						selector: 'node.running',
-						style: {
-							'border-width': 3,
-							'border-color': '#2563eb',
-						},
-					},
-					{
-						selector: 'node.critical',
-						style: {
-							'border-width': 2.5,
-							'border-color': '#f59e0b',
-						},
-					},
-					{
-						selector: 'node.decision',
-						style: {
-							'border-width': 2.5,
-							'border-color': '#7c3aed',
-							'border-style': 'dashed',
-						},
-					},
-					{
-						selector: 'node.heat-1',
-						style: {
-							'border-width': 2,
-							'border-color': '#fbbf24',
-						},
-					},
-					{
-						selector: 'node.heat-2',
-						style: {
-							'border-width': 2.5,
-							'border-color': '#f97316',
-						},
-					},
-					{
-						selector: 'node.heat-3',
-						style: {
-							'border-width': 3,
-							'border-color': '#ea580c',
-						},
-					},
-					{
-						selector: 'node.highlighted',
-						style: {
-							'border-width': 3,
-							'border-color': '#f59e0b',
-						},
-					},
-					{
-						selector: 'node.dimmed',
-						style: { opacity: 0.3 },
-					},
-					{
-						selector: 'edge',
-						style: {
-							width: 1.5,
-							'line-color': 'data(color)',
-							'line-style': 'data(lineStyle)',
-							'target-arrow-shape': 'triangle',
-							'target-arrow-color': 'data(color)',
-							'curve-style': 'bezier',
-							label: 'data(label)',
-							color: '#a1a1aa',
-							'font-size': 9,
-							'edge-text-rotation': 'autorotate',
-							'text-background-color': '#18181b',
-							'text-background-opacity': 0.7,
-							'text-background-padding': 2,
-						},
-					},
-					{
-						selector: 'node.group-title',
-						style: {
-							width: 160,
-							'border-width': 2,
-							'border-style': 'dashed',
-							'border-color': '#71717a',
-						},
-					},
-					{
-						selector: 'node.group-title.failed',
-						style: {
-							'border-width': 3,
-							'border-style': 'solid',
-							'border-color': '#ef4444',
-						},
-					},
-					{
-						selector: 'node.group-title.running',
-						style: {
-							'border-width': 3,
-							'border-style': 'solid',
-							'border-color': '#2563eb',
-						},
-					},
-					{
-						selector: 'node.group-title.problem',
-						style: {
-							'border-width': 2.5,
-							'border-style': 'dashed',
-							'border-color': '#dc2626',
-						},
-					},
-					{
-						selector: 'node.group-title.critical',
-						style: {
-							'border-width': 2.5,
-							'border-style': 'dashed',
-							'border-color': '#f59e0b',
-						},
-					},
-					{
-						selector: 'node.group-box',
-						style: {
-							'background-opacity': 0.15,
-							'background-color': '#52525b',
-							'border-width': 1,
-							'border-style': 'dashed',
-							'border-color': '#a1a1aa',
-							label: 'data(label)',
-							color: '#d4d4d8',
-							'font-size': 10,
-							'text-valign': 'top',
-							'text-halign': 'center',
-							padding: '14px',
-						},
-					},
-					{
-						selector: 'node.connect-ok',
-						style: {
-							'border-width': 3,
-							'border-color': '#16a34a',
-						},
-					},
-					{
-						selector: 'node.connect-bad',
-						style: { opacity: 0.45 },
-					},
-					{
-						selector: 'edge.dimmed',
-						style: { opacity: 0.25 },
-					},
-				] as unknown as cytoscape.StylesheetJson,
+				style: CANVAS_STYLESHEET,
 			});
 			function livePositions(): Record<string, CanvasPosition> {
 				const core = cy;
@@ -1212,7 +771,17 @@
 				const id = target.id() as string;
 				const position = roundPosition(target.position() as CanvasPosition);
 				if (isGroupTitleId(id)) {
-					groupMoveHandler?.(withPushes(titleDragMoves(id, position)));
+					groupMoveHandler?.(
+						withPushes(
+							titleDragMoves(
+								id,
+								position,
+								grabStart,
+								positionsSnapshot,
+								groupTitlesSnapshot,
+							),
+						),
+					);
 					return;
 				}
 				if (id.startsWith('groupbox:')) {

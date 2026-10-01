@@ -166,7 +166,7 @@ impl<'de> Deserialize<'de> for StaticNodeType {
         // Builtin names win; anything else is a plugin-contributed type kept
         // verbatim so it round-trips back to the same string. Callers that
         // need the builtin set use `from_str_ci` directly.
-        Ok(Self::from_str_ci(&value).unwrap_or_else(|| Self::Custom(value)))
+        Ok(Self::from_str_ci(&value).unwrap_or(Self::Custom(value)))
     }
 }
 

@@ -12,6 +12,10 @@ pub struct BuiltinHandlersConfig {
     pub fs: FsToolConfig,
     pub shell: ShellToolConfig,
     pub web: predefined::web::WebToolConfig,
+    /// Code-context service config backing the enhanced read tool and
+    /// the retrieval tools. Disabled by default; handlers report the
+    /// service as unavailable until it is configured.
+    pub code_context: wf_integration::CodeContextConfig,
     pub protect: Option<ProtectController>,
 }
 
@@ -27,10 +31,11 @@ pub fn create_default_tool_registry() -> ToolRegistry {
 /// (read_file/write_file/edit_file/apply_patch/apply_diff/list_files/
 /// grep_search/glob_search), shell (execute_command + background shell
 /// sessions), memory (session notes + long-term memory), utility
-/// (update_todo_list), web (web_search/web_fetch) and the always-available
-/// `skill`/`general` definitions. The remaining tool definitions are
-/// registered by wf-resource; this wires the actual execution logic into
-/// the tool registry.
+/// (update_todo_list), web (web_search/web_fetch), code_context
+/// (code_search/code_keyword_search/read_file_folded) and the
+/// always-available `skill`/`general` definitions. The remaining tool
+/// definitions are registered by wf-resource; this wires the actual
+/// execution logic into the tool registry.
 pub fn register_builtin_handlers(
     registry: &ToolRegistry,
     config: BuiltinHandlersConfig,
@@ -51,6 +56,7 @@ pub fn register_builtin_handlers(
     predefined::memory::register(registry)?;
     predefined::utility::register(registry)?;
     predefined::web::register(registry, &config.web)?;
+    predefined::code_context::register(registry, &config.code_context, &handlers)?;
     predefined::knowledge::register(registry)?;
     predefined::general::register(registry)?;
 

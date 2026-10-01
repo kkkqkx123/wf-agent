@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+wf-integration = { path = "../../infra/wf-integration" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }

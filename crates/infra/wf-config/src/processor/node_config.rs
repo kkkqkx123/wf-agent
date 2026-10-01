@@ -50,6 +50,7 @@ pub fn validate_node_config(
         "USER_INTERACTION" => validate_user_interaction_node(node_id, node_type, effective),
         "AGENT_LOOP" => validate_agent_loop_node(node_id, node_type, effective),
         "TOOL_VISIBILITY" => validate_tool_visibility_node(node_id, node_type, effective),
+        "CONTEXT_PROCESSOR" => validate_context_processor_node(node_id, node_type, config),
         "START"
         | "END"
         | "EMBED_START"
@@ -57,7 +58,6 @@ pub fn validate_node_config(
         | "SYNC"
         | "EMBED_GRAPH"
         | "INTERACTIVE_SCRIPT"
-        | "CONTEXT_PROCESSOR"
         | "LOOP_START"
         | "LOOP_END"
         | "START_FROM_MESSAGE"
@@ -65,6 +65,29 @@ pub fn validate_node_config(
         // Plugin-contributed types have no builtin config schema, so there is
         // nothing to check here; resolution happens when the graph is executed.
         _ => Vec::new(),
+    }
+}
+
+fn validate_context_processor_node(
+    node_id: &str,
+    node_type: &str,
+    config: Option<&Value>,
+) -> Vec<NodeConfigIssue> {
+    let Some(config) = config else {
+        return Vec::new();
+    };
+    if config.is_null() {
+        return Vec::new();
+    }
+    let Some(obj) = config.as_object() else {
+        return Vec::new();
+    };
+    match obj.get("fold") {
+        None | Some(Value::Null) | Some(Value::Bool(_)) => Vec::new(),
+        Some(_) => vec![NodeConfigIssue::new(
+            format!("nodes.{node_id}.config.fold"),
+            format!("Node '{node_id}' ({node_type}) fold selector must be a boolean"),
+        )],
     }
 }
 
@@ -174,6 +197,24 @@ mod tests {
             Some(&serde_json::json!({"script_name": "s", "risk": "medium"})),
         );
         assert!(ok.is_empty());
+    }
+
+    #[test]
+    fn context_processor_fold_selector_must_be_boolean() {
+        assert!(validate_node_config(
+            "CONTEXT_PROCESSOR",
+            "n1",
+            Some(&serde_json::json!({"fold": true})),
+        )
+        .is_empty());
+        assert!(validate_node_config("CONTEXT_PROCESSOR", "n1", None).is_empty());
+        let errors = validate_node_config(
+            "CONTEXT_PROCESSOR",
+            "n1",
+            Some(&serde_json::json!({"fold": "yes"})),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("boolean"));
     }
 
     #[test]

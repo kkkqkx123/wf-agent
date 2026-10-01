@@ -13,6 +13,7 @@ tracing.workspace = true
 toml.workspace = true
 regex.workspace = true
 glob.workspace = true
+wf-integration = { path = "../wf-integration" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-script = { path = "../wf-script" }
 wf-common = { path = "../../foundation/wf-common" }

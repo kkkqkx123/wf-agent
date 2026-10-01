@@ -1,7 +1,8 @@
 //! The engine's builtin `CONTEXT_COMPRESSION_REQUESTED` hook handler.
 //!
 //! [`CompressionService`] takes over the compression signal synchronously:
-//! version-idempotent skip, then spawn of the summary sub-workflow. The
+//! version-idempotent skip, then spawn of the compression chain
+//! sub-workflow (fold file contents, then summarize). The
 //! emitting execution blocks until the compression lands; a terminal failure
 //! either lands a visibly degraded window (the `partial_summary` policy
 //! declared by the summary workflow resource) or stops the emitter for
@@ -203,7 +204,7 @@ pub struct CompressionService {
     /// `Arc` so the spawned terminal cleanup mutates the service's map.
     handled: Arc<DashMap<String, CompressionAttempt>>,
     /// Write-back policy (runtime-provided or builtin default).
-    policy: CompressionPolicy,
+    pub policy: CompressionPolicy,
     /// Shutdown token; in-flight summary sub-workflows race against it.
     shutdown: CancellationToken,
     /// Optional durable ledger: compression runs are recorded for the
@@ -383,6 +384,9 @@ impl CompressionService {
         } else {
             signal.messages
         };
+        // File folding runs inside the compression chain template
+        // (processor fold node before the summary node), so the trimmed
+        // snapshot feeds the chain untouched here.
         let input = serde_json::json!({
             "conversationHistory": snapshot.clone(),
             "compressionDepth": depth,
@@ -648,5 +652,17 @@ async fn record_compression_execution(
             execution_id,
             e
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compression_policy_default_bounds_one_retry() {
+        let policy = CompressionPolicy::default();
+        assert_eq!(policy.max_retries, 1);
+        assert!(policy.run_timeout_ms > 0);
     }
 }

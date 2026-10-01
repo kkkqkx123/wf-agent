@@ -9,6 +9,7 @@ pub mod error;
 pub mod event_metrics_bridge;
 pub mod execution_loop;
 pub mod execution_state;
+pub mod fold_operation;
 pub mod fork;
 pub mod handler;
 pub mod hooks;
@@ -34,6 +35,7 @@ pub use execution_loop::{
     LoopDecision,
 };
 pub use execution_state::ExecutionStateManager;
+pub use fold_operation::{execute_fold, FoldOutcome, FoldParams};
 pub use fork::{BranchRecord, BranchStatus, ForkChildStatus, ForkRegistry};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{

@@ -38,7 +38,7 @@ pub use bootstrap_helpers::{
     adjust_log_config, create_llm_gateway, hydrate_tool_registry_from_storage,
     init_checkpoint_store, init_event_persistence, init_llm_gateway, init_mcp,
     init_metrics_context, init_plugins_and_resources, init_tool_registry_with_mcp,
-    register_llm_config, resolve_infra_config, storage_db_path,
+    register_llm_config, resolve_code_context_transport, resolve_infra_config, storage_db_path,
 };
 pub use bootstrap_helpers::{
     init_file_checkpoint_manager, init_file_checkpoint_stack, init_gc_timer,
@@ -127,6 +127,9 @@ pub struct Runtime {
     /// at the configured `gc_interval_secs` interval. `None` when periodic
     /// GC is disabled (explicit `run_gc` / API only).
     gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Supervised local code-context service for managed transport. Kept
+    /// alive for the runtime lifetime and stopped during shutdown.
+    code_context_sidecar: Option<wf_integration::RunningSidecar>,
 }
 
 /// Clears the process-wide active-shutdown marker when dropped. `Runtime::run`
@@ -206,7 +209,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     // workflow resource itself (`compression_fallback` on its
     // triggered-subworkflow config); an absent declaration means `fail`.
     let summary_workflow_id =
-        wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string();
+        wf_resource::predefined::workflow::CONTEXT_COMPRESSION_WORKFLOW_ID.to_string();
     let compression_fallback = registries
         .workflows
         .get(&summary_workflow_id)
@@ -271,11 +274,12 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         shutdown: trigger_shutdown.clone(),
     });
     // The builtin compression handler shares the listener's shutdown token
-    // and sub-workflow runner: engine signals fire to it, the summary
-    // sub-workflow is spawned immediately and stopped at runtime shutdown
-    // together with the listener. Cross-attempt policy comes from the
-    // resolved limits config (service builtin default when the section is
-    // absent).
+    // and sub-workflow runner: engine signals fire to it, the compression
+    // chain sub-workflow is spawned immediately and stopped at runtime
+    // shutdown together with the listener. Cross-attempt policy comes from
+    // the resolved limits config (service builtin default when the section
+    // is absent). File folding runs inside the chain template (context
+    // transform node), so no fold attachment is wired here.
     let _compression = register_compression_handler(
         &hook_handler_registry,
         crate::trigger_listener::CompressionHandlerDeps {
@@ -421,12 +425,18 @@ impl Runtime {
         }
 
         let mut shell_config = config.shell.clone();
+        // Code-context transport resolves before the tool registry builds:
+        // managed mode starts the supervised process here so the registry
+        // handlers and retrieval tools observe the effective address.
+        let (code_context, code_context_sidecar) =
+            resolve_code_context_transport(config.tools.code_context.clone()).await;
         let tool_registry = init_tool_registry_with_mcp(
             &mut shell_config,
             &sandbox_runtime,
             skill_loader.clone(),
             &mcp_manager,
             &event_bus,
+            code_context.clone(),
         )
         .await?;
 
@@ -473,6 +483,25 @@ impl Runtime {
             &plugin_engine,
         )
         .await?;
+
+        // Bake the effective code-context snapshot into the compression
+        // chain template once, so transform execution reads only its node
+        // config. Absent service keeps the safe skip behavior.
+        if let Some(service) = code_context.clone() {
+            if let Some(existing) = registries
+                .workflows
+                .get(wf_resource::predefined::workflow::CONTEXT_COMPRESSION_WORKFLOW_ID)
+            {
+                let mut template = existing.as_ref().clone();
+                wf_resource::predefined::workflow::bake_code_context_service(
+                    &mut template,
+                    &service,
+                );
+                if let Err(e) = registries.upsert_workflow_template(template) {
+                    warn!("code-context snapshot bake skipped: {e}");
+                }
+            }
+        }
 
         register_llm_config(&llm_gateway, &config.llm)?;
 
@@ -673,6 +702,7 @@ impl Runtime {
             manual_change_service,
             checkpoint_event_bridge_handle,
             gc_timer_handle,
+            code_context_sidecar,
             output: config.output.clone(),
             presets: config.presets.clone(),
             tools: config.tools.clone(),
@@ -795,6 +825,13 @@ impl Runtime {
             }
             let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
             info!("Trigger listener stopped");
+        }
+
+        // Stop the supervised code-context service after its consumers
+        // (compression chain, retrieval tools) are down.
+        if let Some(sidecar) = self.code_context_sidecar.take() {
+            sidecar.shutdown().await;
+            info!("Code-context sidecar stopped");
         }
 
         // Abort detached execution driver tasks (workflow `stream()` drivers,

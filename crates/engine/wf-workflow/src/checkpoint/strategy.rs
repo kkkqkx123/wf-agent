@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn always_strategy_includes_before_node() {
         let s = NodeCheckpointStrategy::always();
-        assert!(s.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 0));
+        assert!(s.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 1));
         assert!(s.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 3));
         assert!(s.should_checkpoint(&WorkflowCheckpointTiming::AfterNode, 1));
     }
@@ -376,12 +376,12 @@ mod tests {
         let resolved = workflow.resolve(Some(&config(Some(false), None, None)));
 
         // Node-level timings are all off.
-        assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 0));
+        assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 1));
         assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::AfterNode, 1));
         assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::OnNodeError, 1));
         // Workflow-scope timings are untouched.
-        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowStart, 0));
-        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowEnd, 0));
+        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowStart, 1));
+        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowEnd, 1));
     }
 
     #[test]
@@ -409,9 +409,9 @@ mod tests {
         )));
 
         assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnNodeError, 1));
-        assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 0));
+        assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, 1));
         assert!(!resolved.should_checkpoint(&WorkflowCheckpointTiming::AfterNode, 1));
-        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowStart, 0));
+        assert!(resolved.should_checkpoint(&WorkflowCheckpointTiming::OnWorkflowStart, 1));
     }
 
     #[test]

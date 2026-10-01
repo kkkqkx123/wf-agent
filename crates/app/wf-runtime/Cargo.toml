@@ -15,6 +15,7 @@ dashmap.workspace = true
 tokio-util.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+wf-integration = { path = "../../infra/wf-integration" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-storage = { path = "../../infra/wf-storage" }

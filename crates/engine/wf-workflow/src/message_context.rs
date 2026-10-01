@@ -253,6 +253,25 @@ pub fn restore_full_history(variables: &DashMap<String, Value>, context_id: &str
     store_ledger(variables, &ledger);
 }
 
+/// Resolve the source and target message contexts for the context
+/// processor shells, covering local operations and service-backed fold.
+/// Both fall back to the default context; a blank target follows the source.
+pub fn resolve_source_target(config: &Value, default: &str) -> (String, String) {
+    let source = config
+        .get("source_context")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(default)
+        .to_string();
+    let target = config
+        .get("target_context")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(&source)
+        .to_string();
+    (source, target)
+}
+
 /// Whether a named context has been registered (even when empty).
 pub fn has_context(variables: &DashMap<String, Value>, context_id: &str) -> bool {
     variables.contains_key(&context_key(context_id))

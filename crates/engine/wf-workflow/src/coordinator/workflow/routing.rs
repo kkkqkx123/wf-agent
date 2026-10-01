@@ -273,3 +273,22 @@ impl WorkflowCoordinator {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::parse_node_type;
+    use wf_types::node::StaticNodeType;
+
+    #[test]
+    fn routing_covers_all_builtin_node_types() {
+        for name in StaticNodeType::ALL {
+            let parsed = parse_node_type(name).expect("builtin parses");
+            assert!(
+                !matches!(parsed, StaticNodeType::Custom(_)),
+                "{name} must not fall through to Custom"
+            );
+            let canonical = StaticNodeType::from_str_ci(name).expect("static parses");
+            assert_eq!(parsed, canonical, "{name} diverges between parsers");
+        }
+    }
+}

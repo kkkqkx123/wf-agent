@@ -97,9 +97,6 @@ pub trait DeltaStore {
     /// reclamation only: called solely by the reachability sweep.
     fn delete_delta(&self, id: &DeltaId) -> StorageResult<bool>;
 
-    /// Delete a delta row. Returns true when a row existed. Physical
-    /// reclamation only: called solely by the reachability sweep.
-
     /// Query deltas by file path and optional time range.
     /// `time_range` is inclusive `(start, end)` in milliseconds.
     fn find_deltas_by_file_and_time(

@@ -228,10 +228,12 @@ impl WorkflowCheckpointIntegration {
         node_config: Option<&NodeCheckpointConfig>,
         forced: bool,
     ) {
+        // node_count tracks completed nodes; the upcoming node is the
+        // (completed + 1)th Before occurrence (one-based index).
         if !self
             .strategy
             .resolve(node_config)
-            .should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, self.node_count)
+            .should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, self.node_count + 1)
             && !(forced && self.strategy.is_enabled())
         {
             return;
@@ -257,10 +259,12 @@ impl WorkflowCheckpointIntegration {
         entity: &WorkflowExecutionEntity,
         node_config: Option<&NodeCheckpointConfig>,
     ) {
+        // The failing node is the (completed + 1)th node; error checkpoints
+        // carry no cadence but still require a non-zero occurrence index.
         if !self
             .strategy
             .resolve(node_config)
-            .should_checkpoint(&WorkflowCheckpointTiming::OnNodeError, self.node_count)
+            .should_checkpoint(&WorkflowCheckpointTiming::OnNodeError, self.node_count + 1)
         {
             return;
         }

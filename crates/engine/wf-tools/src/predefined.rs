@@ -10,11 +10,12 @@
 //! order. Categories that own execution logic additionally expose a
 //! `register` function wiring their handlers or always-available
 //! definitions into the registry (filesystem, shell, memory, utility,
-//! web, knowledge, general). Categories executed through the shared
+//! web, knowledge, general, code_context). Categories executed through the shared
 //! builtin/MCP executors expose definitions only and have no `register`
 //! function (agent, workflow, interaction, integration).
 
 pub mod agent;
+pub mod code_context;
 pub mod filesystem;
 pub mod general;
 pub mod integration;
@@ -42,6 +43,7 @@ pub fn all_definitions() -> Vec<&'static ToolDefinition> {
         memory::ALL,
         utility::ALL,
         web::ALL,
+        code_context::ALL,
         workflow::ALL,
         agent::ALL,
         interaction::ALL,

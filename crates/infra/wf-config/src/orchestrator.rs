@@ -26,10 +26,12 @@ use crate::processor::limits::{merge_limits_with_defaults, validate_limits_confi
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
 use crate::processor::sandbox_global::validate_sandbox_global;
 use crate::processor::tools::{
-    transform_glob_config, transform_list_files_config, transform_read_file_config, GlobConfig,
-    GlobConfigInput, ListFilesConfig, ListFilesConfigInput, ReadFileConfig, ReadFileConfigInput,
+    transform_code_context_config, transform_glob_config, transform_list_files_config,
+    transform_read_file_config, CodeContextConfigInput, GlobConfig, GlobConfigInput,
+    ListFilesConfig, ListFilesConfigInput, ReadFileConfig, ReadFileConfigInput,
 };
 
+use wf_integration::CodeContextConfig;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
@@ -85,6 +87,9 @@ pub struct ToolConfigs {
     pub glob: Option<GlobConfig>,
     pub list_files: Option<ListFilesConfig>,
     pub read_file: Option<ReadFileConfig>,
+    /// Code-context service config backing file folding and the retrieval
+    /// tools. `None` (the default) disables the service.
+    pub code_context: Option<CodeContextConfig>,
     /// Sections without a dedicated processor, passed through verbatim
     /// (e.g. `writeFile`, `editFile`, `runShell`, ...).
     pub passthrough: HashMap<String, serde_json::Value>,
@@ -639,6 +644,18 @@ pub fn load_tool_configs(
                         ))
                     })?;
                 tools.list_files = Some(config);
+            }
+            "code_context" => {
+                let config = serde_json::from_value::<CodeContextConfigInput>(json)
+                    .map_err(ConfigError::from)
+                    .and_then(transform_code_context_config)
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [code_context] section in {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                tools.code_context = Some(config);
             }
             _ => {
                 if !json.is_object() {

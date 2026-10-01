@@ -1,11 +1,48 @@
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::{execute_fold, FoldParams};
+use wf_integration::FoldPolicy;
 use wf_types::node::configs::variable_operation::VariableOperationConfig;
 use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
+
+/// Outcome serialisation key of the fold stage report.
+const KEY_SKIPPED: &str = "skipped";
+
+fn usize_config(config: &Value, key: &str, fallback: usize) -> WorkflowResult<usize> {
+    match config.get(key) {
+        None | Some(Value::Null) => Ok(fallback),
+        Some(Value::Number(n)) => n.as_u64().map(|v| v as usize).ok_or_else(|| {
+            WorkflowError::OperationError(format!(
+                "context processor node config '{key}' must be a number"
+            ))
+        }),
+        Some(_) => Err(WorkflowError::OperationError(format!(
+            "context processor node config '{key}' must be a number"
+        ))),
+    }
+}
+
+fn service_config(config: &Value, key: &str) -> WorkflowResult<Option<String>> {
+    match config.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(WorkflowError::OperationError(format!(
+            "context processor node config '{key}' must be a string"
+        ))),
+    }
+}
+
+fn skip_report(reason: impl Into<String>, folded_count: usize) -> Value {
+    json!({
+        "folded_count": folded_count,
+        KEY_SKIPPED: reason.into(),
+    })
+}
 
 fn get_variable(ctx: &NodeExecutionContext, name: &str) -> Option<Value> {
     ctx.get_variable(name)
@@ -112,6 +149,19 @@ impl ContextProcessorHandler {
     ) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().cloned().unwrap_or(Value::Null);
 
+        // Service-backed fold runs first when selected: read the source
+        // array, fold oversized file contents through the external
+        // service, and write the result back through the register path.
+        // Every service failure maps to a skip report; folding never fails
+        // the workflow on service grounds.
+        if config
+            .get("fold")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return self.execute_fold(ctx, &config).await;
+        }
+
         // Message-context operations run first when configured: read the
         // source array, apply the stateless operation, and write the result
         // back through the register path (ledger version advances, stale
@@ -123,17 +173,13 @@ impl ContextProcessorHandler {
                         "Invalid operation_config for message context: {e}"
                     ))
                 })?;
-            let source = config
-                .get("source_context")
-                .and_then(|v| v.as_str())
-                .unwrap_or(crate::message_context::DEFAULT_CONTEXT_ID);
-            let target = config
-                .get("target_context")
-                .and_then(|v| v.as_str())
-                .unwrap_or(source);
-            let messages = crate::message_context::get_context(&ctx.variables, source);
+            let (source, target) = crate::message_context::resolve_source_target(
+                &config,
+                crate::message_context::DEFAULT_CONTEXT_ID,
+            );
+            let messages = crate::message_context::get_context(&ctx.variables, &source);
             let (result, stats) = wf_execution_shared::message_ops::apply(&messages, &operation);
-            crate::message_context::register_context(&ctx.variables, target, result);
+            crate::message_context::register_context(&ctx.variables, &target, result);
             let mut output = ctx.input.clone();
             if let Value::Object(map) = &mut output {
                 map.insert(
@@ -208,5 +254,100 @@ impl ContextProcessorHandler {
         }
 
         Ok(NodeExecutionResult::simple(ctx.input.clone()))
+    }
+
+    async fn execute_fold(
+        &self,
+        ctx: &mut NodeExecutionContext,
+        config: &Value,
+    ) -> WorkflowResult<NodeExecutionResult> {
+        let defaults = FoldPolicy::default();
+        let (source, target) = crate::message_context::resolve_source_target(
+            config,
+            crate::message_context::DEFAULT_CONTEXT_ID,
+        );
+        let params = FoldParams {
+            base_url: service_config(config, "service_base_url")?,
+            timeout_ms: usize_config(config, "service_timeout_ms", 60_000)? as u64,
+            min_tokens: usize_config(config, "min_tokens", defaults.min_tokens)?,
+            max_tokens: usize_config(config, "max_tokens", defaults.max_tokens)?.max(1),
+            max_items: usize_config(config, "max_items", defaults.max_items)?.max(1),
+            max_batches: usize_config(config, "max_batches", defaults.max_batches as usize)?
+                .max(1) as u32,
+        };
+        let messages = crate::message_context::get_context(&ctx.variables, &source);
+        if messages.is_empty() {
+            return Ok(NodeExecutionResult::simple(skip_report(
+                "empty source context",
+                0,
+            )));
+        }
+        let outcome = execute_fold(&messages, &params).await;
+        crate::message_context::register_context(&ctx.variables, &target, outcome.messages);
+        let written = crate::message_context::get_context(&ctx.variables, &target);
+        let folded_tokens = wf_llm::estimate_messages(&written) as usize;
+        let mut report = json!({
+            "folded_count": outcome.folded_count,
+            "original_tokens": outcome.original_tokens,
+            "folded_tokens": folded_tokens,
+            "notice_headed": outcome.notice_headed,
+        });
+        if let Some(reason) = outcome.skipped {
+            report[KEY_SKIPPED] = Value::String(reason);
+        }
+        Ok(NodeExecutionResult::simple(report))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use dashmap::DashMap;
+    use wf_types::Id;
+
+    fn empty_ctx() -> NodeExecutionContext {
+        NodeExecutionContext::new(
+            Id::new(),
+            "processor-1".into(),
+            StaticNodeType::ContextProcessor,
+            Value::Null,
+            Arc::new(DashMap::new()),
+        )
+    }
+
+    #[tokio::test]
+    async fn processor_fold_skips_empty_source() {
+        let handler = ContextProcessorHandler;
+        let mut ctx = empty_ctx();
+        ctx.node_config = Some(serde_json::json!({ "fold": true }));
+        crate::message_context::register_context(&ctx.variables, "current", Vec::new());
+        let result = handler.execute(&mut ctx).await.expect("node resolves");
+        assert_eq!(
+            result.output.get(KEY_SKIPPED).and_then(|v| v.as_str()),
+            Some("empty source context")
+        );
+    }
+
+    #[tokio::test]
+    async fn processor_fold_skips_unreachable_service() {
+        let handler = ContextProcessorHandler;
+        let mut ctx = empty_ctx();
+        ctx.node_config = Some(serde_json::json!({
+            "fold": true,
+            "min_tokens": 1,
+            "service_base_url": "http://127.0.0.1:1",
+            "service_timeout_ms": 200,
+        }));
+        let messages = vec![wf_types::message::Message::tool_result(
+            "call-1".into(),
+            Some("read_file".into()),
+            "fn main() {}\n".repeat(600),
+            false,
+        )];
+        crate::message_context::register_context(&ctx.variables, "current", messages);
+        let result = handler.execute(&mut ctx).await.expect("node resolves");
+        assert!(result.output.get(KEY_SKIPPED).is_some());
     }
 }

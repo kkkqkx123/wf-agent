@@ -152,7 +152,10 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/workflows/{id}/lock", get(handle_get_lock))
         .route("/workflows/{id}/lock/acquire", post(handle_acquire_lock))
-        .route("/workflows/{id}/lock/heartbeat", post(handle_heartbeat_lock))
+        .route(
+            "/workflows/{id}/lock/heartbeat",
+            post(handle_heartbeat_lock),
+        )
         .route("/workflows/{id}/lock/release", post(handle_release_lock))
 }
 
@@ -191,7 +194,7 @@ pub(crate) async fn handle_acquire_lock(
     ok(state
         .locks
         .acquire(&path.id, &body.owner_id, &body.owner_name))
-        .into_response()
+    .into_response()
 }
 
 #[utoipa::path(

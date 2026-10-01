@@ -16,6 +16,7 @@ pub mod output;
 pub mod remote;
 pub mod run;
 pub mod sanitize;
+pub mod stdio_prompt;
 pub mod turn;
 
 pub use args::{Cli, Command};
@@ -183,7 +184,17 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     let sink = build_sink(cli, stdout_tty)?;
     let diag_color = !cli.no_color && std::io::stderr().is_terminal();
 
-    let (arg_prompt, agent, model, approve_prefixes, workflow, input) = match &cli.command {
+    let (
+        arg_prompt,
+        agent,
+        model,
+        approve_prefixes,
+        workflow,
+        input,
+        interactive,
+        approval_timeout,
+        assume_yes,
+    ) = match &cli.command {
         Some(Command::Run {
             prompt,
             agent,
@@ -191,6 +202,9 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             approve_prefixes,
             workflow,
             input,
+            interactive,
+            approval_timeout,
+            assume_yes,
             remote: _,
         }) => (
             prompt.clone(),
@@ -199,9 +213,22 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             approve_prefixes.clone(),
             workflow.clone(),
             input.clone(),
+            *interactive,
+            *approval_timeout,
+            *assume_yes,
         ),
-        _ => (None, None, None, Vec::new(), None, None),
+        _ => (None, None, None, Vec::new(), None, None, false, None, false),
     };
+    // Stdin doubles as the answer channel with `--interactive`, so it must
+    // not have been consumed as the prompt: require a positional prompt
+    // whenever stdin is piped.
+    if interactive && arg_prompt.is_none() && !std::io::stdin().is_terminal() {
+        return Err(CliError::Arguments(
+            "--interactive needs a positional prompt when stdin is piped; \
+             stdin is reserved for answers"
+                .into(),
+        ));
+    }
     let prompt = resolved
         .stdin_prompt
         .clone()
@@ -215,6 +242,10 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         approve_prefixes,
         workflow,
         workflow_input: input,
+        interactive,
+        approval_timeout_secs: approval_timeout
+            .unwrap_or(crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS),
+        assume_yes,
     };
 
     let domain = DomainHandle::from_cli(cli, CliMode::Run).await?;

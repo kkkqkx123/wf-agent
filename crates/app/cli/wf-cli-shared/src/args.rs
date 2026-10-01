@@ -138,6 +138,9 @@ impl Cli {
             workflow,
             input,
             prompt,
+            interactive,
+            approval_timeout,
+            assume_yes,
             ..
         }) = &self.command
         {
@@ -149,6 +152,17 @@ impl Cli {
                     "positional prompt cannot be combined with --workflow; use --input for workflow input"
                         .to_string(),
                 );
+            }
+            if *interactive && *assume_yes {
+                return Err("--interactive and --assume-yes are mutually exclusive".to_string());
+            }
+            if let Some(secs) = approval_timeout {
+                if *secs == 0 {
+                    return Err("--approval-timeout must be greater than 0".to_string());
+                }
+                if !interactive {
+                    return Err("--approval-timeout requires --interactive".to_string());
+                }
             }
             if let Some(input_str) = input {
                 if serde_json::from_str::<serde_json::Value>(input_str).is_err() {
@@ -252,6 +266,21 @@ pub enum Command {
         /// prefix (repeatable, e.g. --approve-prefix git).
         #[arg(long = "approve-prefix", value_name = "PREFIX")]
         approve_prefixes: Vec<String>,
+        /// Answer tool approvals and follow-up questions from stdin: each
+        /// prompt renders a `? ...` line to stderr and consumes one stdin
+        /// line. Requires a positional prompt so stdin stays free for
+        /// answers; stdout keeps pure business output.
+        #[arg(long)]
+        interactive: bool,
+        /// Wait bound in seconds for one stdin answer line with
+        /// `--interactive` (default 120); expiry denies approvals and
+        /// cancels follow-up answers.
+        #[arg(long = "approval-timeout", value_name = "SECS")]
+        approval_timeout: Option<u64>,
+        /// Approve every routed tool call without prompting (unattended
+        /// runs with no human on the line).
+        #[arg(long = "assume-yes", short = 'y')]
+        assume_yes: bool,
         /// Workflow id to execute instead of an agent turn.
         #[arg(long)]
         workflow: Option<String>,
@@ -2000,5 +2029,51 @@ mod tests {
         };
         assert_eq!(before, Some(1000));
         assert_eq!(domain, Some(CheckpointDomain::Workflow));
+    }
+
+    #[test]
+    fn interactive_run_flags_parse() {
+        let cli = parse(&["run", "hi", "--interactive"]).unwrap();
+        let Some(Command::Run {
+            interactive,
+            approval_timeout,
+            assume_yes,
+            ..
+        }) = &cli.command
+        else {
+            panic!("expected run");
+        };
+        assert!(*interactive);
+        assert_eq!(*approval_timeout, None);
+        assert!(!assume_yes);
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "hi", "--interactive", "--approval-timeout", "30"]).unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "hi", "-y"]).unwrap();
+        let Some(Command::Run { assume_yes, .. }) = &cli.command else {
+            panic!("expected run");
+        };
+        assert!(*assume_yes);
+        assert!(cli.validate().is_ok());
+    }
+
+    #[test]
+    fn interactive_and_assume_yes_are_exclusive() {
+        let cli = parse(&["run", "hi", "--interactive", "--assume-yes"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("mutually exclusive"), "{err}");
+    }
+
+    #[test]
+    fn approval_timeout_needs_interactive_and_positive() {
+        let cli = parse(&["run", "hi", "--approval-timeout", "30"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("--interactive"), "{err}");
+
+        let cli = parse(&["run", "hi", "--interactive", "--approval-timeout", "0"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("greater than 0"), "{err}");
     }
 }

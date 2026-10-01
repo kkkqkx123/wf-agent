@@ -15,19 +15,26 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use serde_json::Value;
 
+use crate::approval::StdioApprovalHandler;
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
+use crate::stdio_prompt::{
+    extract_followup_options, extract_followup_prompt, extract_interaction_id,
+    parse_followup_answer, render_followup_prompt, StdioPromptSource,
+    DEFAULT_APPROVAL_TIMEOUT_SECS,
+};
 use crate::turn::{TurnKind, TurnParams};
 use wf_api::agent::agent_execution;
 use wf_api::entity::user_interaction::{
     register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
 };
+use wf_api::infra::context::ApiContext;
 use wf_api::infra::stream::ExecutionStreamEvent;
 use wf_api::{DEFAULT_AGENT, DEFAULT_MODEL};
 use wf_runtime::tool_approval::{ApprovalPolicy, PolicyApprovalHandler};
@@ -87,7 +94,7 @@ impl DiagWriter {
         String::from_utf8_lossy(&self.captured).into_owned()
     }
 
-    fn ok(&mut self, text: &str) -> io::Result<()> {
+    pub(crate) fn ok(&mut self, text: &str) -> io::Result<()> {
         if self.color {
             self.line(&format!("{GREEN}{text}{RESET}"))
         } else {
@@ -95,7 +102,7 @@ impl DiagWriter {
         }
     }
 
-    fn err(&mut self, text: &str) -> io::Result<()> {
+    pub(crate) fn err(&mut self, text: &str) -> io::Result<()> {
         if self.color {
             self.line(&format!("{RED}{text}{RESET}"))
         } else {
@@ -103,7 +110,7 @@ impl DiagWriter {
         }
     }
 
-    fn warn(&mut self, text: &str) -> io::Result<()> {
+    pub(crate) fn warn(&mut self, text: &str) -> io::Result<()> {
         if self.color {
             self.line(&format!("{YELLOW}{text}{RESET}"))
         } else {
@@ -112,30 +119,133 @@ impl DiagWriter {
     }
 }
 
-// ── interaction guard (follow-up questions cannot be answered) ───────
+// ── interaction guard (follow-up questions) ──────────────────────────
 
-/// Records follow-up question requests; a headless session cannot answer
-/// them, so the driver fails the run with exit code 1 afterwards.
+/// Headless follow-up handling. Without `--interactive` a follow-up request
+/// cannot be answered, so the driver records it and fails the run with exit
+/// code 1 afterwards. With `--interactive` the request renders a `? ANSWER`
+/// prompt to the diagnostics channel and a spawned task delivers one stdin
+/// line through the persisted interaction API.
 struct HeadlessInteractionGuard {
     followup_requested: Arc<AtomicBool>,
     diag: Arc<Mutex<DiagWriter>>,
+    followup_answer: Option<FollowupAnswer>,
+}
+
+/// Interactive follow-up delivery: prompt source, owning API context for the
+/// persisted respond path, answer timeout and prompt protocol.
+#[derive(Clone)]
+struct FollowupAnswer {
+    prompt: Arc<StdioPromptSource>,
+    ctx: Arc<ApiContext>,
+    followup_requested: Arc<AtomicBool>,
+    timeout: Duration,
+    json: bool,
+}
+
+impl FollowupAnswer {
+    async fn answer(&self, request: &Value, diag: &Arc<Mutex<DiagWriter>>) {
+        let interaction_id = extract_interaction_id(request);
+        if interaction_id.is_empty() {
+            self.followup_requested.store(true, Ordering::SeqCst);
+            let mut diag = wf_common::lock::lock_ok(diag.lock());
+            let _ = diag
+                .warn("follow-up question without an interaction id cannot be answered from stdin");
+            return;
+        }
+        let prompt_text = extract_followup_prompt(request);
+        let options = extract_followup_options(request);
+        let line = render_followup_prompt(&interaction_id, &prompt_text, &options, self.json);
+        {
+            let mut diag = wf_common::lock::lock_ok(diag.lock());
+            let _ = diag.line(&line);
+        }
+        let response = match self.prompt.next_answer(self.timeout).await {
+            Some(text) => parse_followup_answer(&text, request),
+            None => {
+                let mut diag = wf_common::lock::lock_ok(diag.lock());
+                let _ = diag.warn(&format!(
+                    "follow-up answer timed out after {}s; responding cancelled",
+                    self.timeout.as_secs()
+                ));
+                Value::Null
+            }
+        };
+        // Storage-backed interactions resolve through the persisted respond
+        // path, which also completes the live registry wait. Ephemeral
+        // interactions (workflow nodes without a storage record) resolve the
+        // live registry wait directly.
+        let stored = wf_api::entity::user_interaction::respond_interaction(
+            &self.ctx.storage,
+            &interaction_id,
+            Some(response.clone()),
+            None,
+        )
+        .await;
+        if stored.is_err() {
+            let _ = wf_api::complete_interaction(&interaction_id, response);
+        }
+    }
+}
+
+impl HeadlessInteractionGuard {
+    fn flag_only(followup_requested: Arc<AtomicBool>, diag: Arc<Mutex<DiagWriter>>) -> Self {
+        Self {
+            followup_requested,
+            diag,
+            followup_answer: None,
+        }
+    }
+
+    fn interactive(
+        followup_requested: Arc<AtomicBool>,
+        diag: Arc<Mutex<DiagWriter>>,
+        prompt: Arc<StdioPromptSource>,
+        ctx: Arc<ApiContext>,
+        timeout: Duration,
+        json: bool,
+    ) -> Self {
+        Self {
+            followup_requested: followup_requested.clone(),
+            diag,
+            followup_answer: Some(FollowupAnswer {
+                prompt,
+                ctx,
+                followup_requested,
+                timeout,
+                json,
+            }),
+        }
+    }
 }
 
 impl UserInteractionHandler for HeadlessInteractionGuard {
     fn on_interaction(&self, _record: &AgentUserInteractionEventRecord) {}
 
     fn on_tool_approval_requested(&self, _execution_id: &str, _request: &Value) {
-        // Tool approvals are decided synchronously by the runtime policy
-        // handler; nothing to ask the user here.
+        // Tool approvals are decided synchronously by the approval handler;
+        // nothing to ask the user here.
     }
 
-    fn on_followup_question_requested(&self, execution_id: &str, _request: &Value) {
-        self.followup_requested.store(true, Ordering::SeqCst);
-        let mut diag = wf_common::lock::lock_ok(self.diag.lock());
-        let _ = diag.warn(&format!(
-            "follow-up question requested by execution {execution_id}; \
-             headless mode cannot answer it"
-        ));
+    fn on_followup_question_requested(&self, _execution_id: &str, request: &Value) {
+        match &self.followup_answer {
+            Some(answer) => {
+                let answer = answer.clone();
+                let request = request.clone();
+                let diag = self.diag.clone();
+                tokio::spawn(async move {
+                    answer.answer(&request, &diag).await;
+                });
+            }
+            None => {
+                self.followup_requested.store(true, Ordering::SeqCst);
+                let mut diag = wf_common::lock::lock_ok(self.diag.lock());
+                let _ = diag.warn(
+                    "follow-up question requested; headless mode cannot answer it \
+                     (re-run with --interactive to answer from stdin)",
+                );
+            }
+        }
     }
 }
 
@@ -330,7 +440,7 @@ impl<'a> SessionRenderer<'a> {
 // ── session driver ───────────────────────────────────────────────────
 
 /// Options for one headless session.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RunOptions {
     /// Initial user message (required, non-empty for agent turns).
     pub prompt: String,
@@ -344,6 +454,28 @@ pub struct RunOptions {
     pub workflow: Option<String>,
     /// Workflow input JSON string (requires workflow).
     pub workflow_input: Option<String>,
+    /// Read approval/follow-up answers from stdin (`--interactive`).
+    pub interactive: bool,
+    /// Wait bound for one stdin answer line (`--approval-timeout`).
+    pub approval_timeout_secs: u64,
+    /// Approve every routed tool call without prompting (`--assume-yes`).
+    pub assume_yes: bool,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            prompt: String::new(),
+            agent_id: None,
+            model: None,
+            approve_prefixes: Vec::new(),
+            workflow: None,
+            workflow_input: None,
+            interactive: false,
+            approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
+            assume_yes: false,
+        }
+    }
 }
 
 impl RunOptions {
@@ -649,20 +781,39 @@ pub async fn run_session(
     let execution_id = wf_common::generate_id();
     let ctx = adapter.api_context();
 
-    // Follow-up questions cannot be answered without a TTY.
+    // Follow-up delivery: flag-only by default (fail the run afterwards),
+    // stdin-answered with `--interactive`. The prompt source is shared
+    // between the approval handler and the interaction guard so answer
+    // lines stay in arrival order.
     let followup_requested = Arc::new(AtomicBool::new(false));
-    register_handler(
-        ctx,
-        Arc::new(HeadlessInteractionGuard {
-            followup_requested: followup_requested.clone(),
-            diag: io.diag.clone(),
-        }),
-    )
-    .await;
+    let prompt_source = if opts.interactive {
+        Some(StdioPromptSource::spawn().0)
+    } else {
+        None
+    };
+    let approval_timeout = Duration::from_secs(opts.approval_timeout_secs);
+    let json_protocol = matches!(io.format, OutputFormat::Json | OutputFormat::JsonLines);
+    let guard: Arc<dyn UserInteractionHandler> = match &prompt_source {
+        Some(source) => Arc::new(HeadlessInteractionGuard::interactive(
+            followup_requested.clone(),
+            io.diag.clone(),
+            source.clone(),
+            adapter.api_context_arc(),
+            approval_timeout,
+            json_protocol,
+        )),
+        None => Arc::new(HeadlessInteractionGuard::flag_only(
+            followup_requested.clone(),
+            io.diag.clone(),
+        )),
+    };
+    register_handler(ctx, guard).await;
 
     // Policy-first wiring shared with the server: the engine evaluates the
-    // baseline policy (denials terminal), the runtime policy handler answers
-    // only `Ask` decisions without interaction. Config assembly lives in
+    // baseline policy (denials terminal), the approval handler answers only
+    // `Ask` decisions. `--interactive` prompts on stdin for the rest,
+    // `--assume-yes` approves them blindly, otherwise the prefix whitelist
+    // decides without interaction. Config assembly lives in
     // `turn::build_agent_loop_params` (single source with mini/TUI).
     let turn_params = opts.as_turn_params();
     let diag_reporter = io.diag.clone();
@@ -674,15 +825,27 @@ pub async fn run_session(
             let _ = diag.err(&format!("✗ {}: {}", report.tool_name, report.reason));
         }
     });
+    let approval_handler: Arc<dyn wf_api::ToolApprovalHandler> =
+        match (&prompt_source, opts.assume_yes) {
+            (Some(source), false) => Arc::new(StdioApprovalHandler::interactive(
+                ApprovalPolicy::new(opts.approve_prefixes.clone()),
+                source.clone(),
+                io.diag.clone(),
+                approval_timeout,
+                json_protocol,
+            )),
+            (_, true) => Arc::new(StdioApprovalHandler::assume_yes(io.diag.clone())),
+            (None, false) => Arc::new(
+                PolicyApprovalHandler::new(ApprovalPolicy::new(opts.approve_prefixes.clone()))
+                    .with_reporter(reporter),
+            ),
+        };
     let mut params = crate::turn::build_agent_loop_params(
         &turn_params,
         Some(wf_runtime::tool_approval::headless_approval_options(Some(
             ctx,
         ))),
-        Some(Arc::new(
-            PolicyApprovalHandler::new(ApprovalPolicy::new(opts.approve_prefixes.clone()))
-                .with_reporter(reporter),
-        )),
+        Some(approval_handler),
     );
     params.agent_loop_id = Some(wf_types::Id::from(execution_id.clone()));
     // Composition boundary: resolve the agent template before execution so
@@ -881,6 +1044,13 @@ pub async fn run_session_remote(
     mut io: RunIo,
 ) -> CliResult<RunOutcome> {
     use std::time::Instant;
+    if opts.interactive || opts.assume_yes {
+        return Err(CliError::Arguments(
+            "--interactive/--assume-yes need an embedded runtime; \
+             remote runs cannot read local stdin"
+                .into(),
+        ));
+    }
     let started = Instant::now();
     if let Some(workflow_id) = opts.workflow.clone() {
         let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())

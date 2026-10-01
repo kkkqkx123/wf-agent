@@ -92,24 +92,28 @@ fn base_url(config: &CodeContextConfig) -> ToolResult<String> {
 /// Create the async handler for the code_search tool.
 pub fn code_search_handler(config: &CodeContextConfig) -> StatelessAsyncHandler {
     let config = config.clone();
+    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, _ctx| {
         let config = config.clone();
+        let client = client.clone();
         Box::pin(async move {
+            let client = client.map_err(ToolError::ExecutionError)?;
             let base = base_url(&config)?;
-            let query = wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
+            let query =
+                wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
             let project_id = wf_integration::resolve_project_id(
                 &parameters,
                 config.retrieval.default_project_id,
             )
             .map_err(ToolError::ValidationFailed)?;
-            let limit = wf_integration::clamp_limit(
-                parameters.get("limit").and_then(|v| v.as_u64()),
-            );
+            let limit =
+                wf_integration::clamp_limit(parameters.get("limit").and_then(|v| v.as_u64()));
             let directory_prefix = parameters
                 .get("directory_prefix")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty());
             wf_integration::search(
+                &client,
                 &base,
                 config.transport.timeout_ms,
                 &query,
@@ -126,22 +130,32 @@ pub fn code_search_handler(config: &CodeContextConfig) -> StatelessAsyncHandler 
 /// Create the async handler for the code_keyword_search tool.
 pub fn code_keyword_search_handler(config: &CodeContextConfig) -> StatelessAsyncHandler {
     let config = config.clone();
+    let client = wf_integration::http_client(config.transport.timeout_ms);
     Arc::new(move |parameters: Value, _ctx| {
         let config = config.clone();
+        let client = client.clone();
         Box::pin(async move {
+            let client = client.map_err(ToolError::ExecutionError)?;
             let base = base_url(&config)?;
-            let query = wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
+            let query =
+                wf_integration::require_query(&parameters).map_err(ToolError::ValidationFailed)?;
             let project_id = wf_integration::resolve_project_id(
                 &parameters,
                 config.retrieval.default_project_id,
             )
             .map_err(ToolError::ValidationFailed)?;
-            let top_n = wf_integration::clamp_limit(
-                parameters.get("top_n").and_then(|v| v.as_u64()),
-            );
-            wf_integration::keyword_search(&base, config.transport.timeout_ms, &query, project_id, top_n)
-                .await
-                .map_err(ToolError::ExecutionError)
+            let top_n =
+                wf_integration::clamp_limit(parameters.get("top_n").and_then(|v| v.as_u64()));
+            wf_integration::keyword_search(
+                &client,
+                &base,
+                config.transport.timeout_ms,
+                &query,
+                project_id,
+                top_n,
+            )
+            .await
+            .map_err(ToolError::ExecutionError)
         })
     })
 }
@@ -245,10 +259,8 @@ pub fn register(
         "code_keyword_search",
         code_keyword_search_handler(config),
     );
-    registry.register_stateless_async_handler(
-        "read_file_folded",
-        read_file_folded_handler(fs, config),
-    );
+    registry
+        .register_stateless_async_handler("read_file_folded", read_file_folded_handler(fs, config));
     Ok(())
 }
 

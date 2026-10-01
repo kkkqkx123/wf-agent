@@ -66,7 +66,7 @@ impl RunningSidecar {
 /// "managed transport unavailable" and degrades.
 pub async fn start_sidecar(spec: SidecarSpec) -> Result<RunningSidecar, String> {
     let shutdown = CancellationToken::new();
-    let mut child = spawn_child(&spec)?;
+    let mut child = spawn_child(&spec).await?;
     if let Err(e) = wait_ready(&spec, &mut child, shutdown.clone()).await {
         kill_child(&mut child).await;
         return Err(e);
@@ -81,8 +81,9 @@ pub async fn start_sidecar(spec: SidecarSpec) -> Result<RunningSidecar, String> 
     })
 }
 
-fn spawn_child(spec: &SidecarSpec) -> Result<Child, String> {
-    let mut command = Command::new(&spec.program);
+async fn spawn_child(spec: &SidecarSpec) -> Result<Child, String> {
+    let program = resolve_program(&spec.program).await?;
+    let mut command = Command::new(&program);
     command
         .args(&spec.args)
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
@@ -92,6 +93,18 @@ fn spawn_child(spec: &SidecarSpec) -> Result<Child, String> {
     command
         .spawn()
         .map_err(|e| format!("failed to launch sidecar '{}': {e}", spec.program))
+}
+
+/// Resolve the sidecar binary: explicit paths launch as-is, bare names
+/// resolve through `PATH` so a missing binary fails fast with a clear
+/// reason instead of a raw spawn error.
+async fn resolve_program(program: &str) -> Result<String, String> {
+    if program.contains('/') || program.contains('\\') {
+        return Ok(program.to_string());
+    }
+    wf_common::process::find_in_path(program)
+        .await
+        .ok_or_else(|| format!("sidecar program '{program}' not found in PATH"))
 }
 
 async fn wait_ready(
@@ -162,7 +175,7 @@ async fn supervise(spec: SidecarSpec, mut child: Child, shutdown: CancellationTo
                     _ = shutdown.cancelled() => break,
                     _ = tokio::time::sleep(backoff) => {}
                 }
-                match spawn_child(&spec) {
+                match spawn_child(&spec).await {
                     Ok(next) => {
                         child = next;
                         if wait_ready(&spec, &mut child, shutdown.clone()).await.is_err() {

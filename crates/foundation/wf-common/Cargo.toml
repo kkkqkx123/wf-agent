@@ -9,7 +9,7 @@ serde_json.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "fs"] }
 tokio-util.workspace = true
 tracing.workspace = true
 

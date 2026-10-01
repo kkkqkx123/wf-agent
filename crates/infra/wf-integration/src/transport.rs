@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod sidecar;
 
-pub use sidecar::{RunningSidecar, SidecarSpec, start_sidecar};
+pub use sidecar::{start_sidecar, RunningSidecar, SidecarSpec};
 
 /// How an external service is reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -138,10 +138,7 @@ pub async fn post_json(
 pub fn probe_http(url: &str, timeout_ms: u64) -> impl std::future::Future<Output = bool> {
     let url = url.to_string();
     async move {
-        let client = match reqwest::Client::builder()
-            .timeout(Duration::from_millis(timeout_ms.max(1)))
-            .build()
-        {
+        let client = match http_client(timeout_ms) {
             Ok(client) => client,
             Err(_) => return false,
         };

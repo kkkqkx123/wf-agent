@@ -173,7 +173,9 @@ impl ToolRegistry {
         );
         self.register_executor(
             ToolType::Rest,
-            Arc::new(|_tool| Ok(Arc::new(RestExecutor::new()))),
+            Arc::new(|_tool| {
+                RestExecutor::new().map(|executor| Arc::new(executor) as Arc<dyn ToolExecutor>)
+            }),
         );
         let builtin_cb = self.builtin_callback.clone();
         let skill_loader = self.skill_loader.clone();

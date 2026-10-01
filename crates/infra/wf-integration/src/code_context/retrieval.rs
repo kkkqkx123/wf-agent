@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::transport::{http_client, post_json};
+use crate::transport::post_json;
 
 /// Maximum results returned to the model per call.
 const MAX_RESULTS: usize = 20;
@@ -111,17 +111,12 @@ pub fn require_query(parameters: &Value) -> Result<String, String> {
 }
 
 /// Resolve the project id from the call or the configured default.
-pub fn resolve_project_id(
-    parameters: &Value,
-    default: Option<i64>,
-) -> Result<i64, String> {
+pub fn resolve_project_id(parameters: &Value, default: Option<i64>) -> Result<i64, String> {
     parameters
         .get("project_id")
         .and_then(|v| v.as_i64())
         .or(default)
-        .ok_or_else(|| {
-            "Missing 'project_id' and no default project is configured".to_string()
-        })
+        .ok_or_else(|| "Missing 'project_id' and no default project is configured".to_string())
 }
 
 /// Clamp a caller-supplied limit to the model-facing maximum.
@@ -129,9 +124,11 @@ pub fn clamp_limit(raw: Option<u64>) -> usize {
     raw.unwrap_or(10).min(MAX_RESULTS as u64) as usize
 }
 
-/// Hybrid search over an indexed project. Transport lives in the shared
-/// transport module; failures are plain strings.
+/// Hybrid search over an indexed project. The caller provides the HTTP
+/// client so connections stay pooled across calls; failures are plain
+/// strings.
 pub async fn search(
+    client: &reqwest::Client,
     base_url: &str,
     timeout_ms: u64,
     query: &str,
@@ -139,33 +136,27 @@ pub async fn search(
     limit: usize,
     directory_prefix: Option<&str>,
 ) -> Result<Value, String> {
-    let client = http_client(timeout_ms)?;
     let body = search_request_body(query, project_id, limit, directory_prefix);
-    let payload = post_json(
-        &client,
-        &format!("{base_url}/api/search"),
-        timeout_ms,
-        &body,
-    )
-    .await?;
+    let payload = post_json(client, &format!("{base_url}/api/search"), timeout_ms, &body).await?;
     if payload.get("success").and_then(|v| v.as_bool()) == Some(false) {
         return Err("Search reported failure".to_string());
     }
     Ok(summarize_search_payload(&payload, query, limit))
 }
 
-/// BM25 keyword search. Transport lives in the shared transport module.
+/// BM25 keyword search. The caller provides the HTTP client so
+/// connections stay pooled across calls.
 pub async fn keyword_search(
+    client: &reqwest::Client,
     base_url: &str,
     timeout_ms: u64,
     query: &str,
     project_id: i64,
     top_n: usize,
 ) -> Result<Value, String> {
-    let client = http_client(timeout_ms)?;
     let body = keyword_request_body(query, project_id, top_n);
     let payload = post_json(
-        &client,
+        client,
         &format!("{base_url}/api/tools/keyword-search"),
         timeout_ms,
         &body,

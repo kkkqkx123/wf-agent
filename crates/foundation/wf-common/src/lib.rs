@@ -4,6 +4,7 @@ pub mod exec;
 pub mod gate;
 pub mod id;
 pub mod lock;
+pub mod process;
 pub mod retry;
 pub mod shutdown;
 pub mod template;

@@ -177,6 +177,11 @@ pub struct RestExecutor {
     error_interceptors: Vec<ErrorInterceptor>,
 }
 
+/// Client-level ceiling for the shared HTTP client. Per-call timeouts are
+/// enforced separately per request spec; this only bounds body reads the
+/// per-attempt timeout does not cover.
+const DEFAULT_REST_CLIENT_TIMEOUT_MS: u64 = 60_000;
+
 /// Fully resolved request describing how the REST call should be dispatched.
 #[derive(Debug, Clone)]
 pub struct RestRequestSpec {
@@ -189,18 +194,16 @@ pub struct RestRequestSpec {
 }
 
 impl RestExecutor {
-    pub fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .expect("Failed to build reqwest client");
-        Self {
+    pub fn new() -> ToolResult<Self> {
+        let client = wf_integration::http_client(DEFAULT_REST_CLIENT_TIMEOUT_MS)
+            .map_err(ToolError::Internal)?;
+        Ok(Self {
             client,
             circuit_breaker: None,
             request_interceptors: Vec::new(),
             response_interceptors: Vec::new(),
             error_interceptors: Vec::new(),
-        }
+        })
     }
 
     pub fn with_client(client: reqwest::Client) -> Self {
@@ -397,12 +400,6 @@ fn urlencode(input: &str) -> String {
         }
     }
     encoded
-}
-
-impl Default for RestExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]
@@ -737,7 +734,7 @@ mod tests {
             "rest_get",
             serde_json::json!({ "base_url": format!("http://{}", addr) }),
         );
-        let executor = RestExecutor::new();
+        let executor = RestExecutor::new().expect("build REST executor for test");
         let ctx = ToolExecutionContext::new("e1".into());
 
         let result = executor
@@ -770,7 +767,7 @@ mod tests {
             "rest_post",
             serde_json::json!({ "base_url": format!("http://{}", addr) }),
         );
-        let executor = RestExecutor::new();
+        let executor = RestExecutor::new().expect("build REST executor for test");
         let ctx = ToolExecutionContext::new("e1".into());
 
         let result = executor
@@ -836,7 +833,7 @@ mod tests {
             "rest_err",
             serde_json::json!({ "base_url": format!("http://{}", addr) }),
         );
-        let mut executor = RestExecutor::new();
+        let mut executor = RestExecutor::new().expect("build REST executor for test");
         executor.add_error_interceptor(Arc::new(|e| {
             ToolError::Internal(format!("intercepted: {}", e))
         }));
@@ -891,7 +888,7 @@ mod tests {
                 "retry_delay": 10,
             }),
         );
-        let executor = RestExecutor::new();
+        let executor = RestExecutor::new().expect("build REST executor for test");
         let ctx = ToolExecutionContext::new("e1".into());
 
         let result = executor
@@ -934,7 +931,7 @@ mod tests {
                 "retry_delay": 10,
             }),
         );
-        let executor = RestExecutor::new();
+        let executor = RestExecutor::new().expect("build REST executor for test");
         let ctx = ToolExecutionContext::new("e1".into());
 
         let result = executor
@@ -966,7 +963,7 @@ mod tests {
                 "retry_delay": 10,
             }),
         );
-        let executor = RestExecutor::new();
+        let executor = RestExecutor::new().expect("build REST executor for test");
         let ctx = ToolExecutionContext::new("e1".into());
 
         let result = executor

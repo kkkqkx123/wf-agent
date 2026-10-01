@@ -563,18 +563,14 @@ mod tests {
 
         assert!(!storage.snapshot_exists(&excl).unwrap());
         assert!(!storage.delta_exists(&excl_snap.deltas[0]).unwrap());
-        assert!(
-            !storage
-                .file_node_exists("test.txt", &excl_snap.file.base_hash)
-                .unwrap()
-        );
+        assert!(!storage
+            .file_node_exists("test.txt", &excl_snap.file.base_hash)
+            .unwrap());
         assert!(storage.snapshot_exists(&shared).unwrap());
         assert!(storage.delta_exists(&shared_snap.deltas[0]).unwrap());
-        assert!(
-            storage
-                .file_node_exists("test.txt", &shared_snap.file.base_hash)
-                .unwrap()
-        );
+        assert!(storage
+            .file_node_exists("test.txt", &shared_snap.file.base_hash)
+            .unwrap());
 
         // Reruns are empty: the sweep is idempotent.
         let again =
@@ -630,11 +626,9 @@ mod tests {
                 "shared chain delta must survive"
             );
         }
-        assert!(
-            storage
-                .file_node_exists("test.txt", &parent.file.base_hash)
-                .unwrap()
-        );
+        assert!(storage
+            .file_node_exists("test.txt", &parent.file.base_hash)
+            .unwrap());
     }
 
     #[test]

@@ -334,13 +334,18 @@ impl ContextWriter for RecordingWriter {
 
 /// Poll a condition until it holds (2s budget).
 async fn wait_until(cond: impl Fn() -> bool) {
-    for _ in 0..200 {
-        if cond() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("condition not met within 2s");
+    assert!(
+        wf_common::poll_until(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_secs(2),
+            || {
+                let matched = cond();
+                async move { matched }
+            },
+        )
+        .await,
+        "condition not met within 2s"
+    );
 }
 
 fn llm_node_config(token_limit: u64, context_id: Option<&str>) -> serde_json::Value {

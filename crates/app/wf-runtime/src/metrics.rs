@@ -178,27 +178,28 @@ impl MetricsContext {
         let cleanup_interval = flush_interval
             .saturating_mul(12)
             .max(Duration::from_secs(30));
+        let no_shutdown = tokio_util::sync::CancellationToken::new();
         {
             let registry = registry.clone();
-            tasks.push(tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(flush_interval);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    ticker.tick().await;
-                    registry.flush_all().await;
-                }
-            }));
+            tasks.push(wf_common::spawn_ticker(
+                flush_interval,
+                no_shutdown.clone(),
+                move || {
+                    let registry = registry.clone();
+                    async move {
+                        registry.flush_all().await;
+                    }
+                },
+            ));
         }
         {
             let registry = registry.clone();
             // In-memory cleanup honors each collector retention window;
             // persisted pruning uses the global window as the single source.
             let retention_ms = config.retention_ms.unwrap_or(3_600_000);
-            tasks.push(tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(cleanup_interval);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    ticker.tick().await;
+            tasks.push(wf_common::spawn_ticker(cleanup_interval, no_shutdown.clone(), move || {
+                let registry = registry.clone();
+                async move {
                     registry.cleanup_all();
                     // Prune persisted metric points older than the retention
                     // window (in-memory cleanup handles buffered data).
@@ -216,19 +217,21 @@ impl MetricsContext {
             let report_interval =
                 Duration::from_millis(config.reporting_interval.unwrap_or(60_000) as u64);
             let registry = registry.clone();
-            tasks.push(tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(report_interval);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    ticker.tick().await;
-                    // Skip generation entirely when nobody listens.
-                    if registry.subscriber_count() == 0 {
-                        continue;
+            tasks.push(wf_common::spawn_ticker(
+                report_interval,
+                no_shutdown,
+                move || {
+                    let registry = registry.clone();
+                    async move {
+                        // Skip generation entirely when nobody listens.
+                        if registry.subscriber_count() == 0 {
+                            return;
+                        }
+                        let report = generate_report(&registry, &ReportOptions::default()).await;
+                        registry.publish_report(&report);
                     }
-                    let report = generate_report(&registry, &ReportOptions::default()).await;
-                    registry.publish_report(&report);
-                }
-            }));
+                },
+            ));
         }
 
         let sampler_interval = config
@@ -321,14 +324,17 @@ impl ResourceSampler {
     }
 
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(self.interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                ticker.tick().await;
-                self.sample();
-            }
-        })
+        let sampler = Arc::new(self);
+        wf_common::spawn_ticker(
+            sampler.interval,
+            tokio_util::sync::CancellationToken::new(),
+            move || {
+                let sampler = sampler.clone();
+                async move {
+                    sampler.sample();
+                }
+            },
+        )
     }
 
     pub fn sample(&self) {

@@ -450,9 +450,7 @@ mod tests {
         );
         storage.store_checkpoint(&orphan).unwrap();
 
-        let seen = manager
-            .latest_checkpoint_id(storage, &actor)
-            .unwrap();
+        let seen = manager.latest_checkpoint_id(storage, &actor).unwrap();
         assert_eq!(seen.as_deref(), Some(head_cp.id.as_str()));
 
         // The orphan descends from the head, so the head legitimately

@@ -554,7 +554,9 @@ mod tests {
         // Staged advances independently: reformat the merged line.
         let m1_snap = storage.get_snapshot(&m1).unwrap();
         let file_node = FileNode::new(std::path::PathBuf::from("test.txt"), b"base\nMANUAL\n");
-        storage.store_file_node(&file_node, b"base\nMANUAL\n").unwrap();
+        storage
+            .store_file_node(&file_node, b"base\nMANUAL\n")
+            .unwrap();
         let delta = Delta::new(
             file_node,
             diff_to_line_diff("base\nmanual\n", "base\nMANUAL\n"),

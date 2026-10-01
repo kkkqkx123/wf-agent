@@ -5,15 +5,47 @@ use std::sync::Mutex as StdMutex;
 /// Poll the sink until `predicate` holds or the deadline elapses. Events
 /// are delivered on a background dispatch thread, so tests must wait for
 /// them instead of reading synchronously.
-fn wait_for_events(sink: &MemSink, predicate: impl Fn(&[String]) -> bool) -> Vec<String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    loop {
-        let events = sink.events.lock().unwrap().clone();
-        if predicate(&events) || std::time::Instant::now() >= deadline {
-            return events;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+async fn wait_for_events(sink: &MemSink, predicate: impl Fn(&[String]) -> bool) -> Vec<String> {
+    wf_common::poll_until(
+        std::time::Duration::from_millis(10),
+        std::time::Duration::from_secs(8),
+        || async { predicate(&sink.events.lock().unwrap()) },
+    )
+    .await;
+    sink.events.lock().unwrap().clone()
+}
+
+/// Block until a session reaches `status` or the deadline elapses. Plain
+/// `#[test]` cases cannot use the async poll helper because they run outside
+/// the Tokio runtime; the production session APIs they exercise are blocking
+/// as well, so a bounded thread sleep remains the appropriate wait.
+fn wait_for_session_status_blocking(
+    session: &TerminalSession,
+    status: SessionStatus,
+    timeout: std::time::Duration,
+) {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline && session.status() != status {
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
+}
+
+/// Poll a session until it reaches `status` or the deadline elapses. The
+/// store monitor thread finalizes sessions asynchronously, so tests must
+/// wait for the transition instead of reading synchronously.
+async fn wait_for_session_status(
+    store: &BackgroundShellStore,
+    session_id: &str,
+    status: SessionStatus,
+    timeout: std::time::Duration,
+) -> bool {
+    wf_common::poll_until(std::time::Duration::from_millis(20), timeout, || {
+        let matched = store
+            .get(session_id)
+            .is_some_and(|session| session.status() == status);
+        async move { matched }
+    })
+    .await
 }
 
 #[test]
@@ -78,22 +110,15 @@ async fn test_background_command_dispatches_completion_without_query() {
 
     // The completion event must arrive on its own (push-based), without
     // any shell_output / status query.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let completed = loop {
-        let events = sink.events.lock().unwrap().clone();
-        if let Some(e) = events
+    let completed = wait_for_events(&sink, |events| {
+        events
             .iter()
-            .find(|e| e.starts_with(&format!("completed:{}:", id)))
-        {
-            break e.clone();
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "completion event never dispatched: {:?}",
-            events
-        );
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    };
+            .any(|e| e.starts_with(&format!("completed:{}:", id)))
+    })
+    .await
+    .into_iter()
+    .find(|e| e.starts_with(&format!("completed:{}:", id)))
+    .expect("completion event never dispatched");
     assert!(completed.contains("echo background-done"), "{}", completed);
 
     // The session was finalized without any external query.
@@ -119,10 +144,11 @@ fn test_store_monitor_thread_exits_on_drop() {
 
     // Wait for the monitor to finalize the command (reaps the child).
     let session = store.get(&id).unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    while std::time::Instant::now() < deadline && session.status() != SessionStatus::Idle {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    wait_for_session_status_blocking(
+        &session,
+        SessionStatus::Idle,
+        std::time::Duration::from_secs(8),
+    );
     assert_eq!(session.status(), SessionStatus::Idle);
 
     // Dropping the store joins the monitor thread; if the thread did not
@@ -150,22 +176,12 @@ async fn test_completion_eof_triggered_despite_large_poll_interval() {
 
     let id = store.spawn("echo eof-wake", None).unwrap();
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    loop {
-        let events = sink.events.lock().unwrap().clone();
-        if events
+    wait_for_events(&sink, |events| {
+        events
             .iter()
             .any(|e| e.starts_with(&format!("completed:{}:", id)))
-        {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "completion never dispatched (EOF wake missing?): {:?}",
-            events
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    })
+    .await;
     let _ = store.kill(&id);
 }
 
@@ -190,7 +206,8 @@ async fn test_monitor_finalizes_concurrent_background_commands() {
                 .iter()
                 .any(|e| e.starts_with(&format!("completed:{}:", id)))
         })
-    });
+    })
+    .await;
 
     for id in &ids {
         let count = events
@@ -456,14 +473,17 @@ async fn test_execute_in_session_busy_rejected() {
     });
 
     // Wait until the session becomes busy.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
-        if store.get(&sid).unwrap().status() == SessionStatus::Busy {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert_eq!(store.get(&sid).unwrap().status(), SessionStatus::Busy);
+    assert!(
+        wait_for_session_status(
+            &store,
+            &sid,
+            SessionStatus::Busy,
+            std::time::Duration::from_secs(5)
+        )
+        .await,
+        "session never became busy: {:?}",
+        store.get(&sid).unwrap().status()
+    );
 
     let err = store.execute_in_session(&sid, "echo hi", None).unwrap_err();
     assert!(err.to_string().contains("busy"), "error: {}", err);
@@ -602,7 +622,8 @@ async fn test_output_events_dispatched() {
         events
             .iter()
             .any(|e| e.starts_with(&format!("terminated:{}:t1", sid)))
-    });
+    })
+    .await;
     assert!(
         events
             .iter()
@@ -661,22 +682,12 @@ async fn test_completion_event_ordered_after_output_events() {
         .spawn("for i in $(seq 1 200); do echo line-$i; done", None)
         .unwrap();
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let events = loop {
-        let events = sink.events.lock().unwrap().clone();
-        if events
+    let events = wait_for_events(&sink, |events| {
+        events
             .iter()
             .any(|e| e.starts_with(&format!("completed:{}:", id)))
-        {
-            break events;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "completion never arrived: {:?}",
-            events
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    };
+    })
+    .await;
 
     let mut last_output = None;
     let mut completed = None;
@@ -720,10 +731,11 @@ fn test_blocked_sink_does_not_backpressure_output_reading() {
     // The monitor thread finalizes the session independently of the
     // blocked sink (idle is set before the async dispatch flush).
     let session = store.get(&id).unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    while std::time::Instant::now() < deadline && session.status() != SessionStatus::Idle {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    wait_for_session_status_blocking(
+        &session,
+        SessionStatus::Idle,
+        std::time::Duration::from_secs(8),
+    );
     assert_eq!(session.status(), SessionStatus::Idle);
 
     // The full output was captured even though the sink never consumed a
@@ -747,8 +759,8 @@ impl ShellEventSink for BlockingSink {
     }
 }
 
-#[tokio::test]
-async fn test_events_disabled_by_default() {
+#[test]
+fn test_events_disabled_by_default() {
     let sink = Arc::new(MemSink::default());
     let mut store = BackgroundShellStore::new(None);
     store.event_sink = Some(EventDispatcher::new(sink.clone()));
@@ -759,7 +771,9 @@ async fn test_events_disabled_by_default() {
     store
         .execute_in_session(&created.session_id, "echo hi", Some(10_000))
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    // The synchronous execute path finalizes the command and flushes the
+    // dispatcher before returning. With events disabled, nothing could have
+    // been queued, so the empty sink can be asserted immediately.
     assert!(
         sink.events.lock().unwrap().is_empty(),
         "no events without output_event_enabled"

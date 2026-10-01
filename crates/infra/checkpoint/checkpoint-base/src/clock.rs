@@ -1,6 +1,6 @@
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, AtomicI64, Ordering},
+    Arc,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 

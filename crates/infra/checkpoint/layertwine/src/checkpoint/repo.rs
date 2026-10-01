@@ -51,10 +51,8 @@ impl CheckpointRepo {
 
     /// Create a new checkpoint repository with multi-file initialization support
     pub fn new(initial_snapshots: Vec<SnapshotId>) -> Self {
-        let (root_id, root, main_branch) = Self::create_root_checkpoint(
-            initial_snapshots,
-            chrono::Utc::now().timestamp_millis(),
-        );
+        let (root_id, root, main_branch) =
+            Self::create_root_checkpoint(initial_snapshots, chrono::Utc::now().timestamp_millis());
 
         let mut dag = CheckpointDag::new();
         dag.add_node(root_id);
@@ -100,8 +98,7 @@ impl CheckpointRepo {
 
         // Initialize with root when storage is empty
         if checkpoints.is_empty() {
-            let (_root_id, root, main_branch) =
-                Self::create_root_checkpoint(vec![], created_at);
+            let (_root_id, root, main_branch) = Self::create_root_checkpoint(vec![], created_at);
 
             storage.store_checkpoint(&root)?;
             checkpoints.insert(root.id, root);

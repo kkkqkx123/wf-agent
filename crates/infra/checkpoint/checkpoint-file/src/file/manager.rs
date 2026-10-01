@@ -407,9 +407,11 @@ impl FileCheckpointManager {
     /// error when the clock is unavailable. Checkpoint creation never falls
     /// back to a sentinel timestamp.
     pub(crate) fn creation_timestamp(&self) -> Result<i64, CheckpointError> {
-        self.clock.now_ms().ok_or_else(|| CheckpointError::Internal(
-            "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
-        ))
+        self.clock.now_ms().ok_or_else(|| {
+            CheckpointError::Internal(
+                "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
+            )
+        })
     }
 
     /// Shared scoped-shell sampling registry (foreground scopes +

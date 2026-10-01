@@ -310,9 +310,12 @@ where
             }
         }
         if !all.is_empty() {
-            let now = self.clock.now_ms().ok_or_else(|| CheckpointError::Internal(
-                "checkpoint clock unavailable; refusing to advance cleanup watermark".to_string(),
-            ))?;
+            let now = self.clock.now_ms().ok_or_else(|| {
+                CheckpointError::Internal(
+                    "checkpoint clock unavailable; refusing to advance cleanup watermark"
+                        .to_string(),
+                )
+            })?;
             let next_watermark = survivors
                 .iter()
                 .map(|c| c.timestamp)
@@ -498,9 +501,12 @@ where
         let is_full = checkpoint_type == CheckpointType::Full;
         let timestamp = extract_optional_i64_field(checkpoint, "timestamp")?
             .or_else(|| self.clock.now_ms())
-            .ok_or_else(|| CheckpointError::Internal(
-                "checkpoint has no timestamp and the checkpoint clock is unavailable".to_string(),
-            ))?;
+            .ok_or_else(|| {
+                CheckpointError::Internal(
+                    "checkpoint has no timestamp and the checkpoint clock is unavailable"
+                        .to_string(),
+                )
+            })?;
         let base_checkpoint_id =
             extract_optional_field_as_str(checkpoint, "baseCheckpointId", "base_checkpoint_id")?;
         let previous_checkpoint_id = extract_optional_field_as_str(
@@ -1365,21 +1371,13 @@ mod tests {
         let storage = make_storage();
         let clock = CheckpointClock::manual(1_000_000);
         let handle: ManualClock = clock.manual_handle().expect("manual clock");
-        let mgr =
-            StorageBackedStateManager::<Envelope>::new(storage).with_clock(clock);
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage).with_clock(clock);
         let strategy = CleanupStrategy::CountBased {
             max_checkpoints: 10,
             min_retention: 0,
         };
         mgr.save(
-            &make_envelope(
-                "cp-1",
-                None,
-                None,
-                1000,
-                None,
-                Some(json!({"state": 1})),
-            ),
+            &make_envelope("cp-1", None, None, 1000, None, Some(json!({"state": 1}))),
             "test",
             "exec-1",
         )

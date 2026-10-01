@@ -174,11 +174,9 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
             Box::new(storage.share());
-        let mut repo = layertwine::checkpoint::repo::CheckpointRepo::load(
-            persist,
-            self.creation_timestamp()?,
-        )
-        .map_err(map_layertwine_error)?;
+        let mut repo =
+            layertwine::checkpoint::repo::CheckpointRepo::load(persist, self.creation_timestamp()?)
+                .map_err(map_layertwine_error)?;
         let stats = layertwine::checkpoint::gc::run_gc(&mut repo, retention)
             .map_err(map_layertwine_error)?;
         if let Some(ref metrics) = self.checkpoint_metrics() {

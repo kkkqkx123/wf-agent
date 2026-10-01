@@ -17,7 +17,7 @@ pub mod version_manager;
 
 pub use actor::id::{ActorId, ActorIdError, ActorKind};
 pub use cache::CheckpointCache;
-pub use clock::{CheckpointClock, ManualClock, clock_valid};
+pub use clock::{clock_valid, CheckpointClock, ManualClock};
 pub use common::{
     content_hash, diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
 };

@@ -644,14 +644,19 @@ mod tests {
             .run(&template, &event)
             .await
             .expect("cold start submits");
-        let mut forwarded = None;
-        for _ in 0..100 {
-            if let Some(recorded) = *wf_common::lock::lock_ok(seen.lock()) {
-                forwarded = recorded;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert_eq!(forwarded, Some(3));
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(1),
+                || {
+                    let matched = wf_common::lock::lock_ok(seen.lock()).is_some();
+                    async move { matched }
+                },
+            )
+            .await,
+            "cold-started agent did not forward the trigger within 1s"
+        );
+        let forwarded = *wf_common::lock::lock_ok(seen.lock());
+        assert_eq!(forwarded, Some(Some(3)));
     }
 }

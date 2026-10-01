@@ -12,7 +12,7 @@
 //!   into the manual partition by the real file watcher.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use wf_checkpoint::actor::id::{ActorId, ActorKind};
 use wf_checkpoint::file::FileCheckpointManager;
@@ -210,12 +210,16 @@ async fn manual_change_service_routes_external_edits() {
 }
 
 async fn wait_until(mut cond: impl FnMut() -> bool, timeout_ms: u64) {
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    while Instant::now() < deadline {
-        if cond() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("condition not met within {timeout_ms}ms");
+    assert!(
+        wf_common::poll_until(
+            Duration::from_millis(50),
+            Duration::from_millis(timeout_ms),
+            || {
+                let matched = cond();
+                async move { matched }
+            },
+        )
+        .await,
+        "condition not met within {timeout_ms}ms"
+    );
 }

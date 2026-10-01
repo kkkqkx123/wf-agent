@@ -332,7 +332,9 @@ mod tests {
         assert_eq!(dag.get_children(&d).len(), 0);
     }
 
-    fn parent_map(edges: &[(CheckpointId, Vec<CheckpointId>)]) -> HashMap<CheckpointId, Vec<CheckpointId>> {
+    fn parent_map(
+        edges: &[(CheckpointId, Vec<CheckpointId>)],
+    ) -> HashMap<CheckpointId, Vec<CheckpointId>> {
         edges.iter().cloned().collect()
     }
 
@@ -342,10 +344,7 @@ mod tests {
         let b = cid(b"b");
         let c = cid(b"c");
         let map = parent_map(&[(a, vec![]), (b, vec![a]), (c, vec![b])]);
-        assert_eq!(
-            ancestor_closure([c], &map),
-            HashSet::from([a, b, c])
-        );
+        assert_eq!(ancestor_closure([c], &map), HashSet::from([a, b, c]));
     }
 
     #[test]
@@ -353,15 +352,8 @@ mod tests {
         let root = cid(b"root");
         let left = cid(b"left");
         let right = cid(b"right");
-        let map = parent_map(&[
-            (root, vec![]),
-            (left, vec![root]),
-            (right, vec![root]),
-        ]);
-        assert_eq!(
-            lowest_common_ancestor(&left, &right, &map),
-            Ok(root)
-        );
+        let map = parent_map(&[(root, vec![]), (left, vec![root]), (right, vec![root])]);
+        assert_eq!(lowest_common_ancestor(&left, &right, &map), Ok(root));
     }
 
     #[test]
@@ -379,14 +371,8 @@ mod tests {
             (tip, vec![joined]),
         ]);
         // tip descends from left, so the merge base is left itself.
-        assert_eq!(
-            lowest_common_ancestor(&tip, &left, &map),
-            Ok(left)
-        );
-        assert_eq!(
-            lowest_common_ancestor(&tip, &tip, &map),
-            Ok(tip)
-        );
+        assert_eq!(lowest_common_ancestor(&tip, &left, &map), Ok(left));
+        assert_eq!(lowest_common_ancestor(&tip, &tip, &map), Ok(tip));
     }
 
     #[test]
@@ -449,9 +435,6 @@ mod tests {
             (y, vec![root]),
             (z, vec![root]),
         ]);
-        assert_eq!(
-            lowest_common_ancestor_all(vec![x, y, z], &map),
-            Ok(root)
-        );
+        assert_eq!(lowest_common_ancestor_all(vec![x, y, z], &map), Ok(root));
     }
 }

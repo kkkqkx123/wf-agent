@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use wf_common::lock::lock_ok;
 
 use serde::{Deserialize, Serialize};
@@ -106,7 +106,7 @@ impl AllowOnceStore {
     /// The same command may be issued multiple times (each yields a distinct
     /// code via a nonce).
     pub fn issue(&self, command: &str) -> String {
-        let now = now_ms();
+        let now = wf_common::epoch_ms();
         let nonce = self
             .nonce
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -134,7 +134,7 @@ impl AllowOnceStore {
         if entry.scope != self.scope {
             return RedeemResult::ScopeMismatch;
         }
-        if now_ms() > entry.expires_at_ms {
+        if wf_common::epoch_ms() > entry.expires_at_ms {
             entries.remove(code);
             return RedeemResult::Expired;
         }
@@ -153,7 +153,7 @@ impl AllowOnceStore {
     /// Number of pending (non-expired) exceptions.
     pub fn pending_count(&self) -> usize {
         let mut entries = self.entries.lock().unwrap();
-        let now = now_ms();
+        let now = wf_common::epoch_ms();
         entries.retain(|_, e| e.expires_at_ms >= now);
         entries.len()
     }
@@ -183,7 +183,7 @@ impl AllowOnceStore {
         let mut count = 0;
         for line in content.lines() {
             if let Ok(entry) = serde_json::from_str::<AllowOnceEntry>(line) {
-                if entry.scope == self.scope && entry.expires_at_ms >= now_ms() {
+                if entry.scope == self.scope && entry.expires_at_ms >= wf_common::epoch_ms() {
                     entries.insert(entry.code.clone(), entry);
                     count += 1;
                 }
@@ -227,13 +227,6 @@ impl AllowOnceStore {
         hasher.update(&nonce.to_le_bytes());
         hasher.finalize().to_hex()[..CODE_LEN].to_string()
     }
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn io_err(e: serde_json::Error) -> std::io::Error {

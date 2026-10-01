@@ -161,8 +161,7 @@ impl LayertwineBackend {
         if !authored_heads.is_empty() {
             return Ok(pick(&authored_heads));
         }
-        let reachable =
-            layertwine::checkpoint::ancestor_closure(live_heads, &parents_of);
+        let reachable = layertwine::checkpoint::ancestor_closure(live_heads, &parents_of);
         let anchored: Vec<&layertwine::checkpoint::Checkpoint> = authored
             .iter()
             .filter(|c| reachable.contains(&c.id))

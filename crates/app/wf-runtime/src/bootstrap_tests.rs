@@ -106,14 +106,18 @@ async fn query_status_via_tool(runtime: &Runtime, execution_id: &str) -> serde_j
 }
 
 async fn poll_until_completed(runtime: &Runtime, execution_id: &str) -> serde_json::Value {
-    for _ in 0..200 {
-        let status = query_status_via_tool(runtime, execution_id).await;
-        if status["status"] == "completed" {
-            return status;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("execution {execution_id} did not complete within poll window");
+    assert!(
+        wf_common::poll_until(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_secs(2),
+            || async {
+                query_status_via_tool(runtime, execution_id).await["status"] == "completed"
+            },
+        )
+        .await,
+        "execution {execution_id} did not complete within poll window"
+    );
+    query_status_via_tool(runtime, execution_id).await
 }
 
 /// The checked-in `configs/infrastructure/` bundle (development preset)
@@ -815,18 +819,25 @@ async fn test_execution_callback_execute_workflow_via_tool() {
 
     // Registered resource workflows are resolvable; the execution
     // completes and its status is queryable through the query tool.
-    let mut terminal = false;
-    for _ in 0..200 {
-        let status = query_status_via_tool(&runtime, &execution_id).await;
-        let state = status["status"].as_str().unwrap_or_default().to_string();
-        if state == "completed" || state == "failed" {
-            terminal = true;
-            assert_eq!(state, "completed", "status: {status:?}");
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    assert!(terminal, "workflow execution did not settle");
+    assert!(
+        wf_common::poll_until(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_secs(2),
+            || async {
+                let status = query_status_via_tool(&runtime, &execution_id).await;
+                let state = status["status"].as_str().unwrap_or_default().to_string();
+                state == "completed" || state == "failed"
+            },
+        )
+        .await,
+        "workflow execution did not settle"
+    );
+    let status = query_status_via_tool(&runtime, &execution_id).await;
+    assert_eq!(
+        status["status"].as_str().unwrap_or_default(),
+        "completed",
+        "status: {status:?}"
+    );
 
     runtime.shutdown().await.unwrap();
     clear_env_vars();
@@ -1016,26 +1027,31 @@ async fn test_shell_events_bridged_to_event_bus() {
 
     // The created event is delivered on a background dispatch thread;
     // poll until it arrives.
-    let mut saw_created = false;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    while std::time::Instant::now() < deadline {
-        match sub.try_recv() {
-            Ok(event) => {
-                if event.r#type == wf_types::events::EventType::ShellSessionCreated {
-                    saw_created = true;
-                    assert_eq!(
-                        event.metadata.unwrap()["session_id"],
-                        result.result.unwrap()["session_id"]
-                    );
-                    break;
-                }
-            }
-            Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
-        }
-    }
+    let expected_session = result.result.unwrap()["session_id"].clone();
+    let mut created_event: Option<wf_types::events::BaseEvent> = None;
     assert!(
-        saw_created,
+        wf_common::poll_until(
+            std::time::Duration::from_millis(20),
+            std::time::Duration::from_secs(8),
+            || {
+                let matched = match sub.try_recv() {
+                    Ok(event)
+                        if event.r#type == wf_types::events::EventType::ShellSessionCreated =>
+                    {
+                        created_event = Some(event);
+                        true
+                    }
+                    _ => false,
+                };
+                async move { matched }
+            },
+        )
+        .await,
         "no ShellSessionCreated event on the runtime EventBus"
+    );
+    assert_eq!(
+        created_event.unwrap().metadata.unwrap()["session_id"],
+        expected_session
     );
 
     runtime.shutdown().await.unwrap();

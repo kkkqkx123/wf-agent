@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use dashmap::DashMap;
 
-use crate::clock::{CheckpointClock, clock_valid};
+use crate::clock::{clock_valid, CheckpointClock};
 
 /// A registered agent write: the content hash written to `path` at
 /// `timestamp` (Unix milliseconds).

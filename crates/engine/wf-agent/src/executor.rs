@@ -482,17 +482,24 @@ mod tests {
         assert_eq!(spawned.execution_id, spawned.agent_loop_id);
 
         // The execution is registered and progresses in the background.
-        for _ in 0..200 {
-            let status = executor
-                .query_execution_status(&spawned.execution_id.to_string())
-                .await;
-            match status {
-                Ok(status) if status.status == "completed" => return,
-                Ok(_) => tokio::time::sleep(Duration::from_millis(10)).await,
-                Err(e) => panic!("query failed: {e}"),
-            }
-        }
-        panic!("spawned execution did not complete in time");
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    match executor
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                    {
+                        Ok(status) if status.status == "completed" => true,
+                        Ok(_) => false,
+                        Err(e) => panic!("query failed: {e}"),
+                    }
+                },
+            )
+            .await,
+            "spawned execution did not complete in time"
+        );
     }
 
     #[tokio::test]
@@ -503,19 +510,28 @@ mod tests {
             .await
             .expect("spawn must succeed");
 
-        let mut result = None;
-        for _ in 0..200 {
-            let status = executor
-                .query_execution_status(&spawned.execution_id.to_string())
-                .await
-                .expect("query must succeed");
-            if status.status == "completed" {
-                result = status.result;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        let result = result.expect("completed execution must carry its result");
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    executor
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                        .expect("query must succeed")
+                        .status
+                        == "completed"
+                },
+            )
+            .await,
+            "spawned execution did not complete in time"
+        );
+        let result = executor
+            .query_execution_status(&spawned.execution_id.to_string())
+            .await
+            .expect("query must succeed")
+            .result
+            .expect("completed execution must carry its result");
         assert_eq!(result, serde_json::Value::String("done".to_string()));
     }
 

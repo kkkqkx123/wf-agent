@@ -200,27 +200,34 @@ fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
 /// subscription is created when its task first polls). Bounded: a wrong
 /// expectation must fail loudly instead of spinning forever.
 async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
-    for _ in 0..200 {
-        if bus.receiver_count() >= expected_receivers {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!(
-        "expected {} receivers within 2s, got {}",
-        expected_receivers,
+    assert!(
+        wf_common::poll_until(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_secs(2),
+            || {
+                let matched = bus.receiver_count() >= expected_receivers;
+                async move { matched }
+            },
+        )
+        .await,
+        "expected {expected_receivers} receivers within 2s, got {}",
         bus.receiver_count()
     );
 }
 
 async fn wait_until(cond: impl Fn() -> bool) {
-    for _ in 0..200 {
-        if cond() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("condition not met within 2s");
+    assert!(
+        wf_common::poll_until(
+            std::time::Duration::from_millis(10),
+            std::time::Duration::from_secs(2),
+            || {
+                let matched = cond();
+                async move { matched }
+            },
+        )
+        .await,
+        "condition not met within 2s"
+    );
 }
 
 #[tokio::test]

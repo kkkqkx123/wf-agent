@@ -63,24 +63,8 @@ async fn test_backend_shell_lifecycle() {
         .and_then(|v| v.as_str().map(String::from))
         .unwrap();
 
-    // Wait briefly for the command to finish writing output.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-
-    let output = registry
-        .execute_tool(
-            "shell_output",
-            &serde_json::json!({ "session_id": session_id }),
-            &options,
-            &ctx,
-        )
-        .await
-        .unwrap();
-    assert!(output.success);
-    let text = output
-        .result
-        .and_then(|v| v.get("output").cloned())
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default();
+    // Wait for the command to finish writing output.
+    let text = wait_for_output(&registry, &session_id, &ctx, "hello-backend").await;
     assert!(text.contains("hello-backend"), "output was: {}", text);
 
     let killed = registry
@@ -129,7 +113,7 @@ async fn test_shell_output_incremental_read() {
         .unwrap();
 
     // Allow the first chunk to be captured before the incremental read.
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    wait_for_output(&registry, &session_id, &ctx, "first").await;
     let out1 = registry
         .execute_tool(
             "shell_output",
@@ -152,7 +136,7 @@ async fn test_shell_output_incremental_read() {
     );
 
     // Wait for the second chunk, then read incrementally again.
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    wait_for_output(&registry, &session_id, &ctx, "second").await;
     let out2 = registry
         .execute_tool(
             "shell_output",
@@ -272,6 +256,41 @@ async fn read_full_output(
         .unwrap_or_default()
 }
 
+/// Poll the session status until it becomes `status` or the timeout elapses.
+async fn wait_for_status(
+    registry: &ToolRegistry,
+    session_id: &str,
+    ctx: &ToolExecutionContext,
+    status: &str,
+) {
+    let options = make_options();
+    wf_common::poll_until(
+        std::time::Duration::from_millis(50),
+        std::time::Duration::from_secs(5),
+        || async {
+            registry
+                .execute_tool(
+                    "shell_output",
+                    &serde_json::json!({ "session_id": session_id }),
+                    &options,
+                    ctx,
+                )
+                .await
+                .ok()
+                .and_then(|result| result.result)
+                .and_then(|value| {
+                    value
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string)
+                })
+                .as_deref()
+                == Some(status)
+        },
+    )
+    .await;
+}
+
 /// Poll the session output until `needle` appears or the timeout elapses.
 async fn wait_for_output(
     registry: &ToolRegistry,
@@ -279,16 +298,17 @@ async fn wait_for_output(
     ctx: &ToolExecutionContext,
     needle: &str,
 ) -> String {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let mut last = String::new();
-    while std::time::Instant::now() < deadline {
-        last = read_full_output(registry, session_id, ctx).await;
-        if last.contains(needle) {
-            return last;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    last
+    wf_common::poll_until(
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(8),
+        || async {
+            read_full_output(registry, session_id, ctx)
+                .await
+                .contains(needle)
+        },
+    )
+    .await;
+    read_full_output(registry, session_id, ctx).await
 }
 
 #[tokio::test]
@@ -430,7 +450,7 @@ async fn test_shell_kill_graceful_returns_quickly() {
         &ctx,
     )
     .await;
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    wait_for_status(&registry, &session_id, &ctx, "busy").await;
 
     let start = std::time::Instant::now();
     let killed = registry
@@ -868,26 +888,7 @@ async fn test_execute_in_session_busy_rejected() {
     });
 
     // Wait until the session is busy before attempting a second command.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let st = registry
-            .execute_tool(
-                "shell_output",
-                &serde_json::json!({ "session_id": session_id }),
-                &options,
-                &ctx,
-            )
-            .await
-            .unwrap();
-        if st.result.unwrap()["status"] == "busy" {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "session never became busy"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    wait_for_status(&registry, &session_id, &ctx, "busy").await;
 
     let result = registry
         .execute_tool(
@@ -1224,18 +1225,19 @@ async fn test_shell_output_events_via_sink() {
     // Events are delivered on a background dispatch thread; wait for the
     // terminated event (queued after kill) to arrive, which implies the
     // rest have been flushed by the execute_in_session path.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
-    let events = loop {
-        let events = sink.events.lock().unwrap().clone();
-        if events
-            .iter()
-            .any(|e| e.starts_with(&format!("terminated:{}:{}", session_id, "exec-events")))
-            || std::time::Instant::now() >= deadline
-        {
-            break events;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    };
+    wf_common::poll_until(
+        std::time::Duration::from_millis(10),
+        std::time::Duration::from_secs(8),
+        || async {
+            sink.events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.starts_with(&format!("terminated:{}:{}", session_id, "exec-events")))
+        },
+    )
+    .await;
+    let events = sink.events.lock().unwrap().clone();
     assert!(
         events
             .iter()

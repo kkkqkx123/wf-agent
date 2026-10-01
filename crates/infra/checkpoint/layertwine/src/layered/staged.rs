@@ -9,7 +9,7 @@
 //! 3. Provide checkpoint commit functionality
 
 use crate::checkpoint::types::{Checkpoint, CheckpointMetadata};
-use crate::checkpoint::{AncestorError, lowest_common_ancestor};
+use crate::checkpoint::{lowest_common_ancestor, AncestorError};
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
@@ -440,7 +440,15 @@ pub fn commit_staged_to_checkpoint<S>(
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, created_at, false, None)
+    commit_staged_to_checkpoint_inner(
+        storage,
+        branch_name,
+        message,
+        author,
+        created_at,
+        false,
+        None,
+    )
 }
 
 /// Workspace-aware staged commit.
@@ -488,7 +496,15 @@ pub fn commit_mid_task_checkpoint<S>(
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, created_at, true, None)
+    commit_staged_to_checkpoint_inner(
+        storage,
+        branch_name,
+        message,
+        author,
+        created_at,
+        true,
+        None,
+    )
 }
 
 /// Workspace-aware mid-task checkpoint commit.
@@ -806,7 +822,8 @@ mod tests {
         // merged once, so staged points at f1's content and then advances
         // independently (reformatting the merged line).
         let f1 = create_snapshot_with_content(&storage, &seed, "base\nfeature\n", "integrated/f");
-        let f2 = create_snapshot_with_content(&storage, &f1, "base\nfeature\nmore\n", "integrated/f");
+        let f2 =
+            create_snapshot_with_content(&storage, &f1, "base\nfeature\nmore\n", "integrated/f");
         let staged_pid = staged_partition_id();
         storage.update_pointer(&staged_pid, &f1).unwrap();
         let s2 = create_snapshot_with_content(

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use axum::body::Body;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode, Uri};
@@ -573,7 +573,7 @@ async fn rate_limit_middleware(
     }
 
     let key = client_ip(req.headers()).to_string();
-    let now_ms = epoch_ms();
+    let now_ms = wf_common::epoch_ms() as u128;
 
     let (remaining, reset_at, limited) = {
         let mut state = config
@@ -679,13 +679,6 @@ fn hex_val(b: u8) -> Option<u8> {
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
     }
-}
-
-fn epoch_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------

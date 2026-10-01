@@ -133,25 +133,27 @@ pub fn init_gc_timer(
         .unwrap_or_default();
     let interval = std::time::Duration::from_secs(interval_secs);
     info!(interval_secs, "Periodic GC timer started");
-    Some(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            match manager.run_gc(retention) {
-                Ok(stats) => {
-                    info!(
-                        removed_checkpoints = stats.removed_checkpoints,
-                        removed_snapshots = stats.removed_snapshots,
-                        "Periodic GC completed"
-                    );
-                }
-                Err(err) => {
-                    tracing::warn!("Periodic GC failed: {err}");
+    Some(wf_common::spawn_ticker(
+        interval,
+        tokio_util::sync::CancellationToken::new(),
+        move || {
+            let manager = manager.clone();
+            async move {
+                match manager.run_gc(retention) {
+                    Ok(stats) => {
+                        info!(
+                            removed_checkpoints = stats.removed_checkpoints,
+                            removed_snapshots = stats.removed_snapshots,
+                            "Periodic GC completed"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!("Periodic GC failed: {err}");
+                    }
                 }
             }
-        }
-    }))
+        },
+    ))
 }
 
 /// Standalone checkpoint backend used by engine coordinators. It shares the

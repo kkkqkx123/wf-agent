@@ -449,15 +449,13 @@ mod tests {
     /// observed: `receiver_count` only covers the general channel and
     /// stays zero for typed-only subscriptions.
     async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
-        for _ in 0..200 {
-            if bus.total_receiver_count() >= expected_receivers {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!(
-            "expected {} receivers within 2s, got {}",
-            expected_receivers,
+        assert!(
+            wf_common::poll_until(Duration::from_millis(10), Duration::from_secs(2), || {
+                let matched = bus.total_receiver_count() >= expected_receivers;
+                async move { matched }
+            },)
+            .await,
+            "expected {expected_receivers} receivers within 2s, got {}",
             bus.total_receiver_count()
         );
     }
@@ -465,12 +463,14 @@ mod tests {
     /// Poll a condition until it holds (2s budget) so async assertions do
     /// not depend on fixed sleeps.
     async fn wait_until(cond: impl Fn() -> bool) {
-        for _ in 0..200 {
-            if cond() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(Duration::from_millis(10), Duration::from_secs(2), || {
+                let matched = cond();
+                async move { matched }
+            },)
+            .await,
+            "condition not met within 2s"
+        );
     }
 
     fn listener_for(templates: Vec<TriggerTemplate>) -> TriggerEventListener {

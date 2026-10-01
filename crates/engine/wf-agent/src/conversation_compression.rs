@@ -279,12 +279,15 @@ mod tests {
         drop(sub);
 
         // The append bumps the version; wait until it does.
-        for _ in 0..200 {
-            if conversation.read().await.conversation_version() > version {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async { conversation.read().await.conversation_version() > version },
+            )
+            .await,
+            "conversation version did not advance within 2s"
+        );
         let session = conversation.read().await;
         // Compression appends the summary to the history and narrows the
         // view: history keeps everything, the LLM projection shrinks.
@@ -400,12 +403,15 @@ mod tests {
         .unwrap();
         drop(sub);
 
-        for _ in 0..200 {
-            if conversation.read().await.messages().len() == 2 {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async { conversation.read().await.messages().len() == 2 },
+            )
+            .await,
+            "nested-agent write-back did not land within 2s"
+        );
         let session = conversation.read().await;
         assert_eq!(session.messages().len(), 2);
         assert_eq!(session.messages()[1].role, MessageRole::Assistant);
@@ -504,12 +510,15 @@ mod tests {
         bus.publish(event).unwrap();
         drop(sub);
 
-        for _ in 0..200 {
-            if conversation.read().await.compression_flight().is_none() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async { conversation.read().await.compression_flight().is_none() },
+            )
+            .await,
+            "compression flight did not release within 2s"
+        );
         let session = conversation.read().await;
         assert!(session.compression_flight().is_none());
         // Summary plus one retained tail message.
@@ -552,12 +561,15 @@ mod tests {
         .unwrap();
         drop(sub);
 
-        for _ in 0..200 {
-            if conversation.read().await.compression_flight().is_none() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async { conversation.read().await.compression_flight().is_none() },
+            )
+            .await,
+            "failure did not release the compression flight within 2s"
+        );
         let session = conversation.read().await;
         assert!(session.compression_flight().is_none());
         assert_eq!(session.messages().len(), 1, "no write-back on failure");

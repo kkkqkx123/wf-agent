@@ -293,8 +293,10 @@ impl SnapshotStore for SqliteStorage {
             "DELETE FROM snapshot_sessions WHERE snapshot_id = ?1",
             params![&id.0.to_vec()],
         )?;
-        let removed =
-            conn.execute("DELETE FROM snapshots WHERE id = ?1", params![&id.0.to_vec()])?;
+        let removed = conn.execute(
+            "DELETE FROM snapshots WHERE id = ?1",
+            params![&id.0.to_vec()],
+        )?;
         Ok(removed > 0)
     }
 

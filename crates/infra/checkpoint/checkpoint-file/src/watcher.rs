@@ -314,9 +314,10 @@ impl FileWatcher {
             return;
         };
         let mut state = lock_ok(self.state.lock());
-        state
-            .changed
-            .insert(to_abs.clone(), FileChangeRecord::renamed(from_abs, to_abs, now));
+        state.changed.insert(
+            to_abs.clone(),
+            FileChangeRecord::renamed(from_abs, to_abs, now),
+        );
     }
 
     fn resolve_absolute(&self, path: &Path) -> PathBuf {
@@ -734,13 +735,17 @@ mod tests {
         mut cond: impl FnMut(&FileWatcher) -> bool,
         timeout_ms: u64,
     ) {
-        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
-        while std::time::Instant::now() < deadline {
-            if cond(watcher) {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        panic!("condition not met within {timeout_ms}ms");
+        assert!(
+            wf_common::poll_until(
+                Duration::from_millis(50),
+                Duration::from_millis(timeout_ms),
+                || {
+                    let matched = cond(watcher);
+                    async move { matched }
+                },
+            )
+            .await,
+            "condition not met within {timeout_ms}ms"
+        );
     }
 }

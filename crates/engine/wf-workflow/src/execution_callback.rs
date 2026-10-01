@@ -599,19 +599,28 @@ mod tests {
         assert_eq!(spawned.status, "started");
 
         // The execution is registered and progresses in the background.
-        let mut result = None;
-        for _ in 0..200 {
-            let status = callback
-                .query_execution_status(&spawned.execution_id.to_string())
-                .await
-                .expect("status must be queryable right after spawn");
-            if status.status == "completed" {
-                result = status.result;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        let result = result.expect("terminal query must carry the workflow result");
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    callback
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                        .expect("status must be queryable right after spawn")
+                        .status
+                        == "completed"
+                },
+            )
+            .await,
+            "spawned execution did not complete in time"
+        );
+        let result = callback
+            .query_execution_status(&spawned.execution_id.to_string())
+            .await
+            .expect("status must be queryable right after spawn")
+            .result
+            .expect("terminal query must carry the workflow result");
         assert_eq!(result, serde_json::json!({"greeting": "hi"}));
     }
 

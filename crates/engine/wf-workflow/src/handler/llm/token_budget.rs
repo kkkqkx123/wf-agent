@@ -234,10 +234,6 @@ pub async fn await_compression_settle(
         return Ok(());
     }
     let execution_id = ctx.execution_id.to_string();
-    let mut failure_events = ctx
-        .event_bus
-        .as_ref()
-        .map(|bus| bus.subscribe_typed(wf_types::events::EventType::ContextCompressionFailed));
     if let Some(ref bus) = ctx.event_bus {
         for event in bus.recent_events() {
             if let Some(err) = matching_compression_failure(&event, &execution_id, None) {
@@ -251,52 +247,85 @@ pub async fn await_compression_settle(
         }
     }
     for (target, version) in anchored {
-        let settle_timeout_ms = wf_execution_shared::compression_settle_timeout_ms();
-        let start = std::time::Instant::now();
-        loop {
-            if message_context::array_version(&ctx.variables, &target) != version {
-                break;
+        let settle_timeout =
+            std::time::Duration::from_millis(wf_execution_shared::compression_settle_timeout_ms());
+        let poll_interval =
+            std::time::Duration::from_millis(wf_execution_shared::COMPRESSION_SETTLE_POLL_MS);
+        let settled = match ctx.cancellation.clone() {
+            Some(token) => {
+                tokio::select! {
+                    settled = wf_common::poll_until(poll_interval, settle_timeout, || async {
+                        if message_context::array_version(&ctx.variables, &target) != version {
+                            return true;
+                        }
+                        if let Some(ref bus) = ctx.event_bus {
+                            bus.recent_events().iter().any(|event| {
+                                matches_target_failure(event, &execution_id, &target, version)
+                            })
+                        } else {
+                            false
+                        }
+                    }) => settled,
+                    _ = token.cancelled() => {
+                        return Err(crate::error::WorkflowError::NodeFailure {
+                            node_id: ctx.node_id.clone(),
+                            category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
+                            detail: "aborted while waiting for compression".to_string(),
+                            failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                        });
+                    }
+                }
             }
-            if start.elapsed().as_millis() as u64 >= settle_timeout_ms {
-                let message = format!(
-                    "context compression timed out for '{}' at version {}; the execution pauses for external handling",
-                    target, version
-                );
+            None => {
+                wf_common::poll_until(poll_interval, settle_timeout, || async {
+                    if message_context::array_version(&ctx.variables, &target) != version {
+                        return true;
+                    }
+                    if let Some(ref bus) = ctx.event_bus {
+                        bus.recent_events().iter().any(|event| {
+                            matches_target_failure(event, &execution_id, &target, version)
+                        })
+                    } else {
+                        false
+                    }
+                })
+                .await
+            }
+        };
+        if !settled {
+            let message = format!(
+                "context compression timed out for '{}' at version {}; the execution pauses for external handling",
+                target, version
+            );
+            pause_for_compression_failure(ctx, &message);
+            return Err(compression_failure(ctx, message));
+        }
+        if message_context::array_version(&ctx.variables, &target) != version {
+            continue;
+        }
+        if let Some(ref bus) = ctx.event_bus {
+            let mut failure: Option<String> = None;
+            for event in bus.recent_events() {
+                if let Some((failed_target, failed_version, message)) =
+                    matching_compression_failure(&event, &execution_id, None)
+                {
+                    if failed_target == target && failed_version == version {
+                        failure = Some(message);
+                        break;
+                    }
+                }
+            }
+            if let Some(message) = failure {
                 pause_for_compression_failure(ctx, &message);
                 return Err(compression_failure(ctx, message));
             }
-            if let Some(ref mut sub) = failure_events {
-                while let Ok(event) = sub.try_recv() {
-                    if let Some((failed_target, failed_version, message)) =
-                        matching_compression_failure(&event, &execution_id, None)
-                    {
-                        if failed_target == target && failed_version == version {
-                            pause_for_compression_failure(ctx, &message);
-                            return Err(compression_failure(ctx, message));
-                        }
-                    }
-                }
-            }
-            let wait = tokio::time::sleep(std::time::Duration::from_millis(
-                wf_execution_shared::COMPRESSION_SETTLE_POLL_MS,
-            ));
-            match ctx.cancellation.clone() {
-                Some(token) => {
-                    tokio::select! {
-                        _ = wait => {}
-                        _ = token.cancelled() => {
-                            return Err(crate::error::WorkflowError::NodeFailure {
-                                node_id: ctx.node_id.clone(),
-                                category: wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,
-                                detail: "aborted while waiting for compression".to_string(),
-                                failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
-                            });
-                        }
-                    }
-                }
-                None => wait.await,
-            }
         }
+        let message = format!(
+            "context compression timed out for '{}' at version {}; the execution pauses for external handling",
+            target, version
+        );
+        pause_for_compression_failure(ctx, &message);
+        return Err(compression_failure(ctx, message));
     }
     Ok(())
 }
@@ -326,6 +355,19 @@ fn compression_failure(ctx: &NodeExecutionContext, detail: String) -> crate::err
         detail,
         failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
     }
+}
+
+/// Match a compression failure event against an emitting execution.
+/// Returns the target array, anchor version and failure message.
+fn matches_target_failure(
+    event: &wf_types::events::BaseEvent,
+    execution_id: &str,
+    target: &str,
+    version: u64,
+) -> bool {
+    matching_compression_failure(event, execution_id, None).is_some_and(
+        |(failed_target, failed_version, _)| failed_target == target && failed_version == version,
+    )
 }
 
 /// Match a compression failure event against an emitting execution.

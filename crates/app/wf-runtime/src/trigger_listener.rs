@@ -762,28 +762,27 @@ mod tests {
     /// listener subscribes on its first poll). Bounded: a wrong expectation
     /// must fail loudly instead of spinning forever.
     async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
-        for _ in 0..200 {
-            if bus.total_receiver_count() >= expected_receivers {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!(
-            "expected {} receivers within 2s, got {}",
-            expected_receivers,
+        assert!(
+            wf_common::poll_until(Duration::from_millis(10), Duration::from_secs(2), || {
+                let matched = bus.total_receiver_count() >= expected_receivers;
+                async move { matched }
+            },)
+            .await,
+            "expected {expected_receivers} receivers within 2s, got {}",
             bus.total_receiver_count()
         );
     }
 
     /// Poll a condition until it holds (2s budget).
     async fn wait_until(cond: impl Fn() -> bool) {
-        for _ in 0..200 {
-            if cond() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("condition not reached within budget");
+        assert!(
+            wf_common::poll_until(Duration::from_millis(10), Duration::from_secs(2), || {
+                let matched = cond();
+                async move { matched }
+            },)
+            .await,
+            "condition not reached within budget"
+        );
     }
 
     fn node(id: &str, node_type: &str, inner: Value) -> WorkflowNode {
@@ -1055,18 +1054,22 @@ mod tests {
         );
 
         // The variable fall-back write-back happened.
-        for _ in 0..200 {
-            if parent
-                .state
-                .read()
-                .await
-                .variable_snapshots()
-                .contains_key("iter_agent_result")
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        assert!(
+            wf_common::poll_until(
+                Duration::from_millis(10),
+                Duration::from_secs(2),
+                || async {
+                    parent
+                        .state
+                        .read()
+                        .await
+                        .variable_snapshots()
+                        .contains_key("iter_agent_result")
+                },
+            )
+            .await,
+            "variable fall-back write-back did not land within 2s"
+        );
         {
             let state = parent.state.read().await;
             assert_eq!(

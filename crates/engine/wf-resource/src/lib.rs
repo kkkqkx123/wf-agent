@@ -2,7 +2,7 @@ pub mod custom;
 pub mod dynamic;
 pub mod predefined;
 pub mod registry;
-pub mod resource_plugin;
+pub mod resource_assembler;
 pub mod result;
 pub mod template;
 
@@ -16,7 +16,7 @@ pub use custom::{
 pub use dynamic::{
     build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
 };
-pub use predefined::resource_plugin::{GoalReviewConfig, GoalReviewResourcePlugin};
+pub use predefined::resource_assembler::{GoalReviewConfig, GoalReviewResourceAssembler};
 pub use predefined::tool_visibility::{
     builtin_tool_visibility_templates, ACTIVATION_TEMPLATE_ID, BLOCK_TEMPLATE_ID,
     DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_TEMPLATE_ID,
@@ -26,11 +26,11 @@ pub use registry::{
     are_prompt_templates_registered, list_fragments_by_category, list_templates_by_category,
     register_all, register_fragment, register_item_skip, register_item_strict, register_template,
     templates_depending_on_fragment, unregister_fragment_checked, unregister_predefined_content,
-    unregister_template, RegisterOptions, ResourcePluginActivation, ResourceRegistries,
+    unregister_template, RegisterOptions, ResourceAssemblerActivation, ResourceRegistries,
 };
-pub use resource_plugin::{
-    install_bundle, uninstall_bundle, ResourceBundle, ResourcePlugin, ResourcePluginConfigField,
-    ResourcePluginConfigFieldType, ResourcePluginMetadata,
+pub use resource_assembler::{
+    install_bundle, uninstall_bundle, ResourceAssembler, ResourceAssemblerConfigField,
+    ResourceAssemblerConfigFieldType, ResourceAssemblerMetadata, ResourceBundle,
 };
 pub use result::Summary;
 pub use template::{

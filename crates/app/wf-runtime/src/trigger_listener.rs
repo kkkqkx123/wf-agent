@@ -6,7 +6,7 @@
 //! - [`ResourceTriggerRegistry`]: user trigger templates from the wf-resource
 //!   registrar;
 //! - [`WorkflowRunner`]: triggered sub-workflows executed through the
-//!   `WorkflowCoordinator` (predefined `@standard/llm-summary`);
+//!   `WorkflowCoordinator` (predefined `@standard/fold-summary`);
 //! - [`SubworkflowActionRunner`]: the user-template sub-workflow action —
 //!   parse the triggering event, run the summary workflow over the live
 //!   message array it names (anchored on the emission version), write the
@@ -1116,7 +1116,7 @@ mod tests {
         wf_resource::predefined::workflow::register(&registries, &opts);
 
         // 2. Mock LLM: "main" for the emitting node, "DEFAULT" for the
-        // @standard/llm-summary node.
+        // @standard/fold-summary node.
         let gateway = Arc::new(LlmGateway::new());
         let main_mock = Arc::new(MockLlmClient::new());
         main_mock.default(LlmResponseSpec::text("main answer").with_usage(100, 20));
@@ -1175,7 +1175,7 @@ mod tests {
                 event_bus: bus.clone(),
                 runner,
                 contexts: contexts.clone(),
-                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
                 ledger: None,
@@ -1715,7 +1715,7 @@ mod tests {
                 event_bus: bus.clone(),
                 runner,
                 contexts: contexts.clone(),
-                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
                 ledger: None,
@@ -1832,7 +1832,7 @@ mod tests {
                 event_bus: bus.clone(),
                 runner: Arc::new(StuckRunner(started.clone())),
                 contexts: contexts.clone(),
-                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                summary_workflow_id: wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID
                     .to_string(),
                 shutdown: CancellationToken::new(),
                 ledger: None,

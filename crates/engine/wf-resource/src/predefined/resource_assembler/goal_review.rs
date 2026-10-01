@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 use wf_types::message::Message;
 
-use crate::resource_plugin::{
-    ResourceBundle, ResourcePlugin, ResourcePluginConfigField, ResourcePluginConfigFieldType,
-    ResourcePluginMetadata,
+use crate::resource_assembler::{
+    ResourceAssembler, ResourceAssemblerConfigField, ResourceAssemblerConfigFieldType,
+    ResourceAssemblerMetadata, ResourceBundle,
 };
 
 use super::workflow::{build_planner_prompt, build_workflow};
 
-pub const GOAL_REVIEW_RESOURCE_PLUGIN_ID: &str = "@standard/goal-review-agent";
+pub const GOAL_REVIEW_RESOURCE_ASSEMBLER_ID: &str = "@standard/goal-review-agent";
 pub const GOAL_REVIEW_WORKFLOW_ID: &str = "@standard/goal-review-agent-workflow";
 pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "prompt.goal-review.planner";
 
@@ -45,7 +45,8 @@ impl GoalReviewConfig {
             .get("root_requirement")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                "GoalReviewResourcePlugin config requires 'root_requirement' (string)".to_string()
+                "GoalReviewResourceAssembler config requires 'root_requirement' (string)"
+                    .to_string()
             })?
             .to_string();
 
@@ -138,26 +139,26 @@ impl GoalReviewConfig {
     }
 }
 
-/// Goal-driven review loop resource plugin: planner -> executor -> reviewer -> loop
+/// Goal-driven review loop resource assembler: planner -> executor -> reviewer -> loop
 /// check (id `@standard/goal-review-agent`).
-pub struct GoalReviewResourcePlugin;
+pub struct GoalReviewResourceAssembler;
 
-impl GoalReviewResourcePlugin {
+impl GoalReviewResourceAssembler {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for GoalReviewResourcePlugin {
+impl Default for GoalReviewResourceAssembler {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ResourcePlugin for GoalReviewResourcePlugin {
-    fn metadata(&self) -> ResourcePluginMetadata {
-        ResourcePluginMetadata {
-            id: GOAL_REVIEW_RESOURCE_PLUGIN_ID.into(),
+impl ResourceAssembler for GoalReviewResourceAssembler {
+    fn metadata(&self) -> ResourceAssemblerMetadata {
+        ResourceAssemblerMetadata {
+            id: GOAL_REVIEW_RESOURCE_ASSEMBLER_ID.into(),
             name: "Goal Review Agent".into(),
             version: "1.0.0".into(),
             description: "Goal-driven review loop with planner, executor, and reviewer agents"
@@ -173,8 +174,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
             configurable: Some(HashMap::from([
                 (
                     "max_iterations".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::Number,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Number,
                         description: "Maximum review loop iterations".into(),
                         default: Some(json!(DEFAULT_MAX_ITERATIONS)),
                         required: None,
@@ -183,8 +184,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "planner_profile_id".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "LLM profile for task planning (lightweight model)".into(),
                         default: Some(json!(DEFAULT_PLANNER_PROFILE_ID)),
                         required: None,
@@ -193,8 +194,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "executor_profile_id".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "LLM profile for executor (default from template)".into(),
                         default: None,
                         required: None,
@@ -203,8 +204,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "reviewer_profile_id".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "LLM profile for reviewer (default from template)".into(),
                         default: None,
                         required: None,
@@ -213,8 +214,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "planner_system_prompt".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "Custom system prompt for the task planner".into(),
                         default: None,
                         required: None,
@@ -223,8 +224,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "executor_system_prompt".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "Override system prompt for the executor agent".into(),
                         default: None,
                         required: None,
@@ -233,8 +234,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "reviewer_system_prompt".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::String,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::String,
                         description: "Override system prompt for the reviewer agent".into(),
                         default: None,
                         required: None,
@@ -243,8 +244,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "executor_tools".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::Array,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Array,
                         description: "Override tools for the executor agent".into(),
                         default: None,
                         required: None,
@@ -253,8 +254,8 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
                 ),
                 (
                     "reviewer_tools".into(),
-                    ResourcePluginConfigField {
-                        r#type: ResourcePluginConfigFieldType::Array,
+                    ResourceAssemblerConfigField {
+                        r#type: ResourceAssemblerConfigFieldType::Array,
                         description:
                             "Override tools for the reviewer agent (read-only recommended)".into(),
                         default: None,
@@ -275,10 +276,10 @@ impl ResourcePlugin for GoalReviewResourcePlugin {
     }
 }
 
-/// All built-in resource plugins, registered into the bundle registry during the
+/// All built-in resource assemblers, registered into the bundle registry during the
 /// resource registration pipeline.
-pub fn builtin_resource_plugins() -> Vec<Box<dyn ResourcePlugin>> {
-    vec![Box::new(GoalReviewResourcePlugin::new())]
+pub fn builtin_resource_assemblers() -> Vec<Box<dyn ResourceAssembler>> {
+    vec![Box::new(GoalReviewResourceAssembler::new())]
 }
 
 #[cfg(test)]
@@ -325,8 +326,8 @@ mod tests {
 
     #[test]
     fn metadata_matches_ts_schema() {
-        let plugin = GoalReviewResourcePlugin::new();
-        let metadata = plugin.metadata();
+        let assembler = GoalReviewResourceAssembler::new();
+        let metadata = assembler.metadata();
         assert_eq!(metadata.id, "@standard/goal-review-agent");
         assert_eq!(metadata.version, "1.0.0");
         assert_eq!(metadata.category.as_deref(), Some("code-review"));
@@ -338,8 +339,8 @@ mod tests {
 
     #[test]
     fn assemble_builds_ts_equivalent_bundle() {
-        let plugin = GoalReviewResourcePlugin::new();
-        let bundle = plugin
+        let assembler = GoalReviewResourceAssembler::new();
+        let bundle = assembler
             .assemble(&json!({"root_requirement": "review this"}))
             .unwrap();
 
@@ -424,8 +425,8 @@ mod tests {
 
     #[test]
     fn assemble_applies_inline_overrides() {
-        let plugin = GoalReviewResourcePlugin::new();
-        let bundle = plugin
+        let assembler = GoalReviewResourceAssembler::new();
+        let bundle = assembler
             .assemble(&json!({
                 "root_requirement": "review",
                 "executor_profile_id": "custom-exec",

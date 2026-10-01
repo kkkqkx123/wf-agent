@@ -49,8 +49,8 @@ fn text_message(role: MessageRole, text: &str) -> Message {
     }
 }
 
-/// Runs the `@standard/llm-summary` equivalent: a 3-node chain
-/// (START_FROM_MESSAGE → LLM → CONTINUE_FROM_MESSAGE) over the input
+/// Runs the `@standard/fold-summary` equivalent: a chain
+/// (START_FROM_MESSAGE → CONTEXT_PROCESSOR → LLM → CONTINUE_FROM_MESSAGE) over the input
 /// `{conversationHistory: messages}` whose final output is the compressed
 /// message array.
 struct SummaryRunner {

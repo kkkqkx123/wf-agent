@@ -279,7 +279,9 @@ pub fn transform_code_context_config(
                     (!trimmed.is_empty()).then(|| trimmed.to_string())
                 })
                 .unwrap_or(defaults.transport.managed_binary),
-            managed_port: input.managed_port.unwrap_or(defaults.transport.managed_port),
+            managed_port: input
+                .managed_port
+                .unwrap_or(defaults.transport.managed_port),
             managed_startup_timeout_ms: input
                 .managed_startup_timeout_ms
                 .unwrap_or(defaults.transport.managed_startup_timeout_ms),

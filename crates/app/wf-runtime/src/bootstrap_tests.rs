@@ -390,17 +390,17 @@ async fn test_runtime_api_context_shared_and_cached() {
 
 #[cfg(feature = "plugins")]
 #[tokio::test]
-async fn test_runtime_goal_review_resource_plugin_activation() {
+async fn test_runtime_goal_review_resource_assembler_activation() {
     clear_env_vars();
 
-    use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourcePluginActivation};
+    use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourceAssemblerActivation};
     use wf_workflow::validation::GraphValidator;
 
     let config = RuntimeConfig {
         log_config: LogConfig::default().with_level("off"),
         resource: ResourceConfig {
             options: ResourceOptions {
-                resource_plugin_activation: vec![ResourcePluginActivation {
+                resource_assembler_activation: vec![ResourceAssemblerActivation {
                     id: "@standard/goal-review-agent".into(),
                     config: serde_json::json!({
                         "root_requirement": "fix the failing test",
@@ -417,7 +417,7 @@ async fn test_runtime_goal_review_resource_plugin_activation() {
 
     let runtime = Runtime::bootstrap(config).await.unwrap();
 
-    // Built-in resource plugin registered and activated through the
+    // Built-in resource assembler registered and activated through the
     // unified plugin engine: workflow + planner prompt land in the
     // registries via the contribution bridge.
     let engine = runtime
@@ -774,7 +774,7 @@ async fn test_execution_callback_execute_workflow_via_tool() {
 
     register_workflow_tools(&runtime);
 
-    // The @standard/llm-summary LLM node uses the DEFAULT profile.
+    // The @standard/fold-summary LLM node uses the DEFAULT profile.
     let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
     mock.default(wf_llm::mock::LlmResponseSpec::text("compressed").with_usage(50, 30));
     runtime.llm_gateway().register_mock("DEFAULT", mock);
@@ -797,7 +797,7 @@ async fn test_execution_callback_execute_workflow_via_tool() {
         .execute_tool(
             "execute_workflow",
             &serde_json::json!({
-                "workflow_id": "@standard/llm-summary",
+                "workflow_id": "@standard/fold-summary",
                 "input": {
                     "conversationHistory": [
                         serde_json::to_value(&message).unwrap()

@@ -1,6 +1,6 @@
 //! Declarative resource bundles assembled from config.
 //!
-//! A `ResourcePlugin` here is a config-to-bundle assembler, not a
+//! A `ResourceAssembler` here is a config-to-bundle assembler, not a
 //! `wf-plugin::Plugin`. It has no isolation, no manifest, and no execution
 //! hooks. This module only builds `ResourceBundle` values and lands them
 //! into `ResourceRegistries` / `ToolRegistry` through `install_bundle` /
@@ -62,7 +62,7 @@ impl Default for ResourceBundle {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum ResourcePluginConfigFieldType {
+pub enum ResourceAssemblerConfigFieldType {
     String,
     Number,
     Boolean,
@@ -72,8 +72,8 @@ pub enum ResourcePluginConfigFieldType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ResourcePluginConfigField {
-    pub r#type: ResourcePluginConfigFieldType,
+pub struct ResourceAssemblerConfigField {
+    pub r#type: ResourceAssemblerConfigFieldType,
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<Value>,
@@ -84,7 +84,7 @@ pub struct ResourcePluginConfigField {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ResourcePluginMetadata {
+pub struct ResourceAssemblerMetadata {
     pub id: String,
     pub name: String,
     pub version: String,
@@ -98,11 +98,11 @@ pub struct ResourcePluginMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub configurable: Option<HashMap<String, ResourcePluginConfigField>>,
+    pub configurable: Option<HashMap<String, ResourceAssemblerConfigField>>,
 }
 
-pub trait ResourcePlugin: Send + Sync {
-    fn metadata(&self) -> ResourcePluginMetadata;
+pub trait ResourceAssembler: Send + Sync {
+    fn metadata(&self) -> ResourceAssemblerMetadata;
     fn assemble(&self, config: &Value) -> Result<ResourceBundle, String>;
 
     fn on_before_assemble(&self, _config: &Value) -> Result<(), String> {

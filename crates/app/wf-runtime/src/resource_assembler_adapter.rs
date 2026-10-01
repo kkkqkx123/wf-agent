@@ -1,10 +1,10 @@
-//! Adapter turning a `wf_resource::resource_plugin::ResourcePlugin` (the
-//! declarative "resource plugin") into a `wf_plugin::Plugin` so
-//! built-in resource plugins activate through the unified plugin engine.
+//! Adapter turning a `wf_resource::resource_assembler::ResourceAssembler` (the
+//! declarative resource assembler) into a `wf_plugin::Plugin` so
+//! built-in resource assemblers activate through the unified plugin engine.
 //!
 //! The adapter lives in `wf-runtime` (not `wf-resource`) on purpose:
 //! `wf-resource` must stay free of a `wf-plugin` dependency, so the glue
-//! between the two plugin systems lives where both crates are visible.
+//! between the two systems lives where both crates are visible.
 //!
 //! Lifecycle mapping (mirrors the direct-install order):
 //! - `register_contributions` → `on_before_assemble` → `assemble(config)` →
@@ -15,9 +15,9 @@
 //!   `ResourceRegistries` / `ToolRegistry` on activation through the shared
 //!   `install_bundle` helper.
 //! - `on_deactivate` → `on_before_uninstall` → `on_after_uninstall` (the
-//!   bridge has already removed the plugin's resources by then, which
+//!   bridge has already removed the assembler's resources by then, which
 //!   differs from the direct-install order where `on_before_uninstall` runs
-//!   before removal; the hook is still invoked so plugins observe the full
+//!   before removal; the hook is still invoked so assemblers observe the full
 //!   lifecycle). Hook failures fail deactivation via `DeactivationFailed`.
 
 use std::sync::Arc;
@@ -26,20 +26,20 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use wf_plugin::{ContributionRegistrar, Plugin, PluginContext, PluginManifest, PluginResult};
-use wf_resource::predefined::resource_plugin::builtin_resource_plugins;
-use wf_resource::resource_plugin::ResourcePlugin;
+use wf_resource::predefined::resource_assembler::builtin_resource_assemblers;
+use wf_resource::resource_assembler::ResourceAssembler;
 
 use crate::error::RuntimeResult;
 
-/// Built-in resource plugins that are always available to the engine.
-pub struct ResourcePluginAdapter {
+/// Built-in resource assemblers that are always available to the engine.
+pub struct ResourceAssemblerAdapter {
     manifest: PluginManifest,
-    inner: Arc<dyn ResourcePlugin>,
+    inner: Arc<dyn ResourceAssembler>,
     config: Value,
 }
 
-impl ResourcePluginAdapter {
-    pub fn new(inner: Arc<dyn ResourcePlugin>, config: Value) -> Self {
+impl ResourceAssemblerAdapter {
+    pub fn new(inner: Arc<dyn ResourceAssembler>, config: Value) -> Self {
         let meta = inner.metadata();
         let manifest = PluginManifest {
             id: meta.id.clone(),
@@ -48,7 +48,7 @@ impl ResourcePluginAdapter {
             description: Some(meta.description),
             plugin_type: None,
             sdk_version: None,
-            entry_point: format!("builtin://resource-plugin/{}", meta.id),
+            entry_point: format!("builtin://resource-assembler/{}", meta.id),
             dependencies: meta
                 .dependencies
                 .unwrap_or_default()
@@ -83,7 +83,7 @@ impl ResourcePluginAdapter {
 }
 
 #[async_trait]
-impl Plugin for ResourcePluginAdapter {
+impl Plugin for ResourceAssemblerAdapter {
     fn manifest(&self) -> &PluginManifest {
         &self.manifest
     }
@@ -94,13 +94,13 @@ impl Plugin for ResourcePluginAdapter {
     ) -> PluginResult<()> {
         self.inner.on_before_assemble(&self.config).map_err(|e| {
             wf_plugin::PluginError::ActivationFailed(format!(
-                "resource plugin '{}' on_before_assemble failed: {e}",
+                "resource assembler '{}' on_before_assemble failed: {e}",
                 self.manifest.id,
             ))
         })?;
         let bundle = self.inner.assemble(&self.config).map_err(|e| {
             wf_plugin::PluginError::ActivationFailed(format!(
-                "resource plugin '{}' assemble failed: {e}",
+                "resource assembler '{}' assemble failed: {e}",
                 self.manifest.id,
             ))
         })?;
@@ -132,7 +132,7 @@ impl Plugin for ResourcePluginAdapter {
 
         self.inner.on_after_install(&bundle).map_err(|e| {
             wf_plugin::PluginError::ActivationFailed(format!(
-                "resource plugin '{}' on_after_install failed: {e}",
+                "resource assembler '{}' on_after_install failed: {e}",
                 self.manifest.id,
             ))
         })?;
@@ -148,13 +148,13 @@ impl Plugin for ResourcePluginAdapter {
     async fn on_deactivate(&self, _ctx: &PluginContext) -> PluginResult<()> {
         self.inner.on_before_uninstall().map_err(|e| {
             wf_plugin::PluginError::DeactivationFailed(format!(
-                "resource plugin '{}' on_before_uninstall failed: {e}",
+                "resource assembler '{}' on_before_uninstall failed: {e}",
                 self.manifest.id,
             ))
         })?;
         self.inner.on_after_uninstall().map_err(|e| {
             wf_plugin::PluginError::DeactivationFailed(format!(
-                "resource plugin '{}' on_after_uninstall failed: {e}",
+                "resource assembler '{}' on_after_uninstall failed: {e}",
                 self.manifest.id,
             ))
         })?;
@@ -162,42 +162,42 @@ impl Plugin for ResourcePluginAdapter {
     }
 }
 
-/// Register all built-in resource plugins on the plugin engine and activate
-/// the ones requested by `RegisterOptions::resource_plugin_activation`.
-pub async fn activate_builtin_resource_plugins_via_engine(
+/// Register all built-in resource assemblers on the plugin engine and activate
+/// the ones requested by `RegisterOptions::resource_assembler_activation`.
+pub async fn activate_builtin_resource_assemblers_via_engine(
     engine: &wf_plugin::PluginEngine,
     opts: &wf_resource::registry::RegisterOptions,
 ) -> RuntimeResult<()> {
-    for plugin in builtin_resource_plugins() {
-        let meta = plugin.metadata();
+    for assembler in builtin_resource_assemblers() {
+        let meta = assembler.metadata();
         let config = opts
-            .resource_plugin_activation
+            .resource_assembler_activation
             .iter()
             .find(|sa| sa.id == meta.id)
             .map(|sa| sa.config.clone())
             .unwrap_or(Value::Null);
-        let adapter = ResourcePluginAdapter::new(Arc::from(plugin), config);
+        let adapter = ResourceAssemblerAdapter::new(Arc::from(assembler), config);
         engine
             .register_plugin(adapter.manifest().clone(), Arc::new(adapter))
             .map_err(|e| {
                 crate::error::RuntimeError::Config(format!(
-                    "failed to register built-in resource plugin '{}': {e}",
+                    "failed to register built-in resource assembler '{}': {e}",
                     meta.id
                 ))
             })?;
     }
 
-    for sa in &opts.resource_plugin_activation {
+    for sa in &opts.resource_assembler_activation {
         if !engine.registry().has(&sa.id) {
             tracing::warn!(
-                "resource_plugin_activation references unknown plugin '{}'",
+                "resource_assembler_activation references unknown assembler '{}'",
                 sa.id
             );
             continue;
         }
         engine.activate(&sa.id).await.map_err(|e| {
             crate::error::RuntimeError::Config(format!(
-                "failed to activate built-in resource plugin '{}': {e}",
+                "failed to activate built-in resource assembler '{}': {e}",
                 sa.id
             ))
         })?;

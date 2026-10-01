@@ -74,10 +74,15 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
         notice_headed,
         skipped,
     };
-    let candidates = select_fold_candidates(messages, params.min_tokens, |message| {
+    let (locally_folded, local_count) = apply_local_fold(messages);
+    let candidates = select_fold_candidates(&locally_folded, params.min_tokens, |message| {
         wf_llm::estimate_message_tokens(message) as usize
     });
     if candidates.is_empty() {
+        if local_count > 0 {
+            let folded_tokens = wf_llm::estimate_messages(&locally_folded) as usize;
+            return finish(locally_folded, local_count, folded_tokens, false, None);
+        }
         return finish(
             messages.to_vec(),
             0,
@@ -87,6 +92,10 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
         );
     }
     let Some(base_url) = params.base_url.clone() else {
+        if local_count > 0 {
+            let folded_tokens = wf_llm::estimate_messages(&locally_folded) as usize;
+            return finish(locally_folded, local_count, folded_tokens, false, None);
+        }
         return finish(
             messages.to_vec(),
             0,
@@ -98,21 +107,15 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
     let client = match FoldClient::new(base_url, params.timeout_ms) {
         Ok(client) => client,
         Err(reason) => {
-            return finish(
-                messages.to_vec(),
-                0,
-                before,
-                false,
-                Some(reason),
-            );
+            return finish(messages.to_vec(), 0, before, false, Some(reason));
         }
     };
     let max_tokens = params.max_tokens.max(1);
     let max_items = params.max_items.max(1);
     let max_batches = params.max_batches.max(1) as usize;
     let processable = candidates.len().min(max_items * max_batches);
-    let mut applied = messages.to_vec();
-    let mut folded_count = 0usize;
+    let mut applied = locally_folded;
+    let mut folded_count = local_count;
     let mut skipped: Option<String> = None;
     for chunk in candidates[..processable].chunks(max_items) {
         match call_fold(&client, chunk, max_tokens).await {
@@ -171,6 +174,28 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
         notice_headed,
         skipped,
     )
+}
+
+pub fn apply_local_fold(messages: &[Message]) -> (Vec<Message>, usize) {
+    let mut folded = messages.to_vec();
+    let mut count = 0usize;
+    for message in &mut folded {
+        if message.role != wf_types::message::MessageRole::Tool {
+            continue;
+        }
+        let text = message.text_content();
+        if text.trim().is_empty() {
+            continue;
+        }
+        let Some(replacement) =
+            wf_tools::predefined::fold::fold_tool_text(message.tool_name.as_deref(), &text)
+        else {
+            continue;
+        };
+        message.content = wf_types::message::MessageContentValue::Text(replacement);
+        count += 1;
+    }
+    (folded, count)
 }
 
 async fn call_fold(
@@ -232,5 +257,23 @@ mod tests {
         .await;
         assert_eq!(outcome.folded_count, 0);
         assert!(outcome.skipped.is_some());
+    }
+
+    #[tokio::test]
+    async fn fold_applies_local_shell_fold_without_service() {
+        let text = (0..100)
+            .map(|i| format!("output line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let messages = vec![Message::tool_result(
+            "call-1".into(),
+            Some("execute_command".into()),
+            text,
+            false,
+        )];
+        let outcome = execute_fold(&messages, &FoldParams::default()).await;
+        assert_eq!(outcome.folded_count, 1);
+        assert!(outcome.skipped.is_none());
+        assert!(outcome.messages[0].text_content().contains("omitted"));
     }
 }

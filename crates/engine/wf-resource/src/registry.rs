@@ -39,7 +39,7 @@ pub fn predefined_tool_description_ids() -> Vec<&'static str> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ResourcePluginActivation {
+pub struct ResourceAssemblerActivation {
     pub id: String,
     pub config: serde_json::Value,
 }
@@ -58,7 +58,7 @@ pub struct RegisterOptions {
     /// predefined/custom batch below so assembler output wins under
     /// skip-existing semantics; all paths land through the shared
     /// `install_bundle` helper.
-    pub resource_plugin_activation: Vec<ResourcePluginActivation>,
+    pub resource_assembler_activation: Vec<ResourceAssemblerActivation>,
 }
 
 impl Default for RegisterOptions {
@@ -67,7 +67,7 @@ impl Default for RegisterOptions {
             skip_if_exists: true,
             custom_resources: None,
             custom_validation_level: crate::custom::types::CustomValidationLevel::default(),
-            resource_plugin_activation: Vec::new(),
+            resource_assembler_activation: Vec::new(),
         }
     }
 }
@@ -430,7 +430,7 @@ pub fn list_fragments_by_category(regs: &ResourceRegistries, category: &str) -> 
 ///
 /// Built-in resource bundle assemblers are **not activated here**: the
 /// runtime activates the entries listed in
-/// `RegisterOptions::resource_plugin_activation` before calling this
+/// `RegisterOptions::resource_assembler_activation` before calling this
 /// function (plugin-engine bridge, or direct assemble plus `install_bundle`
 /// when the engine is disabled), so assembler output wins under
 /// skip-existing semantics and every path lands through the shared

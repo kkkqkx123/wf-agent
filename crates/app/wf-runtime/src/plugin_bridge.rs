@@ -152,7 +152,7 @@ impl ContributionBridge for WfPluginBridge {
         // skip-existing semantics stay identical. Rejections are reported
         // loudly but do not fail activation, matching the `Ok(Summary)`
         // semantics.
-        let mut bundle = wf_resource::resource_plugin::ResourceBundle::new();
+        let mut bundle = wf_resource::resource_assembler::ResourceBundle::new();
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
                 if let Some(wf) = manager.get_workflow(&id) {
@@ -209,7 +209,7 @@ impl ContributionBridge for WfPluginBridge {
                 }
             }
         }
-        let summary = wf_resource::resource_plugin::install_bundle(
+        let summary = wf_resource::resource_assembler::install_bundle(
             &self.registries,
             &self.tool_registry,
             &bundle,
@@ -244,7 +244,7 @@ impl ContributionBridge for WfPluginBridge {
 
         // Symmetric teardown of `sync_all` through the shared
         // `uninstall_bundle` helper.
-        let mut bundle = wf_resource::resource_plugin::ResourceBundle::new();
+        let mut bundle = wf_resource::resource_assembler::ResourceBundle::new();
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
                 if let Some(wf) = manager.get_workflow(&id) {
@@ -301,7 +301,7 @@ impl ContributionBridge for WfPluginBridge {
                 }
             }
         }
-        wf_resource::resource_plugin::uninstall_bundle(
+        wf_resource::resource_assembler::uninstall_bundle(
             &self.registries,
             &self.tool_registry,
             &bundle,

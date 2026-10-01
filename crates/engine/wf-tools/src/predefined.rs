@@ -17,6 +17,7 @@
 pub mod agent;
 pub mod code_context;
 pub mod filesystem;
+pub mod fold;
 pub mod general;
 pub mod integration;
 pub mod interaction;

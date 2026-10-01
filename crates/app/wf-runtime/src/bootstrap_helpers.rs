@@ -468,33 +468,35 @@ pub async fn init_mcp(
 /// `install_bundle` helper. Item-level rejections are reported loudly but
 /// do not fail bootstrap, matching the engine bridge semantics; hook
 /// failures fail loudly.
-pub(crate) fn activate_builtin_resource_plugins_legacy(
+pub(crate) fn activate_builtin_resource_assemblers_legacy(
     opts: &wf_resource::registry::RegisterOptions,
     registries: &wf_resource::registry::ResourceRegistries,
     tool_registry: &wf_tools::registry::ToolRegistry,
 ) -> RuntimeResult<()> {
-    for plugin in wf_resource::predefined::resource_plugin::builtin_resource_plugins() {
-        let meta = plugin.metadata();
+    for assembler in wf_resource::predefined::resource_assembler::builtin_resource_assemblers() {
+        let meta = assembler.metadata();
         let Some(requested) = opts
-            .resource_plugin_activation
+            .resource_assembler_activation
             .iter()
             .find(|sa| sa.id == meta.id)
         else {
             continue;
         };
-        plugin.on_before_assemble(&requested.config).map_err(|e| {
+        assembler
+            .on_before_assemble(&requested.config)
+            .map_err(|e| {
+                crate::error::RuntimeError::Config(format!(
+                    "failed to activate resource assembler '{}': {e}",
+                    meta.id
+                ))
+            })?;
+        let bundle = assembler.assemble(&requested.config).map_err(|e| {
             crate::error::RuntimeError::Config(format!(
-                "failed to activate resource plugin '{}': {e}",
+                "failed to activate resource assembler '{}': {e}",
                 meta.id
             ))
         })?;
-        let bundle = plugin.assemble(&requested.config).map_err(|e| {
-            crate::error::RuntimeError::Config(format!(
-                "failed to activate resource plugin '{}': {e}",
-                meta.id
-            ))
-        })?;
-        let summary = wf_resource::resource_plugin::install_bundle(
+        let summary = wf_resource::resource_assembler::install_bundle(
             registries,
             tool_registry,
             &bundle,
@@ -502,15 +504,15 @@ pub(crate) fn activate_builtin_resource_plugins_legacy(
         );
         for fail in &summary.failed {
             tracing::warn!(
-                plugin_id = %meta.id,
+                assembler_id = %meta.id,
                 resource = %fail.id,
-                "resource plugin item registration failed: {}",
+                "resource assembler item registration failed: {}",
                 fail.error
             );
         }
-        plugin.on_after_install(&bundle).map_err(|e| {
+        assembler.on_after_install(&bundle).map_err(|e| {
             crate::error::RuntimeError::Config(format!(
-                "failed to activate resource plugin '{}': {e}",
+                "failed to activate resource assembler '{}': {e}",
                 meta.id
             ))
         })?;
@@ -602,8 +604,7 @@ pub async fn resolve_code_context_transport(
     match config.transport.transport_mode {
         TransportMode::External => {
             if let Some(url) = config.external_base_url() {
-                let healthy =
-                    wf_integration::probe_http(&format!("{url}/api/health"), 5_000).await;
+                let healthy = wf_integration::probe_http(&format!("{url}/api/health"), 5_000).await;
                 if !healthy {
                     warn!(
                         "Code-context service at {url} is unreachable at startup; folding and retrieval will skip until it responds"
@@ -750,17 +751,17 @@ pub async fn init_plugins_and_resources(
     #[cfg(feature = "plugins")]
     match plugin_engine {
         Some(engine) => {
-            crate::resource_plugin_adapter::activate_builtin_resource_plugins_via_engine(
+            crate::resource_assembler_adapter::activate_builtin_resource_assemblers_via_engine(
                 engine, opts,
             )
             .await?;
         }
         None => {
-            activate_builtin_resource_plugins_legacy(opts, registries, tool_registry)?;
+            activate_builtin_resource_assemblers_legacy(opts, registries, tool_registry)?;
         }
     };
     #[cfg(not(feature = "plugins"))]
-    activate_builtin_resource_plugins_legacy(opts, registries, tool_registry)?;
+    activate_builtin_resource_assemblers_legacy(opts, registries, tool_registry)?;
 
     let resource_result = wf_resource::register_all(registries, tool_registry, opts);
     info!(

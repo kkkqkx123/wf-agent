@@ -272,8 +272,8 @@ impl ContextProcessorHandler {
             min_tokens: usize_config(config, "min_tokens", defaults.min_tokens)?,
             max_tokens: usize_config(config, "max_tokens", defaults.max_tokens)?.max(1),
             max_items: usize_config(config, "max_items", defaults.max_items)?.max(1),
-            max_batches: usize_config(config, "max_batches", defaults.max_batches as usize)?
-                .max(1) as u32,
+            max_batches: usize_config(config, "max_batches", defaults.max_batches as usize)?.max(1)
+                as u32,
         };
         let messages = crate::message_context::get_context(&ctx.variables, &source);
         if messages.is_empty() {

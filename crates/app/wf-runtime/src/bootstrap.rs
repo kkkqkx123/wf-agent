@@ -209,7 +209,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     // workflow resource itself (`compression_fallback` on its
     // triggered-subworkflow config); an absent declaration means `fail`.
     let summary_workflow_id =
-        wf_resource::predefined::workflow::CONTEXT_COMPRESSION_WORKFLOW_ID.to_string();
+        wf_resource::predefined::workflow::FOLD_SUMMARY_WORKFLOW_ID.to_string();
     let compression_fallback = registries
         .workflows
         .get(&summary_workflow_id)
@@ -484,22 +484,16 @@ impl Runtime {
         )
         .await?;
 
-        // Bake the effective code-context snapshot into the compression
-        // chain template once, so transform execution reads only its node
+        // Build the fold-summary chain with the effective code-context
+        // snapshot at construction time, so execution reads only node
         // config. Absent service keeps the safe skip behavior.
         if let Some(service) = code_context.clone() {
-            if let Some(existing) = registries
-                .workflows
-                .get(wf_resource::predefined::workflow::CONTEXT_COMPRESSION_WORKFLOW_ID)
-            {
-                let mut template = existing.as_ref().clone();
-                wf_resource::predefined::workflow::bake_code_context_service(
-                    &mut template,
-                    &service,
+            let template =
+                wf_resource::predefined::workflow::create_fold_summary_workflow_with_service(
+                    None, &service,
                 );
-                if let Err(e) = registries.upsert_workflow_template(template) {
-                    warn!("code-context snapshot bake skipped: {e}");
-                }
+            if let Err(e) = registries.upsert_workflow_template(template) {
+                warn!("code-context snapshot bake skipped: {e}");
             }
         }
 

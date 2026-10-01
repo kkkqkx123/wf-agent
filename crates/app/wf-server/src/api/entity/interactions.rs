@@ -42,6 +42,7 @@ pub(crate) struct ListInteractionsQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/interactions",
+    operation_id = "get_agent_loops_id_interactions",
     tag = "entity",
     params(IdPath, ListInteractionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -76,6 +77,7 @@ pub(crate) async fn handle_list_interactions(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-interactions/{id}",
+    operation_id = "get_agent_interactions_id",
     tag = "entity",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -101,6 +103,7 @@ pub(crate) struct AgentRespondBody {
 #[utoipa::path(
     post,
     path = "/api/v1/agent-interactions/{id}/respond",
+    operation_id = "post_agent_interactions_id_respond",
     tag = "entity",
     params(IdPath),
     request_body = AgentRespondBody,

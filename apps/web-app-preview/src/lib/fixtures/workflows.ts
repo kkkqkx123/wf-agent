@@ -197,28 +197,28 @@ export const workflowDetail: WorkflowDetail = {
 	},
 	versions: [
 		{
-			version: 12,
+			version: '12',
 			createdAt: minutesAgo(120),
 			author: 'platform',
 			note: 'Split integration test into shards',
 			current: true,
 		},
 		{
-			version: 11,
+			version: '11',
 			createdAt: minutesAgo(1400),
 			author: 'platform',
 			note: 'Add coverage gate threshold',
 			current: false,
 		},
 		{
-			version: 10,
+			version: '10',
 			createdAt: minutesAgo(3200),
 			author: 'sre',
 			note: 'Retry publish on transient failure',
 			current: false,
 		},
 		{
-			version: 9,
+			version: '9',
 			createdAt: minutesAgo(6100),
 			author: 'platform',
 			note: 'Initial delivery pipeline',
@@ -232,6 +232,7 @@ export const workflowDetail: WorkflowDetail = {
 			updatedAt: minutesAgo(30),
 			valid: true,
 			issues: [],
+			definition: null,
 		},
 		{
 			id: 'draft-02',
@@ -242,6 +243,7 @@ export const workflowDetail: WorkflowDetail = {
 				'rollback node has no inbound edge',
 				'missing required parameter: target_version',
 			],
+			definition: null,
 		},
 	],
 };

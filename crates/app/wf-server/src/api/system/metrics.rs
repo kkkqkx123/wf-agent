@@ -162,6 +162,7 @@ pub(crate) struct ExportQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/metrics/export",
+    operation_id = "get_metrics_export",
     tag = "system",
     params(ExportQuery),
     responses(

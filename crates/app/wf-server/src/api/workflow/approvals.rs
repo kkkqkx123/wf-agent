@@ -172,6 +172,7 @@ pub(crate) struct ExecuteToolBody {
 #[utoipa::path(
     post,
     path = "/api/v1/approvals/execute-tool",
+    operation_id = "post_approvals_execute_tool",
     tag = "workflow",
     request_body = ExecuteToolBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -255,6 +256,7 @@ pub(crate) struct ListInteractionsQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/interactions",
+    operation_id = "get_interactions",
     tag = "workflow",
     params(ListInteractionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -304,6 +306,7 @@ pub(crate) async fn handle_save_interaction(
 #[utoipa::path(
     get,
     path = "/api/v1/interactions/{id}",
+    operation_id = "get_interactions_id",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -416,6 +419,7 @@ pub(crate) struct RespondBody {
 #[utoipa::path(
     post,
     path = "/api/v1/interactions/{id}/respond",
+    operation_id = "post_interactions_id_respond",
     tag = "workflow",
     params(IdPath),
     request_body = RespondBody,

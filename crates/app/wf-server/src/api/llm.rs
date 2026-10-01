@@ -187,6 +187,7 @@ pub(crate) struct ListProfilesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/llm/profiles",
+    operation_id = "get_llm_profiles",
     tag = "llm",
     params(ListProfilesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -240,6 +241,7 @@ pub(crate) async fn handle_create_profile(
 #[utoipa::path(
     get,
     path = "/api/v1/llm/profiles/{id}",
+    operation_id = "get_llm_profiles_id",
     tag = "llm",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -258,6 +260,7 @@ pub(crate) async fn handle_get_profile(
 #[utoipa::path(
     put,
     path = "/api/v1/llm/profiles/{id}",
+    operation_id = "put_llm_profiles_id",
     tag = "llm",
     params(IdPath),
     request_body = serde_json::Value,
@@ -279,6 +282,7 @@ pub(crate) async fn handle_update_profile(
 #[utoipa::path(
     delete,
     path = "/api/v1/llm/profiles/{id}",
+    operation_id = "delete_llm_profiles_id",
     tag = "llm",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

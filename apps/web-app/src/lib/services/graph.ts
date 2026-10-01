@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
 import type { components } from '$lib/api/schema';
 import type {
@@ -353,7 +353,7 @@ export async function saveWorkflowDraft(
 	definition: Record<string, unknown>,
 ): Promise<string> {
 	const data = await call<unknown>(
-		request('POST', '/api/v1/workflows/drafts', { body: definition }),
+		client.POST('/api/v1/workflows/drafts', { body: definition }),
 	);
 	const id = requireData(data, 'Draft save returned no id');
 	return String(id);
@@ -629,10 +629,9 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 	criticalPath: string[];
 }> {
 	const data = await call<unknown>(
-		request(
-			'GET',
-			`/api/v1/executions/${encodeURIComponent(executionId)}/graph/overview`,
-		),
+		client.GET('/api/v1/executions/{id}/graph/overview', {
+			params: { path: { id: executionId } }
+		})
 	);
 	const overview = requireData(
 		data,

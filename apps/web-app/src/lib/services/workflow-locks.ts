@@ -1,5 +1,8 @@
-import { request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call } from '$lib/api/envelope';
+import type { components } from '$lib/api/schema';
+
+type LockView = components['schemas']['LockView'];
 
 export interface WorkflowLock {
 	ownerId: string;
@@ -7,29 +10,22 @@ export interface WorkflowLock {
 	expiresAt: number;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
-}
-
-function toLock(value: unknown): WorkflowLock | null {
-	if (!isRecord(value)) return null;
-	const ownerId = value.owner_id ?? value.ownerId;
-	const ownerName = value.owner_name ?? value.ownerName ?? '';
-	const expiresAt = value.expires_at ?? value.expiresAt ?? 0;
-	if (typeof ownerId !== 'string' || !ownerId) return null;
+function toLock(value: LockView | null): WorkflowLock | null {
+	if (!value) return null;
+	if (typeof value.owner_id !== 'string' || !value.owner_id) return null;
 	return {
-		ownerId,
-		ownerName: typeof ownerName === 'string' ? ownerName : '',
-		expiresAt: typeof expiresAt === 'number' ? expiresAt : 0,
+		ownerId: value.owner_id,
+		ownerName: value.owner_name,
+		expiresAt: value.expires_at
 	};
 }
 
 /** Current lock holder; null means unlocked. */
-export async function getWorkflowLock(
-	workflowId: string,
-): Promise<WorkflowLock | null> {
-	const data = await call<unknown>(
-		request('GET', `/api/v1/workflows/${encodeURIComponent(workflowId)}/lock`),
+export async function getWorkflowLock(workflowId: string): Promise<WorkflowLock | null> {
+	const data = await call<LockView | null>(
+		client.GET('/api/v1/workflows/{id}/lock', {
+			params: { path: { id: workflowId } }
+		})
 	);
 	if (data === null) return null;
 	return toLock(data);
@@ -38,14 +34,13 @@ export async function getWorkflowLock(
 /** Acquire the lock for an owner; returns the active holder. */
 export async function acquireWorkflowLock(
 	workflowId: string,
-	owner: { ownerId: string; ownerName: string },
+	owner: { ownerId: string; ownerName: string }
 ): Promise<WorkflowLock> {
-	const data = await call<unknown>(
-		request(
-			'POST',
-			`/api/v1/workflows/${encodeURIComponent(workflowId)}/lock/acquire`,
-			{ body: { owner_id: owner.ownerId, owner_name: owner.ownerName } },
-		),
+	const data = await call<LockView | null>(
+		client.POST('/api/v1/workflows/{id}/lock/acquire', {
+			params: { path: { id: workflowId } },
+			body: { owner_id: owner.ownerId, owner_name: owner.ownerName }
+		})
 	);
 	const lock = toLock(data);
 	if (!lock) throw new Error('Lock acquisition returned no holder');
@@ -55,14 +50,13 @@ export async function acquireWorkflowLock(
 /** Renew the lease while editing. */
 export async function heartbeatWorkflowLock(
 	workflowId: string,
-	ownerId: string,
+	ownerId: string
 ): Promise<WorkflowLock> {
-	const data = await call<unknown>(
-		request(
-			'POST',
-			`/api/v1/workflows/${encodeURIComponent(workflowId)}/lock/heartbeat`,
-			{ body: { owner_id: ownerId } },
-		),
+	const data = await call<LockView | null>(
+		client.POST('/api/v1/workflows/{id}/lock/heartbeat', {
+			params: { path: { id: workflowId } },
+			body: { owner_id: ownerId }
+		})
 	);
 	const lock = toLock(data);
 	if (!lock) throw new Error('Lock heartbeat returned no holder');
@@ -70,15 +64,11 @@ export async function heartbeatWorkflowLock(
 }
 
 /** Release the lock; no-op when held by someone else. */
-export async function releaseWorkflowLock(
-	workflowId: string,
-	ownerId: string,
-): Promise<void> {
-	await call<unknown>(
-		request(
-			'POST',
-			`/api/v1/workflows/${encodeURIComponent(workflowId)}/lock/release`,
-			{ body: { owner_id: ownerId } },
-		),
+export async function releaseWorkflowLock(workflowId: string, ownerId: string): Promise<void> {
+	await call<LockView | null>(
+		client.POST('/api/v1/workflows/{id}/lock/release', {
+			params: { path: { id: workflowId } },
+			body: { owner_id: ownerId }
+		})
 	);
 }

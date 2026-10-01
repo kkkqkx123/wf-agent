@@ -302,6 +302,7 @@ pub(crate) struct TriggerHistoryQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/triggers/history",
+    operation_id = "get_triggers_history",
     tag = "trigger",
     params(TriggerHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

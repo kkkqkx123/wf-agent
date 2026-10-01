@@ -28,6 +28,7 @@ use crate::{api, metrics, ws};
 pub(crate) struct ApiState {
     pub(crate) ctx: Arc<ApiContext>,
     pub(crate) config: Arc<ServerMiddlewareConfig>,
+    pub(crate) locks: api::workflow::locks::WorkflowLocks,
 }
 
 /// Test-only API router with deterministic default middleware (no environment
@@ -47,6 +48,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
     let domain: Router<ApiState> = Router::new()
         // workflow definition + execution + graph analysis
         .merge(api::workflow::workflows::routes())
+        .merge(api::workflow::locks::routes())
         .merge(api::workflow::versions::routes())
         .merge(api::workflow::graphs::routes())
         .merge(api::workflow::executions::routes())
@@ -100,7 +102,11 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::system::health::routes())
         .nest("/api/v1", domain);
     let app = middleware::apply(app, Arc::clone(&config));
-    let app = app.with_state(ApiState { ctx, config });
+    let app = app.with_state(ApiState {
+        ctx,
+        config,
+        locks: api::workflow::locks::WorkflowLocks::default(),
+    });
     mount_openapi_docs(app)
 }
 

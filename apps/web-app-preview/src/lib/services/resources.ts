@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type {
@@ -404,7 +404,7 @@ export async function executeTool(
 	// handle_execute_tool is one of the utoipa names shared by several routes.
 	const data = requireData(
 		await call<ToolRunDto>(
-			request('POST', '/api/v1/tools/execute', {
+			client.POST('/api/v1/tools/execute', {
 				body: { tool_id: toolId, parameters },
 			}),
 		),

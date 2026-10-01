@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 
@@ -51,7 +51,7 @@ export async function setFavorite(
 	body?: { pinned?: boolean; tags?: string[] },
 ): Promise<void> {
 	await call<unknown>(
-		request('PUT', '/api/v1/favorites/{kind}/{id}', {
+		client.PUT('/api/v1/favorites/{kind}/{id}', {
 			params: { path: { kind, id } },
 			body: { pinned: body?.pinned ?? null, tags: body?.tags ?? null },
 		}),
@@ -60,7 +60,7 @@ export async function setFavorite(
 
 export async function removeFavorite(kind: string, id: string): Promise<void> {
 	await call<unknown>(
-		request('DELETE', '/api/v1/favorites/{kind}/{id}', {
+		client.DELETE('/api/v1/favorites/{kind}/{id}', {
 			params: { path: { kind, id } },
 		}),
 	);

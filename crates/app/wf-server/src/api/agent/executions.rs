@@ -266,6 +266,7 @@ async fn ensure_agent_domain(
 #[utoipa::path(
     post,
     path = "/api/v1/agent-loops/{id}/checkpoints",
+    operation_id = "post_agent_loops_id_checkpoints",
     tag = "agent",
     params(IdPath),
     request_body = CreateCheckpointBody,
@@ -294,6 +295,7 @@ pub(crate) async fn handle_create_checkpoint(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/checkpoints",
+    operation_id = "get_agent_loops_id_checkpoints",
     tag = "agent",
     params(IdPath, ListQuery),
     responses(
@@ -328,6 +330,7 @@ pub(crate) async fn handle_list_checkpoints(
 #[utoipa::path(
     post,
     path = "/api/v1/agent-loops/{id}/checkpoints/{cid}/restore",
+    operation_id = "post_agent_loops_id_checkpoints_cid_restore",
     tag = "agent",
     params(crate::extract::IdCidPath),
     responses(
@@ -454,6 +457,7 @@ pub(crate) async fn handle_resume_checkpoint(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/checkpoints/chain",
+    operation_id = "get_agent_loops_id_checkpoints_chain",
     tag = "agent",
     params(IdPath),
     responses(

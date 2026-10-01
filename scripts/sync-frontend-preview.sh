@@ -79,14 +79,11 @@ done
 # might have leaked into the source tree. These are build artifacts, not
 # source, and should never be copied between projects.
 #
-# openapi.json and *.d.ts (schema.d.ts) are large generated files. They are
-# intentionally skipped so they never land in the preview project's git
-# history; preview only needs the runtime code, and the type-only imports
-# they provide are erased at build time anyway.
+# The generated API contract (openapi.json) and typed declarations
+# (schema.d.ts) are synced so preview type-checks against the same
+# contract as the main app; only the runtime client stays fixture-backed.
 RSYNC_EXCLUDES+=(
 --exclude="package.json"   # built by the merge step below
---exclude="openapi.json"   # large generated API contract, not synced
---exclude="*.d.ts"         # generated type declarations (schema.d.ts), not synced
 --exclude="node_modules/"
 --exclude="dist/"
 --exclude="build/"
@@ -182,13 +179,13 @@ echo "  - .gitignore, .prettierrc*, eslint.config.js"
 echo "  - svelte.config.js, tsconfig*.json, vite.config.ts (test config included)"
 echo "  - src/app.html, src/app.css"
 echo "  - src/lib/api/envelope.ts"
+echo "  - src/lib/api/schema.d.ts     (generated contract types)"
 echo "  - src/lib/components/**/*  src/lib/config/**/*  src/lib/services/**/*"
 echo "  - src/lib/stores/**/*      src/lib/types/**/*    src/lib/utils/**/*"
 echo "  - src/routes/**/*"
 echo
-echo "Skipped (not synced, kept out of preview git history):"
-echo "  - openapi.json                (large generated API contract)"
-echo "  - src/lib/api/schema.d.ts     (generated type declarations)"
+echo "Mirrored from apps/web-app (contract included):"
+echo "  - openapi.json                (generated API contract)"
 echo
 echo "Preserved in apps/web-app-preview (not overwritten):"
 echo "  - src/lib/api/client.ts   (fixture-backed client)"

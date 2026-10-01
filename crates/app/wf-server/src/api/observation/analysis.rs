@@ -521,6 +521,7 @@ pub(crate) async fn handle_error_chain_stream(
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/performance",
+    operation_id = "get_executions_id_performance",
     tag = "observation",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -575,6 +576,7 @@ pub(crate) async fn handle_performance_bottlenecks(
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/performance/iteration-comparison",
+    operation_id = "get_executions_id_performance_iteration_comparison",
     tag = "observation",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

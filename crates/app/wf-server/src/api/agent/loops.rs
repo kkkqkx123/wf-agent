@@ -339,7 +339,7 @@ pub struct RunAgentLoopBody {
     discoverable_tool_names: Option<Vec<String>>,
     enable_general_tool: Option<bool>,
     hidden_tool_names: Option<Vec<String>>,
-    #[schema(value_type = Object)]
+    #[schema(value_type = Value)]
     tool_call_protocol: Option<wf_api::ToolCallProtocolConfig>,
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
@@ -351,7 +351,7 @@ pub struct RunAgentLoopBody {
     checkpoint_message_interval: Option<u32>,
     #[serde(default)]
     context: HashMap<String, Value>,
-    #[schema(value_type = Option<Vec<Object>>)]
+    #[schema(value_type = Option<Vec<Value>>)]
     conversation: Option<Vec<Message>>,
 }
 
@@ -749,6 +749,7 @@ pub(crate) async fn handle_loop_timeline(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/variable-history/{name}",
+    operation_id = "get_agent_loops_id_variable_history_name",
     tag = "agent",
     params(IdNamePath, ListQuery),
     responses(
@@ -844,6 +845,7 @@ mod tests {
         crate::router::ApiState {
             ctx: make_ctx(),
             config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+            locks: crate::api::workflow::locks::WorkflowLocks::default(),
         }
     }
 

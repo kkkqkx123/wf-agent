@@ -32,22 +32,6 @@ export const client = createClient<paths>({
 });
 
 /**
- * Escape hatch for routes whose generated operation types disagree with their
- * own URL template: utoipa emits one `handle_*` name for several routes, so the
- * shared `operations[...]` type describes a different route. Keeping the cast
- * here leaves every other call site on the typed client.
- */
-export function request(
-	method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-	path: string,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	init?: Record<string, any>,
-): Promise<{ data?: unknown; error?: unknown }> {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return (client as any)[method](path, init ?? {});
-}
-
-/**
  * Fetch a full-path endpoint and hand the response to the browser as a file
  * download. Export routes answer with an attachment instead of the JSON
  * envelope, so they bypass the typed client.

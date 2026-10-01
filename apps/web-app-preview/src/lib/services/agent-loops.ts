@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import {
 	call,
 	extractCapped,
@@ -432,7 +432,7 @@ export async function createAgentLoopCheckpoint(
 	description?: string,
 ): Promise<void> {
 	await call<unknown>(
-		request('POST', '/api/v1/agent-loops/{id}/checkpoints', {
+		client.POST('/api/v1/agent-loops/{id}/checkpoints', {
 			params: { path: { id } },
 			body: { description: description ?? null },
 		}),
@@ -444,7 +444,7 @@ export async function restoreAgentLoopCheckpoint(
 	checkpointId: string,
 ): Promise<void> {
 	await call<unknown>(
-		request('POST', '/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
+		client.POST('/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
 			params: { path: { id, cid: checkpointId } },
 		}),
 	);
@@ -486,7 +486,7 @@ export async function runAgentLoop(
 ): Promise<AgentRunResult> {
 	const data = requireData(
 		await call<AgentRunViewDto>(
-			request('POST', '/api/v1/agent-loops/{id}/run', {
+			client.POST('/api/v1/agent-loops/{id}/run', {
 				params: { path: { id } },
 				body: {
 					model: input.model,

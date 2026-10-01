@@ -16,7 +16,6 @@
 	import { jsonErrorLine } from '$lib/services/templates';
 	import {
 		cleanupTriggerExecutions,
-		listTriggerHistory,
 		listTriggerExecutions,
 		listHooks,
 		fireHook,
@@ -80,11 +79,8 @@
 			recordsLoading = true;
 			recordsError = null;
 			try {
-				const [history, executions] = await Promise.all([
-					listTriggerHistory({ limit: 200 }),
-					listTriggerExecutions({ limit: 200 }),
-				]);
-				const merged = [...history.items, ...executions.items];
+				const executions = await listTriggerExecutions({ limit: 200 });
+				const merged = [...executions.items];
 				const seen: string[] = [];
 				triggerRecords = merged.filter((row) => {
 					if (seen.includes(row.id)) return false;

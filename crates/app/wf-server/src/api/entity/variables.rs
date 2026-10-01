@@ -62,6 +62,7 @@ pub(crate) struct ListVariablesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/variables",
+    operation_id = "get_variables",
     tag = "entity",
     params(ListVariablesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -97,6 +98,7 @@ pub(crate) struct VariableBody {
 #[utoipa::path(
     post,
     path = "/api/v1/variables",
+    operation_id = "post_variables",
     tag = "entity",
     request_body = VariableBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -142,6 +144,7 @@ pub(crate) struct VariableQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/variables/{name}",
+    operation_id = "get_variables_name",
     tag = "entity",
     params(NamePath, VariableQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -168,6 +171,7 @@ pub(crate) async fn handle_get_variable(
 #[utoipa::path(
     delete,
     path = "/api/v1/variables/{name}",
+    operation_id = "delete_variables_name",
     tag = "entity",
     params(NamePath, VariableQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -194,6 +198,7 @@ pub(crate) async fn handle_delete_variable(
 #[utoipa::path(
     get,
     path = "/api/v1/variables/stats",
+    operation_id = "get_variables_stats",
     tag = "entity",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -369,6 +374,7 @@ pub(crate) async fn handle_variables_at_node(
 #[utoipa::path(
     get,
     path = "/api/v1/variables/export/{executionId}",
+    operation_id = "get_variables_export_executionid",
     tag = "entity",
     params(ExecutionIdPath, VariableExportQuery),
     responses((status = 200, description = "Exported variables file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -418,6 +424,7 @@ pub(crate) struct VariableHistoryQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/variables/history",
+    operation_id = "get_variables_history",
     tag = "entity",
     params(VariableHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

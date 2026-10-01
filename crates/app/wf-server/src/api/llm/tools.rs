@@ -121,6 +121,7 @@ pub(crate) struct ExecuteToolBody {
 #[utoipa::path(
     post,
     path = "/api/v1/tools/execute",
+    operation_id = "post_tools_execute",
     tag = "llm",
     request_body = ExecuteToolBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

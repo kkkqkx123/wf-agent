@@ -36,6 +36,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/drafts",
+    operation_id = "get_workflows_drafts",
     tag = "workflow",
     responses((status = 200, description = "Draft list: array of full workflow definitions (free-form; drafts may be incomplete and never execute directly)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -50,6 +51,7 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
 #[utoipa::path(
     post,
     path = "/api/v1/workflows/drafts",
+    operation_id = "post_workflows_drafts",
     tag = "workflow",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -68,6 +70,7 @@ pub(crate) async fn handle_save_draft(
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/drafts/{id}",
+    operation_id = "get_workflows_drafts_id",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Draft detail: full workflow definition (free-form; may be incomplete)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -86,6 +89,7 @@ pub(crate) async fn handle_get_draft(
 #[utoipa::path(
     delete,
     path = "/api/v1/workflows/drafts/{id}",
+    operation_id = "delete_workflows_drafts_id",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -173,6 +177,7 @@ impl From<wf_api::infra::dependency::UpdateImpactReport> for PromoteReportDoc {
 #[utoipa::path(
     post,
     path = "/api/v1/workflows/drafts/{id}/promote",
+    operation_id = "post_workflows_drafts_id_promote",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Promotion impact report", body = crate::envelope::ApiEnvelope<PromoteReportDoc>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -210,6 +215,7 @@ pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl In
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/drafts/{id}/validate",
+    operation_id = "get_workflows_drafts_id_validate",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Draft validation issues (empty when promotable)", body = crate::envelope::ApiEnvelope<Vec<ValidationIssueDoc>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -232,6 +238,7 @@ pub(crate) async fn handle_validate_draft(
 #[utoipa::path(
     get,
     path = "/api/v1/workflows/{id}/lifecycle",
+    operation_id = "get_workflows_id_lifecycle",
     tag = "workflow",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

@@ -239,6 +239,7 @@ pub(crate) async fn handle_similar_errors(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/performance",
+    operation_id = "get_agent_loops_id_performance",
     tag = "agent",
     params(IdPath),
     responses(
@@ -261,6 +262,7 @@ pub(crate) async fn handle_performance(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/performance/comparison",
+    operation_id = "get_agent_loops_id_performance_comparison",
     tag = "agent",
     params(IdPath),
     responses(

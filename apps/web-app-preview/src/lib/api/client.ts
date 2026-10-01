@@ -624,6 +624,37 @@ router.on('GET', '/api/v1/file-checkpoint/timeline/{id}', (params) => ({
 }));
 router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', () => ({ ok: true }));
 router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', () => ({ ok: true }));
+// Preview has no concurrent editors, so the workflow lock is always free.
+router.on('GET', '/api/v1/workflows/{id}/lock', () => null);
+router.on('POST', '/api/v1/workflows/{id}/lock/acquire', (_p, _q, body) => ({
+	owner_id:
+		typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
+	owner_name:
+		typeof body?.owner_name === 'string' && body.owner_name
+			? body.owner_name
+			: 'Preview Owner',
+	expires_at: FIXTURE_EPOCH
+}));
+router.on('POST', '/api/v1/workflows/{id}/lock/heartbeat', (_p, _q, body) => ({
+	owner_id:
+		typeof body?.owner_id === 'string' && body.owner_id ? body.owner_id : 'preview-owner',
+	owner_name: 'Preview Owner',
+	expires_at: FIXTURE_EPOCH
+}));
+router.on('POST', '/api/v1/workflows/{id}/lock/release', () => null);
+// Minimal execution overview; the canvas renders an empty graph.
+router.on('GET', '/api/v1/executions/{id}/graph/overview', () => ({
+	graph: { nodes: [], edges: [] },
+	failed_nodes: [],
+	critical_path: []
+}));
+// Template imports return a stable preview id; exports return empty payloads.
+router.on('POST', '/api/v1/templates/node/import', () => 'preview-template-id');
+router.on('POST', '/api/v1/templates/trigger/import', () => 'preview-template-id');
+router.on('POST', '/api/v1/templates/library/workflows/import', () => 'preview-template-id');
+router.on('POST', '/api/v1/templates/library/agents/import', () => 'preview-template-id');
+router.on('GET', '/api/v1/templates/library/workflows/{id}/export', () => ({}));
+router.on('GET', '/api/v1/templates/library/agents/{id}/export', () => ({}));
 router.on('GET', '/api/v1/file-checkpoint/diff/staged/{id}', () => ([
         {
                 path: 'crates/checkpoint/src/restore_coordinator.rs',

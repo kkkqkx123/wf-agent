@@ -29,6 +29,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[utoipa::path(
     get,
     path = "/api/v1/agents/drafts",
+    operation_id = "get_agents_drafts",
     tag = "agent",
     responses(
         (status = 200, description = "List of agent drafts", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -46,6 +47,7 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
 #[utoipa::path(
     post,
     path = "/api/v1/agents/drafts",
+    operation_id = "post_agents_drafts",
     tag = "agent",
     request_body = serde_json::Value,
     responses(
@@ -69,6 +71,7 @@ pub(crate) async fn handle_save_draft(
 #[utoipa::path(
     get,
     path = "/api/v1/agents/drafts/{id}",
+    operation_id = "get_agents_drafts_id",
     tag = "agent",
     params(IdPath),
     responses(
@@ -91,6 +94,7 @@ pub(crate) async fn handle_get_draft(
 #[utoipa::path(
     delete,
     path = "/api/v1/agents/drafts/{id}",
+    operation_id = "delete_agents_drafts_id",
     tag = "agent",
     params(IdPath),
     responses(
@@ -113,6 +117,7 @@ pub(crate) async fn handle_delete_draft(
 #[utoipa::path(
     post,
     path = "/api/v1/agents/drafts/{id}/promote",
+    operation_id = "post_agents_drafts_id_promote",
     tag = "agent",
     params(IdPath),
     responses(
@@ -135,6 +140,7 @@ pub(crate) async fn handle_promote_draft(
 #[utoipa::path(
     get,
     path = "/api/v1/agents/drafts/{id}/validate",
+    operation_id = "get_agents_drafts_id_validate",
     tag = "agent",
     params(IdPath),
     responses(
@@ -157,6 +163,7 @@ pub(crate) async fn handle_validate_draft(
 #[utoipa::path(
     get,
     path = "/api/v1/agents/{id}/lifecycle",
+    operation_id = "get_agents_id_lifecycle",
     tag = "agent",
     params(IdPath),
     responses(

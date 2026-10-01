@@ -7,7 +7,7 @@
 
 - `openapi-typescript` 的 peer 为 `typescript ^5.x`，在 TypeScript 7 下运行时失败。
 - web-app 使用 TS7（`svelte-check`）；本包锁定 TS5，仅在需要重新生成时安装/运行。
-- 生成物在本目录为中间产物，**不进 git**；复制到 web-app 后的 `schema.d.ts` 才是正式文件。
+- 生成物直接写正式路径并入库；本目录不保留中间产物。
 
 ## 依赖
 
@@ -28,16 +28,12 @@ WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document
 cd tools/openapi-codegen
 npm install
 
-# 3. 从快照生成（读 web-app 快照，写本目录 schema.d.ts）
+# 3. 从快照生成（读 web-app 快照，直写正式类型文件）
 npm run gen
-
-# 4. 复制为正式类型文件
-cp schema.d.ts ../../apps/web-app/src/lib/api/schema.d.ts
 ```
 
 - **输入**：`../../apps/web-app/openapi.json`（仓库提交的 golden-file 快照）
-- **输出**：本目录 `schema.d.ts`（已被 `.gitignore` 忽略）
-- **正式产物**：`apps/web-app/src/lib/api/schema.d.ts`（提交入库）
+- **输出**：`../../apps/web-app/src/lib/api/schema.d.ts`（提交入库）
 
 ## 日常校验（不重新生成时）
 
@@ -49,6 +45,6 @@ cargo test -p wf-server committed_snapshot_matches_document
 
 ## 约定
 
-- 本目录生成的 `openapi.json`、`schema.d.ts` 等中间文件不提交。
+- 不在本目录保留中间产物。
 - 不在 web-app 内声明 `openapi-typescript` / `gen` 脚本，避免双源。
 - 流式（SSE/WS）类型不由本工具生成，在 web-app 侧独立维护。

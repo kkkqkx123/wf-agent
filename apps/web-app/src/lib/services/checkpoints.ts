@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
@@ -61,7 +61,7 @@ export async function listCheckpoints(params?: {
 	offset?: number;
 }): Promise<PageResult<Checkpoint>> {
 	const data = await call<unknown>(
-		request('GET', '/api/v1/checkpoints', {
+		client.GET('/api/v1/checkpoints', {
 			params: { query: { limit: params?.limit, offset: params?.offset } },
 		}),
 	);
@@ -166,7 +166,7 @@ export async function getFileChangesPage(params?: {
 	offset?: number;
 }): Promise<PageResult<FileChange>> {
 	const data = await call<unknown>(
-		request('GET', '/api/v1/file-checkpoint/changes', {
+		client.GET('/api/v1/file-checkpoint/changes', {
 			params: {
 				query: {
 					actor: params?.actor,
@@ -246,14 +246,14 @@ export async function restoreFromCheckpoint(
 ): Promise<boolean> {
 	if (loopId) {
 		await call<unknown>(
-			request('POST', '/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
+			client.POST('/api/v1/agent-loops/{id}/checkpoints/{cid}/restore', {
 				params: { path: { id: loopId, cid: checkpointId } },
 			}),
 		);
 		return true;
 	}
 	await call<unknown>(
-		request('POST', '/api/v1/executions/checkpoints/{cid}/restore', {
+		client.POST('/api/v1/executions/checkpoints/{cid}/restore', {
 			params: { path: { cid: checkpointId } },
 		}),
 	);
@@ -265,7 +265,7 @@ export async function resumeFromCheckpoint(
 	checkpointId: string,
 ): Promise<boolean> {
 	await call<unknown>(
-		request('POST', '/api/v1/executions/checkpoints/{cid}/resume', {
+		client.POST('/api/v1/executions/checkpoints/{cid}/resume', {
 			params: { path: { cid: checkpointId } },
 		}),
 	);
@@ -359,7 +359,7 @@ export async function getStagedDiffs(actor: string): Promise<FileDiff[]> {
 /** Per-file diff between two actor workspaces. */
 export async function getDiffActors(a: string, b: string): Promise<FileDiff[]> {
 	const data = await call<unknown>(
-		request('GET', '/api/v1/file-checkpoint/diff/actors/{a}/{b}', {
+		client.GET('/api/v1/file-checkpoint/diff/actors/{a}/{b}', {
 			params: { path: { a, b } },
 		}),
 	);
@@ -399,7 +399,7 @@ export async function getFileContent(
 ): Promise<FileContent> {
 	const data = requireData(
 		await call<FileContentDto>(
-			request('GET', '/api/v1/file-checkpoint/content', {
+			client.GET('/api/v1/file-checkpoint/content', {
 				params: { query: { actor, path } },
 			}),
 		),
@@ -444,7 +444,7 @@ export async function getFileTree(
 ): Promise<FileTree> {
 	const data = requireData(
 		await call<FileTreeDto>(
-			request('GET', '/api/v1/file-checkpoint/tree/{id}', {
+			client.GET('/api/v1/file-checkpoint/tree/{id}', {
 				params: { path: { id: actor }, query: { prefix } },
 			}),
 		),
@@ -495,7 +495,7 @@ interface FileTimelineDto {
 export async function getFileTimeline(path: string): Promise<FileTimeline> {
 	const data = requireData(
 		await call<FileTimelineDto>(
-			request('GET', '/api/v1/file-checkpoint/timeline/{id}', {
+			client.GET('/api/v1/file-checkpoint/timeline/{id}', {
 				params: { path: { id: path } },
 			}),
 		),
@@ -519,7 +519,7 @@ export async function getFileTimeline(path: string): Promise<FileTimeline> {
 /** Approve a pending approval request. */
 export async function approveApproval(id: string): Promise<void> {
 	await call<unknown>(
-		request('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', {
+		client.POST('/api/v1/file-checkpoint/approvals/{id}/approve', {
 			params: { path: { id } },
 			body: {},
 		}),
@@ -532,7 +532,7 @@ export async function rejectApproval(
 	reason?: string,
 ): Promise<void> {
 	await call<unknown>(
-		request('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', {
+		client.POST('/api/v1/file-checkpoint/approvals/{id}/reject', {
 			params: { path: { id } },
 			body: { reason: reason ?? null },
 		}),

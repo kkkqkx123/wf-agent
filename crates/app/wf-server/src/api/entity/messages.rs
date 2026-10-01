@@ -146,6 +146,7 @@ pub(crate) struct SearchMessagesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/messages/search",
+    operation_id = "get_messages_search",
     tag = "entity",
     params(SearchMessagesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -174,6 +175,7 @@ pub(crate) async fn handle_search_messages(
 #[utoipa::path(
     get,
     path = "/api/v1/messages/stats",
+    operation_id = "get_messages_stats",
     tag = "entity",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -234,6 +236,7 @@ pub(crate) struct ConversationQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/messages/conversation/{executionId}",
+    operation_id = "get_messages_conversation_executionid",
     tag = "entity",
     params(ExecutionIdPath, ConversationQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

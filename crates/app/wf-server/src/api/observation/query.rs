@@ -35,10 +35,10 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// expressions) plus sort / pagination overrides.
 #[derive(Deserialize, Default, ToSchema)]
 pub(crate) struct QueryBody {
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Value>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<Value>)]
     expressions: Vec<FilterExpression>,
     sort_field: Option<String>,
     sort_descending: Option<bool>,
@@ -95,10 +95,10 @@ pub(crate) async fn handle_query(
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct ExportBody {
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Value>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<Value>)]
     expressions: Vec<FilterExpression>,
     sort_field: Option<String>,
     sort_descending: Option<bool>,
@@ -119,6 +119,7 @@ pub(crate) struct ExportDownloadQuery {
 #[utoipa::path(
     post,
     path = "/api/v1/query/export",
+    operation_id = "post_query_export",
     tag = "observation",
     params(ExportDownloadQuery),
     request_body = ExportBody,
@@ -176,10 +177,10 @@ fn download_response(payload: &str, format: ExportFormat) -> axum::response::Res
 
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct AggregateBody {
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Value>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
-    #[schema(value_type = Vec<Object>)]
+    #[schema(value_type = Vec<Value>)]
     expressions: Vec<FilterExpression>,
     #[serde(default)]
     #[schema(value_type = Vec<String>)]
@@ -249,7 +250,7 @@ pub(crate) async fn handle_distinct(
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct GroupByBody {
     field: String,
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<Value>)]
     filters: Option<FilterCriteria>,
 }
 
@@ -277,7 +278,7 @@ pub(crate) async fn handle_group_by(
 pub(crate) struct EvaluateBody {
     record: Value,
     #[serde(flatten)]
-    #[schema(value_type = Object)]
+    #[schema(value_type = Value)]
     expression: FilterExpression,
 }
 

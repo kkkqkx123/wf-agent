@@ -1,4 +1,4 @@
-import { client, request } from '$lib/api/client';
+import { client } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { Hook, TriggerRecord } from '$lib/types/models';
@@ -25,13 +25,15 @@ function toTriggerRecord(d: TriggerRecordDto): TriggerRecord {
 	};
 }
 
-export async function listTriggerHistory(params?: {
+export async function listTriggerHistory(params: {
+	execution_id: string;
+	trigger_name?: string;
 	limit?: number;
 	offset?: number;
 }): Promise<PageResult<TriggerRecord>> {
 	const data = await call<unknown>(
-		request('GET', '/api/v1/triggers/history', {
-			params: { query: params ?? {} },
+		client.GET('/api/v1/triggers/history', {
+			params: { query: params },
 		}),
 	);
 	requireData(data, 'Trigger history');

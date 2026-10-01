@@ -292,6 +292,7 @@ pub(crate) struct TriggerHistoryQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/triggers",
+    operation_id = "get_executions_id_triggers",
     tag = "workflow",
     params(IdPath, TriggerHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),

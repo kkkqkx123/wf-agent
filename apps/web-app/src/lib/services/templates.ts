@@ -1,4 +1,4 @@
-import { client, downloadFile, request } from '$lib/api/client';
+import { client, downloadFile } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
 import { ApiHttpError } from '$lib/api/envelope';
 import { backendEdgeType } from '$lib/graph/display-model';
@@ -458,9 +458,13 @@ export async function importTemplate(
 		return saved;
 	}
 	const saved = await call<string>(
-		request('POST', `/api/v1/templates/library/${kind}s/import`, {
-			body: { json },
-		}),
+		kind === 'workflow'
+			? client.POST('/api/v1/templates/library/workflows/import', {
+					body: { json }
+				})
+			: client.POST('/api/v1/templates/library/agents/import', {
+					body: { json }
+				})
 	);
 	if (!saved) throw new Error('Import returned no id');
 	return saved;

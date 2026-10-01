@@ -139,6 +139,7 @@ pub(crate) struct SearchMessagesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/messages/search",
+    operation_id = "get_agent_loops_id_messages_search",
     tag = "agent",
     params(IdPath, SearchMessagesQuery),
     responses(
@@ -170,6 +171,7 @@ pub(crate) async fn handle_search_messages(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/messages/stats",
+    operation_id = "get_agent_loops_id_messages_stats",
     tag = "agent",
     params(IdPath),
     responses(
@@ -203,6 +205,7 @@ pub(crate) struct ConversationQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/conversation",
+    operation_id = "get_agent_loops_id_conversation",
     tag = "agent",
     params(IdPath, ConversationQuery),
     responses(
@@ -242,6 +245,7 @@ pub(crate) async fn handle_conversation(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/variables",
+    operation_id = "get_agent_loops_id_variables",
     tag = "agent",
     params(IdPath, ListQuery),
     responses(
@@ -273,6 +277,7 @@ pub(crate) async fn handle_list_variables(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/variables/stats",
+    operation_id = "get_agent_loops_id_variables_stats",
     tag = "agent",
     params(IdPath),
     responses(
@@ -302,6 +307,7 @@ pub(crate) struct VariableExportQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/variables/export",
+    operation_id = "get_agent_loops_id_variables_export",
     tag = "agent",
     params(IdPath, VariableExportQuery),
     responses(
@@ -336,6 +342,7 @@ pub(crate) async fn handle_variable_export(
 #[utoipa::path(
     get,
     path = "/api/v1/agent-loops/{id}/variables/{name}",
+    operation_id = "get_agent_loops_id_variables_name",
     tag = "agent",
     params(IdNamePath),
     responses(
@@ -366,6 +373,7 @@ pub(crate) struct SetVariableBody {
 #[utoipa::path(
     put,
     path = "/api/v1/agent-loops/{id}/variables/{name}",
+    operation_id = "put_agent_loops_id_variables_name",
     tag = "agent",
     params(IdNamePath),
     request_body = SetVariableBody,
@@ -392,6 +400,7 @@ pub(crate) async fn handle_set_variable(
 #[utoipa::path(
     delete,
     path = "/api/v1/agent-loops/{id}/variables/{name}",
+    operation_id = "delete_agent_loops_id_variables_name",
     tag = "agent",
     params(IdNamePath),
     responses(

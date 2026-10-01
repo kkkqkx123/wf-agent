@@ -69,6 +69,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[utoipa::path(
     post,
     path = "/api/v1/executions/{id}/checkpoints",
+    operation_id = "post_executions_id_checkpoints",
     tag = "checkpoint",
     params(IdPath),
     responses(
@@ -98,6 +99,7 @@ pub(crate) async fn handle_create_checkpoint(
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/checkpoints/chain",
+    operation_id = "get_executions_id_checkpoints_chain",
     tag = "checkpoint",
     params(IdPath),
     responses(
@@ -168,6 +170,7 @@ fn cap_chain(chain: wf_api::checkpoint::record::CheckpointChainAnalysisView) -> 
 #[utoipa::path(
     post,
     path = "/api/v1/executions/checkpoints/{cid}/restore",
+    operation_id = "post_executions_checkpoints_cid_restore",
     tag = "checkpoint",
     params(CidPath),
     responses(
@@ -247,6 +250,7 @@ pub(crate) struct ListCheckpointsQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/checkpoints",
+    operation_id = "get_checkpoints",
     tag = "checkpoint",
     params(ListCheckpointsQuery),
     responses(

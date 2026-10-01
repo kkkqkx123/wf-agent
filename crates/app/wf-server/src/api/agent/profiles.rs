@@ -72,6 +72,7 @@ pub(crate) struct ListProfilesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/agents",
+    operation_id = "get_agents",
     tag = "agent",
     params(ListProfilesQuery),
     responses(
@@ -124,6 +125,7 @@ pub(crate) async fn handle_save_profile(
 #[utoipa::path(
     get,
     path = "/api/v1/agents/{id}",
+    operation_id = "get_agents_id",
     tag = "agent",
     params(IdPath),
     responses(
@@ -146,6 +148,7 @@ pub(crate) async fn handle_get_profile(
 #[utoipa::path(
     put,
     path = "/api/v1/agents/{id}",
+    operation_id = "put_agents_id",
     tag = "agent",
     params(IdPath),
     request_body = serde_json::Value,
@@ -172,6 +175,7 @@ pub(crate) async fn handle_update_profile(
 #[utoipa::path(
     delete,
     path = "/api/v1/agents/{id}",
+    operation_id = "delete_agents_id",
     tag = "agent",
     params(IdPath),
     responses(

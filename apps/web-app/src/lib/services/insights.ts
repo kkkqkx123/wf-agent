@@ -1,4 +1,4 @@
-import { client, request, downloadFile } from '$lib/api/client';
+import { client, downloadFile } from '$lib/api/client';
 import { call, extractPage } from '$lib/api/envelope';
 import type {
 	QueryResult,
@@ -48,7 +48,7 @@ export async function runQuery(params: {
 		limit: params.limit ?? 50,
 		offset: params.offset ?? 0,
 	};
-	const data = await call<unknown>(request('POST', '/api/v1/query', { body }));
+	const data = await call<unknown>(client.POST('/api/v1/query', { body }));
 
 	if (data && typeof data === 'object') {
 		const d = data as Record<string, unknown>;

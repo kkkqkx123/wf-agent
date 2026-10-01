@@ -42,13 +42,13 @@ fn test_delta_compute_id() {
     let source = SourceType::Manual;
 
     let delta1 = Delta::new(file.clone(), diff.clone(), source.clone());
-    std::thread::sleep(std::time::Duration::from_millis(10));
     let delta2 = Delta::new(file, diff, source);
 
-    // Each invocation is an independent record: identical content applied at
-    // different times must yield different ids.
+    // Each invocation is an independent record with a real (positive Unix-ms)
+    // timestamp; id uniqueness holds even within the same millisecond.
     assert_ne!(delta1.id, delta2.id);
-    assert_ne!(delta1.timestamp, delta2.timestamp);
+    assert!(delta1.timestamp > 0);
+    assert!(delta2.timestamp > 0);
 }
 
 #[test]

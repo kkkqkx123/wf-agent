@@ -118,16 +118,187 @@ impl LayertwineBackend {
 
     /// File-history facade: latest commit id for an author (cross-process
     /// fallback when the in-memory cache misses).
+    ///
+    /// Head-first selection: commits reachable from a live execution-branch
+    /// head (the head plus its ancestors) win over wall-clock-newer orphans
+    /// (abandoned lines, clock-skew rows not yet swept). Only when no
+    /// head-reachable commit by this author exists does the lookup fall back
+    /// to the global maximum, with a warning — that path covers branchless
+    /// root executions and legacy rows. Ties break by checkpoint id so
+    /// same-millisecond writes stay deterministic.
     pub fn latest_file_history_id_by_author(
         &self,
         author: &str,
     ) -> Result<Option<String>, CheckpointError> {
         let checkpoints = self.list_file_history_checkpoints()?;
-        let latest = checkpoints
+        let authored: Vec<&layertwine::checkpoint::Checkpoint> = checkpoints
             .iter()
             .filter(|c| c.metadata.author == author)
-            .max_by_key(|c| c.created_at);
-        Ok(latest.map(|c| c.id.to_hex()))
+            .collect();
+        if authored.is_empty() {
+            return Ok(None);
+        }
+        let mut parents_of = std::collections::HashMap::new();
+        for cp in &checkpoints {
+            parents_of.insert(cp.id, cp.parents.clone());
+        }
+        let pick = |candidates: &[&layertwine::checkpoint::Checkpoint]| {
+            candidates
+                .iter()
+                .max_by(|a, b| (a.created_at, a.id.to_hex()).cmp(&(b.created_at, b.id.to_hex())))
+                .map(|cp| cp.id.to_hex())
+        };
+        // A live head authored by this author is the branch tip by
+        // definition and wins outright — even over wall-clock-newer commits
+        // on the same line (skewed writers must not displace the pointer
+        // that concurrent handles converge on).
+        let live_heads = self.live_head_ids();
+        let authored_heads: Vec<&layertwine::checkpoint::Checkpoint> = authored
+            .iter()
+            .filter(|c| live_heads.contains(&c.id))
+            .copied()
+            .collect();
+        if !authored_heads.is_empty() {
+            return Ok(pick(&authored_heads));
+        }
+        let reachable =
+            layertwine::checkpoint::ancestor_closure(live_heads, &parents_of);
+        let anchored: Vec<&layertwine::checkpoint::Checkpoint> = authored
+            .iter()
+            .filter(|c| reachable.contains(&c.id))
+            .copied()
+            .collect();
+        if !anchored.is_empty() {
+            return Ok(pick(&anchored));
+        }
+        tracing::warn!(
+            author = author,
+            "no head-reachable commit for author; falling back to wall-clock maximum"
+        );
+        Ok(pick(&authored))
+    }
+
+    /// Live execution-branch head ids (native `branches` table). Heads that
+    /// fail to parse are skipped with a warning; a branch listing failure
+    /// degrades to an empty set (callers fall back to wall-clock selection)
+    /// instead of failing the lookup.
+    fn live_head_ids(&self) -> std::collections::HashSet<layertwine::core::types::CheckpointId> {
+        use layertwine::core::types::CheckpointId;
+
+        let mut heads = std::collections::HashSet::new();
+        let names = match self.list_execution_branch_names() {
+            Ok(names) => names,
+            Err(e) => {
+                tracing::warn!("branch listing failed during head-first selection: {e}");
+                return heads;
+            }
+        };
+        for name in names {
+            match self.get_branch_head(&name) {
+                Ok(Some(head)) => match CheckpointId::from_hex(&head) {
+                    Some(id) => {
+                        heads.insert(id);
+                    }
+                    None => tracing::warn!(
+                        branch = name.as_str(),
+                        "branch head is not a content id; ignoring"
+                    ),
+                },
+                Ok(None) => {}
+                Err(e) => tracing::warn!(
+                    branch = name.as_str(),
+                    "branch head lookup failed during head-first selection: {e}"
+                ),
+            }
+        }
+        heads
+    }
+
+    /// Advance an execution-branch head to a new commit when the commit
+    /// descends from the current head (monotonic advancement). Returns
+    /// `false` — leaving the head untouched with a warning — when the commit
+    /// is not a descendant (sideways or foreign line), so a skewed or
+    /// abandoned commit can never steal the branch pointer. A missing head
+    /// row accepts the commit as the first head.
+    pub fn advance_branch_head_if_descendant(
+        &self,
+        branch: &str,
+        checkpoint_id: &str,
+    ) -> Result<bool, CheckpointError> {
+        use layertwine::core::types::CheckpointId;
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let Some(new_head) = CheckpointId::from_hex(checkpoint_id) else {
+            return Err(CheckpointError::Branch(format!(
+                "branch head must be a content id, got '{checkpoint_id}'"
+            )));
+        };
+        if !self
+            .storage
+            .checkpoint_exists(&new_head)
+            .map_err(map_layertwine_error)?
+        {
+            return Err(CheckpointError::Branch(format!(
+                "cannot advance branch '{branch}' to missing checkpoint '{checkpoint_id}'"
+            )));
+        }
+        let old_head = match self.get_branch_head(branch)? {
+            Some(head) => match CheckpointId::from_hex(&head) {
+                Some(id) => id,
+                None => {
+                    tracing::warn!(
+                        branch = branch,
+                        "branch head is not a content id; overwriting"
+                    );
+                    return self.set_branch_head(branch, checkpoint_id).map(|()| true);
+                }
+            },
+            None => return self.set_branch_head(branch, checkpoint_id).map(|()| true),
+        };
+        if old_head == new_head {
+            return Ok(true);
+        }
+        // Walk the new commit's ancestry for the old head (visited set keeps
+        // corrupted cycles terminating).
+        let mut seen = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::from([new_head]);
+        let mut descends = false;
+        let mut direct_child = false;
+        while let Some(id) = queue.pop_front() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Ok(cp) = self.storage.get_checkpoint(&id) else {
+                continue;
+            };
+            if cp.parents.contains(&old_head) {
+                descends = true;
+                if id == new_head {
+                    direct_child = true;
+                }
+                break;
+            }
+            for parent in &cp.parents {
+                if !seen.contains(parent) {
+                    queue.push_back(*parent);
+                }
+            }
+        }
+        if !descends {
+            tracing::warn!(
+                branch = branch,
+                "refusing to advance branch head to a non-descendant commit"
+            );
+            return Ok(false);
+        }
+        if !direct_child {
+            tracing::warn!(
+                branch = branch,
+                "branch head advances non-linearly (concurrent lines converged)"
+            );
+        }
+        self.set_branch_head(branch, checkpoint_id)?;
+        Ok(true)
     }
 }
 

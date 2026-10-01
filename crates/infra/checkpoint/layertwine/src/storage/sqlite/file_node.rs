@@ -37,4 +37,13 @@ impl FileNodeStore for SqliteStorage {
             stmt.query_row(params![file_path, &base_hash.to_vec()], |row| row.get(0))?;
         Ok(count > 0)
     }
+
+    fn delete_file_node(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<bool> {
+        let conn = self.conn.lock();
+        let removed = conn.execute(
+            "DELETE FROM file_nodes WHERE file_path = ?1 AND base_hash = ?2",
+            params![file_path, &base_hash.to_vec()],
+        )?;
+        Ok(removed > 0)
+    }
 }

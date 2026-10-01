@@ -14,6 +14,7 @@ use crate::manager_store::{ManagerPolicy, ManagerStore};
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use checkpoint_base::actor::registry::ActorRegistry;
+use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::common::diff::unified_diff_text;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::recent_agent_writes::RecentAgentWrites;
@@ -184,6 +185,9 @@ pub struct FileCheckpointManager {
     /// Path -> content hash registry of recent agent writes (manual watcher
     /// uses it to distinguish agent self-writes from human edits).
     pub(crate) recent_agent_writes: Arc<RecentAgentWrites>,
+    /// Time source for checkpoint creation timestamps. Tests inject a
+    /// manual clock and advance it explicitly instead of sleeping.
+    pub(crate) clock: CheckpointClock,
     /// Actor id -> file paths deleted by the actor (write-side cache only).
     /// The authoritative deletion set is derived from the snapshot chain's
     /// explicit deletion markers (`checkpoint_deleted_paths`); this map is
@@ -218,6 +222,7 @@ impl Clone for FileCheckpointManager {
             store: self.store.clone(),
             policy: self.policy.clone(),
             recent_agent_writes: self.recent_agent_writes.clone(),
+            clock: self.clock.clone(),
             deleted_files: self.deleted_files.clone(),
             event_bus: self.event_bus.clone(),
             workspace_root: self.workspace_root.clone(),
@@ -234,6 +239,7 @@ impl FileCheckpointManager {
             store: ManagerStore::without_storage(),
             policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
+            clock: CheckpointClock::system(),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
@@ -250,6 +256,7 @@ impl FileCheckpointManager {
             store: ManagerStore::with_sqlite(storage),
             policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
+            clock: CheckpointClock::system(),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
@@ -257,6 +264,22 @@ impl FileCheckpointManager {
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Drive checkpoint creation timestamps from an explicit clock instead
+    /// of the system clock. Also swaps the write-attribution registry onto
+    /// the same clock so window tests advance a single time source.
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock.clone();
+        self.recent_agent_writes = Arc::new(
+            RecentAgentWrites::with_limits(
+                checkpoint_base::recent_agent_writes::DEFAULT_CAPACITY,
+                checkpoint_base::recent_agent_writes::DEFAULT_WINDOW,
+                checkpoint_base::recent_agent_writes::DEFAULT_GRACE,
+            )
+            .with_clock(clock),
+        );
+        self
     }
 
     /// Attach the change-event bus: every recorded agent/manual edit
@@ -370,6 +393,7 @@ impl FileCheckpointManager {
             store: ManagerStore::new_in_memory_backend()?,
             policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
+            clock: CheckpointClock::system(),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
@@ -377,6 +401,15 @@ impl FileCheckpointManager {
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         })
+    }
+
+    /// Current creation timestamp from the manager clock, or an explicit
+    /// error when the clock is unavailable. Checkpoint creation never falls
+    /// back to a sentinel timestamp.
+    pub(crate) fn creation_timestamp(&self) -> Result<i64, CheckpointError> {
+        self.clock.now_ms().ok_or_else(|| CheckpointError::Internal(
+            "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
+        ))
     }
 
     /// Shared scoped-shell sampling registry (foreground scopes +
@@ -402,7 +435,9 @@ impl FileCheckpointManager {
 
     /// Scan the workspace and create a content-level checkpoint from it
     /// (the default full-scan path): files are hashed and stored as agent
-    /// edits, and empty directories are recorded for later restore.
+    /// edits, and empty directories are recorded for later restore. The
+    /// directory list is auxiliary metadata, not part of the commit
+    /// identity; precise single-file commits leave it empty.
     pub fn create_workspace_checkpoint(
         &self,
         entity_id: &str,

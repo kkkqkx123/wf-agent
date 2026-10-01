@@ -12,8 +12,14 @@ pub trait CheckpointStrategy: Send + Sync {
 
     /// Whether the retention policy is exceeded: more checkpoints than
     /// `max_checkpoints`, or the oldest checkpoint older than `max_age`
-    /// (milliseconds).
-    fn is_retention_exceeded(&self, current_count: u32, oldest_timestamp: i64) -> bool {
+    /// (milliseconds). The current time is an explicit parameter so tests
+    /// drive it; a missing clock never reports exceeded.
+    fn is_retention_exceeded(
+        &self,
+        current_count: u32,
+        oldest_timestamp: i64,
+        now: Option<i64>,
+    ) -> bool {
         let Some(retention) = self.retention_config() else {
             return false;
         };
@@ -23,7 +29,9 @@ pub trait CheckpointStrategy: Send + Sync {
             }
         }
         if let Some(max_age_ms) = retention.max_age {
-            let now = chrono::Utc::now().timestamp_millis();
+            let Some(now) = now.filter(|ms| *ms >= 0) else {
+                return false;
+            };
             if oldest_timestamp > 0 && now - oldest_timestamp > max_age_ms {
                 return true;
             }
@@ -386,8 +394,8 @@ mod tests {
             }),
             error_handling: None,
         });
-        assert!(!strategy.is_retention_exceeded(5, 0));
-        assert!(strategy.is_retention_exceeded(6, 0));
+        assert!(!strategy.is_retention_exceeded(5, 0, None));
+        assert!(strategy.is_retention_exceeded(6, 0, None));
     }
 
     #[test]
@@ -403,9 +411,10 @@ mod tests {
             }),
             error_handling: None,
         });
-        let now = chrono::Utc::now().timestamp_millis();
-        assert!(!strategy.is_retention_exceeded(0, now - 500));
-        assert!(strategy.is_retention_exceeded(0, now - 2000));
+        let now = 1_000_000i64;
+        assert!(!strategy.is_retention_exceeded(0, now - 500, Some(now)));
+        assert!(strategy.is_retention_exceeded(0, now - 2000, Some(now)));
+        assert!(!strategy.is_retention_exceeded(0, now - 2000, None));
     }
 
     #[test]

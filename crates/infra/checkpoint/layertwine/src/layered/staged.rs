@@ -9,6 +9,7 @@
 //! 3. Provide checkpoint commit functionality
 
 use crate::checkpoint::types::{Checkpoint, CheckpointMetadata};
+use crate::checkpoint::{AncestorError, lowest_common_ancestor};
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
@@ -119,15 +120,71 @@ fn snapshot_file_path<S: DeltaStore>(storage: &S, snapshot: &Snapshot) -> Result
     }
 }
 
+/// Resolve the three-way merge base for two snapshot lines: the lowest
+/// common ancestor of `ours` and `theirs` over snapshot parent edges,
+/// collected lazily from storage (no full snapshot scan). Snapshots missing
+/// from storage contribute no parents and act as roots.
+///
+/// A line never merged before shares no ancestor with the other side; that
+/// bootstrap case returns `seed_fallback` (documented behavior, not an
+/// error). A criss-cross topology with several incomparable common ancestors
+/// is an explicit error: three-way merge needs a single base and this layer
+/// does not synthesize virtual ones.
+pub fn resolve_merge_base<S>(
+    storage: &S,
+    ours: &SnapshotId,
+    theirs: &SnapshotId,
+    seed_fallback: &SnapshotId,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore,
+{
+    use std::collections::{HashMap, VecDeque};
+
+    let mut parents_of: HashMap<SnapshotId, Vec<SnapshotId>> = HashMap::new();
+    let mut queue: VecDeque<SnapshotId> = VecDeque::from([*ours, *theirs]);
+    while let Some(id) = queue.pop_front() {
+        if parents_of.contains_key(&id) {
+            continue;
+        }
+        match storage.get_snapshot(&id) {
+            Ok(snapshot) => {
+                for parent in &snapshot.parents {
+                    if !parents_of.contains_key(parent) {
+                        queue.push_back(*parent);
+                    }
+                }
+                parents_of.insert(id, snapshot.parents);
+            }
+            Err(_) => {
+                parents_of.insert(id, Vec::new());
+            }
+        }
+    }
+    match lowest_common_ancestor(ours, theirs, &parents_of) {
+        Ok(base) => Ok(base),
+        Err(AncestorError::Disjoint) => Ok(*seed_fallback),
+        Err(other) => Err(LayertwineError::General(format!(
+            "merge base resolution failed: {other}"
+        ))),
+    }
+}
+
 /// Merge a single Integrated feature partition directly into Staged.
 ///
-/// Uses three-way merge with the feature's own baseline:
-///   baseline = feature.history[0]
+/// Uses three-way merge with the lowest common ancestor of the staged and
+/// feature snapshot lines as the baseline:
+///   baseline = LCA(staged.current_snapshot, feature.current_snapshot)
 ///   ours     = staged.current_snapshot
 ///   theirs   = feature.current_snapshot
 ///
-/// Replaces the former Unified intermediary layer. The three-way merge
-/// ensures correctness when multiple features merge into staged sequentially.
+/// A line never merged before shares no ancestor with staged; that bootstrap
+/// case falls back to the feature seed (`feature.history[0]`, the only sane
+/// base available). A criss-cross topology with several incomparable common
+/// ancestors is an explicit error — no approximate base is synthesized.
+/// Replaces the former Unified intermediary layer. Sequential multi-feature
+/// merges recompute the base per feature as staged advances, so order
+/// dependence survives only on truly overlapping lines.
 pub fn merge_feature_to_staged<S>(
     storage: &S,
     feature_name: &str,
@@ -149,14 +206,28 @@ where
     crate::layered::transition::check_partition_layer(&feature_part, &LayerType::Integrated)?;
     crate::layered::transition::check_partition_layer(&staged_partition, &LayerType::Staged)?;
 
-    let baseline_id = feature_part.history.first().ok_or_else(|| {
+    let seed_id = feature_part.history.first().ok_or_else(|| {
         LayertwineError::StateMachine(format!(
             "integrated partition '{}' has empty history",
             feature_name
         ))
     })?;
+    let baseline_id = resolve_merge_base(
+        storage,
+        &staged_partition.current_snapshot,
+        &feature_part.current_snapshot,
+        seed_id,
+    )
+    .map_err(|e| {
+        // Ambiguous LCA errors carry the feature name so multi-feature folds
+        // name the line that failed instead of surfacing a bare topology error.
+        LayertwineError::General(format!(
+            "merge into staged failed for feature '{}': {}",
+            feature_name, e
+        ))
+    })?;
     let baseline_snapshot = storage
-        .get_snapshot(baseline_id)
+        .get_snapshot(&baseline_id)
         .map_err(LayertwineError::Storage)?;
     let feature_snapshot = storage
         .get_snapshot(&feature_part.current_snapshot)
@@ -263,9 +334,12 @@ where
 
 /// Merge multiple Integrated feature partitions directly into Staged.
 ///
-/// Each feature is merged sequentially via three-way merge using its own baseline.
-/// Features are merged one at a time, each accumulating into staged.
-/// This replaces the former `merge_features_to_unified` + `merge_unified_to_staged` pattern.
+/// Each feature is merged sequentially via three-way merge with its own
+/// LCA-computed baseline against the advancing staged line. Features are
+/// merged one at a time, each accumulating into staged. The final content
+/// depends on the input order only on truly overlapping lines; stale-baseline
+/// conflicts from earlier rounds no longer recur. This replaces the former
+/// `merge_features_to_unified` + `merge_unified_to_staged` pattern.
 pub fn merge_features_to_staged<S>(
     storage: &S,
     feature_names: &[String],
@@ -361,11 +435,12 @@ pub fn commit_staged_to_checkpoint<S>(
     branch_name: &str,
     message: &str,
     author: &str,
+    created_at: i64,
 ) -> Result<CheckpointId>
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false, None)
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, created_at, false, None)
 }
 
 /// Workspace-aware staged commit.
@@ -374,12 +449,21 @@ pub fn commit_staged_to_checkpoint_for<S>(
     branch_name: &str,
     message: &str,
     author: &str,
+    created_at: i64,
     workspace_key: Option<&str>,
 ) -> Result<CheckpointId>
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false, workspace_key)
+    commit_staged_to_checkpoint_inner(
+        storage,
+        branch_name,
+        message,
+        author,
+        created_at,
+        false,
+        workspace_key,
+    )
 }
 
 /// Submit a mid-task checkpoint.
@@ -399,11 +483,12 @@ pub fn commit_mid_task_checkpoint<S>(
     branch_name: &str,
     message: &str,
     author: &str,
+    created_at: i64,
 ) -> Result<CheckpointId>
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true, None)
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, created_at, true, None)
 }
 
 /// Workspace-aware mid-task checkpoint commit.
@@ -412,12 +497,21 @@ pub fn commit_mid_task_checkpoint_for<S>(
     branch_name: &str,
     message: &str,
     author: &str,
+    created_at: i64,
     workspace_key: Option<&str>,
 ) -> Result<CheckpointId>
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true, workspace_key)
+    commit_staged_to_checkpoint_inner(
+        storage,
+        branch_name,
+        message,
+        author,
+        created_at,
+        true,
+        workspace_key,
+    )
 }
 
 fn commit_staged_to_checkpoint_inner<S>(
@@ -425,6 +519,7 @@ fn commit_staged_to_checkpoint_inner<S>(
     branch_name: &str,
     message: &str,
     author: &str,
+    created_at: i64,
     is_mid_task: bool,
     workspace_key: Option<&str>,
 ) -> Result<CheckpointId>
@@ -458,7 +553,12 @@ where
         message.to_string()
     };
     let metadata = CheckpointMetadata::new(author, &final_message);
-    let cp = Checkpoint::new(vec![current_snapshot_id], vec![branch_head], metadata);
+    let cp = Checkpoint::new_at(
+        vec![current_snapshot_id],
+        vec![branch_head],
+        metadata,
+        created_at,
+    );
     let cp_id = cp.id;
 
     // 4. Store checkpoint
@@ -659,11 +759,13 @@ mod tests {
         ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let cp_id =
-            commit_staged_to_checkpoint(&storage, "main", "test commit", "test-author").unwrap();
+            commit_staged_to_checkpoint(&storage, "main", "test commit", "test-author", 1_000)
+                .unwrap();
 
         let checkpoint = storage.get_checkpoint(&cp_id).unwrap();
         assert_eq!(checkpoint.baseline_snapshots.len(), 1);
         assert_eq!(checkpoint.baseline_snapshots[0], initial_id);
+        assert_eq!(checkpoint.created_at, 1_000);
 
         let branch = storage.get_branch("main").unwrap();
         assert_eq!(branch.head, cp_id);
@@ -676,9 +778,11 @@ mod tests {
         ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let cp_id1 =
-            commit_staged_to_checkpoint(&storage, "main", "first commit", "test-author").unwrap();
+            commit_staged_to_checkpoint(&storage, "main", "first commit", "test-author", 1_000)
+                .unwrap();
         let cp_id2 =
-            commit_staged_to_checkpoint(&storage, "main", "second commit", "test-author").unwrap();
+            commit_staged_to_checkpoint(&storage, "main", "second commit", "test-author", 2_000)
+                .unwrap();
 
         assert_ne!(
             cp_id1, cp_id2,
@@ -690,6 +794,66 @@ mod tests {
             branch.head, cp_id2,
             "branch head should point to latest commit"
         );
+    }
+
+    #[test]
+    fn test_merge_feature_to_staged_uses_lca_not_seed() {
+        let storage = setup_storage_full();
+        let seed = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
+        ensure_staged_partition(&storage, seed, None).unwrap();
+
+        // Round 1 state: the feature line (seed -> f1 -> f2) was already
+        // merged once, so staged points at f1's content and then advances
+        // independently (reformatting the merged line).
+        let f1 = create_snapshot_with_content(&storage, &seed, "base\nfeature\n", "integrated/f");
+        let f2 = create_snapshot_with_content(&storage, &f1, "base\nfeature\nmore\n", "integrated/f");
+        let staged_pid = staged_partition_id();
+        storage.update_pointer(&staged_pid, &f1).unwrap();
+        let s2 = create_snapshot_with_content(
+            &storage,
+            &f1,
+            "base\nFEATURE\n",
+            PartitionType::Staged.name().as_str(),
+        );
+        storage.update_pointer(&staged_pid, &s2).unwrap();
+
+        let feature_name = "f";
+        let integrated_pid = crate::layered::integrated::integrated_partition_id(feature_name);
+        let integrated_part = Partition {
+            id: integrated_pid,
+            name: format!("integrated/{feature_name}"),
+            current_snapshot: f2,
+            history: vec![seed, f1, f2],
+            partition_type: PartitionType::Integrated(feature_name.to_string()),
+            redo_stack: Vec::new(),
+        };
+        storage.create_partition(&integrated_part).unwrap();
+
+        // The LCA of the staged line (s2) and the feature line (f2) is f1,
+        // not the seed: staged kept its reformatting and gained the new
+        // feature line, with no conflict. A seed baseline would report a
+        // stale conflict on the reformatted line.
+        let merged = merge_feature_to_staged(&storage, feature_name, None).unwrap();
+        assert!(
+            merged.conflicts.is_empty(),
+            "LCA baseline must not report stale conflicts: {:?}",
+            merged.conflicts
+        );
+        let merged_snap = storage.get_snapshot(&merged.snapshot_id).unwrap();
+        let text = crate::layered::transition::reconstruct_text(&storage, &merged_snap)
+            .unwrap()
+            .unwrap();
+        assert_eq!(text, "base\nFEATURE\nmore\n");
+    }
+
+    #[test]
+    fn test_resolve_merge_base_disjoint_falls_back_to_seed() {
+        let storage = setup_storage_full();
+        let seed = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
+        let other = create_initial_snapshot(&storage, "unrelated\n", SourceType::Manual);
+
+        let base = resolve_merge_base(&storage, &seed, &other, &seed).unwrap();
+        assert_eq!(base, seed);
     }
 
     #[test]

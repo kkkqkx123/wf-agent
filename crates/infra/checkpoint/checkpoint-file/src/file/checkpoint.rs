@@ -77,10 +77,11 @@ impl FileCheckpointManager {
             .collect();
         let chain_length = parents.len() as u64 + 1;
         let is_full = parents.is_empty();
-        let checkpoint = Checkpoint::new(
+        let checkpoint = Checkpoint::new_at(
             baseline_snapshots,
             parents,
             CheckpointMetadata::new(actor.as_str(), "file checkpoint"),
+            self.creation_timestamp()?,
         );
         self.store
             .branch_adapter
@@ -95,9 +96,12 @@ impl FileCheckpointManager {
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
         if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            // Monotonic head advancement only: a commit that does not
+            // descend from the current head (skewed or abandoned line) must
+            // not steal the branch pointer.
             self.store
                 .branch_adapter
-                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+                .advance_branch_head_if_descendant(&branch_name, &checkpoint.id.to_hex())?;
         }
         Ok((self.project(storage, &checkpoint)?, chain_length, is_full))
     }
@@ -125,10 +129,11 @@ impl FileCheckpointManager {
             .into_iter()
             .filter_map(|id| CheckpointId::from_hex(&id))
             .collect();
-        let checkpoint = Checkpoint::new(
+        let checkpoint = Checkpoint::new_at(
             baseline_snapshots,
             parents,
             CheckpointMetadata::new(actor.as_str(), "file checkpoint"),
+            self.creation_timestamp()?,
         );
         self.store
             .branch_adapter
@@ -142,9 +147,12 @@ impl FileCheckpointManager {
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
         if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            // Monotonic head advancement only: a commit that does not
+            // descend from the current head (skewed or abandoned line) must
+            // not steal the branch pointer.
             self.store
                 .branch_adapter
-                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+                .advance_branch_head_if_descendant(&branch_name, &checkpoint.id.to_hex())?;
         }
         Ok(Some(self.project(storage, &checkpoint)?))
     }
@@ -186,17 +194,59 @@ impl FileCheckpointManager {
         _storage: &SqliteStorage,
         actor: &checkpoint_base::actor::id::ActorId,
     ) -> Result<Option<String>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
         let actor_str = actor.as_str().to_string();
-        // Cache first, DB scan as cross-process fallback. The branch head is
-        // maintained on every create so it stays consistent with the cache;
-        // the stored checkpoint row remains the authoritative record.
-        if let Some(id) = self.store.latest_checkpoints.get(&actor_str) {
-            return Ok(Some(id.clone()));
+        // Cache first with existence validation, DB head-first selection as
+        // cross-process fallback. A cached id removed by another handle or
+        // by GC is evicted so callers never build on a dangling parent. When
+        // another handle advanced the line, the cache adopts the
+        // head-preferred commit so concurrent creators converge instead of
+        // forking; a wall-clock-newer orphan never displaces it.
+        let cached = self
+            .store
+            .latest_checkpoints
+            .get(&actor_str)
+            .map(|entry| entry.clone());
+        if let Some(id) = cached {
+            match CheckpointId::from_hex(&id) {
+                Some(parsed)
+                    if self
+                        .store
+                        .branch_adapter
+                        .storage()
+                        .checkpoint_exists(&parsed)
+                        .unwrap_or(false) =>
+                {
+                    match self
+                        .store
+                        .branch_adapter
+                        .latest_file_history_id_by_author(&actor_str)
+                    {
+                        Ok(Some(fresh)) if fresh != id => {
+                            self.store
+                                .latest_checkpoints
+                                .insert(actor_str, fresh.clone());
+                            return Ok(Some(fresh));
+                        }
+                        Ok(_) => return Ok(Some(id)),
+                        Err(_) => return Ok(Some(id)),
+                    }
+                }
+                _ => {
+                    self.store.latest_checkpoints.remove(&actor_str);
+                }
+            }
         }
         // Cross-process fallback via the file-history facade.
-        self.store
+        let latest = self
+            .store
             .branch_adapter
-            .latest_file_history_id_by_author(&actor_str)
+            .latest_file_history_id_by_author(&actor_str)?;
+        if let Some(ref id) = latest {
+            self.store.latest_checkpoints.insert(actor_str, id.clone());
+        }
+        Ok(latest)
     }
 }
 
@@ -206,6 +256,17 @@ mod tests {
 
     fn entry(path: &str, content: &[u8]) -> FileContentEntry {
         FileContentEntry::new(path, content.to_vec())
+    }
+
+    /// Baseline snapshots of a stored checkpoint, for crafting test commits
+    /// that share content with an existing line.
+    fn stored_baselines(
+        storage: &layertwine::storage::sqlite::SqliteStorage,
+        id: &CheckpointId,
+    ) -> Vec<layertwine::core::types::SnapshotId> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        storage.get_checkpoint(id).unwrap().baseline_snapshots
     }
 
     #[tokio::test]
@@ -298,5 +359,176 @@ mod tests {
             .unwrap();
         assert_eq!(head_after.as_deref(), Some(deferred.id.as_str()));
         assert_ne!(head_after, head_before);
+    }
+
+    #[tokio::test]
+    async fn concurrent_creators_converge_to_newest() {
+        use checkpoint_base::clock::CheckpointClock;
+        use std::sync::Arc;
+
+        let storage =
+            Arc::new(layertwine::storage::sqlite::SqliteStorage::new_full_in_memory().unwrap());
+        // B's clock runs behind A's: the second commit is wall-clock older,
+        // yet convergence follows the branch head, not timestamps.
+        let manager_a = FileCheckpointManager::with_sqlite(storage.clone())
+            .with_clock(CheckpointClock::manual(1_000_000));
+        let manager_b = FileCheckpointManager::with_sqlite(storage.clone())
+            .with_clock(CheckpointClock::manual(500_000));
+
+        manager_a
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+        manager_a
+            .ensure_child_branch("shared-entity", Some("parent-1"))
+            .await
+            .unwrap();
+        manager_b
+            .ensure_child_branch("shared-entity", Some("parent-1"))
+            .await
+            .unwrap();
+
+        let first = manager_a
+            .create_checkpoint("shared-entity", &[entry("a.txt", b"v1")])
+            .unwrap();
+        let second = manager_b
+            .create_checkpoint("shared-entity", &[entry("a.txt", b"v2")])
+            .unwrap();
+        assert_ne!(first.id, second.id);
+
+        let actor = manager_a.actor_id_for("shared-entity");
+        let seen = manager_a
+            .latest_checkpoint_id(manager_a.storage().unwrap(), &actor)
+            .unwrap();
+        assert_eq!(seen.as_deref(), Some(second.id.as_str()));
+
+        let third = manager_a
+            .create_checkpoint("shared-entity", &[entry("a.txt", b"v3")])
+            .unwrap();
+        let stored: Checkpoint = manager_a
+            .storage()
+            .unwrap()
+            .get_checkpoint(&CheckpointId::from_hex(&third.id).unwrap())
+            .unwrap();
+        assert!(
+            stored.parents.iter().any(|p| p.to_hex() == second.id),
+            "third checkpoint must chain onto the newest commit"
+        );
+    }
+
+    #[test]
+    fn head_beats_wall_clock_newer_orphan() {
+        use checkpoint_base::clock::CheckpointClock;
+        use layertwine::checkpoint::types::CheckpointMetadata;
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let clock = CheckpointClock::manual(1_000_000);
+        let handle = clock.manual_handle().expect("manual clock");
+        let manager = FileCheckpointManager::new_in_memory()
+            .unwrap()
+            .with_clock(clock);
+        let storage = manager.storage().unwrap();
+        let actor = manager.actor_id_for("child-1");
+        let head_cp = manager
+            .create_checkpoint("child-1", &[entry("a.txt", b"v1")])
+            .unwrap();
+        let head_id = CheckpointId::from_hex(&head_cp.id).unwrap();
+
+        // An orphan on a sideways line with a newer timestamp must not
+        // displace the branch tip (no branch exists for root executions, so
+        // manufacture the head row directly).
+        manager
+            .store
+            .branch_adapter
+            .set_branch_head("execution/child-1", &head_cp.id)
+            .unwrap();
+        handle.advance(100_000);
+        let orphan = layertwine::checkpoint::Checkpoint::new_at(
+            stored_baselines(storage, &head_id),
+            vec![head_id],
+            CheckpointMetadata::new(actor.as_str(), "orphan line"),
+            handle.current_ms(),
+        );
+        storage.store_checkpoint(&orphan).unwrap();
+
+        let seen = manager
+            .latest_checkpoint_id(storage, &actor)
+            .unwrap();
+        assert_eq!(seen.as_deref(), Some(head_cp.id.as_str()));
+
+        // The orphan descends from the head, so the head legitimately
+        // advances to it on the next write that chains onto it.
+        let advanced = manager
+            .store
+            .branch_adapter
+            .advance_branch_head_if_descendant("execution/child-1", &orphan.id.to_hex())
+            .unwrap();
+        assert!(advanced);
+    }
+
+    #[test]
+    fn head_advance_rejects_foreign_line() {
+        use checkpoint_base::clock::CheckpointClock;
+        use layertwine::checkpoint::types::CheckpointMetadata;
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let manager = FileCheckpointManager::new_in_memory()
+            .unwrap()
+            .with_clock(CheckpointClock::manual(1_000_000));
+        let storage = manager.storage().unwrap();
+        let actor = manager.actor_id_for("child-1");
+        let head_cp = manager
+            .create_checkpoint("child-1", &[entry("a.txt", b"v1")])
+            .unwrap();
+        manager
+            .store
+            .branch_adapter
+            .set_branch_head("execution/child-1", &head_cp.id)
+            .unwrap();
+
+        // A commit from a disjoint history shares no ancestry with the head.
+        let foreign = layertwine::checkpoint::Checkpoint::new_at(
+            stored_baselines(storage, &CheckpointId::from_hex(&head_cp.id).unwrap()),
+            vec![],
+            CheckpointMetadata::new(actor.as_str(), "foreign line"),
+            2_000_000,
+        );
+        storage.store_checkpoint(&foreign).unwrap();
+
+        let advanced = manager
+            .store
+            .branch_adapter
+            .advance_branch_head_if_descendant("execution/child-1", &foreign.id.to_hex())
+            .unwrap();
+        assert!(!advanced, "foreign line must not steal the head");
+        assert_eq!(
+            manager
+                .store
+                .branch_adapter
+                .get_branch_head("execution/child-1")
+                .unwrap()
+                .as_deref(),
+            Some(head_cp.id.as_str())
+        );
+        let seen = manager.latest_checkpoint_id(storage, &actor).unwrap();
+        assert_eq!(seen.as_deref(), Some(head_cp.id.as_str()));
+    }
+
+    #[test]
+    fn stale_cache_entry_is_evicted_when_checkpoint_missing() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        manager
+            .store
+            .latest_checkpoints
+            .insert(actor.as_str().to_string(), "00".repeat(32));
+        let seen = manager
+            .latest_checkpoint_id(manager.storage().unwrap(), &actor)
+            .unwrap();
+        assert_eq!(seen, None);
+        assert!(manager
+            .store
+            .latest_checkpoints
+            .get(actor.as_str())
+            .is_none());
     }
 }

@@ -39,6 +39,11 @@ pub trait SnapshotStore {
     /// Determining if a snapshot exists
     fn snapshot_exists(&self, id: &SnapshotId) -> StorageResult<bool>;
 
+    /// Delete a snapshot row. Returns true when a row existed. Physical
+    /// reclamation only: called solely by the reachability sweep, never by
+    /// the creation or merge paths (snapshots stay immutable otherwise).
+    fn delete_snapshot(&self, id: &SnapshotId) -> StorageResult<bool>;
+
     /// Chain-head delta of each snapshot (lightweight: skips content blobs).
     ///
     /// Returns `(snapshot_id, chain-head delta id)` in input order; snapshots
@@ -87,6 +92,13 @@ pub trait DeltaStore {
     fn get_deltas(&self, ids: &[DeltaId]) -> StorageResult<Vec<Delta>>;
     /// Determine if Delta exists
     fn delta_exists(&self, id: &DeltaId) -> StorageResult<bool>;
+
+    /// Delete a delta row. Returns true when a row existed. Physical
+    /// reclamation only: called solely by the reachability sweep.
+    fn delete_delta(&self, id: &DeltaId) -> StorageResult<bool>;
+
+    /// Delete a delta row. Returns true when a row existed. Physical
+    /// reclamation only: called solely by the reachability sweep.
 
     /// Query deltas by file path and optional time range.
     /// `time_range` is inclusive `(start, end)` in milliseconds.
@@ -213,6 +225,10 @@ pub trait FileNodeStore {
     fn get_file_content(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<Vec<u8>>;
     /// Determine if a file node exists
     fn file_node_exists(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<bool>;
+    /// Delete a file-node row (including its content bytes). Returns true
+    /// when a row existed. Physical reclamation only: called solely by the
+    /// reachability sweep.
+    fn delete_file_node(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<bool>;
 }
 
 /// File move/rename tracking storage trait

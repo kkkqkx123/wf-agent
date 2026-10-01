@@ -2,6 +2,7 @@ pub mod actor;
 pub mod cache;
 pub mod checkpoint_graph;
 pub mod cleanup_policy;
+pub mod clock;
 pub mod common;
 pub mod config_resolver;
 pub mod delta;
@@ -16,6 +17,7 @@ pub mod version_manager;
 
 pub use actor::id::{ActorId, ActorIdError, ActorKind};
 pub use cache::CheckpointCache;
+pub use clock::{CheckpointClock, ManualClock, clock_valid};
 pub use common::{
     content_hash, diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
 };

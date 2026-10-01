@@ -319,13 +319,19 @@ where
 
 /// Merge the current snapshot of the manual_edit tier into staged
 ///
-/// Uses three-way merge with the staged partition's first history entry as the merge base:
-///   merge_base = staged_partition.history[0]
+/// Uses three-way merge with the lowest common ancestor of the manual and
+/// staged snapshot lines as the base:
+///   merge_base = LCA(manual.current_snapshot, staged.current_snapshot)
 ///   ours       = staged.current_snapshot
 ///   theirs     = manual.current_snapshot
 ///
-/// This ensures manual edits don't silently overwrite changes that entered staged via
-/// other paths (e.g., unified → staged).
+/// For the sequential edit workflow (each manual edit merged immediately)
+/// the LCA is the previous staged snapshot and the merge stays
+/// conflict-free. Divergent edits where staged advances independently now
+/// resolve against the true fork point instead of degrading to theirs-wins.
+/// A manual line never merged before shares no ancestor with staged; that
+/// bootstrap case falls back to the staged snapshot (the legacy base).
+/// Criss-cross topologies are an explicit error.
 pub fn merge_manual_to_staged<S>(storage: &S, workspace_key: Option<&str>) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
@@ -356,20 +362,21 @@ where
         .get_snapshot(&staged_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    // Three-way merge: base, ours (staged), theirs (manual).
-    //
-    // Using staged.current_snapshot as the merge base is intentional:
-    // when base == ours, the merge degenerates to "theirs wins" for any
-    // difference. This is the correct behavior for the sequential edit
-    // workflow where each manual edit is immediately merged into staged.
-    //
-    // For a true divergent-edit scenario (where staged advances independently
-    // of manual), a proper LCA-based merge would be needed. However, the
-    // current API (edit → merge_manual_to_staged) always calls merge
-    // immediately after each edit, so both partitions diverge only by a
-    // single step. Using staged.current as base is both correct and
-    // conflict-free for this pattern.
-    let baseline_snapshot = staged_snapshot.clone();
+    // Three-way merge: base (lowest common ancestor), ours (staged),
+    // theirs (manual).
+    let baseline_id = crate::layered::staged::resolve_merge_base(
+        storage,
+        &staged_partition.current_snapshot,
+        &manual_partition.current_snapshot,
+        &staged_partition.current_snapshot,
+    )?;
+    let baseline_snapshot = if baseline_id == staged_partition.current_snapshot {
+        staged_snapshot.clone()
+    } else {
+        storage
+            .get_snapshot(&baseline_id)
+            .map_err(LayertwineError::Storage)?
+    };
 
     // Reconstruct texts for three-way merge. A deleted side (None) is
     // treated as empty content: merge inputs only need text.
@@ -527,6 +534,50 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(text, "base\nmodified\n");
+    }
+
+    #[test]
+    fn test_merge_manual_to_staged_divergent_uses_lca() {
+        use crate::engine::diff::diff_to_line_diff;
+
+        let storage = setup_storage();
+        let seed = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
+        ensure_manual_partition(&storage, seed, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, seed, None).unwrap();
+
+        // Round 1: manual adds a line, merged into staged.
+        apply_manual_edit(&storage, "test.txt", "base\nmanual\n", None).unwrap();
+        merge_manual_to_staged(&storage, None).unwrap();
+        let staged_pid = crate::layered::staged::staged_partition_id();
+        let m1 = storage.get_partition(&staged_pid).unwrap().current_snapshot;
+
+        // Staged advances independently: reformat the merged line.
+        let m1_snap = storage.get_snapshot(&m1).unwrap();
+        let file_node = FileNode::new(std::path::PathBuf::from("test.txt"), b"base\nMANUAL\n");
+        storage.store_file_node(&file_node, b"base\nMANUAL\n").unwrap();
+        let delta = Delta::new(
+            file_node,
+            diff_to_line_diff("base\nmanual\n", "base\nMANUAL\n"),
+            SourceType::Manual,
+        );
+        storage.store_delta(&delta).unwrap();
+        let s2 = Snapshot::from_parent(&m1_snap, delta.id, PartitionType::Staged.name());
+        storage.store_snapshot(&s2, b"").unwrap();
+        storage.update_pointer(&staged_pid, &s2.id).unwrap();
+
+        // Manual advances on its own line meanwhile.
+        apply_manual_edit(&storage, "test.txt", "base\nmanual\nmore\n", None).unwrap();
+
+        // The LCA base keeps staged's reformatting and gains the manual
+        // line. A staged-as-base merge would silently drop the reformatting
+        // (theirs-wins degeneration).
+        let merged_id = merge_manual_to_staged(&storage, None).unwrap();
+        let merged = storage.get_snapshot(&merged_id).unwrap();
+        assert!(!merged.has_conflicts);
+        let text = crate::layered::transition::reconstruct_text(&storage, &merged)
+            .unwrap()
+            .unwrap();
+        assert_eq!(text, "base\nMANUAL\nmore\n");
     }
 
     #[test]

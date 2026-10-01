@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use dashmap::DashMap;
+
+use crate::clock::{CheckpointClock, clock_valid};
 
 /// A registered agent write: the content hash written to `path` at
 /// `timestamp` (Unix milliseconds).
@@ -19,21 +21,14 @@ struct AgentWrite {
     inflight: bool,
 }
 
-fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 /// Default capacity of the registry (bound on memory usage).
-const DEFAULT_CAPACITY: usize = 1024;
+pub const DEFAULT_CAPACITY: usize = 1024;
 /// Default time window after which an entry is considered stale and evicted.
-const DEFAULT_WINDOW: Duration = Duration::from_secs(30);
+pub const DEFAULT_WINDOW: Duration = Duration::from_secs(30);
 /// Default grace window after an agent write during which watcher events for
 /// the same path are skipped unconditionally (belt-and-braces; the hash
 /// comparison is the deterministic primary criterion).
-const DEFAULT_GRACE: Duration = Duration::from_millis(100);
+pub const DEFAULT_GRACE: Duration = Duration::from_millis(100);
 
 /// Registry of recent agent-written file hashes (path -> content sha256).
 ///
@@ -47,6 +42,7 @@ pub struct RecentAgentWrites {
     capacity: usize,
     window: Duration,
     grace: Duration,
+    clock: CheckpointClock,
 }
 
 impl RecentAgentWrites {
@@ -55,14 +51,28 @@ impl RecentAgentWrites {
     }
 
     /// Build the registry with explicit limits: capacity cap + eviction time
-    /// window + post-write grace window.
+    /// window + post-write grace window. Time flows from the system clock.
     pub fn with_limits(capacity: usize, window: Duration, grace: Duration) -> Self {
         Self {
             entries: DashMap::new(),
             capacity: capacity.max(1),
             window,
             grace,
+            clock: CheckpointClock::system(),
         }
+    }
+
+    /// Drive this registry from an explicit clock (tests advance time
+    /// instead of sleeping).
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// Current time, or `None` when the clock is unavailable. Callers fail
+    /// closed on `None`: clock failure matches nothing and records nothing.
+    fn now(&self) -> Option<i64> {
+        self.clock.now_ms().filter(|ms| clock_valid(Some(*ms)))
     }
 
     /// Register an agent write. The timestamp is taken now; expired entries
@@ -83,8 +93,10 @@ impl RecentAgentWrites {
     /// may still write to. Watcher hits under lease should be deferred.
     pub fn acquire_inflight(&self, path: PathBuf) {
         let key = normalize_key(&path);
-        let now = now_millis();
-        self.prune(now);
+        let Some(now) = self.now() else {
+            return;
+        };
+        self.prune(Some(now));
         if let Some(mut entry) = self.entries.get_mut(&key) {
             entry.inflight = true;
             entry.timestamp = now;
@@ -111,8 +123,10 @@ impl RecentAgentWrites {
     /// `deleted=true` when the path no longer exists.
     pub fn resolve_inflight(&self, path: PathBuf, hash: String, deleted: bool) {
         let key = normalize_key(&path);
-        let now = now_millis();
-        self.prune(now);
+        let Some(now) = self.now() else {
+            return;
+        };
+        self.prune(Some(now));
         if self.entries.len() >= self.capacity && !self.entries.contains_key(&key) {
             if let Some(oldest) = self.oldest_key() {
                 self.entries.remove(&oldest);
@@ -140,15 +154,21 @@ impl RecentAgentWrites {
     /// window.
     pub fn is_agent_delete(&self, path: &Path) -> bool {
         let key = normalize_key(path);
-        let now = now_millis();
+        let Some(now) = self.now() else {
+            return false;
+        };
         self.entries.get(&key).is_some_and(|entry| {
-            entry.deleted && now - entry.timestamp <= self.window.as_millis() as i64
+            entry.deleted
+                && now >= entry.timestamp
+                && now - entry.timestamp <= self.window.as_millis() as i64
         })
     }
 
     fn register_inner(&self, key: PathBuf, hash: String, deleted: bool, inflight: bool) {
-        let now = now_millis();
-        self.prune(now);
+        let Some(now) = self.now() else {
+            return;
+        };
+        self.prune(Some(now));
         if self.entries.len() >= self.capacity && !self.entries.contains_key(&key) {
             if let Some(oldest) = self.oldest_key() {
                 self.entries.remove(&oldest);
@@ -171,11 +191,14 @@ impl RecentAgentWrites {
     /// hash match: their content is not final yet.
     pub fn is_agent_write(&self, path: &Path, hash: &str) -> bool {
         let key = normalize_key(path);
-        let now = now_millis();
+        let Some(now) = self.now() else {
+            return false;
+        };
         self.entries.get(&key).is_some_and(|entry| {
             !entry.inflight
                 && !entry.deleted
                 && entry.hash == hash
+                && now >= entry.timestamp
                 && now - entry.timestamp <= self.window.as_millis() as i64
         })
     }
@@ -187,10 +210,13 @@ impl RecentAgentWrites {
     /// that only holds an in-flight lease.
     pub fn is_recent_write(&self, path: &Path) -> bool {
         let key = normalize_key(path);
-        let now = now_millis();
+        let Some(now) = self.now() else {
+            return false;
+        };
         self.entries.get(&key).is_some_and(|entry| {
             !entry.inflight
                 && !entry.deleted
+                && now >= entry.timestamp
                 && now - entry.timestamp <= self.grace.as_millis() as i64
         })
     }
@@ -204,11 +230,15 @@ impl RecentAgentWrites {
         self.entries.is_empty()
     }
 
-    /// Remove entries older than the eviction window.
-    pub fn prune(&self, now: i64) {
+    /// Remove entries older than the eviction window. A missing clock
+    /// prunes nothing.
+    pub fn prune(&self, now: Option<i64>) {
+        let Some(now) = now.filter(|ms| clock_valid(Some(*ms))) else {
+            return;
+        };
         let window = self.window.as_millis() as i64;
         self.entries
-            .retain(|_, entry| now - entry.timestamp <= window);
+            .retain(|_, entry| now >= entry.timestamp && now - entry.timestamp <= window);
     }
 
     fn oldest_key(&self) -> Option<PathBuf> {
@@ -232,6 +262,7 @@ impl Clone for RecentAgentWrites {
             capacity: self.capacity,
             window: self.window,
             grace: self.grace,
+            clock: self.clock.clone(),
         }
     }
 }
@@ -239,41 +270,50 @@ impl Clone for RecentAgentWrites {
 /// Convenience alias: an `Arc`-shared registry.
 pub type SharedRecentAgentWrites = Arc<RecentAgentWrites>;
 
-/// Lexical normalization shared with the watcher: absolute paths are
-/// normalized without filesystem access; relative paths are kept as-is
-/// (callers register both spellings for agent edits).
+/// Lexical normalization shared with the watcher: absolute and relative
+/// paths fold dot segments without filesystem access so watcher and tool
+/// spellings map to the same entry.
 fn normalize_key(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        let mut out = PathBuf::new();
-        for component in path.components() {
-            match component {
-                std::path::Component::CurDir => {}
-                std::path::Component::ParentDir => {
-                    out.pop();
-                }
-                other => out.push(other.as_os_str()),
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
             }
+            other => out.push(other.as_os_str()),
         }
-        if out.as_os_str().is_empty() {
-            return PathBuf::from("/");
-        }
-        out
-    } else {
-        path.to_path_buf()
     }
+    if path.is_absolute() && out.as_os_str().is_empty() {
+        return PathBuf::from("/");
+    }
+    if out.as_os_str().is_empty() {
+        return PathBuf::from(".");
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::ManualClock;
 
-    fn writes() -> RecentAgentWrites {
-        RecentAgentWrites::with_limits(4, Duration::from_secs(30), Duration::from_millis(100))
+    const T0: i64 = 1_000_000;
+
+    fn writes() -> (RecentAgentWrites, ManualClock) {
+        let clock = CheckpointClock::manual(T0);
+        let handle = clock
+            .manual_handle()
+            .expect("manual clock always has a handle");
+        let registry =
+            RecentAgentWrites::with_limits(4, Duration::from_secs(30), Duration::from_millis(100))
+                .with_clock(clock);
+        (registry, handle)
     }
 
     #[test]
     fn registered_write_matches_its_hash() {
-        let registry = writes();
+        let (registry, _) = writes();
         registry.register(PathBuf::from("/ws/a.txt"), "hash-a".to_string());
         assert!(registry.is_agent_write(Path::new("/ws/a.txt"), "hash-a"));
         assert!(!registry.is_agent_write(Path::new("/ws/a.txt"), "other"));
@@ -282,7 +322,7 @@ mod tests {
 
     #[test]
     fn register_is_idempotent_per_path() {
-        let registry = writes();
+        let (registry, _) = writes();
         registry.register(PathBuf::from("/ws/a.txt"), "v1".to_string());
         registry.register(PathBuf::from("/ws/a.txt"), "v2".to_string());
         assert_eq!(registry.len(), 1);
@@ -291,34 +331,22 @@ mod tests {
 
     #[test]
     fn stale_entries_are_pruned() {
-        let registry = writes();
+        let (registry, handle) = writes();
         registry.register(PathBuf::from("/ws/old.txt"), "old".to_string());
-        let now = now_millis();
-        // Pretend 31s passed: the entry no longer matches. The entry is
-        // overwritten directly (holding a DashMap ref across the insert
-        // would deadlock the shard).
-        registry.entries.insert(
-            PathBuf::from("/ws/old.txt"),
-            AgentWrite {
-                hash: "old".to_string(),
-                timestamp: now - 31_000,
-                deleted: false,
-                inflight: false,
-            },
-        );
+        // 31s later the entry no longer matches and prunes away.
+        handle.advance(31_000);
         assert!(!registry.is_agent_write(Path::new("/ws/old.txt"), "old"));
-        registry.prune(now);
+        registry.prune(registry.now());
         assert_eq!(registry.len(), 0);
     }
 
     #[test]
     fn capacity_cap_trims_oldest() {
-        let registry = writes();
-        // Distinct timestamps so the oldest-entry eviction is deterministic
-        // (same-millisecond registrations make `oldest_key` arbitrary).
+        let (registry, handle) = writes();
+        // Distinct timestamps so the oldest-entry eviction is deterministic.
         for i in 0..6 {
             registry.register(PathBuf::from(format!("/ws/f{i}.txt")), format!("h{i}"));
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            handle.advance(2);
         }
         assert_eq!(registry.len(), 4);
         // The first two registrations were trimmed.
@@ -329,7 +357,7 @@ mod tests {
 
     #[test]
     fn grace_window_skips_recent_writes_regardless_of_hash() {
-        let registry = writes();
+        let (registry, _) = writes();
         registry.register(PathBuf::from("/ws/a.txt"), "hash-a".to_string());
         assert!(registry.is_recent_write(Path::new("/ws/a.txt")));
         assert!(!registry.is_recent_write(Path::new("/ws/other.txt")));
@@ -337,21 +365,52 @@ mod tests {
 
     #[test]
     fn entries_expire_out_of_the_grace_window() {
-        let registry = writes();
-        let now = now_millis();
-        registry.entries.insert(
-            PathBuf::from("/ws/old.txt"),
-            AgentWrite {
-                hash: "h".to_string(),
-                timestamp: now - 500,
-                deleted: false,
-                inflight: false,
-            },
-        );
-        // 500ms is outside the 100ms grace window...
+        let (registry, handle) = writes();
+        registry.register(PathBuf::from("/ws/old.txt"), "h".to_string());
+        // 500ms later: outside the 100ms grace window...
+        handle.advance(500);
         assert!(!registry.is_recent_write(Path::new("/ws/old.txt")));
         // ...but still inside the 30s eviction window (hash comparison
         // remains the deterministic primary criterion).
         assert!(registry.is_agent_write(Path::new("/ws/old.txt"), "h"));
+    }
+
+    #[test]
+    fn future_timestamp_entries_never_match() {
+        let (registry, _) = writes();
+        registry.entries.insert(
+            PathBuf::from("/ws/future.txt"),
+            AgentWrite {
+                hash: "h".to_string(),
+                timestamp: T0 + 60_000,
+                deleted: false,
+                inflight: false,
+            },
+        );
+        assert!(!registry.is_agent_write(Path::new("/ws/future.txt"), "h"));
+        assert!(!registry.is_recent_write(Path::new("/ws/future.txt")));
+    }
+
+    #[test]
+    fn failed_clock_records_nothing_and_matches_nothing() {
+        let (registry, handle) = writes();
+        handle.fail();
+        registry.register(PathBuf::from("/ws/a.txt"), "h".to_string());
+        assert_eq!(registry.len(), 0);
+        assert!(!registry.is_agent_write(Path::new("/ws/a.txt"), "h"));
+        assert!(!registry.is_recent_write(Path::new("/ws/a.txt")));
+        registry.prune(None);
+        assert_eq!(registry.len(), 0);
+        handle.restore();
+        registry.register(PathBuf::from("/ws/a.txt"), "h".to_string());
+        assert!(registry.is_agent_write(Path::new("/ws/a.txt"), "h"));
+    }
+
+    #[test]
+    fn relative_spellings_share_one_entry() {
+        let (registry, _) = writes();
+        registry.register(PathBuf::from("a.txt"), "h".to_string());
+        assert!(registry.is_agent_write(Path::new("./a.txt"), "h"));
+        assert!(registry.is_recent_write(Path::new("sub/../a.txt")));
     }
 }

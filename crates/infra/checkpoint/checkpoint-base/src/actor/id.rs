@@ -197,14 +197,24 @@ impl ActorId {
     }
 
     /// The actor kind (partition semantics).
+    /// Falls back to `Sub` for malformed ids; prefer `try_kind` when the
+    /// caller must distinguish corruption from a real `sub` partition.
     pub fn kind(&self) -> ActorKind {
-        let kind = self
-            .0
-            .split_once(':')
-            .map(|(k, _)| k)
-            .and_then(ActorKind::from_label)
-            .unwrap_or(ActorKind::Sub);
-        kind
+        self.try_kind().unwrap_or(ActorKind::Sub)
+    }
+
+    /// Strict kind parsing: returns an error instead of silently mapping
+    /// unknown kinds to `Sub`.
+    pub fn try_kind(&self) -> Result<ActorKind, ActorIdError> {
+        let (kind_str, _) = self.0.split_once(':').ok_or_else(|| {
+            ActorIdError::Validation(format!("actor id '{}' is missing kind prefix", self.0))
+        })?;
+        ActorKind::from_label(kind_str).ok_or_else(|| {
+            ActorIdError::Validation(format!(
+                "actor id '{}' has unknown kind '{kind_str}'",
+                self.0
+            ))
+        })
     }
 
     /// Root-to-self execution id chain, oldest first.
@@ -457,5 +467,14 @@ mod tests {
     fn maps_to_agent_instance_id() {
         let actor = ActorId::new(ActorKind::Agent, &[id("loop-1")]).unwrap();
         assert_eq!(actor.to_agent_instance_id().0, "agent:loop-1");
+    }
+
+    #[test]
+    fn try_kind_rejects_unknown_prefix() {
+        let actor = ActorId::parse("agent:loop-1").unwrap();
+        assert_eq!(actor.try_kind().unwrap(), ActorKind::Agent);
+        let raw = ActorId("bogus:loop-1".to_string());
+        assert!(raw.try_kind().is_err());
+        assert_eq!(raw.kind(), ActorKind::Sub);
     }
 }

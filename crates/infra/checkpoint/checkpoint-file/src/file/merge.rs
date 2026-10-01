@@ -69,13 +69,21 @@ impl FileCheckpointManager {
 
     /// Merge all given features into the staged partition (three-way merge
     /// per feature, sequential accumulation), then create a multi-parent
-    /// merge commit checkpoint.
+    /// merge commit checkpoint. The first parent is always the previous
+    /// staged head; feature heads follow in input order.
     pub fn merge_features_to_staged(
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
         let storage = self.storage_ref()?;
         self.ensure_staged_ready(storage)?;
+
+        if feature_names.len() > 1 {
+            tracing::warn!(
+                features = feature_names.len(),
+                "merging multiple features sequentially; overlapping lines resolve in input order"
+            );
+        }
 
         let staged_cp = self.latest_staged_checkpoint_id(storage)?;
         let feature_cps: Vec<Option<String>> = feature_names
@@ -107,13 +115,14 @@ impl FileCheckpointManager {
             Some(key) => format!("staged:{key}"),
             None => "staged".to_string(),
         };
-        let checkpoint = Checkpoint::new(
+        let checkpoint = Checkpoint::new_at(
             snapshot_ids,
             parents,
             CheckpointMetadata::new(
                 &staged_author,
                 &format!("merge {} features into staged", feature_names.len()),
             ),
+            self.creation_timestamp()?,
         );
         storage
             .store_checkpoint(&checkpoint)
@@ -154,7 +163,9 @@ impl FileCheckpointManager {
     /// Thin wrapper over [`layertwine::checkpoint::gc::run_gc`]: loads the
     /// `CheckpointRepo` from the attached Sqlite storage, runs the sweep,
     /// and publishes a `GcCompleted` event with the statistics. Returns
-    /// the `GcStats` (removed checkpoints / snapshots).
+    /// the `GcStats` (removed checkpoint rows and dropped snapshot
+    /// references; snapshot rows are content-addressed and retained, freed
+    /// bytes are unavailable and reported as zero).
     pub fn run_gc(
         &self,
         retention: layertwine::checkpoint::GcRetention,
@@ -163,8 +174,11 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
             Box::new(storage.share());
-        let mut repo = layertwine::checkpoint::repo::CheckpointRepo::load(persist)
-            .map_err(map_layertwine_error)?;
+        let mut repo = layertwine::checkpoint::repo::CheckpointRepo::load(
+            persist,
+            self.creation_timestamp()?,
+        )
+        .map_err(map_layertwine_error)?;
         let stats = layertwine::checkpoint::gc::run_gc(&mut repo, retention)
             .map_err(map_layertwine_error)?;
         if let Some(ref metrics) = self.checkpoint_metrics() {
@@ -180,28 +194,77 @@ impl FileCheckpointManager {
         Ok(stats)
     }
 
+    /// Run the physical content-reclaim sweep over snapshot, delta, and
+    /// file-node rows unreachable from protected checkpoints, live
+    /// partitions, and live sessions. Opt-in slow-cadence companion to
+    /// [`Self::run_gc`] (which only sweeps checkpoint rows): callers run it
+    /// explicitly, never on every GC pass. The grace horizon comes from the
+    /// manager clock; an unavailable clock fails closed. Publishes a
+    /// `GcCompleted` event carrying the reclaim statistics.
+    pub fn run_snapshot_reclaim(
+        &self,
+        retention: layertwine::checkpoint::GcRetention,
+        grace_ms: u64,
+    ) -> Result<layertwine::checkpoint::GcStats, CheckpointError> {
+        let start = std::time::Instant::now();
+        let storage = self.storage_ref()?;
+        let now = self.creation_timestamp()?;
+        let stats = layertwine::checkpoint::gc::reclaim_unreferenced_content(
+            storage, retention, now, grace_ms,
+        )
+        .map_err(map_layertwine_error)?;
+        if let Some(ref metrics) = self.checkpoint_metrics() {
+            metrics.record_cleanup(
+                stats.reclaimed_snapshots + stats.reclaimed_deltas + stats.reclaimed_file_nodes,
+                0,
+                start.elapsed().as_millis() as f64,
+            );
+        }
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
+        }
+        Ok(stats)
+    }
+
     // ── merge commit helpers ──────────────────────────────────────────
+
+    /// Shared wall-clock latest-commit selection for layered partitions.
+    /// Layered feature/staged partitions do not keep branch-head rows
+    /// (feature pointers reference snapshots, not commits), so head-first
+    /// anchoring does not apply here: their commits are authored and chained
+    /// by this process only, and the global scan order is deterministic via
+    /// the (created_at, id) tie-break. Execution-line selection goes through
+    /// `LayertwineBackend::latest_file_history_id_by_author`, which anchors
+    /// on live branch heads.
+    fn latest_id_by_author_scan(
+        storage: &SqliteStorage,
+        author: &str,
+    ) -> Result<Option<String>, CheckpointError> {
+        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
+        let latest = checkpoints
+            .iter()
+            .filter(|c| c.metadata.author == author)
+            .max_by(|a, b| (a.created_at, a.id.to_hex()).cmp(&(b.created_at, b.id.to_hex())));
+        Ok(latest.map(|c| c.id.to_hex()))
+    }
 
     /// Find the latest checkpoint id for a feature (integrated) partition
     /// by scanning stored checkpoints whose author matches the feature name.
+    /// See `latest_id_by_author_scan` for why this stays wall-clock based.
     pub(crate) fn latest_feature_checkpoint_id(
         &self,
         storage: &SqliteStorage,
         feature_name: &str,
     ) -> Result<Option<String>, CheckpointError> {
-        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
-        let latest = checkpoints
-            .iter()
-            .filter(|c| c.metadata.author == feature_name)
-            .max_by_key(|c| c.created_at);
-        Ok(latest.map(|c| c.id.to_hex()))
+        Self::latest_id_by_author_scan(storage, feature_name)
     }
 
     /// Find the latest checkpoint id for the staged partition by scanning
     /// stored checkpoints whose author matches the workspace-scoped staged
     /// author (`staged:{workspace_key}` when a workspace root is configured,
     /// otherwise legacy `staged`). Scoped workspaces never read each other's
-    /// staged checkpoints.
+    /// staged checkpoints. See `latest_id_by_author_scan` for why this stays
+    /// wall-clock based.
     pub(crate) fn latest_staged_checkpoint_id(
         &self,
         storage: &SqliteStorage,
@@ -210,12 +273,7 @@ impl FileCheckpointManager {
             Some(key) => format!("staged:{key}"),
             None => "staged".to_string(),
         };
-        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
-        let latest = checkpoints
-            .iter()
-            .filter(|c| c.metadata.author == expected)
-            .max_by_key(|c| c.created_at);
-        Ok(latest.map(|c| c.id.to_hex()))
+        Self::latest_id_by_author_scan(storage, &expected)
     }
 }
 
@@ -223,11 +281,18 @@ impl FileCheckpointManager {
 mod tests {
     use super::*;
     use crate::file::FileContentEntry;
+    use checkpoint_base::clock::{CheckpointClock, ManualClock};
     use std::collections::HashSet;
-    use std::time::Duration;
 
-    fn manager() -> FileCheckpointManager {
-        FileCheckpointManager::new_in_memory().unwrap()
+    fn manager() -> (FileCheckpointManager, ManualClock) {
+        let clock = CheckpointClock::manual(1_000_000);
+        let handle = clock
+            .manual_handle()
+            .expect("manual clock always has a handle");
+        let manager = FileCheckpointManager::new_in_memory()
+            .unwrap()
+            .with_clock(clock);
+        (manager, handle)
     }
 
     fn entry(path: &str, content: &[u8]) -> FileContentEntry {
@@ -264,28 +329,30 @@ mod tests {
             .id
             .to_hex();
         let storage = manager.storage().unwrap();
-        let cp = Checkpoint::new(
+        let cp = Checkpoint::new_at(
             vec![merged.merge_result.snapshot_id],
             vec![CheckpointId::from_hex(&commit_id).unwrap()],
             CheckpointMetadata::new(feature, "feature head"),
+            manager.creation_timestamp().unwrap(),
         );
         storage.store_checkpoint(&cp).unwrap();
         (cp.id.to_hex(), merged.checkpoint_id)
     }
 
     /// Distinct `created_at` stamps so "latest by author" lookups are
-    /// deterministic across same-millisecond writes.
-    fn tick() {
-        std::thread::sleep(Duration::from_millis(2));
+    /// deterministic across same-millisecond writes. Time is a manual clock
+    /// advanced explicitly instead of sleeping.
+    fn tick(handle: &ManualClock) {
+        handle.advance(2);
     }
 
     #[test]
     fn merge_features_to_staged_creates_multi_parent() {
-        let manager = manager();
+        let (manager, handle) = manager();
         let (feature_a, _ma) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
-        tick();
+        tick(&handle);
         let (feature_b, _mb) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
-        tick();
+        tick(&handle);
         let (feature_c, _mc) = make_feature(&manager, "exec-c", "c.txt", "feature-c");
 
         // Round 1 joins two features: no staged commit exists yet, so the
@@ -301,20 +368,24 @@ mod tests {
         );
 
         // Round 2 chains onto the previous staged commit and adds the new
-        // feature head.
-        tick();
+        // feature head. The first parent is always the staged head.
+        tick(&handle);
         let round2 = manager.merge_features_to_staged(&["feature-c"]).unwrap();
+        let round2_parents = stored(storage, &round2.checkpoint_id).parents;
         assert_eq!(
-            parent_ids(&stored(storage, &round2.checkpoint_id)),
-            HashSet::from([round1.checkpoint_id.clone(), feature_c]),
+            round2_parents
+                .iter()
+                .map(|p| p.to_hex())
+                .collect::<Vec<_>>(),
+            vec![round1.checkpoint_id.clone(), feature_c],
         );
     }
 
     #[test]
     fn checkpoint_dag_traversal_reaches_parents() {
-        let manager = manager();
+        let (manager, handle) = manager();
         let (feature_a, merge_a) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
-        tick();
+        tick(&handle);
         let (feature_b, merge_b) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
 
         let joined = manager

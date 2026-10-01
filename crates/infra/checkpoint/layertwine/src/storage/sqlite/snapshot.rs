@@ -285,6 +285,19 @@ impl SnapshotStore for SqliteStorage {
         Ok(count > 0)
     }
 
+    fn delete_snapshot(&self, id: &SnapshotId) -> StorageResult<bool> {
+        let conn = self.conn.lock();
+        // Session associations dangle otherwise: a deleted snapshot must not
+        // stay listed under its session.
+        conn.execute(
+            "DELETE FROM snapshot_sessions WHERE snapshot_id = ?1",
+            params![&id.0.to_vec()],
+        )?;
+        let removed =
+            conn.execute("DELETE FROM snapshots WHERE id = ?1", params![&id.0.to_vec()])?;
+        Ok(removed > 0)
+    }
+
     fn find_snapshots_by_file_and_time(
         &self,
         file_path: &str,

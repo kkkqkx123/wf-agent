@@ -70,7 +70,11 @@ impl CheckpointDependencyGraph {
 
         for surviving_id in surviving_ids {
             let mut current = Some(surviving_id);
+            let mut visited = HashSet::new();
             while let Some(id) = current {
+                if !visited.insert(id.clone()) {
+                    break;
+                }
                 if candidate_ids.contains(&id) {
                     protected.insert(id.clone());
                 }
@@ -301,5 +305,19 @@ mod tests {
             .collect();
         let bases = graph.bases_with_surviving_dependents(&removing);
         assert!(!bases.contains("full-1"));
+    }
+
+    #[test]
+    fn compute_protected_terminates_on_cycle() {
+        let checkpoints = vec![
+            make_checkpoint("a", CheckpointType::Delta, Some("b"), 1000),
+            make_checkpoint("b", CheckpointType::Delta, Some("a"), 2000),
+            make_checkpoint("c", CheckpointType::Full, None, 3000),
+        ];
+        let graph = CheckpointDependencyGraph::build(&checkpoints);
+        let all: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
+        let candidates: HashSet<String> = ["a".to_string()].into_iter().collect();
+        let protected = graph.compute_protected(&candidates, &all);
+        assert!(protected.contains("a"));
     }
 }

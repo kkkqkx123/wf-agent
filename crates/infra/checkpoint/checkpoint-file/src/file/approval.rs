@@ -321,10 +321,11 @@ impl FileCheckpointManager {
             }
         }
         let snapshot_ids = vec![merge_result.snapshot_id];
-        let checkpoint = Checkpoint::new(
+        let checkpoint = Checkpoint::new_at(
             snapshot_ids,
             parents,
             CheckpointMetadata::new(actor.as_str(), &format!("merge into {feature_name}")),
+            self.creation_timestamp()?,
         );
         storage
             .store_checkpoint(&checkpoint)

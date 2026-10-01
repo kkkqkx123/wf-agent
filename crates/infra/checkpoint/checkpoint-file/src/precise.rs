@@ -73,8 +73,10 @@ impl FileCheckpointManager {
         behavior: FailureBehavior,
     ) -> Result<usize, CheckpointError> {
         let mut applied = 0;
+        let base_norm = crate::watcher::normalize_absolute_path(base_dir);
         for change in changes {
-            let Ok(relative) = change.path.strip_prefix(base_dir) else {
+            let change_norm = crate::watcher::normalize_absolute_path(&change.path);
+            let Ok(relative) = change_norm.strip_prefix(&base_norm) else {
                 tracing::warn!(
                     path = %change.path.display(),
                     "workspace change outside base directory; skipping"

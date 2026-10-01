@@ -10,6 +10,11 @@ pub struct GenericDeltaRestorer<SS, DS> {
     diff_calculator: Arc<dyn DiffCalculator<SS, DS>>,
 }
 
+/// Maximum delta chain length walked during replay. Mirrors the compaction
+/// guard in storage cleanup so replay fails loudly instead of walking
+/// unbounded history.
+const MAX_DELTA_CHAIN_LEN: usize = 10_000;
+
 impl<SS, DS> GenericDeltaRestorer<SS, DS> {
     pub fn new(diff_calculator: Arc<dyn DiffCalculator<SS, DS>>) -> Self {
         Self { diff_calculator }
@@ -89,6 +94,12 @@ impl<SS, DS> GenericDeltaRestorer<SS, DS> {
         let mut current_id = Some(target_id.to_string());
 
         while let Some(id) = current_id {
+            if chain.len() >= MAX_DELTA_CHAIN_LEN {
+                return Err(CheckpointError::DeltaChainTooLong {
+                    length: (chain.len() + 1) as u32,
+                    max: MAX_DELTA_CHAIN_LEN as u32,
+                });
+            }
             if !visited.insert(id.clone()) {
                 return Err(CheckpointError::Corrupted {
                     id: id.clone(),
@@ -111,6 +122,15 @@ impl<SS, DS> GenericDeltaRestorer<SS, DS> {
 
             if is_base {
                 break;
+            }
+        }
+
+        if let Some(first) = chain.last() {
+            if first.checkpoint_type != CheckpointType::Full {
+                return Err(CheckpointError::Corrupted {
+                    id: first.id.clone(),
+                    reason: "delta chain has no full baseline".to_string(),
+                });
             }
         }
 
@@ -330,5 +350,67 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, CheckpointError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn restore_rejects_orphan_delta_without_baseline() {
+        let mut loader = FakeLoader::new();
+        loader.add(
+            "orphan",
+            None,
+            CheckpointType::Delta,
+            &make_delta("orphan", "orphan", None, TestDelta { increment: 1 }),
+        );
+
+        let restorer = GenericDeltaRestorer::new(Arc::new(TestCalculator));
+        let err = restorer
+            .restore_full_state("orphan", &loader)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CheckpointError::Corrupted { .. }));
+    }
+
+    #[tokio::test]
+    async fn restore_rejects_delta_chain_over_limit() {
+        let mut loader = FakeLoader::new();
+        // A linear delta chain one link longer than the replay guard allows,
+        // terminated by a full baseline so only the length limit can fire.
+        let total = MAX_DELTA_CHAIN_LEN + 1;
+        for i in 0..total {
+            let id = format!("d{i}");
+            let previous = if i == 0 {
+                None
+            } else {
+                Some(format!("d{}", i - 1))
+            };
+            if i == total - 1 {
+                loader.add(
+                    &id,
+                    previous.as_deref(),
+                    CheckpointType::Full,
+                    &make_full(&id, TestState { value: 1 }, previous.as_deref()),
+                );
+            } else {
+                loader.add(
+                    &id,
+                    previous.as_deref(),
+                    CheckpointType::Delta,
+                    &make_delta(&id, &id, previous.as_deref(), TestDelta { increment: 1 }),
+                );
+            }
+        }
+
+        let restorer = GenericDeltaRestorer::new(Arc::new(TestCalculator));
+        let err = restorer
+            .restore_full_state("d0", &loader)
+            .await
+            .unwrap_err();
+        match err {
+            CheckpointError::DeltaChainTooLong { length, max } => {
+                assert_eq!(max, MAX_DELTA_CHAIN_LEN as u32);
+                assert!(length > max);
+            }
+            other => panic!("expected DeltaChainTooLong, got: {other:?}"),
+        }
     }
 }

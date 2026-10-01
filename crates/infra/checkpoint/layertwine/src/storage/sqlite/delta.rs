@@ -140,8 +140,7 @@ impl DeltaStore for SqliteStorage {
         }
     }
 
-    fn get_delta(&self, id: &DeltaId) -> StorageResult<Delta> {
-        let conn = self.conn.lock();
+    fn get_delta(&self, id: &DeltaId) -> StorageResult<Delta> {        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq
              FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.id = ?1 LIMIT 1"
@@ -191,6 +190,19 @@ impl DeltaStore for SqliteStorage {
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM deltas WHERE id = ?1")?;
         let count: i64 = stmt.query_row(params![&id.0.to_vec()], |row| row.get(0))?;
         Ok(count > 0)
+    }
+
+    fn delete_delta(&self, id: &DeltaId) -> StorageResult<bool> {
+        let conn = self.conn.lock();
+        // Session associations dangle otherwise: a deleted delta must not
+        // stay listed under its session.
+        conn.execute(
+            "DELETE FROM delta_sessions WHERE delta_id = ?1",
+            params![&id.0.to_vec()],
+        )?;
+        let removed =
+            conn.execute("DELETE FROM deltas WHERE id = ?1", params![&id.0.to_vec()])?;
+        Ok(removed > 0)
     }
 
     fn find_deltas_by_file_and_time(

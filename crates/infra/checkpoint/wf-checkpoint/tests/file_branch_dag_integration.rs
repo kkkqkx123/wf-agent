@@ -8,7 +8,6 @@
 //! participant checkpoint.
 
 use std::collections::HashSet;
-use std::time::Duration;
 
 use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use layertwine::core::types::CheckpointId;
@@ -31,6 +30,21 @@ fn parent_ids(checkpoint: &Checkpoint) -> HashSet<String> {
     checkpoint.parents.iter().map(|p| p.to_hex()).collect()
 }
 
+/// Monotonic explicit timestamp source for seeded commits, replacing sleeps:
+/// latest-by-author scans stay deterministic regardless of real clock speed.
+struct Ticker(i64);
+
+impl Ticker {
+    fn new() -> Self {
+        Self(1_000_000)
+    }
+
+    fn next(&mut self) -> i64 {
+        self.0 += 1_000;
+        self.0
+    }
+}
+
 /// Record a feature-head commit checkpoint (authored by the feature name),
 /// chained onto the merge commit that produced its snapshot.
 fn seed_feature_head(
@@ -38,19 +52,16 @@ fn seed_feature_head(
     feature: &str,
     snapshot: layertwine::core::types::SnapshotId,
     merge_commit: &str,
+    created_at: i64,
 ) -> String {
-    let cp = Checkpoint::new(
+    let cp = Checkpoint::new_at(
         vec![snapshot],
         vec![CheckpointId::from_hex(merge_commit).unwrap()],
         CheckpointMetadata::new(feature, "feature head"),
+        created_at,
     );
     storage.store_checkpoint(&cp).unwrap();
     cp.id.to_hex()
-}
-
-/// Distinct `created_at` stamps so latest-by-author scans stay deterministic.
-fn tick() {
-    std::thread::sleep(Duration::from_millis(3));
 }
 
 /// Walk the checkpoint DAG from a start commit through `parents` edges.
@@ -73,8 +84,10 @@ fn reachable_from(
 
 #[tokio::test]
 async fn child_branch_isolation_merge_and_dag_closed_loop() {
-    // 1. In-memory manager.
+    // 1. In-memory manager plus an explicit monotonic timestamp source for
+    // seeded commits (no reliance on real-clock sleeps).
     let manager = FileCheckpointManager::new_in_memory().unwrap();
+    let mut ticker = Ticker::new();
 
     // 2. Parent execution records the base state.
     let parent_cp = manager
@@ -125,12 +138,12 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     );
 
     // 6. Feature-head commit for "main", chained onto the merge commit.
-    tick();
     let main_head_1 = seed_feature_head(
         &storage,
         "main",
         merge1.merge_result.snapshot_id,
         &merge1.checkpoint_id,
+        ticker.next(),
     );
 
     // 7. The sibling child merges into the same feature. Parallel
@@ -171,27 +184,26 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     );
 
     // The feature head advances onto the accepted merge.
-    tick();
     let main_head_2 = seed_feature_head(
         &storage,
         "main",
         merge2.merge_result.snapshot_id,
         &merge2.checkpoint_id,
+        ticker.next(),
     );
 
     // 8. A third execution contributes a separate feature.
-    tick();
     let worker_cp = manager
         .create_checkpoint("worker", &[entry("c.txt", b"worker edit")])
         .unwrap();
     let merge_side = manager.merge_entity_changes("worker", "side").unwrap();
     assert!(!merge_side.merge_result.has_conflicts());
-    tick();
     let side_head = seed_feature_head(
         &storage,
         "side",
         merge_side.merge_result.snapshot_id,
         &merge_side.checkpoint_id,
+        ticker.next(),
     );
 
     // 9. First staged join: no staged commit exists yet, so the parents are

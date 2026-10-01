@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::watch;
 
 use crate::file::FileCheckpointManager;
 use crate::scan::{ScanConfig, WorkspaceScanner};
+use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::error::CheckpointError;
 use wf_common::lock::lock_ok;
 
@@ -51,13 +52,6 @@ impl FileChangeRecord {
             from: Some(from),
         }
     }
-}
-
-fn now_millis() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 /// Lexically normalize an absolute path without touching the filesystem:
@@ -118,6 +112,7 @@ pub struct FileWatcher {
     root: PathBuf,
     scanner: WorkspaceScanner,
     debounce: Duration,
+    clock: CheckpointClock,
     state: Arc<std::sync::Mutex<WatcherState>>,
     watcher: Option<RecommendedWatcher>,
     task: Option<tokio::task::JoinHandle<()>>,
@@ -127,18 +122,29 @@ pub struct FileWatcher {
 
 impl FileWatcher {
     /// Create a watcher without starting it. Call [`FileWatcher::start`]
-    /// to begin monitoring (requires a tokio runtime).
+    /// to begin monitoring (requires a tokio runtime). The root is
+    /// lexically normalized so later prefix matches use one spelling.
+    /// Record timestamps flow from the system clock; use
+    /// [`Self::with_clock`] to drive them from an explicit clock.
     pub fn new(root: impl Into<PathBuf>, config: ScanConfig, debounce_ms: u64) -> Self {
         Self {
-            root: root.into(),
+            root: normalize_absolute_path(&root.into()),
             scanner: WorkspaceScanner::new(config),
             debounce: Duration::from_millis(debounce_ms),
+            clock: CheckpointClock::system(),
             state: Arc::new(std::sync::Mutex::new(WatcherState::default())),
             watcher: None,
             task: None,
             stop_tx: None,
             ready: false,
         }
+    }
+
+    /// Drive record timestamps from an explicit clock instead of the system
+    /// clock.
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Start watching the root directory recursively.
@@ -169,8 +175,18 @@ impl FileWatcher {
         });
         let debounce = self.debounce;
         let root_for_task = root.clone();
+        let clock = self.clock.clone();
         let task = tokio::spawn(async move {
-            run_event_loop(root_for_task, scanner, debounce, state, event_rx, stop_rx).await;
+            run_event_loop(
+                root_for_task,
+                scanner,
+                debounce,
+                clock,
+                state,
+                event_rx,
+                stop_rx,
+            )
+            .await;
         });
 
         self.watcher = Some(watcher);
@@ -271,14 +287,20 @@ impl FileWatcher {
     }
 
     /// Manually record a file change (for external events): recorded
-    /// immediately without debounce.
+    /// immediately without debounce and without cancel against taken
+    /// batches. Short-lived cancel applies only inside the debounce window;
+    /// the projection keeps final-state semantics, not an audit trail.
     pub fn notify_file_change(&self, file_path: impl AsRef<Path>, kind: FileChangeKind) {
         let absolute = self.resolve_absolute(file_path.as_ref());
+        // Fail closed on clock failure: skip the record rather than stamp a
+        // sentinel 0 timestamp.
+        let Some(now) = self.clock.now_ms() else {
+            return;
+        };
         let mut state = lock_ok(self.state.lock());
-        state.changed.insert(
-            absolute.clone(),
-            FileChangeRecord::new(absolute, kind, now_millis()),
-        );
+        state
+            .changed
+            .insert(absolute.clone(), FileChangeRecord::new(absolute, kind, now));
     }
 
     /// Manually record a rename (for external events): `from` is the old
@@ -286,11 +308,15 @@ impl FileWatcher {
     pub fn notify_file_rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) {
         let from_abs = self.resolve_absolute(from.as_ref());
         let to_abs = self.resolve_absolute(to.as_ref());
+        // Fail closed on clock failure: skip the record rather than stamp a
+        // sentinel 0 timestamp.
+        let Some(now) = self.clock.now_ms() else {
+            return;
+        };
         let mut state = lock_ok(self.state.lock());
-        state.changed.insert(
-            to_abs.clone(),
-            FileChangeRecord::renamed(from_abs, to_abs, now_millis()),
-        );
+        state
+            .changed
+            .insert(to_abs.clone(), FileChangeRecord::renamed(from_abs, to_abs, now));
     }
 
     fn resolve_absolute(&self, path: &Path) -> PathBuf {
@@ -307,6 +333,7 @@ async fn run_event_loop(
     root: PathBuf,
     scanner: WorkspaceScanner,
     debounce: Duration,
+    clock: CheckpointClock,
     state: Arc<std::sync::Mutex<WatcherState>>,
     mut events: tokio::sync::mpsc::UnboundedReceiver<Event>,
     mut stop: watch::Receiver<bool>,
@@ -323,7 +350,10 @@ async fn run_event_loop(
             event = events.recv() => {
                 let Some(event) = event else { break; };
                 let mut guard = lock_ok(state.lock());
-                if let Some(records) = filter_event(&root, &scanner, &event) {
+                // Fail closed on clock failure: drop the event rather than
+                // stamp a sentinel 0 timestamp.
+                let Some(now) = clock.now_ms() else { continue };
+                if let Some(records) = filter_event(&root, &scanner, &event, now) {
                     for record in records {
                         guard.pending.insert(record.path.clone(), record);
                     }
@@ -348,8 +378,8 @@ fn filter_event(
     root: &Path,
     scanner: &WorkspaceScanner,
     event: &Event,
+    timestamp: i64,
 ) -> Option<Vec<FileChangeRecord>> {
-    let timestamp = now_millis();
     // Rename/move: `notify` reports `ModifyKind::Name` with [from, to].
     // Emit a single Rename record so callers can record the move linkage
     // instead of an uncorrelated delete + add pair.
@@ -674,8 +704,8 @@ mod tests {
         assert!(watcher.has_changed("b.txt"));
     }
 
-    #[tokio::test]
-    async fn paths_are_lexically_normalized() {
+    #[test]
+    fn paths_are_lexically_normalized() {
         let dir = tempfile::tempdir().unwrap();
         let watcher = test_watcher(dir.path());
         watcher.notify_file_change("sub/../a.txt", FileChangeKind::Add);
@@ -686,6 +716,17 @@ mod tests {
             normalize_absolute_path(&dir.path().join("sub/../a.txt")),
             dir.path().join("a.txt")
         );
+    }
+
+    #[test]
+    fn dotted_root_spelling_still_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let dotted = dir.path().join("./sub/../");
+        let watcher = test_watcher(&dotted);
+        assert_eq!(watcher.root(), dir.path());
+        watcher.notify_file_change("a.txt", FileChangeKind::Add);
+        assert!(watcher.has_changed("a.txt"));
+        assert!(watcher.has_changed(dir.path().join("a.txt")));
     }
 
     async fn wait_until(

@@ -65,8 +65,10 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
     /// Set a cadence for a specific timing variant.
     /// When set, `should_checkpoint` for that timing only returns true
     /// every `n` counts. May be called multiple times for different timings.
+    /// Count is a one-based occurrence index; `n` must be at least one.
     pub fn with_cadence(mut self, timing: T, n: u32) -> Self {
-        self.cadences.insert(timing, n.max(1));
+        assert!(n >= 1, "cadence must be at least one");
+        self.cadences.insert(timing, n);
         self
     }
 
@@ -99,6 +101,7 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
     }
 
     /// Returns true if a checkpoint should fire for the given timing.
+    /// Count is a one-based occurrence index; zero never fires.
     pub fn should_checkpoint(
         &self,
         timing: &T,
@@ -106,6 +109,9 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
         entity_id: &str,
         count: u32,
     ) -> bool {
+        if count == 0 {
+            return false;
+        }
         if !self.inner.should_checkpoint(
             &timing.to_trigger(),
             &CheckpointContext {
@@ -248,8 +254,8 @@ mod tests {
             &make_policy(vec![CheckpointTiming::Manual, CheckpointTiming::OnComplete]),
             map_trigger,
         );
-        assert!(s.should_checkpoint(&TestTiming::Start, "test", "", 0));
-        assert!(s.should_checkpoint(&TestTiming::End, "test", "", 0));
+        assert!(s.should_checkpoint(&TestTiming::Start, "test", "", 1));
+        assert!(s.should_checkpoint(&TestTiming::End, "test", "", 1));
         assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 1));
     }
 
@@ -292,5 +298,34 @@ mod tests {
         // Uncadenced timing fires every occurrence.
         assert!(s.should_checkpoint(&TestTiming::OnError, "test", "", 1));
         assert!(s.should_checkpoint(&TestTiming::OnError, "test", "", 7));
+    }
+
+    #[test]
+    fn cadenced_zero_count_never_fires() {
+        let s = CadencedCheckpointStrategy::from_policy(
+            &make_policy(vec![CheckpointTiming::AfterExecute]),
+            map_trigger,
+        )
+        .with_cadence(TestTiming::After, 3);
+        assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 0));
+    }
+
+    #[test]
+    fn uncadenced_zero_count_never_fires() {
+        let s = CadencedCheckpointStrategy::from_policy(
+            &make_policy(vec![CheckpointTiming::AfterExecute]),
+            map_trigger,
+        );
+        assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 0));
+    }
+
+    #[test]
+    #[should_panic(expected = "cadence must be at least one")]
+    fn zero_cadence_is_rejected() {
+        let _ = CadencedCheckpointStrategy::from_policy(
+            &make_policy(vec![CheckpointTiming::AfterExecute]),
+            map_trigger,
+        )
+        .with_cadence(TestTiming::After, 0);
     }
 }

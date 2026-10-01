@@ -88,22 +88,44 @@ impl CheckpointDiff {
 }
 
 impl Checkpoint {
-    /// Create new Checkpoints (IDs are automatically calculated), support for multi-file snapshots
-    pub fn new(
+    /// Create a checkpoint with an explicit creation timestamp (Unix
+    /// milliseconds). Production callers pass the injected checkpoint clock;
+    /// `created_at` is excluded from the content id, so identical content
+    /// keeps identical ids across timestamps.
+    pub fn new_at(
         baseline_snapshots: Vec<SnapshotId>,
         parents: Vec<CheckpointId>,
         metadata: CheckpointMetadata,
+        created_at: i64,
     ) -> Self {
         let mut cp = Checkpoint {
             id: ContentId([0u8; 32]),
             parents,
             baseline_snapshots,
             metadata,
-            created_at: chrono::Utc::now().timestamp_millis(),
+            created_at,
             snapshot_sources: HashMap::new(),
         };
         cp.id = cp.compute_id();
         cp
+    }
+
+    /// Create new Checkpoints (IDs are automatically calculated), support for multi-file snapshots.
+    ///
+    /// Convenience for tests and small tools: stamps the system time.
+    /// Production creation paths use [`Self::new_at`] with the injected
+    /// checkpoint clock so timestamps stay controllable.
+    pub fn new(
+        baseline_snapshots: Vec<SnapshotId>,
+        parents: Vec<CheckpointId>,
+        metadata: CheckpointMetadata,
+    ) -> Self {
+        Self::new_at(
+            baseline_snapshots,
+            parents,
+            metadata,
+            chrono::Utc::now().timestamp_millis(),
+        )
     }
 
     /// Convenient construction for single-file snapshot compatibility
@@ -168,6 +190,7 @@ pub struct CheckpointBuilder {
     author: String,
     message: String,
     git_anchor: Option<String>,
+    created_at: Option<i64>,
 }
 
 impl CheckpointBuilder {
@@ -178,6 +201,7 @@ impl CheckpointBuilder {
             author: "unknown".to_string(),
             message: String::new(),
             git_anchor: None,
+            created_at: None,
         }
     }
 
@@ -223,20 +247,31 @@ impl CheckpointBuilder {
         self
     }
 
+    /// Setting the creation timestamp explicitly (Unix milliseconds).
+    /// Required: `build` fails without it so test timestamps stay exact.
+    pub fn created_at(mut self, created_at: i64) -> Self {
+        self.created_at = Some(created_at);
+        self
+    }
+
     /// Building Checkpoint
     pub fn build(self) -> Result<Checkpoint, &'static str> {
         if self.baseline_snapshots.is_empty() {
             return Err("at least one baseline_snapshot is required");
         }
+        let Some(created_at) = self.created_at else {
+            return Err("created_at must be set explicitly");
+        };
         let metadata = CheckpointMetadata {
             author: self.author,
             message: self.message,
             git_anchor: self.git_anchor,
         };
-        Ok(Checkpoint::new(
+        Ok(Checkpoint::new_at(
             self.baseline_snapshots,
             self.parents,
             metadata,
+            created_at,
         ))
     }
 }
@@ -302,12 +337,14 @@ mod tests {
             .author("builder-user")
             .message("built checkpoint")
             .parent(parent_id)
+            .created_at(1_000)
             .build()
             .unwrap();
 
         assert_eq!(cp.metadata.author, "builder-user");
         assert_eq!(cp.baseline_snapshots, vec![snap_id]);
         assert_eq!(cp.parents, vec![parent_id]);
+        assert_eq!(cp.created_at, 1_000);
     }
 
     #[test]
@@ -315,6 +352,17 @@ mod tests {
         let result = CheckpointBuilder::new()
             .author("user")
             .message("no snapshots")
+            .created_at(1_000)
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_builder_missing_created_at_fails() {
+        let result = CheckpointBuilder::new()
+            .baseline_snapshot(dummy_snapshot_id())
+            .author("user")
+            .message("no timestamp")
             .build();
         assert!(result.is_err());
     }
@@ -331,6 +379,7 @@ mod tests {
             .author("multi")
             .message("multi snapshot commit")
             .parent(parent_id)
+            .created_at(2_000)
             .build()
             .unwrap();
 
@@ -358,11 +407,8 @@ mod tests {
         let snap_id = dummy_snapshot_id();
         let metadata = CheckpointMetadata::new("user", "message");
 
-        let cp1 = Checkpoint::new_single(snap_id, vec![], metadata.clone());
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let cp2 = Checkpoint::new_single(snap_id, vec![], metadata);
+        let cp1 = Checkpoint::new_at(vec![snap_id], vec![], metadata.clone(), 1_000);
+        let cp2 = Checkpoint::new_at(vec![snap_id], vec![], metadata, 2_000);
 
         assert_eq!(
             cp1.id, cp2.id,
@@ -398,6 +444,7 @@ mod tests {
             .author("user")
             .message("message")
             .git_anchor("abc123")
+            .created_at(3_000)
             .build()
             .unwrap();
 
@@ -415,6 +462,7 @@ mod tests {
             .parents(vec![parent1, parent2])
             .author("user")
             .message("merge")
+            .created_at(4_000)
             .build()
             .unwrap();
 

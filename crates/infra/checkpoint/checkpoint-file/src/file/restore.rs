@@ -192,7 +192,9 @@ impl FileCheckpointManager {
         }
 
         // Recreate empty directories recorded at snapshot time (DB is the
-        // single source of truth; no in-memory mirror).
+        // single source of truth; no in-memory mirror). The list is
+        // auxiliary and additive only: extra directories are kept, a
+        // missing key restores as empty, and GC does not sweep the list.
         let empty_dirs = self
             .storage_ref()?
             .load_metadata(&checkpoint_base::metadata::keys::empty_dirs_key(

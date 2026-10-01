@@ -182,7 +182,7 @@ impl CleanupExecutor {
 
             let latest_id = checkpoints
                 .iter()
-                .max_by_key(|c| c.timestamp)
+                .max_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)))
                 .map(|c| c.id.clone());
             if let Some(latest) = latest_id {
                 to_remove.remove(&latest);
@@ -220,9 +220,11 @@ impl CleanupExecutor {
     ) -> Vec<String> {
         let now = chrono::Utc::now().timestamp_millis();
         let max_age_ms = (max_age_seconds * 1000) as i64;
+        // Future timestamps clamp to zero age so they read as newest and
+        // are retained, consistent with the tiered path.
         let candidates: HashSet<String> = checkpoints
             .iter()
-            .filter(|c| now - c.timestamp > max_age_ms)
+            .filter(|c| (now - c.timestamp).max(0) > max_age_ms)
             .map(|c| c.id.clone())
             .collect();
         self.apply_min_retention(checkpoints, candidates, min_retention)
@@ -238,7 +240,7 @@ impl CleanupExecutor {
             return Vec::new();
         }
         let mut sorted: Vec<_> = checkpoints.to_vec();
-        sorted.sort_by_key(|c| c.timestamp);
+        sorted.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
         let to_remove = sorted.len() as u64 - max_count;
         let candidates: HashSet<String> = sorted[..to_remove as usize]
             .iter()
@@ -275,7 +277,7 @@ impl CleanupExecutor {
             return Vec::new();
         }
         let mut sorted: Vec<_> = checkpoints.to_vec();
-        sorted.sort_by_key(|c| c.timestamp);
+        sorted.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
         let mut accumulated: u64 = 0;
         let mut candidates: HashSet<String> = HashSet::new();
         for cp in &sorted {
@@ -312,7 +314,7 @@ impl CleanupExecutor {
             let in_tier: Vec<&CheckpointStorageMetadata> = checkpoints
                 .iter()
                 .filter(|c| {
-                    let age_days = (now - c.timestamp) / DAY_MS;
+                    let age_days = (now - c.timestamp).max(0) / DAY_MS;
                     age_days >= tier.min_age_days as i64
                         && tier.max_age_days.is_none_or(|max| age_days < max as i64)
                 })
@@ -320,11 +322,15 @@ impl CleanupExecutor {
 
             let mut by_window: HashMap<i64, Vec<&CheckpointStorageMetadata>> = HashMap::new();
             for cp in in_tier {
-                let window = (now - cp.timestamp) / DAY_MS / tier.retention_interval_days as i64;
+                let age_ms = (now - cp.timestamp).max(0);
+                let window = age_ms / DAY_MS / tier.retention_interval_days as i64;
                 by_window.entry(window).or_default().push(cp);
             }
             for group in by_window.into_values() {
-                if let Some(keep) = group.iter().max_by_key(|c| c.timestamp) {
+                if let Some(keep) = group
+                    .iter()
+                    .max_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)))
+                {
                     let keep_id = keep.id.clone();
                     for cp in group {
                         if cp.id != keep_id {
@@ -345,20 +351,24 @@ impl CleanupExecutor {
         min_retention: u64,
     ) -> Vec<String> {
         if min_retention == 0 || candidates.is_empty() {
-            return candidates.into_iter().collect();
+            let mut out: Vec<String> = candidates.into_iter().collect();
+            out.sort_unstable();
+            return out;
         }
         let mut sorted = checkpoints.to_vec();
-        sorted.sort_by_key(|c| c.timestamp);
+        sorted.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
         let keep: HashSet<String> = sorted
             .iter()
             .rev()
             .take(min_retention as usize)
             .map(|c| c.id.clone())
             .collect();
-        candidates
+        let mut out: Vec<String> = candidates
             .into_iter()
             .filter(|id| !keep.contains(id))
-            .collect()
+            .collect();
+        out.sort_unstable();
+        out
     }
 }
 
@@ -652,5 +662,73 @@ mod tests {
             to_remove.is_empty(),
             "deltas protected because their baseline full-1 survives"
         );
+    }
+
+    #[test]
+    fn tiered_clamps_future_timestamps_to_zero_age() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let day = DAY_MS;
+        let checkpoints = vec![
+            make_checkpoint("future-1", now + day, None),
+            make_checkpoint("future-2", now + day + 1, None),
+            make_checkpoint("recent", now - 1_000, None),
+        ];
+        let executor = CleanupExecutor::new();
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::Tiered {
+                tiers: vec![RetentionTier::new(0, None, 1)],
+                min_retention: 1,
+            },
+        );
+        assert!(
+            !to_remove.contains(&"future-2".to_string()),
+            "newest (future-2) wins the window tie-break"
+        );
+    }
+
+    #[test]
+    fn time_based_retains_future_timestamps() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let checkpoints = vec![
+            make_checkpoint("future", now + 3_600_000, None),
+            make_checkpoint("old", now - 7_200_000, None),
+        ];
+        let executor = CleanupExecutor::new();
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::TimeBased {
+                max_age_seconds: 3600,
+                min_retention: 0,
+            },
+        );
+        assert_eq!(to_remove, vec!["old"]);
+    }
+
+    #[test]
+    fn count_cleanup_is_deterministic_on_timestamp_ties() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let checkpoints = vec![
+            make_checkpoint("b", now, None),
+            make_checkpoint("a", now, None),
+            make_checkpoint("c", now, None),
+        ];
+        let executor = CleanupExecutor::new();
+        let first = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::CountBased {
+                max_checkpoints: 1,
+                min_retention: 0,
+            },
+        );
+        let second = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::CountBased {
+                max_checkpoints: 1,
+                min_retention: 0,
+            },
+        );
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 2);
     }
 }

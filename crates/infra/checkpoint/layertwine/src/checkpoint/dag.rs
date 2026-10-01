@@ -146,6 +146,109 @@ impl Default for CheckpointDag {
     }
 }
 
+/// Ancestor lookup failures for head-first selection and merge-base
+/// computation. Every case is explicit: callers never silently fall back to
+/// a seed baseline or a wall-clock maximum.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AncestorError {
+    /// An endpoint is absent from the parent map (dangling reference).
+    #[error("unknown checkpoint {0}")]
+    Unknown(String),
+    /// The endpoints share no common ancestor (disjoint histories).
+    #[error("checkpoints share no common ancestor")]
+    Disjoint,
+    /// Several incomparable common ancestors (criss-cross topology): no
+    /// single three-way merge base exists.
+    #[error("multiple lowest common ancestors (criss-cross topology)")]
+    Ambiguous,
+}
+
+/// Ancestor closure of `seeds` (seeds included) over an explicit parent map.
+/// Cycle-safe via a visited set. Shared by head-first selection (head +
+/// ancestors stay authoritative), merge-base computation, and the physical
+/// reclaim live set. Nodes absent from the map contribute no parents.
+pub fn ancestor_closure(
+    seeds: impl IntoIterator<Item = CheckpointId>,
+    parents_of: &HashMap<CheckpointId, Vec<CheckpointId>>,
+) -> HashSet<CheckpointId> {
+    let mut seen = HashSet::new();
+    let mut queue: VecDeque<CheckpointId> = seeds.into_iter().collect();
+    while let Some(id) = queue.pop_front() {
+        if !seen.insert(id) {
+            continue;
+        }
+        if let Some(parents) = parents_of.get(&id) {
+            for parent in parents {
+                if !seen.contains(parent) {
+                    queue.push_back(*parent);
+                }
+            }
+        }
+    }
+    seen
+}
+
+/// Lowest common ancestor of two endpoints: the unique common ancestor with
+/// no other common ancestor below it. Endpoints must be present in the map
+/// (a dangling endpoint is [`AncestorError::Unknown`], never skipped).
+pub fn lowest_common_ancestor(
+    first: &CheckpointId,
+    second: &CheckpointId,
+    parents_of: &HashMap<CheckpointId, Vec<CheckpointId>>,
+) -> Result<CheckpointId, AncestorError> {
+    if !parents_of.contains_key(first) {
+        return Err(AncestorError::Unknown(first.to_hex()));
+    }
+    if !parents_of.contains_key(second) {
+        return Err(AncestorError::Unknown(second.to_hex()));
+    }
+    let ancestors_of_first = ancestor_closure([*first], parents_of);
+    let ancestors_of_second = ancestor_closure([*second], parents_of);
+    let common: Vec<CheckpointId> = ancestors_of_first
+        .intersection(&ancestors_of_second)
+        .copied()
+        .collect();
+    if common.is_empty() {
+        return Err(AncestorError::Disjoint);
+    }
+    // A common node is dominated when another common node sits below it
+    // (the dominated node is among the other's ancestors). The survivors
+    // are the maximal elements: the merge-base candidates.
+    let closures: HashMap<CheckpointId, HashSet<CheckpointId>> = common
+        .iter()
+        .map(|id| (*id, ancestor_closure([*id], parents_of)))
+        .collect();
+    let mut maximal = Vec::new();
+    for id in &common {
+        let dominated = common
+            .iter()
+            .any(|other| other != id && closures[other].contains(id));
+        if !dominated {
+            maximal.push(*id);
+        }
+    }
+    match maximal.as_slice() {
+        [single] => Ok(*single),
+        _ => Err(AncestorError::Ambiguous),
+    }
+}
+
+/// Fold [`lowest_common_ancestor`] over three or more endpoints (multi-way
+/// merge joins). Empty input is [`AncestorError::Disjoint`].
+pub fn lowest_common_ancestor_all(
+    ids: impl IntoIterator<Item = CheckpointId>,
+    parents_of: &HashMap<CheckpointId, Vec<CheckpointId>>,
+) -> Result<CheckpointId, AncestorError> {
+    let mut endpoints = ids.into_iter();
+    let Some(mut base) = endpoints.next() else {
+        return Err(AncestorError::Disjoint);
+    };
+    for id in endpoints {
+        base = lowest_common_ancestor(&base, &id, parents_of)?;
+    }
+    Ok(base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +330,128 @@ mod tests {
         let result = dag.add_edge(d, a);
         assert!(!result, "cycle in complex graph should be prevented");
         assert_eq!(dag.get_children(&d).len(), 0);
+    }
+
+    fn parent_map(edges: &[(CheckpointId, Vec<CheckpointId>)]) -> HashMap<CheckpointId, Vec<CheckpointId>> {
+        edges.iter().cloned().collect()
+    }
+
+    #[test]
+    fn ancestor_closure_includes_seeds_and_parents() {
+        let a = cid(b"a");
+        let b = cid(b"b");
+        let c = cid(b"c");
+        let map = parent_map(&[(a, vec![]), (b, vec![a]), (c, vec![b])]);
+        assert_eq!(
+            ancestor_closure([c], &map),
+            HashSet::from([a, b, c])
+        );
+    }
+
+    #[test]
+    fn lca_of_linear_fork_is_the_fork_point() {
+        let root = cid(b"root");
+        let left = cid(b"left");
+        let right = cid(b"right");
+        let map = parent_map(&[
+            (root, vec![]),
+            (left, vec![root]),
+            (right, vec![root]),
+        ]);
+        assert_eq!(
+            lowest_common_ancestor(&left, &right, &map),
+            Ok(root)
+        );
+    }
+
+    #[test]
+    fn lca_after_merge_back_is_the_merge() {
+        let root = cid(b"root");
+        let left = cid(b"left");
+        let right = cid(b"right");
+        let joined = cid(b"joined");
+        let tip = cid(b"tip");
+        let map = parent_map(&[
+            (root, vec![]),
+            (left, vec![root]),
+            (right, vec![root]),
+            (joined, vec![left, right]),
+            (tip, vec![joined]),
+        ]);
+        // tip descends from left, so the merge base is left itself.
+        assert_eq!(
+            lowest_common_ancestor(&tip, &left, &map),
+            Ok(left)
+        );
+        assert_eq!(
+            lowest_common_ancestor(&tip, &tip, &map),
+            Ok(tip)
+        );
+    }
+
+    #[test]
+    fn lca_of_criss_cross_is_ambiguous() {
+        // left merges right, then right merges left: both merges are
+        // incomparable common ancestors of the two tips.
+        let root = cid(b"root");
+        let left = cid(b"left");
+        let right = cid(b"right");
+        let merge_lr = cid(b"merge-lr");
+        let merge_rl = cid(b"merge-rl");
+        let tip_l = cid(b"tip-l");
+        let tip_r = cid(b"tip-r");
+        let map = parent_map(&[
+            (root, vec![]),
+            (left, vec![root]),
+            (right, vec![root]),
+            (merge_lr, vec![left, right]),
+            (merge_rl, vec![right, left]),
+            (tip_l, vec![merge_lr]),
+            (tip_r, vec![merge_rl]),
+        ]);
+        assert_eq!(
+            lowest_common_ancestor(&tip_l, &tip_r, &map),
+            Err(AncestorError::Ambiguous)
+        );
+    }
+
+    #[test]
+    fn lca_of_disjoint_histories_is_disjoint() {
+        let a = cid(b"a");
+        let b = cid(b"b");
+        let map = parent_map(&[(a, vec![]), (b, vec![])]);
+        assert_eq!(
+            lowest_common_ancestor(&a, &b, &map),
+            Err(AncestorError::Disjoint)
+        );
+    }
+
+    #[test]
+    fn lca_of_unknown_endpoint_is_unknown() {
+        let a = cid(b"a");
+        let ghost = cid(b"ghost");
+        let map = parent_map(&[(a, vec![])]);
+        assert_eq!(
+            lowest_common_ancestor(&a, &ghost, &map),
+            Err(AncestorError::Unknown(ghost.to_hex()))
+        );
+    }
+
+    #[test]
+    fn lca_fold_over_three_endpoints() {
+        let root = cid(b"root");
+        let x = cid(b"x");
+        let y = cid(b"y");
+        let z = cid(b"z");
+        let map = parent_map(&[
+            (root, vec![]),
+            (x, vec![root]),
+            (y, vec![root]),
+            (z, vec![root]),
+        ]);
+        assert_eq!(
+            lowest_common_ancestor_all(vec![x, y, z], &map),
+            Ok(root)
+        );
     }
 }

@@ -1,5 +1,6 @@
 use crate::state::CheckpointStateManager;
 use checkpoint_base::cleanup_policy::{CleanupExecutor, CleanupResult, CleanupStrategy};
+use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::delta::{CheckpointLoader, DiffCalculator};
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
@@ -30,6 +31,9 @@ pub struct StorageBackedStateManager<T> {
     /// Per-entity cleanup mutexes so concurrent cleanup runs for the same
     /// entity are serialized.
     cleanup_locks: dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    /// Time source for save-timestamp defaults and cleanup watermark
+    /// clamping. Tests inject a manual clock and advance it explicitly.
+    clock: CheckpointClock,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -39,12 +43,20 @@ impl<T> StorageBackedStateManager<T> {
             storage,
             metrics: None,
             cleanup_locks: dashmap::DashMap::new(),
+            clock: CheckpointClock::system(),
             _marker: std::marker::PhantomData,
         }
     }
 
     pub fn with_metrics(mut self, metrics: Arc<CheckpointMetricsCollector>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    /// Drive save-timestamp defaults and cleanup watermark clamping from an
+    /// explicit clock instead of the system clock.
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock;
         self
     }
 
@@ -221,7 +233,10 @@ where
     /// Incremental semantics: every 10th run is a full scan;
     /// otherwise only checkpoints newer than the persisted watermark (plus
     /// the excluded id) are considered candidates. After a run the watermark
-    /// advances to the newest remaining checkpoint timestamp.
+    /// advances to the newest considered timestamp clamped to now and the
+    /// run count always advances so empty rounds never stall the full scan.
+    /// Late records older than the watermark stay invisible until the next
+    /// full scan.
     pub async fn execute_cleanup_for_entity(
         &self,
         entity_id: &str,
@@ -294,10 +309,21 @@ where
                 deleted += 1;
             }
         }
-        if let Some(max_timestamp) = survivors.iter().map(|c| c.timestamp).max() {
+        if !all.is_empty() {
+            let now = self.clock.now_ms().ok_or_else(|| CheckpointError::Internal(
+                "checkpoint clock unavailable; refusing to advance cleanup watermark".to_string(),
+            ))?;
+            let next_watermark = survivors
+                .iter()
+                .map(|c| c.timestamp)
+                .max()
+                .or_else(|| candidates.iter().map(|c| c.timestamp).max())
+                .or(last_watermark)
+                .unwrap_or(now)
+                .min(now);
             operations.push(StoreOperation::Save(self.entity_cleanup_metadata_item(
                 entity_id,
-                max_timestamp,
+                next_watermark,
                 run_count + 1,
             )));
         }
@@ -471,7 +497,10 @@ where
         let checkpoint_type = extract_checkpoint_type(checkpoint)?;
         let is_full = checkpoint_type == CheckpointType::Full;
         let timestamp = extract_optional_i64_field(checkpoint, "timestamp")?
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+            .or_else(|| self.clock.now_ms())
+            .ok_or_else(|| CheckpointError::Internal(
+                "checkpoint has no timestamp and the checkpoint clock is unavailable".to_string(),
+            ))?;
         let base_checkpoint_id =
             extract_optional_field_as_str(checkpoint, "baseCheckpointId", "base_checkpoint_id")?;
         let previous_checkpoint_id = extract_optional_field_as_str(
@@ -781,9 +810,19 @@ pub fn parse_storage_metadata(
     let status = meta
         .get("status")
         .and_then(|v| v.as_str())
-        .and_then(|s| {
-            serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(&format!("\"{}\"", s))
-                .ok()
+        .map(|s| {
+            let normalized = s.to_ascii_lowercase();
+            serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(&format!(
+                "\"{}\"",
+                normalized
+            ))
+            .unwrap_or_else(|_| {
+                tracing::warn!(
+                    status = s,
+                    "unknown checkpoint status, falling back to active"
+                );
+                wf_types::checkpoint::CheckpointStatus::Active
+            })
         })
         .unwrap_or(wf_types::checkpoint::CheckpointStatus::Active);
 
@@ -1271,6 +1310,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_watermark_clamps_future_and_advances_on_empty() {
+        use checkpoint_base::clock::CheckpointClock;
+
+        const T0: i64 = 1_000_000;
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage)
+            .with_clock(CheckpointClock::manual(T0));
+        let strategy = CleanupStrategy::CountBased {
+            max_checkpoints: 10,
+            min_retention: 0,
+        };
+
+        let future = T0 + 86_400_000;
+        mgr.save(
+            &make_envelope(
+                "cp-future",
+                None,
+                None,
+                future,
+                None,
+                Some(json!({"state": "future"})),
+            ),
+            "test",
+            "exec-1",
+        )
+        .await
+        .unwrap();
+
+        let result = mgr
+            .execute_cleanup_for_entity("exec-1", "test", None, &strategy)
+            .await
+            .unwrap();
+        assert_eq!(result.deleted_count, 0);
+        let (watermark, run_count) = mgr.load_entity_cleanup_metadata("exec-1").await.unwrap();
+        // Deterministic clamp: the future survivor cannot lift the watermark
+        // past the clock reading.
+        assert_eq!(watermark, Some(T0));
+        assert_eq!(run_count, 1);
+
+        let second = mgr
+            .execute_cleanup_for_entity("exec-1", "test", None, &strategy)
+            .await
+            .unwrap();
+        assert_eq!(second.deleted_count, 0);
+        let (_, run_count) = mgr.load_entity_cleanup_metadata("exec-1").await.unwrap();
+        assert_eq!(run_count, 2);
+    }
+
+    #[tokio::test]
+    async fn cleanup_without_clock_refuses_watermark_write() {
+        use checkpoint_base::clock::{CheckpointClock, ManualClock};
+
+        let storage = make_storage();
+        let clock = CheckpointClock::manual(1_000_000);
+        let handle: ManualClock = clock.manual_handle().expect("manual clock");
+        let mgr =
+            StorageBackedStateManager::<Envelope>::new(storage).with_clock(clock);
+        let strategy = CleanupStrategy::CountBased {
+            max_checkpoints: 10,
+            min_retention: 0,
+        };
+        mgr.save(
+            &make_envelope(
+                "cp-1",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": 1})),
+            ),
+            "test",
+            "exec-1",
+        )
+        .await
+        .unwrap();
+
+        handle.fail();
+        let err = mgr
+            .execute_cleanup_for_entity("exec-1", "test", None, &strategy)
+            .await
+            .expect_err("cleanup without a clock reading must fail closed");
+        assert!(format!("{err:?}").contains("clock unavailable"));
+    }
+
+    #[tokio::test]
     async fn concurrent_cleanup_serialized_per_entity() {
         let storage = make_storage();
         let mgr = Arc::new(StorageBackedStateManager::<Envelope>::new(storage));
@@ -1676,5 +1800,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(restored, json!({"state": 4}));
+    }
+
+    #[test]
+    fn parse_storage_metadata_accepts_status_case_variants() {
+        let meta = json!({
+            "entityType": "test",
+            "checkpointType": "DELTA",
+            "timestamp": 1000,
+            "status": "CORRUPTED",
+        });
+        let parsed = parse_storage_metadata("cp-1", "exec-1", &meta);
+        assert_eq!(
+            parsed.status,
+            wf_types::checkpoint::CheckpointStatus::Corrupted
+        );
+        assert_eq!(parsed.checkpoint_type, CheckpointType::Delta);
+
+        let mixed = json!({
+            "entityType": "test",
+            "checkpointType": "delta",
+            "timestamp": 1000,
+            "status": "Completed",
+        });
+        let parsed = parse_storage_metadata("cp-2", "exec-1", &mixed);
+        assert_eq!(
+            parsed.status,
+            wf_types::checkpoint::CheckpointStatus::Completed
+        );
     }
 }

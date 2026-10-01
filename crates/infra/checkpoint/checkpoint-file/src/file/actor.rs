@@ -132,7 +132,7 @@ impl FileCheckpointManager {
             }
             let kind = parent_execution_id
                 .and_then(|p| self.actor_index.get(p))
-                .map(|a| a.kind())
+                .and_then(|a| a.try_kind().ok())
                 .unwrap_or(ActorKind::Agent);
             let chain_ids: Vec<wf_types::Id> = chain;
             if let Ok(actor) = ActorId::new(kind, &chain_ids) {

@@ -40,9 +40,10 @@ impl CheckpointRepo {
     /// Shared by both [`new`] and [`load`] to avoid code duplication.
     fn create_root_checkpoint(
         initial_snapshots: Vec<SnapshotId>,
+        created_at: i64,
     ) -> (CheckpointId, Checkpoint, Branch) {
         let metadata = CheckpointMetadata::new("system", "root checkpoint");
-        let root = Checkpoint::new(initial_snapshots, vec![], metadata);
+        let root = Checkpoint::new_at(initial_snapshots, vec![], metadata, created_at);
         let root_id = root.id;
         let main_branch = Branch::new("main", root_id);
         (root_id, root, main_branch)
@@ -50,7 +51,10 @@ impl CheckpointRepo {
 
     /// Create a new checkpoint repository with multi-file initialization support
     pub fn new(initial_snapshots: Vec<SnapshotId>) -> Self {
-        let (root_id, root, main_branch) = Self::create_root_checkpoint(initial_snapshots);
+        let (root_id, root, main_branch) = Self::create_root_checkpoint(
+            initial_snapshots,
+            chrono::Utc::now().timestamp_millis(),
+        );
 
         let mut dag = CheckpointDag::new();
         dag.add_node(root_id);
@@ -83,7 +87,10 @@ impl CheckpointRepo {
     ///
     /// The DAG is rebuilt from checkpoint parent relationships (single source of
     /// truth); no separate DAG projection is persisted.
-    pub fn load(storage: Box<dyn CheckpointPersist>) -> Result<Self> {
+    ///
+    /// `created_at` stamps the fabricated root when storage is empty;
+    /// callers pass their injected clock so GC bootstrap stays deterministic.
+    pub fn load(storage: Box<dyn CheckpointPersist>, created_at: i64) -> Result<Self> {
         let mut checkpoints: HashMap<CheckpointId, Checkpoint> = storage
             .list_checkpoints()?
             .into_iter()
@@ -93,7 +100,8 @@ impl CheckpointRepo {
 
         // Initialize with root when storage is empty
         if checkpoints.is_empty() {
-            let (_root_id, root, main_branch) = Self::create_root_checkpoint(vec![]);
+            let (_root_id, root, main_branch) =
+                Self::create_root_checkpoint(vec![], created_at);
 
             storage.store_checkpoint(&root)?;
             checkpoints.insert(root.id, root);

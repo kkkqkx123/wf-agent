@@ -26,8 +26,8 @@ use events::emit_llm_event;
 use messages::{build_messages, tool_result_message};
 use stream::run_streaming_request;
 use token_budget::{
-    await_compression_settle, check_preflight_budget, emit_token_usage_events,
-    record_non_stream_usage, setup_token_tracker,
+    await_compression_settle, check_preflight_budget, check_still_over_budget_escalation,
+    emit_token_usage_events, record_non_stream_usage, setup_token_tracker,
 };
 use tool_exec::{call_llm, execute_tool_call, pending_queue_for, resolve_tools, LlmToolCallBatch};
 
@@ -153,6 +153,7 @@ impl LlmHandler {
         for _round in 0..cfg.max_interactions {
             if cfg.token_tracking_enabled {
                 await_compression_settle(ctx).await?;
+                check_still_over_budget_escalation(ctx).await?;
             }
             let request = self.build_request(ctx, &cfg, &node_config, &messages, &tools);
 

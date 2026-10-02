@@ -139,6 +139,7 @@ mod tests {
             interaction: None,
             hooks_fired: vec![],
             triggers_seen: vec![],
+            compressions: vec![],
             exec_id: None,
             parent_exec_id: None,
             root_exec_id: None,
@@ -190,6 +191,7 @@ mod tests {
                 limit_tokens: Some(200),
                 limit_cost: None,
                 warn_at: None,
+                context_limit: None,
             }),
         );
         let report = analyze(&trace);
@@ -207,6 +209,7 @@ mod tests {
                 limit_tokens: Some(100),
                 limit_cost: None,
                 warn_at: None,
+                context_limit: None,
             }),
         );
         let report = analyze(&trace);

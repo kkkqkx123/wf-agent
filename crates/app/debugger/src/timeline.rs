@@ -11,8 +11,8 @@ pub struct TimelineEntry {
 }
 
 /// Fixed event order per step so timeline and replay agree on one trace:
-/// node, loop round, hooks, triggers, model calls, interruption, checkpoint,
-/// interaction, merge.
+/// node, loop round, hooks, triggers, model calls, compression, interruption,
+/// checkpoint, interaction, merge.
 pub fn build_timeline(trace: &Trace) -> Vec<TimelineEntry> {
     let mut entries = Vec::new();
     for visit in walk(trace) {
@@ -57,6 +57,18 @@ pub fn build_timeline(trace: &Trace) -> Vec<TimelineEntry> {
                         .clone()
                         .unwrap_or_else(|| call.profile_id.clone()),
                     call.effective_total(),
+                ),
+            });
+        }
+        for compression in &step.compressions {
+            entries.push(TimelineEntry {
+                at: at.clone(),
+                kind: "compression".to_string(),
+                label: format!(
+                    "{} {} v{}",
+                    compression.target_context_id,
+                    compression.phase.label(),
+                    compression.array_version,
                 ),
             });
         }

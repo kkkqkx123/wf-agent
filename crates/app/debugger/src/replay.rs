@@ -52,6 +52,14 @@ pub struct ReplaySummary {
     pub completion_tokens: u64,
     #[serde(default)]
     pub total_tokens: u64,
+    #[serde(default)]
+    pub compression_requested: usize,
+    #[serde(default)]
+    pub compression_completed: usize,
+    #[serde(default)]
+    pub compression_failed: usize,
+    #[serde(default)]
+    pub compression_discarded: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -111,6 +119,22 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
             summary.prompt_tokens += u64::from(call.prompt_tokens);
             summary.completion_tokens += u64::from(call.completion_tokens);
             summary.total_tokens += call.effective_total();
+        }
+        for compression in &step.compressions {
+            match compression.phase {
+                crate::views::CompressionPhase::Requested => {
+                    summary.compression_requested += 1;
+                }
+                crate::views::CompressionPhase::Completed => {
+                    summary.compression_completed += 1;
+                }
+                crate::views::CompressionPhase::Failed => {
+                    summary.compression_failed += 1;
+                }
+                crate::views::CompressionPhase::Discarded => {
+                    summary.compression_discarded += 1;
+                }
+            }
         }
         steps.push(StepOutcome {
             path: visit.path,
@@ -186,6 +210,7 @@ mod tests {
                 interaction: None,
                 hooks_fired: vec![],
                 triggers_seen: vec![],
+                compressions: vec![],
                 exec_id: None,
                 parent_exec_id: None,
                 root_exec_id: None,

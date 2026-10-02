@@ -114,6 +114,7 @@ mod tests {
                 interaction: None,
                 hooks_fired: vec![],
                 triggers_seen: vec![],
+                compressions: vec![],
                 exec_id: None,
                 parent_exec_id: None,
                 root_exec_id: None,

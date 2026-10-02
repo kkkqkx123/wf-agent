@@ -153,6 +153,11 @@ pub async fn emit_token_usage_events(
                 false,
                 &context_messages,
             );
+            // Synchronous signal delivery first so the audit copy can persist
+            // the taker outcome. A missing registry is already warned inside
+            // the dispatch; the audit event is kept but backpressure must not
+            // anchor without a taker.
+            let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
             let mut event = wf_execution_shared::context_store::compression_event(
                 &ctx.execution_id.to_string(),
                 None,
@@ -166,6 +171,14 @@ pub async fn emit_token_usage_events(
                     );
                 }
             }
+            if !dispatched {
+                if let Some(meta) = event.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_NO_TAKER.to_string(),
+                        Value::Bool(true),
+                    );
+                }
+            }
             bus.publish_logged(
                 event,
                 &format!(
@@ -174,19 +187,28 @@ pub async fn emit_token_usage_events(
                 ),
             )
             .ok();
-            // Synchronous signal delivery: the compression service registered
-            // as a receiver takes over immediately. A missing registry is
-            // already warned inside the dispatch; the audit event is kept
-            // but backpressure must not anchor without a taker.
-            let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
             if !dispatched {
-                tracing::warn!(
-                    execution_id = %ctx.execution_id,
-                    node_id = %ctx.node_id,
-                    target = %context_id,
-                    version = version,
-                    "compression signal has no taker; audit event kept, flight not anchored"
-                );
+                let streak = tracker.record_no_taker(&context_id);
+                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                    tracing::error!(
+                        execution_id = %ctx.execution_id,
+                        node_id = %ctx.node_id,
+                        target = %context_id,
+                        version = version,
+                        streak = streak,
+                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                    );
+                } else {
+                    tracing::warn!(
+                        execution_id = %ctx.execution_id,
+                        node_id = %ctx.node_id,
+                        target = %context_id,
+                        version = version,
+                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                    );
+                }
+            } else {
+                tracker.reset_no_taker(&context_id);
             }
             message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
             // Backpressure anchor: the next node waits for this version to
@@ -355,6 +377,47 @@ fn compression_failure(ctx: &NodeExecutionContext, detail: String) -> crate::err
         detail,
         failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
     }
+}
+
+/// Still-over-budget escalation gate: when consecutive compressed results
+/// for a declared array all exceed the budget, the content is uncompressible
+/// at this budget and further summary runs only burn model calls. Pause the
+/// owning execution for external handling instead of compressing forever.
+/// The streak resets here so a resume gets a fresh strike budget rather
+/// than re-parking immediately. Call after [`await_compression_settle`] on
+/// every tool-loop round; returns the routing failure when parked.
+pub async fn check_still_over_budget_escalation(
+    ctx: &NodeExecutionContext,
+) -> crate::error::WorkflowResult<()> {
+    let Some(ref tracker) = ctx.token_tracker else {
+        return Ok(());
+    };
+    let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
+    let mut escalated: Option<(String, u32)> = None;
+    {
+        let mut tracker = tracker.lock().await;
+        for context_id in declared_contexts(config) {
+            let streak = tracker.still_over_budget_count(&context_id);
+            if streak
+                >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+            {
+                tracker.reset_still_over_budget(&context_id);
+                escalated = Some((context_id, streak));
+                break;
+            }
+        }
+        if escalated.is_some() {
+            persist_tracker_state(ctx, &tracker);
+        }
+    }
+    if let Some((target, streak)) = escalated {
+        let message = format!(
+            "compressed results for '{target}' still exceed the context budget {streak} times consecutively; bump the budget or trim the content before resuming"
+        );
+        pause_for_compression_failure(ctx, &message);
+        return Err(compression_failure(ctx, message));
+    }
+    Ok(())
 }
 
 /// Match a compression failure event against an emitting execution.

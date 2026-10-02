@@ -59,7 +59,7 @@ impl AgentExecutionRecord {
 pub struct AgentLoopRegistry {
     entities: DashMap<Id, Arc<AgentLoopEntity>>,
     /// Terminal results of finished executions, keyed by execution id.
-    /// Written by the spawning path, taken by `query_execution_status` and
+    /// Written by the spawning path, read by `query_execution_status` and
     /// cleared together with the entity by `cleanup_terminated`.
     results: DashMap<Id, AgentLoopOutput>,
     /// Join handles of background execution tasks, keyed by execution id.
@@ -227,11 +227,6 @@ impl AgentLoopRegistry {
     /// Read the stored output without removing it.
     pub fn result(&self, id: &Id) -> Option<AgentLoopOutput> {
         self.results.get(id).map(|e| e.clone())
-    }
-
-    /// Take the stored output, removing it from the result slot.
-    pub fn take_result(&self, id: &Id) -> Option<AgentLoopOutput> {
-        self.results.remove(id).map(|(_, v)| v)
     }
 
     /// Register the background task driving `id`. The task removes its own
@@ -462,21 +457,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_result_slot_store_take_and_cleanup() {
+    async fn test_result_slot_store_read_and_cleanup() {
         let registry = AgentLoopRegistry::new();
         let id = Id::from("run-1".to_string());
         registry.store_result(id.clone(), output("run-1", Value::from("done")));
 
+        // Reads are repeatable; only cleanup removes the slot.
         assert_eq!(
             registry.result(&id).expect("result present").result,
             Value::from("done")
         );
-        // take removes the slot.
-        assert!(registry.take_result(&id).is_some());
-        assert!(registry.take_result(&id).is_none());
+        assert!(registry.result(&id).is_some());
 
-        // Terminal entity cleanup also clears the result slot.
-        registry.store_result(id.clone(), output("run-1", Value::from("done")));
         registry
             .register(make_entity("run-1", ExecutionStatus::Completed).await)
             .unwrap();

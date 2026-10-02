@@ -24,7 +24,7 @@ fn multidim_sample_passes_unified_check() {
     assert_eq!(outcome.exit_code, 0);
     assert_eq!(outcome.assertions.failed, 0);
     assert_eq!(outcome.assertions.passed, trace.assertions.len());
-    assert_eq!(outcome.report.sections.len(), 7);
+    assert_eq!(outcome.report.sections.len(), 8);
 }
 
 #[test]
@@ -104,6 +104,7 @@ fn tight_budget_fails_check() {
         limit_tokens: Some(10),
         limit_cost: None,
         warn_at: None,
+        context_limit: None,
     });
     let outcome = wf_debugger::run_check(&trace, None);
     assert_eq!(outcome.exit_code, 1);

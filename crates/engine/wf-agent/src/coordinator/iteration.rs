@@ -338,6 +338,36 @@ impl AgentIterationCoordinator {
             if let Some(result) = self.settle_compression_flight(entity).await? {
                 return Ok(result);
             }
+            // Still-over-budget escalation: consecutive compressed results
+            // that all exceed the budget mean the content is uncompressible
+            // at this budget, so further summary runs only burn model calls.
+            // Park for external handling instead of compressing forever. The
+            // streak resets here so a resume gets a fresh strike budget
+            // rather than re-parking immediately.
+            let still_over = entity
+                .conversation()
+                .read()
+                .await
+                .still_over_budget_streak();
+            if still_over
+                >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+            {
+                let version = entity.conversation().read().await.conversation_version();
+                entity
+                    .conversation()
+                    .write()
+                    .await
+                    .reset_still_over_budget();
+                return Ok(self
+                    .compression_failure_park(
+                        entity,
+                        version,
+                        &format!(
+                            "compressed results still exceed the context budget {still_over} times consecutively; bump the budget or trim the content before resuming"
+                        ),
+                    )
+                    .await);
+            }
         }
 
         let request = build_agent_request(

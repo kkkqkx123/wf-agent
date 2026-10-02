@@ -144,32 +144,53 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         true,
         &request.messages,
     );
+    let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
+    let mut audit = wf_execution_shared::context_store::compression_event(
+        &ctx.execution_id.to_string(),
+        None,
+        &compression_request,
+    );
+    if !dispatched {
+        if let Some(meta) = audit.metadata.as_mut() {
+            meta.insert(
+                wf_execution_shared::KEY_NO_TAKER.to_string(),
+                Value::Bool(true),
+            );
+        }
+    }
     bus.publish_logged(
-        wf_execution_shared::context_store::compression_event(
-            &ctx.execution_id.to_string(),
-            None,
-            &compression_request,
-        ),
+        audit,
         &format!(
             "workflow={} llm={} forced-compression",
             ctx.execution_id, ctx.node_id
         ),
     )
     .ok();
-    let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
     if !dispatched {
         tracing::warn!(
             execution_id = %ctx.execution_id,
             node_id = %ctx.node_id,
             target = %target,
-            "forced compression signal has no taker; audit event kept, flight not anchored"
+            "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
         );
     }
     message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
     if let Some(ref tracker) = ctx.token_tracker {
         let mut tracker = tracker.lock().await;
         if dispatched {
+            tracker.reset_no_taker(&target);
             tracker.begin_compression_flight(&target, array_version, true);
+        } else {
+            let streak = tracker.record_no_taker(&target);
+            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                tracing::error!(
+                    execution_id = %ctx.execution_id,
+                    node_id = %ctx.node_id,
+                    target = %target,
+                    streak = streak,
+                    "forced compression signal repeatedly has no taker; compression service missing"
+                );
+            }
         }
         super::token_budget::persist_tracker_state(ctx, &tracker);
     }

@@ -26,9 +26,10 @@ use wf_workflow::trigger::SubworkflowRunner;
 
 pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
 
-/// Upper bound for the dedup table; overflow evicts arbitrary older entries
-/// (a late duplicate at worst re-runs one summary whose write-back the
-/// version anchor then discards).
+/// Upper bound for the dedup table; overflow evicts the oldest claims by
+/// registration time while never evicting the just-claimed key (a late
+/// duplicate at worst re-runs one summary whose write-back the version
+/// anchor then discards).
 pub const COMPRESSION_HANDLED_CAPACITY: usize = 1024;
 
 /// Base delay for the exponential backoff between chain retry attempts
@@ -105,21 +106,30 @@ fn build_degraded_notice(error: &str, dropped: usize) -> Message {
 #[derive(Debug, Clone)]
 struct CompressionAttempt {
     array_version: u64,
+    claimed_at: i64,
 }
 
 /// RAII release of one dedup-table claim when the compression callback
 /// leaves scope on any exit path (success, terminal failure, panic or task
 /// abort). A leaked entry would permanently swallow re-emissions of the
 /// same `(execution, target, version)` until capacity eviction happens to
-/// hit it.
+/// hit it. The key carries the array version, and removal is version-checked
+/// so a late claim for a newer version is never deleted by an older task.
 struct HandledGuard {
     handled: Arc<DashMap<String, CompressionAttempt>>,
     key: String,
+    expected_version: u64,
 }
 
 impl Drop for HandledGuard {
     fn drop(&mut self) {
-        self.handled.remove(&self.key);
+        let should_remove = self
+            .handled
+            .get(&self.key)
+            .is_some_and(|entry| entry.array_version == self.expected_version);
+        if should_remove {
+            self.handled.remove(&self.key);
+        }
     }
 }
 
@@ -127,6 +137,9 @@ impl Drop for HandledGuard {
 enum ChainStatus {
     /// A summary (or the degraded fallback) write-back landed.
     Completed,
+    /// The target array moved past the emission version while the summary
+    /// ran; the stale result was discarded without retry.
+    Expired(String),
     /// Every attempt failed; carries the last failure reason.
     Failed(String),
     /// Listener shutdown aborted an in-flight attempt.
@@ -260,19 +273,21 @@ impl CompressionService {
             .and_then(|ledger| ledger.trigger_state_registry.clone())
     }
 
-    /// Bound the dedup table (never evicts the just-claimed key).
+    /// Bound the dedup table (never evicts the just-claimed key). Victims are
+    /// the oldest claims by registration time so an in-flight version keeps
+    /// its dedup protection while idle leftovers are reclaimed first.
     fn evict_overflow(&self, keep: &str) {
         if self.handled.len() <= COMPRESSION_HANDLED_CAPACITY {
             return;
         }
-        let victims: Vec<String> = self
+        let mut candidates: Vec<(String, i64)> = self
             .handled
             .iter()
             .filter(|entry| entry.key() != keep)
-            .take(256)
-            .map(|entry| entry.key().clone())
+            .map(|entry| (entry.key().clone(), entry.claimed_at))
             .collect();
-        for victim in victims {
+        candidates.sort_by_key(|(_, claimed_at)| *claimed_at);
+        for (victim, _) in candidates.into_iter().take(256) {
             self.handled.remove(&victim);
         }
     }
@@ -304,7 +319,10 @@ impl CompressionService {
             return;
         };
         let execution_id = ctx.execution_id.clone();
-        let key = format!("{}:{}", execution_id, signal.target_context_id);
+        let key = format!(
+            "{}:{}:{}",
+            execution_id, signal.target_context_id, signal.array_version
+        );
         debug!(
             "Compression signal for {}: tokens {}/{} ({} messages, forced: {}, depth: {})",
             key,
@@ -314,11 +332,7 @@ impl CompressionService {
             signal.forced,
             signal.depth
         );
-        if self
-            .handled
-            .get(&key)
-            .is_some_and(|entry| entry.array_version == signal.array_version)
-        {
+        if self.handled.contains_key(&key) {
             debug!(
                 "Compression signal for {} at version {} already handled, skipping",
                 key, signal.array_version
@@ -336,6 +350,7 @@ impl CompressionService {
             key.clone(),
             CompressionAttempt {
                 array_version: signal.array_version,
+                claimed_at: wf_common::now(),
             },
         );
         self.evict_overflow(&key);
@@ -371,6 +386,11 @@ impl CompressionService {
         let token_limit = signal.token_limit;
         let depth = signal.depth.saturating_add(1);
         let execution_id_str = execution_id.to_string();
+        // Run identity for this claim: stamped onto every terminal event of
+        // the spawned run so offline analysis can link each terminal back to
+        // its summary run (same target+version with distinct run ids means a
+        // redundant run whose write-back the version anchor discards).
+        let run_id = wf_common::generate_id();
         // Self-reference guard: the snapshot is already over budget, so the
         // summary LLM must not receive it whole. Trim the oldest part to the
         // input headroom (this covers forced safety-net re-emissions, whose
@@ -386,19 +406,25 @@ impl CompressionService {
         };
         // File folding runs inside the compression chain template
         // (processor fold node before the summary node), so the trimmed
-        // snapshot feeds the chain untouched here.
+        // snapshot feeds the chain untouched here. The emission version and
+        // run identity travel alongside so the summary run can be linked back
+        // to its request version and claim in traces.
         let input = serde_json::json!({
             "conversationHistory": snapshot.clone(),
             "compressionDepth": depth,
+            "arrayVersion": array_version,
+            "compressionRunId": run_id,
         });
         let start = wf_common::now();
         let service_handled = Arc::clone(&self.handled);
         let callback = async move {
             // The guard releases the dedup claim on every exit path once
-            // the callback leaves scope.
+            // the callback leaves scope. Version-checked so a newer claim
+            // for the same execution and target is never removed.
             let _handled = HandledGuard {
                 handled: service_handled,
                 key,
+                expected_version: array_version,
             };
             let max_attempts = policy.max_retries.saturating_add(1);
             let mut attempts = 0u32;
@@ -433,18 +459,24 @@ impl CompressionService {
                                         tail_keep: policy.tail_keep,
                                         token_limit,
                                         degraded: false,
+                                        degraded_dropped: 0,
+                                        run_id: Some(run_id.clone()),
                                     },
                                     &output,
                                 )
                                 .await
                                 {
                                     Ok(()) => Ok(()),
-                                    Err(e) => {
+                                    Err(super::CompressionWriteBackError::Expired(detail)) => {
+                                        break ChainStatus::Expired(detail);
+                                    }
+                                    Err(super::CompressionWriteBackError::Failed(error)) => {
+                                        let detail = error.to_string();
                                         warn!(
                                             "Compression sub-workflow '{}' write-back failed: {}",
-                                            workflow_id, e
+                                            workflow_id, detail
                                         );
-                                        Err(e.to_string())
+                                        Err(detail)
                                     }
                                 }
                             }
@@ -480,8 +512,13 @@ impl CompressionService {
                 }
             };
             let mut success = matches!(status, ChainStatus::Completed);
+            let mut expired: Option<String> = match &status {
+                ChainStatus::Expired(e) => Some(e.clone()),
+                _ => None,
+            };
             let mut error = match &status {
                 ChainStatus::Failed(e) => Some(e.clone()),
+                ChainStatus::Expired(e) => Some(e.clone()),
                 ChainStatus::Aborted => Some("aborted at listener shutdown".to_string()),
                 ChainStatus::Completed => None,
             };
@@ -504,6 +541,7 @@ impl CompressionService {
             // `PartialSummary` never yields a routeable failure — it degrades
             // in place below and reports success — so it is not a table entry.
             if !success
+                && expired.is_none()
                 && matches!(status, ChainStatus::Failed(_))
                 && policy.fallback == CompressionFallbackMode::PartialSummary
             {
@@ -526,6 +564,8 @@ impl CompressionService {
                                 tail_keep: policy.tail_keep,
                                 token_limit,
                                 degraded: true,
+                                degraded_dropped: dropped,
+                                run_id: Some(run_id.clone()),
                             },
                             &output,
                         )
@@ -540,10 +580,19 @@ impl CompressionService {
                                 success = true;
                                 error = None;
                             }
-                            Err(e) => {
+                            Err(super::CompressionWriteBackError::Expired(detail)) => {
+                                expired = Some(detail.clone());
+                                error = Some(detail.clone());
+                                warn!(
+                                    "Degraded partial-window write-back expired for {}:{}: {}",
+                                    execution_id_str, target_context_id, detail
+                                );
+                            }
+                            Err(super::CompressionWriteBackError::Failed(error)) => {
+                                let detail = error.to_string();
                                 warn!(
                                     "Degraded partial-window write-back failed for {}:{}: {}",
-                                    execution_id_str, target_context_id, e
+                                    execution_id_str, target_context_id, detail
                                 );
                             }
                         }
@@ -556,7 +605,11 @@ impl CompressionService {
                     }
                 }
             }
-            if !success {
+            if expired.is_some() {
+                // Expiry already published its discarded event inside the
+                // write-back; the anchor was released version-checked there.
+                // No failure event, no park, no retry.
+            } else if !success {
                 // Terminal failure: release the persisted backpressure
                 // anchor (workflow targets) and notify agent conversations
                 // through the failure event. The emission guard stays, so
@@ -570,7 +623,7 @@ impl CompressionService {
                         );
                     }
                 }
-                let failed = wf_execution_shared::build_context_compression_failed_event(
+                let mut failed = wf_execution_shared::build_context_compression_failed_event(
                     &execution_id_str,
                     agent_loop_id.as_deref(),
                     &target_context_id,
@@ -578,12 +631,16 @@ impl CompressionService {
                     attempts,
                     error.as_deref().unwrap_or("unknown"),
                 );
+                wf_execution_shared::set_compression_run_id(&mut failed, &run_id);
                 let _ = bus.publish(failed);
             }
-            // Ledger outcome: a shutdown abort is an abandonment, not an
-            // execution failure; a degraded partial-window write-back counts
-            // as completed.
-            let ledger_outcome = if matches!(status, ChainStatus::Aborted) {
+            // Ledger outcome: shutdown aborts and stale expiries are
+            // abandonments, not execution failures; a degraded partial-window
+            // write-back counts as completed.
+            let ledger_outcome = if matches!(status, ChainStatus::Aborted)
+                || expired.is_some()
+                || matches!(status, ChainStatus::Expired(_))
+            {
                 wf_types::TriggerExecutionOutcome::Abandoned
             } else if success {
                 wf_types::TriggerExecutionOutcome::Completed

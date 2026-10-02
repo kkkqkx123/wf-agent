@@ -20,6 +20,7 @@ pub enum DebuggerCommand {
     Assert(AssertArgs),
     Timeline(TimelineArgs),
     Agents(AgentsArgs),
+    Compression(CompressionArgs),
     Import(ImportArgs),
 }
 
@@ -104,6 +105,14 @@ pub struct AgentsArgs {
 }
 
 #[derive(Debug, clap::Args)]
+pub struct CompressionArgs {
+    #[arg(long)]
+    pub trace: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
+#[derive(Debug, clap::Args)]
 pub struct ImportArgs {
     #[arg(long)]
     pub snapshot: PathBuf,
@@ -122,6 +131,7 @@ pub fn run(cli: DebuggerCli) -> Result<i32> {
         DebuggerCommand::Assert(args) => cmd_assert(args),
         DebuggerCommand::Timeline(args) => cmd_timeline(args),
         DebuggerCommand::Agents(args) => cmd_agents(args),
+        DebuggerCommand::Compression(args) => cmd_compression(args),
         DebuggerCommand::Import(args) => cmd_import(args),
     }
 }
@@ -307,6 +317,40 @@ fn cmd_agents(args: AgentsArgs) -> Result<i32> {
         }
     }
     Ok(if analysis.violations.is_empty() { 0 } else { 1 })
+}
+
+fn cmd_compression(args: CompressionArgs) -> Result<i32> {
+    let trace = crate::input::load_trace(&args.trace)?;
+    let report = crate::compression::analyze(&trace);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).unwrap_or_default()
+        );
+    } else {
+        let mut counts: Vec<(&String, &u64)> = report.counts.iter().collect();
+        counts.sort();
+        for (key, value) in counts {
+            println!("{key}={value}");
+        }
+        for finding in &report.findings {
+            let level = match finding.level {
+                crate::report::FindingLevel::Info => "info",
+                crate::report::FindingLevel::Warning => "WARN",
+                crate::report::FindingLevel::Error => "ERROR",
+            };
+            println!(
+                "[{level}] {}{}",
+                if finding.path.is_empty() {
+                    String::new()
+                } else {
+                    format!("step-{}: ", finding.path)
+                },
+                finding.message,
+            );
+        }
+    }
+    Ok(if report.errors() > 0 { 1 } else { 0 })
 }
 
 fn cmd_import(args: ImportArgs) -> Result<i32> {

@@ -1,10 +1,10 @@
 pub use crate::step::StepRecord;
 pub use crate::trace::{Trace, TraceKind, TRACE_SCHEMA_V1};
 pub use crate::views::{
-    ApprovalView, BudgetView, CheckpointMark, CheckpointSource, CheckpointTiming, HookFireView,
-    InteractionView, InterruptionKind, InterruptionView, LlmCallView, LoopRoundView,
-    MergeBranchView, MergeView, MessageView, RouteBranch, RouteDecisionPoint, ToolCallView,
-    TriggerEventView, TriggerTemplateView, VisibilityView,
+    ApprovalView, BudgetView, CheckpointMark, CheckpointSource, CheckpointTiming, CompressionPhase,
+    CompressionView, HookFireView, InteractionView, InterruptionKind, InterruptionView,
+    LlmCallView, LoopRoundView, MergeBranchView, MergeView, MessageView, RouteBranch,
+    RouteDecisionPoint, ToolCallView, TriggerEventView, TriggerTemplateView, VisibilityView,
 };
 
 pub const MAX_PAYLOAD_CHARS: usize = 4000;

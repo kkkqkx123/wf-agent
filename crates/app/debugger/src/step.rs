@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::views::{
-    ApprovalView, CheckpointMark, HookFireView, InteractionView, InterruptionView, LlmCallView,
-    LoopRoundView, MergeView, MessageView, ToolCallView, TriggerEventView, VisibilityView,
+    ApprovalView, CheckpointMark, CompressionView, HookFireView, InteractionView, InterruptionView,
+    LlmCallView, LoopRoundView, MergeView, MessageView, ToolCallView, TriggerEventView,
+    VisibilityView,
 };
 
 /// Core identity, inputs, outputs and nested structure of one recorded step.
@@ -70,6 +71,11 @@ pub struct StepRecord {
     pub hooks_fired: Vec<HookFireView>,
     #[serde(default)]
     pub triggers_seen: Vec<TriggerEventView>,
+    /// Context-compression lifecycle events recorded on this step
+    /// (`requested` at emission, exactly one `completed`/`failed` terminal
+    /// event per target version at write-back).
+    #[serde(default)]
+    pub compressions: Vec<CompressionView>,
     // Sub-execution hierarchy. `depth` mirrors the engine entity depth so the
     // analyzer can validate it against the actual nesting position.
     #[serde(default)]

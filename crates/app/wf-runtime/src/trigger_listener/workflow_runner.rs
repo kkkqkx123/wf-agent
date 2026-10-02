@@ -29,8 +29,8 @@ use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTempla
 use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
 use super::{
-    handle_subworkflow_output, record_trigger_execution, ExecutionContextRegistry, TriggerLedger,
-    TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
+    handle_subworkflow_output, record_trigger_execution, CompressionWriteBackError,
+    ExecutionContextRegistry, TriggerLedger, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 /// Trigger template registry backed by the wf-resource registrar.
@@ -561,7 +561,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                     output = run => {
                         match output {
                             Ok(Ok(output)) => {
-                                if let Err(e) = handle_subworkflow_output(
+                                match handle_subworkflow_output(
                                     &contexts,
                                     &bus,
                                     &super::CompressionWriteBack {
@@ -572,18 +572,29 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                         tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
                                         token_limit,
                                         degraded: false,
+                                        degraded_dropped: 0,
+                                        run_id: None,
                                     },
                                     &output,
                                 )
                                 .await
                                 {
-                                    warn!(
-                                        "Triggered subworkflow '{}' completed but write-back failed: {}",
-                                        workflow_id, e
-                                    );
-                                    (TriggerExecutionOutcome::Failed, Some(e.to_string()))
-                                } else {
-                                    (TriggerExecutionOutcome::Completed, None)
+                                    Ok(()) => (TriggerExecutionOutcome::Completed, None),
+                                    Err(CompressionWriteBackError::Expired(detail)) => {
+                                        warn!(
+                                            "Triggered subworkflow '{}' write-back expired (stale version): {}",
+                                            workflow_id, detail
+                                        );
+                                        (TriggerExecutionOutcome::Abandoned, Some(detail))
+                                    }
+                                    Err(CompressionWriteBackError::Failed(error)) => {
+                                        let detail = error.to_string();
+                                        warn!(
+                                            "Triggered subworkflow '{}' completed but write-back failed: {}",
+                                            workflow_id, detail
+                                        );
+                                        (TriggerExecutionOutcome::Failed, Some(detail))
+                                    }
                                 }
                             }
                             Ok(Err(e)) => {
@@ -660,9 +671,12 @@ impl SubworkflowActionRunner {
                 tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
                 token_limit,
                 degraded: false,
+                degraded_dropped: 0,
+                run_id: None,
             },
             &output,
         )
         .await
+        .map_err(WorkflowError::from)
     }
 }

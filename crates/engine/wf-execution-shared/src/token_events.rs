@@ -55,6 +55,26 @@ pub const KEY_COMPRESSION_DEPTH: &str = "compression_depth";
 pub const KEY_COMPRESSION_ERROR: &str = "error";
 /// Metadata key: attempts spent on the failed compression run.
 pub const KEY_COMPRESSION_ATTEMPTS: &str = "attempts";
+/// Metadata key: true on a `CONTEXT_COMPRESSION_REQUESTED` event whose signal
+/// had no hook handler to take over (audit kept, flight never anchored).
+pub const KEY_NO_TAKER: &str = "no_taker";
+/// Metadata key: number of snapshot messages dropped without a summary on a
+/// degraded `CONTEXT_COMPRESSION_COMPLETED` (partial window fallback).
+pub const KEY_DEGRADED_DROPPED: &str = "degraded_dropped";
+/// Metadata key: reason a `CONTEXT_COMPRESSION_DISCARDED` event discarded its
+/// stale result (version mismatch detail).
+pub const KEY_DISCARD_REASON: &str = "reason";
+/// Metadata key: current array version observed when a stale compression
+/// result was discarded (the version that won over the anchor).
+pub const KEY_CURRENT_VERSION: &str = "current_version";
+/// Metadata key: compression run identity assigned by the compression service
+/// at claim time (one id per summary run). Terminal events (completed,
+/// failed, discarded) carry it so offline analysis can tell two runs for
+/// overlapping versions apart: same `(target, version)` with distinct run
+/// ids means a redundant summary whose write-back the version anchor
+/// discards. Absent on old events and on the requested audit copy (published
+/// by the emitter before the service claims the signal).
+pub const KEY_COMPRESSION_RUN_ID: &str = "compression_run_id";
 /// Metadata key: number of transform_context-injected messages included in
 /// the array budget check (informational; only present when > 0).
 pub const KEY_INJECTED_MESSAGE_COUNT: &str = "injected_message_count";
@@ -383,6 +403,34 @@ pub fn build_context_compression_failed_event(
     event
 }
 
+/// Build a CONTEXT_COMPRESSION_DISCARDED event.
+///
+/// Published when a compression result arrives after its target array moved
+/// past the emission version: the stale result is dropped, the anchor is
+/// released and the emitter continues. Normal concurrency, never a failure
+/// and never a park trigger.
+pub fn build_context_compression_discarded_event(
+    execution_id: &str,
+    agent_loop_id: Option<&str>,
+    target_context_id: &str,
+    array_version: u64,
+    current_version: u64,
+    reason: &str,
+) -> BaseEvent {
+    let mut event = base_event(
+        EventType::ContextCompressionDiscarded,
+        execution_id,
+        agent_loop_id,
+    );
+    event.metadata = Some(metadata(vec![
+        (KEY_TARGET_CONTEXT_ID, serde_json::json!(target_context_id)),
+        (KEY_ARRAY_VERSION, serde_json::json!(array_version)),
+        (KEY_CURRENT_VERSION, serde_json::json!(current_version)),
+        (KEY_DISCARD_REASON, serde_json::json!(reason)),
+    ]));
+    event
+}
+
 /// Build a CONVERSATION_WRITEBACK_COMPLETED event.
 ///
 /// Published by the triggered (nested) agent write-back path when a child
@@ -570,6 +618,7 @@ pub struct ContextCompressionRequestedMeta {
     pub array_version: u64,
     pub forced: bool,
     pub budget_unknown: bool,
+    pub no_taker: bool,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionCompleted`] event.
@@ -590,8 +639,13 @@ pub struct ContextCompressionCompletedMeta {
     pub tail_keep: usize,
     /// Terminal-failure fallback marker (a locally trimmed window landed).
     pub degraded: bool,
+    /// Messages dropped without a summary on a degraded fallback.
+    pub degraded_dropped: u64,
     /// The compressed result is still over the emission budget.
     pub still_over_budget: bool,
+    /// Run identity stamped by the compression service (`None` on old
+    /// events predating the key).
+    pub run_id: Option<String>,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionFailed`] event.
@@ -601,6 +655,19 @@ pub struct ContextCompressionFailedMeta {
     pub array_version: u64,
     pub attempts: u32,
     pub error: String,
+    /// Run identity stamped by the compression service (`None` on old events).
+    pub run_id: Option<String>,
+}
+
+/// Typed metadata of a [`EventType::ContextCompressionDiscarded`] event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextCompressionDiscardedMeta {
+    pub target_context_id: String,
+    pub array_version: u64,
+    pub current_version: u64,
+    pub reason: String,
+    /// Run identity of the discarded run (`None` on old events).
+    pub run_id: Option<String>,
 }
 
 /// Typed metadata of a [`EventType::ConversationWritebackCompleted`] event.
@@ -616,6 +683,36 @@ pub struct ConversationWritebackCompletedMeta {
     pub array_version: u64,
     pub operation: String,
     pub messages: Vec<Message>,
+}
+
+/// Stamp a compression run identity onto a terminal compression event
+/// (completed, failed or discarded). Best-effort correlation only: old
+/// consumers ignore the unknown key.
+pub fn set_compression_run_id(event: &mut BaseEvent, run_id: &str) {
+    let meta = event.metadata.get_or_insert_with(Default::default);
+    meta.insert(
+        KEY_COMPRESSION_RUN_ID.to_string(),
+        serde_json::json!(run_id),
+    );
+}
+
+/// Read the compression run identity stamped by [`set_compression_run_id`]
+/// (`None` on old events without the key).
+pub fn compression_run_id(event: &BaseEvent) -> Option<String> {
+    event
+        .metadata
+        .as_ref()
+        .and_then(|meta| meta.get(KEY_COMPRESSION_RUN_ID))
+        .and_then(|value| value.as_str())
+        .map(String::from)
+}
+
+/// Optional run identity of a typed compression metadata struct (`None`
+/// when the event predates the key).
+fn get_optional_run_id(meta: &wf_types::Metadata) -> Option<String> {
+    meta.get(KEY_COMPRESSION_RUN_ID)
+        .and_then(|value| value.as_str())
+        .map(String::from)
 }
 
 fn expect_type(event: &BaseEvent, expected: EventType) -> Result<(), TokenEventMetaError> {
@@ -717,6 +814,10 @@ impl TryFrom<&BaseEvent> for ContextCompressionRequestedMeta {
                 .get(KEY_BUDGET_UNKNOWN)
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            no_taker: meta
+                .get(KEY_NO_TAKER)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         })
     }
 }
@@ -743,10 +844,15 @@ impl TryFrom<&BaseEvent> for ContextCompressionCompletedMeta {
                 .get(KEY_DEGRADED)
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            degraded_dropped: meta
+                .get(KEY_DEGRADED_DROPPED)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
             still_over_budget: meta
                 .get(KEY_STILL_OVER_BUDGET)
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            run_id: get_optional_run_id(meta),
         })
     }
 }
@@ -769,6 +875,30 @@ impl TryFrom<&BaseEvent> for ContextCompressionFailedMeta {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string(),
+            run_id: get_optional_run_id(meta),
+        })
+    }
+}
+
+impl TryFrom<&BaseEvent> for ContextCompressionDiscardedMeta {
+    type Error = TokenEventMetaError;
+
+    fn try_from(event: &BaseEvent) -> Result<Self, Self::Error> {
+        expect_type(event, EventType::ContextCompressionDiscarded)?;
+        let meta = event_metadata(event)?;
+        Ok(Self {
+            target_context_id: get_string(meta, KEY_TARGET_CONTEXT_ID)?,
+            array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
+            current_version: meta
+                .get(KEY_CURRENT_VERSION)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            reason: meta
+                .get(KEY_DISCARD_REASON)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            run_id: get_optional_run_id(meta),
         })
     }
 }
@@ -1212,5 +1342,58 @@ mod tests {
         };
         let err = TokenLimitExceededMeta::try_from(&event).unwrap_err();
         assert_eq!(err, TokenEventMetaError::NoMetadata);
+    }
+
+    #[test]
+    fn test_compression_run_id_roundtrip() {
+        let mut completed = build_context_compression_completed_event(
+            "exec-1",
+            None,
+            &ContextCompressionCompleted {
+                target_context_id: "chat",
+                array_version: 7,
+                summary: Some("summary"),
+                tokens_after: 100,
+                messages: None,
+                tail_keep: 0,
+                degraded: false,
+                still_over_budget: false,
+            },
+        );
+        assert_eq!(compression_run_id(&completed), None);
+        assert_eq!(
+            ContextCompressionCompletedMeta::try_from(&completed)
+                .unwrap()
+                .run_id,
+            None
+        );
+        set_compression_run_id(&mut completed, "run-1");
+        assert_eq!(compression_run_id(&completed), Some("run-1".to_string()));
+        assert_eq!(
+            ContextCompressionCompletedMeta::try_from(&completed)
+                .unwrap()
+                .run_id,
+            Some("run-1".to_string())
+        );
+
+        let mut failed =
+            build_context_compression_failed_event("exec-1", None, "chat", 7, 2, "timed out");
+        set_compression_run_id(&mut failed, "run-2");
+        assert_eq!(
+            ContextCompressionFailedMeta::try_from(&failed)
+                .unwrap()
+                .run_id,
+            Some("run-2".to_string())
+        );
+
+        let mut discarded =
+            build_context_compression_discarded_event("exec-1", None, "chat", 7, 8, "stale");
+        set_compression_run_id(&mut discarded, "run-1");
+        assert_eq!(
+            ContextCompressionDiscardedMeta::try_from(&discarded)
+                .unwrap()
+                .run_id,
+            Some("run-1".to_string())
+        );
     }
 }

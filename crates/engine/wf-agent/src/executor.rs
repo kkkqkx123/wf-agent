@@ -371,9 +371,11 @@ impl ExecutionCallback for AgentLoopExecutor {
             .ok_or_else(|| ToolError::NotFound(format!("execution {} not found", execution_id)))?;
         let state = entity.state.read().await;
         let status = state.status();
-        // Terminal executions hand over their stored output once. A failed
-        // run has no stored output; the settled error string is handed over
-        // instead so the failure reason reaches the polling caller.
+        // Terminal executions expose their stored output. Reading is
+        // repeatable: every query on a terminal execution returns the same
+        // result until `cleanup_terminated` removes it. A failed run has no
+        // stored output; the settled error string is handed over instead so
+        // the failure reason reaches the polling caller.
         let result = if matches!(
             status,
             wf_execution_shared::types::execution_entity::ExecutionStatus::Completed
@@ -382,7 +384,7 @@ impl ExecutionCallback for AgentLoopExecutor {
                 | wf_execution_shared::types::execution_entity::ExecutionStatus::Stopped
         ) {
             self.agent_registry
-                .take_result(&id)
+                .result(&id)
                 .map(|output| output.result)
                 .or_else(|| state.error().map(|e| serde_json::json!({ "error": e })))
         } else {

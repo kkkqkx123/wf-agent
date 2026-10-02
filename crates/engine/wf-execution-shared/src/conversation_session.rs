@@ -432,6 +432,35 @@ impl ConversationSession {
         self.tracker.compression_flight(CONVERSATION_CONTEXT_ID)
     }
 
+    /// Record a compression signal without a taker; returns the consecutive
+    /// count for escalation.
+    pub fn record_compression_no_taker(&mut self) -> u32 {
+        self.tracker.record_no_taker(CONVERSATION_CONTEXT_ID)
+    }
+
+    /// Reset the no-taker streak after a successful dispatch.
+    pub fn reset_compression_no_taker(&mut self) {
+        self.tracker.reset_no_taker(CONVERSATION_CONTEXT_ID);
+    }
+
+    /// Record a still-over-budget completion; returns the consecutive count.
+    pub fn record_still_over_budget(&mut self) -> u32 {
+        self.tracker
+            .record_still_over_budget(CONVERSATION_CONTEXT_ID)
+    }
+
+    /// Reset the still-over-budget streak after a fitting result.
+    pub fn reset_still_over_budget(&mut self) {
+        self.tracker
+            .reset_still_over_budget(CONVERSATION_CONTEXT_ID);
+    }
+
+    /// Current consecutive still-over-budget streak for the conversation.
+    pub fn still_over_budget_streak(&self) -> u32 {
+        self.tracker
+            .still_over_budget_count(CONVERSATION_CONTEXT_ID)
+    }
+
     /// Consume the single-shot warning when the decision-track usage
     /// percentage crosses the threshold; returns true exactly once per
     /// session.

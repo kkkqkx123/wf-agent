@@ -198,6 +198,16 @@ pub struct TokenTrackerState {
     /// cleared on restore (never carried across checkpoints).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub compression_flights: HashMap<String, CompressionFlight>,
+    /// Consecutive compression signals without a taker per target. Reset on
+    /// the first successful dispatch; reaching the escalation threshold
+    /// surfaces the missing compression service as an error.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub no_taker_counts: HashMap<String, u32>,
+    /// Consecutive still-over-budget completions per target. Reset when a
+    /// compressed result fits the budget; reaching the threshold escalates
+    /// the loop to external handling instead of compressing forever.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub still_over_budget_counts: HashMap<String, u32>,
 }
 
 /// Tracks token usage across LLM calls in a conversation.
@@ -246,6 +256,8 @@ pub struct TokenUsageTracker {
     /// In-flight compression runs by target array name (runtime-only, never
     /// restored from checkpoints).
     compression_flights: HashMap<String, CompressionFlight>,
+    no_taker_counts: HashMap<String, u32>,
+    still_over_budget_counts: HashMap<String, u32>,
 }
 
 impl Default for TokenUsageTracker {
@@ -273,6 +285,8 @@ impl TokenUsageTracker {
             preflight_warning_emitted: false,
             last_limit_tier: 0,
             compression_flights: HashMap::new(),
+            no_taker_counts: HashMap::new(),
+            still_over_budget_counts: HashMap::new(),
         }
     }
 
@@ -535,6 +549,59 @@ impl TokenUsageTracker {
         self.compression_flights.clear();
     }
 
+    /// Consecutive signals without a taker before the missing service is
+    /// surfaced as an error instead of a warning.
+    pub const NO_TAKER_ESCALATION_THRESHOLD: u32 = 3;
+    /// Consecutive still-over-budget completions before the loop escalates
+    /// to external handling instead of compressing forever.
+    pub const STILL_OVER_BUDGET_ESCALATION_THRESHOLD: u32 = 3;
+
+    /// Record a signal without a taker for `target`; returns the consecutive
+    /// count. A successful dispatch resets it via [`Self::reset_no_taker`].
+    pub fn record_no_taker(&mut self, target: &str) -> u32 {
+        let count = self.no_taker_counts.get(target).copied().unwrap_or(0) + 1;
+        self.no_taker_counts.insert(target.to_string(), count);
+        count
+    }
+
+    /// Reset the no-taker streak after a successful dispatch.
+    pub fn reset_no_taker(&mut self, target: &str) {
+        self.no_taker_counts.remove(target);
+    }
+
+    /// Current consecutive no-taker streak for `target`.
+    pub fn no_taker_count(&self, target: &str) -> u32 {
+        self.no_taker_counts.get(target).copied().unwrap_or(0)
+    }
+
+    /// Record a still-over-budget completion for `target`; returns the
+    /// consecutive count. A fitting result resets it via
+    /// [`Self::reset_still_over_budget`].
+    pub fn record_still_over_budget(&mut self, target: &str) -> u32 {
+        let count = self
+            .still_over_budget_counts
+            .get(target)
+            .copied()
+            .unwrap_or(0)
+            + 1;
+        self.still_over_budget_counts
+            .insert(target.to_string(), count);
+        count
+    }
+
+    /// Reset the still-over-budget streak after a fitting result.
+    pub fn reset_still_over_budget(&mut self, target: &str) {
+        self.still_over_budget_counts.remove(target);
+    }
+
+    /// Current consecutive still-over-budget streak for `target`.
+    pub fn still_over_budget_count(&self, target: &str) -> u32 {
+        self.still_over_budget_counts
+            .get(target)
+            .copied()
+            .unwrap_or(0)
+    }
+
     /// Decision track: tier-based limit exceeded guard. Tiers are 50%
     /// bands starting at 100% (100% -> 2, 150% -> 3, 200% -> 4, ...).
     /// Returns the newly crossed tier exactly once per band, so
@@ -589,6 +656,8 @@ impl TokenUsageTracker {
             context_limit: self.context_limit,
             compressed_contexts: HashMap::new(),
             compression_flights: self.compression_flights.clone(),
+            no_taker_counts: self.no_taker_counts.clone(),
+            still_over_budget_counts: self.still_over_budget_counts.clone(),
         }
     }
 
@@ -613,6 +682,8 @@ impl TokenUsageTracker {
         self.last_limit_tier = state.last_limit_tier;
         self.context_limit = state.context_limit;
         self.compression_flights.clear();
+        self.no_taker_counts = state.no_taker_counts;
+        self.still_over_budget_counts = state.still_over_budget_counts;
     }
 }
 

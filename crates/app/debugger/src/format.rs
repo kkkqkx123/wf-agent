@@ -79,6 +79,15 @@ pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> St
                     .unwrap_or_else(|| "-".to_string()),
             ));
         }
+        for compression in &record.compressions {
+            buf.push_str(&format!(
+                "  compression {} {} v{}{}\n",
+                compression.target_context_id,
+                compression.phase.label(),
+                compression.array_version,
+                compression_summary_suffix(compression),
+            ));
+        }
         if let Some(round) = record.loop_round.as_ref() {
             buf.push_str(&format!(
                 "  loop '{}' round {}{}\n",
@@ -142,6 +151,59 @@ pub fn format_json(trace: &Trace, outcome: &ReplayOutcome, assertions: &AssertOu
 
 trait DiffKindLabel {
     fn kind_label(&self) -> &'static str;
+}
+
+fn compression_summary_suffix(compression: &crate::model::CompressionView) -> String {
+    let mut parts = Vec::new();
+    if let Some(tokens) = compression.tokens_used {
+        parts.push(format!(
+            "tokens={}/{}",
+            tokens,
+            compression
+                .token_limit
+                .map(|limit| limit.to_string())
+                .unwrap_or_else(|| "?".to_string())
+        ));
+    }
+    if let Some(tokens_after) = compression.tokens_after {
+        parts.push(format!("after={tokens_after}"));
+    }
+    if compression.forced {
+        parts.push("forced".to_string());
+    }
+    if compression.no_taker {
+        parts.push("no_taker".to_string());
+    }
+    if compression.degraded {
+        if compression.degraded_dropped > 0 {
+            parts.push(format!(
+                "degraded(dropped={})",
+                compression.degraded_dropped
+            ));
+        } else {
+            parts.push("degraded".to_string());
+        }
+    }
+    if compression.still_over_budget {
+        parts.push("still_over_budget".to_string());
+    }
+    if compression.phase == crate::model::CompressionPhase::Discarded {
+        parts.push("discarded".to_string());
+    }
+    if let Some(run_id) = compression.run_id.as_deref() {
+        parts.push(format!("run={}", cap_payload_text(run_id)));
+    }
+    if let Some(reason) = compression.discard_reason.as_deref() {
+        parts.push(format!("reason={}", cap_payload_text(reason)));
+    }
+    if let Some(error) = compression.error.as_deref() {
+        parts.push(format!("error={}", cap_payload_text(error)));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", parts.join(" "))
+    }
 }
 
 impl DiffKindLabel for crate::observe::VariableDiff {

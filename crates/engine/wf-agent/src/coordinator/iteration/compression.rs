@@ -182,11 +182,6 @@ impl AgentIterationCoordinator {
             wf_types::checkpoint::CheckpointTiming::BeforeCompression,
         )
         .await;
-        let _ = bus.publish(wf_execution_shared::context_store::compression_event(
-            &entity.id().to_string(),
-            Some(entity.id()),
-            &compression_request,
-        ));
         let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
@@ -196,17 +191,41 @@ impl AgentIterationCoordinator {
             &compression_request,
         )
         .await;
+        let mut audit = wf_execution_shared::context_store::compression_event(
+            &entity.id().to_string(),
+            Some(entity.id()),
+            &compression_request,
+        );
         if !dispatched {
-            tracing::warn!(
-                entity_id = %entity.id(),
-                version = version,
-                "forced compression signal has no taker; audit event kept, flight not anchored"
-            );
+            if let Some(meta) = audit.metadata.as_mut() {
+                meta.insert(
+                    wf_execution_shared::KEY_NO_TAKER.to_string(),
+                    serde_json::Value::Bool(true),
+                );
+            }
         }
+        let _ = bus.publish(audit);
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
         if dispatched {
+            session.reset_compression_no_taker();
             session.begin_compression_flight(version, true);
+        } else {
+            let streak = session.record_compression_no_taker();
+            if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                tracing::error!(
+                    entity_id = %entity.id(),
+                    version = version,
+                    streak = streak,
+                    "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                );
+            } else {
+                tracing::warn!(
+                    entity_id = %entity.id(),
+                    version = version,
+                    "forced compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                );
+            }
         }
     }
 
@@ -309,12 +328,8 @@ impl AgentIterationCoordinator {
             .await;
             // The event-bus copy stays the audit / persistence /
             // user-rule channel; delivery is the synchronous hook
-            // dispatch (the compression service takes over here).
-            let _ = bus.publish(wf_execution_shared::context_store::compression_event(
-                &execution_id,
-                Some(entity.id()),
-                &compression_request,
-            ));
+            // dispatch (the compression service takes over here). Dispatch
+            // first so the audit copy can persist the taker outcome.
             let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
                 self.hook_handler_registry.as_deref(),
                 self.event_bus.as_deref(),
@@ -324,13 +339,20 @@ impl AgentIterationCoordinator {
                 &compression_request,
             )
             .await;
+            let mut audit = wf_execution_shared::context_store::compression_event(
+                &execution_id,
+                Some(entity.id()),
+                &compression_request,
+            );
             if !dispatched {
-                tracing::warn!(
-                    entity_id = %entity.id(),
-                    version = version,
-                    "compression signal has no taker; audit event kept, flight not anchored"
-                );
+                if let Some(meta) = audit.metadata.as_mut() {
+                    meta.insert(
+                        wf_execution_shared::KEY_NO_TAKER.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
             }
+            let _ = bus.publish(audit);
             let mut session = entity.conversation().write().await;
             session.mark_compression_emitted(version);
             // Backpressure only anchors when the signal was
@@ -338,7 +360,24 @@ impl AgentIterationCoordinator {
             // settles the flight and later iterations would wait
             // in vain.
             if dispatched {
+                session.reset_compression_no_taker();
                 session.begin_compression_flight(version, false);
+            } else {
+                let streak = session.record_compression_no_taker();
+                if streak >= wf_execution_shared::TokenUsageTracker::NO_TAKER_ESCALATION_THRESHOLD {
+                    tracing::error!(
+                        entity_id = %entity.id(),
+                        version = version,
+                        streak = streak,
+                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                    );
+                } else {
+                    tracing::warn!(
+                        entity_id = %entity.id(),
+                        version = version,
+                        "compression signal has no taker; audit event kept with no_taker marker, flight not anchored"
+                    );
+                }
             }
         }
     }

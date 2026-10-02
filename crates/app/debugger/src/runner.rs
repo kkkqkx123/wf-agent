@@ -27,6 +27,7 @@ pub fn run_check(trace: &Trace, agent_override: Option<&str>) -> CheckOutcome {
         crate::interactions::analyze(trace),
         crate::subexec::analyze(trace),
         crate::cost::analyze(trace),
+        crate::compression::analyze(trace),
     ]);
     let assertions = run_assertions(trace);
     let agent = analyze_agent_trace(trace, agent_override);
@@ -187,7 +188,7 @@ mod tests {
         let trace = empty_trace();
         let outcome = run_check(&trace, None);
         assert_eq!(outcome.exit_code, 0);
-        assert_eq!(outcome.report.sections.len(), 7);
+        assert_eq!(outcome.report.sections.len(), 8);
     }
 
     #[test]

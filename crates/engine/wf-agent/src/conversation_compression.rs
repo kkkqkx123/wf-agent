@@ -70,12 +70,53 @@ pub fn spawn_conversation_compression_consumer(
                         continue;
                     }
                     let anchor = meta.array_version;
+                    let still_over = meta.still_over_budget;
+                    let run_id = meta.run_id.clone();
                     if !apply_compression(&conversation, meta).await {
                         // Stale results still release the backpressure
                         // anchor so later iterations do not wait on a run
-                        // whose output was discarded.
+                        // whose output was discarded. The discard is published
+                        // as a versioned record so the trace shows why the
+                        // paired completion never took effect. The run
+                        // identity travels along so redundant runs stay
+                        // linkable to their claim.
+                        let current = conversation.read().await.conversation_version();
                         conversation.write().await.end_compression_flight(anchor);
+                        let reason = format!(
+                            "array version mismatch (expected {anchor}, current {current})"
+                        );
+                        let mut discarded =
+                            wf_execution_shared::build_context_compression_discarded_event(
+                                &agent_loop_id,
+                                Some(&agent_loop_id),
+                                CONVERSATION_CONTEXT_ID,
+                                anchor,
+                                current,
+                                &reason,
+                            );
+                        if let Some(run_id) = run_id.as_deref() {
+                            wf_execution_shared::set_compression_run_id(&mut discarded, run_id);
+                        }
+                        let _ = bus.publish(discarded);
                         continue;
+                    }
+                    if still_over {
+                        let mut session = conversation.write().await;
+                        let new_version = session.conversation_version();
+                        session.mark_compression_emitted(new_version);
+                        let streak = session.record_still_over_budget();
+                        if streak
+                            >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD
+                        {
+                            tracing::error!(
+                                agent_loop_id = %agent_loop_id,
+                                version = new_version,
+                                streak = streak,
+                                "compressed conversation still exceeds budget; requires new messages before retrigger"
+                            );
+                        }
+                    } else {
+                        conversation.write().await.reset_still_over_budget();
                     }
                     // Snapshot the compressed view; best-effort so a
                     // checkpoint failure never breaks the consumer loop.
@@ -107,6 +148,21 @@ pub fn spawn_conversation_compression_consumer(
                     // Terminal failure releases the backpressure anchor; the
                     // emission guard stays, so the version re-arms only when
                     // new messages advance it.
+                    conversation
+                        .write()
+                        .await
+                        .end_compression_flight(meta.array_version);
+                }
+                EventType::ContextCompressionDiscarded => {
+                    let meta = match wf_execution_shared::ContextCompressionDiscardedMeta::try_from(
+                        &event,
+                    ) {
+                        Ok(meta) => meta,
+                        Err(_) => continue,
+                    };
+                    if meta.target_context_id != CONVERSATION_CONTEXT_ID {
+                        continue;
+                    }
                     conversation
                         .write()
                         .await

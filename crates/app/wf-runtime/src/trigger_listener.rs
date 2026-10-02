@@ -228,6 +228,64 @@ fn reset_persisted_preflight_warning(contexts: &Arc<ExecutionContextRegistry>, e
     }
 }
 
+/// Record a still-over-budget completion in the persisted tracker streak so
+/// consecutive loops escalate to an error instead of compressing forever.
+/// Best-effort: missing state is left untouched.
+fn record_still_over_budget_streak(
+    variables: &Arc<dashmap::DashMap<String, serde_json::Value>>,
+    target: &str,
+) {
+    use wf_workflow::handler::llm::token_budget::TRACKER_STATE_KEY;
+    let Some(value) = variables.get(TRACKER_STATE_KEY).map(|entry| entry.clone()) else {
+        return;
+    };
+    let mut state: wf_execution_shared::TokenTrackerState = match serde_json::from_value(value) {
+        Ok(state) => state,
+        Err(_) => return,
+    };
+    let count = state
+        .still_over_budget_counts
+        .get(target)
+        .copied()
+        .unwrap_or(0)
+        + 1;
+    state
+        .still_over_budget_counts
+        .insert(target.to_string(), count);
+    if count >= wf_execution_shared::TokenUsageTracker::STILL_OVER_BUDGET_ESCALATION_THRESHOLD {
+        tracing::error!(
+            target = %target,
+            streak = count,
+            "compressed result still exceeds budget repeatedly; check budget or content compressibility"
+        );
+    }
+    if let Ok(value) = serde_json::to_value(state) {
+        variables.insert(TRACKER_STATE_KEY.to_string(), value);
+    }
+}
+
+/// Reset the still-over-budget streak after a fitting result.
+fn reset_still_over_budget_streak(
+    variables: &Arc<dashmap::DashMap<String, serde_json::Value>>,
+    target: &str,
+) {
+    use wf_workflow::handler::llm::token_budget::TRACKER_STATE_KEY;
+    let Some(value) = variables.get(TRACKER_STATE_KEY).map(|entry| entry.clone()) else {
+        return;
+    };
+    let mut state: wf_execution_shared::TokenTrackerState = match serde_json::from_value(value) {
+        Ok(state) => state,
+        Err(_) => return,
+    };
+    if !state.still_over_budget_counts.contains_key(target) {
+        return;
+    }
+    state.still_over_budget_counts.remove(target);
+    if let Ok(value) = serde_json::to_value(state) {
+        variables.insert(TRACKER_STATE_KEY.to_string(), value);
+    }
+}
+
 /// Target identity and write-back options for one compression result.
 pub(crate) struct CompressionWriteBack<'a> {
     /// Emitting execution id.
@@ -248,26 +306,78 @@ pub(crate) struct CompressionWriteBack<'a> {
     /// trimmed window instead of an LLM summary): the completed event is
     /// marked degraded so consumers can tell the difference.
     pub degraded: bool,
+    /// Messages dropped without a summary on a degraded fallback (carried on
+    /// the completed event for audit; the full pre-compression array stays in
+    /// the archived history so nothing is unrecoverable).
+    pub degraded_dropped: usize,
+    /// Run identity assigned by the compression service at claim time
+    /// (`None` on write-back paths outside the service). Stamped onto the
+    /// completed and discarded events so offline analysis can link each
+    /// terminal event back to its summary run.
+    pub run_id: Option<String>,
+}
+
+/// Typed outcome of a compression write-back: stale-version expiry is normal
+/// concurrency (the array moved past the emission version) and must not be
+/// retried, while every other failure is retryable or terminal. Carrying the
+/// distinction in the type keeps callers from string-matching error text:
+/// retries can never succeed for expiry because versions only move forward.
+#[derive(Debug)]
+pub(crate) enum CompressionWriteBackError {
+    /// The target array moved past the emission version; a discarded event
+    /// was already published and the backpressure anchor released.
+    Expired(String),
+    /// Any other write-back failure (unregistered execution, missing array,
+    /// unparsable output).
+    Failed(WorkflowError),
+}
+
+impl std::fmt::Display for CompressionWriteBackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Expired(detail) => write!(f, "{detail}"),
+            Self::Failed(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for CompressionWriteBackError {}
+
+impl From<WorkflowError> for CompressionWriteBackError {
+    fn from(error: WorkflowError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<CompressionWriteBackError> for WorkflowError {
+    fn from(error: CompressionWriteBackError) -> Self {
+        match error {
+            CompressionWriteBackError::Expired(detail) => Self::TriggerError(detail),
+            CompressionWriteBackError::Failed(error) => error,
+        }
+    }
 }
 
 /// Write the compressed output back to the emitting execution and publish
-/// the CONTEXT_COMPRESSION_COMPLETED event. A version mismatch is a hard
-/// failure: the stale result is discarded without publishing a completion
-/// and the emitting execution settles into its paused-for-handling state.
+/// the CONTEXT_COMPRESSION_COMPLETED event. A version mismatch publishes a
+/// discarded event and returns [`CompressionWriteBackError::Expired`] (not
+/// retryable); the emitter continues on the newer version.
 pub(crate) async fn handle_subworkflow_output(
     contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,
     target: &CompressionWriteBack<'_>,
     output: &serde_json::Value,
-) -> WorkflowResult<()> {
+) -> Result<(), CompressionWriteBackError> {
     let messages: Vec<Message> = serde_json::from_value(output.clone()).map_err(|e| {
-        WorkflowError::TriggerError(format!(
+        CompressionWriteBackError::Failed(WorkflowError::TriggerError(format!(
             "Compression sub-workflow output failed to parse as messages: {e}"
-        ))
+        )))
     })?;
     if messages.is_empty() {
-        return Err(WorkflowError::TriggerError(
-            "Compression sub-workflow returned no messages".to_string(),
+        return Err(CompressionWriteBackError::Failed(
+            WorkflowError::TriggerError(
+                "Compression sub-workflow returned no messages".to_string(),
+            ),
         ));
     }
     // Agent conversations are consumed by the agent engine itself (it
@@ -292,10 +402,37 @@ pub(crate) async fn handle_subworkflow_output(
                     target.expected_version,
                 );
             }
-            return Err(WorkflowError::TriggerError(format!(
+            let detail = format!(
                 "Context write-back failed for execution {} context {}: {}",
                 target.execution_id, target.target_context_id, error
-            )));
+            );
+            if matches!(
+                error,
+                wf_workflow::execution_context::WriteBackError::VersionMismatch { .. }
+            ) {
+                let current = contexts
+                    .current_version(target.execution_id, target.target_context_id)
+                    .await
+                    .unwrap_or(target.expected_version);
+                let mut discarded = wf_execution_shared::build_context_compression_discarded_event(
+                    target.execution_id,
+                    target.agent_loop_id,
+                    target.target_context_id,
+                    target.expected_version,
+                    current,
+                    &detail,
+                );
+                if let Some(run_id) = target.run_id.as_deref() {
+                    wf_execution_shared::set_compression_run_id(&mut discarded, run_id);
+                }
+                let _ = bus.publish(discarded);
+                return Err(CompressionWriteBackError::Expired(format!(
+                    "expired: {detail}"
+                )));
+            }
+            return Err(CompressionWriteBackError::Failed(
+                WorkflowError::TriggerError(detail),
+            ));
         }
         reset_persisted_preflight_warning(contexts, target.execution_id);
         if let Some(variables) = contexts.variables_for(target.execution_id) {
@@ -314,10 +451,36 @@ pub(crate) async fn handle_subworkflow_output(
             target = %target.target_context_id,
             tokens_after = tokens_after,
             token_limit = target.token_limit,
-            "compressed result still exceeds context budget; next append will retrigger compression"
+            "compressed result still exceeds context budget; write-back advanced the version and the next iteration re-evaluates and may retrigger compression"
         );
+        // Backoff: suppress an immediate retrigger for the just-landed
+        // version so the loop waits for genuinely new messages. The guard
+        // re-arms on the next version bump.
+        if let Some(variables) = contexts.variables_for(target.execution_id) {
+            let landed =
+                wf_workflow::message_context::array_version(&variables, target.target_context_id);
+            wf_workflow::message_context::mark_compression_emitted(
+                &variables,
+                target.target_context_id,
+                landed,
+            );
+            record_still_over_budget_streak(&variables, target.target_context_id);
+        }
+    } else if let Some(variables) = contexts.variables_for(target.execution_id) {
+        reset_still_over_budget_streak(&variables, target.target_context_id);
     }
-    let completed = build_compression_completed_event(target, &messages, tokens_after);
+    let mut completed = build_compression_completed_event(target, &messages, tokens_after);
+    if let Some(run_id) = target.run_id.as_deref() {
+        wf_execution_shared::set_compression_run_id(&mut completed, run_id);
+    }
+    if target.degraded && target.degraded_dropped > 0 {
+        if let Some(meta) = completed.metadata.as_mut() {
+            meta.insert(
+                wf_execution_shared::KEY_DEGRADED_DROPPED.to_string(),
+                serde_json::Value::Number(serde_json::Number::from(target.degraded_dropped as u64)),
+            );
+        }
+    }
     let _ = bus.publish(completed);
     Ok(())
 }

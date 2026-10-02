@@ -36,6 +36,11 @@ pub enum EventType {
     /// this event; the emission guard stays so the same array version does
     /// not loop, and a newer version re-arms naturally.
     ContextCompressionFailed,
+    /// A compression result arrived after its target array had moved past the
+    /// emission version and was discarded without a write-back. The anchor is
+    /// released and the emitter continues; this is normal concurrency, not a
+    /// failure, and never parks the execution.
+    ContextCompressionDiscarded,
     /// A triggered (nested) agent result was written back to the parent
     /// agent conversation (replace or append). Carries the anchor version
     /// the write-back was produced from; the conversation consumer applies
@@ -206,6 +211,7 @@ impl EventType {
             EventType::ContextCompressionRequested => "CONTEXT_COMPRESSION_REQUESTED",
             EventType::ContextCompressionCompleted => "CONTEXT_COMPRESSION_COMPLETED",
             EventType::ContextCompressionFailed => "CONTEXT_COMPRESSION_FAILED",
+            EventType::ContextCompressionDiscarded => "CONTEXT_COMPRESSION_DISCARDED",
             EventType::ConversationWritebackCompleted => "CONVERSATION_WRITEBACK_COMPLETED",
             EventType::MessageAdded => "MESSAGE_ADDED",
             EventType::MessageContextUpdated => "MESSAGE_CONTEXT_UPDATED",
@@ -375,6 +381,7 @@ impl EventType {
             | EventType::ConversationWritebackCompleted
             | EventType::ContextCompressionCompleted
             | EventType::ContextCompressionFailed
+            | EventType::ContextCompressionDiscarded
             | EventType::CheckpointCreated
             | EventType::CheckpointRestored
             | EventType::CheckpointDeleted

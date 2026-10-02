@@ -3,6 +3,7 @@ pub mod assert;
 pub mod branches;
 pub mod checkpoints;
 pub mod cli;
+pub mod compression;
 pub mod cost;
 pub mod format;
 pub mod hook_dbg;

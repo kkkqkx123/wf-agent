@@ -119,6 +119,7 @@ mod tests {
             interaction: None,
             hooks_fired: vec![],
             triggers_seen: vec![],
+            compressions: vec![],
             exec_id: Some(format!("exec-{node_id}")),
             parent_exec_id: None,
             root_exec_id: Some("exec-root".to_string()),

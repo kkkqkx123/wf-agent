@@ -1,7 +1,7 @@
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
-use crate::views::MergeView;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
+use crate::model::views_flow::MergeView;
 
 /// Merge analysis: replay the join per branch so the outcome (success,
 /// partial, failed) and the absorbed failures stay attributable.
@@ -12,7 +12,7 @@ pub fn analyze(trace: &Trace) -> SectionReport {
             continue;
         };
         report.count("merges", 1);
-        let failed_branches: Vec<&crate::views::MergeBranchView> = merge
+        let failed_branches: Vec<&crate::model::views_flow::MergeBranchView> = merge
             .branches
             .iter()
             .filter(|branch| !branch.success)

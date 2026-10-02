@@ -1,7 +1,7 @@
-use crate::assert::AssertOutcome;
-use crate::model::{cap_payload_text, Trace};
-use crate::replay::ReplayOutcome;
-use crate::traverse::walk;
+use crate::engine::replay::ReplayOutcome;
+use crate::model::observe::{ChangeKind, VariableDiff};
+use crate::model::traverse::walk;
+use crate::model::{cap_payload_text, AssertOutcome, Trace};
 
 pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> String {
     let mut buf = String::new();
@@ -206,12 +206,12 @@ fn compression_summary_suffix(compression: &crate::model::CompressionView) -> St
     }
 }
 
-impl DiffKindLabel for crate::observe::VariableDiff {
+impl DiffKindLabel for VariableDiff {
     fn kind_label(&self) -> &'static str {
         match self.kind {
-            crate::observe::ChangeKind::Added => "added",
-            crate::observe::ChangeKind::Removed => "removed",
-            crate::observe::ChangeKind::Modified => "modified",
+            ChangeKind::Added => "added",
+            ChangeKind::Removed => "removed",
+            ChangeKind::Modified => "modified",
         }
     }
 }

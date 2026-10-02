@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::agent_dbg::{analyze_agent_trace, AgentAnalysis};
-use crate::assert::{run_assertions, AssertOutcome};
-use crate::model::Trace;
-use crate::replay::{replay_trace, ReplayOutcome};
-use crate::report::{unify, UnifiedReport};
+use crate::dimensions::analyze_all;
+use crate::engine::assert::run_assertions;
+use crate::engine::format::{format_json, format_text};
+use crate::engine::replay::{replay_trace, ReplayOutcome};
+use crate::model::report::{unify, UnifiedReport};
+use crate::model::{AssertOutcome, FindingLevel, Trace};
+use crate::probes::agent::{analyze_agent_trace, AgentAnalysis};
 
 /// Outcome of the unified check: replay plus every dimension section plus
 /// assertions plus agent policy, with one exit code for gates.
@@ -19,16 +21,7 @@ pub struct CheckOutcome {
 
 pub fn run_check(trace: &Trace, agent_override: Option<&str>) -> CheckOutcome {
     let replay = replay_trace(trace);
-    let report = unify(vec![
-        crate::loops::analyze(trace),
-        crate::merges::analyze(trace),
-        crate::interruptions::analyze(trace),
-        crate::checkpoints::analyze(trace),
-        crate::interactions::analyze(trace),
-        crate::subexec::analyze(trace),
-        crate::cost::analyze(trace),
-        crate::compression::analyze(trace),
-    ]);
+    let report = unify(analyze_all(trace));
     let assertions = run_assertions(trace);
     let agent = analyze_agent_trace(trace, agent_override);
     let mut exit_code = 0;
@@ -48,7 +41,7 @@ pub fn run_check(trace: &Trace, agent_override: Option<&str>) -> CheckOutcome {
 }
 
 pub fn render_check_text(trace: &Trace, outcome: &CheckOutcome, no_color: bool) -> String {
-    let mut buf = crate::format::format_text(trace, &outcome.replay, no_color);
+    let mut buf = format_text(trace, &outcome.replay, no_color);
     buf.push_str(&format!(
         "sections={} errors={} warnings={} assertions={}/{}\n",
         outcome.report.sections.len(),
@@ -69,9 +62,9 @@ pub fn render_check_text(trace: &Trace, outcome: &CheckOutcome, no_color: bool) 
         }
         for finding in &section.findings {
             let level = match finding.level {
-                crate::report::FindingLevel::Info => "info",
-                crate::report::FindingLevel::Warning => "WARN",
-                crate::report::FindingLevel::Error => "ERROR",
+                FindingLevel::Info => "info",
+                FindingLevel::Warning => "WARN",
+                FindingLevel::Error => "ERROR",
             };
             buf.push_str(&format!(
                 "  [{level}] {}{}\n",
@@ -141,9 +134,9 @@ pub fn render_replay(trace: &Trace, json: bool, no_color: bool) -> (String, i32)
     let replay = replay_trace(trace);
     if json {
         let assertions = run_assertions(trace);
-        (crate::format::format_json(trace, &replay, &assertions), 0)
+        (format_json(trace, &replay, &assertions), 0)
     } else {
-        (crate::format::format_text(trace, &replay, no_color), 0)
+        (format_text(trace, &replay, no_color), 0)
     }
 }
 

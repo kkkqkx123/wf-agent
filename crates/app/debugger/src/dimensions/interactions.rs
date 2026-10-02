@@ -1,6 +1,6 @@
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
 
 /// Interaction analysis: lifecycle terminal states. Residual pending
 /// interactions are errors; timeouts and discarded waiters are warnings.

@@ -20,7 +20,7 @@ fn sample_trace_replays_with_expected_summary() {
 #[test]
 fn sample_assertions_pass() {
     let trace = sample_trace();
-    let outcome = wf_debugger::assert::run_assertions(&trace);
+    let outcome = wf_debugger::engine::run_assertions(&trace);
     assert_eq!(outcome.failed, 0);
     assert_eq!(outcome.passed, trace.assertions.len());
 }
@@ -30,12 +30,12 @@ fn failing_assertion_reports_actual_value() {
     let mut trace = sample_trace();
     trace
         .assertions
-        .push(wf_debugger::assert::Assertion::Variable {
+        .push(wf_debugger::model::Assertion::Variable {
             step: 1,
             key: "x".to_string(),
             expected: serde_json::json!(999),
         });
-    let outcome = wf_debugger::assert::run_assertions(&trace);
+    let outcome = wf_debugger::engine::run_assertions(&trace);
     assert_eq!(outcome.failed, 1);
     let last = outcome.results.last().expect("result");
     assert_eq!(last.actual, Some(serde_json::json!(3)));

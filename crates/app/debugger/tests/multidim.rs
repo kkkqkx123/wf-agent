@@ -58,7 +58,7 @@ fn multidim_sections_carry_expected_counts() {
 #[test]
 fn walk_addresses_nested_child_by_path() {
     let trace = multidim_trace();
-    let visits = wf_debugger::traverse::walk(&trace);
+    let visits = wf_debugger::model::traverse::walk(&trace);
     assert_eq!(visits.len(), 7);
     let child = visits
         .iter()
@@ -72,9 +72,9 @@ fn walk_addresses_nested_child_by_path() {
 fn check_json_carries_report_and_assertion_results() {
     let trace = multidim_trace();
     let outcome = wf_debugger::run_check(&trace, None);
-    let (_, code) = wf_debugger::runner::render_check(&trace, None, true, true);
+    let (_, code) = wf_debugger::engine::render_check(&trace, None, true, true);
     assert_eq!(code, 0);
-    let text = wf_debugger::runner::render_check_json(&trace, &outcome);
+    let text = wf_debugger::engine::render_check_json(&trace, &outcome);
     let payload: serde_json::Value = serde_json::from_str(&text).expect("check json parses");
     assert!(payload.get("report").is_some());
     assert!(payload.get("assertion_results").is_some());

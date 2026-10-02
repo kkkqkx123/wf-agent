@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::model::Trace;
-use crate::observe::{all_message_diffs, variable_diffs, MessageDiff, VariableDiff};
-use crate::traverse::walk;
-use crate::views::InterruptionKind;
+use crate::model::observe::{all_message_diffs, variable_diffs, MessageDiff, VariableDiff};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
+use crate::model::views_runtime::InterruptionKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepOutcome {
@@ -122,16 +122,16 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
         }
         for compression in &step.compressions {
             match compression.phase {
-                crate::views::CompressionPhase::Requested => {
+                crate::model::CompressionPhase::Requested => {
                     summary.compression_requested += 1;
                 }
-                crate::views::CompressionPhase::Completed => {
+                crate::model::CompressionPhase::Completed => {
                     summary.compression_completed += 1;
                 }
-                crate::views::CompressionPhase::Failed => {
+                crate::model::CompressionPhase::Failed => {
                     summary.compression_failed += 1;
                 }
-                crate::views::CompressionPhase::Discarded => {
+                crate::model::CompressionPhase::Discarded => {
                     summary.compression_discarded += 1;
                 }
             }

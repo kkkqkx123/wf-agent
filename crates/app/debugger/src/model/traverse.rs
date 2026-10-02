@@ -1,5 +1,5 @@
-use crate::step::StepRecord;
-use crate::trace::Trace;
+use crate::model::step::StepRecord;
+use crate::model::trace::Trace;
 
 /// One step visited by the single depth-first walk. Every analyzer, the
 /// replay pass, the timeline builder and the assertion engine consume this

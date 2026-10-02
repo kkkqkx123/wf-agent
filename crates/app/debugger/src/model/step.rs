@@ -2,10 +2,13 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::views::{
-    ApprovalView, CheckpointMark, CompressionView, HookFireView, InteractionView, InterruptionView,
-    LlmCallView, LoopRoundView, MergeView, MessageView, ToolCallView, TriggerEventView,
-    VisibilityView,
+use crate::model::views_basic::{
+    ApprovalView, LlmCallView, MessageView, ToolCallView, VisibilityView,
+};
+use crate::model::views_cost::CompressionView;
+use crate::model::views_flow::{LoopRoundView, MergeView};
+use crate::model::views_runtime::{
+    CheckpointMark, HookFireView, InteractionView, InterruptionView, TriggerEventView,
 };
 
 /// Core identity, inputs, outputs and nested structure of one recorded step.

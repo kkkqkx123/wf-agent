@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
 
 /// Loop analysis: group rounds by loop id, surface failures, absorptions
 /// and restores so nested loops and failure policies stay explainable.

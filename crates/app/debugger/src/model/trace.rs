@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::step::StepRecord;
-use crate::views::{BudgetView, TriggerTemplateView};
+use crate::model::assertion::Assertion;
+use crate::model::step::StepRecord;
+use crate::model::views_cost::BudgetView;
+use crate::model::views_runtime::TriggerTemplateView;
 
 pub const TRACE_SCHEMA_V1: &str = "wf-debug-trace/v1";
 
@@ -31,7 +33,7 @@ pub struct Trace {
     #[serde(default)]
     pub steps: Vec<StepRecord>,
     #[serde(default)]
-    pub assertions: Vec<crate::assert::Assertion>,
+    pub assertions: Vec<Assertion>,
     #[serde(default)]
     pub trigger_templates: Vec<TriggerTemplateView>,
     /// Trace-level LLM budget the cost analyzer checks totals against.

@@ -1,6 +1,6 @@
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
 
 /// Sub-execution analysis: validate the recorded hierarchy (depth, parent
 /// references, root) against the actual nesting, and surface failed or

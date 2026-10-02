@@ -1,5 +1,5 @@
-use wf_debugger::agent_dbg::{analyze_agent_trace, VIOLATION_UNEXPECTED_SUCCESS};
-use wf_debugger::policy::EXPLORER_AGENT_TEMPLATE_ID;
+use wf_debugger::probes::agent::{analyze_agent_trace, VIOLATION_UNEXPECTED_SUCCESS};
+use wf_debugger::probes::policy::EXPLORER_AGENT_TEMPLATE_ID;
 
 fn explorer_trace() -> wf_debugger::model::Trace {
     let text =
@@ -20,7 +20,7 @@ fn explorer_example_replays_with_one_denied_call() {
 #[test]
 fn explorer_example_assertions_pass() {
     let trace = explorer_trace();
-    let outcome = wf_debugger::assert::run_assertions(&trace);
+    let outcome = wf_debugger::engine::run_assertions(&trace);
     assert_eq!(outcome.failed, 0);
     assert_eq!(outcome.passed, trace.assertions.len());
 }
@@ -30,11 +30,11 @@ fn wrong_denial_text_reports_actual_value() {
     let mut trace = explorer_trace();
     trace
         .assertions
-        .push(wf_debugger::assert::Assertion::ToolDeniedWith {
+        .push(wf_debugger::model::Assertion::ToolDeniedWith {
             tool: "write_file".to_string(),
             contains: "must be invoked through the general tool".to_string(),
         });
-    let outcome = wf_debugger::assert::run_assertions(&trace);
+    let outcome = wf_debugger::engine::run_assertions(&trace);
     assert_eq!(outcome.failed, 1);
     let last = outcome.results.last().expect("result");
     assert_eq!(
@@ -70,7 +70,7 @@ fn successful_write_is_both_assertion_and_analysis_finding() {
     call.success = true;
     call.error = None;
 
-    let assertions = wf_debugger::assert::run_assertions(&trace);
+    let assertions = wf_debugger::engine::run_assertions(&trace);
     assert!(assertions.failed > 0);
 
     let analysis = analyze_agent_trace(&trace, None);

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::model::traverse::walk;
 use crate::model::Trace;
-use crate::traverse::walk;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TimelineEntry {

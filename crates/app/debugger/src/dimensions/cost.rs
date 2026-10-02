@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
 
 /// LLM cost analysis: aggregate usage per model and profile, keep estimated
 /// calls out of budget decisions, and check trace-level budget limits.

@@ -1,6 +1,6 @@
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
 
 /// Checkpoint analysis: expected-vs-actual coverage by timing and trigger
 /// source (policy strategy vs hook request).
@@ -13,8 +13,12 @@ pub fn analyze(trace: &Trace) -> SectionReport {
         report.count("total", 1);
         report.count(checkpoint.timing.label(), 1);
         match checkpoint.source {
-            Some(crate::views::CheckpointSource::Policy) => report.count("from_policy", 1),
-            Some(crate::views::CheckpointSource::Hook) => report.count("from_hook", 1),
+            Some(crate::model::views_runtime::CheckpointSource::Policy) => {
+                report.count("from_policy", 1)
+            }
+            Some(crate::model::views_runtime::CheckpointSource::Hook) => {
+                report.count("from_hook", 1)
+            }
             None => report.count("source_unknown", 1),
         }
         if checkpoint.checkpoint_id.is_none() {

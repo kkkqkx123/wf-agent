@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
-use crate::views::{CompressionPhase, CompressionView};
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
+use crate::model::views_cost::{CompressionPhase, CompressionView};
 
 fn event_key(target: &str, version: u64) -> String {
     format!("{target}#{version}")

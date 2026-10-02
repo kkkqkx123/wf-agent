@@ -78,7 +78,7 @@ pub fn explain_hook_point(
 
 pub fn collect_hook_points(trace: &crate::model::Trace) -> Vec<HookPointReport> {
     let mut by_type: HashMap<String, Vec<HookFireView>> = HashMap::new();
-    for visit in crate::traverse::walk(trace) {
+    for visit in crate::model::traverse::walk(trace) {
         for fire in &visit.step.hooks_fired {
             by_type
                 .entry(fire.hook_type.clone())

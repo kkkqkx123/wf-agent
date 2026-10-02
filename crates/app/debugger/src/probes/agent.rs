@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{ToolCallView, Trace};
-use crate::policy::{
+use crate::probes::policy::{
     builtin_policy, BuiltinAgentPolicy, NOT_ACTIVATED, NOT_CALLABLE, NOT_IN_AVAILABLE_SET,
     VIA_GENERAL,
 };
 
-pub use crate::policy::{snapshot_meta, POLICY_SNAPSHOT_VERSION};
+pub use super::policy::{snapshot_meta, POLICY_SNAPSHOT_VERSION};
 
 pub const VIOLATION_UNEXPECTED_SUCCESS: &str = "unexpected_success";
 pub const VIOLATION_UNEXPECTED_DENIAL_TEXT: &str = "unexpected_denial_text";
@@ -59,7 +59,7 @@ pub fn analyze_agent_trace(trace: &Trace, template_override: Option<&str>) -> Ag
         known_template: true,
         ..Default::default()
     };
-    for visit in crate::traverse::walk(trace) {
+    for visit in crate::model::traverse::walk(trace) {
         let step = visit.step;
         for call in &step.tool_calls {
             analysis.tool_calls += 1;
@@ -228,7 +228,7 @@ fn violate(analysis: &mut AgentAnalysis, path: &str, tool: &str, kind: &str, det
 mod tests {
     use super::*;
     use crate::model::{ApprovalView, StepRecord, TraceKind, VisibilityView};
-    use crate::policy::{
+    use crate::probes::policy::{
         EXPLORER_AGENT_TEMPLATE_ID, MAIN_AGENT_TEMPLATE_ID, WORKER_AGENT_TEMPLATE_ID,
     };
     use std::collections::HashMap;

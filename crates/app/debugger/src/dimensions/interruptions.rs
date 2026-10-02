@@ -1,7 +1,7 @@
-use crate::report::{FindingLevel, SectionReport};
-use crate::trace::Trace;
-use crate::traverse::walk;
-use crate::views::InterruptionKind;
+use crate::model::report::{FindingLevel, SectionReport};
+use crate::model::trace::Trace;
+use crate::model::traverse::walk;
+use crate::model::views_runtime::InterruptionKind;
 
 /// Interruption analysis: distribution by kind, durations and recovery rate.
 /// Unrecovered interruptions are errors because they fail the unified check.

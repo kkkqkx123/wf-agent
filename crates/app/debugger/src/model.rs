@@ -1,10 +1,28 @@
-pub use crate::step::StepRecord;
-pub use crate::trace::{Trace, TraceKind, TRACE_SCHEMA_V1};
-pub use crate::views::{
-    ApprovalView, BudgetView, CheckpointMark, CheckpointSource, CheckpointTiming, CompressionPhase,
-    CompressionView, HookFireView, InteractionView, InterruptionKind, InterruptionView,
-    LlmCallView, LoopRoundView, MergeBranchView, MergeView, MessageView, RouteBranch,
-    RouteDecisionPoint, ToolCallView, TriggerEventView, TriggerTemplateView, VisibilityView,
+pub mod assertion;
+pub mod observe;
+pub mod report;
+pub mod step;
+pub mod trace;
+pub mod traverse;
+pub mod views_basic;
+pub mod views_cost;
+pub mod views_flow;
+pub mod views_runtime;
+
+pub use assertion::{AssertOutcome, Assertion, AssertionResult};
+pub use observe::{
+    all_message_diffs, message_diffs, variable_diffs, ChangeKind, MessageDiff, VariableDiff,
+};
+pub use report::{unify, Finding, FindingLevel, SectionReport, UnifiedReport};
+pub use step::StepRecord;
+pub use trace::{Trace, TraceKind, TRACE_SCHEMA_V1};
+pub use traverse::{find_step, walk, StepVisit};
+pub use views_basic::{ApprovalView, LlmCallView, MessageView, ToolCallView, VisibilityView};
+pub use views_cost::{BudgetView, CompressionPhase, CompressionView};
+pub use views_flow::{LoopRoundView, MergeBranchView, MergeView, RouteBranch, RouteDecisionPoint};
+pub use views_runtime::{
+    CheckpointMark, CheckpointSource, CheckpointTiming, HookFireView, InteractionView,
+    InterruptionKind, InterruptionView, TriggerEventView, TriggerTemplateView,
 };
 
 pub const MAX_PAYLOAD_CHARS: usize = 4000;

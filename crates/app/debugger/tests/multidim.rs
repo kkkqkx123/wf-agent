@@ -24,7 +24,7 @@ fn multidim_sample_passes_unified_check() {
     assert_eq!(outcome.exit_code, 0);
     assert_eq!(outcome.assertions.failed, 0);
     assert_eq!(outcome.assertions.passed, trace.assertions.len());
-    assert_eq!(outcome.report.sections.len(), 8);
+    assert_eq!(outcome.report.sections.len(), 9);
 }
 
 #[test]

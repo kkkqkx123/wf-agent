@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 
 use super::args::{
     AgentsArgs, AssertArgs, BranchesArgs, CheckArgs, CompressionArgs, DebuggerCli, DebuggerCommand,
-    HooksArgs, ImportArgs, ReplayArgs, TimelineArgs, TriggersArgs,
+    HooksArgs, ImportArgs, ReplayArgs, SpecArgs, TimelineArgs, TriggersArgs,
 };
 
 pub fn run(cli: DebuggerCli) -> Result<i32> {
@@ -17,6 +17,7 @@ pub fn run(cli: DebuggerCli) -> Result<i32> {
         DebuggerCommand::Agents(args) => cmd_agents(args),
         DebuggerCommand::Compression(args) => cmd_compression(args),
         DebuggerCommand::Import(args) => cmd_import(args),
+        DebuggerCommand::Spec(args) => cmd_spec(args),
     }
 }
 
@@ -206,6 +207,40 @@ fn cmd_agents(args: AgentsArgs) -> Result<i32> {
 fn cmd_compression(args: CompressionArgs) -> Result<i32> {
     let trace = crate::input::load_trace(&args.trace)?;
     let report = crate::dimensions::compression::analyze(&trace);
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).unwrap_or_default()
+        );
+    } else {
+        let mut counts: Vec<(&String, &u64)> = report.counts.iter().collect();
+        counts.sort();
+        for (key, value) in counts {
+            println!("{key}={value}");
+        }
+        for finding in &report.findings {
+            let level = match finding.level {
+                crate::model::FindingLevel::Info => "info",
+                crate::model::FindingLevel::Warning => "WARN",
+                crate::model::FindingLevel::Error => "ERROR",
+            };
+            println!(
+                "[{level}] {}{}",
+                if finding.path.is_empty() {
+                    String::new()
+                } else {
+                    format!("step-{}: ", finding.path)
+                },
+                finding.message,
+            );
+        }
+    }
+    Ok(if report.errors() > 0 { 1 } else { 0 })
+}
+
+fn cmd_spec(args: SpecArgs) -> Result<i32> {
+    let trace = crate::input::load_trace(&args.trace)?;
+    let report = crate::dimensions::spec::analyze(&trace);
     if args.json {
         println!(
             "{}",

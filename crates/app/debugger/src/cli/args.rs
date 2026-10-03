@@ -21,6 +21,7 @@ pub enum DebuggerCommand {
     Agents(AgentsArgs),
     Compression(CompressionArgs),
     Import(ImportArgs),
+    Spec(SpecArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -118,4 +119,12 @@ pub struct ImportArgs {
     /// Write the normalized trace here; prints to stdout when absent.
     #[arg(long)]
     pub out: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SpecArgs {
+    #[arg(long)]
+    pub trace: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
 }

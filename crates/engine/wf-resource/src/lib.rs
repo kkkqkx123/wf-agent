@@ -16,7 +16,9 @@ pub use custom::{
 pub use dynamic::{
     build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
 };
-pub use predefined::resource_assembler::{GoalReviewConfig, GoalReviewResourceAssembler};
+pub use predefined::resource_assembler::{
+    GoalReviewConfig, GoalReviewResourceAssembler, SpecWorkflowConfig, SpecWorkflowResourceAssembler,
+};
 pub use predefined::tool_visibility::{
     builtin_tool_visibility_templates, generic_visibility_text, ACTIVATION_TEMPLATE_ID,
     BLOCK_TEMPLATE_ID, DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_TEMPLATE_ID,

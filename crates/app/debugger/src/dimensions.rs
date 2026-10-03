@@ -5,6 +5,7 @@ pub mod interactions;
 pub mod interruptions;
 pub mod loops;
 pub mod merges;
+pub mod spec;
 pub mod subexec;
 
 use crate::model::{SectionReport, Trace};
@@ -19,5 +20,6 @@ pub fn analyze_all(trace: &Trace) -> Vec<SectionReport> {
         subexec::analyze(trace),
         cost::analyze(trace),
         compression::analyze(trace),
+        spec::analyze(trace),
     ]
 }

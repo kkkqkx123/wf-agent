@@ -181,7 +181,7 @@ mod tests {
         let trace = empty_trace();
         let outcome = run_check(&trace, None);
         assert_eq!(outcome.exit_code, 0);
-        assert_eq!(outcome.report.sections.len(), 8);
+        assert_eq!(outcome.report.sections.len(), 9);
     }
 
     #[test]

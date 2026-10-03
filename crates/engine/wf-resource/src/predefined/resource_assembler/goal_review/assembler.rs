@@ -15,7 +15,10 @@ pub const GOAL_REVIEW_RESOURCE_ASSEMBLER_ID: &str = "@standard/goal-review-agent
 /// All built-in resource assemblers, registered into the bundle registry during the
 /// resource registration pipeline.
 pub fn builtin_resource_assemblers() -> Vec<Box<dyn ResourceAssembler>> {
-    vec![Box::new(GoalReviewResourceAssembler::new())]
+    vec![
+        Box::new(GoalReviewResourceAssembler::new()),
+        Box::new(super::super::spec_workflow::assembler::SpecWorkflowResourceAssembler::new()),
+    ]
 }
 
 /// Goal-driven review loop resource assembler: planner -> executor -> reviewer -> loop

@@ -14,11 +14,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wf_core::Registry;
 use wf_tools::registry::ToolRegistry;
-use wf_types::agent::AgentTemplate;
+use wf_types::agent::{AgentDefinition, AgentTemplate};
+use wf_types::node::configs::{LoopEndNodeConfig, LoopStartNodeConfig, LoopVariableInput};
+use wf_types::node::{BaseStaticNode, StaticNodeType};
+use wf_types::tool::AvailableTools;
 use wf_types::tool::Tool as ToolDef;
 use wf_types::tool_description::ToolDescriptionData;
 use wf_types::trigger::TriggerTemplate;
-use wf_types::workflow::{NodeTemplate, WorkflowTemplate};
+use wf_types::workflow::{Edge, EdgeType, NodeTemplate, WorkflowTemplate};
 use wf_types::{SystemPromptFragment, Template};
 
 use crate::registry::{
@@ -51,6 +54,442 @@ impl ResourceBundle {
             node_templates: Vec::new(),
             agent_templates: Vec::new(),
         }
+    }
+
+    pub fn builder() -> ResourceBundleBuilder {
+        ResourceBundleBuilder::new()
+    }
+}
+
+/// Config parsing contract shared by all `ResourceAssembler` implementations.
+///
+/// Each assembler owns a config struct that parses itself from the raw JSON
+/// value passed to `assemble()` and validates its own invariants. Keeping
+/// parsing plus validation next to the config struct removes field-by-field
+/// boilerplate from `assemble()` and gives every assembler the same shape.
+pub trait AssemblerConfig: Sized {
+    fn from_value(value: &Value) -> Result<Self, String>;
+    fn validate(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn parse(value: &Value) -> Result<Self, String> {
+        let config = Self::from_value(value)?;
+        config.validate()?;
+        Ok(config)
+    }
+}
+
+/// Fluent composer for `ResourceBundle` values.
+///
+/// Every assembler builds the same eight resource lists; pushing to raw vecs
+/// spreads that knowledge across each `assemble()`. The builder centralizes
+/// it so `assemble()` reads as a declaration of what the bundle contains.
+#[derive(Debug, Clone, Default)]
+pub struct ResourceBundleBuilder {
+    bundle: ResourceBundle,
+}
+
+impl ResourceBundleBuilder {
+    pub fn new() -> Self {
+        Self {
+            bundle: ResourceBundle::new(),
+        }
+    }
+
+    pub fn workflow(mut self, workflow: WorkflowTemplate) -> Self {
+        self.bundle.workflows.push(workflow);
+        self
+    }
+
+    pub fn workflows(mut self, workflows: impl IntoIterator<Item = WorkflowTemplate>) -> Self {
+        self.bundle.workflows.extend(workflows);
+        self
+    }
+
+    pub fn tool(mut self, tool: ToolDef) -> Self {
+        self.bundle.tools.push(tool);
+        self
+    }
+
+    pub fn tools(mut self, tools: impl IntoIterator<Item = ToolDef>) -> Self {
+        self.bundle.tools.extend(tools);
+        self
+    }
+
+    pub fn trigger(mut self, trigger: TriggerTemplate) -> Self {
+        self.bundle.triggers.push(trigger);
+        self
+    }
+
+    pub fn triggers(mut self, triggers: impl IntoIterator<Item = TriggerTemplate>) -> Self {
+        self.bundle.triggers.extend(triggers);
+        self
+    }
+
+    pub fn prompt(mut self, prompt: Template) -> Self {
+        self.bundle.prompts.push(prompt);
+        self
+    }
+
+    pub fn prompts(mut self, prompts: impl IntoIterator<Item = Template>) -> Self {
+        self.bundle.prompts.extend(prompts);
+        self
+    }
+
+    pub fn fragment(mut self, fragment: SystemPromptFragment) -> Self {
+        self.bundle.fragments.push(fragment);
+        self
+    }
+
+    pub fn fragments(mut self, fragments: impl IntoIterator<Item = SystemPromptFragment>) -> Self {
+        self.bundle.fragments.extend(fragments);
+        self
+    }
+
+    pub fn tool_description(mut self, description: ToolDescriptionData) -> Self {
+        self.bundle.tool_descriptions.push(description);
+        self
+    }
+
+    pub fn tool_descriptions(
+        mut self,
+        descriptions: impl IntoIterator<Item = ToolDescriptionData>,
+    ) -> Self {
+        self.bundle.tool_descriptions.extend(descriptions);
+        self
+    }
+
+    pub fn node_template(mut self, template: NodeTemplate) -> Self {
+        self.bundle.node_templates.push(template);
+        self
+    }
+
+    pub fn node_templates(mut self, templates: impl IntoIterator<Item = NodeTemplate>) -> Self {
+        self.bundle.node_templates.extend(templates);
+        self
+    }
+
+    pub fn agent_template(mut self, template: AgentTemplate) -> Self {
+        self.bundle.agent_templates.push(template);
+        self
+    }
+
+    pub fn agent_templates(mut self, templates: impl IntoIterator<Item = AgentTemplate>) -> Self {
+        self.bundle.agent_templates.extend(templates);
+        self
+    }
+
+    pub fn build(self) -> ResourceBundle {
+        self.bundle
+    }
+}
+
+impl From<ResourceBundleBuilder> for ResourceBundle {
+    fn from(builder: ResourceBundleBuilder) -> Self {
+        builder.build()
+    }
+}
+
+/// Merge config overrides into a base agent template and return the inline
+/// `AgentDefinition` the AGENT_LOOP handler requires.
+///
+/// `None` leaves the corresponding base field untouched; providing a tool
+/// list replaces the base list wholesale.
+pub fn merge_agent_config(
+    template: &AgentTemplate,
+    profile_id: Option<String>,
+    system_prompt: Option<String>,
+    max_iterations: Option<u32>,
+    tools: Option<Vec<String>>,
+) -> AgentDefinition {
+    let mut definition = template.definition.clone();
+    if let Some(config) = definition.config.as_mut() {
+        if let Some(id) = profile_id {
+            config.profile_id = Some(id);
+        }
+        if let Some(prompt) = system_prompt {
+            config.system_prompt = Some(prompt);
+        }
+        if let Some(iterations) = max_iterations {
+            config.max_iterations = Some(iterations);
+        }
+        if let Some(tools) = tools {
+            let available = config
+                .available_tools
+                .get_or_insert_with(|| AvailableTools {
+                    available: Vec::new(),
+                    initial: None,
+                    discoverable: None,
+                    enable_general_tool: None,
+                    hidden: None,
+                    require_approval: None,
+                    allowed_workflows: None,
+                });
+            available.available = tools;
+        }
+    }
+    definition
+}
+
+/// Fluent customization of a base `AgentTemplate` into an inline definition.
+///
+/// Every assembler that embeds agents overrides the same four config knobs;
+/// the builder centralizes that merge so `assemble()` declares overrides
+/// instead of cloning configs by hand.
+#[derive(Debug, Clone)]
+pub struct AgentTemplateBuilder {
+    base: AgentTemplate,
+    profile_id: Option<String>,
+    system_prompt: Option<String>,
+    max_iterations: Option<u32>,
+    tools: Option<Vec<String>>,
+}
+
+impl AgentTemplateBuilder {
+    pub fn new(base: AgentTemplate) -> Self {
+        Self {
+            base,
+            profile_id: None,
+            system_prompt: None,
+            max_iterations: None,
+            tools: None,
+        }
+    }
+
+    pub fn with_profile(mut self, id: impl Into<String>) -> Self {
+        self.profile_id = Some(id.into());
+        self
+    }
+
+    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    pub fn with_max_iterations(mut self, n: u32) -> Self {
+        self.max_iterations = Some(n);
+        self
+    }
+
+    pub fn with_tools(mut self, tools: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tools = Some(tools.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub fn maybe_profile(mut self, id: Option<String>) -> Self {
+        if let Some(id) = id {
+            self.profile_id = Some(id);
+        }
+        self
+    }
+
+    pub fn maybe_system_prompt(mut self, prompt: Option<String>) -> Self {
+        if let Some(prompt) = prompt {
+            self.system_prompt = Some(prompt);
+        }
+        self
+    }
+
+    pub fn maybe_max_iterations(mut self, n: Option<u32>) -> Self {
+        if let Some(n) = n {
+            self.max_iterations = Some(n);
+        }
+        self
+    }
+
+    pub fn maybe_tools(mut self, tools: Option<Vec<String>>) -> Self {
+        if let Some(tools) = tools {
+            self.tools = Some(tools);
+        }
+        self
+    }
+
+    pub fn build_inline(self) -> AgentDefinition {
+        merge_agent_config(
+            &self.base,
+            self.profile_id,
+            self.system_prompt,
+            self.max_iterations,
+            self.tools,
+        )
+    }
+}
+
+/// Build a static workflow edge.
+pub fn workflow_edge(
+    id: &str,
+    source: &str,
+    target: &str,
+    r#type: EdgeType,
+    condition: Option<String>,
+) -> Edge {
+    Edge {
+        id: id.into(),
+        source_node_id: source.into(),
+        target_node_id: target.into(),
+        r#type,
+        condition,
+        label: None,
+        description: None,
+        weight: None,
+        metadata: None,
+        error_route: None,
+    }
+}
+
+/// Fluent wiring for a LOOP_START / LOOP_END review-style loop segment.
+///
+/// The engine pairs loops by `loop_id` and follows `loop_start_node_id`
+/// back on continuation, so the builder owns both boundary nodes plus the
+/// loop-back edge and derives them from one `loop_id`. Callers supply the
+/// body nodes with the edges between them; entry edges into LOOP_START and
+/// exit edges out of LOOP_END stay with the caller because they belong to
+/// the surrounding graph, not the loop itself.
+#[derive(Debug, Clone, Default)]
+pub struct LoopWorkflowBuilder {
+    loop_id: String,
+    loop_start_id: String,
+    loop_end_id: String,
+    loop_start_name: Option<String>,
+    loop_end_name: Option<String>,
+    max_iterations: Option<u32>,
+    variable_inputs: Vec<LoopVariableInput>,
+    break_condition: Option<String>,
+    continue_condition: Option<String>,
+    loop_back_edge_id: Option<String>,
+    body_nodes: Vec<BaseStaticNode>,
+    body_edges: Vec<Edge>,
+}
+
+impl LoopWorkflowBuilder {
+    pub fn new(loop_id: &str, loop_start_id: &str, loop_end_id: &str) -> Self {
+        Self {
+            loop_id: loop_id.to_string(),
+            loop_start_id: loop_start_id.to_string(),
+            loop_end_id: loop_end_id.to_string(),
+            ..Self::default()
+        }
+    }
+
+    pub fn loop_start_name(mut self, name: impl Into<String>) -> Self {
+        self.loop_start_name = Some(name.into());
+        self
+    }
+
+    pub fn loop_end_name(mut self, name: impl Into<String>) -> Self {
+        self.loop_end_name = Some(name.into());
+        self
+    }
+
+    pub fn max_iterations(mut self, n: u32) -> Self {
+        self.max_iterations = Some(n);
+        self
+    }
+
+    pub fn variable_inputs(mut self, inputs: Vec<LoopVariableInput>) -> Self {
+        self.variable_inputs = inputs;
+        self
+    }
+
+    pub fn variable_input(mut self, input: LoopVariableInput) -> Self {
+        self.variable_inputs.push(input);
+        self
+    }
+
+    pub fn break_condition(mut self, condition: impl Into<String>) -> Self {
+        self.break_condition = Some(condition.into());
+        self
+    }
+
+    pub fn continue_condition(mut self, condition: impl Into<String>) -> Self {
+        self.continue_condition = Some(condition.into());
+        self
+    }
+
+    pub fn loop_back_edge_id(mut self, id: impl Into<String>) -> Self {
+        self.loop_back_edge_id = Some(id.into());
+        self
+    }
+
+    pub fn body_node(mut self, node: BaseStaticNode) -> Self {
+        self.body_nodes.push(node);
+        self
+    }
+
+    pub fn body_nodes(mut self, nodes: impl IntoIterator<Item = BaseStaticNode>) -> Self {
+        self.body_nodes.extend(nodes);
+        self
+    }
+
+    pub fn body_edge(mut self, edge: Edge) -> Self {
+        self.body_edges.push(edge);
+        self
+    }
+
+    pub fn body_edges(mut self, edges: impl IntoIterator<Item = Edge>) -> Self {
+        self.body_edges.extend(edges);
+        self
+    }
+
+    pub fn build(self) -> Result<(Vec<BaseStaticNode>, Vec<Edge>), String> {
+        let max_iterations = self.max_iterations.filter(|n| *n > 0).ok_or_else(|| {
+            format!(
+                "LoopWorkflowBuilder '{}': max_iterations must be set to a value greater than 0",
+                self.loop_id
+            )
+        })?;
+
+        let start_config = LoopStartNodeConfig {
+            loop_id: self.loop_id.clone(),
+            variable_inputs: Some(self.variable_inputs.clone()),
+            data_source: None,
+            max_iterations,
+            break_condition: None,
+        };
+        let start_config = serde_json::to_value(&start_config)
+            .map_err(|e| format!("LoopWorkflowBuilder '{}': {e}", self.loop_id))?;
+        let end_config = LoopEndNodeConfig {
+            loop_id: self.loop_id.clone(),
+            break_condition: self.break_condition.clone(),
+            loop_start_node_id: Some(self.loop_start_id.clone()),
+        };
+        let end_config = serde_json::to_value(&end_config)
+            .map_err(|e| format!("LoopWorkflowBuilder '{}': {e}", self.loop_id))?;
+
+        let mut nodes = Vec::with_capacity(self.body_nodes.len() + 2);
+        nodes.push(BaseStaticNode {
+            id: self.loop_start_id.clone(),
+            node_type: StaticNodeType::LoopStart,
+            name: self.loop_start_name.clone(),
+            description: None,
+            config: Some(start_config),
+            execution_config: None,
+        });
+        nodes.extend(self.body_nodes);
+        nodes.push(BaseStaticNode {
+            id: self.loop_end_id.clone(),
+            node_type: StaticNodeType::LoopEnd,
+            name: self.loop_end_name.clone(),
+            description: None,
+            config: Some(end_config),
+            execution_config: None,
+        });
+
+        // The Rust engine treats LOOP_END -> LOOP_START as the legal loop
+        // continuation (the LOOP_END handler jumps back via
+        // loop_start_node_id).
+        let mut edges = self.body_edges;
+        edges.push(workflow_edge(
+            &self
+                .loop_back_edge_id
+                .unwrap_or_else(|| format!("{}_to_{}", self.loop_end_id, self.loop_start_id)),
+            &self.loop_end_id,
+            &self.loop_start_id,
+            EdgeType::Conditional,
+            self.continue_condition.clone(),
+        ));
+        Ok((nodes, edges))
     }
 }
 
@@ -261,8 +700,8 @@ mod tests {
         // not depend on how many built-in templates exist.
         let mut bundle = ResourceBundle::new();
         bundle.agent_templates = vec![
-            crate::predefined::agent_templates::goal_review_executor(),
-            crate::predefined::agent_templates::goal_review_reviewer(),
+            crate::predefined::resource_assembler::goal_review::agent::goal_review_executor(),
+            crate::predefined::resource_assembler::goal_review::agent::goal_review_reviewer(),
         ];
         bundle.prompts.push(Template {
             id: "test.prompt".into(),
@@ -378,5 +817,183 @@ mod tests {
         assert!(summary.failed.iter().any(|f| f.id == "plugin-b"));
         assert!(!regs.trigger_templates.has("plugin-a"));
         assert!(!regs.trigger_templates.has("plugin-b"));
+    }
+
+    #[test]
+    fn builder_composes_bundle_fluently() {
+        let bundle = ResourceBundle::builder()
+            .prompt(Template {
+                id: "test.prompt".into(),
+                name: "Test Prompt".into(),
+                description: None,
+                category: "system".into(),
+                content: "hello".into(),
+                variables: None,
+                fragments: None,
+            })
+            .agent_templates(vec![
+                crate::predefined::resource_assembler::goal_review::agent::goal_review_executor(),
+                crate::predefined::resource_assembler::goal_review::agent::goal_review_reviewer(),
+            ])
+            .build();
+
+        assert_eq!(bundle.prompts.len(), 1);
+        assert_eq!(bundle.agent_templates.len(), 2);
+        assert!(bundle.workflows.is_empty());
+    }
+
+    #[test]
+    fn assembler_config_parse_runs_validation() {
+        struct StrictConfig {
+            name: String,
+        }
+
+        impl AssemblerConfig for StrictConfig {
+            fn from_value(value: &Value) -> Result<Self, String> {
+                let name = value
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "config requires 'name' (string)".to_string())?
+                    .to_string();
+                Ok(Self { name })
+            }
+
+            fn validate(&self) -> Result<(), String> {
+                if self.name.is_empty() {
+                    return Err("'name' must not be empty".to_string());
+                }
+                Ok(())
+            }
+        }
+
+        assert!(StrictConfig::parse(&serde_json::json!({"name": "ok"})).is_ok());
+        assert!(StrictConfig::parse(&serde_json::json!({})).is_err());
+        assert!(StrictConfig::parse(&serde_json::json!({"name": ""})).is_err());
+    }
+
+    #[test]
+    fn agent_builder_applies_overrides() {
+        let base =
+            crate::predefined::resource_assembler::goal_review::agent::goal_review_executor();
+        let definition = AgentTemplateBuilder::new(base)
+            .with_profile("custom-exec")
+            .with_system_prompt("be terse")
+            .with_max_iterations(42)
+            .with_tools(["read_file", "grep"])
+            .build_inline();
+
+        let config = definition.config.expect("agent config");
+        assert_eq!(config.profile_id.as_deref(), Some("custom-exec"));
+        assert_eq!(config.system_prompt.as_deref(), Some("be terse"));
+        assert_eq!(config.max_iterations, Some(42));
+        assert_eq!(
+            config.available_tools.expect("tools").available,
+            vec!["read_file", "grep"]
+        );
+    }
+
+    #[test]
+    fn agent_builder_maybe_helpers_skip_none() {
+        let base =
+            crate::predefined::resource_assembler::goal_review::agent::goal_review_reviewer();
+        let untouched = AgentTemplateBuilder::new(base.clone())
+            .maybe_profile(None)
+            .maybe_system_prompt(None)
+            .maybe_max_iterations(None)
+            .maybe_tools(None)
+            .build_inline();
+        assert_eq!(untouched, base.definition);
+
+        let touched = AgentTemplateBuilder::new(base)
+            .maybe_system_prompt(Some("be strict".to_string()))
+            .build_inline();
+        assert_eq!(
+            touched
+                .config
+                .expect("agent config")
+                .system_prompt
+                .as_deref(),
+            Some("be strict")
+        );
+    }
+
+    #[test]
+    fn loop_builder_wires_loop_back_edge() {
+        let body = BaseStaticNode {
+            id: "work".into(),
+            node_type: StaticNodeType::Llm,
+            name: None,
+            description: None,
+            config: None,
+            execution_config: None,
+        };
+        let (nodes, edges) = LoopWorkflowBuilder::new("demo-loop", "loop_start", "loop_end")
+            .loop_start_name("Start")
+            .loop_end_name("End")
+            .max_iterations(3)
+            .variable_input(LoopVariableInput {
+                source_path: "status".into(),
+                internal_name: "status".into(),
+                required: Some(true),
+                default_value: None,
+                description: None,
+            })
+            .break_condition("eq(status,\"done\")")
+            .continue_condition("eq(nextIteration,true)")
+            .loop_back_edge_id("e-back")
+            .body_node(body)
+            .body_edge(workflow_edge(
+                "e0",
+                "loop_start",
+                "work",
+                EdgeType::Default,
+                None,
+            ))
+            .body_edge(workflow_edge(
+                "e1",
+                "work",
+                "loop_end",
+                EdgeType::Default,
+                None,
+            ))
+            .build()
+            .expect("loop segment");
+
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0].node_type, StaticNodeType::LoopStart);
+        assert_eq!(nodes[2].node_type, StaticNodeType::LoopEnd);
+
+        let start_config = nodes[0].config.as_ref().expect("start config");
+        assert_eq!(start_config["loop_id"].as_str(), Some("demo-loop"));
+        assert_eq!(start_config["max_iterations"].as_u64(), Some(3));
+
+        let end_config = nodes[2].config.as_ref().expect("end config");
+        assert_eq!(end_config["loop_id"].as_str(), Some("demo-loop"));
+        assert_eq!(
+            end_config["break_condition"].as_str(),
+            Some("eq(status,\"done\")")
+        );
+        assert_eq!(
+            end_config["loop_start_node_id"].as_str(),
+            Some("loop_start")
+        );
+
+        assert_eq!(edges.len(), 3);
+        let back = edges.iter().find(|e| e.id == "e-back").expect("loop-back");
+        assert_eq!(back.source_node_id, "loop_end");
+        assert_eq!(back.target_node_id, "loop_start");
+        assert_eq!(back.r#type, EdgeType::Conditional);
+        assert_eq!(back.condition.as_deref(), Some("eq(nextIteration,true)"));
+    }
+
+    #[test]
+    fn loop_builder_requires_max_iterations() {
+        let missing = LoopWorkflowBuilder::new("demo-loop", "loop_start", "loop_end").build();
+        assert!(missing.is_err());
+
+        let zero = LoopWorkflowBuilder::new("demo-loop", "loop_start", "loop_end")
+            .max_iterations(0)
+            .build();
+        assert!(zero.is_err());
     }
 }

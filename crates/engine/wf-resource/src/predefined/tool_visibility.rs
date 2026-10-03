@@ -29,7 +29,8 @@ pub const GENERAL_DESCRIPTION_CONTENT: &str = "Invoke tools whose schemas are no
 /// Single truth for the generic (non-activation/block) visibility wording
 /// used when an action has no dedicated template. Callers format the
 /// tool list via [`generic_visibility_text`] so the wording stays here.
-pub const GENERIC_VISIBILITY_CONTENT: &str = "Tool visibility changed ({{action}}):\n{{tool_names}}";
+pub const GENERIC_VISIBILITY_CONTENT: &str =
+    "Tool visibility changed ({{action}}):\n{{tool_names}}";
 
 /// Format the generic visibility text for an action and a pre-formatted
 /// tool list. Single source for the fallback wording in render paths

@@ -29,8 +29,10 @@ pub use registry::{
     unregister_template, RegisterOptions, ResourceAssemblerActivation, ResourceRegistries,
 };
 pub use resource_assembler::{
-    install_bundle, uninstall_bundle, ResourceAssembler, ResourceAssemblerConfigField,
+    install_bundle, merge_agent_config, uninstall_bundle, workflow_edge, AgentTemplateBuilder,
+    AssemblerConfig, LoopWorkflowBuilder, ResourceAssembler, ResourceAssemblerConfigField,
     ResourceAssemblerConfigFieldType, ResourceAssemblerMetadata, ResourceBundle,
+    ResourceBundleBuilder,
 };
 pub use result::Summary;
 pub use template::{

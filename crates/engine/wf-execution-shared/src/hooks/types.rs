@@ -107,17 +107,31 @@ pub struct HookContext {
 impl HookContext {
     /// Base constructor. The payload map always carries the execution id
     /// and hook type so condition expressions observe one stable vocabulary
-    /// even when callers build their data maps by hand.
+    /// even when callers build their data maps by hand. Base keys are
+    /// authoritative: caller values for them are overwritten with a warning.
     pub fn new(
         execution_id: Id,
         hook_type: String,
         mut data: HashMap<String, Value>,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Self {
-        data.entry(KEY_EXECUTION_ID.to_string())
-            .or_insert_with(|| Value::String(execution_id.to_string()));
-        data.entry(KEY_HOOK_TYPE.to_string())
-            .or_insert_with(|| Value::String(hook_type.clone()));
+        for (key, authoritative) in [
+            (
+                KEY_EXECUTION_ID.to_string(),
+                Value::String(execution_id.to_string()),
+            ),
+            (KEY_HOOK_TYPE.to_string(), Value::String(hook_type.clone())),
+        ] {
+            if let Some(existing) = data.get(&key) {
+                if existing != &authoritative {
+                    tracing::warn!(
+                        key = %key,
+                        "hook context caller data overrides base key; using authoritative value"
+                    );
+                }
+            }
+            data.insert(key, authoritative);
+        }
         Self {
             execution_id,
             hook_type,
@@ -127,7 +141,8 @@ impl HookContext {
     }
 
     /// Agent loop base payload: execution id, status text, iteration count,
-    /// plus caller extra data. Extra data never removes the base keys.
+    /// plus caller extra data. Extra data never overrides the base keys; a
+    /// collision keeps the base value with a warning.
     #[allow(clippy::too_many_arguments)]
     pub fn agent_base(
         execution_id: Id,
@@ -148,13 +163,20 @@ impl HookContext {
             Value::Number(serde_json::Number::from(current_iteration)),
         );
         for (key, value) in extra_data.drain() {
-            data.entry(key).or_insert(value);
+            if data.contains_key(&key) {
+                tracing::warn!(
+                    key = %key,
+                    "hook extra data collides with base key; keeping base value"
+                );
+                continue;
+            }
+            data.insert(key, value);
         }
         Self::new(execution_id, hook_type, data, cancellation)
     }
 
     /// Workflow execution base payload: execution id, workflow id, status
-    /// text, plus caller extra data.
+    /// text, plus caller extra data. Extra data never overrides base keys.
     pub fn workflow_base(
         execution_id: Id,
         workflow_id: Id,
@@ -174,13 +196,20 @@ impl HookContext {
         );
         data.insert(KEY_STATUS.to_string(), Value::String(status));
         for (key, value) in extra_data.drain() {
-            data.entry(key).or_insert(value);
+            if data.contains_key(&key) {
+                tracing::warn!(
+                    key = %key,
+                    "hook extra data collides with base key; keeping base value"
+                );
+                continue;
+            }
+            data.insert(key, value);
         }
         Self::new(execution_id, hook_type, data, cancellation)
     }
 
     /// Workflow node payload: workflow base plus node identity and optional
-    /// duration, error and rejection source.
+    /// duration, error and rejection source. Extra data never overrides base keys.
     #[allow(clippy::too_many_arguments)]
     pub fn workflow_node(
         execution_id: Id,
@@ -228,7 +257,14 @@ impl HookContext {
             );
         }
         for (key, value) in extra_data.drain() {
-            data.entry(key).or_insert(value);
+            if data.contains_key(&key) {
+                tracing::warn!(
+                    key = %key,
+                    "hook extra data collides with base key; keeping base value"
+                );
+                continue;
+            }
+            data.insert(key, value);
         }
         Self::new(execution_id, hook_type, data, cancellation)
     }

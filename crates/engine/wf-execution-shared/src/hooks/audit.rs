@@ -112,9 +112,10 @@ pub fn hook_checkpoint_description_fired(
 /// Returns the number of events published (0 when nothing was fired or
 /// no bus is attached). Empty fires of observable hooks are silently
 /// skipped; empty fires of request / mutated hooks emit a warning so a
-/// missing handler does not go unnoticed. Trigger-closed points with no
-/// notified handler are also skipped: without a sync handler their fire is
-/// a write-only audit nobody may consume.
+/// missing handler does not go unnoticed. Trigger-closed points (see
+/// `wf_types::hook::hook_allows_trigger`) with no notified handler are also
+/// skipped: without a sync handler their fire is a write-only audit nobody
+/// may consume.
 pub fn publish_hook_audit_event(
     event_bus: Option<&EventBus>,
     ctx: &HookContext,

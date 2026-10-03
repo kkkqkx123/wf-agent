@@ -336,7 +336,7 @@ impl ToolExecutionCoordinator {
         }
     }
 
-    fn build_rejection_message(&self, tc: &LlmToolCall, reason: &str) -> Message {
+    pub(crate) fn build_rejection_message(&self, tc: &LlmToolCall, reason: &str) -> Message {
         rejection_message(&self.rejection_builder, tc, reason)
     }
 
@@ -351,15 +351,17 @@ impl ToolExecutionCoordinator {
 
     /// Approval gate for the streaming tool path: exposure gate first,
     /// then approval through the same batch pipeline as the sequential
-    /// executor. Returns the rejection message plus its reason when the
-    /// call is denied, `None` when it may execute.
+    /// executor. Returns the effective call (approval-edited parameters
+    /// applied) on approval, or the rejection message plus its reason on
+    /// denial. Approval rejections never fire tool hooks, matching the
+    /// sequential path.
     pub async fn approve_single_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
-    ) -> Option<(Message, String)> {
+    ) -> Result<LlmToolCall, (Message, String)> {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
-            return Some((self.build_rejection_message(tc, &reason), reason));
+            return Err((self.build_rejection_message(tc, &reason), reason));
         }
         let outcomes = self
             .approval
@@ -367,9 +369,12 @@ impl ToolExecutionCoordinator {
             .await;
         match outcomes.first() {
             Some(ApprovalOutcome::Rejected { reason }) => {
-                Some((self.build_rejection_message(tc, reason), reason.clone()))
+                Err((self.build_rejection_message(tc, reason), reason.clone()))
             }
-            _ => None,
+            Some(ApprovalOutcome::Execute { edited_parameters }) => {
+                Ok(Self::apply_edited_parameters(tc, edited_parameters))
+            }
+            None => Ok(tc.clone()),
         }
     }
 
@@ -722,7 +727,10 @@ impl ToolExecutionCoordinator {
         // Batch-level hook checkpoints: spawned tasks fire via `fire_point`
         // without the entity (no snapshot possible inside the task), so one
         // strategy-gated checkpoint per hook type settles here where the
-        // entity is available. Only when at least one call was approved for
+        // entity is available. This is intentionally post-hoc at batch join:
+        // unlike the sequential path where the BEFORE checkpoint lands before
+        // execution, the parallel BEFORE checkpoint lands after the batch and
+        // already contains tool results. Only when at least one call was approved for
         // execution; gate/approval rejections alone never snapshot. An opt-in
         // counts only when its definition passed evaluation in some task
         // (the union above), never on static configuration alone.

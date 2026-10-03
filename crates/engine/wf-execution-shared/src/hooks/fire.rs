@@ -81,8 +81,10 @@ impl FireSummary {
 
     /// Formatted gate rejection detail for the fired point, `None` on
     /// `Continue` and `None` at non-gate points (a veto there is observed,
-    /// never blocking). Keeps the two gate paths on one wording so audit and
-    /// user-facing rejections cannot drift apart.
+    /// never blocking). Display-only: keeps the two gate paths on one wording
+    /// so audit and user-facing rejections cannot drift apart. Callers needing
+    /// attribution must use `vetoed_reasons` plus `handler_results`, never
+    /// parse this string.
     pub fn gate_rejection_detail(&self) -> Option<String> {
         if !wf_types::hook::is_gate_hook(&self.hook_type) {
             return None;
@@ -120,10 +122,9 @@ impl FireSummary {
 /// relative to the engine's next step, and trigger effects must commute
 /// with it.
 ///
-/// Caller contract: `hook_type` must equal `ctx.hook_type`. Filtering uses
-/// the argument while the audit event is published under the context type,
-/// so a mismatch would filter one point and record another (debug builds
-/// assert this).
+/// Caller contract: `hook_type` must equal `ctx.hook_type`. A mismatch is
+/// logged and resolved to the context type so filtering and the audit event
+/// observe one point; callers must fix the call site.
 pub async fn fire(
     registry: &HookHandlerRegistry,
     hooks: &[HookDefinition],
@@ -131,11 +132,16 @@ pub async fn fire(
     ctx: &HookContext,
     event_bus: Option<&EventBus>,
 ) -> FireSummary {
-    debug_assert_eq!(
-        hook_type,
-        ctx.hook_type,
-        "fire hook_type must match the context hook type; audit is published under the context type"
-    );
+    let hook_type = if hook_type != ctx.hook_type {
+        tracing::error!(
+            expected = %ctx.hook_type,
+            actual = %hook_type,
+            "fire hook_type mismatches context hook type; using context type for filtering and audit"
+        );
+        ctx.hook_type.as_str()
+    } else {
+        hook_type
+    };
     let started = wf_common::now();
 
     let mut payloads: Vec<Value> = Vec::new();

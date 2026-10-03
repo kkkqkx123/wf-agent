@@ -62,12 +62,12 @@ pub(crate) fn is_cold_start(template: &TriggerTemplate) -> bool {
         .is_some_and(|action| action.is_execution_creating())
 }
 
-/// Runtime guards on a matched condition. Templates that slipped past
-/// load-time validation must not drive functional actions off the internal
-/// compression signal or its audit copy, nor off a `BEFORE_*` hook point
-/// through the audit event: trigger actions always run asynchronously after
-/// the hook and cannot gate execution, which is the job of a synchronous
-/// handler's Veto at that point.
+/// Runtime guards on a matched condition. Authoritative closed-point rule is
+/// `wf_types::hook::hook_allows_trigger`: the internal compression signal and
+/// every `BEFORE_*` hook point are closed to trigger templates. Templates that
+/// slipped past load-time validation are dropped here: trigger actions always
+/// run asynchronously after the hook and cannot gate execution, which is the
+/// job of a synchronous handler's Veto at that point.
 ///
 /// The single exception is the builtin compression route: a template whose
 /// action is the reserved `ExecuteContextCompression` (constructible only in

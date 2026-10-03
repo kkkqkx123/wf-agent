@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use serde_json::Value;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::RequestUsage;
 use wf_llm::LlmError;
@@ -8,6 +11,7 @@ use super::llm_call::{build_response_summary, llm_call_record, text_of};
 use super::AgentIterationCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
+use crate::hook::AgentHookEmitter;
 use crate::stream::AgentStreamEvent;
 
 /// Publish the stream termination event (error vs abort) for the agent loop's
@@ -257,9 +261,12 @@ impl AgentIterationCoordinator {
     }
 
     /// Streaming tool execution: run each call sequentially and forward
-    /// ToolStart/ToolEnd lifecycle events. Every call passes the approval
-    /// gate first (same pipeline as the sequential executor), so a denied
-    /// call surfaces as a failed ToolEnd without executing.
+    /// ToolStart/ToolEnd lifecycle events. Every call passes the exposure
+    /// and approval gates first (same pipeline as the sequential executor),
+    /// then the tool-call hooks (`BEFORE_TOOL_CALL` gate plus `AFTER_TOOL_CALL`
+    /// observation) with strategy-gated checkpoints, so a denied call surfaces
+    /// as a failed ToolEnd without executing. Approval rejections never fire
+    /// hooks, matching the sequential path.
     pub(super) async fn execute_tool_calls_streaming(
         &self,
         entity: &AgentLoopEntity,
@@ -278,28 +285,102 @@ impl AgentIterationCoordinator {
                 .await?;
             }
 
-            let (msg, failure) = match self
+            let effective_tc = match self
                 .tool_coordinator
                 .approve_single_for_stream(entity, tc)
                 .await
             {
-                Some((rejection, reason)) => (rejection, Some(reason)),
-                None => {
-                    let (msg, error) = self
-                        .tool_coordinator
-                        .execute_single_tool_for_stream(entity, tc)
-                        .await;
-                    (msg, error.map(|e| e.to_string()))
+                Err((rejection, reason)) => {
+                    let failure = Some(reason);
+                    let result_text = text_of(&rejection.content);
+                    if let Some(ref sink) = self.event_sink {
+                        sink.emit(
+                            entity.id(),
+                            AgentStreamEvent::ToolEnd {
+                                tool_call_id: tc.id.clone(),
+                                tool_name: tc.function.name.clone(),
+                                success: false,
+                                result: result_text,
+                                error: failure,
+                            },
+                        )
+                        .await?;
+                    }
+                    tool_messages.push(rejection);
+                    continue;
                 }
+                Ok(effective) => effective,
             };
+
+            let hook_data = stream_hook_data(&effective_tc);
+            let before = AgentHookEmitter::fire_agent_point_with_checkpoint(
+                entity,
+                "BEFORE_TOOL_CALL",
+                hook_data.clone(),
+                self.hook_handler_registry.as_deref(),
+                self.event_bus.as_deref(),
+                self.checkpoint.as_deref(),
+            )
+            .await;
+            if let Some(reason) = before.gate_rejection_detail() {
+                let msg = self
+                    .tool_coordinator
+                    .build_rejection_message(&effective_tc, &reason);
+                let mut after_data = hook_data;
+                after_data.insert("error".to_string(), Value::String(reason.clone()));
+                after_data.insert(
+                    "rejection_source".to_string(),
+                    Value::String("hook_veto".to_string()),
+                );
+                AgentHookEmitter::fire_agent_point_with_checkpoint(
+                    entity,
+                    "AFTER_TOOL_CALL",
+                    after_data,
+                    self.hook_handler_registry.as_deref(),
+                    self.event_bus.as_deref(),
+                    self.checkpoint.as_deref(),
+                )
+                .await;
+                let result_text = text_of(&msg.content);
+                if let Some(ref sink) = self.event_sink {
+                    sink.emit(
+                        entity.id(),
+                        AgentStreamEvent::ToolEnd {
+                            tool_call_id: effective_tc.id.clone(),
+                            tool_name: effective_tc.function.name.clone(),
+                            success: false,
+                            result: result_text,
+                            error: Some(reason),
+                        },
+                    )
+                    .await?;
+                }
+                tool_messages.push(msg);
+                continue;
+            }
+
+            let (msg, error) = self
+                .tool_coordinator
+                .execute_single_tool_for_stream(entity, &effective_tc)
+                .await;
+            AgentHookEmitter::fire_agent_point_with_checkpoint(
+                entity,
+                "AFTER_TOOL_CALL",
+                hook_data,
+                self.hook_handler_registry.as_deref(),
+                self.event_bus.as_deref(),
+                self.checkpoint.as_deref(),
+            )
+            .await;
+            let failure = error.map(|e| e.to_string());
             let result_text = text_of(&msg.content);
 
             if let Some(ref sink) = self.event_sink {
                 sink.emit(
                     entity.id(),
                     AgentStreamEvent::ToolEnd {
-                        tool_call_id: tc.id.clone(),
-                        tool_name: tc.function.name.clone(),
+                        tool_call_id: effective_tc.id.clone(),
+                        tool_name: effective_tc.function.name.clone(),
                         success: failure.is_none(),
                         result: result_text.clone(),
                         error: failure,
@@ -311,4 +392,20 @@ impl AgentIterationCoordinator {
         }
         Ok(tool_messages)
     }
+}
+
+/// Hook payload for one streaming tool call. Mirrors the sequential tool
+/// path payload so trigger conditions observe one vocabulary.
+fn stream_hook_data(tc: &LlmToolCall) -> HashMap<String, Value> {
+    let mut data = HashMap::new();
+    data.insert("tool_call_id".to_string(), Value::String(tc.id.clone()));
+    data.insert(
+        "tool_name".to_string(),
+        Value::String(tc.function.name.clone()),
+    );
+    data.insert(
+        "tool_arguments".to_string(),
+        Value::String(tc.function.arguments.clone()),
+    );
+    data
 }

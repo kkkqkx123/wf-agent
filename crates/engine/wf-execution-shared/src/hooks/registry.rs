@@ -66,10 +66,10 @@ impl HookHandlerRegistry {
         std::ptr::eq(self, Self::fallback())
     }
 
-    /// Register `handler` for `hook_type` with `priority`. Registration is
-    /// deduplicated by the handler's stable name: a second registration with
-    /// the same name is ignored (returns `false`). The handler carries no
-    /// condition and runs on every fire of the type.
+    /// Register `handler` for `hook_type` with `priority`. Names live in one
+    /// global namespace across all hook types: a second registration with
+    /// the same name is ignored (returns `false`) even for a different hook
+    /// type. The handler carries no condition and runs on every fire of the type.
     pub fn register(&self, hook_type: &str, handler: Arc<dyn HookHandler>, priority: i32) -> bool {
         self.register_with_condition(hook_type, handler, priority, None)
     }

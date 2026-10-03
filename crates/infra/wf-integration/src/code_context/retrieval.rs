@@ -245,10 +245,7 @@ mod tests {
             "fold_batch",
         );
         assert_eq!(keywords["total"], 1);
-        assert_eq!(
-            keywords["results"][0]["snippet"],
-            serde_json::json!("hit")
-        );
+        assert_eq!(keywords["results"][0]["snippet"], serde_json::json!("hit"));
         assert_eq!(keywords["results"][0]["start_line"], serde_json::json!(3));
     }
 

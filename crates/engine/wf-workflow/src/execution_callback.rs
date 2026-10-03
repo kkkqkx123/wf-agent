@@ -742,10 +742,25 @@ mod tests {
     #[tokio::test]
     async fn test_per_workflow_hooks_run_and_publish_events() {
         use wf_core::EventBus;
+        use wf_execution_shared::hooks::{HookContext, HookHandler, HookOutcome};
         use wf_types::events::EventType;
 
         let bus = Arc::new(EventBus::new(32));
-        let callback = WorkflowExecutionCallback::default().with_event_bus(bus.clone());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
+        struct BeforeExecuteObserver;
+        #[async_trait::async_trait]
+        impl HookHandler for BeforeExecuteObserver {
+            fn name(&self) -> &str {
+                "before_execute_observer"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Continue
+            }
+        }
+        hook_handler_registry.register("BEFORE_EXECUTE", Arc::new(BeforeExecuteObserver), 0);
+        let callback = WorkflowExecutionCallback::default()
+            .with_event_bus(bus.clone())
+            .with_hook_handler_registry(hook_handler_registry);
         let workflow_id = wf_common::generate_id();
         callback.register_workflow_with_hooks(
             workflow_id.clone(),

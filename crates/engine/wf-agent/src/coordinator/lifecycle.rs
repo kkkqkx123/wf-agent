@@ -323,8 +323,7 @@ impl AgentLoopCoordinator {
             branch_self =
                 branch_self.with_parent_hierarchy_manager(restore.restored_source_manager());
             if branch_self.agent_loop_id.is_none() {
-                branch_self =
-                    branch_self.with_agent_loop_id(Id::from(wf_common::generate_id()));
+                branch_self = branch_self.with_agent_loop_id(Id::from(wf_common::generate_id()));
             }
         }
         let mut branch_input = input;

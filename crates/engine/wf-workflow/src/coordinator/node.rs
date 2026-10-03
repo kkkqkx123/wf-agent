@@ -10,6 +10,7 @@ use wf_execution_shared::interruption::execute_with_interruption_handling;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_types::events::{BaseEvent, EventType};
 
+use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
@@ -111,6 +112,10 @@ impl NodeCoordinator {
         Self
     }
 
+    // Eight inputs, each a distinct channel (identity, handler, context,
+    // buses, hooks, registry, checkpoint); grouping them would only move the
+    // arity into a struct literal at the single call site.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_node(
         &self,
         entity: &WorkflowExecutionEntity,
@@ -119,6 +124,7 @@ impl NodeCoordinator {
         event_bus: Option<&EventBus>,
         hooks: &[HookDefinition],
         hook_handler_registry: Option<&HookHandlerRegistry>,
+        checkpoint: Option<&WorkflowCheckpointIntegration>,
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
@@ -158,12 +164,24 @@ impl NodeCoordinator {
             &node.payload(None, None),
         )
         .await;
-        if let Some(reason) = before.vetoed_reason() {
-            let veto_reason = format!("hook veto at BEFORE_EXECUTE: {reason}");
+        // The BEFORE opt-in snapshot settles right after its fire, while the
+        // node has not run yet: only definitions that passed evaluation in
+        // this fire count, and a later veto still denies the node. A panic or
+        // timeout that never fires requests no snapshot.
+        crate::hook::WorkflowHookEmitter::maybe_hook_checkpoint(
+            hooks,
+            "BEFORE_EXECUTE",
+            &before.matched_hook_ids,
+            checkpoint,
+            entity,
+        )
+        .await;
+        if let Some(veto_reason) = before.gate_rejection_detail() {
             return Self::fail_node(
                 hooks,
                 hook_handler_registry,
                 event_bus,
+                checkpoint,
                 entity,
                 &node,
                 NodeFailureInfo {
@@ -213,13 +231,21 @@ impl NodeCoordinator {
                     .await
                     .mark_node_completed(node_id.clone());
 
-                Self::execute_hooks(
+                let after = Self::execute_hooks(
                     hooks,
                     hook_handler_registry,
                     event_bus,
                     entity,
                     "AFTER_EXECUTE",
                     &node.payload(Some(wf_common::now() - node_start), None),
+                )
+                .await;
+                crate::hook::WorkflowHookEmitter::maybe_hook_checkpoint(
+                    hooks,
+                    "AFTER_EXECUTE",
+                    &after.matched_hook_ids,
+                    checkpoint,
+                    entity,
                 )
                 .await;
 
@@ -266,6 +292,7 @@ impl NodeCoordinator {
                     hooks,
                     hook_handler_registry,
                     event_bus,
+                    checkpoint,
                     entity,
                     &node,
                     failure,
@@ -286,6 +313,7 @@ impl NodeCoordinator {
         hooks: &[HookDefinition],
         hook_handler_registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
+        checkpoint: Option<&WorkflowCheckpointIntegration>,
         entity: &WorkflowExecutionEntity,
         node: &NodeRef<'_>,
         failure: NodeFailureInfo<'_>,
@@ -296,7 +324,7 @@ impl NodeCoordinator {
             category,
         } = failure;
         let duration_ms = wf_common::now() - node.start;
-        Self::execute_hooks_with_rejection(
+        let on_error = Self::execute_hooks_with_rejection(
             hooks,
             hook_handler_registry,
             event_bus,
@@ -304,6 +332,16 @@ impl NodeCoordinator {
             "ON_ERROR",
             &node.payload(Some(duration_ms), Some(reason)),
             rejection_source,
+        )
+        .await;
+        // The ON_ERROR opt-in snapshot settles right after its fire, before
+        // the failure is recorded downstream: only fired opt-ins count.
+        crate::hook::WorkflowHookEmitter::maybe_hook_checkpoint(
+            hooks,
+            "ON_ERROR",
+            &on_error.matched_hook_ids,
+            checkpoint,
+            entity,
         )
         .await;
 
@@ -362,64 +400,26 @@ impl NodeCoordinator {
         payload: &NodeHookPayload<'_>,
         rejection_source: Option<&str>,
     ) -> FireSummary {
-        let mut data = std::collections::HashMap::new();
-        data.insert(
-            "entity_id".to_string(),
-            serde_json::Value::String(entity.id().to_string()),
-        );
-        data.insert(
-            "workflow_id".to_string(),
-            serde_json::Value::String(entity.workflow_id().to_string()),
-        );
-        data.insert(
-            "hook_type".to_string(),
-            serde_json::Value::String(hook_type.to_string()),
-        );
         let status = entity.state.read().await.status();
-        data.insert(
-            "status".to_string(),
-            serde_json::Value::String(format!("{:?}", status)),
+        let ctx = HookContext::workflow_node(
+            entity.id().clone(),
+            entity.workflow_id().clone(),
+            hook_type.to_string(),
+            format!("{status:?}"),
+            payload.node_id,
+            payload.node_name,
+            payload.node_type,
+            payload.duration_ms,
+            payload.error,
+            rejection_source,
+            std::collections::HashMap::new(),
+            entity.get_abort_signal(),
         );
-        data.insert(
-            "node_id".to_string(),
-            serde_json::Value::String(payload.node_id.to_string()),
-        );
-        data.insert(
-            "node_name".to_string(),
-            serde_json::Value::String(payload.node_name.to_string()),
-        );
-        data.insert(
-            "node_type".to_string(),
-            serde_json::Value::String(payload.node_type.to_string()),
-        );
-        if let Some(duration) = payload.duration_ms {
-            data.insert(
-                "duration_ms".to_string(),
-                serde_json::Value::Number(duration.into()),
-            );
-        }
-        if let Some(err) = payload.error {
-            data.insert(
-                "error".to_string(),
-                serde_json::Value::String(err.to_string()),
-            );
-        }
-        if let Some(source) = rejection_source {
-            data.insert(
-                "rejection_source".to_string(),
-                serde_json::Value::String(source.to_string()),
-            );
-        }
 
         crate::hook::WorkflowHookEmitter::fire_point(
             hooks,
             hook_type,
-            &HookContext {
-                execution_id: entity.id().clone(),
-                hook_type: hook_type.to_string(),
-                data,
-                cancellation: entity.get_abort_signal(),
-            },
+            &ctx,
             hook_handler_registry,
             event_bus,
         )

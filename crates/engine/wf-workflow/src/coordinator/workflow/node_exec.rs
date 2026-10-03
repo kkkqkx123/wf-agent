@@ -14,7 +14,6 @@ use crate::coordinator::NodeCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::error_analysis::workflow_error_record;
-use crate::hook::WorkflowHookEmitter;
 use crate::state::NodeExecutionRecord;
 
 use super::timeout::{json_size, panic_message, resolve_node_timeout};
@@ -157,6 +156,7 @@ impl WorkflowCoordinator {
             event_bus,
             &self.hooks,
             self.ctx.hook_handler_registry.as_deref(),
+            self.checkpoint.as_ref(),
         );
         // Panic isolation: a panicking handler must surface as a routed node
         // failure instead of aborting the whole execution task.
@@ -272,13 +272,8 @@ impl WorkflowCoordinator {
             )
             .await;
         }
-        WorkflowHookEmitter::maybe_hook_checkpoint(
-            &self.hooks,
-            "AFTER_EXECUTE",
-            self.checkpoint.as_ref(),
-            entity,
-        )
-        .await;
+        // AFTER_EXECUTE hook opt-in checkpoints already settled inside the
+        // node execution right after the AFTER fire.
 
         if let Some(node_metrics) = node_metrics {
             node_metrics.record_execution(MetricsNodeExecutionRecord {
@@ -357,13 +352,8 @@ impl WorkflowCoordinator {
         if let Some(ref mut cp) = self.checkpoint {
             cp.on_node_failed(entity, checkpoint_config.as_ref()).await;
         }
-        WorkflowHookEmitter::maybe_hook_checkpoint(
-            &self.hooks,
-            "ON_ERROR",
-            self.checkpoint.as_ref(),
-            entity,
-        )
-        .await;
+        // ON_ERROR hook opt-in checkpoints already settled on the failure
+        // path right after the ON_ERROR fire.
 
         if let Some(node_metrics) = node_metrics {
             node_metrics.record_execution(MetricsNodeExecutionRecord {

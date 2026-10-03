@@ -21,7 +21,7 @@ impl WorkflowCoordinator {
         let Some(entity) = self.entity.as_ref() else {
             return;
         };
-        crate::hook::WorkflowHookEmitter::fire_workflow_point(
+        let summary = crate::hook::WorkflowHookEmitter::fire_workflow_point(
             entity,
             &self.hooks,
             hook_type,
@@ -33,6 +33,7 @@ impl WorkflowCoordinator {
         crate::hook::WorkflowHookEmitter::maybe_hook_checkpoint(
             &self.hooks,
             hook_type,
+            &summary.matched_hook_ids,
             self.checkpoint.as_ref(),
             entity,
         )

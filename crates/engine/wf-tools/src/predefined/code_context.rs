@@ -249,9 +249,15 @@ pub fn code_symbols_handler(config: &CodeContextConfig) -> StatelessAsyncHandler
             .map_err(ToolError::ValidationFailed)?;
             let paths =
                 wf_integration::resolve_paths(&parameters).map_err(ToolError::ValidationFailed)?;
-            wf_integration::symbols(&client, &base, config.transport.timeout_ms, project_id, &paths)
-                .await
-                .map_err(ToolError::ExecutionError)
+            wf_integration::symbols(
+                &client,
+                &base,
+                config.transport.timeout_ms,
+                project_id,
+                &paths,
+            )
+            .await
+            .map_err(ToolError::ExecutionError)
         })
     })
 }
@@ -434,14 +440,8 @@ pub fn register(
         code_keyword_search_handler(config),
     );
     registry.register_stateless_async_handler("code_symbols", code_symbols_handler(config));
-    registry.register_stateless_async_handler(
-        "code_references",
-        code_references_handler(config),
-    );
-    registry.register_stateless_async_handler(
-        "code_definition",
-        code_definition_handler(config),
-    );
+    registry.register_stateless_async_handler("code_references", code_references_handler(config));
+    registry.register_stateless_async_handler("code_definition", code_definition_handler(config));
     registry
         .register_stateless_async_handler("read_file_folded", read_file_folded_handler(fs, config));
     Ok(())
@@ -468,7 +468,10 @@ mod tests {
         let fs = FsToolHandlers::new(Default::default());
         register(&registry, &config, &fs).unwrap();
         let cases = [
-            ("code_search", serde_json::json!({ "query": "fold", "project_id": 1 })),
+            (
+                "code_search",
+                serde_json::json!({ "query": "fold", "project_id": 1 }),
+            ),
             (
                 "code_keyword_search",
                 serde_json::json!({ "query": "fold", "project_id": 1 }),

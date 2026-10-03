@@ -261,9 +261,7 @@ impl AgentLoopExecutor {
         // Parent cancellation propagation: the typed link carries the live
         // parent abort signal, so a parent of any execution type stops the
         // child. A missing link means no cross-execution cancel.
-        let parent_token = parent
-            .as_ref()
-            .and_then(|link| link.cancellation.clone());
+        let parent_token = parent.as_ref().and_then(|link| link.cancellation.clone());
 
         let agent_registry = self.agent_registry.clone();
         let run_id = execution_id.clone();
@@ -625,9 +623,31 @@ mod tests {
     #[tokio::test]
     async fn test_before_and_after_agent_hooks_fire_in_order() {
         use wf_core::EventBus;
+        use wf_execution_shared::hooks::{HookContext, HookHandler, HookOutcome};
         use wf_types::events::EventType;
 
         let bus = Arc::new(EventBus::new(32));
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
+        struct LifecycleObserver(&'static str);
+        #[async_trait]
+        impl HookHandler for LifecycleObserver {
+            fn name(&self) -> &str {
+                self.0
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Continue
+            }
+        }
+        hook_handler_registry.register(
+            "BEFORE_AGENT",
+            Arc::new(LifecycleObserver("before_agent_observer")),
+            0,
+        );
+        hook_handler_registry.register(
+            "AFTER_AGENT",
+            Arc::new(LifecycleObserver("after_agent_observer")),
+            0,
+        );
         let mut config = agent_config("agent-hooks");
         config.hooks = vec![
             wf_tools::callback::HookConfig {
@@ -657,7 +677,9 @@ mod tests {
         mock.default(LlmResponseSpec::text("done").with_usage(10, 5));
         gateway.register_mock("mock", mock);
         let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
-        let executor = AgentLoopExecutor::new(gateway, tool_registry).with_event_bus(bus.clone());
+        let executor = AgentLoopExecutor::new(gateway, tool_registry)
+            .with_event_bus(bus.clone())
+            .with_hook_handler_registry(hook_handler_registry);
 
         let mut sub = bus.subscribe();
 
@@ -667,7 +689,8 @@ mod tests {
             .expect("execution with hooks must succeed");
 
         // Each hook batch publishes one HOOK_TRIGGERED event; BEFORE_AGENT
-        // must be observable before AFTER_AGENT.
+        // must be observable before AFTER_AGENT. The closed BEFORE_AGENT
+        // point only publishes because a sync handler was notified.
         let mut hook_events = Vec::new();
         for _ in 0..16 {
             match sub.try_recv() {
@@ -1130,23 +1153,17 @@ mod tests {
         use wf_types::execution::ExecutionType;
 
         let executor = make_executor().await;
-        let parent_manager = Arc::new(
-            wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
-                Id::from("wf-parent".to_string()),
-                ExecutionType::Workflow,
-            ),
-        );
+        let parent_manager = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            Id::from("wf-parent".to_string()),
+            ExecutionType::Workflow,
+        ));
         let link = ParentLink {
             execution_id: Id::from("wf-parent".to_string()),
             manager: parent_manager,
             cancellation: None,
         };
         let spawned = executor
-            .spawn_with_parent(
-                agent_config("agent-linked"),
-                agent_input("run"),
-                Some(link),
-            )
+            .spawn_with_parent(agent_config("agent-linked"), agent_input("run"), Some(link))
             .await
             .expect("typed parent link must build");
 
@@ -1173,7 +1190,9 @@ mod tests {
             entity.parent_execution_id(),
             Some(Id::from("wf-parent".to_string()))
         );
-        assert!(entity.ancestors().contains(&Id::from("wf-parent".to_string())));
+        assert!(entity
+            .ancestors()
+            .contains(&Id::from("wf-parent".to_string())));
     }
 
     /// Cancelling the parent abort signal carried by the typed link stops
@@ -1196,12 +1215,10 @@ mod tests {
         let parent_token = tokio_util::sync::CancellationToken::new();
         let link = ParentLink {
             execution_id: Id::from("foreign-parent".to_string()),
-            manager: Arc::new(
-                wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
-                    Id::from("foreign-parent".to_string()),
-                    ExecutionType::Workflow,
-                ),
-            ),
+            manager: Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                Id::from("foreign-parent".to_string()),
+                ExecutionType::Workflow,
+            )),
             cancellation: Some(parent_token.clone()),
         };
         let spawned = executor
@@ -1224,9 +1241,7 @@ mod tests {
                     executor
                         .query_execution_status(&spawned.execution_id.to_string())
                         .await
-                        .map(|status| {
-                            status.status == "cancelled" || status.status == "completed"
-                        })
+                        .map(|status| status.status == "cancelled" || status.status == "completed")
                         .unwrap_or(false)
                 },
             )

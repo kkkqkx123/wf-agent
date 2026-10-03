@@ -449,8 +449,7 @@ impl ToolExecutionCoordinator {
                         self.agent_checkpoint.as_deref(),
                     )
                     .await;
-                    if let Some(reason) = before.vetoed_reason() {
-                        let reason = format!("hook veto at BEFORE_TOOL_CALL: {reason}");
+                    if let Some(reason) = before.gate_rejection_detail() {
                         let msg = self.build_rejection_message(&tc, &reason);
                         let mut hook_data = build_hook_data(&tc);
                         hook_data.insert("error".to_string(), Value::String(reason.clone()));
@@ -518,6 +517,15 @@ impl ToolExecutionCoordinator {
         });
         let batch_cancellation = self.batch_cancellation(entity);
 
+        // Batch vocabulary anchor: parallel tasks build their hook contexts
+        // without the entity, so snapshot the loop status and iteration once
+        // here. Spawned tasks reuse the same base keys as the sequential
+        // path instead of a bare tool-only map.
+        let (batch_status, batch_iteration) = {
+            let state = entity.state.read().await;
+            (format!("{:?}", state.status()), state.current_iteration())
+        };
+
         let mut executed_any = false;
         let mut set = tokio::task::JoinSet::new();
         for (idx, tc) in tool_calls.iter().enumerate() {
@@ -550,15 +558,18 @@ impl ToolExecutionCoordinator {
                     let entity_id = entity.id().clone();
                     let hook_cancellation = entity.get_abort_signal();
                     let task_cancellation = batch_cancellation.child_token();
+                    let batch_status = batch_status.clone();
 
                     set.spawn(async move {
                         let hook_data = build_hook_data(&tool_call);
-                        let before_ctx = HookContext {
-                            execution_id: entity_id.clone(),
-                            hook_type: "BEFORE_TOOL_CALL".to_string(),
-                            data: hook_data.clone(),
-                            cancellation: hook_cancellation.clone(),
-                        };
+                        let before_ctx = HookContext::agent_base(
+                            entity_id.clone(),
+                            "BEFORE_TOOL_CALL".to_string(),
+                            batch_status.clone(),
+                            batch_iteration,
+                            hook_data.clone(),
+                            hook_cancellation.clone(),
+                        );
 
                         let before = AgentHookEmitter::fire_point(
                             &entity_hooks,
@@ -568,6 +579,10 @@ impl ToolExecutionCoordinator {
                             event_bus.as_deref(),
                         )
                         .await;
+                        // Fired definition ids travel back with the task
+                        // outcome so the batch-level checkpoint below honors
+                        // only opt-ins that passed evaluation in some task.
+                        let mut fired_hook_ids = before.matched_hook_ids.clone();
 
                         // BEFORE_TOOL_CALL is a gate point: a veto denies
                         // the call without running it. The denial surfaces
@@ -575,17 +590,18 @@ impl ToolExecutionCoordinator {
                         // path (error-carrying AFTER fire included), and
                         // never counts as an execution failure for
                         // cancel_on_failure.
-                        if let Some(reason) = before.vetoed_reason() {
-                            let reason = format!("hook veto at BEFORE_TOOL_CALL: {reason}");
+                        if let Some(reason) = before.gate_rejection_detail() {
                             let mut hook_data = hook_data;
                             hook_data.insert("error".to_string(), Value::String(reason.clone()));
-                            let after_ctx = HookContext {
-                                execution_id: entity_id.clone(),
-                                hook_type: "AFTER_TOOL_CALL".to_string(),
-                                data: hook_data,
-                                cancellation: hook_cancellation.clone(),
-                            };
-                            AgentHookEmitter::fire_point(
+                            let after_ctx = HookContext::agent_base(
+                                entity_id.clone(),
+                                "AFTER_TOOL_CALL".to_string(),
+                                batch_status.clone(),
+                                batch_iteration,
+                                hook_data,
+                                hook_cancellation.clone(),
+                            );
+                            let after = AgentHookEmitter::fire_point(
                                 &entity_hooks,
                                 "AFTER_TOOL_CALL",
                                 &after_ctx,
@@ -593,6 +609,7 @@ impl ToolExecutionCoordinator {
                                 event_bus.as_deref(),
                             )
                             .await;
+                            fired_hook_ids.extend(after.matched_hook_ids);
                             return (
                                 idx,
                                 TaskOutcome::Rejected(rejection_message(
@@ -600,6 +617,7 @@ impl ToolExecutionCoordinator {
                                     &tool_call,
                                     &reason,
                                 )),
+                                fired_hook_ids,
                             );
                         }
 
@@ -617,13 +635,15 @@ impl ToolExecutionCoordinator {
                             ),
                         };
 
-                        let after_ctx = HookContext {
-                            execution_id: entity_id.clone(),
-                            hook_type: "AFTER_TOOL_CALL".to_string(),
-                            data: hook_data,
-                            cancellation: hook_cancellation,
-                        };
-                        AgentHookEmitter::fire_point(
+                        let after_ctx = HookContext::agent_base(
+                            entity_id.clone(),
+                            "AFTER_TOOL_CALL".to_string(),
+                            batch_status,
+                            batch_iteration,
+                            hook_data,
+                            hook_cancellation,
+                        );
+                        let after = AgentHookEmitter::fire_point(
                             &entity_hooks,
                             "AFTER_TOOL_CALL",
                             &after_ctx,
@@ -631,10 +651,11 @@ impl ToolExecutionCoordinator {
                             event_bus.as_deref(),
                         )
                         .await;
+                        fired_hook_ids.extend(after.matched_hook_ids);
 
                         match result {
-                            Ok(msg) => (idx, TaskOutcome::Ok(msg)),
-                            Err(reason) => (idx, TaskOutcome::Failed(reason)),
+                            Ok(msg) => (idx, TaskOutcome::Ok(msg), fired_hook_ids),
+                            Err(reason) => (idx, TaskOutcome::Failed(reason), fired_hook_ids),
                         }
                     });
                 }
@@ -642,24 +663,34 @@ impl ToolExecutionCoordinator {
         }
 
         let mut aborted = false;
+        // Union of fired definition ids across tasks: the batch-level
+        // checkpoint honors an opt-in when it passed evaluation in any task.
+        let mut fired_hook_ids: Vec<String> = Vec::new();
         while let Some(joined) = set.join_next().await {
             match joined {
-                Ok((idx, outcome)) => match outcome {
-                    TaskOutcome::Ok(msg) | TaskOutcome::Rejected(msg) => {
-                        messages[idx] = Some(msg);
-                    }
-                    TaskOutcome::Failed(reason) => {
-                        messages[idx] = Some(error_message(
-                            &reason.to_string(),
-                            Some(&tool_calls[idx].id),
-                            Some(&tool_calls[idx].function.name),
-                        ));
-                        if self.cancel_on_failure {
-                            set.abort_all();
-                            aborted = true;
+                Ok((idx, outcome, fired)) => {
+                    for id in fired {
+                        if !fired_hook_ids.contains(&id) {
+                            fired_hook_ids.push(id);
                         }
                     }
-                },
+                    match outcome {
+                        TaskOutcome::Ok(msg) | TaskOutcome::Rejected(msg) => {
+                            messages[idx] = Some(msg);
+                        }
+                        TaskOutcome::Failed(reason) => {
+                            messages[idx] = Some(error_message(
+                                &reason.to_string(),
+                                Some(&tool_calls[idx].id),
+                                Some(&tool_calls[idx].function.name),
+                            ));
+                            if self.cancel_on_failure {
+                                set.abort_all();
+                                aborted = true;
+                            }
+                        }
+                    }
+                }
                 Err(e) if e.is_cancelled() => {
                     // Task aborted as part of a batch cancellation.
                     aborted = true;
@@ -692,11 +723,14 @@ impl ToolExecutionCoordinator {
         // without the entity (no snapshot possible inside the task), so one
         // strategy-gated checkpoint per hook type settles here where the
         // entity is available. Only when at least one call was approved for
-        // execution; gate/approval rejections alone never snapshot.
+        // execution; gate/approval rejections alone never snapshot. An opt-in
+        // counts only when its definition passed evaluation in some task
+        // (the union above), never on static configuration alone.
         if executed_any {
             AgentHookEmitter::maybe_hook_checkpoint(
                 entity.hooks(),
                 "BEFORE_TOOL_CALL",
+                &fired_hook_ids,
                 self.agent_checkpoint.as_deref(),
                 entity,
             )
@@ -704,6 +738,7 @@ impl ToolExecutionCoordinator {
             AgentHookEmitter::maybe_hook_checkpoint(
                 entity.hooks(),
                 "AFTER_TOOL_CALL",
+                &fired_hook_ids,
                 self.agent_checkpoint.as_deref(),
                 entity,
             )

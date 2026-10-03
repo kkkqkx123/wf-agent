@@ -235,9 +235,31 @@ fn options_with(input: Option<Value>) -> WorkflowExecutionOptions {
 async fn test_workflow_hooks_publish_events_per_node() {
     use wf_core::EventBus;
     use wf_execution_shared::hooks::types::HookDefinition;
+    use wf_execution_shared::hooks::{HookContext, HookHandler, HookHandlerRegistry, HookOutcome};
     use wf_types::events::EventType;
 
     let bus = Arc::new(EventBus::new(32));
+    let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
+    struct NodeObserver(&'static str);
+    #[async_trait::async_trait]
+    impl HookHandler for NodeObserver {
+        fn name(&self) -> &str {
+            self.0
+        }
+        async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+            HookOutcome::Continue
+        }
+    }
+    hook_handler_registry.register(
+        "BEFORE_EXECUTE",
+        Arc::new(NodeObserver("before_execute_observer")),
+        0,
+    );
+    hook_handler_registry.register(
+        "AFTER_EXECUTE",
+        Arc::new(NodeObserver("after_execute_observer")),
+        0,
+    );
     let hooks = vec![
         HookDefinition {
             id: "h-before".to_string(),
@@ -264,7 +286,8 @@ async fn test_workflow_hooks_publish_events_per_node() {
     ];
 
     let store = Arc::new(StorageBackend::new_memory());
-    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store);
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store)
+        .with_hook_handler_registry(hook_handler_registry);
 
     let mut sub = bus.subscribe();
 
@@ -346,6 +369,25 @@ async fn test_workflow_scope_and_error_hooks_fire() {
     }
 
     let bus = Arc::new(wf_core::EventBus::new(32));
+    let hook_handler_registry = Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new());
+    struct ScopeObserver(&'static str);
+    #[async_trait]
+    impl wf_execution_shared::hooks::HookHandler for ScopeObserver {
+        fn name(&self) -> &str {
+            self.0
+        }
+        async fn on_point(
+            &self,
+            _ctx: &wf_execution_shared::hooks::HookContext,
+        ) -> wf_execution_shared::hooks::HookOutcome {
+            wf_execution_shared::hooks::HookOutcome::Continue
+        }
+    }
+    hook_handler_registry.register(
+        "BEFORE_EXECUTE",
+        Arc::new(ScopeObserver("scope_before_execute_observer")),
+        0,
+    );
     let hooks: Vec<HookDefinition> = [
         "WORKFLOW_BEFORE",
         "WORKFLOW_AFTER",
@@ -368,7 +410,8 @@ async fn test_workflow_scope_and_error_hooks_fire() {
     .collect();
 
     let store = Arc::new(StorageBackend::new_memory());
-    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store);
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(Some(bus.clone()), store)
+        .with_hook_handler_registry(hook_handler_registry);
 
     let mut sub = bus.subscribe();
 
@@ -708,6 +751,34 @@ async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
             .iter()
             .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
         "kill switch must suppress even an opted-in hook fire, got {nodes:?}"
+    );
+
+    // Condition-filtered opt-in: the definition never passes evaluation, so
+    // its fire matches nothing and no hook-requested checkpoint is created.
+    let filtered = vec![HookDefinition {
+        id: wf_types::Id::from("h-before-filtered".to_string()),
+        hook_type: "BEFORE_EXECUTE".to_string(),
+        priority: 0,
+        condition: Some("missing_flag".to_string()),
+        enabled: true,
+        payload: None,
+        handler: None,
+        create_checkpoint: Some(true),
+        checkpoint_description: Some("hook filtered".to_string()),
+    }];
+    let store = Arc::new(StorageBackend::new_memory());
+    let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+        .with_checkpoint_strategy(triggerless_strategy());
+    lifecycle
+        .execute_workflow(run_params("exec-hook-filtered", filtered))
+        .await
+        .expect("workflow should complete");
+    let nodes = checkpointed_nodes(&store, "exec-hook-filtered").await;
+    assert!(
+        nodes
+            .iter()
+            .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
+        "condition-filtered opt-in must not force a node checkpoint, got {nodes:?}"
     );
 }
 

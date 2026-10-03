@@ -3,33 +3,13 @@ use std::collections::HashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{
-    fire, fire::FireSummary, hook_checkpoint_description, hook_opted_in, HookContext,
+    fire, fire::FireSummary, hook_checkpoint_description_fired, hook_opted_in_fired, HookContext,
     HookDefinition, HookHandlerRegistry,
 };
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use wf_types::checkpoint::CheckpointTiming;
 
 use crate::checkpoint::AgentCheckpointIntegration;
 use crate::entity::AgentLoopEntity;
-
-/// Map a fired hook point onto the checkpoint timing it requests. Unknown
-/// points fall back to `Manual` so the strategy gate still applies instead
-/// of bypassing it.
-fn hook_type_to_checkpoint_timing(hook_type: &str) -> CheckpointTiming {
-    match hook_type {
-        "BEFORE_TOOL_CALL" => CheckpointTiming::ToolBefore,
-        "AFTER_TOOL_CALL" => CheckpointTiming::ToolAfter,
-        "BEFORE_ITERATION" => CheckpointTiming::BeforeExecute,
-        "AFTER_ITERATION" => CheckpointTiming::AfterExecute,
-        "BEFORE_LLM_CALL" | "AFTER_LLM_CALL" => CheckpointTiming::AfterExecute,
-        "BEFORE_AGENT" => CheckpointTiming::Manual,
-        "AFTER_AGENT" => CheckpointTiming::OnComplete,
-        "BEFORE_USER_PROMPT" => CheckpointTiming::Manual,
-        "SUBAGENT_START" => CheckpointTiming::Manual,
-        "SUBAGENT_STOP" => CheckpointTiming::OnComplete,
-        _ => CheckpointTiming::Manual,
-    }
-}
 
 pub struct AgentHookEmitter;
 
@@ -45,33 +25,20 @@ impl AgentHookEmitter {
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
     ) -> FireSummary {
-        let mut data = HashMap::new();
-        data.insert(
-            "execution_id".to_string(),
-            Value::String(entity.id().clone()),
+        let ctx = HookContext::agent_base(
+            entity.id().clone(),
+            hook_type.to_string(),
+            format!("{:?}", entity.state.read().await.status()),
+            entity.state.read().await.current_iteration(),
+            extra_data,
+            entity.get_abort_signal(),
         );
-        data.insert(
-            "current_iteration".to_string(),
-            Value::Number(serde_json::Number::from(
-                entity.state.read().await.current_iteration(),
-            )),
-        );
-        data.insert(
-            "status".to_string(),
-            Value::String(format!("{:?}", entity.state.read().await.status())),
-        );
-        data.extend(extra_data);
 
         fire(
             registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             entity.hooks(),
             hook_type,
-            &HookContext {
-                execution_id: entity.id().clone(),
-                hook_type: hook_type.to_string(),
-                data,
-                cancellation: entity.get_abort_signal(),
-            },
+            &ctx,
             event_bus,
         )
         .await
@@ -97,8 +64,9 @@ impl AgentHookEmitter {
         .await
     }
 
-    /// Fire a hook point and, when any enabled definition of that type opts
-    /// in via `create_checkpoint`, create one hook-requested checkpoint.
+    /// Fire a hook point and, when an opted-in definition of that type
+    /// actually fired (condition passed, see `FireSummary::matched_hook_ids`),
+    /// create one hook-requested checkpoint.
     /// The checkpoint honors the master switch but bypasses per-trigger
     /// cadence (one hook forces a checkpoint independently of policy),
     /// mirroring the workflow hook contract. Failures only warn.
@@ -112,29 +80,40 @@ impl AgentHookEmitter {
     ) -> FireSummary {
         let summary =
             Self::fire_agent_point(entity, hook_type, extra_data, registry, event_bus).await;
-        Self::maybe_hook_checkpoint(entity.hooks(), hook_type, checkpoint, entity).await;
+        Self::maybe_hook_checkpoint(
+            entity.hooks(),
+            hook_type,
+            &summary.matched_hook_ids,
+            checkpoint,
+            entity,
+        )
+        .await;
         summary
     }
 
     /// Hook opt-in checkpoint for a hook point that was fired without the
     /// entity (e.g. the parallel tool-call path fires via `fire_point` inside
     /// spawned tasks, then settles one batch-level checkpoint per hook type
-    /// here where the entity is available). No opt-in or no handle means no
-    /// checkpoint; failures only warn so the fire outcome never changes.
+    /// here where the entity is available). Only definitions that passed
+    /// evaluation in the associated fire count (`fired_hook_ids`): a
+    /// condition-filtered opt-in requests no snapshot. No fired opt-in or
+    /// no handle means no checkpoint; failures only warn so the fire outcome
+    /// never changes.
     pub async fn maybe_hook_checkpoint(
         hooks: &[HookDefinition],
         hook_type: &str,
+        fired_hook_ids: &[String],
         checkpoint: Option<&AgentCheckpointIntegration>,
         entity: &AgentLoopEntity,
     ) {
         let Some(cp) = checkpoint else {
             return;
         };
-        if !hook_opted_in(hooks, hook_type) {
+        if !hook_opted_in_fired(hooks, hook_type, fired_hook_ids) {
             return;
         }
-        let timing = hook_type_to_checkpoint_timing(hook_type);
-        let description = hook_checkpoint_description(hooks, hook_type);
+        let timing = wf_types::hook::hook_checkpoint_timing(hook_type);
+        let description = hook_checkpoint_description_fired(hooks, hook_type, fired_hook_ids);
         cp.create_hook_checkpoint(entity, timing, description).await;
     }
 }

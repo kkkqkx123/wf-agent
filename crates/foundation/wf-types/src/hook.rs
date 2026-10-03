@@ -190,6 +190,29 @@ pub fn is_gate_hook(hook_type: &str) -> bool {
     matches!(hook_type, "BEFORE_EXECUTE" | "BEFORE_TOOL_CALL")
 }
 
+/// Checkpoint timing requested by a hook-requested snapshot. Single source
+/// of truth for every emitter so agent and workflow paths cannot drift.
+/// Every known point maps explicitly; only truly unknown points resolve to
+/// `Manual` so the strategy gate still applies instead of bypassing it.
+pub fn hook_checkpoint_timing(hook_type: &str) -> crate::checkpoint::CheckpointTiming {
+    use crate::checkpoint::CheckpointTiming;
+    match hook_type {
+        "BEFORE_TOOL_CALL" => CheckpointTiming::ToolBefore,
+        "AFTER_TOOL_CALL" => CheckpointTiming::ToolAfter,
+        "BEFORE_ITERATION" | "BEFORE_LLM_CALL" => CheckpointTiming::BeforeExecute,
+        "AFTER_ITERATION" | "AFTER_LLM_CALL" => CheckpointTiming::AfterExecute,
+        "AFTER_AGENT" | "SUBAGENT_STOP" | "WORKFLOW_AFTER" => CheckpointTiming::OnComplete,
+        "BEFORE_EXECUTE" => CheckpointTiming::BeforeExecute,
+        "AFTER_EXECUTE" => CheckpointTiming::AfterExecute,
+        "ON_ERROR" => CheckpointTiming::OnError,
+        "BEFORE_AGENT" | "BEFORE_USER_PROMPT" | "SUBAGENT_START" | "WORKFLOW_BEFORE" => {
+            CheckpointTiming::Manual
+        }
+        s if INTERNAL_SIGNAL_TYPES.contains(&s) => CheckpointTiming::Manual,
+        _ => CheckpointTiming::Manual,
+    }
+}
+
 /// Whether a trigger template may legally subscribe to a hook point
 /// through the `HOOK_TRIGGERED` audit event.
 ///
@@ -226,14 +249,12 @@ pub fn hook_allows_trigger(hook_type: &str) -> bool {
 /// - `condition`: optional expression string evaluated against the hook
 ///   context (`None` always matches).
 /// - `enabled`: concrete bool (absent means true in every config form).
-/// - `priority`: sort priority within one notification population (higher
-///   notifies first in its population). Static `handler`-named definitions
-///   are always notified before dynamically registered type handlers, each
-///   population sorted by priority descending; priority never crosses the two
-///   populations and never decides whether a handler runs (every passing
-///   handler runs). Its only semantic-grade effect is the notification
-///   order, hence the audit summary order and the veto-reason join order.
-///   Negative values are rejected at load time.
+/// - `priority`: global notification order across static `handler`-named
+///   definitions and dynamically registered type handlers (higher notifies
+///   first; static entries win ties). Priority never decides whether a
+///   handler runs (every passing handler runs). Its only effect is the
+///   notification order, hence the audit summary order and the veto-reason
+///   join order. Negative values are rejected at load time.
 /// - `payload`: optional payload template surfaced on the `HOOK_TRIGGERED`
 ///   audit event (workflow/agent `event_payload`, tool `payload`).
 /// - `handler`: optional synchronous handler name; the handler completes
@@ -523,5 +544,50 @@ mod tests {
         assert!(validate_payload_template_syntax(&serde_json::json!("hi {{a..b}}")).is_err());
         assert!(validate_payload_template_syntax(&serde_json::json!("hi {{9bad}}")).is_err());
         assert!(validate_payload_template_syntax(&serde_json::json!("hi {{unclosed}}")).is_ok());
+    }
+
+    #[test]
+    fn checkpoint_timing_covers_known_points() {
+        use crate::checkpoint::CheckpointTiming;
+        let expected: &[(&str, CheckpointTiming)] = &[
+            ("BEFORE_ITERATION", CheckpointTiming::BeforeExecute),
+            ("AFTER_ITERATION", CheckpointTiming::AfterExecute),
+            ("BEFORE_LLM_CALL", CheckpointTiming::BeforeExecute),
+            ("AFTER_LLM_CALL", CheckpointTiming::AfterExecute),
+            ("BEFORE_TOOL_CALL", CheckpointTiming::ToolBefore),
+            ("AFTER_TOOL_CALL", CheckpointTiming::ToolAfter),
+            ("BEFORE_AGENT", CheckpointTiming::Manual),
+            ("AFTER_AGENT", CheckpointTiming::OnComplete),
+            ("SUBAGENT_START", CheckpointTiming::Manual),
+            ("SUBAGENT_STOP", CheckpointTiming::OnComplete),
+            ("BEFORE_USER_PROMPT", CheckpointTiming::Manual),
+            ("BEFORE_EXECUTE", CheckpointTiming::BeforeExecute),
+            ("AFTER_EXECUTE", CheckpointTiming::AfterExecute),
+            ("ON_ERROR", CheckpointTiming::OnError),
+            ("WORKFLOW_BEFORE", CheckpointTiming::Manual),
+            ("WORKFLOW_AFTER", CheckpointTiming::OnComplete),
+            ("CONTEXT_COMPRESSION_REQUESTED", CheckpointTiming::Manual),
+        ];
+        for (hook_type, timing) in expected {
+            assert_eq!(
+                &hook_checkpoint_timing(hook_type),
+                timing,
+                "{hook_type} must map to an explicit timing"
+            );
+        }
+        for hook_type in AGENT_HOOK_TYPES
+            .iter()
+            .chain(WORKFLOW_HOOK_TYPES.iter())
+            .chain(INTERNAL_SIGNAL_TYPES.iter())
+        {
+            assert!(
+                expected.iter().any(|(name, _)| name == hook_type),
+                "{hook_type} must have an explicit timing entry"
+            );
+        }
+        assert_eq!(
+            hook_checkpoint_timing("SOME_FUTURE_HOOK"),
+            CheckpointTiming::Manual
+        );
     }
 }

@@ -250,26 +250,25 @@ async fn child_links_through_typed_parent_without_context_string() {
     let p = parent();
     let seen: Arc<Mutex<Option<(String, bool, u32)>>> = Arc::new(Mutex::new(None));
     let seen_clone = seen.clone();
-    let executor: wf_agent::trigger::AgentExecutorCallback =
-        Arc::new(move |_c, _input, parent| {
-            let seen_clone = seen_clone.clone();
-            Box::pin(async move {
-                *seen_clone.lock().unwrap() = parent.map(|link| {
-                    (
-                        link.execution_id.to_string(),
-                        link.cancellation.is_some(),
-                        link.manager.depth(),
-                    )
-                });
-                Ok(AgentLoopOutput {
-                    agent_loop_id: Id::from("child".to_string()),
-                    result: serde_json::Value::from("ok"),
-                    iterations: 1,
-                    finish_reason: LoopFinishReason::Completed,
-                    conversation: Vec::new(),
-                })
+    let executor: wf_agent::trigger::AgentExecutorCallback = Arc::new(move |_c, _input, parent| {
+        let seen_clone = seen_clone.clone();
+        Box::pin(async move {
+            *seen_clone.lock().unwrap() = parent.map(|link| {
+                (
+                    link.execution_id.to_string(),
+                    link.cancellation.is_some(),
+                    link.manager.depth(),
+                )
+            });
+            Ok(AgentLoopOutput {
+                agent_loop_id: Id::from("child".to_string()),
+                result: serde_json::Value::from("ok"),
+                iterations: 1,
+                finish_reason: LoopFinishReason::Completed,
+                conversation: Vec::new(),
             })
-        });
+        })
+    });
     // Seed a stale parent id string in the input: parentage must follow
     // the typed link, never the string.
     let mut seeded = child_input();

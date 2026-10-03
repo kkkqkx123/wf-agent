@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{
-    fire, fire::FireSummary, hook_checkpoint_description, hook_opted_in, HookContext,
+    fire, fire::FireSummary, hook_checkpoint_description_fired, hook_opted_in_fired, HookContext,
     HookDefinition, HookHandlerRegistry,
 };
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use wf_types::checkpoint::CheckpointTiming;
 
 use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::entity::WorkflowExecutionEntity;
@@ -28,31 +27,20 @@ impl WorkflowHookEmitter {
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
     ) -> FireSummary {
-        let mut data = HashMap::new();
-        data.insert(
-            "execution_id".to_string(),
-            Value::String(entity.id().clone()),
+        let ctx = HookContext::workflow_base(
+            entity.id().clone(),
+            entity.workflow_id().clone(),
+            hook_type.to_string(),
+            format!("{:?}", entity.state.read().await.status()),
+            extra_data,
+            entity.get_abort_signal(),
         );
-        data.insert(
-            "workflow_id".to_string(),
-            Value::String(entity.workflow_id().clone()),
-        );
-        data.insert(
-            "status".to_string(),
-            Value::String(format!("{:?}", entity.state.read().await.status())),
-        );
-        data.extend(extra_data);
 
         fire(
             registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             hooks,
             hook_type,
-            &HookContext {
-                execution_id: entity.id().clone(),
-                hook_type: hook_type.to_string(),
-                data,
-                cancellation: entity.get_abort_signal(),
-            },
+            &ctx,
             event_bus,
         )
         .await
@@ -78,42 +66,32 @@ impl WorkflowHookEmitter {
         .await
     }
 
-    /// Map a workflow hook point onto the checkpoint timing of its
-    /// hook-requested checkpoint. Node points map to node timings;
-    /// workflow-scope points map to the lifecycle timings.
-    pub fn hook_type_to_checkpoint_timing(hook_type: &str) -> CheckpointTiming {
-        match hook_type {
-            "BEFORE_EXECUTE" => CheckpointTiming::BeforeExecute,
-            "AFTER_EXECUTE" => CheckpointTiming::AfterExecute,
-            "ON_ERROR" => CheckpointTiming::OnError,
-            "WORKFLOW_BEFORE" => CheckpointTiming::Manual,
-            "WORKFLOW_AFTER" => CheckpointTiming::OnComplete,
-            _ => CheckpointTiming::Manual,
-        }
-    }
-
-    /// Hook opt-in checkpoint for a fired workflow hook point: no opt-in
-    /// or no handle means no checkpoint. The checkpoint honors the master
-    /// switch but not the instance trigger list, so one hook can force a
-    /// checkpoint independently of the policy. Failures only warn; a veto at a
-    /// gate point still takes effect because the fire summary is untouched.
+    /// Hook opt-in checkpoint for a fired workflow hook point: only
+    /// definitions that passed evaluation in the associated fire count
+    /// (`fired_hook_ids`), so a condition-filtered opt-in requests no
+    /// snapshot. No fired opt-in or no handle means no checkpoint.
+    /// The checkpoint honors the master switch but not the instance trigger
+    /// list, so one hook can force a checkpoint independently of the policy.
+    /// Failures only warn; a veto at a gate point still takes effect because
+    /// the fire summary is untouched.
     pub async fn maybe_hook_checkpoint(
         hooks: &[HookDefinition],
         hook_type: &str,
+        fired_hook_ids: &[String],
         checkpoint: Option<&WorkflowCheckpointIntegration>,
         entity: &WorkflowExecutionEntity,
     ) {
         let Some(cp) = checkpoint else {
             return;
         };
-        if !hook_opted_in(hooks, hook_type) {
+        if !hook_opted_in_fired(hooks, hook_type, fired_hook_ids) {
             return;
         }
-        let timing = Self::hook_type_to_checkpoint_timing(hook_type);
+        let timing = wf_types::hook::hook_checkpoint_timing(hook_type);
         cp.create_hook_checkpoint(
             entity,
             timing,
-            hook_checkpoint_description(hooks, hook_type),
+            hook_checkpoint_description_fired(hooks, hook_type, fired_hook_ids),
         )
         .await;
     }
@@ -139,48 +117,71 @@ mod tests {
     }
 
     #[test]
-    fn hook_opt_in_requires_enabled_and_true() {
+    fn hook_opt_in_requires_enabled_fired_and_true() {
         let hooks = vec![
             definition("BEFORE_EXECUTE", true, Some(true)),
             definition("AFTER_EXECUTE", true, None),
             definition("ON_ERROR", false, Some(true)),
         ];
-        assert!(hook_opted_in(&hooks, "BEFORE_EXECUTE"));
-        assert!(!hook_opted_in(&hooks, "AFTER_EXECUTE"));
-        assert!(!hook_opted_in(&hooks, "ON_ERROR"));
-        assert!(!hook_opted_in(&hooks, "WORKFLOW_BEFORE"));
+        let fired = vec!["h-BEFORE_EXECUTE".to_string()];
+        assert!(hook_opted_in_fired(&hooks, "BEFORE_EXECUTE", &fired));
+        assert!(!hook_opted_in_fired(&hooks, "BEFORE_EXECUTE", &[]));
+        assert!(!hook_opted_in_fired(&hooks, "AFTER_EXECUTE", &fired));
+        assert!(!hook_opted_in_fired(
+            &hooks,
+            "ON_ERROR",
+            &["h-ON_ERROR".to_string()]
+        ));
+        assert!(!hook_opted_in_fired(&hooks, "WORKFLOW_BEFORE", &fired));
     }
 
     #[test]
-    fn hook_checkpoint_description_comes_from_first_opt_in() {
+    fn hook_checkpoint_description_comes_from_first_fired_opt_in() {
         let hooks = vec![definition("AFTER_EXECUTE", true, Some(true))];
         assert_eq!(
-            hook_checkpoint_description(&hooks, "AFTER_EXECUTE"),
+            hook_checkpoint_description_fired(
+                &hooks,
+                "AFTER_EXECUTE",
+                &["h-AFTER_EXECUTE".to_string()]
+            ),
             Some("AFTER_EXECUTE snapshot".to_string())
         );
-        assert_eq!(hook_checkpoint_description(&hooks, "BEFORE_EXECUTE"), None);
+        assert_eq!(
+            hook_checkpoint_description_fired(&hooks, "AFTER_EXECUTE", &[]),
+            None
+        );
+        assert_eq!(
+            hook_checkpoint_description_fired(
+                &hooks,
+                "BEFORE_EXECUTE",
+                &["h-AFTER_EXECUTE".to_string()]
+            ),
+            None
+        );
     }
 
     #[test]
     fn hook_timing_mapping_covers_workflow_points() {
+        use wf_types::checkpoint::CheckpointTiming;
+        use wf_types::hook::hook_checkpoint_timing;
         assert_eq!(
-            WorkflowHookEmitter::hook_type_to_checkpoint_timing("BEFORE_EXECUTE"),
+            hook_checkpoint_timing("BEFORE_EXECUTE"),
             CheckpointTiming::BeforeExecute
         );
         assert_eq!(
-            WorkflowHookEmitter::hook_type_to_checkpoint_timing("AFTER_EXECUTE"),
+            hook_checkpoint_timing("AFTER_EXECUTE"),
             CheckpointTiming::AfterExecute
         );
         assert_eq!(
-            WorkflowHookEmitter::hook_type_to_checkpoint_timing("ON_ERROR"),
+            hook_checkpoint_timing("ON_ERROR"),
             CheckpointTiming::OnError
         );
         assert_eq!(
-            WorkflowHookEmitter::hook_type_to_checkpoint_timing("WORKFLOW_BEFORE"),
+            hook_checkpoint_timing("WORKFLOW_BEFORE"),
             CheckpointTiming::Manual
         );
         assert_eq!(
-            WorkflowHookEmitter::hook_type_to_checkpoint_timing("WORKFLOW_AFTER"),
+            hook_checkpoint_timing("WORKFLOW_AFTER"),
             CheckpointTiming::OnComplete
         );
     }

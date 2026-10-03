@@ -42,20 +42,53 @@ pub fn evaluate_hook_condition(
     }
 }
 
+/// Enabled `create_checkpoint` definitions of `hook_type`, in config order.
+fn opted_in_definitions<'a>(
+    hooks: &'a [HookDefinition],
+    hook_type: &str,
+) -> Vec<&'a HookDefinition> {
+    hooks
+        .iter()
+        .filter(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
+        .collect()
+}
+
 /// Whether any enabled hook definition of `hook_type` opts in via
 /// `create_checkpoint`.
 pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
-    hooks
+    !opted_in_definitions(hooks, hook_type).is_empty()
+}
+
+/// Whether an opted-in definition actually fired: its id passed evaluation
+/// in the associated fire (see `FireSummary::matched_hook_ids`). A
+/// condition-filtered opt-in requests no snapshot.
+pub fn hook_opted_in_fired(
+    hooks: &[HookDefinition],
+    hook_type: &str,
+    fired_hook_ids: &[String],
+) -> bool {
+    opted_in_definitions(hooks, hook_type)
         .iter()
-        .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
+        .any(|h| fired_hook_ids.iter().any(|id| id == &h.id))
 }
 
 /// Description of the first opted-in hook definition of `hook_type`.
 pub fn hook_checkpoint_description(hooks: &[HookDefinition], hook_type: &str) -> Option<String> {
-    hooks
+    opted_in_definitions(hooks, hook_type)
         .iter()
-        .find(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
-        .and_then(|h| h.checkpoint_description.clone())
+        .find_map(|h| h.checkpoint_description.clone())
+}
+
+/// Description of the first fired opted-in definition of `hook_type`.
+pub fn hook_checkpoint_description_fired(
+    hooks: &[HookDefinition],
+    hook_type: &str,
+    fired_hook_ids: &[String],
+) -> Option<String> {
+    opted_in_definitions(hooks, hook_type)
+        .iter()
+        .filter(|h| fired_hook_ids.iter().any(|id| id == &h.id))
+        .find_map(|h| h.checkpoint_description.clone())
 }
 
 /// Publish the `HOOK_TRIGGERED` audit event for one fire.
@@ -70,12 +103,18 @@ pub fn hook_checkpoint_description(hooks: &[HookDefinition], hook_type: &str) ->
 ///   (observable / request / mutated, see `wf_types::hook::hook_effect`),
 ///   `hook_count`, per-hook `priorities` and `payloads` (template-resolved),
 ///   plus the fire summary: `handlers` (name / outcome / duration_ms /
-///   error per notified handler) and the total `duration_ms`.
+///   error per notified handler) and the total `duration_ms`. `hook_count`
+///   counts matched static definitions (condition-passed, with or without a
+///   handler) while `handlers` lists only notified handlers, so the two
+///   counts differ whenever definitions lack handlers or dynamic handlers
+///   join the fire.
 ///
 /// Returns the number of events published (0 when nothing was fired or
 /// no bus is attached). Empty fires of observable hooks are silently
 /// skipped; empty fires of request / mutated hooks emit a warning so a
-/// missing handler does not go unnoticed.
+/// missing handler does not go unnoticed. Trigger-closed points with no
+/// notified handler are also skipped: without a sync handler their fire is
+/// a write-only audit nobody may consume.
 pub fn publish_hook_audit_event(
     event_bus: Option<&EventBus>,
     ctx: &HookContext,
@@ -100,6 +139,22 @@ pub fn publish_hook_audit_event(
         }
         return 0;
     }
+    if results.is_empty() && !wf_types::hook::hook_allows_trigger(&ctx.hook_type) {
+        if wf_types::hook::hook_requires_handler(&ctx.hook_type) {
+            tracing::warn!(
+                hook_type = %ctx.hook_type,
+                execution_id = %ctx.execution_id,
+                "trigger-closed request hook fired with no notified handler; no audit event published"
+            );
+        } else {
+            tracing::debug!(
+                hook_type = %ctx.hook_type,
+                execution_id = %ctx.execution_id,
+                "trigger-closed hook fired with no notified handler; no audit event published"
+            );
+        }
+        return 0;
+    }
     let Some(bus) = event_bus else {
         return 0;
     };
@@ -109,6 +164,9 @@ pub fn publish_hook_audit_event(
         .map(|r| {
             let mut entry = serde_json::Map::new();
             entry.insert("name".to_string(), Value::String(r.name.clone()));
+            if let Some(hook_id) = r.hook_id.as_deref() {
+                entry.insert("hook_id".to_string(), Value::String(hook_id.to_string()));
+            }
             entry.insert(
                 "outcome".to_string(),
                 Value::String(r.outcome.as_str().to_string()),
@@ -140,6 +198,7 @@ pub fn publish_hook_audit_event(
     let metadata_value = serde_json::json!({
         "hook_type": [ctx.hook_type],
         "event_category": wf_types::hook::hook_effect(&ctx.hook_type).as_str(),
+        "trigger_closed": !wf_types::hook::hook_allows_trigger(&ctx.hook_type),
         "hook_count": payloads.len(),
         "priorities": priorities,
         "payloads": payloads,
@@ -256,6 +315,36 @@ mod tests {
         assert!(!evaluate_hook_condition(Some("missing"), &ctx).unwrap());
     }
 
+    #[test]
+    fn test_opt_in_honors_only_fired_definitions() {
+        fn opt_in(id: &str) -> HookDefinition {
+            HookDefinition {
+                id: Id::from(id.to_string()),
+                hook_type: "BEFORE_EXECUTE".to_string(),
+                priority: 0,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: None,
+                create_checkpoint: Some(true),
+                checkpoint_description: Some(format!("{id} snapshot")),
+            }
+        }
+        let hooks = vec![opt_in("h-fired"), opt_in("h-filtered")];
+        let fired = vec!["h-fired".to_string()];
+        assert!(hook_opted_in_fired(&hooks, "BEFORE_EXECUTE", &fired));
+        assert_eq!(
+            hook_checkpoint_description_fired(&hooks, "BEFORE_EXECUTE", &fired),
+            Some("h-fired snapshot".to_string())
+        );
+        assert!(!hook_opted_in_fired(&hooks, "BEFORE_EXECUTE", &[]));
+        assert_eq!(
+            hook_checkpoint_description_fired(&hooks, "BEFORE_EXECUTE", &[]),
+            None
+        );
+        assert!(!hook_opted_in_fired(&hooks, "AFTER_EXECUTE", &fired));
+    }
+
     fn hook_ctx(execution_id: &str, data: HashMap<String, Value>) -> HookContext {
         HookContext {
             execution_id: Id::from(execution_id.to_string()),
@@ -290,6 +379,7 @@ mod tests {
 
         let results = vec![HandlerResult {
             name: "r1".to_string(),
+            hook_id: None,
             outcome: HookOutcome::Continue,
             duration_ms: 3,
             error: None,
@@ -327,6 +417,7 @@ mod tests {
 
         let results = vec![HandlerResult {
             name: "gate".to_string(),
+            hook_id: None,
             outcome: HookOutcome::Veto {
                 reason: "missing input file".to_string(),
             },
@@ -384,12 +475,14 @@ mod tests {
         let results = vec![
             HandlerResult {
                 name: "ok-handler".to_string(),
+                hook_id: None,
                 outcome: HookOutcome::Continue,
                 duration_ms: 1,
                 error: None,
             },
             HandlerResult {
                 name: "missing-handler".to_string(),
+                hook_id: Some("h-1".to_string()),
                 outcome: HookOutcome::Continue,
                 duration_ms: 0,
                 error: Some("handler not registered".to_string()),
@@ -433,5 +526,43 @@ mod tests {
             publish_hook_audit_event(Some(&bus), &ctx, &[], &[], &[], 0),
             0
         );
+    }
+
+    #[test]
+    fn test_trigger_closed_without_handlers_skips_audit() {
+        let bus = Arc::new(EventBus::new(16));
+        let mut sub = bus.subscribe();
+        let ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        };
+        assert_eq!(
+            publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &[], 1),
+            0
+        );
+        assert!(sub.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_handler_hook_id_surfaced_on_audit_event() {
+        let bus = Arc::new(EventBus::new(16));
+        let ctx = hook_ctx("exec-1", HashMap::new());
+        let mut sub = bus.subscribe();
+        let results = vec![HandlerResult {
+            name: "named".to_string(),
+            hook_id: Some("h-9".to_string()),
+            outcome: HookOutcome::Continue,
+            duration_ms: 1,
+            error: None,
+        }];
+        assert_eq!(
+            publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &results, 1),
+            1
+        );
+        let event = sub.try_recv().unwrap();
+        let metadata = event.metadata.as_ref().unwrap();
+        assert_eq!(metadata["handlers"][0]["hook_id"], serde_json::json!("h-9"));
     }
 }

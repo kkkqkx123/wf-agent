@@ -4,9 +4,9 @@
 //! (dynamic registration) and prioritized. Fire ([`fire`]) resolves
 //! static `HookDefinition.handler` names through this registry and
 //! notifies type-bound handlers; each notification is panic-guarded so a
-//! panicking handler never takes down the engine. The registry imposes no
-//! time budget: pacing is the handler's own policy, bounded at least by
-//! the execution cancellation carried on every [`HookContext`].
+//! panicking handler never takes down the engine. The registry enforces
+//! the handler-declared timeout and the owning-execution cancellation so a
+//! misbehaving handler cannot pin the engine.
 
 use std::sync::Arc;
 
@@ -57,6 +57,13 @@ impl HookHandlerRegistry {
     pub fn fallback() -> &'static Self {
         static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
         DEFAULT.get_or_init(HookHandlerRegistry::new)
+    }
+
+    /// Whether this reference is the shared fallback instance. The fire
+    /// pipeline uses it to warn when a handler-demanding point runs without
+    /// a real registry instead of degrading silently.
+    pub fn is_shared_fallback(&self) -> bool {
+        std::ptr::eq(self, Self::fallback())
     }
 
     /// Register `handler` for `hook_type` with `priority`. Registration is
@@ -151,9 +158,11 @@ impl HookHandlerRegistry {
 
     /// Notify one handler. The call is panic-guarded: a panicking handler
     /// is reported as an error result and treated as `Continue`, never
-    /// taking down the engine task. The pipeline applies no timeout — a
-    /// handler bounds its own work and must honor `ctx.cancellation` so it
-    /// can never outlive the owning execution.
+    /// taking down the engine task. The handler-declared timeout and the
+    /// owning-execution cancellation are enforced here: expiry or a
+    /// cancellation-ignoring handler resolves to `Continue` with an error
+    /// note, so gates fail open on infrastructure gaps. A cooperating
+    /// handler still wins the race and its `Veto` is preserved.
     pub async fn notify(
         &self,
         ctx: &HookContext,
@@ -161,33 +170,78 @@ impl HookHandlerRegistry {
     ) -> crate::hooks::fire::HandlerResult {
         use futures::FutureExt;
         let started = wf_common::now();
-        let outcome = std::panic::AssertUnwindSafe(handler.handler.on_point(ctx))
-            .catch_unwind()
-            .await;
-        let duration_ms = wf_common::now() - started;
-        match outcome {
-            Ok(outcome) => crate::hooks::fire::HandlerResult {
-                name: handler.name.clone(),
-                outcome,
-                duration_ms,
-                error: None,
-            },
-            Err(payload) => {
-                let detail = payload
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "unknown panic".to_string());
+        let timeout_ms = handler.handler.timeout_ms();
+        let handler_future =
+            std::panic::AssertUnwindSafe(handler.handler.on_point(ctx)).catch_unwind();
+        let timeout_future = async move {
+            match timeout_ms {
+                Some(ms) => tokio::time::sleep(std::time::Duration::from_millis(ms)).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! {
+            biased;
+            outcome = handler_future => {
+                let duration_ms = wf_common::now() - started;
+                match outcome {
+                    Ok(outcome) => crate::hooks::fire::HandlerResult {
+                        name: handler.name.clone(),
+                        hook_id: None,
+                        outcome,
+                        duration_ms,
+                        error: None,
+                    },
+                    Err(payload) => {
+                        let detail = payload
+                            .downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                            .unwrap_or_else(|| "unknown panic".to_string());
+                        warn!(
+                            handler = %handler.name,
+                            panic = %detail,
+                            "hook handler panicked, treated as continue"
+                        );
+                        crate::hooks::fire::HandlerResult {
+                            name: handler.name.clone(),
+                            hook_id: None,
+                            outcome: HookOutcome::Continue,
+                            duration_ms,
+                            error: Some(format!("handler panicked: {detail}")),
+                        }
+                    }
+                }
+            }
+            _ = timeout_future => {
+                let duration_ms = wf_common::now() - started;
                 warn!(
                     handler = %handler.name,
-                    panic = %detail,
-                    "hook handler panicked, treated as continue"
+                    timeout_ms = ?timeout_ms,
+                    "hook handler timed out, treated as continue"
                 );
                 crate::hooks::fire::HandlerResult {
                     name: handler.name.clone(),
+                    hook_id: None,
                     outcome: HookOutcome::Continue,
                     duration_ms,
-                    error: Some(format!("handler panicked: {detail}")),
+                    error: Some(format!(
+                        "handler timed out after {}ms",
+                        timeout_ms.unwrap_or(0)
+                    )),
+                }
+            }
+            _ = ctx.cancellation.cancelled() => {
+                let duration_ms = wf_common::now() - started;
+                warn!(
+                    handler = %handler.name,
+                    "hook handler cancelled: execution gone, treated as continue"
+                );
+                crate::hooks::fire::HandlerResult {
+                    name: handler.name.clone(),
+                    hook_id: None,
+                    outcome: HookOutcome::Continue,
+                    duration_ms,
+                    error: Some("handler cancelled: execution cancelled".to_string()),
                 }
             }
         }

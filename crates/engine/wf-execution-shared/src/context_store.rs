@@ -107,12 +107,12 @@ pub async fn dispatch_compression_signal(
         registry,
         &[],
         crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &HookContext {
-            execution_id: execution_id.clone(),
-            hook_type: crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+        &HookContext::new(
+            execution_id.clone(),
+            crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
             cancellation,
-        },
+        ),
         bus,
     )
     .await;

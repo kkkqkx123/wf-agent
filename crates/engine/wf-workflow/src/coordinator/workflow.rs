@@ -390,16 +390,10 @@ impl WorkflowCoordinator {
                 cp.on_node_before(&entity, checkpoint_config.as_ref(), force_checkpoint_before)
                     .await;
             }
-            // BEFORE_EXECUTE hook opt-in checkpoints even when the node
-            // policy would not: the hook fired, so its request is honored
-            // (a later veto still denies the node via the fire summary).
-            crate::hook::WorkflowHookEmitter::maybe_hook_checkpoint(
-                &self.hooks,
-                "BEFORE_EXECUTE",
-                self.checkpoint.as_ref(),
-                &entity,
-            )
-            .await;
+            // BEFORE_EXECUTE hook opt-in checkpoints settle inside the node
+            // execution right after the BEFORE fire (see `NodeCoordinator`),
+            // so only definitions that passed evaluation request a snapshot;
+            // a later veto still denies the node via the fire summary.
 
             let mut node_ctx = self.build_node_context(node_id, &node_type).await?;
 

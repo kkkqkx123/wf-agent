@@ -15,14 +15,24 @@ use crate::hooks::types::{HookContext, HookOutcome};
 /// `name` is the stable identifier used for registration dedup, unregister
 /// and resolution from `HookDefinition.handler`; `on_point` is invoked
 /// synchronously by the engine at the hook point. The pipeline guards the
-/// call against panics but imposes no time budget: the handler owns its
-/// pacing (a handler doing slow work applies its own deadline policy) and
-/// must race every wait it performs against [`HookContext::cancellation`]
-/// so it can never outlive the owning execution.
+/// call against panics and enforces the handler-declared time budget plus
+/// the owning-execution cancellation: a handler doing slow work declares
+/// its own deadline through [`HookHandler::timeout_ms`] and still races
+/// every wait it performs against [`HookContext::cancellation`] for prompt
+/// release and resource cleanup. Handlers may be notified concurrently from
+/// parallel tool tasks, so implementations stay reentrant and share no
+/// unsynchronized mutable state.
 #[async_trait]
 pub trait HookHandler: Send + Sync {
     /// Stable handler name (registration dedup / unregister / resolution).
     fn name(&self) -> &str;
+    /// Optional per-notification time budget in milliseconds. `None` means
+    /// no pipeline timeout and the handler bounds its own work. When set,
+    /// expiry is treated as an infrastructure gap and resolves to
+    /// `Continue`, never to `Veto`.
+    fn timeout_ms(&self) -> Option<u64> {
+        None
+    }
     /// Handle one hook notification. The returned outcome is aggregated by
     /// the firer: `Continue` always proceeds; `Veto` denies the guarded
     /// step, but only at gate points that opt into it (`BEFORE_EXECUTE` on

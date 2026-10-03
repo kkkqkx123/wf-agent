@@ -8,6 +8,21 @@ pub use wf_types::hook::{
     WORKFLOW_HOOK_TYPES,
 };
 
+/// Canonical hook context data keys. Emitters build their payloads through
+/// [`HookContext`] constructors so condition expressions and payload
+/// templates observe one stable vocabulary instead of hand-written strings.
+pub const KEY_EXECUTION_ID: &str = "execution_id";
+pub const KEY_WORKFLOW_ID: &str = "workflow_id";
+pub const KEY_HOOK_TYPE: &str = "hook_type";
+pub const KEY_STATUS: &str = "status";
+pub const KEY_CURRENT_ITERATION: &str = "current_iteration";
+pub const KEY_NODE_ID: &str = "node_id";
+pub const KEY_NODE_NAME: &str = "node_name";
+pub const KEY_NODE_TYPE: &str = "node_type";
+pub const KEY_DURATION_MS: &str = "duration_ms";
+pub const KEY_ERROR: &str = "error";
+pub const KEY_REJECTION_SOURCE: &str = "rejection_source";
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HookDefinition {
     pub id: Id,
@@ -79,16 +94,144 @@ pub struct HookContext {
     pub execution_id: Id,
     pub hook_type: String,
     pub data: HashMap<String, Value>,
-    /// Abort signal of the owning execution. The pipeline imposes no
-    /// time budget of its own — pacing is the handler's business — but a
-    /// handler must never outlive the execution: every wait inside a
-    /// handler races this token so cancellation abandons it. A long-work
-    /// handler additionally applies its own deadline policy (e.g. an LLM
-    /// approval handler bounds its call through the client's timeout and
-    /// decides Continue/Veto on expiry); unbounded human interaction does
-    /// not belong in a hook handler at all, it belongs to the approval and
-    /// suspend mechanisms.
+    /// Abort signal of the owning execution. The pipeline enforces the
+    /// handler-declared timeout and races every notification against this
+    /// token so a misbehaving handler cannot outlive the execution, but a
+    /// cooperating handler still races its own waits against it and applies
+    /// its own deadline policy; unbounded human interaction does not belong
+    /// in a hook handler at all, it belongs to the approval and suspend
+    /// mechanisms.
     pub cancellation: tokio_util::sync::CancellationToken,
+}
+
+impl HookContext {
+    /// Base constructor. The payload map always carries the execution id
+    /// and hook type so condition expressions observe one stable vocabulary
+    /// even when callers build their data maps by hand.
+    pub fn new(
+        execution_id: Id,
+        hook_type: String,
+        mut data: HashMap<String, Value>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        data.entry(KEY_EXECUTION_ID.to_string())
+            .or_insert_with(|| Value::String(execution_id.to_string()));
+        data.entry(KEY_HOOK_TYPE.to_string())
+            .or_insert_with(|| Value::String(hook_type.clone()));
+        Self {
+            execution_id,
+            hook_type,
+            data,
+            cancellation,
+        }
+    }
+
+    /// Agent loop base payload: execution id, status text, iteration count,
+    /// plus caller extra data. Extra data never removes the base keys.
+    #[allow(clippy::too_many_arguments)]
+    pub fn agent_base(
+        execution_id: Id,
+        hook_type: String,
+        status: String,
+        current_iteration: u32,
+        mut extra_data: HashMap<String, Value>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        let mut data = HashMap::new();
+        data.insert(
+            KEY_EXECUTION_ID.to_string(),
+            Value::String(execution_id.to_string()),
+        );
+        data.insert(KEY_STATUS.to_string(), Value::String(status));
+        data.insert(
+            KEY_CURRENT_ITERATION.to_string(),
+            Value::Number(serde_json::Number::from(current_iteration)),
+        );
+        for (key, value) in extra_data.drain() {
+            data.entry(key).or_insert(value);
+        }
+        Self::new(execution_id, hook_type, data, cancellation)
+    }
+
+    /// Workflow execution base payload: execution id, workflow id, status
+    /// text, plus caller extra data.
+    pub fn workflow_base(
+        execution_id: Id,
+        workflow_id: Id,
+        hook_type: String,
+        status: String,
+        mut extra_data: HashMap<String, Value>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        let mut data = HashMap::new();
+        data.insert(
+            KEY_EXECUTION_ID.to_string(),
+            Value::String(execution_id.to_string()),
+        );
+        data.insert(
+            KEY_WORKFLOW_ID.to_string(),
+            Value::String(workflow_id.to_string()),
+        );
+        data.insert(KEY_STATUS.to_string(), Value::String(status));
+        for (key, value) in extra_data.drain() {
+            data.entry(key).or_insert(value);
+        }
+        Self::new(execution_id, hook_type, data, cancellation)
+    }
+
+    /// Workflow node payload: workflow base plus node identity and optional
+    /// duration, error and rejection source.
+    #[allow(clippy::too_many_arguments)]
+    pub fn workflow_node(
+        execution_id: Id,
+        workflow_id: Id,
+        hook_type: String,
+        status: String,
+        node_id: &str,
+        node_name: &str,
+        node_type: &str,
+        duration_ms: Option<i64>,
+        error: Option<&str>,
+        rejection_source: Option<&str>,
+        mut extra_data: HashMap<String, Value>,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        let mut data = HashMap::new();
+        data.insert(
+            KEY_EXECUTION_ID.to_string(),
+            Value::String(execution_id.to_string()),
+        );
+        data.insert(
+            KEY_WORKFLOW_ID.to_string(),
+            Value::String(workflow_id.to_string()),
+        );
+        data.insert(KEY_STATUS.to_string(), Value::String(status));
+        data.insert(KEY_NODE_ID.to_string(), Value::String(node_id.to_string()));
+        data.insert(
+            KEY_NODE_NAME.to_string(),
+            Value::String(node_name.to_string()),
+        );
+        data.insert(
+            KEY_NODE_TYPE.to_string(),
+            Value::String(node_type.to_string()),
+        );
+        if let Some(duration) = duration_ms {
+            data.insert(KEY_DURATION_MS.to_string(), Value::Number(duration.into()));
+        }
+        if let Some(err) = error {
+            data.insert(KEY_ERROR.to_string(), Value::String(err.to_string()));
+        }
+        if let Some(source) = rejection_source {
+            data.insert(
+                KEY_REJECTION_SOURCE.to_string(),
+                Value::String(source.to_string()),
+            );
+        }
+        for (key, value) in extra_data.drain() {
+            data.entry(key).or_insert(value);
+        }
+        Self::new(execution_id, hook_type, data, cancellation)
+    }
 }
 
 impl From<&wf_types::hook::HookPointConfig> for HookDefinition {

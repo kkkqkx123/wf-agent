@@ -67,20 +67,16 @@ impl RestoredAgentLoop {
     ) -> Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager> {
         use wf_types::execution::ExecutionType;
         match self.lineage.as_ref() {
-            Some(hierarchy) => {
-                wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
-                    self.agent_loop_id.clone(),
-                    ExecutionType::AgentLoop,
-                    hierarchy,
-                    ExecutionType::AgentLoop,
-                )
-            }
-            None => Arc::new(
-                wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
-                    self.agent_loop_id.clone(),
-                    ExecutionType::AgentLoop,
-                ),
+            Some(hierarchy) => wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+                self.agent_loop_id.clone(),
+                ExecutionType::AgentLoop,
+                hierarchy,
+                ExecutionType::AgentLoop,
             ),
+            None => Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                self.agent_loop_id.clone(),
+                ExecutionType::AgentLoop,
+            )),
         }
     }
 }

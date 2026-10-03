@@ -5,7 +5,9 @@
 //! notification barrier completes before the engine moves on. The pipeline
 //! itself carries no behavior — filtering (condition / enabled / priority),
 //! payload resolution and ordered notification only; behavior lives in
-//! registered [`HookHandler`]s.
+//! registered [`HookHandler`]s. Notification uses one global priority order
+//! across static and dynamic handlers so a high-priority dynamic handler
+//! can precede a low-priority static one.
 
 use serde_json::Value;
 use tracing::warn;
@@ -22,6 +24,9 @@ use crate::hooks::types::{HookContext, HookDefinition, HookOutcome};
 #[derive(Debug, Clone)]
 pub struct HandlerResult {
     pub name: String,
+    /// Static definition this notification was resolved from, if any.
+    /// Dynamically registered type handlers carry no definition.
+    pub hook_id: Option<String>,
     pub outcome: HookOutcome,
     pub duration_ms: i64,
     /// Panic / unresolvable handler description; `None` on success.
@@ -40,6 +45,13 @@ pub struct FireSummary {
     pub payloads: Vec<Value>,
     pub priorities: Vec<i32>,
     pub handler_results: Vec<HandlerResult>,
+    /// Ids of the static definitions that passed evaluation (enabled +
+    /// condition) for this fire, in priority order. Checkpoint opt-in is
+    /// honored only for these ids: an opted-in definition whose condition
+    /// failed requests no snapshot. Handlerless definitions are included
+    /// (a pure snapshot request needs no handler); dynamically registered
+    /// type handlers carry no definition and never appear here.
+    pub matched_hook_ids: Vec<String>,
     pub duration_ms: i64,
     pub outcome: HookOutcome,
 }
@@ -53,36 +65,65 @@ impl FireSummary {
             HookOutcome::Continue => None,
         }
     }
+
+    /// Per-handler veto reasons in notification order. The aggregated
+    /// outcome joins these, but gate callers needing attribution should
+    /// read this list alongside `handler_results`.
+    pub fn vetoed_reasons(&self) -> Vec<&str> {
+        self.handler_results
+            .iter()
+            .filter_map(|r| match &r.outcome {
+                HookOutcome::Veto { reason } => Some(reason.as_str()),
+                HookOutcome::Continue => None,
+            })
+            .collect()
+    }
+
+    /// Formatted gate rejection detail for the fired point, `None` on
+    /// `Continue` and `None` at non-gate points (a veto there is observed,
+    /// never blocking). Keeps the two gate paths on one wording so audit and
+    /// user-facing rejections cannot drift apart.
+    pub fn gate_rejection_detail(&self) -> Option<String> {
+        if !wf_types::hook::is_gate_hook(&self.hook_type) {
+            return None;
+        }
+        self.vetoed_reason()
+            .map(|reason| format!("hook veto at {}: {reason}", self.hook_type))
+    }
 }
 
 /// Fire a hook point:
 ///
 /// 1. statically evaluate the hook definitions of `hook_type`
 ///    (condition / enabled / priority filtering) and resolve payload templates;
-/// 2. synchronously notify every handler that passes evaluation — the
-///    `handler`-named handlers of the static definitions first, then the
-///    handlers dynamically registered on the hook type. Priority orders only
-///    within each population (descending); a zero-priority static definition
-///    still notifies before a high-priority dynamic handler. Priority never
-///    decides whether a handler runs and never crosses populations; its
-///    only semantic-grade effect is the notification order (hence the audit
-///    summary order and the veto-reason join order).
-///    Both populations share one evaluation semantic: the same condition
-///    language over the same context data, and a failing condition skips
-///    the handler, never the engine;
+/// 2. synchronously notify every handler that passes evaluation in one
+///    global priority order: static `handler`-named definitions and
+///    dynamically registered type handlers merge into a single queue sorted
+///    by priority descending with stable insertion order for ties.
+///    Priority never decides whether a handler runs; its only effect is the
+///    notification order (hence the audit summary order and the veto-reason
+///    join order). Both populations share one evaluation semantic: the same
+///    condition language over the same context data, and a failing condition
+///    skips the handler, never the engine;
 /// 3. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
 ///    per-handler results. The aggregated outcome is `Veto` when at least
 ///    one notified handler vetoed; only gate points act on it (`Continue`
-///    otherwise, including panicking and unresolvable handlers: gates fail
-///    open on infrastructure gaps; a handler that wants to deny on its own
-///    slow path returns the `Veto` itself).
+///    otherwise, including panicking, timed-out and unresolvable handlers:
+///    gates fail open on infrastructure gaps; a handler that wants to deny
+///    on its own slow path returns the `Veto` itself).
 ///
-/// Ordering guarantee: every handler settles (panics are contained by the
-/// registry) before the audit event is published, so a trigger template
-/// matching the audit event always starts after the synchronous handlers.
-/// The engine awaits the handler barrier but never waits for trigger
-/// execution: trigger completion is unordered relative to the engine's next
-/// step, and trigger effects must commute with it.
+/// Ordering guarantee: every handler settles (panics, timeouts and
+/// cancellations are contained by the registry) before the audit event is
+/// published, so a trigger template matching the audit event always starts
+/// after the synchronous handlers. The engine awaits the handler barrier
+/// but never waits for trigger execution: trigger completion is unordered
+/// relative to the engine's next step, and trigger effects must commute
+/// with it.
+///
+/// Caller contract: `hook_type` must equal `ctx.hook_type`. Filtering uses
+/// the argument while the audit event is published under the context type,
+/// so a mismatch would filter one point and record another (debug builds
+/// assert this).
 pub async fn fire(
     registry: &HookHandlerRegistry,
     hooks: &[HookDefinition],
@@ -90,6 +131,11 @@ pub async fn fire(
     ctx: &HookContext,
     event_bus: Option<&EventBus>,
 ) -> FireSummary {
+    debug_assert_eq!(
+        hook_type,
+        ctx.hook_type,
+        "fire hook_type must match the context hook type; audit is published under the context type"
+    );
     let started = wf_common::now();
 
     let mut payloads: Vec<Value> = Vec::new();
@@ -129,53 +175,55 @@ pub async fn fire(
         matched.push(hook);
     }
 
-    // Static definitions with an explicit handler name are notified in
-    // priority order; unresolvable names are reported, never fatal. Handlers
-    // complete before the audit event below is published, so the
-    // asynchronous trigger path off that event always starts after the
-    // synchronous notification (trigger completion itself is not awaited).
-    let mut handler_results: Vec<HandlerResult> = Vec::new();
+    if registry.is_shared_fallback()
+        && (matched.iter().any(|h| h.handler.is_some())
+            || wf_types::hook::hook_requires_handler(hook_type))
+    {
+        warn!(
+            hook_type = %hook_type,
+            execution_id = %ctx.execution_id,
+            "hook fired with the shared fallback registry while a handler is expected; running audit-only"
+        );
+    }
+
+    enum PendingNotify {
+        Ready(crate::hooks::registry::RegisteredHandler),
+        Missing { name: String, hook_id: String },
+    }
+
+    struct OrderedNotify {
+        priority: i32,
+        order: usize,
+        hook_id: Option<String>,
+        pending: PendingNotify,
+    }
+
+    let mut ordered: Vec<OrderedNotify> = Vec::new();
     for def in &matched {
+        let hook_id = def.id.to_string();
         let Some(name) = def.handler.as_deref() else {
             continue;
         };
-        tracing::debug!(
-            hook_id = %def.id,
-            handler = %name,
-            hook_type = %def.hook_type,
-            "hook handler runs synchronously before the HOOK_TRIGGERED audit event; a matching trigger template starts after the handler barrier and is not awaited"
-        );
-        match registry.get(name) {
-            Some(handler) => {
-                let registered = crate::hooks::registry::RegisteredHandler {
-                    name: name.to_string(),
-                    priority: def.priority,
-                    handler,
-                    condition: None,
-                };
-                handler_results.push(registry.notify(ctx, &registered).await);
-            }
-            None => {
-                warn!(
-                    hook_id = %def.id,
-                    handler = %name,
-                    "hook handler '{}' is not registered, skipping",
-                    name
-                );
-                handler_results.push(HandlerResult {
-                    name: name.to_string(),
-                    outcome: HookOutcome::Continue,
-                    duration_ms: 0,
-                    error: Some("handler not registered".to_string()),
-                });
-            }
-        }
+        let pending = match registry.get(name) {
+            Some(handler) => PendingNotify::Ready(crate::hooks::registry::RegisteredHandler {
+                name: name.to_string(),
+                priority: def.priority,
+                handler,
+                condition: None,
+            }),
+            None => PendingNotify::Missing {
+                name: name.to_string(),
+                hook_id: def.id.to_string(),
+            },
+        };
+        ordered.push(OrderedNotify {
+            priority: def.priority,
+            order: ordered.len(),
+            hook_id: Some(hook_id),
+            pending,
+        });
     }
 
-    // Dynamically registered handlers for the hook type, priority descending.
-    // Same evaluation semantic as static definitions: the optional
-    // registration condition is checked against the same context data, and
-    // a failing condition skips the handler, never the engine.
     for registered in registry.for_type(hook_type) {
         match evaluate_hook_condition(registered.condition.as_deref(), &ctx.data) {
             Ok(true) => {}
@@ -190,7 +238,59 @@ pub async fn fire(
                 continue;
             }
         }
-        handler_results.push(registry.notify(ctx, &registered).await);
+        let priority = registered.priority;
+        ordered.push(OrderedNotify {
+            priority,
+            order: ordered.len(),
+            hook_id: None,
+            pending: PendingNotify::Ready(registered),
+        });
+    }
+
+    ordered.sort_by(|a, b| {
+        b.priority
+            .cmp(&a.priority)
+            .then_with(|| a.order.cmp(&b.order))
+    });
+
+    let mut handler_results: Vec<HandlerResult> = Vec::new();
+    for item in ordered {
+        match item.pending {
+            PendingNotify::Ready(registered) => {
+                tracing::debug!(
+                    handler = %registered.name,
+                    hook_type = %hook_type,
+                    "hook handler runs synchronously before the HOOK_TRIGGERED audit event; a matching trigger template starts after the handler barrier and is not awaited"
+                );
+                let mut result = registry.notify(ctx, &registered).await;
+                result.hook_id = item.hook_id;
+                handler_results.push(result);
+            }
+            PendingNotify::Missing { name, hook_id } => {
+                if wf_types::hook::is_gate_hook(hook_type) {
+                    tracing::error!(
+                        hook_id = %hook_id,
+                        handler = %name,
+                        "hook handler '{}' is not registered, gate allows by fail-open; fix the handler name",
+                        name
+                    );
+                } else {
+                    warn!(
+                        hook_id = %hook_id,
+                        handler = %name,
+                        "hook handler '{}' is not registered, skipping",
+                        name
+                    );
+                }
+                handler_results.push(HandlerResult {
+                    name,
+                    hook_id: Some(hook_id),
+                    outcome: HookOutcome::Continue,
+                    duration_ms: 0,
+                    error: Some("handler not registered".to_string()),
+                });
+            }
+        }
     }
 
     let duration_ms = wf_common::now() - started;
@@ -223,6 +323,7 @@ pub async fn fire(
         payloads,
         priorities,
         handler_results,
+        matched_hook_ids: matched.iter().map(|h| h.id.clone()).collect(),
         duration_ms,
         outcome,
     };
@@ -269,9 +370,13 @@ mod tests {
     }
 
     fn ctx() -> HookContext {
+        ctx_of("TEST")
+    }
+
+    fn ctx_of(hook_type: &str) -> HookContext {
         HookContext {
             execution_id: Id::from("exec-1".to_string()),
-            hook_type: "TEST".to_string(),
+            hook_type: hook_type.to_string(),
             data: HashMap::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
         }
@@ -595,10 +700,265 @@ mod tests {
         let registry = HookHandlerRegistry::new();
         let bus = Arc::new(EventBus::new(16));
         let mut sub = bus.subscribe();
-        fire(&registry, &[], "UNCONFIGURED", &ctx(), Some(&bus)).await;
+        fire(
+            &registry,
+            &[],
+            "UNCONFIGURED",
+            &ctx_of("UNCONFIGURED"),
+            Some(&bus),
+        )
+        .await;
         assert!(
             sub.try_recv().is_err(),
             "no event when nothing matched and no handler registered"
         );
+    }
+
+    #[tokio::test]
+    async fn trigger_closed_fire_without_handlers_skips_audit() {
+        let registry = HookHandlerRegistry::new();
+        let bus = Arc::new(EventBus::new(16));
+        let mut sub = bus.subscribe();
+        let hooks = vec![hook_def("BEFORE_EXECUTE", 1, None)];
+        let ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        };
+        let summary = fire(&registry, &hooks, "BEFORE_EXECUTE", &ctx, Some(&bus)).await;
+        assert_eq!(summary.handler_results.len(), 0);
+        assert!(
+            sub.try_recv().is_err(),
+            "trigger-closed fire with no notified handler publishes no audit event"
+        );
+    }
+
+    #[tokio::test]
+    async fn gate_detail_is_none_at_non_gate_points() {
+        let registry = HookHandlerRegistry::new();
+        struct VetoHandler;
+        #[async_trait::async_trait]
+        impl HookHandler for VetoHandler {
+            fn name(&self) -> &str {
+                "observer"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Veto {
+                    reason: "observed denial".to_string(),
+                }
+            }
+        }
+        registry.register("AFTER_TOOL_CALL", Arc::new(VetoHandler), 1);
+        let summary = fire(
+            &registry,
+            &[],
+            "AFTER_TOOL_CALL",
+            &ctx_of("AFTER_TOOL_CALL"),
+            None,
+        )
+        .await;
+        assert!(summary.outcome.is_veto());
+        assert_eq!(
+            summary.gate_rejection_detail(),
+            None,
+            "non-gate veto is observed, never a gate rejection"
+        );
+    }
+
+    #[tokio::test]
+    async fn gate_detail_and_reasons_stay_structured() {
+        let registry = HookHandlerRegistry::new();
+        struct FirstVeto;
+        struct SecondVeto;
+        #[async_trait::async_trait]
+        impl HookHandler for FirstVeto {
+            fn name(&self) -> &str {
+                "first"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Veto {
+                    reason: "first denial".to_string(),
+                }
+            }
+        }
+        #[async_trait::async_trait]
+        impl HookHandler for SecondVeto {
+            fn name(&self) -> &str {
+                "second"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Veto {
+                    reason: "second denial".to_string(),
+                }
+            }
+        }
+        registry.register("BEFORE_TOOL_CALL", Arc::new(FirstVeto), 1);
+        registry.register("BEFORE_TOOL_CALL", Arc::new(SecondVeto), 1);
+
+        let summary = fire(
+            &registry,
+            &[],
+            "BEFORE_TOOL_CALL",
+            &ctx_of("BEFORE_TOOL_CALL"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            summary.vetoed_reasons(),
+            vec!["first denial", "second denial"]
+        );
+        assert_eq!(summary.vetoed_reason(), Some("first denial; second denial"));
+        assert_eq!(
+            summary.gate_rejection_detail(),
+            Some("hook veto at BEFORE_TOOL_CALL: first denial; second denial".to_string())
+        );
+
+        let workflow_summary = fire(
+            &registry,
+            &[],
+            "BEFORE_EXECUTE",
+            &ctx_of("BEFORE_EXECUTE"),
+            None,
+        )
+        .await;
+        assert_eq!(workflow_summary.gate_rejection_detail(), None);
+        assert!(summary
+            .gate_rejection_detail()
+            .is_some_and(|detail| { detail.starts_with("hook veto at BEFORE_TOOL_CALL: ") }));
+    }
+
+    #[tokio::test]
+    async fn both_gate_points_share_one_rejection_wording() {
+        let registry = HookHandlerRegistry::new();
+        struct Deny;
+        #[async_trait::async_trait]
+        impl HookHandler for Deny {
+            fn name(&self) -> &str {
+                "deny"
+            }
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
+                HookOutcome::Veto {
+                    reason: "denied".to_string(),
+                }
+            }
+        }
+        registry.register("BEFORE_TOOL_CALL", Arc::new(Deny), 1);
+        let tool_summary = fire(
+            &registry,
+            &[],
+            "BEFORE_TOOL_CALL",
+            &ctx_of("BEFORE_TOOL_CALL"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            tool_summary.gate_rejection_detail(),
+            Some("hook veto at BEFORE_TOOL_CALL: denied".to_string())
+        );
+
+        let registry = HookHandlerRegistry::new();
+        registry.register("BEFORE_EXECUTE", Arc::new(Deny), 1);
+        let exec_ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        };
+        let exec_summary = fire(&registry, &[], "BEFORE_EXECUTE", &exec_ctx, None).await;
+        assert_eq!(
+            exec_summary.gate_rejection_detail(),
+            Some("hook veto at BEFORE_EXECUTE: denied".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn notification_uses_global_priority_order_with_stable_ties() {
+        let registry = HookHandlerRegistry::new();
+        registry.register(
+            "TEST",
+            Arc::new(CounterHandler {
+                name: "dyn-high",
+                calls: Arc::new(AtomicU32::new(0)),
+                outcome: HookOutcome::Continue,
+            }),
+            10,
+        );
+        registry.register(
+            "OTHER",
+            Arc::new(CounterHandler {
+                name: "static-low-target",
+                calls: Arc::new(AtomicU32::new(0)),
+                outcome: HookOutcome::Continue,
+            }),
+            0,
+        );
+        let hooks = vec![hook_def("TEST", 1, Some("static-low-target"))];
+        let summary = fire(&registry, &hooks, "TEST", &ctx(), None).await;
+        assert_eq!(summary.handler_results.len(), 2);
+        assert_eq!(summary.handler_results[0].name, "dyn-high");
+        assert_eq!(summary.handler_results[1].name, "static-low-target");
+
+        let registry = HookHandlerRegistry::new();
+        let static_calls = Arc::new(AtomicU32::new(0));
+        let dynamic_calls = Arc::new(AtomicU32::new(0));
+        registry.register(
+            "OTHER",
+            Arc::new(CounterHandler {
+                name: "static-target",
+                calls: static_calls.clone(),
+                outcome: HookOutcome::Continue,
+            }),
+            0,
+        );
+        registry.register(
+            "TIE",
+            Arc::new(CounterHandler {
+                name: "dyn-tie",
+                calls: dynamic_calls.clone(),
+                outcome: HookOutcome::Continue,
+            }),
+            5,
+        );
+        let tie_ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "TIE".to_string(),
+            data: HashMap::new(),
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        };
+        let hooks = vec![hook_def("TIE", 5, Some("static-target"))];
+        let summary = fire(&registry, &hooks, "TIE", &tie_ctx, None).await;
+        assert_eq!(summary.handler_results.len(), 2);
+        assert_eq!(summary.handler_results[0].name, "static-target");
+        assert_eq!(summary.handler_results[1].name, "dyn-tie");
+    }
+
+    #[tokio::test]
+    async fn matched_ids_cover_condition_passed_definitions_only() {
+        let registry = HookHandlerRegistry::new();
+        let passed = HookDefinition {
+            id: Id::from("h-passed".to_string()),
+            hook_type: "TEST".to_string(),
+            priority: 1,
+            condition: None,
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint: Some(true),
+            checkpoint_description: None,
+        };
+        let filtered = HookDefinition {
+            id: Id::from("h-filtered".to_string()),
+            hook_type: "TEST".to_string(),
+            priority: 1,
+            condition: Some("missing_flag".to_string()),
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint: Some(true),
+            checkpoint_description: None,
+        };
+        let summary = fire(&registry, &[passed, filtered], "TEST", &ctx(), None).await;
+        assert_eq!(summary.matched_hook_ids, vec!["h-passed".to_string()]);
     }
 }

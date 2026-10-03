@@ -253,10 +253,7 @@ pub fn optional_column(parameters: &Value) -> Result<Option<usize>, String> {
     match parameters.get("column") {
         None | Some(Value::Null) => Ok(None),
         Some(value) => {
-            let valid = value
-                .as_u64()
-                .filter(|n| *n >= 1)
-                .map(|n| n as usize);
+            let valid = value.as_u64().filter(|n| *n >= 1).map(|n| n as usize);
             match valid {
                 Some(n) => Ok(Some(n)),
                 None => Err("Invalid 'column' parameter (1-based)".to_string()),
@@ -473,7 +470,9 @@ mod tests {
         assert!(require_path(&serde_json::json!({})).is_err());
         assert!(require_line(&serde_json::json!({"line": 2})).is_ok());
         assert!(require_line(&serde_json::json!({"line": 0})).is_err());
-        assert!(optional_column(&serde_json::json!({})).expect("absent column").is_none());
+        assert!(optional_column(&serde_json::json!({}))
+            .expect("absent column")
+            .is_none());
         assert!(optional_column(&serde_json::json!({"column": 3}))
             .expect("valid column")
             .is_some());

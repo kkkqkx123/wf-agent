@@ -18,8 +18,8 @@ pub use dynamic::{
 };
 pub use predefined::resource_assembler::{GoalReviewConfig, GoalReviewResourceAssembler};
 pub use predefined::tool_visibility::{
-    builtin_tool_visibility_templates, ACTIVATION_TEMPLATE_ID, BLOCK_TEMPLATE_ID,
-    DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_TEMPLATE_ID,
+    builtin_tool_visibility_templates, generic_visibility_text, ACTIVATION_TEMPLATE_ID,
+    BLOCK_TEMPLATE_ID, DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_TEMPLATE_ID,
 };
 pub use registry::{
     are_fragments_registered, are_predefined_tool_descriptions_registered,

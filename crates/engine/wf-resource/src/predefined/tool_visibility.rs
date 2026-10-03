@@ -26,6 +26,24 @@ pub const DISCOVERABLE_METADATA_CONTENT: &str =
     "Discoverable tools:\n{{tool_list}}\nInvoke them via the general tool.";
 pub const GENERAL_DESCRIPTION_CONTENT: &str = "Invoke tools whose schemas are not directly exposed. The request body is a JSON object {\"tool\": \"tool_name\", \"parameters\": {...}} passed as the `request` parameter, e.g.:\n{{invoke_example}}\nThe inner tool is interpreted and executed server-side.";
 
+/// Single truth for the generic (non-activation/block) visibility wording
+/// used when an action has no dedicated template. Callers format the
+/// tool list via [`generic_visibility_text`] so the wording stays here.
+pub const GENERIC_VISIBILITY_CONTENT: &str = "Tool visibility changed ({{action}}):\n{{tool_names}}";
+
+/// Format the generic visibility text for an action and a pre-formatted
+/// tool list. Single source for the fallback wording in render paths
+/// that have no dedicated template.
+pub fn generic_visibility_text(action: &str, tool_list: &str) -> String {
+    wf_common::template::apply_template_variables(
+        GENERIC_VISIBILITY_CONTENT,
+        &std::collections::HashMap::from([
+            ("action".to_string(), action.to_string()),
+            ("tool_names".to_string(), tool_list.to_string()),
+        ]),
+    )
+}
+
 /// Built-in template texts (mirror of the previous hardcoded strings).
 pub fn builtin_tool_visibility_templates() -> Vec<Template> {
     vec![

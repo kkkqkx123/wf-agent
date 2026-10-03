@@ -29,7 +29,7 @@ fn build_visibility_message(
         "unblock" => wf_resource::ACTIVATION_TEMPLATE_ID,
         _ => {
             let list: Vec<String> = tools.iter().map(|t| format!("- {}", t)).collect();
-            return format!("Tool visibility changed ({}):\n{}", action, list.join("\n"));
+            return wf_resource::generic_visibility_text(action, &list.join("\n"));
         }
     };
     let tool_names = if action == "unblock" {
@@ -43,7 +43,7 @@ fn build_visibility_message(
     };
     let vars = std::collections::HashMap::from([("tool_names".to_string(), tool_names)]);
     let fallback = wf_resource::render_builtin_visibility_fallback(template_id, &vars)
-        .unwrap_or_else(|| format!("Tool visibility changed ({}): {}", action, tools.join(", ")));
+        .unwrap_or_else(|| wf_resource::generic_visibility_text(action, &tools.join(", ")));
     wf_resource::render_visibility_message_with_metrics(
         regs,
         template_id,

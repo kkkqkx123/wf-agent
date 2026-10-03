@@ -51,7 +51,7 @@ fn child_input() -> AgentLoopInput {
 }
 
 fn success_executor(result: serde_json::Value) -> wf_agent::trigger::AgentExecutorCallback {
-    Arc::new(move |_config, _input| {
+    Arc::new(move |_config, _input, _parent| {
         let result = result.clone();
         Box::pin(async move {
             Ok(AgentLoopOutput {
@@ -66,7 +66,7 @@ fn success_executor(result: serde_json::Value) -> wf_agent::trigger::AgentExecut
 }
 
 fn failing_executor() -> wf_agent::trigger::AgentExecutorCallback {
-    Arc::new(|_config, _input| {
+    Arc::new(|_config, _input, _parent| {
         Box::pin(async move {
             Err(wf_agent::error::AgentError::Internal(
                 "child boom".to_string(),
@@ -153,7 +153,7 @@ async fn async_child_submits_immediately_and_writes_back() {
     let p = parent();
     let counter = Arc::new(AtomicU32::new(0));
     let clone = counter.clone();
-    let executor: wf_agent::trigger::AgentExecutorCallback = Arc::new(move |_c, _i| {
+    let executor: wf_agent::trigger::AgentExecutorCallback = Arc::new(move |_c, _i, _parent| {
         let counter = clone.clone();
         Box::pin(async move {
             counter.fetch_add(1, Ordering::SeqCst);
@@ -211,7 +211,7 @@ async fn async_child_submits_immediately_and_writes_back() {
 #[tokio::test]
 async fn sync_child_timeout_is_reported() {
     let p = parent();
-    let executor: wf_agent::trigger::AgentExecutorCallback = Arc::new(|_c, _i| {
+    let executor: wf_agent::trigger::AgentExecutorCallback = Arc::new(|_c, _i, _parent| {
         Box::pin(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             Ok(AgentLoopOutput {
@@ -241,6 +241,65 @@ async fn sync_child_timeout_is_reported() {
         .await;
     assert!(result.is_err());
     assert_eq!(p.child_ids().len(), 0);
+}
+
+#[tokio::test]
+async fn child_links_through_typed_parent_without_context_string() {
+    use std::sync::Mutex;
+
+    let p = parent();
+    let seen: Arc<Mutex<Option<(String, bool, u32)>>> = Arc::new(Mutex::new(None));
+    let seen_clone = seen.clone();
+    let executor: wf_agent::trigger::AgentExecutorCallback =
+        Arc::new(move |_c, _input, parent| {
+            let seen_clone = seen_clone.clone();
+            Box::pin(async move {
+                *seen_clone.lock().unwrap() = parent.map(|link| {
+                    (
+                        link.execution_id.to_string(),
+                        link.cancellation.is_some(),
+                        link.manager.depth(),
+                    )
+                });
+                Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child".to_string()),
+                    result: serde_json::Value::from("ok"),
+                    iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
+                    conversation: Vec::new(),
+                })
+            })
+        });
+    // Seed a stale parent id string in the input: parentage must follow
+    // the typed link, never the string.
+    let mut seeded = child_input();
+    seeded.context.insert(
+        "parent_execution_id".to_string(),
+        serde_json::Value::from("someone-else"),
+    );
+    let manager = TriggeredAgentExecutionManager::new(executor);
+    manager
+        .submit_triggered_execution(
+            TriggeredAgentExecutionConfig {
+                parent: p.clone(),
+                result_variable: "trigger_result".to_string(),
+                wait_for_completion: true,
+                timeout_ms: Some(5000),
+                anchor: None,
+                input_mode: Default::default(),
+                writeback: Default::default(),
+            },
+            child_config("child-link"),
+            seeded,
+        )
+        .await
+        .expect("sync child must succeed");
+
+    assert_eq!(
+        *seen.lock().unwrap(),
+        Some(("parent-1".to_string(), true, 0)),
+        "child must receive the live parent link (id, abort signal, depth)"
+    );
 }
 
 #[test]

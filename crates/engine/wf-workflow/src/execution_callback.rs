@@ -13,7 +13,7 @@ use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_tools::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
-    SpawnedWorkflow, WorkflowInput, WorkflowOutput,
+    ParentLink, SpawnedWorkflow, WorkflowInput, WorkflowOutput,
 };
 use wf_tools::error::{ToolError, ToolResult};
 use wf_tools::registry::ToolRegistry;
@@ -272,12 +272,27 @@ impl WorkflowExecutionCallback {
         &self,
         workflow_id: &str,
         options: WorkflowExecutionOptions,
+        parent: Option<ParentLink>,
     ) -> WorkflowResult<WorkflowOutput> {
         let execution_id = wf_common::generate_id();
-        let entity = Arc::new(WorkflowExecutionEntity::new(
+        let mut entity = WorkflowExecutionEntity::new(
             execution_id.clone(),
             Id::from(workflow_id.to_string()),
-        ));
+        );
+        // Link the child workflow under the calling execution through the
+        // typed link; without a link it runs as a root workflow.
+        if let Some(link) = parent.as_ref() {
+            let child_manager = link
+                .manager
+                .derive_child(
+                    Id::from(execution_id.clone()),
+                    wf_types::execution::ExecutionType::Workflow,
+                    None,
+                )
+                .map_err(|e| WorkflowError::CoordinatorError(e.to_string()))?;
+            entity = entity.with_hierarchy_manager(child_manager);
+        }
+        let entity = Arc::new(entity);
         let _ = self.executions.register(execution_id.to_string(), entity);
 
         let params = self.build_params(workflow_id, execution_id.clone(), options, None)?;
@@ -300,6 +315,7 @@ impl WorkflowExecutionCallback {
         &self,
         workflow_id: &str,
         input: WorkflowInput,
+        parent: Option<ParentLink>,
     ) -> WorkflowResult<SpawnedWorkflow> {
         if !self.graphs.has(workflow_id) {
             return Err(WorkflowError::CoordinatorError(format!(
@@ -315,11 +331,38 @@ impl WorkflowExecutionCallback {
         };
 
         let execution_id = wf_common::generate_id();
-        let entity = Arc::new(WorkflowExecutionEntity::new(
+        let mut entity = WorkflowExecutionEntity::new(
             execution_id.clone(),
             Id::from(workflow_id.to_string()),
-        ));
+        );
+        // Link the child workflow under the calling execution through the
+        // typed link; without a link it runs as a root workflow.
+        if let Some(link) = parent.as_ref() {
+            let child_manager = link
+                .manager
+                .derive_child(
+                    Id::from(execution_id.clone()),
+                    wf_types::execution::ExecutionType::Workflow,
+                    None,
+                )
+                .map_err(|e| WorkflowError::CoordinatorError(e.to_string()))?;
+            entity = entity.with_hierarchy_manager(child_manager);
+        }
+        let entity = Arc::new(entity);
         let _ = self.executions.register(execution_id.to_string(), entity);
+
+        // Parent cancellation propagation: stopping the parent stops the
+        // spawned workflow too.
+        if let Some(token) = parent.as_ref().and_then(|link| link.cancellation.clone()) {
+            let executions = self.executions.clone();
+            let spawned_id = execution_id.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                if let Some(entity) = executions.get(&spawned_id) {
+                    let _ = entity.stop().await;
+                }
+            });
+        }
 
         let params = self.build_params(
             workflow_id,
@@ -407,7 +450,31 @@ impl ExecutionCallback for WorkflowExecutionCallback {
             Some(Value::Object(input.variables.into_iter().collect()))
         };
 
-        self.launch(workflow_id, default_options(variables))
+        self.launch(workflow_id, default_options(variables), None)
+            .await
+            .map_err(|e| ToolError::ExecutionError(e.to_string()))
+    }
+
+    async fn execute_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<WorkflowOutput> {
+        if !self.graphs.has(workflow_id) {
+            return Err(ToolError::NotFound(format!(
+                "workflow {} is not registered",
+                workflow_id
+            )));
+        }
+
+        let variables = if input.variables.is_empty() {
+            None
+        } else {
+            Some(Value::Object(input.variables.into_iter().collect()))
+        };
+
+        self.launch(workflow_id, default_options(variables), parent)
             .await
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
@@ -417,7 +484,18 @@ impl ExecutionCallback for WorkflowExecutionCallback {
         workflow_id: &str,
         input: WorkflowInput,
     ) -> ToolResult<SpawnedWorkflow> {
-        self.spawn_workflow(workflow_id, input)
+        self.spawn_workflow(workflow_id, input, None)
+            .await
+            .map_err(|e| ToolError::ExecutionError(e.to_string()))
+    }
+
+    async fn spawn_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedWorkflow> {
+        self.spawn_workflow(workflow_id, input, parent)
             .await
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
@@ -593,6 +671,7 @@ mod tests {
                 WorkflowInput {
                     variables: HashMap::from([("greeting".to_string(), serde_json::json!("hi"))]),
                 },
+                None,
             )
             .await
             .expect("spawn must return immediately");
@@ -657,6 +736,7 @@ mod tests {
                 WorkflowInput {
                     variables: HashMap::new(),
                 },
+                None,
             )
             .await
             .expect_err("unknown workflow must fail");

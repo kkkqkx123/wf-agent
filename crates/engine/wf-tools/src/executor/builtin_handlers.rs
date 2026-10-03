@@ -152,25 +152,24 @@ impl BuiltinToolHandler for CallAgentHandler {
 
         let input = AgentLoopInput {
             message: params.prompt,
-            context: {
-                let mut m = HashMap::new();
-                m.insert(
-                    "parent_execution_id".into(),
-                    Value::String(context.execution_id.clone()),
-                );
-                m
-            },
+            context: HashMap::new(),
             // Passed through verbatim: the coordinator normalizes the inbound
             // conversation to the sub-agent's target exposure once at entity
             // build, so parent bucket shapes never leak into the child schema.
             conversation: params.conversation,
         };
+        // The parent association travels as a typed link captured at the
+        // call site, never as a bare id string: the child links to the
+        // execution that was live when the tool ran, whatever its type.
+        let parent = context.parent_link.clone();
 
         // Async dispatch: hand the execution to the engine's spawn path and
         // return a handle immediately; the result is retrieved through
         // query_workflow_status (polling).
         if !params.wait {
-            let spawned = callback.spawn_agent_loop(config, input).await?;
+            let spawned = callback
+                .spawn_agent_loop_with_parent(config, input, parent)
+                .await?;
             return Ok(serde_json::json!({
                 "agent_id": spawned.agent_loop_id,
                 "execution_id": spawned.execution_id,
@@ -178,7 +177,9 @@ impl BuiltinToolHandler for CallAgentHandler {
             }));
         }
 
-        let output = callback.execute_agent_loop(config, input).await?;
+        let output = callback
+            .execute_agent_loop_with_parent(config, input, parent)
+            .await?;
 
         Ok(serde_json::json!({
             "result": output.result,
@@ -199,7 +200,7 @@ impl BuiltinToolHandler for ExecuteWorkflowHandler {
     async fn handle(
         &self,
         parameters: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
         resources: &BuiltinHandlerResources,
     ) -> ToolResult<Value> {
         let callback = resolve_callback(resources, self.tool_name())?;
@@ -211,12 +212,18 @@ impl BuiltinToolHandler for ExecuteWorkflowHandler {
         let input = WorkflowInput {
             variables: params.input,
         };
+        // The child workflow links under the calling execution through the
+        // same typed channel as `call_agent`; without a link it runs as a
+        // root workflow.
+        let parent = context.parent_link.clone();
 
         // Async dispatch: hand the execution to the engine's spawn path and
         // return a handle immediately; the result is retrieved through
         // query_workflow_status (polling).
         if !params.wait {
-            let spawned = callback.spawn_workflow(&params.workflow_id, input).await?;
+            let spawned = callback
+                .spawn_workflow_with_parent(&params.workflow_id, input, parent)
+                .await?;
             return Ok(serde_json::json!({
                 "execution_id": spawned.execution_id,
                 "status": spawned.status,
@@ -224,7 +231,7 @@ impl BuiltinToolHandler for ExecuteWorkflowHandler {
         }
 
         let output = callback
-            .execute_workflow(&params.workflow_id, input)
+            .execute_workflow_with_parent(&params.workflow_id, input, parent)
             .await?;
 
         Ok(serde_json::json!({

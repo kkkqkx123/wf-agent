@@ -583,10 +583,13 @@ impl Runtime {
         // Register every registered workflow template so the execute_workflow
         // tool can resolve it at runtime. Definition-level hooks travel with
         // the template and are executed per node (BEFORE_EXECUTE /
-        // AFTER_EXECUTE).
+        // AFTER_EXECUTE). The same executable graph also goes into the
+        // process-wide graph registry, which is where SUBGRAPH nodes resolve
+        // their child workflow by id at execution time.
         for id in wf_core::registry::Registry::list(&registries.workflows) {
             if let Some(template) = wf_core::registry::Registry::get(&registries.workflows, &id) {
                 let graph = crate::trigger_listener::template_to_graph(&template);
+                wf_workflow::register_graph(&id, graph.clone());
                 let hooks = template
                     .definition
                     .hooks

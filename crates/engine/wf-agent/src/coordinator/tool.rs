@@ -283,6 +283,7 @@ impl ToolExecutionCoordinator {
             general_invoker: wf_common::lock::lock_ok(self.general_invoker.lock()).clone(),
             retry_budget: self.retry_budget.clone(),
             checkpoint_session: self.checkpoint_session.clone(),
+            parent_link: None,
             cancellation: None,
         }
     }
@@ -510,6 +511,11 @@ impl ToolExecutionCoordinator {
         let mut messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
         let mut run_ctx = self.run_ctx();
         run_ctx.cancellation = Some(self.batch_cancellation(entity));
+        run_ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            execution_id: entity.id().clone(),
+            manager: entity.hierarchy_manager(),
+            cancellation: run_ctx.cancellation.clone(),
+        });
         let batch_cancellation = self.batch_cancellation(entity);
 
         let mut executed_any = false;
@@ -727,6 +733,11 @@ impl ToolExecutionCoordinator {
         }
         let mut ctx = self.run_ctx();
         ctx.cancellation = Some(self.batch_cancellation(entity));
+        ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            execution_id: entity.id().clone(),
+            manager: entity.hierarchy_manager(),
+            cancellation: ctx.cancellation.clone(),
+        });
         match run_tool(&ctx, tc, entity.id(), &entity.state).await {
             Ok(msg) => (msg, None),
             Err(e) => (
@@ -743,6 +754,11 @@ impl ToolExecutionCoordinator {
     ) -> AgentResult<Message> {
         let mut ctx = self.run_ctx();
         ctx.cancellation = Some(self.batch_cancellation(entity));
+        ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            execution_id: entity.id().clone(),
+            manager: entity.hierarchy_manager(),
+            cancellation: ctx.cancellation.clone(),
+        });
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
             .unwrap_or_else(|e| {

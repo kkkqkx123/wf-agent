@@ -94,6 +94,11 @@ pub(crate) struct ToolRunCtx {
     /// from `checkpoint_handler` so callers cannot confuse execution-state
     /// snapshots with file-content checkpoints.
     pub(crate) checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    /// Live parent link of the owning execution, forwarded into the tool
+    /// context so dispatch tools (`call_agent` / `execute_workflow`) link
+    /// their children under this execution. Set per execution before
+    /// dispatch; `None` keeps root behavior.
+    pub(crate) parent_link: Option<wf_tools::callback::ParentLink>,
     /// Abort signal observed while a tool runs; `None` keeps plain tool
     /// behavior. Set from the owning entity before dispatch.
     pub(crate) cancellation: Option<tokio_util::sync::CancellationToken>,

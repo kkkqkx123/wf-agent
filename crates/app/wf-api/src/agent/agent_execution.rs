@@ -187,8 +187,9 @@ pub async fn cancel(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::erro
 /// which share the same store and chain).
 ///
 /// - `in_place = false` (default, branch): continues under a fresh execution
-///   id linked to the source via `parent_execution_id`; the source chain is
-///   never mutated.
+///   id linked to the source through the checkpoint lineage (live source
+///   registry first, snapshot-restored manager otherwise); the source chain
+///   is never mutated.
 /// - `in_place = true`: continues under the source execution id; the source
 ///   execution must be terminal or paused (a live run is rejected), and a
 ///   caller-preset loop id conflicting with the source is rejected.

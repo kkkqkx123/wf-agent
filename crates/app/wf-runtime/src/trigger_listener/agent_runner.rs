@@ -270,7 +270,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 // is recorded too (outcome `abandoned`), so "triggered but
                 // never completed" stays auditable.
                 tokio::spawn(async move {
-                    let run = executor(child_config, child_input);
+                    let run = executor(child_config, child_input, None);
                     let timed_run = async {
                         match timeout_ms {
                             Some(ms) => match tokio::time::timeout(
@@ -403,7 +403,7 @@ impl AgentTriggerRunner {
         // included), not at submission, so a cold-started child never leaves
         // a false success and never vanishes without a record.
         tokio::spawn(async move {
-            let run = executor(child_config, child_input);
+            let run = executor(child_config, child_input, None);
             let (outcome, error) = match timeout {
                 Some(ms) => {
                     tokio::select! {
@@ -479,7 +479,7 @@ mod tests {
 
         let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
         let seen_clone = seen.clone();
-        let executor: AgentExecutorCallback = Arc::new(move |config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(move |config, _input, _parent| {
             let seen_clone = seen_clone.clone();
             Box::pin(async move {
                 *wf_common::lock::lock_ok(seen_clone.lock()) =
@@ -586,7 +586,7 @@ mod tests {
 
         let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
         let seen_clone = seen.clone();
-        let executor: AgentExecutorCallback = Arc::new(move |config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(move |config, _input, _parent| {
             let seen_clone = seen_clone.clone();
             Box::pin(async move {
                 *wf_common::lock::lock_ok(seen_clone.lock()) =

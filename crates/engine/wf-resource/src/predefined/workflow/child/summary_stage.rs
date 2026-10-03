@@ -89,22 +89,18 @@ pub fn chain_subworkflow_config() -> TriggeredSubworkflowConfig {
 
 pub fn chain_metadata(extra_tags: &[&str]) -> WorkflowMetadata {
     let mut tags = vec![
-        "context".to_string(),
-        "compression".to_string(),
-        "fold".to_string(),
-        "summary".to_string(),
-        "token".to_string(),
-        "memory".to_string(),
-        "predefined".to_string(),
+        "context",
+        "compression",
+        "fold",
+        "summary",
+        "token",
+        "memory",
+        "predefined",
     ];
     for tag in extra_tags {
-        if !tags.iter().any(|t| t == tag) {
-            tags.push((*tag).to_string());
+        if !tags.contains(tag) {
+            tags.push(tag);
         }
     }
-    WorkflowMetadata {
-        author: Some("system".into()),
-        tags: Some(tags),
-        category: Some("system".into()),
-    }
+    super::super::workflow_metadata(&tags)
 }

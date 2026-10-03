@@ -64,8 +64,8 @@ pub struct AgentLoopCoordinator {
     /// absent. `config.agent_id` only identifies the agent definition.
     agent_loop_id: Option<Id>,
     /// Parent execution id linked onto the built entity (child run of a
-    /// parent agent/workflow). Read from `input.context["parent_execution_id"]`
-    /// by the executor; the field wins when both are present.
+    /// parent agent/workflow). The sole parent channel alongside
+    /// `parent_hierarchy_manager`; the input context carries no parentage.
     parent_execution_id: Option<Id>,
     parent_hierarchy_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
     /// Shared hook receiver registry: hook points dispatch through it
@@ -235,8 +235,7 @@ impl AgentLoopCoordinator {
         self
     }
 
-    /// Link the run to a parent execution (child association). The executor
-    /// prefers this value over `input.context["parent_execution_id"]`.
+    /// Link the run to a parent execution (child association).
     pub fn with_parent_execution_id(mut self, parent_id: Option<Id>) -> Self {
         self.parent_execution_id = parent_id;
         self
@@ -308,16 +307,32 @@ impl AgentLoopCoordinator {
                 ));
             }
         }
+        // Typed parent association, never a context string. A still-live
+        // source lends its authoritative manager (with the abort signal);
+        // otherwise the source manager is rebuilt from the checkpoint
+        // lineage, so a branch links correctly even when the source is gone
+        // from the registry (e.g. after a crash-restart).
+        let live_parent = self
+            .entity_registry
+            .as_ref()
+            .is_some_and(|registry| registry.get(&restore.agent_loop_id).is_some());
+        let mut branch_self = self
+            .clone()
+            .with_parent_execution_id(Some(restore.agent_loop_id.clone()));
+        if !live_parent {
+            branch_self =
+                branch_self.with_parent_hierarchy_manager(restore.restored_source_manager());
+            if branch_self.agent_loop_id.is_none() {
+                branch_self =
+                    branch_self.with_agent_loop_id(Id::from(wf_common::generate_id()));
+            }
+        }
         let mut branch_input = input;
-        branch_input.context.insert(
-            "parent_execution_id".to_string(),
-            Value::String(restore.agent_loop_id.to_string()),
-        );
         branch_input.context.insert(
             "branch_source_checkpoint".to_string(),
             Value::String(restore.source_checkpoint_id.clone()),
         );
-        let entity = Arc::new(self.build_entity(&config, branch_input).await?);
+        let entity = Arc::new(branch_self.build_entity(&config, branch_input).await?);
         {
             let mut state = entity.state.write().await;
             state.restore_from_snapshot(restore.state).await?;
@@ -330,7 +345,8 @@ impl AgentLoopCoordinator {
             .write()
             .await
             .restore_state(restore.conversation);
-        self.run_loop(&config, entity, prompt, IterationMode::Blocking, None)
+        branch_self
+            .run_loop(&config, entity, prompt, IterationMode::Blocking, None)
             .await
     }
 
@@ -385,7 +401,11 @@ impl AgentLoopCoordinator {
                 resume_input,
                 Some(restore.agent_loop_id.clone()),
             )
-            .await?,
+            .await?
+            // Keep the source's own lineage (depth, root, ancestors) instead
+            // of resetting to a root: the rebuilt run stands where the
+            // source stood, including across a crash-restart.
+            .with_hierarchy_manager(restore.restored_source_manager()),
         );
         {
             let mut state = entity.state.write().await;
@@ -475,7 +495,10 @@ impl AgentLoopCoordinator {
                 resume_input,
                 Some(restore.agent_loop_id.clone()),
             )
-            .await?,
+            .await?
+            // Same lineage preservation as in-place resume: the rebuilt run
+            // keeps the source's depth, root and ancestors.
+            .with_hierarchy_manager(restore.restored_source_manager()),
         );
         {
             let mut state = entity.state.write().await;

@@ -2,16 +2,20 @@ use serde_json::Value;
 
 use crate::transport::post_json;
 
-/// Maximum results returned to the model per call.
-const MAX_RESULTS: usize = 20;
-/// Maximum snippet characters kept per result.
-const MAX_SNIPPET_CHARS: usize = 2000;
+/// Fallback result count when neither the call nor the policy names one.
+pub const DEFAULT_RESULT_LIMIT: usize = 10;
+/// Caller-side ceiling mirroring the service hard limit; the service
+/// remains the final enforcer.
+pub const SERVICE_RESULT_CAP: usize = 100;
+/// Display guard for a single snippet; truncation is marked per result
+/// instead of applied silently.
+pub const MAX_SNIPPET_CHARS: usize = 2000;
 
-fn truncate_chars(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_string();
+pub(crate) fn truncate_snippet(text: &str) -> (String, bool) {
+    if text.chars().count() <= MAX_SNIPPET_CHARS {
+        return (text.to_string(), false);
     }
-    text.chars().take(max).collect()
+    (text.chars().take(MAX_SNIPPET_CHARS).collect(), true)
 }
 
 /// Build the hybrid search request body (pure adapter over the service
@@ -43,7 +47,13 @@ pub fn keyword_request_body(query: &str, project_id: i64, top_n: usize) -> Value
 }
 
 /// Reduce a hybrid search response to the model-facing shape.
-pub fn summarize_search_payload(payload: &Value, query: &str, limit: usize) -> Value {
+///
+/// Only navigation-safe fields are exposed: file path, line range, snippet,
+/// score plus informational type and source markers. Internal join keys
+/// (numeric entity ids, segment ids) stay inside the service boundary.
+/// The service already enforces the requested limit, so results are mapped
+/// as returned without a second client-side truncation.
+pub fn summarize_search_payload(payload: &Value, query: &str) -> Value {
     let items = payload
         .get("items")
         .and_then(|v| v.as_array())
@@ -55,14 +65,21 @@ pub fn summarize_search_payload(payload: &Value, query: &str, limit: usize) -> V
         .unwrap_or(items.len() as u64);
     let results: Vec<Value> = items
         .into_iter()
-        .take(limit)
         .map(|item| {
+            let (snippet, truncated) = item
+                .get("code_chunk")
+                .and_then(|v| v.as_str())
+                .map(truncate_snippet)
+                .unwrap_or_default();
             serde_json::json!({
                 "file_path": item.get("file_path"),
                 "score": item.get("score"),
                 "start_line": item.get("start_line"),
                 "end_line": item.get("end_line"),
-                "snippet": item.get("code_chunk").and_then(|v| v.as_str()).map(|s| truncate_chars(s, MAX_SNIPPET_CHARS)),
+                "snippet": snippet,
+                "truncated": truncated,
+                "entity_type": item.get("entity_type"),
+                "source": item.get("source"),
             })
         })
         .collect();
@@ -74,28 +91,43 @@ pub fn summarize_search_payload(payload: &Value, query: &str, limit: usize) -> V
 }
 
 /// Reduce a keyword search response to the model-facing shape.
-pub fn summarize_keyword_payload(payload: &Value, query: &str, top_n: usize) -> Value {
-    let items = payload
-        .get("result")
+///
+/// Snippets come from the raw source field; line ranges are kept so the
+/// model can navigate by path plus line without any internal chunk key.
+/// The service already enforces the requested count.
+pub fn summarize_keyword_payload(payload: &Value, query: &str) -> Value {
+    let result = payload.get("result");
+    let items = result
         .and_then(|v| v.get("results"))
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    let total = result
+        .and_then(|v| v.get("total"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(items.len() as u64);
     let results: Vec<Value> = items
         .into_iter()
-        .take(top_n)
         .map(|item| {
+            let (snippet, truncated) = item
+                .get("snippet")
+                .and_then(|v| v.as_str())
+                .map(truncate_snippet)
+                .unwrap_or_default();
             serde_json::json!({
                 "file_path": item.get("file_path"),
                 "score": item.get("score"),
                 "title": item.get("title"),
-                "snippet": item.get("highlighted_snippet").and_then(|v| v.as_str()).map(|s| truncate_chars(s, MAX_SNIPPET_CHARS)),
+                "start_line": item.get("start_line"),
+                "end_line": item.get("end_line"),
+                "snippet": snippet,
+                "truncated": truncated,
             })
         })
         .collect();
     serde_json::json!({
         "query": query,
-        "total": results.len(),
+        "total": total,
         "results": results,
     })
 }
@@ -119,9 +151,13 @@ pub fn resolve_project_id(parameters: &Value, default: Option<i64>) -> Result<i6
         .ok_or_else(|| "Missing 'project_id' and no default project is configured".to_string())
 }
 
-/// Clamp a caller-supplied limit to the model-facing maximum.
-pub fn clamp_limit(raw: Option<u64>) -> usize {
-    raw.unwrap_or(10).min(MAX_RESULTS as u64) as usize
+/// Clamp a caller-supplied count to the policy budget. The policy default
+/// applies when the call names nothing; the policy ceiling applies above
+/// it; the service applies its own hard limit beyond that.
+pub fn clamp_limit(raw: Option<u64>, default: usize, max: usize) -> usize {
+    let default = default.max(1) as u64;
+    let max = max.max(1) as u64;
+    raw.unwrap_or(default).clamp(1, max) as usize
 }
 
 /// Hybrid search over an indexed project. The caller provides the HTTP
@@ -141,7 +177,7 @@ pub async fn search(
     if payload.get("success").and_then(|v| v.as_bool()) == Some(false) {
         return Err("Search reported failure".to_string());
     }
-    Ok(summarize_search_payload(&payload, query, limit))
+    Ok(summarize_search_payload(&payload, query))
 }
 
 /// BM25 keyword search. The caller provides the HTTP client so
@@ -169,7 +205,7 @@ pub async fn keyword_search(
             .unwrap_or("keyword search reported failure");
         return Err(reason.to_string());
     }
-    Ok(summarize_keyword_payload(&payload, query, top_n))
+    Ok(summarize_keyword_payload(&payload, query))
 }
 
 #[cfg(test)]
@@ -187,24 +223,33 @@ mod tests {
             &serde_json::json!({
                 "total": 2,
                 "items": [
-                    {"file_path": "a.rs", "score": 0.9, "start_line": 1, "end_line": 4, "code_chunk": "fn a() {}"},
+                    {"file_path": "a.rs", "score": 0.9, "start_line": 1, "end_line": 4, "code_chunk": "fn a() {}", "entity_type": "function", "source": "hybrid"},
                     {"file_path": "b.rs", "score": 0.5}
                 ]
             }),
             "fold batch",
-            10,
         );
         assert_eq!(summary["total"], 2);
         assert_eq!(summary["results"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            summary["results"][0]["entity_type"],
+            serde_json::json!("function")
+        );
+        assert_eq!(summary["results"][0]["source"], serde_json::json!("hybrid"));
+        assert_eq!(summary["results"][0]["truncated"], serde_json::json!(false));
 
         let keywords = summarize_keyword_payload(
             &serde_json::json!({
-                "result": {"results": [{"file_path": "a.rs", "highlighted_snippet": "hit"}]}
+                "result": {"total": 1, "results": [{"file_path": "a.rs", "snippet": "hit", "start_line": 3, "end_line": 5}]}
             }),
             "fold_batch",
-            10,
         );
         assert_eq!(keywords["total"], 1);
+        assert_eq!(
+            keywords["results"][0]["snippet"],
+            serde_json::json!("hit")
+        );
+        assert_eq!(keywords["results"][0]["start_line"], serde_json::json!(3));
     }
 
     #[test]
@@ -216,6 +261,8 @@ mod tests {
             3
         );
         assert!(resolve_project_id(&serde_json::json!({}), None).is_err());
-        assert_eq!(clamp_limit(Some(99)), MAX_RESULTS);
+        assert_eq!(clamp_limit(Some(99), 10, 100), 99);
+        assert_eq!(clamp_limit(Some(999), 10, 100), 100);
+        assert_eq!(clamp_limit(None, 10, 100), 10);
     }
 }

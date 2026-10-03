@@ -170,6 +170,16 @@ pub async fn execute_tool_call(
         wf_tools::executor::trait_def::ToolExecutionContext::new(ctx.execution_id.clone())
             .with_node_id(ctx.node_id.clone())
             .with_cancellation(ctx.cancellation.clone());
+    // Forward the owning workflow execution as the typed parent link so
+    // dispatch tools (`call_agent` / `execute_workflow`) link their
+    // children under this workflow instead of re-resolving its id.
+    tool_ctx = tool_ctx.with_parent_link(ctx.hierarchy_manager.clone().map(|manager| {
+        wf_tools::callback::ParentLink {
+            execution_id: ctx.execution_id.clone(),
+            manager,
+            cancellation: ctx.cancellation.clone(),
+        }
+    }));
     if let Some(manager) = file_checkpoint {
         let parent = ctx.parent_id().map(|id| id.to_string());
         // A write-capable tool must not run untracked: when the session

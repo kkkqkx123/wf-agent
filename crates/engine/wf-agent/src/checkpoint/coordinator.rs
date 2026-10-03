@@ -32,6 +32,12 @@ pub struct RestoredAgentLoop {
     /// Checkpoint id this restoration was built from, recorded as branch
     /// lineage on the new execution.
     pub source_checkpoint_id: String,
+    /// Hierarchy the source execution stood in when the snapshot was taken.
+    /// `None` for childless roots (which record no hierarchy) and legacy
+    /// snapshots; branch resume rebuilds the source manager from this so a
+    /// branch links correctly even when the source is gone from the live
+    /// registry (e.g. after a crash-restart).
+    pub lineage: Option<wf_types::execution::ExecutionHierarchy>,
     /// Declarative loop configuration captured at checkpoint time. `None`
     /// for checkpoints written before the migration; auto-resume must reject
     /// those explicitly instead of backfilling defaults.
@@ -48,6 +54,35 @@ pub enum RestoreMode {
     Branch,
     Replay,
     InPlace,
+}
+
+impl RestoredAgentLoop {
+    /// Rebuild the source execution's hierarchy manager from the checkpoint
+    /// lineage. A snapshot without hierarchy decodes to a root manager for
+    /// the source id (childless roots record none, legacy snapshots predate
+    /// it). The rebuilt handle is structural lineage only: the source is
+    /// gone, so no live abort signal travels with it.
+    pub fn restored_source_manager(
+        &self,
+    ) -> Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager> {
+        use wf_types::execution::ExecutionType;
+        match self.lineage.as_ref() {
+            Some(hierarchy) => {
+                wf_core::hierarchy::manager::ExecutionHierarchyManager::restore(
+                    self.agent_loop_id.clone(),
+                    ExecutionType::AgentLoop,
+                    hierarchy,
+                    ExecutionType::AgentLoop,
+                )
+            }
+            None => Arc::new(
+                wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                    self.agent_loop_id.clone(),
+                    ExecutionType::AgentLoop,
+                ),
+            ),
+        }
+    }
 }
 
 pub struct AgentCheckpointIntegration {
@@ -340,6 +375,7 @@ impl AgentCheckpointIntegration {
             state: Self::runtime_state_from_snapshot(&snapshot)?,
             conversation: Self::conversation_state_from_snapshot(&snapshot)?,
             source_checkpoint_id: checkpoint_id.to_string(),
+            lineage: snapshot.hierarchy.clone(),
             loop_config: snapshot.loop_config.clone(),
         })
     }

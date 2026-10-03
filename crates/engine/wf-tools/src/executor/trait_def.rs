@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::callback::ParentLink;
 use crate::error::ToolResult;
 use crate::general::GeneralToolInvoker;
 use wf_types::tool::ToolExecutionOptions;
@@ -15,6 +16,12 @@ pub struct ToolExecutionContext {
     pub execution_id: Id,
     pub node_id: Option<String>,
     pub metadata: HashMap<String, Value>,
+    /// Live parent execution link captured at the call site. Builtin
+    /// dispatch tools (`call_agent` / `execute_workflow`) forward it so the
+    /// child links to the calling execution; `None` runs the child as a
+    /// root. Unlike `execution_id` this carries the hierarchy handle, so a
+    /// parent of any execution type stays linkable.
+    pub parent_link: Option<ParentLink>,
     /// Per-execution `general` tool invoker, injected by the engine when the
     /// execution context is built. Carried through the context so the
     /// builtin `general` handler can resolve its inner-tool invoker without
@@ -35,6 +42,7 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("execution_id", &self.execution_id)
             .field("node_id", &self.node_id)
             .field("metadata", &self.metadata)
+            .field("parent_link", &self.parent_link.is_some())
             .field("general_invoker", &self.general_invoker.is_some())
             .field("checkpoint_session", &self.checkpoint_session.is_some())
             .field("cancellation", &self.cancellation.is_some())
@@ -48,6 +56,7 @@ impl ToolExecutionContext {
             execution_id,
             node_id: None,
             metadata: HashMap::new(),
+            parent_link: None,
             general_invoker: None,
             checkpoint_session: None,
             cancellation: None,
@@ -61,6 +70,12 @@ impl ToolExecutionContext {
 
     pub fn with_metadata(mut self, key: impl Into<String>, value: Value) -> Self {
         self.metadata.insert(key.into(), value);
+        self
+    }
+
+    /// Attach the live parent execution link. `None` keeps root behavior.
+    pub fn with_parent_link(mut self, parent_link: Option<ParentLink>) -> Self {
+        self.parent_link = parent_link;
         self
     }
 

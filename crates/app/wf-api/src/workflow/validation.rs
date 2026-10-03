@@ -183,6 +183,14 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
             workflow_graphs.insert(wf.id.to_string(), definition_to_graph(wf));
         }
     }
+    // Registered templates are addressable subgraph children too; their
+    // graphs join the closure set so nested references resolve the same way
+    // stored workflows do.
+    for id in ctx.registries.workflows.list() {
+        if let Some(template) = ctx.registries.workflows.get(&id) {
+            workflow_graphs.insert(id, definition_to_graph(&template.definition));
+        }
+    }
     val_ctx.workflow_graphs = workflow_graphs;
 
     for id in ctx.registries.trigger_templates.list() {

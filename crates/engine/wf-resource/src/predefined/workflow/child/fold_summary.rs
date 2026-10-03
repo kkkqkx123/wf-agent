@@ -3,8 +3,9 @@ use serde_json::json;
 use wf_integration::{CodeContextConfig, FoldPolicy};
 use wf_types::node::BaseStaticNode;
 use wf_types::node::StaticNodeType;
-use wf_types::workflow::{Edge, EdgeType, WorkflowDefinition, WorkflowTemplate};
+use wf_types::workflow::{WorkflowDefinition, WorkflowDefinitionType, WorkflowTemplate};
 
+use super::super::edge;
 use super::summary_stage::{
     chain_end_node, chain_llm_node, chain_metadata, chain_start_node, chain_subworkflow_config,
 };
@@ -15,13 +16,6 @@ pub const FOLD_SUMMARY_START_NODE_ID: &str = "fold-summary-start";
 pub const FOLD_SUMMARY_FOLD_NODE_ID: &str = "fold-summary-fold";
 pub const FOLD_SUMMARY_LLM_NODE_ID: &str = "fold-summary-llm";
 pub const FOLD_SUMMARY_END_NODE_ID: &str = "fold-summary-end";
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
 
 pub fn create_fold_summary_workflow(compression_prompt: Option<String>) -> WorkflowTemplate {
     create_fold_summary_workflow_with_policy(compression_prompt, FoldPolicy::default())
@@ -81,7 +75,7 @@ fn build_template(
     service_base_url: Option<String>,
     service_timeout_ms: u64,
 ) -> WorkflowTemplate {
-    let t = now_ms();
+    let t = wf_common::now();
 
     let nodes = vec![
         chain_start_node(FOLD_SUMMARY_START_NODE_ID),
@@ -91,42 +85,21 @@ fn build_template(
     ];
 
     let edges = vec![
-        Edge {
-            id: "e-fold-summary-start-to-fold".into(),
-            source_node_id: FOLD_SUMMARY_START_NODE_ID.into(),
-            target_node_id: FOLD_SUMMARY_FOLD_NODE_ID.into(),
-            r#type: EdgeType::Default,
-            condition: None,
-            label: None,
-            description: None,
-            weight: None,
-            metadata: None,
-            error_route: None,
-        },
-        Edge {
-            id: "e-fold-summary-fold-to-llm".into(),
-            source_node_id: FOLD_SUMMARY_FOLD_NODE_ID.into(),
-            target_node_id: FOLD_SUMMARY_LLM_NODE_ID.into(),
-            r#type: EdgeType::Default,
-            condition: None,
-            label: None,
-            description: None,
-            weight: None,
-            metadata: None,
-            error_route: None,
-        },
-        Edge {
-            id: "e-fold-summary-llm-to-end".into(),
-            source_node_id: FOLD_SUMMARY_LLM_NODE_ID.into(),
-            target_node_id: FOLD_SUMMARY_END_NODE_ID.into(),
-            r#type: EdgeType::Default,
-            condition: None,
-            label: None,
-            description: None,
-            weight: None,
-            metadata: None,
-            error_route: None,
-        },
+        edge(
+            "e-fold-summary-start-to-fold",
+            FOLD_SUMMARY_START_NODE_ID,
+            FOLD_SUMMARY_FOLD_NODE_ID,
+        ),
+        edge(
+            "e-fold-summary-fold-to-llm",
+            FOLD_SUMMARY_FOLD_NODE_ID,
+            FOLD_SUMMARY_LLM_NODE_ID,
+        ),
+        edge(
+            "e-fold-summary-llm-to-end",
+            FOLD_SUMMARY_LLM_NODE_ID,
+            FOLD_SUMMARY_END_NODE_ID,
+        ),
     ];
 
     WorkflowTemplate {
@@ -137,7 +110,7 @@ fn build_template(
             id: FOLD_SUMMARY_WORKFLOW_ID.into(),
             name: "Fold Summary Workflow".into(),
             description: Some("Fold-then-summarize compression chain".into()),
-            r#type: None,
+            r#type: Some(WorkflowDefinitionType::TriggeredSubworkflow),
             version: Some("1.0.0".into()),
             nodes,
             edges,

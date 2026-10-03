@@ -9,7 +9,7 @@ use wf_execution_shared::types::execution_entity::{
 use wf_llm::LlmGateway;
 use wf_tools::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
-    SpawnedAgentLoop, WorkflowInput, WorkflowOutput,
+    ParentLink, SpawnedAgentLoop, WorkflowInput, WorkflowOutput,
 };
 use wf_tools::error::{ToolError, ToolResult};
 use wf_tools::registry::ToolRegistry;
@@ -17,6 +17,7 @@ use wf_types::Id;
 
 use crate::constants::{AGENT_MAX_ITERATIONS_CAP, DEFAULT_MAX_ITERATIONS};
 use crate::coordinator::lifecycle::AgentLoopCoordinator;
+use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::registry::{AgentLoopRegistry, DEFAULT_MAX_SUB_AGENT_DEPTH};
@@ -147,18 +148,19 @@ impl AgentLoopExecutor {
         }
     }
 
-    fn coordinator(&self, input: &AgentLoopInput) -> AgentLoopCoordinator {
-        let parent_execution_id = input
-            .context
-            .get("parent_execution_id")
-            .and_then(|v| v.as_str())
-            .map(Id::from);
+    fn coordinator(&self, parent: Option<&ParentLink>) -> AgentLoopCoordinator {
+        // The typed link is the sole parent channel: it carries the live
+        // parent handle, whatever execution type owns it. A missing link
+        // means the child runs as a root execution.
         let mut coordinator =
             AgentLoopCoordinator::new(self.gateway.clone(), self.registry.clone())
                 .with_default_max_iterations(self.max_iterations)
                 .with_max_iterations_cap(self.max_iterations_cap)
                 .with_entity_registry(self.agent_registry.clone())
-                .with_parent_execution_id(parent_execution_id);
+                .with_parent_execution_id(parent.map(|link| link.execution_id.clone()));
+        if let Some(manager) = parent.map(|link| link.manager.clone()) {
+            coordinator = coordinator.with_parent_hierarchy_manager(manager);
+        }
         if let Some(bus) = &self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());
         }
@@ -171,13 +173,42 @@ impl AgentLoopExecutor {
         coordinator
     }
 
+    /// Shared sub-agent depth gate for the sync and spawn paths: a child
+    /// whose resolved depth would exceed `max_sub_agent_depth` is rejected
+    /// before any slot is reserved. The depth resolves from the typed link;
+    /// a missing link runs as a root and the entity build stays
+    /// authoritative over the final association.
+    fn check_sub_agent_depth(&self, parent: Option<&ParentLink>) -> AgentResult<()> {
+        let parent_depth = parent.map(|link| link.manager.depth()).unwrap_or(0);
+        if !self.agent_registry.depth_allowed(parent_depth) {
+            return Err(AgentError::HierarchyLimitReached(format!(
+                "sub-agent depth {} exceeds max {}",
+                parent_depth.saturating_add(1),
+                self.agent_registry.max_sub_agent_depth()
+            )));
+        }
+        Ok(())
+    }
+
     pub async fn execute(
         &self,
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
+        self.execute_with_parent(config, input, None).await
+    }
+
+    /// Synchronous dispatch linked under a live parent execution. `None`
+    /// runs as a root.
+    pub async fn execute_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> AgentResult<AgentLoopOutput> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
-        let coordinator = self.coordinator(&input);
+        self.check_sub_agent_depth(parent.as_ref())?;
+        let coordinator = self.coordinator(parent.as_ref());
         let output = coordinator.execute(config, input).await;
         // Sync path writes the result slot too, keeping both dispatch paths
         // consistent: a later query_execution_status returns the output.
@@ -201,32 +232,24 @@ impl AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<SpawnedAgentLoop> {
+        self.spawn_with_parent(config, input, None).await
+    }
+
+    /// Background dispatch linked under a live parent execution. `None`
+    /// runs as a root. The returned handle stays queryable even when the
+    /// background build fails: the failure settles the placeholder as a
+    /// terminal failed execution carrying the error instead of evaporating
+    /// the id.
+    pub async fn spawn_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> AgentResult<SpawnedAgentLoop> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
         let execution_id = Id::from(wf_common::generate_id());
 
-        // Depth gate: a nested spawn whose resolved depth would exceed
-        // `max_sub_agent_depth` is rejected before any slot is reserved. The
-        // parent depth resolves from the registered parent entity; an
-        // unknown parent (external registry) is treated as a root parent.
-        if let Some(parent_id) = input
-            .context
-            .get("parent_execution_id")
-            .and_then(|v| v.as_str())
-            .map(Id::from)
-        {
-            let parent_depth = self
-                .agent_registry
-                .get(&parent_id)
-                .map(|p| p.get_hierarchy_depth())
-                .unwrap_or(0);
-            if !self.agent_registry.depth_allowed(parent_depth) {
-                return Err(AgentError::HierarchyLimitReached(format!(
-                    "sub-agent depth {} exceeds max {}",
-                    parent_depth.saturating_add(1),
-                    self.agent_registry.max_sub_agent_depth()
-                )));
-            }
-        }
+        self.check_sub_agent_depth(parent.as_ref())?;
 
         // Pre-register a placeholder entity so the execution is queryable
         // and cancellable from the moment spawn returns; the coordinator
@@ -235,19 +258,19 @@ impl AgentLoopExecutor {
         self.agent_registry
             .register(Arc::new(AgentLoopEntity::new(execution_id.clone())))?;
 
-        let parent_token = input
-            .context
-            .get("parent_execution_id")
-            .and_then(|v| v.as_str())
-            .map(Id::from)
-            .and_then(|parent_id| self.agent_registry.get(&parent_id))
-            .map(|parent| parent.get_abort_signal());
+        // Parent cancellation propagation: the typed link carries the live
+        // parent abort signal, so a parent of any execution type stops the
+        // child. A missing link means no cross-execution cancel.
+        let parent_token = parent
+            .as_ref()
+            .and_then(|link| link.cancellation.clone());
 
         let agent_registry = self.agent_registry.clone();
         let run_id = execution_id.clone();
         let coordinator = self
-            .coordinator(&input)
+            .coordinator(parent.as_ref())
             .with_agent_loop_id(execution_id.clone());
+        let event_bus = self.event_bus.clone();
 
         let handle = tokio::spawn(async move {
             match coordinator.execute(config, input).await {
@@ -260,12 +283,29 @@ impl AgentLoopExecutor {
                         error = %e,
                         "spawned agent loop failed"
                     );
+                    // Settle the placeholder as a terminal failed execution
+                    // carrying the build error: the spawn handle keeps its
+                    // query contract and the failure reason reaches polling
+                    // callers through `query_execution_status` instead of
+                    // surfacing as `NotFound`. An entity that already
+                    // reached a terminal state keeps its own outcome.
+                    if let Some(entity) = agent_registry.get(&run_id) {
+                        let _ = entity.state.write().await.start();
+                        let _ = AgentLoopStateTransitor::fail_agent_loop(
+                            &entity,
+                            e.to_string(),
+                            event_bus.as_deref(),
+                        )
+                        .await;
+                    }
                 }
             }
             // Placeholder rollback: an execution that ended before the
             // coordinator replaced the spawn placeholder (registration
             // failure) leaves a Created entity behind; drop it so it
             // neither holds a capacity permit nor lingers in the registry.
+            // A settled failed placeholder is history, not garbage: it
+            // stays registered until `cleanup_terminated` removes it.
             if let Some(entity) = agent_registry.get(&run_id) {
                 if matches!(entity.status(), EntityExecutionStatus::Created) {
                     agent_registry.unregister(&run_id);
@@ -335,7 +375,20 @@ impl ExecutionCallback for AgentLoopExecutor {
     ) -> ToolResult<AgentLoopOutput> {
         let tool_id = config.agent_id.to_string();
         let timeout_ms = config.max_execution_time.unwrap_or(0);
-        self.execute(config, input)
+        self.execute_with_parent(config, input, None)
+            .await
+            .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
+    }
+
+    async fn execute_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<AgentLoopOutput> {
+        let tool_id = config.agent_id.to_string();
+        let timeout_ms = config.max_execution_time.unwrap_or(0);
+        self.execute_with_parent(config, input, parent)
             .await
             .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
     }
@@ -347,7 +400,20 @@ impl ExecutionCallback for AgentLoopExecutor {
     ) -> ToolResult<SpawnedAgentLoop> {
         let tool_id = config.agent_id.to_string();
         let timeout_ms = config.max_execution_time.unwrap_or(0);
-        self.spawn_agent_loop(config, input)
+        self.spawn_with_parent(config, input, None)
+            .await
+            .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
+    }
+
+    async fn spawn_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedAgentLoop> {
+        let tool_id = config.agent_id.to_string();
+        let timeout_ms = config.max_execution_time.unwrap_or(0);
+        self.spawn_with_parent(config, input, parent)
             .await
             .map_err(|e| agent_error_to_tool_error(e, tool_id.clone(), timeout_ms))
     }
@@ -449,18 +515,22 @@ mod tests {
         }
     }
 
-    fn agent_input(message: &str, parent: Option<&str>) -> AgentLoopInput {
-        let mut context = std::collections::HashMap::new();
-        if let Some(parent) = parent {
-            context.insert(
-                "parent_execution_id".to_string(),
-                serde_json::Value::String(parent.to_string()),
-            );
-        }
+    fn agent_input(message: &str) -> AgentLoopInput {
         AgentLoopInput {
             message: message.to_string(),
-            context,
+            context: std::collections::HashMap::new(),
             conversation: Vec::new(),
+        }
+    }
+
+    fn parent_link_for(entity: &Arc<AgentLoopEntity>) -> ParentLink {
+        ParentLink {
+            execution_id: entity.id().clone(),
+            // `as_ref` reaches the concrete entity so the inherent handle
+            // is used: the blanket trait impl on `Arc` would only lend an
+            // optional view.
+            manager: entity.as_ref().hierarchy_manager(),
+            cancellation: Some(entity.get_abort_signal()),
         }
     }
 
@@ -477,7 +547,7 @@ mod tests {
     async fn test_spawn_returns_immediately_and_background_advances() {
         let executor = make_executor().await;
         let spawned = executor
-            .spawn_agent_loop(agent_config("agent-a"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-a"), agent_input("run"))
             .await
             .expect("spawn must return immediately");
         assert_eq!(spawned.status, "started");
@@ -508,7 +578,7 @@ mod tests {
     async fn test_spawn_query_returns_result_at_terminal() {
         let executor = make_executor().await;
         let spawned = executor
-            .spawn_agent_loop(agent_config("agent-b"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-b"), agent_input("run"))
             .await
             .expect("spawn must succeed");
 
@@ -541,7 +611,7 @@ mod tests {
     async fn test_sync_execution_registers_and_is_queryable() {
         let executor = make_executor().await;
         let output = executor
-            .execute(agent_config("agent-c"), agent_input("run", None))
+            .execute(agent_config("agent-c"), agent_input("run"))
             .await
             .expect("sync execution must succeed");
 
@@ -592,7 +662,7 @@ mod tests {
         let mut sub = bus.subscribe();
 
         executor
-            .execute(config, agent_input("run", None))
+            .execute(config, agent_input("run"))
             .await
             .expect("execution with hooks must succeed");
 
@@ -684,7 +754,7 @@ mod tests {
             .with_hook_handler_registry(hook_handler_registry);
 
         let result = executor
-            .execute(agent_config("agent-fail"), agent_input("run", None))
+            .execute(agent_config("agent-fail"), agent_input("run"))
             .await;
         assert!(result.is_err(), "a failing LLM must fail the loop");
 
@@ -726,7 +796,7 @@ mod tests {
         let spawned = executor
             .spawn_agent_loop(
                 agent_config("agent-d"),
-                agent_input("run and take your time", None),
+                agent_input("run and take your time"),
             )
             .await
             .expect("spawn must succeed");
@@ -764,7 +834,7 @@ mod tests {
         let executor = AgentLoopExecutor::new(gateway, registry);
 
         let spawned = executor
-            .spawn_agent_loop(agent_config("agent-pause"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-pause"), agent_input("run"))
             .await
             .expect("spawn must succeed");
 
@@ -835,26 +905,27 @@ mod tests {
 
         // The parent loop is itself a registered execution.
         let parent = executor
-            .spawn_agent_loop(agent_config("agent-parent"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-parent"), agent_input("run"))
             .await
             .expect("parent spawn must succeed");
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        // Child carries the parent execution id in its context.
+        // Child links under the parent through the typed link.
+        let parent_entity = executor
+            .agent_registry()
+            .get(&parent.execution_id)
+            .expect("parent entity present");
         let child = executor
-            .spawn_agent_loop(
+            .spawn_with_parent(
                 agent_config("agent-child"),
-                agent_input("run", Some(&parent.execution_id.to_string())),
+                agent_input("run"),
+                Some(parent_link_for(&parent_entity)),
             )
             .await
             .expect("child spawn must succeed");
 
         // The parent entity tracks the child once the child task registers
         // the linkage; poll for it.
-        let parent_entity = executor
-            .agent_registry()
-            .get(&parent.execution_id)
-            .expect("parent entity present");
         let mut linked = false;
         for _ in 0..100 {
             if parent_entity.child_ids().contains(&child.execution_id) {
@@ -915,9 +986,15 @@ mod tests {
             .expect("parent register must succeed");
 
         let err = executor
-            .spawn_agent_loop(
+            .spawn_with_parent(
                 agent_config("agent-deep"),
-                agent_input("run", Some("depth-parent")),
+                agent_input("run"),
+                Some(parent_link_for(
+                    &executor
+                        .agent_registry()
+                        .get(&Id::from("depth-parent".to_string()))
+                        .expect("deep parent present"),
+                )),
             )
             .await
             .expect_err("depth 2 must be rejected");
@@ -934,9 +1011,15 @@ mod tests {
             ))))
             .expect("root parent register must succeed");
         executor
-            .spawn_agent_loop(
+            .spawn_with_parent(
                 agent_config("agent-ok"),
-                agent_input("run", Some("root-parent")),
+                agent_input("run"),
+                Some(parent_link_for(
+                    &executor
+                        .agent_registry()
+                        .get(&Id::from("root-parent".to_string()))
+                        .expect("root parent present"),
+                )),
             )
             .await
             .expect("depth 1 must be allowed");
@@ -949,12 +1032,12 @@ mod tests {
         let executor = make_executor().await.with_max_concurrent(1);
 
         executor
-            .spawn_agent_loop(agent_config("agent-conc-1"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-conc-1"), agent_input("run"))
             .await
             .expect("first spawn fits the single slot");
 
         let err = executor
-            .spawn_agent_loop(agent_config("agent-conc-2"), agent_input("run", None))
+            .spawn_agent_loop(agent_config("agent-conc-2"), agent_input("run"))
             .await
             .expect_err("second spawn must hit the capacity gate");
         assert!(
@@ -979,7 +1062,7 @@ mod tests {
             ))))
             .expect("placeholder holds the single slot");
         let err = executor
-            .execute(agent_config("agent-sync-1"), agent_input("run", None))
+            .execute(agent_config("agent-sync-1"), agent_input("run"))
             .await
             .expect_err("in-flight slot holder must reject a new run");
         assert!(matches!(err, AgentError::ConcurrencySaturated(_)));
@@ -989,8 +1072,214 @@ mod tests {
             .agent_registry()
             .unregister(&Id::from("slot-holder".to_string()));
         executor
-            .execute(agent_config("agent-sync-2"), agent_input("run", None))
+            .execute(agent_config("agent-sync-2"), agent_input("run"))
             .await
             .expect("released slot admits the next run");
+    }
+
+    /// A spawn whose background run fails (here: no LLM profile serves the
+    /// model) settles the placeholder as a terminal failed execution
+    /// carrying the error. The spawn handle keeps its query contract
+    /// instead of evaporating into `NotFound`.
+    #[tokio::test]
+    async fn test_spawn_background_failure_settles_terminal_with_error() {
+        let executor = make_executor().await;
+        let mut config = agent_config("agent-ghost");
+        config.model = "missing-model".to_string();
+        let spawned = executor
+            .spawn_agent_loop(config, agent_input("run"))
+            .await
+            .expect("spawn returns before the background run settles");
+
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    executor
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                        .map(|status| status.status == "failed")
+                        .unwrap_or(false)
+                },
+            )
+            .await,
+            "failed build must settle the execution as failed"
+        );
+        let status = executor
+            .query_execution_status(&spawned.execution_id.to_string())
+            .await
+            .expect("failed execution stays queryable");
+        let error = status
+            .result
+            .as_ref()
+            .and_then(|v| v.get("error"))
+            .and_then(|v| v.as_str())
+            .expect("failed execution must carry its error");
+        assert!(
+            !error.is_empty(),
+            "failure reason must reach polling callers"
+        );
+    }
+
+    /// A typed parent link from a foreign execution type (e.g. a workflow
+    /// manager handle) links the child without any registry lookup: the
+    /// child carries the parent id, depth and ancestry.
+    #[tokio::test]
+    async fn test_spawn_with_typed_parent_link_from_foreign_execution() {
+        use wf_types::execution::ExecutionType;
+
+        let executor = make_executor().await;
+        let parent_manager = Arc::new(
+            wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                Id::from("wf-parent".to_string()),
+                ExecutionType::Workflow,
+            ),
+        );
+        let link = ParentLink {
+            execution_id: Id::from("wf-parent".to_string()),
+            manager: parent_manager,
+            cancellation: None,
+        };
+        let spawned = executor
+            .spawn_with_parent(
+                agent_config("agent-linked"),
+                agent_input("run"),
+                Some(link),
+            )
+            .await
+            .expect("typed parent link must build");
+
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    executor
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                        .map(|status| status.status == "completed")
+                        .unwrap_or(false)
+                },
+            )
+            .await,
+            "linked child must complete"
+        );
+        let entity = executor
+            .agent_registry()
+            .get(&spawned.execution_id)
+            .expect("linked child registered");
+        assert_eq!(
+            entity.parent_execution_id(),
+            Some(Id::from("wf-parent".to_string()))
+        );
+        assert!(entity.ancestors().contains(&Id::from("wf-parent".to_string())));
+    }
+
+    /// Cancelling the parent abort signal carried by the typed link stops
+    /// the spawned child, covering parents outside the agent registry.
+    #[tokio::test]
+    async fn test_typed_parent_cancellation_stops_child() {
+        use wf_types::execution::ExecutionType;
+
+        let gateway = Arc::new(LlmGateway::new());
+        let mock = Arc::new(MockLlmClient::new());
+        mock.default(
+            LlmResponseSpec::text("done")
+                .with_usage(10, 5)
+                .with_delay(300),
+        );
+        gateway.register_mock("mock", mock);
+        let registry = Arc::new(wf_tools::create_default_tool_registry());
+        let executor = AgentLoopExecutor::new(gateway, registry);
+
+        let parent_token = tokio_util::sync::CancellationToken::new();
+        let link = ParentLink {
+            execution_id: Id::from("foreign-parent".to_string()),
+            manager: Arc::new(
+                wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                    Id::from("foreign-parent".to_string()),
+                    ExecutionType::Workflow,
+                ),
+            ),
+            cancellation: Some(parent_token.clone()),
+        };
+        let spawned = executor
+            .spawn_with_parent(
+                agent_config("agent-cancel-child"),
+                agent_input("run"),
+                Some(link),
+            )
+            .await
+            .expect("spawn with parent link must succeed");
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        parent_token.cancel();
+
+        assert!(
+            wf_common::poll_until(
+                std::time::Duration::from_millis(10),
+                std::time::Duration::from_secs(2),
+                || async {
+                    executor
+                        .query_execution_status(&spawned.execution_id.to_string())
+                        .await
+                        .map(|status| {
+                            status.status == "cancelled" || status.status == "completed"
+                        })
+                        .unwrap_or(false)
+                },
+            )
+            .await,
+            "child must settle after parent cancellation"
+        );
+    }
+
+    /// The sync path shares the sub-agent depth gate: a nested run whose
+    /// resolved depth would exceed the limit is rejected before it starts.
+    #[tokio::test]
+    async fn test_sync_execute_rejects_beyond_depth_limit() {
+        let executor = make_executor()
+            .await
+            .with_max_sub_agent_depth(1)
+            .with_max_concurrent(16);
+
+        let parent_manager =
+            std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+                Id::from("sync-depth-root".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+            ));
+        let deep_manager = parent_manager
+            .derive_child(
+                Id::from("sync-depth-parent".to_string()),
+                wf_types::execution::ExecutionType::AgentLoop,
+                None,
+            )
+            .expect("derive depth-1 parent");
+        executor
+            .agent_registry()
+            .register(Arc::new(
+                AgentLoopEntity::new(Id::from("sync-depth-parent".to_string()))
+                    .with_hierarchy_manager(deep_manager),
+            ))
+            .expect("parent register must succeed");
+
+        let err = executor
+            .execute_with_parent(
+                agent_config("agent-sync-deep"),
+                agent_input("run"),
+                Some(parent_link_for(
+                    &executor
+                        .agent_registry()
+                        .get(&Id::from("sync-depth-parent".to_string()))
+                        .expect("sync parent present"),
+                )),
+            )
+            .await
+            .expect_err("depth 2 must be rejected on the sync path");
+        assert!(
+            matches!(err, AgentError::HierarchyLimitReached(_)),
+            "depth overflow must surface as HierarchyLimitReached: {err}"
+        );
     }
 }

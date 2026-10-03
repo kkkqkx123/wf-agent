@@ -90,24 +90,13 @@ impl AgentLoopCoordinator {
             .with_hooks(hooks)
             .with_model(config.model.clone());
 
-        // Parent association: typed field first, `input.context` fallback.
-        // The parent hierarchy manager is the single source. When no
-        // manager handle was injected, the registry parent entity lends its
-        // manager for a derive; a parent id with no live parent is an
-        // explicit error instead of a half-linked legacy record. An empty
+        // Parent association: the coordinator's typed parent fields are the
+        // sole channel. The parent hierarchy manager is the single source.
+        // When no manager handle was injected, the registry parent entity
+        // lends its manager for a derive; a parent id with no live parent is
+        // an explicit error instead of a half-linked legacy record. An empty
         // id carries no identity and means "no parent".
-        let parent_execution_id = self
-            .parent_execution_id
-            .clone()
-            .filter(|id| !id.is_empty())
-            .or_else(|| {
-                input
-                    .context
-                    .get("parent_execution_id")
-                    .and_then(|v| v.as_str())
-                    .filter(|id| !id.is_empty())
-                    .map(Id::from)
-            });
+        let parent_execution_id = self.parent_execution_id.clone().filter(|id| !id.is_empty());
         if let Some(parent_id) = parent_execution_id {
             let parent_manager = self.parent_hierarchy_manager.clone().or_else(|| {
                 self.entity_registry
@@ -134,7 +123,7 @@ impl AgentLoopCoordinator {
                 }
                 None => {
                     return Err(crate::error::AgentError::Validation(format!(
-                        "parent execution '{}' has no live hierarchy manager",
+                        "parent execution '{}' has no live hierarchy manager: the parent is unknown, already terminated, or belongs to an engine without a shared registry. Pass an empty parent execution id to run as a root agent, or dispatch through a live parent execution",
                         parent_id
                     )));
                 }

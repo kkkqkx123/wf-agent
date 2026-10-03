@@ -7,6 +7,30 @@ use crate::error::{ToolError, ToolResult};
 use wf_types::Id;
 
 pub use wf_types::agent_execution::{AgentLoopConfig, HookConfig};
+
+/// Typed parent execution link carried across the tool boundary.
+///
+/// The hierarchy manager handle is captured at the call site, so the child
+/// links to the parent that was live when the tool ran instead of
+/// re-resolving a bare id against a registry later. A missing link means
+/// the child runs as a root execution.
+#[derive(Clone)]
+pub struct ParentLink {
+    pub execution_id: Id,
+    pub manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
+    /// Abort signal of the parent execution; stopping the parent stops the
+    /// child. `None` keeps plain behavior with no cross-execution cancel.
+    pub cancellation: Option<tokio_util::sync::CancellationToken>,
+}
+
+impl std::fmt::Debug for ParentLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParentLink")
+            .field("execution_id", &self.execution_id)
+            .field("cancellation", &self.cancellation.is_some())
+            .finish()
+    }
+}
 #[derive(Debug, Clone)]
 pub struct AgentLoopInput {
     pub message: String,
@@ -131,6 +155,54 @@ pub trait ExecutionCallback: Send + Sync {
         Err(ToolError::ExecutionError(
             "spawn_workflow is not supported by this callback".to_string(),
         ))
+    }
+
+    /// Synchronous agent dispatch linked under a live parent execution. The
+    /// default ignores the link and runs as a root; engines that track
+    /// hierarchies override it.
+    async fn execute_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        _parent: Option<ParentLink>,
+    ) -> ToolResult<AgentLoopOutput> {
+        self.execute_agent_loop(config, input).await
+    }
+
+    /// Background agent dispatch linked under a live parent execution. The
+    /// default ignores the link and runs as a root; engines that track
+    /// hierarchies override it.
+    async fn spawn_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        _parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedAgentLoop> {
+        self.spawn_agent_loop(config, input).await
+    }
+
+    /// Synchronous workflow dispatch linked under a live parent execution.
+    /// The default ignores the link and runs as a root; engines that track
+    /// hierarchies override it.
+    async fn execute_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        _parent: Option<ParentLink>,
+    ) -> ToolResult<WorkflowOutput> {
+        self.execute_workflow(workflow_id, input).await
+    }
+
+    /// Background workflow dispatch linked under a live parent execution.
+    /// The default ignores the link and runs as a root; engines that track
+    /// hierarchies override it.
+    async fn spawn_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        _parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedWorkflow> {
+        self.spawn_workflow(workflow_id, input).await
     }
 }
 

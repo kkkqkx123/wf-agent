@@ -329,12 +329,17 @@ async fn in_place_resume_continues_under_source_execution_id() {
     assert_eq!(latest.entity_id, "inplace-loop");
 
     mock.script(LlmResponseSpec::text("branched"));
+    // Crash-restart shape: the branch coordinator gets an empty entity
+    // registry with no live source, so the parent association must rebuild
+    // from the checkpoint lineage instead of failing on the dead id.
+    let entity_registry = Arc::new(wf_agent::registry::AgentLoopRegistry::new());
     let branch_coordinator = AgentLoopCoordinator::with_store(
         gateway_with(mock.clone()),
         registry.clone(),
         store.clone(),
     )
     .with_agent_loop_id(Id::from("branch-loop"))
+    .with_entity_registry(entity_registry.clone())
     .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
         1, true, false, false, None,
     ));
@@ -346,6 +351,24 @@ async fn in_place_resume_continues_under_source_execution_id() {
     assert_ne!(
         branch_output.agent_loop_id, "inplace-loop",
         "branch resume must not reuse the source execution id"
+    );
+    let branch_entity = entity_registry
+        .get(&branch_output.agent_loop_id)
+        .expect("branch entity registers");
+    assert_eq!(
+        branch_entity.parent_execution_id().as_ref(),
+        Some(&Id::from("inplace-loop".to_string())),
+        "branch links under the source execution from snapshot lineage"
+    );
+    assert_eq!(
+        branch_entity.hierarchy_manager().depth(),
+        1,
+        "branch stands one level below the root source"
+    );
+    assert_eq!(
+        branch_entity.hierarchy_manager().root_execution_id(),
+        Id::from("inplace-loop".to_string()),
+        "branch root resolves to the source execution"
     );
 
     let same_id_err = coordinator

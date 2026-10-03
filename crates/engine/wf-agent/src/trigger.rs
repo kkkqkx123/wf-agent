@@ -17,18 +17,20 @@ use crate::hook::AgentHookEmitter;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
+use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ParentLink};
 use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::trigger::{ConversationAnchor, TriggerAgentInputMode, TriggerAgentWriteback};
 use wf_types::Id;
 
 /// Callback that runs a child agent loop (usually backed by
-/// AgentLoopExecutor).
+/// AgentLoopExecutor). The parent link carries the live parent handle so
+/// the child links without re-resolving a bare id; `None` runs as a root.
 pub type AgentExecutorCallback = Arc<
     dyn Fn(
             AgentLoopConfig,
             AgentLoopInput,
+            Option<ParentLink>,
         ) -> futures::future::BoxFuture<'static, AgentResult<AgentLoopOutput>>
         + Send
         + Sync,
@@ -149,19 +151,23 @@ impl TriggeredAgentExecutionManager {
         &self,
         config: TriggeredAgentExecutionConfig,
         child_config: AgentLoopConfig,
-        mut child_input: AgentLoopInput,
+        child_input: AgentLoopInput,
     ) -> AgentResult<TriggeredTaskSubmission> {
         let task_id = wf_common::generate_id();
         let parent = config.parent.clone();
 
-        // Link the real child execution to its parent: the executor builds
-        // a fresh entity from this input, so the parent association must
-        // travel in the input context. Without it the real child runs as
-        // an orphan while only the shadow entity below carries the lineage.
-        child_input.context.insert(
-            "parent_execution_id".to_string(),
-            Value::String(parent.id().to_string()),
-        );
+        // Link the real child execution to its live parent: the executor
+        // builds a fresh entity from this input, so the parent association
+        // travels as a typed link carrying the parent manager and abort
+        // signal. No bare id is written into the input context.
+        let parent_link = ParentLink {
+            execution_id: parent.id().clone(),
+            // `as_ref` reaches the concrete entity so the inherent handle
+            // is used: the blanket trait impl on `Arc` would only lend an
+            // optional view.
+            manager: parent.as_ref().hierarchy_manager(),
+            cancellation: Some(parent.get_abort_signal()),
+        };
 
         // Register the child on the parent entity. The child entity id is a
         // newly generated execution id (not the agent definition id): reusing
@@ -233,6 +239,7 @@ impl TriggeredAgentExecutionManager {
                     child_entity,
                     child_config,
                     child_input,
+                    Some(parent_link),
                     ChildDelivery {
                         result_variable: config.result_variable,
                         timeout_ms: config.timeout_ms,
@@ -290,7 +297,7 @@ impl TriggeredAgentExecutionManager {
             let timeout_ms = config.timeout_ms;
             running_tasks.insert(task_id.clone(), ());
             tokio::spawn(async move {
-                let child_run = executor(child_config, child_input);
+                let child_run = executor(child_config, child_input, Some(parent_link));
                 let timed_run = async {
                     match timeout_ms {
                         Some(ms) if ms > 0 => {
@@ -380,6 +387,7 @@ impl TriggeredAgentExecutionManager {
         child_entity: AgentLoopEntity,
         child_config: AgentLoopConfig,
         child_input: AgentLoopInput,
+        parent_link: Option<ParentLink>,
         delivery: ChildDelivery,
     ) -> AgentResult<wf_tools::callback::AgentLoopOutput> {
         let ChildDelivery {
@@ -388,7 +396,7 @@ impl TriggeredAgentExecutionManager {
             writeback,
             anchor,
         } = delivery;
-        let mut future = Box::pin((self.executor)(child_config, child_input));
+        let mut future = Box::pin((self.executor)(child_config, child_input, parent_link));
         let output = match timeout_ms {
             Some(ms) if ms > 0 => {
                 match tokio::time::timeout(std::time::Duration::from_millis(ms), &mut future).await
@@ -557,7 +565,7 @@ mod tests {
     }
 
     fn success_executor(result: Value) -> AgentExecutorCallback {
-        Arc::new(move |_config, _input| {
+        Arc::new(move |_config, _input, _parent| {
             let result = result.clone();
             Box::pin(async move {
                 Ok(AgentLoopOutput {
@@ -572,7 +580,7 @@ mod tests {
     }
 
     fn failing_executor() -> AgentExecutorCallback {
-        Arc::new(|_config, _input| {
+        Arc::new(|_config, _input, _parent| {
             Box::pin(async move { Err(AgentError::Internal("child boom".to_string())) })
         })
     }
@@ -652,7 +660,7 @@ mod tests {
         let parent = make_parent();
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        let executor: AgentExecutorCallback = Arc::new(move |_config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(move |_config, _input, _parent| {
             let counter = counter_clone.clone();
             Box::pin(async move {
                 counter.fetch_add(1, Ordering::SeqCst);
@@ -705,7 +713,7 @@ mod tests {
     #[tokio::test]
     async fn test_child_timeout() {
         let parent = make_parent();
-        let executor: AgentExecutorCallback = Arc::new(|_config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(|_config, _input, _parent| {
             Box::pin(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 Ok(AgentLoopOutput {
@@ -802,7 +810,7 @@ mod tests {
 
         // The executor callback records when the child actually runs.
         let log_for_child = log.clone();
-        let executor: AgentExecutorCallback = Arc::new(move |_config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(move |_config, _input, _parent| {
             let log = log_for_child.clone();
             Box::pin(async move {
                 log.lock().unwrap().push("child-ran".to_string());
@@ -1163,7 +1171,7 @@ mod tests {
         let parent = make_parent();
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        let executor: AgentExecutorCallback = Arc::new(move |_config, _input| {
+        let executor: AgentExecutorCallback = Arc::new(move |_config, _input, _parent| {
             let counter = counter_clone.clone();
             Box::pin(async move {
                 counter.fetch_add(1, Ordering::SeqCst);

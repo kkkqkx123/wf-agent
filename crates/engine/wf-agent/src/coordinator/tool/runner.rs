@@ -173,6 +173,10 @@ pub(crate) async fn run_tool(
             wf_tools::general::OUTER_TOOL_CALL_ID_METADATA,
             Value::String(tc.id.clone()),
         );
+        // Forward the owning execution as the typed parent link so dispatch
+        // tools link their children under this run instead of re-resolving
+        // a bare id.
+        tool_ctx = tool_ctx.with_parent_link(ctx.parent_link.clone());
         if let Some(invoker) = &ctx.general_invoker {
             tool_ctx = tool_ctx.with_general_invoker(invoker.clone());
         }

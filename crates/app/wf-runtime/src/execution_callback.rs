@@ -14,7 +14,7 @@ use wf_agent::executor::AgentLoopExecutor;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_tools::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
-    SpawnedAgentLoop, SpawnedWorkflow, WorkflowInput, WorkflowOutput,
+    ParentLink, SpawnedAgentLoop, SpawnedWorkflow, WorkflowInput, WorkflowOutput,
 };
 use wf_tools::error::{ToolError, ToolResult};
 use wf_types::Id;
@@ -98,6 +98,29 @@ impl ExecutionCallback for CompositeExecutionCallback {
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
 
+    async fn execute_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<AgentLoopOutput> {
+        self.require_agent()?
+            .execute_agent_loop_with_parent(config, input, parent)
+            .await
+    }
+
+    async fn spawn_agent_loop_with_parent(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedAgentLoop> {
+        self.require_agent()?
+            .spawn_agent_loop_with_parent(config, input, parent)
+            .await
+            .map_err(|e| ToolError::ExecutionError(e.to_string()))
+    }
+
     async fn execute_workflow(
         &self,
         workflow_id: &str,
@@ -114,7 +137,30 @@ impl ExecutionCallback for CompositeExecutionCallback {
         input: WorkflowInput,
     ) -> ToolResult<SpawnedWorkflow> {
         self.require_workflow()?
-            .spawn_workflow(workflow_id, input)
+            .spawn_workflow(workflow_id, input, None)
+            .await
+            .map_err(|e| ToolError::ExecutionError(e.to_string()))
+    }
+
+    async fn execute_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<WorkflowOutput> {
+        self.require_workflow()?
+            .execute_workflow_with_parent(workflow_id, input, parent)
+            .await
+    }
+
+    async fn spawn_workflow_with_parent(
+        &self,
+        workflow_id: &str,
+        input: WorkflowInput,
+        parent: Option<ParentLink>,
+    ) -> ToolResult<SpawnedWorkflow> {
+        self.require_workflow()?
+            .spawn_workflow_with_parent(workflow_id, input, parent)
             .await
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }

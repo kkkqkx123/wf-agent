@@ -71,7 +71,7 @@ use wf_types::events::BaseEvent;
 use wf_types::message::{Message, MessageContent, MessageContentValue};
 use wf_types::trigger::TriggerTemplate;
 use wf_types::Id;
-use wf_workflow::error::{WorkflowError, WorkflowResult};
+use wf_workflow::error::WorkflowError;
 use wf_workflow::trigger::TriggerEventListener;
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
 
@@ -794,11 +794,12 @@ fn context_runner(
 }
 
 /// Wrap an [`AgentLoopExecutor`] into the child-agent callback consumed by
-/// the [`TriggeredAgentExecutionManager`].
+/// the [`TriggeredAgentExecutionManager`]. The trigger manager supplies the
+/// live parent link; the executor links the child under it.
 fn agent_callback(executor: Arc<wf_agent::executor::AgentLoopExecutor>) -> AgentExecutorCallback {
-    Arc::new(move |config, input| {
+    Arc::new(move |config, input, parent| {
         let executor = executor.clone();
-        Box::pin(async move { executor.execute(config, input).await })
+        Box::pin(async move { executor.execute_with_parent(config, input, parent).await })
     })
 }
 
@@ -905,6 +906,7 @@ mod tests {
     use wf_types::workflow_execution::{
         WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
     };
+    use wf_workflow::error::WorkflowResult;
     use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
     fn text_message(role: MessageRole, text: &str) -> Message {

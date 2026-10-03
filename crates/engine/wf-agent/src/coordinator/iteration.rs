@@ -366,7 +366,16 @@ impl AgentIterationCoordinator {
                             "compressed results still exceed the context budget {still_over} times consecutively; bump the budget or trim the content before resuming"
                         ),
                     )
-                    .await);
+                    .await
+                    .unwrap_or(IterationResult {
+                        should_continue: false,
+                        content: Value::String(
+                            "Execution paused after compression failure".to_string(),
+                        ),
+                        completion_data: None,
+                        tool_call_count: 0,
+                        finish_reason: wf_tools::callback::LoopFinishReason::Interrupted,
+                    }));
             }
         }
 

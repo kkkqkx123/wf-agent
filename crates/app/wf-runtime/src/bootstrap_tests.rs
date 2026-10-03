@@ -53,7 +53,7 @@ fn default_tool_context() -> (
     wf_tools::executor::trait_def::ToolExecutionContext,
     wf_types::tool::ToolExecutionOptions,
 ) {
-    let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
+    let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("".into());
     let options = wf_types::tool::ToolExecutionOptions {
         timeout: None,
         retries: None,

@@ -645,7 +645,7 @@ mod tests {
             ),
         ]);
         let report = analyze(&trace);
-        assert!(report.counts.get("redundant_summary_run").is_none());
+        assert!(!report.counts.contains_key("redundant_summary_run"));
         assert!(report.findings.is_empty());
     }
 }

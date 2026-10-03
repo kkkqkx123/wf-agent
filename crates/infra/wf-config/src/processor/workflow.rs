@@ -7,6 +7,15 @@ use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::definition::{WorkflowDefinition, WorkflowDefinitionType};
 use wf_types::workflow::edge::{Edge, EdgeType};
 
+fn declared_type_name(r#type: Option<&WorkflowDefinitionType>) -> &'static str {
+    match r#type {
+        None => "missing",
+        Some(WorkflowDefinitionType::Standalone) => "Standalone",
+        Some(WorkflowDefinitionType::Dependent) => "Dependent",
+        Some(WorkflowDefinitionType::TriggeredSubworkflow) => "TriggeredSubworkflow",
+    }
+}
+
 pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigResult<()> {
     validate_required(&definition.id, "id")?;
     validate_required(&definition.name, "name")?;
@@ -36,6 +45,11 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
     // (which correctly excludes legal LOOP_END -> LOOP_START control edges).
     // Removed here to avoid redundant work and divergent semantics.
 
+    // The definition type is an executability contract, not a label:
+    // `triggered_subworkflow_config` is owned exclusively by
+    // `TriggeredSubworkflow`, and a child-only `Dependent` workflow promises
+    // plain `Start`/`End` boundaries because message-channel nodes belong to
+    // the triggered/compression mechanism.
     if let Some(r#type) = definition.r#type.as_ref() {
         if *r#type == WorkflowDefinitionType::TriggeredSubworkflow
             && definition.triggered_subworkflow_config.is_none()
@@ -45,6 +59,35 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
                     .into(),
             ));
         }
+        if *r#type != WorkflowDefinitionType::TriggeredSubworkflow
+            && definition.triggered_subworkflow_config.is_some()
+        {
+            return Err(ConfigError::Validation(
+                format!(
+                    "triggered_subworkflow_config is present but workflow type is {}, expected TriggeredSubworkflow",
+                    declared_type_name(Some(r#type)),
+                ),
+            ));
+        }
+    } else if definition.triggered_subworkflow_config.is_some() {
+        return Err(ConfigError::Validation(
+            "triggered_subworkflow_config is present but workflow type is missing, expected TriggeredSubworkflow"
+                .into(),
+        ));
+    }
+
+    if matches!(definition.r#type, Some(WorkflowDefinitionType::Dependent))
+        && definition.nodes.iter().any(|node| {
+            matches!(
+                node.node_type,
+                StaticNodeType::StartFromMessage | StaticNodeType::ContinueFromMessage
+            )
+        })
+    {
+        return Err(ConfigError::Validation(
+            "workflow type is Dependent but the graph contains message-channel nodes (StartFromMessage/ContinueFromMessage); message-channel children must declare TriggeredSubworkflow"
+                .into(),
+        ));
     }
 
     if let Some(hooks) = definition.hooks.as_ref() {
@@ -595,6 +638,7 @@ mod tests {
     #[test]
     fn test_triggered_subworkflow_config_validation() {
         let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
         wf.triggered_subworkflow_config =
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
@@ -878,6 +922,76 @@ mod tests {
         wf.r#type = Some(WorkflowDefinitionType::Standalone);
         wf.triggered_subworkflow_config = None;
         assert!(validate_workflow_definition(&wf).is_ok());
+    }
+
+    #[test]
+    fn test_triggered_config_without_type_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = None;
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                compression_fallback: None,
+            });
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("expected TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_triggered_config_with_standalone_type_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::Standalone);
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                compression_fallback: None,
+            });
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("Standalone"));
+        assert!(err.to_string().contains("expected TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_triggered_config_with_dependent_type_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::Dependent);
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                compression_fallback: None,
+            });
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("Dependent"));
+        assert!(err.to_string().contains("expected TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_dependent_plain_child_accepted() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::Dependent);
+        wf.triggered_subworkflow_config = None;
+        assert!(validate_workflow_definition(&wf).is_ok());
+    }
+
+    #[test]
+    fn test_dependent_with_message_nodes_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::Dependent);
+        wf.triggered_subworkflow_config = None;
+        wf.nodes = vec![BaseStaticNode {
+            id: "node-1".to_string(),
+            node_type: StaticNodeType::StartFromMessage,
+            name: None,
+            description: None,
+            config: None,
+            execution_config: None,
+        }];
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("Dependent"));
+        assert!(err.to_string().contains("TriggeredSubworkflow"));
     }
 
     #[test]

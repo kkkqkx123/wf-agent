@@ -180,6 +180,8 @@ pub struct CodeContextConfigInput {
     pub fold_max_items: Option<usize>,
     pub fold_max_batches: Option<u32>,
     pub default_project_id: Option<i64>,
+    pub default_limit: Option<usize>,
+    pub max_results: Option<usize>,
 }
 
 fn parse_transport_mode(raw: Option<&str>) -> ConfigResult<wf_integration::TransportMode> {
@@ -253,6 +255,16 @@ pub fn validate_code_context_config(input: &CodeContextConfigInput) -> ConfigRes
             "code-context foldMaxBatches must be at least 1".into(),
         ));
     }
+    if input.default_limit.is_some_and(|v| v < 1) {
+        return Err(ConfigError::Validation(
+            "code-context defaultLimit must be at least 1".into(),
+        ));
+    }
+    if input.max_results.is_some_and(|v| v < 1) {
+        return Err(ConfigError::Validation(
+            "code-context maxResults must be at least 1".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -294,6 +306,10 @@ pub fn transform_code_context_config(
         },
         retrieval: wf_integration::RetrievalPolicy {
             default_project_id: input.default_project_id,
+            default_limit: input
+                .default_limit
+                .unwrap_or(defaults.retrieval.default_limit),
+            max_results: input.max_results.unwrap_or(defaults.retrieval.max_results),
         },
     })
 }

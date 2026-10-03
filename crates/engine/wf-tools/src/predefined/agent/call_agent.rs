@@ -13,7 +13,7 @@ pub static CALL_AGENT: ToolDefinition = ToolDefinition {
     category: "agent",
     tags: &["call"],
     description:
-        "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously. Built-in agent definitions: @standard/main (general-purpose default), @standard/explorer (read-only codebase questions), @standard/worker (execution subtask with explicit ownership).",
+        "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously. Built-in agent definitions: @standard/main (general-purpose default), @standard/explorer (read-only codebase questions), @standard/worker (execution subtask with explicit ownership). Parent contract: the sub-agent links under the calling execution, so cancelling the caller stops a spawned sub-agent and hierarchy depth limits apply to the chain. A call issued outside any live execution runs the sub-agent as a root.",
     parameters: &[
         ToolParameter {
             name: "agent_id",

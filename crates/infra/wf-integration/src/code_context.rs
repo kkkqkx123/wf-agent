@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::transport::ServiceTransport;
 
 pub mod fold;
+pub mod navigation;
 pub mod retrieval;
 
 /// Fold policy for the compression-path file folding stage.
@@ -35,12 +36,30 @@ impl Default for FoldPolicy {
 }
 
 /// Retrieval policy for the predefined code search tools.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+///
+/// `default_limit` and `max_results` are caller-intent budgets: how much
+/// context the caller can afford per call. The service remains the final
+/// enforcer and clamps to its own hard limit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RetrievalPolicy {
     /// Default project id for the stateful retrieval tools when the call
     /// does not name one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_project_id: Option<i64>,
+    /// Default result count when the call does not name one.
+    pub default_limit: usize,
+    /// Caller-side ceiling; the service clamps to its own limit beyond it.
+    pub max_results: usize,
+}
+
+impl Default for RetrievalPolicy {
+    fn default() -> Self {
+        Self {
+            default_project_id: None,
+            default_limit: 10,
+            max_results: 100,
+        }
+    }
 }
 
 /// Validated code-context service config with defaults applied.

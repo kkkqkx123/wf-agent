@@ -21,18 +21,22 @@ pub struct BudgetView {
 /// One context-compression lifecycle event recorded on a step.
 ///
 /// The engine emits `requested` when a named message array exceeds its
-/// context budget (or the provider forces a safety-net request), then the
-/// compression service publishes exactly one terminal event for the same
+/// context budget (or the provider forces a safety-net request), the builtin
+/// adapter publishes `routed` when it hands the snapshot-carrying copy to the
+/// listener (direct-mode traces have no `routed` entry), then the compression
+/// service publishes exactly one terminal event for the same
 /// `(target_context_id, array_version)`: `completed` (summary or degraded
 /// partial window landed), `failed` (retries exhausted, emitter parks for
 /// external handling) or `discarded` (stale result dropped after the array
 /// moved past the anchor; normal concurrency, emitter continues). A
 /// `requested` without a matching terminal event means the emitter blocked
-/// until its settle timeout.
+/// until its settle timeout; a `routed` without a terminal means the handoff
+/// never ran (listener down or claim lost to a duplicate).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum CompressionPhase {
     Requested,
+    Routed,
     Completed,
     Failed,
     Discarded,
@@ -42,6 +46,7 @@ impl CompressionPhase {
     pub fn label(self) -> &'static str {
         match self {
             CompressionPhase::Requested => "requested",
+            CompressionPhase::Routed => "routed",
             CompressionPhase::Completed => "completed",
             CompressionPhase::Failed => "failed",
             CompressionPhase::Discarded => "discarded",

@@ -12,11 +12,14 @@
 //!   message array it names (anchored on the emission version), write the
 //!   compressed array back through the [`ExecutionContextRegistry`] and
 //!   publish the completed event;
-//! - [`CompressionService`]: the engine's builtin hook handler for the
+//! - [`CompressionService`]: the engine's builtin hook adapter for the
 //!   `CONTEXT_COMPRESSION_REQUESTED` signal. Registered into the shared
 //!   [`HookHandlerRegistry`] at runtime assembly; the engine fires the signal
-//!   synchronously and the service takes over immediately (idempotency
-//!   check + spawn of the summary sub-workflow);
+//!   synchronously and the adapter registers the idempotency claim and hands
+//!   the request to the trigger-side compression pipeline, then returns. The
+//!   pipeline owns the whole execution (retry loop, degraded fallback,
+//!   write-back, terminal events, ledger audit); no execution policy lives
+//!   in the hook adapter.
 //! - write-back registry: wf-workflow's [`ExecutionContextRegistry`], into
 //!   which every started workflow execution registers its variable map
 //!   (register at start, unregister at end — see [`WorkflowRunner::run`]).
@@ -50,7 +53,8 @@ pub use workflow_runner::{
 /// signal.
 pub use compression::CompressionService;
 pub use compression::{
-    CompressionPolicy, COMPRESSION_HANDLED_CAPACITY, COMPRESSION_SERVICE_HANDLER_NAME,
+    CompressionPolicy, BUILTIN_COMPRESSION_TEMPLATE_NAME, COMPRESSION_HANDLED_CAPACITY,
+    COMPRESSION_SERVICE_HANDLER_NAME,
 };
 
 use std::sync::Arc;
@@ -580,6 +584,7 @@ pub fn start_trigger_listener_with_skills(
         timer_bindings: None,
         schedule_state_store: None,
         shutdown: CancellationToken::new(),
+        compression_route: None,
     })
 }
 
@@ -626,6 +631,7 @@ pub fn start_trigger_listener_with_registry(
         timer_bindings: None,
         schedule_state_store: None,
         shutdown: CancellationToken::new(),
+        compression_route: None,
     })
 }
 
@@ -673,6 +679,21 @@ pub(crate) struct ListenerDeps {
     /// Durable schedule cursors; process-local memory when absent.
     pub(crate) schedule_state_store: Option<Arc<dyn ScheduleStateStore>>,
     pub(crate) shutdown: CancellationToken,
+    /// Arms the builtin compression route: the builtin template is chained
+    /// into the listener registry and the action router serves the reserved
+    /// compression action through a trigger-side pipeline sharing the
+    /// listener lifecycle. Absent keeps the listener compression-free (the
+    /// direct hook adapter still works on its own).
+    pub(crate) compression_route: Option<CompressionRouteConfig>,
+}
+
+/// Configuration arming the builtin compression route on a listener.
+#[derive(Clone)]
+pub(crate) struct CompressionRouteConfig {
+    /// Summary workflow id resolved from the resource registries.
+    pub(crate) summary_workflow_id: String,
+    /// Cross-attempt policy for the route's pipeline.
+    pub(crate) policy: CompressionPolicy,
 }
 
 fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
@@ -691,9 +712,32 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         timer_bindings,
         schedule_state_store,
         shutdown,
+        compression_route,
     } = deps;
-    let registry: Arc<dyn TriggerTemplateRegistry> =
+    let user_registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries.clone()));
+    // The route's pipeline shares the listener lifecycle (bus, runner,
+    // contexts, shutdown, ledger) and the caller-resolved summary policy.
+    let routed_pipeline = compression_route.as_ref().map(|route| {
+        Arc::new(
+            compression::CompressionPipeline::with_ledger(
+                event_bus.clone(),
+                runner.clone(),
+                contexts.clone(),
+                route.summary_workflow_id.clone(),
+                shutdown.clone(),
+                ledger.clone(),
+            )
+            .with_policy(route.policy.clone()),
+        )
+    });
+    // Read-time chaining: the builtin template is visible exactly when the
+    // route is armed, so the listener subscribes the routed signal copy and
+    // user registries never contain a compression template.
+    let registry: Arc<dyn TriggerTemplateRegistry> = match &routed_pipeline {
+        Some(_) => Arc::new(compression::CompressionRoutedRegistry::new(user_registry)),
+        None => user_registry,
+    };
     let compression: Arc<dyn TriggerActionRunner> = Arc::new(SubworkflowActionRunner::with_ledger(
         event_bus.clone(),
         runner.clone(),
@@ -716,7 +760,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         shutdown.clone(),
         ledger.clone(),
     ));
-    let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(TriggerActionRouter::new(
+    let mut router = TriggerActionRouter::new(
         compression,
         agent,
         creation,
@@ -729,7 +773,11 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
             &tool_registry,
             signal_bus,
         ),
-    ));
+    );
+    if let Some(pipeline) = &routed_pipeline {
+        router = router.with_routed_compression(pipeline.clone());
+    }
+    let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(router);
     let listener = Arc::new(
         TriggerEventListener::new(event_bus.clone(), registry, action_runner, shutdown.clone())
             .with_concurrency_gate(Arc::new(ConcurrencyGate::new(
@@ -861,6 +909,51 @@ pub fn register_compression_handler(
     let service = Arc::new(service);
     // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
+    if !registry.register(
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        service.clone(),
+        1000,
+    ) {
+        warn!("Compression handler registration skipped: name already registered");
+    }
+    service
+}
+
+/// Build the routed-mode builtin context-compression hook handler and
+/// register it on the shared hook registry under the
+/// `CONTEXT_COMPRESSION_REQUESTED` signal point.
+///
+/// Unlike [`register_compression_handler`], the service publishes the
+/// snapshot-carrying handoff instead of spawning: the caller must arm the
+/// listener side with the same summary workflow and policy (see
+/// [`CompressionRouteConfig`]), otherwise published handoffs never run.
+/// Production wiring; tests and listener-less embedding keep the direct
+/// registration.
+pub fn register_routed_compression_handler(
+    registry: &HookHandlerRegistry,
+    deps: CompressionHandlerDeps,
+) -> Arc<CompressionService> {
+    let CompressionHandlerDeps {
+        event_bus,
+        runner,
+        contexts,
+        summary_workflow_id,
+        shutdown,
+        ledger,
+        policy,
+    } = deps;
+    let service = compression::CompressionService::routed_with_ledger(
+        event_bus,
+        runner,
+        contexts,
+        summary_workflow_id,
+        shutdown,
+        ledger,
+    )
+    .with_policy(policy);
+    let service = Arc::new(service);
+    // The builtin handler runs first (priority above any user handler): the
+    // handoff must publish synchronously once the engine fires.
     if !registry.register(
         wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         service.clone(),
@@ -2171,6 +2264,138 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_routed_rejects_non_handoff_without_spawn() {
+        use wf_execution_shared::{
+            build_context_compression_requested_event, ContextCompressionRequest,
+        };
+        let bus = Arc::new(EventBus::new(64));
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let runner = Arc::new(FlakySummaryRunner {
+            fail_first: 0,
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        let pipeline = super::compression::CompressionPipeline::with_ledger(
+            bus,
+            runner.clone(),
+            contexts,
+            "stub/llm-summary".to_string(),
+            CancellationToken::new(),
+            None,
+        );
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        let audit = build_context_compression_requested_event(
+            "exec-1",
+            Some("loop-1"),
+            &ContextCompressionRequest {
+                target_context_id: "chat",
+                tokens_used: 900,
+                token_limit: 1000,
+                message_count: messages.len(),
+                array_version: 7,
+                forced: false,
+                messages: &messages,
+            },
+        );
+        let template = super::compression::builtin_compression_template();
+        assert_eq!(
+            template.name,
+            super::compression::BUILTIN_COMPRESSION_TEMPLATE_NAME
+        );
+        // The emitter's audit copy carries no snapshot and never matches the
+        // builtin condition; reaching the route anyway skips without spawn.
+        pipeline
+            .run_routed(&template, &audit)
+            .await
+            .expect("audit skip is clean");
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        // A non-builtin action on the route fails loudly instead of running.
+        let mut wrong = template.clone();
+        wrong.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(pipeline.run_routed(&wrong, &audit).await.is_err());
+        // Execution-less handoffs fail loudly (the pipeline needs the
+        // emitting execution for write-back identity).
+        let mut no_exec = audit.clone();
+        no_exec.execution_id = None;
+        assert!(pipeline.run_routed(&template, &no_exec).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn routed_compression_end_to_end_via_listener() {
+        // Full routed flow: hook fire -> adapter publishes the handoff ->
+        // listener matches the builtin template -> router claims through the
+        // pipeline -> terminal event. The adapter never spawns directly, so
+        // every chain observed here traversed template matching.
+        let bus = Arc::new(EventBus::new(256));
+        let mut sub = bus.subscribe();
+        let registries = Arc::new(ResourceRegistries::new());
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let gateway = Arc::new(LlmGateway::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
+        let runner = Arc::new(FlakySummaryRunner {
+            fail_first: 0,
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        let policy =
+            stub_compression_policy(0, 5_000, wf_types::workflow::CompressionFallbackMode::Fail);
+        let listener = start_trigger_listener_with_parts(ListenerDeps {
+            event_bus: bus.clone(),
+            registries: registries.clone(),
+            contexts: contexts.clone(),
+            runner: runner.clone(),
+            gateway,
+            tool_registry: None,
+            sandbox: None,
+            agent_executor: None,
+            ledger: None,
+            hook_handler_registry: None,
+            signal_bus: None,
+            timer_bindings: None,
+            schedule_state_store: None,
+            shutdown: CancellationToken::new(),
+            compression_route: Some(CompressionRouteConfig {
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                policy: policy.clone(),
+            }),
+        });
+        register_routed_compression_handler(
+            &hook_handler_registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: None,
+                policy,
+            },
+        );
+        wait_for_listener(&bus, 1).await;
+
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        fire_compression_signal(
+            &hook_handler_registry,
+            &bus,
+            &agent_compression_signal(&messages),
+        )
+        .await;
+        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        // The claim released with the terminal event: re-firing the same
+        // version runs exactly one more chain through the route.
+        fire_compression_signal(
+            &hook_handler_registry,
+            &bus,
+            &agent_compression_signal(&messages),
+        )
+        .await;
+        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        stop_trigger_listener(listener).await;
+    }
+
+    #[tokio::test]
     async fn compression_retry_recovers_before_terminal_failure() {
         let bus = Arc::new(EventBus::new(64));
         let mut sub = bus.subscribe();
@@ -2234,6 +2459,45 @@ mod tests {
 
         let messages = vec![text_message(MessageRole::User, "long message")];
         fire_compression_signal(&registry, &bus, &agent_compression_signal(&messages)).await;
+
+        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn compression_duplicate_signal_same_version_runs_once() {
+        // Claim mechanics live on the synchronous takeover path: a second
+        // identical fire while the first chain is still in flight is skipped,
+        // so the stub runner observes exactly one chain (hung attempt cut at
+        // the attempt timeout, then the retry success).
+        let bus = Arc::new(EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let registry = Arc::new(HookHandlerRegistry::new());
+        let runner = Arc::new(HangingFirstRunner {
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        register_compression_handler(
+            &registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: None,
+                policy: stub_compression_policy(
+                    1,
+                    300,
+                    wf_types::workflow::CompressionFallbackMode::Fail,
+                ),
+            },
+        );
+
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        let ctx = agent_compression_signal(&messages);
+        fire_compression_signal(&registry, &bus, &ctx).await;
+        fire_compression_signal(&registry, &bus, &ctx).await;
 
         next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
         assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);

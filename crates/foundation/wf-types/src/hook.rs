@@ -29,15 +29,19 @@ pub const AGENT_HOOK_TYPES: &[&str] = &[
 /// user-facing hook config vocabulary. The engine dispatches them so builtin
 /// services (e.g. context compression) registered as handlers are notified
 /// synchronously; the audit event is a persistence and observability copy
-/// only and must not be used as a functional trigger source.
+/// only and must not be used as a functional trigger source by user
+/// templates. The compression adapter additionally publishes a routed handoff
+/// copy carrying the snapshot, which only the builtin compression template
+/// matches (reserved action; user subscriptions stay rejected).
 pub const INTERNAL_SIGNAL_TYPES: &[&str] = &["CONTEXT_COMPRESSION_REQUESTED"];
 
 /// Hook type of the engine's internal context-compression signal: the engine
 /// dispatches it synchronously when a named message array exceeds its token
 /// limit (or a forced safety-net request fires) and the builtin compression
-/// service takes over immediately. The `CONTEXT_COMPRESSION_REQUESTED`
-/// event is the audit and persistence copy; user trigger templates should
-/// not subscribe to it for functional work.
+/// service takes over immediately (direct spawn, or routed-handoff publish in
+/// production). The `CONTEXT_COMPRESSION_REQUESTED` event is the audit and
+/// persistence copy; user trigger templates should not subscribe to it for
+/// functional work.
 pub const CONTEXT_COMPRESSION_SIGNAL: &str = "CONTEXT_COMPRESSION_REQUESTED";
 
 /// Sub-agent lifecycle start: fired by the triggered-agent manager once the
@@ -191,7 +195,8 @@ pub fn is_gate_hook(hook_type: &str) -> bool {
 ///
 /// Closed for the internal compression signal (owned synchronously by the
 /// builtin compression service; subscribing is rejected at load time and
-/// skipped by the listener at runtime) and for every `BEFORE_*` point
+/// skipped by the listener at runtime, except the builtin template's
+/// reserved-action match on the routed handoff copy) and for every `BEFORE_*` point
 /// (trigger actions always run asynchronously after the hook and cannot
 /// gate execution; the synchronous gate is a hook handler returning
 /// `HookOutcome::Veto` at `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL`, see

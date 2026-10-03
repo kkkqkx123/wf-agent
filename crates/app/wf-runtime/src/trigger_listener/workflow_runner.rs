@@ -316,8 +316,9 @@ impl SubworkflowRunner for WorkflowRunner {
 /// emitting execution's named context (workflow targets through the
 /// [`ExecutionContextRegistry`]) and publishes `CONTEXT_COMPRESSION_COMPLETED`.
 ///
-/// The engine-internal compression chain is served by the
-/// [`CompressionService`] hook receiver instead; this runner exists for user
+/// The engine-internal compression chain is served by the trigger-side
+/// compression pipeline (handed over from the `CompressionService` hook
+/// adapter) instead; this runner exists for user
 /// trigger templates. Other action types are executed synchronously by the
 /// message node handlers (wf-workflow), not by the event listener.
 #[derive(Clone)]
@@ -366,22 +367,6 @@ impl SubworkflowActionRunner {
         self.ledger
             .as_ref()
             .and_then(|ledger| ledger.trigger_state_registry.clone())
-    }
-}
-
-impl SubworkflowActionRunner {
-    /// Accessors for the compression service (`compression.rs`), which
-    /// reuses the same runner/contexts/bus as the listener.
-    pub(crate) fn runner(&self) -> Arc<dyn SubworkflowRunner> {
-        self.runner.clone()
-    }
-
-    pub(crate) fn contexts(&self) -> &Arc<ExecutionContextRegistry> {
-        &self.contexts
-    }
-
-    pub(crate) fn bus(&self) -> &Arc<EventBus> {
-        &self.bus
     }
 }
 

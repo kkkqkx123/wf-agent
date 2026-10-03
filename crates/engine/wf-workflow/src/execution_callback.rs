@@ -275,10 +275,8 @@ impl WorkflowExecutionCallback {
         parent: Option<ParentLink>,
     ) -> WorkflowResult<WorkflowOutput> {
         let execution_id = wf_common::generate_id();
-        let mut entity = WorkflowExecutionEntity::new(
-            execution_id.clone(),
-            Id::from(workflow_id.to_string()),
-        );
+        let mut entity =
+            WorkflowExecutionEntity::new(execution_id.clone(), Id::from(workflow_id.to_string()));
         // Link the child workflow under the calling execution through the
         // typed link; without a link it runs as a root workflow.
         if let Some(link) = parent.as_ref() {
@@ -331,10 +329,8 @@ impl WorkflowExecutionCallback {
         };
 
         let execution_id = wf_common::generate_id();
-        let mut entity = WorkflowExecutionEntity::new(
-            execution_id.clone(),
-            Id::from(workflow_id.to_string()),
-        );
+        let mut entity =
+            WorkflowExecutionEntity::new(execution_id.clone(), Id::from(workflow_id.to_string()));
         // Link the child workflow under the calling execution through the
         // typed link; without a link it runs as a root workflow.
         if let Some(link) = parent.as_ref() {

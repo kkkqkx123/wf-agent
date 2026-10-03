@@ -261,6 +261,7 @@ pub enum TriggerAgentWriteback {
 /// | `SetVariable` | ✅ | ✅ |
 /// | `SendNotification` | ✅ | ✅ |
 /// | `ExecuteTriggeredSubworkflow` | ✅ (routed to the compression runner) | ✅ (sync or spawned) |
+/// | `ExecuteContextCompression` | ✅ (builtin compression route only) | ❌ rejected with an explicit error |
 /// | `ExecuteScript` | ✅ | ✅ |
 /// | `SetMessageContext` | ✅ | ✅ |
 /// | `AppendMessageContext` | ✅ | ✅ |
@@ -450,6 +451,17 @@ pub enum TriggerAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         checkpoint_message_interval: Option<u32>,
     },
+    /// Event-driven context compression through the builtin route.
+    ///
+    /// Reserved for the builtin compression template (constructed in code by
+    /// the runtime; user configuration carrying this action is rejected at
+    /// load time). The triggering event must be the adapter-published routed
+    /// copy of the compression signal, which carries the message snapshot
+    /// the pipeline summarizes; the emitter's audit copy carries identity
+    /// and accounting only and never matches. Supported only by the
+    /// event-driven trigger listener; message nodes reject it with an
+    /// explicit error because the snapshot travels on the event.
+    ExecuteContextCompression {},
 }
 
 /// Execution context running a [`TriggerAction`]: the event-driven
@@ -458,9 +470,10 @@ pub enum TriggerAction {
 ///
 /// Authoritative support matrix (mirrors the table on [`TriggerAction`]):
 /// every action runs in the event listener; every action except the
-/// nested-agent execution and the two cold-start actions runs in message
-/// nodes (those three need the triggering event: the parent conversation
-/// anchor or no emitting execution at all).
+/// nested-agent execution, the builtin compression action and the two
+/// cold-start actions runs in message nodes (those need the triggering
+/// event: the parent conversation anchor, the routed snapshot, or the
+/// absence of an emitting execution).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TriggerExecutionContext {
     EventListener,
@@ -495,6 +508,7 @@ impl TriggerAction {
             Self::FilterMessageContext { .. } => "filter_message_context",
             Self::ExecuteWorkflow { .. } => "execute_workflow",
             Self::ExecuteAgent { .. } => "execute_agent",
+            Self::ExecuteContextCompression {} => "execute_context_compression",
         }
     }
 
@@ -511,15 +525,17 @@ impl TriggerAction {
 
     /// Whether this action is supported in the given execution context.
     /// The event listener supports every action; message nodes support
-    /// every action except the nested-agent execution and the cold-start
-    /// actions, which need the triggering event (the parent conversation
-    /// anchor, or the absence of an emitting execution).
+    /// every action except the nested-agent execution, the builtin
+    /// compression action and the cold-start actions, which need the
+    /// triggering event (the parent conversation anchor, the routed
+    /// snapshot, or the absence of an emitting execution).
     pub fn supported_in(&self, context: TriggerExecutionContext) -> bool {
         match context {
             TriggerExecutionContext::EventListener => true,
             TriggerExecutionContext::MessageNode => !matches!(
                 self,
                 Self::ExecuteTriggeredAgentExecution { .. }
+                    | Self::ExecuteContextCompression {}
                     | Self::ExecuteWorkflow { .. }
                     | Self::ExecuteAgent { .. }
             ),
@@ -536,6 +552,14 @@ impl TriggerAction {
         if self.is_execution_creating() {
             return Some(format!(
                 "{} is only supported by the event-driven trigger listener ({} context); message nodes ({}) always run inside an execution and cannot cold-start a fresh run. Trigger the run from a schedule or webhook creation target instead",
+                self.action_name(),
+                TriggerExecutionContext::EventListener.as_str(),
+                context.as_str(),
+            ));
+        }
+        if matches!(self, Self::ExecuteContextCompression {}) {
+            return Some(format!(
+                "{} is only supported by the event-driven trigger listener ({} context); message nodes ({}) reject this action because the routed snapshot travels on the triggering event. Compression is driven by the builtin compression route, not by message content",
                 self.action_name(),
                 TriggerExecutionContext::EventListener.as_str(),
                 context.as_str(),
@@ -738,6 +762,7 @@ mod tests {
                 timeout: None,
                 checkpoint_message_interval: None,
             },
+            TriggerAction::ExecuteContextCompression {},
         ];
         for action in &all {
             assert!(
@@ -751,6 +776,7 @@ mod tests {
             let event_anchored = matches!(
                 action,
                 TriggerAction::ExecuteTriggeredAgentExecution { .. }
+                    | TriggerAction::ExecuteContextCompression {}
                     | TriggerAction::ExecuteWorkflow { .. }
                     | TriggerAction::ExecuteAgent { .. }
             );
@@ -784,6 +810,16 @@ mod tests {
             message.contains("execute_triggered_subworkflow"),
             "{message}"
         );
+        let builtin = TriggerAction::ExecuteContextCompression {};
+        assert_eq!(builtin.action_name(), "execute_context_compression");
+        assert!(builtin.supported_in(EventListener));
+        assert!(!builtin.supported_in(MessageNode));
+        assert!(!builtin.is_execution_creating());
+        let message = builtin
+            .rejection_message(MessageNode)
+            .expect("builtin compression rejected in message nodes");
+        assert!(message.contains("execute_context_compression"), "{message}");
+        assert!(message.contains("message-node"), "{message}");
     }
 
     #[test]

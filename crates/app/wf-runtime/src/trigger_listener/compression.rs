@@ -1,12 +1,24 @@
-//! The engine's builtin `CONTEXT_COMPRESSION_REQUESTED` hook handler.
+//! The engine's builtin `CONTEXT_COMPRESSION_REQUESTED` signal path.
 //!
-//! [`CompressionService`] takes over the compression signal synchronously:
-//! version-idempotent skip, then spawn of the compression chain
-//! sub-workflow (fold file contents, then summarize). The
-//! emitting execution blocks until the compression lands; a terminal failure
-//! either lands a visibly degraded window (the `partial_summary` policy
-//! declared by the summary workflow resource) or stops the emitter for
-//! external handling.
+//! Two responsibilities share this file, split across two types on purpose:
+//! `CompressionService` is the thin hook adapter (parse the signal, skip
+//! empty snapshots, translate it into a trigger-side request and hand it
+//! over, then return); `CompressionPipeline` is the trigger-side runner
+//! owning the whole execution (retry loop, degraded fallback, write-back
+//! orchestration, terminal events, trigger-state and ledger audit). No
+//! execution policy lives in the hook adapter: the emitting execution blocks
+//! on its version anchor until the pipeline lands the compression, and a
+//! terminal failure either lands a visibly degraded window (the
+//! `partial_summary` policy declared by the summary workflow resource) or
+//! stops the emitter for external handling.
+//!
+//! Handoff has two construction-time modes (see [`CompressionDispatch`]):
+//! direct spawn (tests and listener-less embedding) and the routed mode used
+//! in production, where the adapter publishes a snapshot-carrying routed copy
+//! of the signal and the listener matches it against the builtin template
+//! ([`builtin_compression_template`]) whose reserved action routes to
+//! [`CompressionPipeline::run_routed`]. User templates never participate in
+//! either mode.
 
 use std::sync::Arc;
 
@@ -16,15 +28,23 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{HookContext, HookHandler, HookOutcome};
+use wf_types::events::BaseEvent;
 use wf_types::message::Message;
+use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_types::workflow::CompressionFallbackMode;
 use wf_types::Id;
 
-use super::workflow_runner::SubworkflowActionRunner;
 use super::{handle_subworkflow_output, ExecutionContextRegistry, TriggerLedger};
-use wf_workflow::trigger::SubworkflowRunner;
+use wf_workflow::error::{WorkflowError, WorkflowResult};
+use wf_workflow::trigger::{SubworkflowRunner, TriggerTemplateRegistry};
 
 pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
+
+/// Name of the builtin compression template: the only template whose action
+/// is the reserved `ExecuteContextCompression`. User configuration can never
+/// carry that action (rejected at load time) or target the signal (rejected
+/// at load time and skipped by the matcher), so this name never competes.
+pub const BUILTIN_COMPRESSION_TEMPLATE_NAME: &str = "builtin-context-compression";
 
 /// Upper bound for the dedup table; overflow evicts the oldest claims by
 /// registration time while never evicting the just-claimed key (a late
@@ -44,9 +64,10 @@ const SUMMARY_INPUT_HEADROOM_DEN: u64 = 10;
 
 /// Write-back and run policy for the compression service.
 ///
-/// User trigger templates never participate (the compression chain bypasses
-/// the listener). Timeout nesting: the emitter's settle budget (injected at
-/// bootstrap from `limits.compression.settle_timeout_ms`) must cover
+/// User trigger templates never participate: direct mode bypasses the
+/// listener, routed mode runs through the builtin template only. Timeout
+/// nesting: the emitter's settle budget (injected at bootstrap from
+/// `limits.compression.settle_timeout_ms`) must cover
 /// `(1 + max_retries) × run_timeout_ms + backoffs`.
 #[derive(Debug, Clone)]
 pub struct CompressionPolicy {
@@ -190,40 +211,50 @@ fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
     })
 }
 
-/// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
-/// signal (see `wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE`).
+/// Trigger-side compression request: the owned translation of one hook
+/// signal. The pipeline runs exclusively off this value and never observes
+/// hook payloads; the message snapshot travels with the request because the
+/// audit event carries identity and accounting only.
+#[derive(Debug, Clone)]
+pub(crate) struct CompressionRequest {
+    execution_id: String,
+    target_context_id: String,
+    token_limit: u64,
+    array_version: u64,
+    depth: u64,
+    messages: Vec<Message>,
+    agent_loop_id: Option<String>,
+}
+
+/// How the hook adapter hands a parsed signal over for execution.
+/// Decided at construction: production wires the routed mode, tests and
+/// listener-less embedding keep the direct mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CompressionDispatch {
+    /// Spawn the pipeline synchronously inside the fire (the historical
+    /// behavior): the idempotency claim registers before the fire returns.
+    #[default]
+    Direct,
+    /// Publish the snapshot-carrying routed copy and return; the listener
+    /// matches it against the builtin template and the pipeline claims
+    /// atomically in its own spawn. No synchronous claim happens here, and a
+    /// publish failure is logged loudly without falling back to a direct
+    /// spawn (a silent fallback would mask a broken route while the emitter
+    /// still parks on its settle budget).
+    Routed,
+}
+
+/// Thin hook adapter for the `CONTEXT_COMPRESSION_REQUESTED` signal.
 ///
-/// The engine detects a token-limit overrun (or a forced safety-net request)
-/// and fires the signal synchronously; this service takes over
-/// immediately: version-idempotent skip, then spawn of the summary
-/// sub-workflow. The emitting execution blocks until the compression lands;
-/// a terminal failure is settled by the summary workflow resource's fallback
-/// policy (see [`CompressionPolicy::fallback`]).
-///
-/// The write-back chain is unchanged: the spawned task runs the summary
-/// workflow over the message snapshot, writes the compressed array back
-/// through the [`ExecutionContextRegistry`] (workflow targets; agent
-/// conversations self-consume the completed event) and publishes
-/// `CONTEXT_COMPRESSION_COMPLETED`.
+/// Synchronous duties only: parse the signal, skip snapshots that carry
+/// nothing to compress, and hand the request over (direct spawn or routed
+/// publish depending on [`CompressionDispatch`]), then return. No execution
+/// policy lives here: retry budget, degraded fallback, write-back
+/// orchestration and audit all belong to [`CompressionPipeline`]. The fire
+/// therefore always returns at takeover, never after the compression lands.
 pub struct CompressionService {
-    /// Delegate to the shared SubworkflowActionRunner for the actual
-    /// sub-workflow execution, eliminating duplicated logic.
-    inner: Arc<SubworkflowActionRunner>,
-    /// Summary workflow id resolved from the resource registries.
-    summary_workflow_id: String,
-    /// `execution_id:target_context_id` -> claimed array version
-    /// (idempotent skip for repeated same-version signals; removed at
-    /// terminal state so successful paths leave no trace). Shared via
-    /// `Arc` so the spawned terminal cleanup mutates the service's map.
-    handled: Arc<DashMap<String, CompressionAttempt>>,
-    /// Write-back policy (runtime-provided or builtin default).
-    pub policy: CompressionPolicy,
-    /// Shutdown token; in-flight summary sub-workflows race against it.
-    shutdown: CancellationToken,
-    /// Optional durable ledger: compression runs are recorded for the
-    /// management surface and the ledger's trigger-state registry feeds the
-    /// checkpoint audit.
-    ledger: Option<Arc<TriggerLedger>>,
+    pipeline: Arc<CompressionPipeline>,
+    dispatch: CompressionDispatch,
 }
 
 impl CompressionService {
@@ -246,22 +277,117 @@ impl CompressionService {
         ledger: Option<Arc<TriggerLedger>>,
     ) -> Self {
         Self {
-            inner: Arc::new(SubworkflowActionRunner::with_ledger(
+            pipeline: Arc::new(CompressionPipeline::with_ledger(
                 bus,
                 runner,
                 contexts,
-                shutdown.clone(),
-                ledger.clone(),
+                summary_workflow_id,
+                shutdown,
+                ledger,
             )),
-            summary_workflow_id,
-            handled: Arc::new(DashMap::new()),
-            policy: CompressionPolicy::default(),
-            shutdown,
-            ledger,
+            dispatch: CompressionDispatch::Direct,
+        }
+    }
+
+    /// Routed-mode adapter: publish the handoff instead of spawning. The
+    /// caller must also arm the listener side (builtin template chained into
+    /// the listener registry and the pipeline wired into the action router),
+    /// otherwise published handoffs never run.
+    pub(crate) fn routed_with_ledger(
+        bus: Arc<EventBus>,
+        runner: Arc<dyn SubworkflowRunner>,
+        contexts: Arc<ExecutionContextRegistry>,
+        summary_workflow_id: String,
+        shutdown: CancellationToken,
+        ledger: Option<Arc<TriggerLedger>>,
+    ) -> Self {
+        Self {
+            pipeline: Arc::new(CompressionPipeline::with_ledger(
+                bus,
+                runner,
+                contexts,
+                summary_workflow_id,
+                shutdown,
+                ledger,
+            )),
+            dispatch: CompressionDispatch::Routed,
         }
     }
 
     pub fn with_policy(mut self, policy: CompressionPolicy) -> Self {
+        self.pipeline = Arc::new(self.pipeline.as_ref().clone().with_policy(policy));
+        self
+    }
+
+    /// Publish the routed handoff copy for a parsed signal: same audit
+    /// fields as the emitter's copy plus the message snapshot, the routed
+    /// marker and the nesting depth. Only the builtin template matches it.
+    fn publish_routed(&self, execution_id: &str, signal: &CompressionSignal) {
+        let request = wf_execution_shared::ContextCompressionRequest {
+            target_context_id: &signal.target_context_id,
+            tokens_used: signal.tokens_used,
+            token_limit: signal.token_limit,
+            message_count: signal.message_count,
+            array_version: signal.array_version,
+            forced: signal.forced,
+            messages: &signal.messages,
+        };
+        let event = wf_execution_shared::build_context_compression_routed_event(
+            execution_id,
+            signal.agent_loop_id.as_deref(),
+            &request,
+            signal.depth,
+        );
+        if let Err(e) = self.pipeline.bus.publish(event) {
+            warn!(
+                "Compression routed handoff for {execution_id}:{}:{} dropped on publish: {e}",
+                signal.target_context_id, signal.array_version,
+            );
+        }
+    }
+}
+
+/// Trigger-side runner of the builtin compression chain.
+///
+/// Owns the whole execution: idempotency claims, retry loop with backoff,
+/// degraded fallback, write-back orchestration, terminal events and
+/// trigger-state plus ledger audit. Driven by [`CompressionRequest`] values
+/// handed over from the hook adapter; the entry takes no hook context, so a
+/// future listener route can invoke the same pipeline off a matched event.
+#[derive(Clone)]
+pub(crate) struct CompressionPipeline {
+    runner: Arc<dyn SubworkflowRunner>,
+    contexts: Arc<ExecutionContextRegistry>,
+    bus: Arc<EventBus>,
+    shutdown: CancellationToken,
+    ledger: Option<Arc<TriggerLedger>>,
+    summary_workflow_id: String,
+    policy: CompressionPolicy,
+    handled: Arc<DashMap<String, CompressionAttempt>>,
+}
+
+impl CompressionPipeline {
+    pub(crate) fn with_ledger(
+        bus: Arc<EventBus>,
+        runner: Arc<dyn SubworkflowRunner>,
+        contexts: Arc<ExecutionContextRegistry>,
+        summary_workflow_id: String,
+        shutdown: CancellationToken,
+        ledger: Option<Arc<TriggerLedger>>,
+    ) -> Self {
+        Self {
+            runner,
+            contexts,
+            bus,
+            shutdown,
+            ledger,
+            summary_workflow_id,
+            policy: CompressionPolicy::default(),
+            handled: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub(crate) fn with_policy(mut self, policy: CompressionPolicy) -> Self {
         self.policy = policy;
         self
     }
@@ -291,6 +417,138 @@ impl CompressionService {
             self.handled.remove(&victim);
         }
     }
+
+    /// Run one listener-routed handoff: the action router calls this for the
+    /// builtin template only. Parses the routed event back into a pipeline
+    /// request and claims through [`Self::spawn`] (duplicate handoffs lose
+    /// the claim race and return cleanly). Snapshot-less copies (notably the
+    /// emitter's audit copy, which never matches the builtin condition but
+    /// may arrive here when validation was bypassed) are skipped like the
+    /// adapter skips empty snapshots.
+    pub(crate) async fn run_routed(
+        &self,
+        template: &TriggerTemplate,
+        event: &BaseEvent,
+    ) -> WorkflowResult<()> {
+        if !template
+            .action
+            .as_ref()
+            .is_some_and(|action| matches!(action, TriggerAction::ExecuteContextCompression {}))
+        {
+            return Err(WorkflowError::TriggerError(format!(
+                "Trigger '{}' reached the compression route without the builtin action; skipping",
+                template.name
+            )));
+        }
+        let Some(execution_id) = event.execution_id.as_ref() else {
+            return Err(WorkflowError::TriggerError(format!(
+                "Trigger '{}' matched an execution-less routed compression event; skipping",
+                template.name
+            )));
+        };
+        if !wf_execution_shared::is_compression_routed_event(event) {
+            debug!(
+                "Trigger '{}' routed a non-handoff compression event for {execution_id}; skipping",
+                template.name
+            );
+            return Ok(());
+        }
+        let meta =
+            wf_execution_shared::ContextCompressionRequestedMeta::try_from(event).map_err(|e| {
+                WorkflowError::TriggerError(format!(
+                    "Trigger '{}' routed an unparsable compression handoff: {e}",
+                    template.name
+                ))
+            })?;
+        let messages = wf_execution_shared::compression_routed_messages(event);
+        if messages.is_empty() {
+            debug!(
+                "Trigger '{}' routed a snapshot-less compression handoff for {execution_id}:{}:{}; skipping",
+                template.name, meta.target_context_id, meta.array_version
+            );
+            return Ok(());
+        }
+        let depth = event
+            .metadata
+            .as_ref()
+            .and_then(|meta_map| meta_map.get(wf_execution_shared::KEY_COMPRESSION_DEPTH))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        self.spawn(CompressionRequest {
+            execution_id: execution_id.to_string(),
+            target_context_id: meta.target_context_id,
+            token_limit: meta.token_limit,
+            array_version: meta.array_version,
+            depth,
+            messages,
+            agent_loop_id: event.agent_loop_id.as_ref().map(|id| id.to_string()),
+        });
+        Ok(())
+    }
+}
+
+/// The builtin compression template: matches only the adapter-published
+/// routed copy (`CONTEXT_COMPRESSION_REQUESTED` with the routed marker) and
+/// runs it through the reserved compression action.
+///
+/// Unlimited budget by construction: per-version idempotency is owned by the
+/// pipeline claim (one (target, version) runs once), and the listener keys
+/// the builtin action below the template so concurrent versions of one
+/// execution do not share an in-flight slot.
+pub(crate) fn builtin_compression_template() -> TriggerTemplate {
+    let mut metadata = wf_types::Metadata::new();
+    metadata.insert(
+        wf_execution_shared::KEY_COMPRESSION_ROUTED.to_string(),
+        serde_json::json!(true),
+    );
+    TriggerTemplate {
+        name: BUILTIN_COMPRESSION_TEMPLATE_NAME.to_string(),
+        description: Some(
+            "Builtin context-compression route: adapter-published handoffs only.".to_string(),
+        ),
+        condition: Some(TriggerCondition {
+            event_type: wf_types::hook::CONTEXT_COMPRESSION_SIGNAL.to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(metadata),
+            metadata_exists: None,
+            execution_prefix: None,
+        }),
+        action: Some(TriggerAction::ExecuteContextCompression {}),
+        enabled: None,
+        max_triggers: None,
+        priority: None,
+        dispatch_mode: None,
+        allow_multi_effect: None,
+        effect_order: None,
+        metadata: None,
+        created_at: wf_common::now(),
+        updated_at: wf_common::now(),
+        create_checkpoint: None,
+        checkpoint_description_template: None,
+    }
+}
+
+/// Listener registry chaining the user templates with the builtin
+/// compression template. Read-time chaining (no registry mutation): the
+/// builtin route is armed exactly when the listener is built with it, and
+/// user registries never contain a compression template.
+pub(crate) struct CompressionRoutedRegistry {
+    inner: Arc<dyn TriggerTemplateRegistry>,
+}
+
+impl CompressionRoutedRegistry {
+    pub(crate) fn new(inner: Arc<dyn TriggerTemplateRegistry>) -> Self {
+        Self { inner }
+    }
+}
+
+impl TriggerTemplateRegistry for CompressionRoutedRegistry {
+    fn templates(&self) -> Vec<TriggerTemplate> {
+        let mut templates = self.inner.templates();
+        templates.push(builtin_compression_template());
+        templates
+    }
 }
 
 #[async_trait]
@@ -300,56 +558,70 @@ impl HookHandler for CompressionService {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        self.handle(ctx).await;
-        HookOutcome::Continue
-    }
-}
-
-impl CompressionService {
-    /// Handle one compression signal: idempotency check, then spawn the
-    /// summary sub-workflow and return immediately. Each attempt is bounded
-    /// by the policy run timeout; terminal failures are retried with
-    /// backoff up to `max_retries`. At the terminal state the declared
-    /// fallback policy either lands a visible degraded window (degraded
-    /// completion) or publishes the failure event for external handling.
-    /// The emitter blocks until the chain settles.
-    async fn handle(&self, ctx: &HookContext) {
         let Some(signal) = parse_compression_signal(ctx) else {
             debug!("Compression signal fire ignored: missing or invalid payload");
-            return;
+            return HookOutcome::Continue;
         };
-        let execution_id = ctx.execution_id.clone();
-        let key = format!(
-            "{}:{}:{}",
-            execution_id, signal.target_context_id, signal.array_version
-        );
         debug!(
-            "Compression signal for {}: tokens {}/{} ({} messages, forced: {}, depth: {})",
-            key,
+            "Compression signal for {}:{}:{}: tokens {}/{} ({} messages, forced: {}, depth: {})",
+            ctx.execution_id,
+            signal.target_context_id,
+            signal.array_version,
             signal.tokens_used,
             signal.token_limit,
             signal.message_count,
             signal.forced,
             signal.depth
         );
+        if signal.messages.is_empty() {
+            debug!(
+                "Compression signal for {}:{}:{} carries no message snapshot, skipping",
+                ctx.execution_id, signal.target_context_id, signal.array_version
+            );
+            return HookOutcome::Continue;
+        }
+        match self.dispatch {
+            CompressionDispatch::Direct => {
+                self.pipeline.spawn(CompressionRequest {
+                    execution_id: ctx.execution_id.to_string(),
+                    target_context_id: signal.target_context_id,
+                    token_limit: signal.token_limit,
+                    array_version: signal.array_version,
+                    depth: signal.depth,
+                    messages: signal.messages,
+                    agent_loop_id: signal.agent_loop_id,
+                });
+            }
+            CompressionDispatch::Routed => {
+                self.publish_routed(&ctx.execution_id.to_string(), &signal);
+            }
+        }
+        HookOutcome::Continue
+    }
+}
+
+impl CompressionPipeline {
+    /// Synchronous takeover: register the idempotency claim and spawn the
+    /// run. Returns false when the same version was already claimed (the
+    /// caller skips without work). The claim releases version-checked when
+    /// the spawned run settles on any path, so a terminal state re-arms the
+    /// same signal.
+    pub(crate) fn spawn(&self, request: CompressionRequest) -> bool {
+        let key = format!(
+            "{}:{}:{}",
+            request.execution_id, request.target_context_id, request.array_version
+        );
         if self.handled.contains_key(&key) {
             debug!(
                 "Compression signal for {} at version {} already handled, skipping",
-                key, signal.array_version
+                key, request.array_version
             );
-            return;
-        }
-        if signal.messages.is_empty() {
-            debug!(
-                "Compression signal for {} carries no message snapshot, skipping",
-                key
-            );
-            return;
+            return false;
         }
         self.handled.insert(
             key.clone(),
             CompressionAttempt {
-                array_version: signal.array_version,
+                array_version: request.array_version,
                 claimed_at: wf_common::now(),
             },
         );
@@ -360,7 +632,7 @@ impl CompressionService {
         let event_id = wf_common::generate_id();
         if let Some(registry) = self.trigger_states() {
             registry.record_start(
-                &execution_id.to_string(),
+                &request.execution_id,
                 wf_workflow::TriggerStateRecord::running(
                     COMPRESSION_SERVICE_HANDLER_NAME.to_string(),
                     event_id.clone(),
@@ -373,19 +645,19 @@ impl CompressionService {
         // Spawned single-shot run: the emitter blocks until the terminal
         // event lands. Aborted at listener shutdown so in-flight summary
         // runs are stopped.
-        let runner = self.inner.runner();
-        let contexts = self.inner.contexts().clone();
-        let bus = self.inner.bus().clone();
-        let shutdown = self.shutdown.clone();
-        let ledger = self.ledger.clone();
         let policy = self.policy.clone();
         let workflow_id = self.summary_workflow_id.clone();
-        let agent_loop_id = signal.agent_loop_id.clone();
-        let target_context_id = signal.target_context_id.clone();
-        let array_version = signal.array_version;
-        let token_limit = signal.token_limit;
-        let depth = signal.depth.saturating_add(1);
-        let execution_id_str = execution_id.to_string();
+        let runner = self.runner.clone();
+        let contexts = self.contexts.clone();
+        let bus = self.bus.clone();
+        let shutdown = self.shutdown.clone();
+        let ledger = self.ledger.clone();
+        let agent_loop_id = request.agent_loop_id.clone();
+        let target_context_id = request.target_context_id.clone();
+        let array_version = request.array_version;
+        let token_limit = request.token_limit;
+        let depth = request.depth.saturating_add(1);
+        let execution_id_str = request.execution_id.clone();
         // Run identity for this claim: stamped onto every terminal event of
         // the spawned run so offline analysis can link each terminal back to
         // its summary run (same target+version with distinct run ids means a
@@ -397,12 +669,12 @@ impl CompressionService {
         // real request was rejected by the provider).
         let snapshot = if token_limit > 0 {
             trim_messages_to_budget(
-                signal.messages,
+                request.messages,
                 token_limit * SUMMARY_INPUT_HEADROOM_NUM / SUMMARY_INPUT_HEADROOM_DEN,
                 policy.tail_keep,
             )
         } else {
-            signal.messages
+            request.messages
         };
         // File folding runs inside the compression chain template
         // (processor fold node before the summary node), so the trimmed
@@ -665,6 +937,7 @@ impl CompressionService {
         };
 
         tokio::spawn(callback);
+        true
     }
 }
 

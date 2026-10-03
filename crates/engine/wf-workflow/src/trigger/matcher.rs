@@ -64,13 +64,26 @@ pub(crate) fn is_cold_start(template: &TriggerTemplate) -> bool {
 
 /// Runtime guards on a matched condition. Templates that slipped past
 /// load-time validation must not drive functional actions off the internal
-/// compression signal or its audit copy (owned synchronously by the builtin
-/// compression service), nor off a `BEFORE_*` hook point through the audit
-/// event: trigger actions always run asynchronously after the hook and cannot
-/// gate execution, which is the job of a synchronous handler's Veto at that
-/// point.
+/// compression signal or its audit copy, nor off a `BEFORE_*` hook point
+/// through the audit event: trigger actions always run asynchronously after
+/// the hook and cannot gate execution, which is the job of a synchronous
+/// handler's Veto at that point.
+///
+/// The single exception is the builtin compression route: a template whose
+/// action is the reserved `ExecuteContextCompression` (constructible only in
+/// code; user configuration carrying it is rejected at load time) may match
+/// the adapter-published routed copy. Every other subscriber of the signal
+/// is still dropped.
 fn guards_allow(template: &TriggerTemplate, condition: &TriggerCondition) -> bool {
     if condition.targets_compression_signal() {
+        if template.action.as_ref().is_some_and(|action| {
+            matches!(
+                action,
+                wf_types::trigger::TriggerAction::ExecuteContextCompression {}
+            )
+        }) {
+            return true;
+        }
         warn!(
             "Trigger '{}' targets the internal compression signal; skipping (register a hook handler instead)",
             template.name
@@ -439,6 +452,55 @@ mod tests {
             .len(),
             1
         );
+    }
+
+    #[test]
+    fn builtin_compression_action_passes_guard_on_routed_copy() {
+        use wf_types::trigger::TriggerAction;
+        // Builtin-shaped template: compression signal condition plus the
+        // reserved action, requiring the routed marker.
+        let mut builtin = event_template(
+            "builtin-context-compression",
+            wf_types::hook::CONTEXT_COMPRESSION_SIGNAL,
+            0,
+        );
+        builtin.condition.as_mut().expect("condition").metadata = Some(StdHashMap::from([(
+            wf_execution_shared::KEY_COMPRESSION_ROUTED.to_string(),
+            serde_json::json!(true),
+        )]));
+        builtin.action = Some(TriggerAction::ExecuteContextCompression {});
+        // User-shaped template: same signal, ordinary action.
+        let user = event_template(
+            "on-compression",
+            wf_types::hook::CONTEXT_COMPRESSION_SIGNAL,
+            0,
+        );
+
+        // Routed copy carries the marker plus the idempotency anchor.
+        let mut routed = base_event(EventType::ContextCompressionRequested, "e1");
+        routed.metadata = Some(StdHashMap::from([
+            (
+                wf_execution_shared::KEY_COMPRESSION_ROUTED.to_string(),
+                serde_json::json!(true),
+            ),
+            (
+                wf_execution_shared::KEY_TARGET_CONTEXT_ID.to_string(),
+                serde_json::json!("chat"),
+            ),
+            (
+                wf_execution_shared::KEY_ARRAY_VERSION.to_string(),
+                serde_json::json!(7u64),
+            ),
+        ]));
+        assert_eq!(
+            names(&candidates(&[builtin.clone(), user.clone()], &routed)),
+            vec!["builtin-context-compression"]
+        );
+
+        // The emitter's audit copy (no marker) matches neither: the builtin
+        // condition requires the marker, the user template is guard-dropped.
+        let audit = base_event(EventType::ContextCompressionRequested, "e1");
+        assert!(candidates(&[builtin, user], &audit).is_empty());
     }
 
     #[test]

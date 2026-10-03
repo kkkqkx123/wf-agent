@@ -190,6 +190,9 @@ fn compression_summary_suffix(compression: &crate::model::CompressionView) -> St
     if compression.phase == crate::model::CompressionPhase::Discarded {
         parts.push("discarded".to_string());
     }
+    if compression.phase == crate::model::CompressionPhase::Routed {
+        parts.push("routed".to_string());
+    }
     if let Some(run_id) = compression.run_id.as_deref() {
         parts.push(format!("run={}", cap_payload_text(run_id)));
     }

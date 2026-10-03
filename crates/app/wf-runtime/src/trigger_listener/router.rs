@@ -16,6 +16,7 @@ use wf_workflow::error::WorkflowResult;
 use wf_workflow::trigger::TriggerActionRunner;
 
 use super::agent_runner::AgentTriggerRunner;
+use super::compression::CompressionPipeline;
 use super::context_runner::ContextTriggerRunner;
 use super::creation_runner::CreationRunner;
 
@@ -31,6 +32,11 @@ pub struct TriggerActionRouter {
     agent: Option<Arc<AgentTriggerRunner>>,
     creation: Arc<CreationRunner>,
     context: Arc<ContextTriggerRunner>,
+    /// Trigger-side pipeline serving the builtin compression route
+    /// (`ExecuteContextCompression`). Absent when the listener was built
+    /// without the route; a routed match then fails loudly instead of
+    /// silently dropping the handoff.
+    routed_compression: Option<Arc<CompressionPipeline>>,
 }
 
 impl TriggerActionRouter {
@@ -45,7 +51,13 @@ impl TriggerActionRouter {
             agent,
             creation,
             context,
+            routed_compression: None,
         }
+    }
+
+    pub(crate) fn with_routed_compression(mut self, pipeline: Arc<CompressionPipeline>) -> Self {
+        self.routed_compression = Some(pipeline);
+        self
     }
 }
 
@@ -71,6 +83,15 @@ impl TriggerActionRunner for TriggerActionRouter {
             Some(TriggerAction::ExecuteTriggeredSubworkflow { .. }) => {
                 self.compression.run(template, event).await
             }
+            // Builtin compression handoffs run through the trigger-side
+            // pipeline (claim, retry, write-back, terminal events).
+            Some(TriggerAction::ExecuteContextCompression {}) => match &self.routed_compression {
+                Some(pipeline) => pipeline.run_routed(template, event).await,
+                None => Err(wf_workflow::error::WorkflowError::TriggerError(format!(
+                    "Trigger '{}' matched the builtin compression route without a wired pipeline; skipping",
+                    template.name
+                ))),
+            },
             // Cold-start workflow runs need no emitting execution.
             Some(TriggerAction::ExecuteWorkflow { .. }) => self.creation.run(template, event).await,
             Some(

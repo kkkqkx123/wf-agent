@@ -23,8 +23,9 @@ use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::StorageManager;
 use crate::trigger_listener::{
-    register_compression_handler, start_trigger_listener_with_parts, ExecutionContextRegistry,
-    ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
+    register_routed_compression_handler, start_trigger_listener_with_parts,
+    ExecutionContextRegistry, ListenerDeps, TriggerExecutionRecorder, TriggerLedger,
+    WorkflowRunner,
 };
 
 #[cfg(feature = "plugins")]
@@ -272,15 +273,25 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         timer_bindings: None,
         schedule_state_store: None,
         shutdown: trigger_shutdown.clone(),
+        // The builtin compression route runs through the listener: the
+        // builtin template is chained into the listener registry and the
+        // action router serves handoffs through a route-owned pipeline
+        // sharing this lifecycle and policy.
+        compression_route: Some(crate::trigger_listener::CompressionRouteConfig {
+            summary_workflow_id: summary_workflow_id.clone(),
+            policy: compression_policy.clone(),
+        }),
     });
-    // The builtin compression handler shares the listener's shutdown token
-    // and sub-workflow runner: engine signals fire to it, the compression
-    // chain sub-workflow is spawned immediately and stopped at runtime
-    // shutdown together with the listener. Cross-attempt policy comes from
-    // the resolved limits config (service builtin default when the section
-    // is absent). File folding runs inside the chain template (context
-    // transform node), so no fold attachment is wired here.
-    let _compression = register_compression_handler(
+    // The routed-mode builtin compression adapter shares the listener's
+    // shutdown token and sub-workflow runner: engine signals fire to it, it
+    // publishes the snapshot-carrying handoff synchronously, and the
+    // listener-side route pipeline runs the chain and stops it at runtime
+    // shutdown together with the listener.
+    // Cross-attempt policy comes from the resolved limits config (service
+    // builtin default when the section is absent). File folding runs inside
+    // the chain template (context transform node), so no fold attachment is
+    // wired here.
+    let _compression = register_routed_compression_handler(
         &hook_handler_registry,
         crate::trigger_listener::CompressionHandlerDeps {
             event_bus,

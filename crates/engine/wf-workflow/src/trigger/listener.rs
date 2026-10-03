@@ -221,6 +221,12 @@ impl TriggerEventListener {
     /// runtime does not execute yet (bypass path: load-time validation
     /// rejects the multi-effect opt-in, so reaching here means validation
     /// was bypassed).
+    ///
+    /// The builtin compression route keys below the template: its idempotency
+    /// unit is one (target array, emission version), so concurrent requests
+    /// for different versions of one execution must not share the governor's
+    /// in-flight slot. Same-version duplicates keep one key and the loser is
+    /// dropped exactly like the pipeline's own claim race would drop it.
     fn dispatchable(&self, template: TriggerTemplate, event: &BaseEvent) -> TriggerMatch {
         if template.allow_multi_effect == Some(true) {
             warn!(
@@ -229,6 +235,16 @@ impl TriggerEventListener {
             );
         }
         let key = match_key(event, &template.name);
+        let key = if template.action.as_ref().is_some_and(|action| {
+            matches!(
+                action,
+                wf_types::trigger::TriggerAction::ExecuteContextCompression {}
+            )
+        }) {
+            compression_dispatch_key(event, &key)
+        } else {
+            key
+        };
         TriggerMatch {
             template,
             event: event.clone(),
@@ -343,6 +359,24 @@ impl TriggerEventListener {
             }
             listener.governor.release(&key);
         });
+    }
+}
+
+/// Dispatch key for one builtin compression handoff: the generic
+/// (execution, template) key refined by the (target array, emission version)
+/// the pipeline claims on. Events without a parseable anchor fall back to
+/// the generic key (the runner then skips the snapshot-less handoff).
+fn compression_dispatch_key(event: &BaseEvent, base_key: &str) -> String {
+    let anchor = event.metadata.as_ref().and_then(|meta| {
+        let target = meta
+            .get(wf_execution_shared::KEY_TARGET_CONTEXT_ID)?
+            .as_str()?;
+        let version = meta.get(wf_execution_shared::KEY_ARRAY_VERSION)?.as_u64()?;
+        Some(format!("{target}#{version}"))
+    });
+    match anchor {
+        Some(anchor) => format!("{base_key}:{anchor}"),
+        None => base_key.to_string(),
     }
 }
 
@@ -728,6 +762,47 @@ mod tests {
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 2).await;
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn builtin_compression_dispatch_key_is_per_version() {
+        use wf_types::trigger::TriggerAction;
+        let mut builtin = event_template(
+            "builtin-context-compression",
+            "CONTEXT_COMPRESSION_REQUESTED",
+            0,
+        );
+        builtin.action = Some(TriggerAction::ExecuteContextCompression {});
+        let listener = listener_for(vec![builtin]);
+        let routed = |version: u64| {
+            let mut event = base_event(EventType::ContextCompressionRequested, "exec-1");
+            event.metadata = Some(std::collections::HashMap::from([
+                (
+                    wf_execution_shared::KEY_TARGET_CONTEXT_ID.to_string(),
+                    serde_json::json!("chat"),
+                ),
+                (
+                    wf_execution_shared::KEY_ARRAY_VERSION.to_string(),
+                    serde_json::json!(version),
+                ),
+            ]));
+            event
+        };
+        // Same version shares one key (duplicate handoffs contend on the
+        // governor exactly like they would on the pipeline claim).
+        let first = listener.select_templates(&routed(7));
+        let same = listener.select_templates(&routed(7));
+        assert_eq!(match_names(&first), vec!["builtin-context-compression"]);
+        assert_eq!(first[0].key, same[0].key);
+        assert!(
+            first[0].key.ends_with(":chat#7"),
+            "key must carry target and version, got {}",
+            first[0].key
+        );
+        // A newer version of the same execution keys independently, so
+        // concurrent versions never share an in-flight slot.
+        let newer = listener.select_templates(&routed(8));
+        assert_ne!(first[0].key, newer[0].key);
     }
 
     #[test]

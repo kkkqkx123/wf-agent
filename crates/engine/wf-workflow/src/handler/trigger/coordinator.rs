@@ -107,6 +107,23 @@ impl TriggerCoordinator {
                     detail: message,
                 })
             }
+            // The builtin compression action needs the routed event snapshot:
+            // message nodes have no triggering event to read it from.
+            TriggerAction::ExecuteContextCompression {} => {
+                let message = action
+                    .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
+                    .unwrap_or_else(|| {
+                        format!(
+                            "{} is not executable in message nodes",
+                            action.action_name()
+                        )
+                    });
+                Err(WorkflowError::ConfigError {
+                    node_id: ctx.node_id.clone(),
+                    field: "action".to_string(),
+                    detail: message,
+                })
+            }
         };
 
         let (result_val, error_val, error_category) = match result {

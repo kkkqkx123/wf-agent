@@ -174,6 +174,16 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         }
     }
     if let Some(action) = &template.action {
+        // The builtin compression action is reserved for the code-built
+        // builtin template: user configuration can never carry it (the
+        // matcher only lets that action match the routed signal copy).
+        if matches!(action, TriggerAction::ExecuteContextCompression {}) {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' uses the reserved '{}' action; compression runs through the builtin compression route, not user templates",
+                template.name,
+                action.action_name(),
+            )));
+        }
         validate_trigger_action_for_context(
             action,
             wf_types::trigger::TriggerExecutionContext::EventListener,
@@ -366,10 +376,14 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
                 )));
             }
         }
-        // These variants have no required fields to validate.
+        // These variants have no required fields to validate. The builtin
+        // compression action never reaches here from user configuration
+        // (`validate_trigger_template` rejects it as reserved); the arm
+        // exists so the match stays exhaustive.
         TriggerAction::StopWorkflowExecution {}
         | TriggerAction::PauseWorkflowExecution {}
-        | TriggerAction::ResumeWorkflowExecution {} => {}
+        | TriggerAction::ResumeWorkflowExecution {}
+        | TriggerAction::ExecuteContextCompression {} => {}
     }
     Ok(())
 }
@@ -780,6 +794,24 @@ mod tests {
             messages: vec![],
         };
         assert!(validate_trigger_action(&action, "action").is_err());
+    }
+
+    #[test]
+    fn test_reserved_compression_action_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "NODE_COMPLETED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::ExecuteContextCompression {});
+        let err = validate_trigger_template(&template)
+            .expect_err("reserved compression action must be rejected");
+        assert!(err.to_string().contains("reserved"), "{}", err.to_string());
     }
 
     #[test]

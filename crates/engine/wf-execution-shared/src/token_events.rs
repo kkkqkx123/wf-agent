@@ -58,6 +58,13 @@ pub const KEY_COMPRESSION_ATTEMPTS: &str = "attempts";
 /// Metadata key: true on a `CONTEXT_COMPRESSION_REQUESTED` event whose signal
 /// had no hook handler to take over (audit kept, flight never anchored).
 pub const KEY_NO_TAKER: &str = "no_taker";
+/// Metadata key: true on a `CONTEXT_COMPRESSION_REQUESTED` event published
+/// by the builtin compression adapter as the routed handoff (as opposed to
+/// the emitter's audit copy). Only the routed copy carries the message
+/// snapshot and only the builtin compression template matches it; user
+/// templates can never observe this marker because targeting the signal is
+/// rejected at load time.
+pub const KEY_COMPRESSION_ROUTED: &str = "compression_routed";
 /// Metadata key: number of snapshot messages dropped without a summary on a
 /// degraded `CONTEXT_COMPRESSION_COMPLETED` (partial window fallback).
 pub const KEY_DEGRADED_DROPPED: &str = "degraded_dropped";
@@ -306,6 +313,60 @@ pub fn build_context_compression_requested_event(
     }
     event.metadata = Some(metadata(pairs));
     event
+}
+
+/// Build the routed handoff copy of a `CONTEXT_COMPRESSION_REQUESTED` event.
+///
+/// Published by the builtin compression adapter (not by the emitter) after
+/// the synchronous takeover: the audit fields and accounting match the
+/// emitter's audit copy, plus the message snapshot under [`KEY_MESSAGES`],
+/// the [`KEY_COMPRESSION_ROUTED`] marker and the nesting depth. Only the
+/// builtin compression template matches this copy; the emitter's audit copy
+/// carries identity and accounting only and never matches.
+///
+/// `depth` is the emitting execution's compression nesting depth (absent
+/// means zero); the key is omitted then so old consumers see a plain audit
+/// shape.
+pub fn build_context_compression_routed_event(
+    execution_id: &str,
+    agent_loop_id: Option<&str>,
+    request: &ContextCompressionRequest<'_>,
+    depth: u64,
+) -> BaseEvent {
+    let mut event = build_context_compression_requested_event(execution_id, agent_loop_id, request);
+    let meta = event.metadata.get_or_insert_with(Default::default);
+    if let Ok(value) = serde_json::to_value(request.messages) {
+        meta.insert(KEY_MESSAGES.to_string(), value);
+    }
+    meta.insert(KEY_COMPRESSION_ROUTED.to_string(), serde_json::json!(true));
+    if depth > 0 {
+        meta.insert(KEY_COMPRESSION_DEPTH.to_string(), serde_json::json!(depth));
+    }
+    event
+}
+
+/// Whether an event is the adapter-published routed handoff (as opposed to
+/// the emitter's audit copy).
+pub fn is_compression_routed_event(event: &BaseEvent) -> bool {
+    event.r#type == EventType::ContextCompressionRequested
+        && event
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.get(KEY_COMPRESSION_ROUTED))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+}
+
+/// Messages embedded on a routed compression event under [`KEY_MESSAGES`];
+/// absent or malformed snapshots degrade to an empty array (the caller
+/// skips snapshot-less handoffs, mirroring the empty-snapshot skip of the
+/// direct path).
+pub fn compression_routed_messages(event: &BaseEvent) -> Vec<Message> {
+    event
+        .metadata
+        .as_ref()
+        .map(get_messages)
+        .unwrap_or_default()
 }
 
 /// Payload of a `CONTEXT_COMPRESSION_COMPLETED` event (everything except the

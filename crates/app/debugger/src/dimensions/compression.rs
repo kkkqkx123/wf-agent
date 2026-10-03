@@ -49,12 +49,17 @@ fn note_terminal_run(
 /// degraded partial windows (oldest messages dropped without a summary),
 /// still-over-budget results (backed off for one version; consecutive loops
 /// escalate) and requests without a terminal event (lost completion blocks
-/// the emitter until its settle timeout). Terminal events carrying distinct
-/// run ids for the same key mark redundant summary runs whose write-back
-/// the version anchor discards.
+/// the emitter until its settle timeout). In routed mode the adapter
+/// publishes a `routed` handoff between request and terminal: duplicate
+/// handoffs lose the pipeline claim race (info), a handoff with no emitter
+/// request is out-of-band (warning), and a terminal pairs against either.
+/// Terminal events carrying distinct run ids for the same key mark redundant
+/// summary runs whose write-back the version anchor discards.
 pub fn analyze(trace: &Trace) -> SectionReport {
     let mut report = SectionReport::named("compression");
     let mut requested: BTreeSet<String> = BTreeSet::new();
+    let mut handoff: BTreeSet<String> = BTreeSet::new();
+    let mut handoff_paths: BTreeMap<String, String> = BTreeMap::new();
     let mut terminal: BTreeMap<String, CompressionPhase> = BTreeMap::new();
     let mut terminal_runs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut completed_without_request: Vec<(String, CompressionView)> = Vec::new();
@@ -147,6 +152,38 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                             None,
                             None,
                         );
+                    }
+                }
+                CompressionPhase::Routed => {
+                    report.count("routed", 1);
+                    report.count(&format!("target:{}:routed", view.target_context_id), 1);
+                    if terminal.contains_key(&key) {
+                        report.count("handoff_after_terminal", 1);
+                        report.finding(
+                            FindingLevel::Info,
+                            &visit.path,
+                            format!(
+                                "compression handoff for '{}' at version {} arrived after its terminal event already landed (late duplicate; the claim race drops it)",
+                                view.target_context_id, view.array_version,
+                            ),
+                            None,
+                            None,
+                        );
+                    } else if handoff.contains(&key) {
+                        report.count("duplicate_routed", 1);
+                        report.finding(
+                            FindingLevel::Info,
+                            &visit.path,
+                            format!(
+                                "duplicate compression handoff for '{}' at version {} (the pipeline claim race drops the rerun)",
+                                view.target_context_id, view.array_version,
+                            ),
+                            None,
+                            None,
+                        );
+                    } else {
+                        handoff.insert(key.clone());
+                        handoff_paths.insert(key.clone(), visit.path.clone());
                     }
                 }
                 CompressionPhase::Completed => {
@@ -250,7 +287,7 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                             None,
                         );
                     }
-                    if !requested.contains(&key) {
+                    if !requested.contains(&key) && !handoff.contains(&key) {
                         completed_without_request.push((visit.path.clone(), view.clone()));
                     }
                 }
@@ -277,7 +314,7 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                         None,
                         view.error.clone().map(serde_json::Value::String),
                     );
-                    if !requested.contains(&key) {
+                    if !requested.contains(&key) && !handoff.contains(&key) {
                         completed_without_request.push((visit.path.clone(), view.clone()));
                     }
                 }
@@ -315,7 +352,7 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                         view.current_version.map(serde_json::Value::from),
                         None,
                     );
-                    if !requested.contains(&key) {
+                    if !requested.contains(&key) && !handoff.contains(&key) {
                         completed_without_request.push((visit.path.clone(), view.clone()));
                     }
                 }
@@ -355,6 +392,31 @@ pub fn analyze(trace: &Trace) -> SectionReport {
                 view.phase.label(),
                 view.target_context_id,
                 view.array_version,
+            ),
+            None,
+            None,
+        );
+    }
+
+    // Handoffs with no emitter request are out-of-band: the adapter only
+    // publishes after an emission, so the audit copy was lost. Deferred past
+    // the walk so trace order never false-positives.
+    let mut orphaned: Vec<(&String, &String)> = handoff_paths
+        .iter()
+        .filter(|(key, _)| !requested.contains(*key))
+        .collect();
+    orphaned.sort();
+    for (key, path) in orphaned {
+        report.count("routed_without_request", 1);
+        let (target, version) = key
+            .rsplit_once('#')
+            .map(|(target, version)| (target, version.parse::<u64>().unwrap_or(0)))
+            .unwrap_or((key.as_str(), 0));
+        report.finding(
+            FindingLevel::Warning,
+            path,
+            format!(
+                "compression handoff for '{target}' at version {version} has no matching emitter request (out-of-band handoff)"
             ),
             None,
             None,
@@ -647,5 +709,70 @@ mod tests {
         let report = analyze(&trace);
         assert!(!report.counts.contains_key("redundant_summary_run"));
         assert!(report.findings.is_empty());
+    }
+
+    fn routed(target: &str, version: u64) -> CompressionView {
+        CompressionView {
+            phase: CompressionPhase::Routed,
+            ..requested(target, version)
+        }
+    }
+
+    #[test]
+    fn routed_handoff_pairs_request_with_terminal_cleanly() {
+        let trace = trace_with(vec![
+            step_with(0, vec![requested("chat", 7)]),
+            step_with(1, vec![routed("chat", 7)]),
+            step_with(
+                2,
+                vec![CompressionView {
+                    run_id: Some("run-1".to_string()),
+                    ..completed("chat", 7)
+                }],
+            ),
+        ]);
+        let report = analyze(&trace);
+        assert_eq!(report.counts.get("requested"), Some(&1));
+        assert_eq!(report.counts.get("routed"), Some(&1));
+        assert_eq!(report.counts.get("completed"), Some(&1));
+        assert_eq!(report.errors(), 0);
+        assert!(report.findings.is_empty());
+    }
+
+    #[test]
+    fn duplicate_routed_handoff_is_info() {
+        let trace = trace_with(vec![
+            step_with(0, vec![requested("chat", 7)]),
+            step_with(1, vec![routed("chat", 7)]),
+            step_with(2, vec![routed("chat", 7)]),
+            step_with(3, vec![completed("chat", 7)]),
+        ]);
+        let report = analyze(&trace);
+        assert_eq!(report.counts.get("duplicate_routed"), Some(&1));
+        assert_eq!(report.errors(), 0);
+    }
+
+    #[test]
+    fn routed_without_request_warns_but_pairs_terminal() {
+        let trace = trace_with(vec![
+            step_with(0, vec![routed("chat", 4)]),
+            step_with(1, vec![completed("chat", 4)]),
+        ]);
+        let report = analyze(&trace);
+        assert_eq!(report.counts.get("routed_without_request"), Some(&1));
+        // The handoff satisfies terminal pairing: no terminal_without_request.
+        assert!(!report.counts.contains_key("terminal_without_request"));
+    }
+
+    #[test]
+    fn routed_without_terminal_still_warns_missing_terminal() {
+        // Requested but the handoff never landed a terminal: the emitter
+        // still waits, so the missing-terminal warning stays.
+        let trace = trace_with(vec![
+            step_with(0, vec![requested("chat", 9)]),
+            step_with(1, vec![routed("chat", 9)]),
+        ]);
+        let report = analyze(&trace);
+        assert_eq!(report.counts.get("missing_terminal"), Some(&1));
     }
 }

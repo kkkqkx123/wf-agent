@@ -55,6 +55,8 @@ pub struct ReplaySummary {
     #[serde(default)]
     pub compression_requested: usize,
     #[serde(default)]
+    pub compression_routed: usize,
+    #[serde(default)]
     pub compression_completed: usize,
     #[serde(default)]
     pub compression_failed: usize,
@@ -124,6 +126,9 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
             match compression.phase {
                 crate::model::CompressionPhase::Requested => {
                     summary.compression_requested += 1;
+                }
+                crate::model::CompressionPhase::Routed => {
+                    summary.compression_routed += 1;
                 }
                 crate::model::CompressionPhase::Completed => {
                     summary.compression_completed += 1;

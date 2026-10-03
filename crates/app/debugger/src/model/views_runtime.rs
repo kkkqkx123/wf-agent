@@ -164,6 +164,10 @@ pub struct TriggerTemplateView {
     pub scope: Option<String>,
     #[serde(default)]
     pub max_triggers: Option<u32>,
+    /// True for the builtin compression template (reserved action): the only
+    /// template the compression-signal guard lets through.
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 #[cfg(test)]

@@ -67,7 +67,7 @@ pub fn dry_run(
                 continue;
             }
         }
-        if is_compression_target(event_type) {
+        if is_compression_target(event_type) && !template.builtin {
             dropped.push(TriggerDrop {
                 template_name: template.name.clone(),
                 reason: "guarded: compression signal needs a hook handler".to_string(),
@@ -150,9 +150,39 @@ mod tests {
             priority: None,
             scope: None,
             max_triggers: None,
+            builtin: false,
         }];
         let run = dry_run(&templates, "NODE_COMPLETED", None, &Default::default());
         assert!(run.candidates.is_empty());
         assert_eq!(run.dropped.len(), 1);
+    }
+
+    #[test]
+    fn compression_signal_drops_user_but_keeps_builtin() {
+        let user = TriggerTemplateView {
+            name: "user-compression".to_string(),
+            enabled: true,
+            event_type: "CONTEXT_COMPRESSION_REQUESTED".to_string(),
+            event_name: None,
+            expression: None,
+            priority: None,
+            scope: None,
+            max_triggers: None,
+            builtin: false,
+        };
+        let builtin = TriggerTemplateView {
+            name: "builtin-context-compression".to_string(),
+            builtin: true,
+            ..user.clone()
+        };
+        let run = dry_run(
+            &[user, builtin],
+            "CONTEXT_COMPRESSION_REQUESTED",
+            None,
+            &Default::default(),
+        );
+        assert_eq!(run.candidates, vec!["builtin-context-compression"]);
+        assert_eq!(run.dropped.len(), 1);
+        assert_eq!(run.dropped[0].template_name, "user-compression");
     }
 }

@@ -22,7 +22,7 @@ pub enum WorkflowError {
     #[error("Graph error: {0}")]
     GraphError(String),
 
-    #[error("Handler not found: {node_type}")]
+    #[error("Handler not found: {node_type} (unknown builtin; custom types require a registered plugin handler)")]
     HandlerNotFound { node_type: String },
 
     #[error("Node execution failed: {node_id} - {reason}")]
@@ -128,7 +128,7 @@ impl From<WorkflowError> for wf_execution_shared::error::ExecutionSharedError {
                 "node '{node_id}' field '{field}' is invalid: {detail}"
             )),
             WorkflowError::HandlerNotFound { node_type } => {
-                Shared::VariableError(format!("Handler not found: {node_type}"))
+                Shared::VariableError(format!("Handler not found: {node_type} (unknown builtin; custom types require a registered plugin handler)"))
             }
             WorkflowError::CoordinatorError(detail) => Shared::NodeFailure {
                 node_id: "unknown".to_string(),

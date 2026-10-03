@@ -189,10 +189,12 @@ mod tests {
             id: None,
             source_node_id: Some("n1".into()),
             target_node_id: Some("n2".into()),
+            edge_type: None,
             condition: None,
             label: None,
             description: None,
             weight: None,
+            error_route: None,
         }];
         let built = transform_workflow_edges(&edges).expect("valid edges transform");
         assert_eq!(built.len(), 1);

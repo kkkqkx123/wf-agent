@@ -13,7 +13,7 @@ use wf_types::node::BaseStaticNode;
 use wf_types::tool::AvailableTools;
 use wf_types::workflow::config::WorkflowConfig;
 use wf_types::workflow::definition::{
-    WorkflowDefinition, WorkflowDefinitionType, WorkflowMetadata,
+    TriggeredSubworkflowConfig, WorkflowDefinition, WorkflowDefinitionType, WorkflowMetadata,
 };
 use wf_types::workflow::edge::{Edge, EdgeType};
 use wf_types::workflow_execution::VariableDefinition;
@@ -42,6 +42,7 @@ pub struct WorkflowBuilder<S> {
     metadata: Option<WorkflowMetadata>,
     available_tools: Option<AvailableTools>,
     hooks: Option<Vec<HookPointConfig>>,
+    triggered_subworkflow_config: Option<TriggeredSubworkflowConfig>,
     nodes: Vec<BaseStaticNode>,
     edges: Vec<Edge>,
     _marker: PhantomData<S>,
@@ -62,6 +63,7 @@ impl WorkflowBuilder<Empty> {
             metadata: None,
             available_tools: None,
             hooks: None,
+            triggered_subworkflow_config: None,
             nodes: Vec::new(),
             edges: Vec::new(),
             _marker: PhantomData,
@@ -96,6 +98,7 @@ impl WorkflowBuilder<Empty> {
             metadata: self.metadata,
             available_tools: self.available_tools,
             hooks: self.hooks,
+            triggered_subworkflow_config: self.triggered_subworkflow_config,
             nodes,
             edges: self.edges,
             _marker: PhantomData,
@@ -148,6 +151,7 @@ impl WorkflowBuilder<Empty> {
             metadata: definition.metadata,
             available_tools: definition.available_tools,
             hooks: definition.hooks,
+            triggered_subworkflow_config: definition.triggered_subworkflow_config,
             nodes: definition.nodes,
             edges: definition.edges,
             _marker: PhantomData,
@@ -218,6 +222,16 @@ impl<S> WorkflowBuilder<S> {
     /// Set the workflow definition type.
     pub fn with_type(mut self, r#type: WorkflowDefinitionType) -> Self {
         self.r#type = Some(r#type);
+        self
+    }
+
+    /// Set the triggered-subworkflow config owned exclusively by the
+    /// TriggeredSubworkflow declaration.
+    pub fn triggered_subworkflow_config(
+        mut self,
+        config: TriggeredSubworkflowConfig,
+    ) -> Self {
+        self.triggered_subworkflow_config = Some(config);
         self
     }
 
@@ -330,7 +344,7 @@ impl<S> WorkflowBuilder<S> {
             edges: self.edges,
             config: self.config,
             variables: (!self.variables.is_empty()).then_some(self.variables),
-            triggered_subworkflow_config: None,
+            triggered_subworkflow_config: self.triggered_subworkflow_config,
             metadata: self.metadata,
             created_at: now,
             updated_at: now,

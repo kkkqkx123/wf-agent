@@ -110,9 +110,31 @@ impl StaticNodeType {
                 | Self::InteractiveScript
         )
     }
+
+    /// Whether the variant is a builtin engine handler.
+    pub fn is_builtin(&self) -> bool {
+        !matches!(self, Self::Custom(_))
+    }
+
+    /// Whether the variant is contributed by a plugin.
+    pub fn is_custom(&self) -> bool {
+        matches!(self, Self::Custom(_))
+    }
 }
 
 impl StaticNodeType {
+    /// Canonical wire name: builtin variants in SCREAMING_SNAKE_CASE,
+    /// plugin-contributed types verbatim. Shared by serialization and
+    /// runtime event payloads so both speak the same language.
+    pub fn canonical_name(&self) -> &str {
+        match self {
+            Self::Custom(name) => name.as_str(),
+            _ => self
+                .as_static_str()
+                .expect("builtin variants always have a static name"),
+        }
+    }
+
     fn as_static_str(&self) -> Option<&'static str> {
         match self {
             Self::Start => Some("START"),
@@ -144,13 +166,7 @@ impl StaticNodeType {
 
 impl Serialize for StaticNodeType {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self.as_static_str() {
-            Some(name) => serializer.serialize_str(name),
-            None => match self {
-                Self::Custom(name) => serializer.serialize_str(name),
-                _ => unreachable!("non-custom variants always have a static name"),
-            },
-        }
+        serializer.serialize_str(self.canonical_name())
     }
 }
 

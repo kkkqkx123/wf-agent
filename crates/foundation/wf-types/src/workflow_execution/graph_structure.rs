@@ -15,6 +15,16 @@ pub struct WorkflowNode {
     pub inner: serde_json::Value,
 }
 
+impl WorkflowNode {
+    /// Typed view over the wire string using the single parsing rule shared
+    /// with deserialization: builtin names match case-insensitively, anything
+    /// else is a plugin-contributed type kept verbatim.
+    pub fn static_type(&self) -> crate::node::StaticNodeType {
+        crate::node::StaticNodeType::from_str_ci(&self.node_type)
+            .unwrap_or_else(|| crate::node::StaticNodeType::Custom(self.node_type.clone()))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowEdge {
     pub id: Id,

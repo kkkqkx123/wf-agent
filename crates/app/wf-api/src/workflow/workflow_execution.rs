@@ -1226,9 +1226,7 @@ pub fn definition_to_graph(
 }
 
 fn node_type_string(node_type: &wf_types::node::StaticNodeType) -> String {
-    serde_json::to_string(node_type)
-        .map(|s| s.trim_matches('"').to_string())
-        .unwrap_or_default()
+    node_type.canonical_name().to_string()
 }
 
 /// Node config plus execution config merged into a single JSON object

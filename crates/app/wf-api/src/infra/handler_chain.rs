@@ -77,10 +77,7 @@ impl PluginHandlerSource for NoopPluginHandlerSource {
 /// Canonical SCREAMING_SNAKE_CASE name of a static node type (mirrors the
 /// serde representation used by the workflow graph and plugin registries).
 pub fn node_type_name(node_type: &StaticNodeType) -> String {
-    serde_json::to_value(node_type)
-        .ok()
-        .and_then(|v| v.as_str().map(ToOwned::to_owned))
-        .unwrap_or_default()
+    node_type.canonical_name().to_string()
 }
 
 /// Adapter turning a [`PluginNodeExecutor`] into an engine [`NodeHandler`].

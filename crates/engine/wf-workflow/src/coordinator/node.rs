@@ -128,7 +128,7 @@ impl NodeCoordinator {
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
-        let node_type = format!("{:?}", ctx.node_type);
+        let node_type = ctx.node_type.canonical_name().to_string();
         let node_start = wf_common::now();
         let node = NodeRef {
             id: &node_id,

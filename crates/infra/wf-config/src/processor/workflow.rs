@@ -6,6 +6,7 @@ use crate::validator::{validate_min, validate_required};
 use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::definition::{WorkflowDefinition, WorkflowDefinitionType};
 use wf_types::workflow::edge::{Edge, EdgeType};
+use wf_types::workflow::error_branch::ErrorRouteConfig;
 
 fn declared_type_name(r#type: Option<&WorkflowDefinitionType>) -> &'static str {
     match r#type {
@@ -86,6 +87,55 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
     {
         return Err(ConfigError::Validation(
             "workflow type is Dependent but the graph contains message-channel nodes (StartFromMessage/ContinueFromMessage); message-channel children must declare TriggeredSubworkflow"
+                .into(),
+        ));
+    }
+
+    // Type-topology consistency gate: the declared type states the boundary
+    // category, the node list states the fact. Both must agree on the
+    // category; exact counts and connectivity stay owned by the engine graph
+    // validator, which is the single source for topology details.
+    let has_message_nodes = definition.nodes.iter().any(|node| {
+        matches!(
+            node.node_type,
+            StaticNodeType::StartFromMessage | StaticNodeType::ContinueFromMessage
+        )
+    });
+    let has_plain_boundary = definition
+        .nodes
+        .iter()
+        .any(|node| matches!(node.node_type, StaticNodeType::Start | StaticNodeType::End));
+
+    if matches!(
+        definition.r#type,
+        Some(WorkflowDefinitionType::TriggeredSubworkflow)
+    ) {
+        if !has_message_nodes {
+            return Err(ConfigError::Validation(
+                "workflow type is TriggeredSubworkflow but the graph contains no message-channel nodes (StartFromMessage/ContinueFromMessage)"
+                    .into(),
+            ));
+        }
+        if has_plain_boundary {
+            return Err(ConfigError::Validation(
+                "workflow type is TriggeredSubworkflow but the graph contains plain START/END nodes; triggered graphs must use message-channel boundaries only"
+                    .into(),
+            ));
+        }
+    }
+
+    if matches!(definition.r#type, Some(WorkflowDefinitionType::Standalone)) && has_message_nodes {
+        return Err(ConfigError::Validation(
+            "workflow type is Standalone but the graph contains message-channel nodes (StartFromMessage/ContinueFromMessage); message-channel children must declare TriggeredSubworkflow"
+                .into(),
+        ));
+    }
+
+    // A missing declaration behaves like Standalone for message-channel
+    // topology: leaving the type out must not bypass the gate above.
+    if definition.r#type.is_none() && has_message_nodes {
+        return Err(ConfigError::Validation(
+            "workflow type is missing but the graph contains message-channel nodes (StartFromMessage/ContinueFromMessage); message-channel children must declare TriggeredSubworkflow"
                 .into(),
         ));
     }
@@ -248,6 +298,42 @@ pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> ConfigResult<Vec<Edge>> 
                         "edge at index {idx} is missing required target_node_id"
                     ))
                 })?;
+            let declared = edge
+                .edge_type
+                .as_deref()
+                .map(|v| v.trim().to_uppercase())
+                .filter(|v| !v.is_empty());
+            if let Some(kind) = declared.as_deref() {
+                if kind == "ERROR" {
+                    if edge.condition.is_some() {
+                        return Err(ConfigError::Validation(format!(
+                            "edge at index {idx} declares ERROR but carries a condition; failure routes must not carry conditions"
+                        )));
+                    }
+                    return Ok(Edge {
+                        id: edge.id.clone().unwrap_or_else(generate_edge_id),
+                        source_node_id,
+                        target_node_id,
+                        r#type: EdgeType::Error,
+                        condition: None,
+                        label: edge.label.clone(),
+                        description: edge.description.clone(),
+                        weight: edge.weight,
+                        metadata: None,
+                        error_route: edge.error_route.clone(),
+                    });
+                }
+                if kind != "DEFAULT" && kind != "CONDITIONAL" {
+                    return Err(ConfigError::Validation(format!(
+                        "edge at index {idx} declares unknown edge type '{kind}'; expected DEFAULT, CONDITIONAL or ERROR"
+                    )));
+                }
+            }
+            if edge.error_route.is_some() {
+                return Err(ConfigError::Validation(format!(
+                    "edge at index {idx} carries error_route but is not declared ERROR"
+                )));
+            }
             let has_condition = edge.condition.is_some();
             Ok(Edge {
                 id: edge.id.clone().unwrap_or_else(generate_edge_id),
@@ -301,10 +387,14 @@ pub struct WorkflowEdgeConfig {
     pub id: Option<String>,
     pub source_node_id: Option<String>,
     pub target_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_type: Option<String>,
     pub condition: Option<String>,
     pub label: Option<String>,
     pub description: Option<String>,
     pub weight: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_route: Option<ErrorRouteConfig>,
 }
 
 #[cfg(test)]
@@ -336,6 +426,27 @@ mod tests {
             available_tools: None,
             hooks: None,
         }
+    }
+
+    fn make_triggered_nodes() -> Vec<BaseStaticNode> {
+        vec![
+            BaseStaticNode {
+                id: "msg-start".to_string(),
+                node_type: StaticNodeType::StartFromMessage,
+                name: None,
+                description: None,
+                config: None,
+                execution_config: None,
+            },
+            BaseStaticNode {
+                id: "msg-end".to_string(),
+                node_type: StaticNodeType::ContinueFromMessage,
+                name: None,
+                description: None,
+                config: None,
+                execution_config: None,
+            },
+        ]
     }
 
     #[test]
@@ -426,19 +537,23 @@ mod tests {
                 id: None,
                 source_node_id: Some("n1".to_string()),
                 target_node_id: Some("n2".to_string()),
+                edge_type: None,
                 condition: None,
                 label: None,
                 description: None,
                 weight: None,
+                error_route: None,
             },
             WorkflowEdgeConfig {
                 id: Some("e2".to_string()),
                 source_node_id: Some("n2".to_string()),
                 target_node_id: Some("n3".to_string()),
+                edge_type: None,
                 condition: Some("success".to_string()),
                 label: None,
                 description: None,
                 weight: Some(1),
+                error_route: None,
             },
         ];
 
@@ -481,10 +596,12 @@ mod tests {
             id: None,
             source_node_id: Some("n1".to_string()),
             target_node_id: None,
+            edge_type: None,
             condition: None,
             label: None,
             description: None,
             weight: None,
+            error_route: None,
         }];
         let err = transform_edges(&configs).unwrap_err();
         assert!(err.to_string().contains("target_node_id"));
@@ -639,6 +756,7 @@ mod tests {
     fn test_triggered_subworkflow_config_validation() {
         let mut wf = make_workflow();
         wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
+        wf.nodes = make_triggered_nodes();
         wf.triggered_subworkflow_config =
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
@@ -896,6 +1014,7 @@ mod tests {
     fn test_triggered_subworkflow_type_requires_config() {
         let mut wf = make_workflow();
         wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
+        wf.nodes = make_triggered_nodes();
         wf.triggered_subworkflow_config = None;
         let err = validate_workflow_definition(&wf).unwrap_err();
         assert!(err
@@ -907,6 +1026,7 @@ mod tests {
     fn test_triggered_subworkflow_type_with_config_accepted() {
         let mut wf = make_workflow();
         wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
+        wf.nodes = make_triggered_nodes();
         wf.triggered_subworkflow_config =
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
@@ -992,6 +1112,140 @@ mod tests {
         let err = validate_workflow_definition(&wf).unwrap_err();
         assert!(err.to_string().contains("Dependent"));
         assert!(err.to_string().contains("TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_triggered_without_message_nodes_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                compression_fallback: None,
+            });
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("TriggeredSubworkflow"));
+        assert!(err.to_string().contains("message-channel"));
+    }
+
+    #[test]
+    fn test_triggered_with_plain_boundary_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                compression_fallback: None,
+            });
+        wf.nodes = vec![
+            BaseStaticNode {
+                id: "start".to_string(),
+                node_type: StaticNodeType::Start,
+                name: None,
+                description: None,
+                config: None,
+                execution_config: None,
+            },
+            BaseStaticNode {
+                id: "msg-start".to_string(),
+                node_type: StaticNodeType::StartFromMessage,
+                name: None,
+                description: None,
+                config: None,
+                execution_config: None,
+            },
+            BaseStaticNode {
+                id: "msg-end".to_string(),
+                node_type: StaticNodeType::ContinueFromMessage,
+                name: None,
+                description: None,
+                config: None,
+                execution_config: None,
+            },
+        ];
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("TriggeredSubworkflow"));
+        assert!(err.to_string().contains("START/END"));
+    }
+
+    #[test]
+    fn test_standalone_with_message_nodes_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = Some(WorkflowDefinitionType::Standalone);
+        wf.triggered_subworkflow_config = None;
+        wf.nodes = make_triggered_nodes();
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("Standalone"));
+        assert!(err.to_string().contains("TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_missing_type_with_message_nodes_rejected() {
+        let mut wf = make_workflow();
+        wf.r#type = None;
+        wf.triggered_subworkflow_config = None;
+        wf.nodes = make_triggered_nodes();
+        let err = validate_workflow_definition(&wf).unwrap_err();
+        assert!(err.to_string().contains("missing"));
+        assert!(err.to_string().contains("TriggeredSubworkflow"));
+    }
+
+    #[test]
+    fn test_transform_error_edge_carries_route() {
+        let configs = vec![WorkflowEdgeConfig {
+            id: Some("e-err".to_string()),
+            source_node_id: Some("n1".to_string()),
+            target_node_id: Some("n2".to_string()),
+            edge_type: Some("ERROR".to_string()),
+            condition: None,
+            label: None,
+            description: None,
+            weight: None,
+            error_route: None,
+        }];
+        let edges = transform_edges(&configs).expect("error edge transforms");
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].r#type, EdgeType::Error);
+        assert_eq!(edges[0].id, "e-err".to_string());
+    }
+
+    #[test]
+    fn test_transform_error_edge_rejects_condition() {
+        let configs = vec![WorkflowEdgeConfig {
+            id: None,
+            source_node_id: Some("n1".to_string()),
+            target_node_id: Some("n2".to_string()),
+            edge_type: Some("error".to_string()),
+            condition: Some("${x}".to_string()),
+            label: None,
+            description: None,
+            weight: None,
+            error_route: None,
+        }];
+        let err = transform_edges(&configs).unwrap_err();
+        assert!(err.to_string().contains("must not carry conditions"));
+    }
+
+    #[test]
+    fn test_transform_non_error_edge_rejects_error_route() {
+        let configs = vec![WorkflowEdgeConfig {
+            id: None,
+            source_node_id: Some("n1".to_string()),
+            target_node_id: Some("n2".to_string()),
+            edge_type: None,
+            condition: None,
+            label: None,
+            description: None,
+            weight: None,
+            error_route: Some(
+                serde_json::from_value::<ErrorRouteConfig>(serde_json::json!({}))
+                    .expect("empty route"),
+            ),
+        }];
+        let err = transform_edges(&configs).unwrap_err();
+        assert!(err.to_string().contains("not declared ERROR"));
     }
 
     #[test]

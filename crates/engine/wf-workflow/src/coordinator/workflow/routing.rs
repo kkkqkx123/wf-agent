@@ -12,33 +12,11 @@ use crate::error::WorkflowResult;
 use super::WorkflowCoordinator;
 
 pub(super) fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
-    match node_type_str {
-        "START" => Ok(StaticNodeType::Start),
-        "END" => Ok(StaticNodeType::End),
-        "EMBED_START" => Ok(StaticNodeType::EmbedStart),
-        "EMBED_END" => Ok(StaticNodeType::EmbedEnd),
-        "VARIABLE" => Ok(StaticNodeType::Variable),
-        "FORK" => Ok(StaticNodeType::Fork),
-        "JOIN" => Ok(StaticNodeType::Join),
-        "SYNC" => Ok(StaticNodeType::Sync),
-        "SUBGRAPH" => Ok(StaticNodeType::Subgraph),
-        "EMBED_GRAPH" => Ok(StaticNodeType::EmbedGraph),
-        "SCRIPT" => Ok(StaticNodeType::Script),
-        "INTERACTIVE_SCRIPT" => Ok(StaticNodeType::InteractiveScript),
-        "LLM" => Ok(StaticNodeType::Llm),
-        "TOOL_VISIBILITY" => Ok(StaticNodeType::ToolVisibility),
-        "USER_INTERACTION" => Ok(StaticNodeType::UserInteraction),
-        "ROUTE" => Ok(StaticNodeType::Route),
-        "CONTEXT_PROCESSOR" => Ok(StaticNodeType::ContextProcessor),
-        "LOOP_START" => Ok(StaticNodeType::LoopStart),
-        "LOOP_END" => Ok(StaticNodeType::LoopEnd),
-        "AGENT_LOOP" => Ok(StaticNodeType::AgentLoop),
-        "START_FROM_MESSAGE" => Ok(StaticNodeType::StartFromMessage),
-        "CONTINUE_FROM_MESSAGE" => Ok(StaticNodeType::ContinueFromMessage),
-        // Unknown types are kept as plugin-contributed node types; handler
-        // resolution falls back to the plugin source for them.
-        other => Ok(StaticNodeType::Custom(other.to_string())),
-    }
+    // Single parsing rule shared with deserialization: builtin names win
+    // (matched case-insensitively), anything else is a plugin-contributed
+    // type kept verbatim for handler resolution to decide.
+    Ok(StaticNodeType::from_str_ci(node_type_str)
+        .unwrap_or_else(|| StaticNodeType::Custom(node_type_str.to_string())))
 }
 
 impl WorkflowCoordinator {

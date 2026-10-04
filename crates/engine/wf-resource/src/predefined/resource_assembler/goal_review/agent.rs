@@ -1,29 +1,9 @@
+use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
 pub const GOAL_REVIEW_EXECUTOR_TEMPLATE_ID: &str = "@standard/goal-review-executor";
 pub const GOAL_REVIEW_REVIEWER_TEMPLATE_ID: &str = "@standard/goal-review-reviewer";
-
-fn load_agent_prompts() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
-        .expect("embedded agent_prompts.json is valid")
-}
-
-fn goal_review_executor_system_prompt() -> String {
-    let file = load_agent_prompts();
-    file["prompts"][GOAL_REVIEW_EXECUTOR_TEMPLATE_ID]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {GOAL_REVIEW_EXECUTOR_TEMPLATE_ID}"))
-        .to_string()
-}
-
-fn goal_review_reviewer_system_prompt() -> String {
-    let file = load_agent_prompts();
-    file["prompts"][GOAL_REVIEW_REVIEWER_TEMPLATE_ID]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {GOAL_REVIEW_REVIEWER_TEMPLATE_ID}"))
-        .to_string()
-}
 
 pub fn goal_review_executor() -> AgentTemplate {
     let t = wf_common::now();
@@ -38,7 +18,9 @@ pub fn goal_review_executor() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("gpt-4o".into()),
-                system_prompt: Some(goal_review_executor_system_prompt()),
+                system_prompt: Some(
+                    embedded_assets::agent_prompt(GOAL_REVIEW_EXECUTOR_TEMPLATE_ID).to_string(),
+                ),
                 max_iterations: Some(30),
                 max_execution_time: None,
                 max_retries: None,
@@ -102,7 +84,9 @@ pub fn goal_review_reviewer() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("o3-mini".into()),
-                system_prompt: Some(goal_review_reviewer_system_prompt()),
+                system_prompt: Some(
+                    embedded_assets::agent_prompt(GOAL_REVIEW_REVIEWER_TEMPLATE_ID).to_string(),
+                ),
                 max_iterations: Some(10),
                 max_execution_time: None,
                 max_retries: None,

@@ -4,20 +4,9 @@ use wf_types::node::BaseStaticNode;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::{TriggeredSubworkflowConfig, WorkflowMetadata};
 
+use crate::embedded_assets;
+
 pub const DEFAULT_LLM_SUMMARY_PROMPT_KEY: &str = "@standard/llm-summary";
-
-fn load_agent_prompts() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
-        .expect("embedded agent_prompts.json is valid")
-}
-
-fn default_llm_summary_prompt() -> String {
-    let file = load_agent_prompts();
-    file["prompts"][DEFAULT_LLM_SUMMARY_PROMPT_KEY]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {DEFAULT_LLM_SUMMARY_PROMPT_KEY}"))
-        .to_string()
-}
 
 pub const DEFAULT_LLM_SUMMARY_PROFILE: &str = "DEFAULT";
 
@@ -30,7 +19,9 @@ pub fn summary_llm_config(compression_prompt: Option<String>, profile_id: Option
         "profile_id": profile,
         "context_id": "current",
         "output_context": "compressed",
-        "system_prompt": compression_prompt.unwrap_or_else(default_llm_summary_prompt),
+        "system_prompt": compression_prompt.unwrap_or_else(|| {
+            embedded_assets::agent_prompt(DEFAULT_LLM_SUMMARY_PROMPT_KEY).to_string()
+        }),
         "enable_token_tracking": false,
         "timeout_seconds": SUMMARY_NODE_TIMEOUT_SECS
     })

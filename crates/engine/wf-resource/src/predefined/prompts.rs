@@ -1,21 +1,9 @@
-use serde::Deserialize;
-use wf_types::Template;
-
+use crate::embedded_assets;
 use crate::registry::{register_template, RegisterOptions, ResourceRegistries};
 use crate::result::Summary;
 
-#[derive(Debug, Deserialize)]
-struct PromptsFile {
-    prompts: Vec<Template>,
-}
-
-fn embedded_prompts() -> PromptsFile {
-    serde_json::from_str(include_str!("../../configs/prompts.json"))
-        .expect("embedded prompts.json is valid")
-}
-
-pub fn builtin_prompts() -> Vec<Template> {
-    embedded_prompts().prompts
+pub fn builtin_prompts() -> Vec<wf_types::Template> {
+    embedded_assets::prompt_templates().to_vec()
 }
 
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
@@ -24,4 +12,19 @@ pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
         total.merge(register_template(regs, prompt, opts.skip_if_exists));
     }
     total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_prompts_expose_template_fields() {
+        let prompts = builtin_prompts();
+        assert!(!prompts.is_empty());
+        for prompt in &prompts {
+            assert!(!prompt.id.trim().is_empty());
+            assert!(!prompt.content.trim().is_empty());
+        }
+    }
 }

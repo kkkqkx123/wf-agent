@@ -1,14 +1,12 @@
 use super::config::SpecWorkflowConfig;
 
+use crate::embedded_assets;
+
 pub const SPECIFY_PROMPT_ID: &str = "prompt.spec-workflow.specify";
 pub const PLAN_PROMPT_ID: &str = "prompt.spec-workflow.plan";
 pub const TASKS_PROMPT_ID: &str = "prompt.spec-workflow.tasks";
 
-pub const STAGE_PROMPT_IDS: &[&str] = &[
-    SPECIFY_PROMPT_ID,
-    PLAN_PROMPT_ID,
-    TASKS_PROMPT_ID,
-];
+pub const STAGE_PROMPT_IDS: &[&str] = &[SPECIFY_PROMPT_ID, PLAN_PROMPT_ID, TASKS_PROMPT_ID];
 
 fn template(id: &str, name: &str, description: &str, content: String) -> wf_types::Template {
     wf_types::Template {
@@ -22,14 +20,8 @@ fn template(id: &str, name: &str, description: &str, content: String) -> wf_type
     }
 }
 
-fn load_spec_workflow_prompts() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../../configs/spec_workflow_prompts.json"))
-        .expect("embedded spec_workflow_prompts.json is valid")
-}
-
-fn render_prompt(value: &serde_json::Value, vars: &[(&str, &str)]) -> String {
-    let content = value.as_str().unwrap_or_default();
-    let mut result = content.to_string();
+fn render_prompt(id: &str, vars: &[(&str, &str)]) -> String {
+    let mut result = embedded_assets::spec_workflow_prompt(id).to_string();
     for (key, val) in vars {
         result = result.replace(&format!("{{{{{key}}}}}"), val);
     }
@@ -37,25 +29,24 @@ fn render_prompt(value: &serde_json::Value, vars: &[(&str, &str)]) -> String {
 }
 
 pub(crate) fn build_stage_prompts(config: &SpecWorkflowConfig) -> Vec<wf_types::Template> {
-    let file = load_spec_workflow_prompts();
     let change_path = format!("{}/{}", config.spec_dir, config.change_id);
     vec![
         template(
             SPECIFY_PROMPT_ID,
             "Spec Workflow Specify Prompt",
             "System prompt for the spec writer LLM node",
-            render_prompt(
-                &file["prompts"][SPECIFY_PROMPT_ID],
-                &[("change_path", &change_path)],
-            ),
+            render_prompt(SPECIFY_PROMPT_ID, &[("change_path", &change_path)]),
         ),
         template(
             PLAN_PROMPT_ID,
             "Spec Workflow Plan Prompt",
             "System prompt for the technical design LLM node",
             render_prompt(
-                &file["prompts"][PLAN_PROMPT_ID],
-                &[("change_id", &config.change_id), ("change_path", &change_path)],
+                PLAN_PROMPT_ID,
+                &[
+                    ("change_id", &config.change_id),
+                    ("change_path", &change_path),
+                ],
             ),
         ),
         template(
@@ -63,8 +54,11 @@ pub(crate) fn build_stage_prompts(config: &SpecWorkflowConfig) -> Vec<wf_types::
             "Spec Workflow Tasks Prompt",
             "System prompt for the task decomposer LLM node",
             render_prompt(
-                &file["prompts"][TASKS_PROMPT_ID],
-                &[("change_id", &config.change_id), ("change_path", &change_path)],
+                TASKS_PROMPT_ID,
+                &[
+                    ("change_id", &config.change_id),
+                    ("change_path", &change_path),
+                ],
             ),
         ),
     ]

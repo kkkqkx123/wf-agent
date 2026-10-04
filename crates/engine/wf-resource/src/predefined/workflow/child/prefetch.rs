@@ -6,6 +6,8 @@ use wf_types::node::StaticNodeType;
 use wf_types::tool::AvailableTools;
 use wf_types::workflow::{WorkflowDefinition, WorkflowDefinitionType, WorkflowTemplate};
 
+use crate::embedded_assets;
+
 use super::super::{edge, workflow_metadata};
 
 pub const PREFETCH_WORKFLOW_ID: &str = "@standard/code-context-prefetch";
@@ -31,19 +33,6 @@ pub const PREFETCH_AVAILABLE_TOOLS: &[&str] = &[
 
 pub const PREFETCH_AGENT_SYSTEM_PROMPT_KEY: &str = "@standard/code-context-prefetch";
 
-fn load_agent_prompts() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
-        .expect("embedded agent_prompts.json is valid")
-}
-
-fn prefetch_agent_system_prompt() -> String {
-    let file = load_agent_prompts();
-    file["prompts"][PREFETCH_AGENT_SYSTEM_PROMPT_KEY]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {PREFETCH_AGENT_SYSTEM_PROMPT_KEY}"))
-        .to_string()
-}
-
 pub fn prefetch_inline_definition() -> AgentDefinition {
     let tools = PREFETCH_AVAILABLE_TOOLS
         .iter()
@@ -56,7 +45,9 @@ pub fn prefetch_inline_definition() -> AgentDefinition {
         version: Some("1.0.0".into()),
         config: Some(AgentConfig {
             profile_id: Some(PREFETCH_AGENT_PROFILE_ID.into()),
-            system_prompt: Some(prefetch_agent_system_prompt()),
+            system_prompt: Some(
+                embedded_assets::agent_prompt(PREFETCH_AGENT_SYSTEM_PROMPT_KEY).to_string(),
+            ),
             max_iterations: Some(PREFETCH_AGENT_MAX_ITERATIONS),
             max_execution_time: None,
             max_retries: None,

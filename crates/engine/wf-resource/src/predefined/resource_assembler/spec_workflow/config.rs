@@ -141,13 +141,11 @@ mod tests {
 
     #[test]
     fn config_parse_rejects_bad_shapes() {
-        let err =
-            SpecWorkflowConfig::parse(&json!({"requirement": "  "})).unwrap_err();
+        let err = SpecWorkflowConfig::parse(&json!({"requirement": "  "})).unwrap_err();
         assert!(err.contains("requirement"));
-        let err = SpecWorkflowConfig::parse(
-            &json!({"requirement": "ok", "require_spec_gate": "yes"}),
-        )
-        .unwrap_err();
+        let err =
+            SpecWorkflowConfig::parse(&json!({"requirement": "ok", "require_spec_gate": "yes"}))
+                .unwrap_err();
         assert!(err.contains("require_spec_gate"));
     }
 

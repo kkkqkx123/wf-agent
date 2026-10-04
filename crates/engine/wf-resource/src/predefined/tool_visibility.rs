@@ -1,21 +1,9 @@
-use serde::Deserialize;
-use wf_types::Template;
-
+use crate::embedded_assets;
 use crate::registry::{register_template, RegisterOptions, ResourceRegistries};
 use crate::result::Summary;
 
-#[derive(Debug, Deserialize)]
-struct ToolVisibilityFile {
-    templates: Vec<Template>,
-}
-
-fn embedded_templates() -> ToolVisibilityFile {
-    serde_json::from_str(include_str!("../../configs/tool_visibility.json"))
-        .expect("embedded tool_visibility.json is valid")
-}
-
-pub fn builtin_tool_visibility_templates() -> Vec<Template> {
-    embedded_templates().templates
+pub fn builtin_tool_visibility_templates() -> Vec<wf_types::Template> {
+    embedded_assets::tool_visibility_templates().to_vec()
 }
 
 pub const ACTIVATION_TEMPLATE_ID: &str = "tool-visibility.activation";

@@ -3,7 +3,7 @@
 //! This is the checkpoint domain's approval surface (pending file-change
 //! approvals). Runtime tool-call approvals during a session are a separate
 //! concern: decided by the runtime policy in `run` / `turn`, optionally
-//! advised by `crate::approval::LlmApprovalHandler`.
+//! advised by `wf_runtime::tool_approval::LlmApprovalHandler`.
 use wf_api::checkpoint::approval;
 
 use crate::args::{ApprovalSub, Cli};

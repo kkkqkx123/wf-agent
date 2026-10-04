@@ -3,18 +3,27 @@
 //! The engine gate (`ToolApprovalCoordinator`) runs first on every tool call;
 //! only its `Ask` decisions reach a [`ToolApprovalHandler`]. Interactive
 //! hosts answer those through their own UI (CLI prompt, TUI view, persisted
-//! server interaction); non-interactive hosts answer them with the pure
-//! [`ApprovalPolicy`] in this module: pre-authorized prefixes and low-risk
-//! tools are allowed, everything else is denied.
+//! server interaction); non-interactive hosts answer them from this module,
+//! either with the pure [`ApprovalPolicy`] (pre-authorized prefixes and
+//! low-risk tools are allowed, everything else is denied) or with the
+//! fail-closed [`LlmApprovalHandler`] reviewer.
 //!
 //! This lives in the runtime (not in any CLI crate) so the server and every
 //! CLI form share one policy: the CLI name lists used to live in
-//! `wf-cli-shared` where the server could not reuse them.
+//! `wf-cli-shared` where the server could not reuse them, and the LLM
+//! reviewer used to live there too.
 
 use std::sync::Arc;
 
 use serde_json::Value;
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
+use wf_llm::LlmGateway;
+use wf_types::llm::LlmRequest;
+use wf_types::message::Message;
+
+/// Verdicts the LLM reviewer accepts; anything else fails closed.
+const VERDICT_ALLOW: &str = "ALLOW";
+const VERDICT_DENY: &str = "DENY";
 
 /// Default tools that mutate state or execute commands: denied unless
 /// covered by an explicit pre-authorization prefix.
@@ -209,6 +218,89 @@ impl ToolApprovalHandler for PolicyApprovalHandler {
     }
 }
 
+/// Model-reviewed [`ToolApprovalHandler`]: answers the engine's `Ask`
+/// decisions by asking an LLM whether the pending tool call is safe, for
+/// hosts that run unattended yet still want a safety review instead of a
+/// blanket deny.
+///
+/// The reviewer system prompt is a built-in resource, shared by every host
+/// that reviews tool calls with a model. The handler holds only the gateway
+/// and the reviewing profile id, so any host with a gateway can build it.
+///
+/// Fail-closed by construction: a gateway failure and an unparseable verdict
+/// both reject the tool call, with the reason preserved for the transcript.
+pub struct LlmApprovalHandler {
+    gateway: Arc<LlmGateway>,
+    profile_id: String,
+}
+
+impl LlmApprovalHandler {
+    pub fn new(gateway: Arc<LlmGateway>, profile_id: impl Into<String>) -> Self {
+        Self {
+            gateway,
+            profile_id: profile_id.into(),
+        }
+    }
+
+    async fn decide(&self, request: &ToolApprovalRequest) -> Result<bool, String> {
+        let llm_request = LlmRequest {
+            profile_id: self.profile_id.clone(),
+            messages: vec![
+                Message::system_text(
+                    wf_resource::embedded_assets::approval_reviewer_prompt().to_string(),
+                ),
+                Message::user_text(format!(
+                    "Tool: {}\nArguments: {}\nIs it safe to execute? Reply ALLOW or DENY.",
+                    request.tool_name, request.arguments
+                )),
+            ],
+            parameters: None,
+            generation: None,
+            tools: None,
+            tool_call_protocol: None,
+            locked_tool_call_protocol: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+            timeout_ms: None,
+        };
+        let result = wf_execution_shared::generate_text_once(&self.gateway, &llm_request, None)
+            .await
+            .map_err(|e| e.to_string())?;
+        let verdict = result
+            .content
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_uppercase();
+        if verdict.starts_with(VERDICT_ALLOW) {
+            Ok(true)
+        } else if verdict.starts_with(VERDICT_DENY) {
+            Ok(false)
+        } else {
+            Err(format!("ambiguous verdict: {verdict}"))
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolApprovalHandler for LlmApprovalHandler {
+    async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult {
+        match self.decide(request).await {
+            Ok(true) => ToolApprovalResult::approved(request.tool_call_id.clone()),
+            Ok(false) => ToolApprovalResult::rejected(
+                request.tool_call_id.clone(),
+                "denied by LLM safety review".to_string(),
+            ),
+            Err(reason) => ToolApprovalResult::rejected(
+                request.tool_call_id.clone(),
+                format!("LLM approval unavailable ({reason}); failing closed"),
+            ),
+        }
+    }
+}
+
 /// Effective engine policy for hosts that always attach a handler (CLI
 /// forms, server headless runs): the host config's overrides resolved over
 /// the balanced baseline when enabled, otherwise the baseline itself. The
@@ -230,6 +322,112 @@ pub fn headless_approval_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_llm::mock::{LlmResponseSpec, MockLlmClient};
+
+    fn mock_profile(id: &str) -> wf_types::llm::LlmProfile {
+        wf_types::llm::LlmProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
+            model: "mock-model".to_string(),
+            api_key: Some("sk-test".into()),
+            base_url: None,
+            parameters: None,
+            generation: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_protocol: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+            context_window_size: None,
+        }
+    }
+
+    /// Gateway serving `verdict` for profile `reviewer`.
+    fn reviewer_gateway(verdict: &str) -> Arc<LlmGateway> {
+        let gateway = Arc::new(LlmGateway::new());
+        let mock = Arc::new(MockLlmClient::new());
+        mock.default(LlmResponseSpec::text(verdict));
+        gateway.register_mock("reviewer", mock);
+        gateway
+            .register_profile(mock_profile("reviewer"))
+            .expect("test profile registers");
+        gateway
+    }
+
+    fn request(tool: &str) -> ToolApprovalRequest {
+        ToolApprovalRequest {
+            tool_call_id: "call-1".into(),
+            tool_name: tool.into(),
+            arguments: serde_json::json!({ "command": "ls" }),
+            interaction_id: "approval-1".into(),
+            risk_level: None,
+            tool_description: None,
+            batch_id: None,
+            tool_index: None,
+            total_tools: None,
+            pending_queue: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn allow_verdict_approves_the_call() {
+        let handler = LlmApprovalHandler::new(reviewer_gateway("ALLOW"), "reviewer");
+        let result = handler.request_approval(&request("execute_command")).await;
+        assert!(result.approved);
+        assert_eq!(result.tool_call_id, "call-1");
+    }
+
+    #[tokio::test]
+    async fn deny_verdict_rejects_the_call() {
+        let handler = LlmApprovalHandler::new(reviewer_gateway("DENY"), "reviewer");
+        let result = handler.request_approval(&request("execute_command")).await;
+        assert!(!result.approved);
+        assert_eq!(
+            result.rejection_reason.as_deref(),
+            Some("denied by LLM safety review")
+        );
+    }
+
+    #[tokio::test]
+    async fn verdict_matching_ignores_surrounding_text_and_case() {
+        let handler = LlmApprovalHandler::new(reviewer_gateway("allow\n"), "reviewer");
+        assert!(
+            handler
+                .request_approval(&request("execute_command"))
+                .await
+                .approved
+        );
+    }
+
+    #[tokio::test]
+    async fn ambiguous_verdict_fails_closed() {
+        let handler = LlmApprovalHandler::new(reviewer_gateway("maybe"), "reviewer");
+        let result = handler.request_approval(&request("execute_command")).await;
+        assert!(!result.approved);
+        assert!(result
+            .rejection_reason
+            .unwrap()
+            .contains("ambiguous verdict"));
+    }
+
+    #[tokio::test]
+    async fn gateway_failure_fails_closed() {
+        let gateway = Arc::new(LlmGateway::new());
+        // No profile registered: the gateway cannot resolve the reviewer.
+        let handler = LlmApprovalHandler::new(gateway, "absent-profile");
+        let result = handler.request_approval(&request("execute_command")).await;
+        assert!(!result.approved);
+        assert!(result.rejection_reason.unwrap().contains("failing closed"));
+    }
 
     #[test]
     fn sensitive_tools_are_denied_with_reason() {

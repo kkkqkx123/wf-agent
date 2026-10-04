@@ -227,10 +227,7 @@ impl<S> WorkflowBuilder<S> {
 
     /// Set the triggered-subworkflow config owned exclusively by the
     /// TriggeredSubworkflow declaration.
-    pub fn triggered_subworkflow_config(
-        mut self,
-        config: TriggeredSubworkflowConfig,
-    ) -> Self {
+    pub fn triggered_subworkflow_config(mut self, config: TriggeredSubworkflowConfig) -> Self {
         self.triggered_subworkflow_config = Some(config);
         self
     }

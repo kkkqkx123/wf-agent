@@ -8,13 +8,7 @@ use crate::model::traverse::walk;
 /// maps visited node ids to these stages and checks that the trace follows the
 /// declared order; unknown node ids are ignored so partial or embedded
 /// traces stay analyzable.
-const STAGE_ORDER: &[&str] = &[
-    "specify",
-    "spec_gate",
-    "plan",
-    "plan_gate",
-    "tasks",
-];
+const STAGE_ORDER: &[&str] = &["specify", "spec_gate", "plan", "plan_gate", "tasks"];
 
 fn stage_of(node_id: &str) -> Option<&'static str> {
     match node_id {
@@ -90,7 +84,10 @@ pub fn analyze(trace: &Trace) -> SectionReport {
         if rank < last_rank {
             report.finding(
                 FindingLevel::Error,
-                first_seen.get(stage).map(String::as_str).unwrap_or_default(),
+                first_seen
+                    .get(stage)
+                    .map(String::as_str)
+                    .unwrap_or_default(),
                 format!("spec stage '{stage}' ran out of pipeline order"),
                 None,
                 None,

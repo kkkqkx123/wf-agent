@@ -1,30 +1,12 @@
-use serde::Deserialize;
 use std::path::Path;
 use wf_core::MutableRegistry;
 use wf_types::SystemPromptFragment;
 
+use crate::embedded_assets::{self, FragmentEntry};
 use crate::registry::{
     register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
 };
 use crate::result::Summary;
-
-#[derive(Debug, Deserialize)]
-struct FragmentsFile {
-    fragments: Vec<FragmentEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct FragmentEntry {
-    id: String,
-    category: String,
-    content: String,
-    description: Option<String>,
-}
-
-fn embedded_fragments() -> FragmentsFile {
-    serde_json::from_str(include_str!("../../configs/fragments.json"))
-        .expect("embedded fragments.json is valid")
-}
 
 fn fragment_from_entry(entry: FragmentEntry) -> SystemPromptFragment {
     SystemPromptFragment {
@@ -37,9 +19,9 @@ fn fragment_from_entry(entry: FragmentEntry) -> SystemPromptFragment {
 }
 
 pub fn builtin_fragments() -> Vec<SystemPromptFragment> {
-    embedded_fragments()
-        .fragments
-        .into_iter()
+    embedded_assets::fragments()
+        .iter()
+        .cloned()
         .map(fragment_from_entry)
         .collect()
 }
@@ -47,8 +29,7 @@ pub fn builtin_fragments() -> Vec<SystemPromptFragment> {
 fn load_override_fragments(path: &Path) -> Result<Vec<FragmentEntry>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("failed to read fragments config {}: {}", path.display(), e))?;
-    serde_json::from_str::<FragmentsFile>(&content)
-        .map(|file| file.fragments)
+    embedded_assets::parse_fragments(&content)
         .map_err(|e| format!("failed to parse fragments config {}: {}", path.display(), e))
 }
 
@@ -106,10 +87,7 @@ mod tests {
     use wf_core::Registry;
 
     fn write_tmp(content: &str) -> tempfile::NamedTempFile {
-        let mut file = tempfile::Builder::new()
-            .suffix(".json")
-            .tempfile()
-            .unwrap();
+        let mut file = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         file.write_all(content.as_bytes()).unwrap();
         file
     }
@@ -119,7 +97,9 @@ mod tests {
         let fragments = builtin_fragments();
         assert_eq!(fragments.len(), 14);
         assert!(fragments.iter().any(|f| f.id == "fragments.role.assistant"));
-        assert!(fragments.iter().any(|f| f.id == "fragments.constraint.code-safety"));
+        assert!(fragments
+            .iter()
+            .any(|f| f.id == "fragments.constraint.code-safety"));
     }
 
     #[test]
@@ -188,7 +168,10 @@ mod tests {
             ..Default::default()
         };
         let summary = register(&regs, &opts);
-        assert!(summary.failed.iter().any(|f| f.id == "fragments_config_path"));
+        assert!(summary
+            .failed
+            .iter()
+            .any(|f| f.id == "fragments_config_path"));
     }
 
     #[test]

@@ -1,113 +1,21 @@
-//! Shared tool-approval handlers for the CLI frontends.
+//! Stdin tool-approval handler for the CLI frontends.
 //!
-//! [`LlmApprovalHandler`] answers the engine's `Ask` decisions by asking the
-//! configured LLM profile whether the pending tool call is safe. It is
-//! fail-closed: any gateway error or unparseable verdict denies the call.
+//! [`StdioApprovalHandler`] answers the engine's `Ask` decisions from the
+//! terminal. Model-reviewed and policy-only approvals are host-independent
+//! and live in `wf_runtime::tool_approval`, where the server reuses them
+//! too; what stays here is the part that is genuinely stdio-specific.
+//!
+//! It is fail-closed: policy denials, timeouts, EOF and any non-`y` answer
+//! all reject the tool call.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use wf_api::infra::context::ApiContext;
-use wf_api::llm::generate as llm_generate;
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_runtime::tool_approval::ApprovalPolicy;
-use wf_types::llm::LlmRequest;
-use wf_types::message::Message;
 
 use crate::run::DiagWriter;
 use crate::stdio_prompt::{parse_approval_answer, render_approval_prompt, StdioPromptSource};
-
-const VERDICT_ALLOW: &str = "ALLOW";
-const VERDICT_DENY: &str = "DENY";
-
-const APPROVAL_REVIEWER_PROMPT_KEY: &str = "@standard/approval-reviewer";
-
-fn load_approval_prompts() -> serde_json::Value {
-    serde_json::from_str(include_str!("../configs/approval_prompts.json"))
-        .expect("embedded approval_prompts.json is valid")
-}
-
-fn system_prompt() -> String {
-    let file = load_approval_prompts();
-    file["prompts"][APPROVAL_REVIEWER_PROMPT_KEY]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {APPROVAL_REVIEWER_PROMPT_KEY}"))
-        .to_string()
-}
-
-/// Approval handler that defers `Ask` decisions to the configured LLM
-/// profile. Denials are fail-closed: gateway failures and ambiguous replies
-/// both reject the tool call with the reason preserved for the transcript.
-pub struct LlmApprovalHandler {
-    ctx: Arc<ApiContext>,
-    profile_id: String,
-}
-
-impl LlmApprovalHandler {
-    pub fn new(ctx: Arc<ApiContext>, profile_id: impl Into<String>) -> Self {
-        Self {
-            ctx,
-            profile_id: profile_id.into(),
-        }
-    }
-
-    async fn decide(&self, request: &ToolApprovalRequest) -> Result<bool, String> {
-        let prompt = format!(
-            "Tool: {}\nArguments: {}\nIs it safe to execute? Reply ALLOW or DENY.",
-            request.tool_name, request.arguments
-        );
-        let llm_request = LlmRequest {
-            profile_id: self.profile_id.clone(),
-            messages: vec![
-                Message::system_text(system_prompt()),
-                Message::user_text(prompt),
-            ],
-            parameters: None,
-            generation: None,
-            tools: None,
-            tool_call_protocol: None,
-            locked_tool_call_protocol: None,
-            violation_policy: None,
-            execution_id: None,
-            stream: None,
-            dead_loop_detection: None,
-            protocol_auto_converted: None,
-            timeout_ms: None,
-        };
-        let result = llm_generate(&self.ctx, &llm_request)
-            .await
-            .map_err(|e| e.to_string())?;
-        let verdict = result
-            .content
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_uppercase();
-        if verdict.starts_with(VERDICT_ALLOW) {
-            Ok(true)
-        } else if verdict.starts_with(VERDICT_DENY) {
-            Ok(false)
-        } else {
-            Err(format!("ambiguous verdict: {verdict}"))
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl ToolApprovalHandler for LlmApprovalHandler {
-    async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult {
-        match self.decide(request).await {
-            Ok(true) => ToolApprovalResult::approved(request.tool_call_id.clone()),
-            Ok(false) => ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                "denied by LLM safety review".to_string(),
-            ),
-            Err(reason) => ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                format!("LLM approval unavailable ({reason}); failing closed"),
-            ),
-        }
-    }
-}
 
 /// Approval handler answering the engine's `Ask` decisions from stdin.
 ///

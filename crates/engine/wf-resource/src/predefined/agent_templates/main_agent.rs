@@ -4,6 +4,7 @@
 //! through the standard predefined agent-template path so a user-defined
 //! template with the same id takes precedence (`register_item_skip`).
 
+use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
@@ -13,16 +14,6 @@ pub const MAIN_AGENT_TEMPLATE_ID: &str = "@standard/main";
 /// tell which prompt version drove a session. Development keeps this at
 /// 1.0.0.
 pub const MAIN_AGENT_PROMPT_VERSION: &str = "1.0.0";
-
-fn main_agent_system_prompt() -> String {
-    let file: serde_json::Value =
-        serde_json::from_str(include_str!("../../../configs/agent_prompts.json"))
-            .expect("embedded agent_prompts.json is valid");
-    file["prompts"][MAIN_AGENT_TEMPLATE_ID]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing prompt for {MAIN_AGENT_TEMPLATE_ID}"))
-        .to_string()
-}
 
 /// Builds the built-in main agent template.
 pub fn main_agent_template() -> AgentTemplate {
@@ -38,7 +29,9 @@ pub fn main_agent_template() -> AgentTemplate {
             version: Some(MAIN_AGENT_PROMPT_VERSION.into()),
             config: Some(AgentConfig {
                 profile_id: None,
-                system_prompt: Some(main_agent_system_prompt()),
+                system_prompt: Some(
+                    embedded_assets::agent_prompt(MAIN_AGENT_TEMPLATE_ID).to_string(),
+                ),
                 max_iterations: Some(50),
                 max_execution_time: None,
                 max_retries: None,

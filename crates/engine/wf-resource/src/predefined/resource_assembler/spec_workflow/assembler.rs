@@ -7,9 +7,7 @@ use crate::resource_assembler::{
     ResourceAssemblerConfigFieldType, ResourceAssemblerMetadata, ResourceBundle,
 };
 
-use super::config::{
-    SpecWorkflowConfig, DEFAULT_SPEC_DIR, DEFAULT_WRITER_PROFILE_ID,
-};
+use super::config::{SpecWorkflowConfig, DEFAULT_SPEC_DIR, DEFAULT_WRITER_PROFILE_ID};
 use super::prompts::build_stage_prompts;
 use super::workflow::build_workflow;
 
@@ -47,8 +45,7 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
             id: SPEC_WORKFLOW_RESOURCE_ASSEMBLER_ID.into(),
             name: "Spec Workflow".into(),
             version: "1.0.0".into(),
-            description: "Spec-driven planning pipeline: specify -> plan -> tasks"
-                .into(),
+            description: "Spec-driven planning pipeline: specify -> plan -> tasks".into(),
             author: None,
             tags: Some(vec!["spec-driven".into(), "planning".into()]),
             category: Some("spec-driven".into()),

@@ -1,5 +1,6 @@
 pub mod custom;
 pub mod dynamic;
+pub mod embedded_assets;
 pub mod predefined;
 pub mod registry;
 pub mod resource_assembler;
@@ -17,7 +18,8 @@ pub use dynamic::{
     build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
 };
 pub use predefined::resource_assembler::{
-    GoalReviewConfig, GoalReviewResourceAssembler, SpecWorkflowConfig, SpecWorkflowResourceAssembler,
+    GoalReviewConfig, GoalReviewResourceAssembler, SpecWorkflowConfig,
+    SpecWorkflowResourceAssembler,
 };
 pub use predefined::tool_visibility::{
     builtin_tool_visibility_templates, generic_visibility_text, ACTIVATION_TEMPLATE_ID,

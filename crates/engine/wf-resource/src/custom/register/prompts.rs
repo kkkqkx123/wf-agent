@@ -35,7 +35,7 @@ pub fn register_custom_prompts(
         let template = Template {
             id: p.id.clone(),
             name: p.name.clone(),
-            description: Some(p.name),
+            description: Some(p.description.unwrap_or(p.name)),
             category: category.into(),
             content: p.content,
             variables,

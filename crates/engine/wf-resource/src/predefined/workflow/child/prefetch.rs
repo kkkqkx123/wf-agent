@@ -31,9 +31,15 @@ pub const PREFETCH_AVAILABLE_TOOLS: &[&str] = &[
     "read_file_folded",
 ];
 
-pub const PREFETCH_AGENT_SYSTEM_PROMPT_KEY: &str = "@standard/code-context-prefetch";
+pub use crate::predefined::agent_prompts::CODE_CONTEXT_PREFETCH_PROMPT_KEY as PREFETCH_AGENT_SYSTEM_PROMPT_KEY;
 
 pub fn prefetch_inline_definition() -> AgentDefinition {
+    prefetch_inline_definition_with_prompt(None)
+}
+
+/// Inline prefetch definition with an optional system-prompt override;
+/// `None` keeps the embedded default.
+pub fn prefetch_inline_definition_with_prompt(system_prompt: Option<String>) -> AgentDefinition {
     let tools = PREFETCH_AVAILABLE_TOOLS
         .iter()
         .map(|name| (*name).to_string())
@@ -45,9 +51,9 @@ pub fn prefetch_inline_definition() -> AgentDefinition {
         version: Some("1.0.0".into()),
         config: Some(AgentConfig {
             profile_id: Some(PREFETCH_AGENT_PROFILE_ID.into()),
-            system_prompt: Some(
-                embedded_assets::agent_prompt(PREFETCH_AGENT_SYSTEM_PROMPT_KEY).to_string(),
-            ),
+            system_prompt: Some(system_prompt.unwrap_or_else(|| {
+                embedded_assets::agent_prompt(PREFETCH_AGENT_SYSTEM_PROMPT_KEY).to_string()
+            })),
             max_iterations: Some(PREFETCH_AGENT_MAX_ITERATIONS),
             max_execution_time: None,
             max_retries: None,
@@ -96,7 +102,11 @@ fn start_node() -> BaseStaticNode {
 }
 
 fn agent_node() -> BaseStaticNode {
-    let inline = prefetch_inline_definition();
+    agent_node_with_prompt(None)
+}
+
+fn agent_node_with_prompt(system_prompt: Option<String>) -> BaseStaticNode {
+    let inline = prefetch_inline_definition_with_prompt(system_prompt);
     let inline = serde_json::to_value(&inline).expect("inline definition serializes");
     BaseStaticNode {
         id: PREFETCH_AGENT_NODE_ID.into(),
@@ -124,6 +134,12 @@ fn end_node() -> BaseStaticNode {
 }
 
 pub fn create_prefetch_workflow() -> WorkflowTemplate {
+    create_prefetch_workflow_with_prompt(None)
+}
+
+/// Prefetch workflow with an optional prefetch-agent system-prompt override;
+/// `None` keeps the embedded default.
+pub fn create_prefetch_workflow_with_prompt(system_prompt: Option<String>) -> WorkflowTemplate {
     let t = wf_common::now();
 
     WorkflowTemplate {
@@ -139,7 +155,7 @@ pub fn create_prefetch_workflow() -> WorkflowTemplate {
             ),
             r#type: Some(WorkflowDefinitionType::Dependent),
             version: Some("1.0.0".into()),
-            nodes: vec![start_node(), agent_node(), end_node()],
+            nodes: vec![start_node(), agent_node_with_prompt(system_prompt), end_node()],
             edges: vec![
                 edge(
                     "e-prefetch-start-to-agent",

@@ -13,7 +13,7 @@ use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
-pub const WORKER_AGENT_TEMPLATE_ID: &str = "@standard/worker";
+pub use crate::predefined::agent_prompts::WORKER_AGENT_PROMPT_KEY as WORKER_AGENT_TEMPLATE_ID;
 
 /// Version of the embedded system prompt; checkpoint restores use it to
 /// tell which prompt version drove a session. Development keeps this at

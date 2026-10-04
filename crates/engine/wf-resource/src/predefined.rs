@@ -1,3 +1,4 @@
+pub mod agent_prompts;
 pub mod agent_templates;
 pub mod fragments;
 pub mod prompts;

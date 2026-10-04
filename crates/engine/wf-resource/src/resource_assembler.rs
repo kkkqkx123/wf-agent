@@ -596,11 +596,22 @@ pub fn install_bundle(
         skip_if_exists,
     ));
     for prompt in &bundle.prompts {
-        total.merge(register_template(
-            registries,
-            prompt.clone(),
-            skip_if_exists,
-        ));
+        let mut prompt = prompt.clone();
+        // A prompt template registered under the same id overrides the
+        // bundle's prompt at the install edge, mirroring the agent-template
+        // override; placeholder-carrying overrides are rejected because
+        // install-time patching cannot render them.
+        match crate::predefined::agent_prompts::bundle_prompt_override(registries, &prompt) {
+            crate::predefined::agent_prompts::BundlePromptOverride::Patch(content) => {
+                prompt.content = content;
+            }
+            crate::predefined::agent_prompts::BundlePromptOverride::Reject(message) => {
+                total.merge(Summary::err(&prompt.id, message));
+                continue;
+            }
+            crate::predefined::agent_prompts::BundlePromptOverride::KeepBundle => {}
+        }
+        total.merge(register_template(registries, prompt, skip_if_exists));
     }
     for fragment in &bundle.fragments {
         total.merge(register_fragment(
@@ -627,10 +638,21 @@ pub fn install_bundle(
     }
     for agent_tmpl in &bundle.agent_templates {
         let key = agent_tmpl.id.clone();
+        // A prompt template registered under the same `@standard/*` id
+        // overrides the embedded system prompt, matching the
+        // predefined agent-template registration edge.
+        let mut agent_tmpl = agent_tmpl.clone();
+        if let Some(prompt) =
+            crate::predefined::agent_prompts::resolve_system_prompt(registries, &agent_tmpl.id)
+        {
+            if let Some(config) = agent_tmpl.definition.config.as_mut() {
+                config.system_prompt = Some(prompt);
+            }
+        }
         total.merge(if skip_if_exists {
-            register_item_skip(&registries.agent_templates, key, agent_tmpl.clone())
+            register_item_skip(&registries.agent_templates, key, agent_tmpl)
         } else {
-            register_item_strict(&registries.agent_templates, key, agent_tmpl.clone())
+            register_item_strict(&registries.agent_templates, key, agent_tmpl)
         });
     }
 
@@ -783,6 +805,56 @@ mod tests {
         let second = install_bundle(&regs, &tool_registry, &bundle, false);
         assert!(!second.is_ok());
         assert_eq!(second.failed.len(), 3);
+    }
+
+    #[test]
+    fn install_applies_prompt_override_to_agent_templates() {
+        let regs = ResourceRegistries::new();
+        let tool_registry = ToolRegistry::new();
+
+        // A prompt template registered under the executor's `@standard/*` id
+        // overrides the bundle agent template's embedded system prompt.
+        crate::registry::register_item_skip(
+            &regs.templates,
+            "@standard/goal-review-executor".into(),
+            Template {
+                id: "@standard/goal-review-executor".into(),
+                name: "Override".into(),
+                description: None,
+                category: "system".into(),
+                content: "custom executor prompt".into(),
+                variables: None,
+                fragments: None,
+            },
+        );
+
+        let summary = install_bundle(&regs, &tool_registry, &bundle(), true);
+        assert!(summary.is_ok());
+
+        let executor = regs
+            .agent_templates
+            .get("@standard/goal-review-executor")
+            .expect("executor installed");
+        let prompt = executor
+            .definition
+            .config
+            .as_ref()
+            .and_then(|c| c.system_prompt.as_deref())
+            .expect("system prompt present");
+        assert_eq!(prompt, "custom executor prompt");
+
+        // The reviewer has no override and keeps its embedded prompt.
+        let reviewer = regs
+            .agent_templates
+            .get("@standard/goal-review-reviewer")
+            .expect("reviewer installed");
+        let reviewer_prompt = reviewer
+            .definition
+            .config
+            .as_ref()
+            .and_then(|c| c.system_prompt.as_deref())
+            .expect("system prompt present");
+        assert_ne!(reviewer_prompt, "custom executor prompt");
     }
 
     #[test]

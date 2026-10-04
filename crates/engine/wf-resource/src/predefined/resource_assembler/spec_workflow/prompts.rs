@@ -89,4 +89,32 @@ mod tests {
             assert!(prompt.content.contains("add-dark-mode"));
         }
     }
+
+    #[test]
+    fn stage_prompts_declare_only_known_variables() {
+        // Any placeholder outside the supported set would be silently left
+        // unrendered by `render_prompt`, so the asset is pinned to this set.
+        const KNOWN: &[&str] = &["change_id", "change_path"];
+        for id in STAGE_PROMPT_IDS {
+            let placeholders = wf_config::processor::prompt::extract_template_placeholders(
+                crate::embedded_assets::spec_workflow_prompt(id),
+            );
+            assert!(
+                placeholders.iter().all(|name| KNOWN.contains(&name.as_str())),
+                "spec prompt '{id}' has unexpected placeholders: {placeholders:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rendered_stage_prompts_leave_no_placeholders() {
+        for prompt in build_stage_prompts(&config()) {
+            let left = wf_config::processor::prompt::extract_template_placeholders(&prompt.content);
+            assert!(
+                left.is_empty(),
+                "spec prompt '{}' kept unrendered placeholders: {left:?}",
+                prompt.id
+            );
+        }
+    }
 }

@@ -2,8 +2,10 @@ use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
-pub const GOAL_REVIEW_EXECUTOR_TEMPLATE_ID: &str = "@standard/goal-review-executor";
-pub const GOAL_REVIEW_REVIEWER_TEMPLATE_ID: &str = "@standard/goal-review-reviewer";
+pub use crate::predefined::agent_prompts::{
+    GOAL_REVIEW_EXECUTOR_PROMPT_KEY as GOAL_REVIEW_EXECUTOR_TEMPLATE_ID,
+    GOAL_REVIEW_REVIEWER_PROMPT_KEY as GOAL_REVIEW_REVIEWER_TEMPLATE_ID,
+};
 
 pub fn goal_review_executor() -> AgentTemplate {
     let t = wf_common::now();

@@ -89,6 +89,11 @@ fn prompt_text(file: &'static PromptTextFile, id: &str) -> &'static str {
     }
 }
 
+/// All keys present in the embedded `agent_prompts.json`, for parity tests.
+pub fn agent_prompt_keys() -> Vec<String> {
+    agent_prompt_file().prompts.keys().cloned().collect()
+}
+
 /// Built-in prompt for the agent template `template_id`.
 ///
 /// `template_id` is the agent template id (e.g. `@standard/main`); a
@@ -145,20 +150,9 @@ pub fn parse_fragments(raw: &str) -> Result<Vec<FragmentEntry>, serde_json::Erro
 mod tests {
     use super::*;
 
-    const AGENT_TEMPLATE_IDS: &[&str] = &[
-        "@standard/main",
-        "@standard/explorer",
-        "@standard/worker",
-        "@standard/goal-review-executor",
-        "@standard/goal-review-reviewer",
-        "@standard/goal-review-planner",
-        "@standard/llm-summary",
-        "@standard/code-context-prefetch",
-    ];
-
     #[test]
     fn every_agent_template_id_resolves_to_a_prompt() {
-        for id in AGENT_TEMPLATE_IDS {
+        for id in crate::predefined::agent_prompts::AGENT_PROMPT_KEYS {
             assert!(
                 !agent_prompt(id).trim().is_empty(),
                 "agent prompt '{id}' is empty"

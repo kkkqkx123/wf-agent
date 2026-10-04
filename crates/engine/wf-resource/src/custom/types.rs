@@ -121,6 +121,9 @@ fn default_schedule_enabled() -> bool {
 pub struct CustomPromptDefinition {
     pub id: String,
     pub name: String,
+    /// Optional human-readable description; falls back to `name` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub content: String,
     #[serde(rename = "type")]
     pub prompt_type: CustomPromptType,

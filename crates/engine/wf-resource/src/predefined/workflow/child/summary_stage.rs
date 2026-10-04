@@ -6,7 +6,7 @@ use wf_types::workflow::{TriggeredSubworkflowConfig, WorkflowMetadata};
 
 use crate::embedded_assets;
 
-pub const DEFAULT_LLM_SUMMARY_PROMPT_KEY: &str = "@standard/llm-summary";
+pub use crate::predefined::agent_prompts::LLM_SUMMARY_PROMPT_KEY as DEFAULT_LLM_SUMMARY_PROMPT_KEY;
 
 pub const DEFAULT_LLM_SUMMARY_PROFILE: &str = "DEFAULT";
 

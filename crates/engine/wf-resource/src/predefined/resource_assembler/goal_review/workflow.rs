@@ -13,7 +13,7 @@ use super::config::GoalReviewConfig;
 
 pub const GOAL_REVIEW_WORKFLOW_ID: &str = "@standard/goal-review-agent-workflow";
 pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "prompt.goal-review.planner";
-pub const GOAL_REVIEW_PLANNER_PROMPT_KEY: &str = "@standard/goal-review-planner";
+pub use crate::predefined::agent_prompts::GOAL_REVIEW_PLANNER_PROMPT_KEY as GOAL_REVIEW_PLANNER_PROMPT_KEY;
 
 const BREAK_CONDITION: &str = "or(eq(status,\"completed\"),eq(status,\"stuck\"))";
 const CONTINUE_CONDITION: &str = "eq(nextIteration,true)";

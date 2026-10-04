@@ -450,6 +450,7 @@ pub fn register_all(
     // Predefined resources
     total.merge(predefined::fragments::register(regs, opts));
     total.merge(predefined::prompts::register(regs, opts));
+    total.merge(predefined::agent_prompts::register(regs, opts));
     total.merge(predefined::tool_descriptions::register(regs, opts));
     total.merge(predefined::agent_templates::register(regs, opts));
     total.merge(predefined::tools::register(tool_registry, opts));

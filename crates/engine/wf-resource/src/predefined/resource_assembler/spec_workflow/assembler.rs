@@ -8,15 +8,14 @@ use crate::resource_assembler::{
 };
 
 use super::config::{
-    SpecWorkflowConfig, DEFAULT_MAX_ITERATIONS, DEFAULT_SPEC_DIR, DEFAULT_WRITER_PROFILE_ID,
+    SpecWorkflowConfig, DEFAULT_SPEC_DIR, DEFAULT_WRITER_PROFILE_ID,
 };
 use super::prompts::build_stage_prompts;
 use super::workflow::build_workflow;
 
 pub const SPEC_WORKFLOW_RESOURCE_ASSEMBLER_ID: &str = "@standard/spec-workflow";
 
-/// Spec-driven pipeline resource assembler: specify -> plan -> tasks ->
-/// implement (goal-review delegate) -> converge -> archive
+/// Spec-driven planning pipeline resource assembler: specify -> plan -> tasks
 /// (id `@standard/spec-workflow`).
 pub struct SpecWorkflowResourceAssembler;
 
@@ -48,12 +47,12 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
             id: SPEC_WORKFLOW_RESOURCE_ASSEMBLER_ID.into(),
             name: "Spec Workflow".into(),
             version: "1.0.0".into(),
-            description: "Spec-driven pipeline with review gates and goal-review implement loop"
+            description: "Spec-driven planning pipeline: specify -> plan -> tasks"
                 .into(),
             author: None,
-            tags: Some(vec!["spec-driven".into(), "pipeline".into()]),
+            tags: Some(vec!["spec-driven".into(), "planning".into()]),
             category: Some("spec-driven".into()),
-            dependencies: Some(vec![super::super::goal_review::assembler::GOAL_REVIEW_RESOURCE_ASSEMBLER_ID.into()]),
+            dependencies: None,
             configurable: Some(HashMap::from([
                 (
                     "requirement".into(),
@@ -77,16 +76,6 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                     ),
                 ),
                 (
-                    "max_iterations".into(),
-                    ResourceAssemblerConfigField {
-                        r#type: ResourceAssemblerConfigFieldType::Number,
-                        description: "Maximum implement loop iterations".into(),
-                        default: Some(json!(DEFAULT_MAX_ITERATIONS)),
-                        required: None,
-                        allowed_functions: None,
-                    },
-                ),
-                (
                     "spec_profile_id".into(),
                     string_field(
                         "LLM profile for the spec writer",
@@ -108,26 +97,6 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                     ),
                 ),
                 (
-                    "executor_tools".into(),
-                    ResourceAssemblerConfigField {
-                        r#type: ResourceAssemblerConfigFieldType::Array,
-                        description: "Override tools for the inline implementer agent".into(),
-                        default: None,
-                        required: None,
-                        allowed_functions: None,
-                    },
-                ),
-                (
-                    "reviewer_tools".into(),
-                    ResourceAssemblerConfigField {
-                        r#type: ResourceAssemblerConfigFieldType::Array,
-                        description: "Override tools for the inline spec reviewer agent".into(),
-                        default: None,
-                        required: None,
-                        allowed_functions: None,
-                    },
-                ),
-                (
                     "require_spec_gate".into(),
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::Boolean,
@@ -142,17 +111,6 @@ impl ResourceAssembler for SpecWorkflowResourceAssembler {
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::Boolean,
                         description: "Require human approval of the plan before task decomposition"
-                            .into(),
-                        default: Some(json!(true)),
-                        required: None,
-                        allowed_functions: None,
-                    },
-                ),
-                (
-                    "use_subgraph_delegate".into(),
-                    ResourceAssemblerConfigField {
-                        r#type: ResourceAssemblerConfigFieldType::Boolean,
-                        description: "Delegate implementation to the goal-review workflow via SUBGRAPH instead of inline agents"
                             .into(),
                         default: Some(json!(true)),
                         required: None,
@@ -198,11 +156,11 @@ mod tests {
         let configurable = metadata.configurable.unwrap();
         assert!(configurable.contains_key("requirement"));
         assert!(configurable.contains_key("require_spec_gate"));
-        assert!(configurable.contains_key("use_subgraph_delegate"));
+        assert!(configurable.contains_key("require_plan_gate"));
     }
 
     #[test]
-    fn assemble_builds_gated_pipeline_with_delegate() {
+    fn assemble_builds_gated_pipeline() {
         let assembler = SpecWorkflowResourceAssembler::new();
         let bundle = assembler
             .assemble(&json!({"requirement": "Add dark mode"}))
@@ -210,7 +168,7 @@ mod tests {
 
         assert_eq!(bundle.workflows.len(), 1);
         assert_eq!(bundle.workflows[0].id, "@standard/spec-workflow");
-        assert_eq!(bundle.prompts.len(), 4);
+        assert_eq!(bundle.prompts.len(), 3);
 
         let types = node_types(&bundle);
         assert_eq!(
@@ -223,12 +181,6 @@ mod tests {
                 StaticNodeType::UserInteraction,
                 StaticNodeType::Llm,
                 StaticNodeType::Route,
-                StaticNodeType::LoopStart,
-                StaticNodeType::Subgraph,
-                StaticNodeType::LoopEnd,
-                StaticNodeType::Llm,
-                StaticNodeType::Route,
-                StaticNodeType::Script,
                 StaticNodeType::End,
             ]
         );
@@ -236,11 +188,15 @@ mod tests {
         let def = &bundle.workflows[0].definition;
         let edge_ids: Vec<&str> = def.edges.iter().map(|e| e.id.as_str()).collect();
         assert!(edge_ids.contains(&"e2b"));
-        assert!(edge_ids.contains(&"e9"));
-        let loop_back = def.edges.iter().find(|e| e.id == "e9").unwrap();
-        assert_eq!(loop_back.source_node_id, "loop_end");
-        assert_eq!(loop_back.target_node_id, "loop_start");
-        assert_eq!(loop_back.r#type, EdgeType::Conditional);
+        assert!(edge_ids.contains(&"e4b"));
+        let spec_reject = def.edges.iter().find(|e| e.id == "e2b").unwrap();
+        assert_eq!(spec_reject.source_node_id, "spec_gate");
+        assert_eq!(spec_reject.target_node_id, "spec_writer");
+        assert_eq!(spec_reject.r#type, EdgeType::Conditional);
+        let plan_reject = def.edges.iter().find(|e| e.id == "e4b").unwrap();
+        assert_eq!(plan_reject.source_node_id, "plan_gate");
+        assert_eq!(plan_reject.target_node_id, "plan_writer");
+        assert_eq!(plan_reject.r#type, EdgeType::Conditional);
     }
 
     #[test]
@@ -251,7 +207,6 @@ mod tests {
                 "requirement": "Add dark mode",
                 "require_spec_gate": false,
                 "require_plan_gate": false,
-                "use_subgraph_delegate": false,
             }))
             .unwrap();
 
@@ -265,26 +220,9 @@ mod tests {
                 StaticNodeType::Llm,
                 StaticNodeType::Llm,
                 StaticNodeType::Route,
-                StaticNodeType::LoopStart,
-                StaticNodeType::AgentLoop,
-                StaticNodeType::AgentLoop,
-                StaticNodeType::LoopEnd,
-                StaticNodeType::Llm,
-                StaticNodeType::Route,
-                StaticNodeType::Script,
                 StaticNodeType::End,
             ]
         );
-
-        let def = &bundle.workflows[0].definition;
-        for node in def
-            .nodes
-            .iter()
-            .filter(|n| n.node_type == StaticNodeType::AgentLoop)
-        {
-            let cfg = node.config.as_ref().unwrap();
-            assert!(cfg.get("inline_definition").is_some());
-        }
     }
 
     #[test]
@@ -303,7 +241,6 @@ mod tests {
                 "requirement": "Add dark mode",
                 "require_spec_gate": false,
                 "require_plan_gate": false,
-                "use_subgraph_delegate": false,
             }),
         ] {
             let bundle = assembler.assemble(&config).unwrap();

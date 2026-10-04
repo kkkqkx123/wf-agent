@@ -4,8 +4,8 @@ use crate::model::report::{FindingLevel, SectionReport};
 use crate::model::trace::Trace;
 use crate::model::traverse::walk;
 
-/// Stage order of the `@standard/spec-workflow` pipeline. The analyzer maps
-/// visited node ids to these stages and checks that the trace follows the
+/// Stage order of the `@standard/spec-workflow` planning pipeline. The analyzer
+/// maps visited node ids to these stages and checks that the trace follows the
 /// declared order; unknown node ids are ignored so partial or embedded
 /// traces stay analyzable.
 const STAGE_ORDER: &[&str] = &[
@@ -14,9 +14,6 @@ const STAGE_ORDER: &[&str] = &[
     "plan",
     "plan_gate",
     "tasks",
-    "implement",
-    "converge",
-    "archive",
 ];
 
 fn stage_of(node_id: &str) -> Option<&'static str> {
@@ -26,37 +23,18 @@ fn stage_of(node_id: &str) -> Option<&'static str> {
         "plan_writer" => Some("plan"),
         "plan_gate" => Some("plan_gate"),
         "task_decomposer" | "tasks_route" => Some("tasks"),
-        "loop_start" | "implementer" | "goal_delegate" | "spec_reviewer" | "loop_end" => {
-            Some("implement")
-        }
-        "converge_check" | "converge_route" => Some("converge"),
-        "archive" => Some("archive"),
         _ => None,
     }
 }
 
-fn flag_is_true(
-    before: &HashMap<String, serde_json::Value>,
-    after: &HashMap<String, serde_json::Value>,
-    key: &str,
-) -> bool {
-    before
-        .get(key)
-        .or_else(|| after.get(key))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-}
-
-/// Spec pipeline analysis: stage ordering, gate verification, and readiness
-/// preconditions. Traces without any spec stage node report an empty section
-/// so non-spec workflows stay green.
+/// Spec planning pipeline analysis: stage ordering and gate verification.
+/// Traces without any spec stage node report an empty section so non-spec
+/// workflows stay green.
 pub fn analyze(trace: &Trace) -> SectionReport {
     let mut report = SectionReport::named("spec");
     let mut first_seen: HashMap<&str, String> = HashMap::new();
     let mut first_order: Vec<&str> = Vec::new();
     let mut visited: HashSet<&str> = HashSet::new();
-    let mut tasks_ready_seen = false;
-    let mut converged_seen = false;
 
     for visit in walk(trace) {
         let step = visit.step;
@@ -69,12 +47,6 @@ pub fn analyze(trace: &Trace) -> SectionReport {
             first_order.push(stage);
         }
         report.count("stage_visits", 1);
-        if flag_is_true(&step.variable_before, &step.variable_after, "tasksReady") {
-            tasks_ready_seen = true;
-        }
-        if flag_is_true(&step.variable_before, &step.variable_after, "converged") {
-            converged_seen = true;
-        }
 
         if matches!(stage, "spec_gate" | "plan_gate") {
             report.count("gates", 1);
@@ -112,9 +84,6 @@ pub fn analyze(trace: &Trace) -> SectionReport {
     }
     report.count("stages", visited.len() as u64);
 
-    // First-seen order must follow the pipeline. Later revisits of earlier
-    // stages are legitimate (gate rejections, loop rounds) and are not
-    // checked here.
     let mut last_rank = 0;
     for stage in &first_order {
         let rank = STAGE_ORDER.iter().position(|s| s == stage).unwrap_or(0);
@@ -131,24 +100,6 @@ pub fn analyze(trace: &Trace) -> SectionReport {
         last_rank = rank;
     }
 
-    if visited.contains("implement") && !tasks_ready_seen {
-        report.finding(
-            FindingLevel::Error,
-            first_seen.get("implement").map(String::as_str).unwrap_or_default(),
-            "implement loop entered before tasksReady was set".to_string(),
-            Some(serde_json::Value::Bool(true)),
-            Some(serde_json::Value::Bool(false)),
-        );
-    }
-    if visited.contains("archive") && !converged_seen {
-        report.finding(
-            FindingLevel::Error,
-            first_seen.get("archive").map(String::as_str).unwrap_or_default(),
-            "archive reached without convergence".to_string(),
-            Some(serde_json::Value::Bool(true)),
-            Some(serde_json::Value::Bool(false)),
-        );
-    }
     report
 }
 
@@ -255,21 +206,15 @@ mod tests {
     fn ordered_gated_trace_is_clean() {
         let mut gate = step("spec_gate");
         gate.interaction = Some(interaction("i1", false));
-        let mut decompose = step("task_decomposer");
-        decompose.variable_after.insert(
-            "tasksReady".to_string(),
-            serde_json::Value::Bool(true),
-        );
         let trace = trace_with(vec![
             step("spec_writer"),
             gate,
             step("plan_writer"),
-            decompose,
-            step("implementer"),
+            step("task_decomposer"),
         ]);
         let report = analyze(&trace);
         assert_eq!(report.errors(), 0);
-        assert_eq!(report.counts.get("stages"), Some(&5));
+        assert_eq!(report.counts.get("stages"), Some(&4));
         assert_eq!(report.counts.get("gates_verified"), Some(&1));
     }
 
@@ -280,20 +225,6 @@ mod tests {
         assert_eq!(report.errors(), 0);
         assert_eq!(report.counts.get("gates"), Some(&1));
         assert_eq!(warnings(&report), 1);
-    }
-
-    #[test]
-    fn implement_before_tasks_ready_is_an_error() {
-        let trace = trace_with(vec![step("spec_writer"), step("implementer")]);
-        let report = analyze(&trace);
-        assert_eq!(report.errors(), 1);
-    }
-
-    #[test]
-    fn archive_without_convergence_is_an_error() {
-        let trace = trace_with(vec![step("spec_writer"), step("archive")]);
-        let report = analyze(&trace);
-        assert_eq!(report.errors(), 1);
     }
 
     #[test]

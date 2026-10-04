@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 pub const MAIN_AGENT_TEMPLATE_ID: &str = "@standard/main";
 pub const EXPLORER_AGENT_TEMPLATE_ID: &str = "@standard/explorer";
 pub const WORKER_AGENT_TEMPLATE_ID: &str = "@standard/worker";
-pub const GOAL_REVIEW_EXECUTOR_TEMPLATE_ID: &str = "@standard/goal-review-executor";
-pub const GOAL_REVIEW_REVIEWER_TEMPLATE_ID: &str = "@standard/goal-review-reviewer";
 
 /// Version of the policy snapshot below. Regenerate the snapshot (and bump
 /// this marker) whenever the engine agent templates change so drift is
@@ -84,44 +82,11 @@ const WORKER_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
     require_approval: &["execute_command"],
 };
 
-/// Mirror of the goal-review executor template: full file toolset, direct
-/// path, shell commands gated by approval like the main/worker agents.
-const GOAL_EXECUTOR_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
-    template_id: GOAL_REVIEW_EXECUTOR_TEMPLATE_ID,
-    available: &[
-        "read_file",
-        "write_file",
-        "edit_file",
-        "glob_search",
-        "grep_search",
-        "execute_command",
-        "attempt_completion",
-    ],
-    discoverable: &[],
-    require_approval: &["execute_command"],
-};
-
-/// Mirror of the goal-review reviewer template: read-only toolset, no
-/// approval-gated tools.
-const GOAL_REVIEWER_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
-    template_id: GOAL_REVIEW_REVIEWER_TEMPLATE_ID,
-    available: &[
-        "read_file",
-        "glob_search",
-        "grep_search",
-        "attempt_completion",
-    ],
-    discoverable: &[],
-    require_approval: &[],
-};
-
 pub fn builtin_policy(template_id: &str) -> Option<&'static BuiltinAgentPolicy> {
     match template_id {
         MAIN_AGENT_TEMPLATE_ID => Some(&MAIN_POLICY),
         EXPLORER_AGENT_TEMPLATE_ID => Some(&EXPLORER_POLICY),
         WORKER_AGENT_TEMPLATE_ID => Some(&WORKER_POLICY),
-        GOAL_REVIEW_EXECUTOR_TEMPLATE_ID => Some(&GOAL_EXECUTOR_POLICY),
-        GOAL_REVIEW_REVIEWER_TEMPLATE_ID => Some(&GOAL_REVIEWER_POLICY),
         _ => None,
     }
 }
@@ -139,8 +104,6 @@ pub fn snapshot_meta() -> PolicySnapshotMeta {
             MAIN_AGENT_TEMPLATE_ID.to_string(),
             EXPLORER_AGENT_TEMPLATE_ID.to_string(),
             WORKER_AGENT_TEMPLATE_ID.to_string(),
-            GOAL_REVIEW_EXECUTOR_TEMPLATE_ID.to_string(),
-            GOAL_REVIEW_REVIEWER_TEMPLATE_ID.to_string(),
         ],
     }
 }
@@ -151,17 +114,9 @@ mod tests {
 
     #[test]
     fn known_templates_resolve() {
+        assert!(builtin_policy(MAIN_AGENT_TEMPLATE_ID).is_some());
         assert!(builtin_policy(EXPLORER_AGENT_TEMPLATE_ID).is_some());
-        assert!(builtin_policy(GOAL_REVIEW_EXECUTOR_TEMPLATE_ID).is_some());
-        assert!(builtin_policy(GOAL_REVIEW_REVIEWER_TEMPLATE_ID).is_some());
+        assert!(builtin_policy(WORKER_AGENT_TEMPLATE_ID).is_some());
         assert!(builtin_policy("custom-agent").is_none());
-    }
-
-    #[test]
-    fn goal_reviewer_toolset_is_read_only() {
-        let reviewer = builtin_policy(GOAL_REVIEW_REVIEWER_TEMPLATE_ID).expect("reviewer policy");
-        assert!(!reviewer.available.contains(&"write_file"));
-        assert!(!reviewer.available.contains(&"execute_command"));
-        assert!(reviewer.require_approval.is_empty());
     }
 }

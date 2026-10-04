@@ -3,13 +3,11 @@ use super::config::SpecWorkflowConfig;
 pub const SPECIFY_PROMPT_ID: &str = "prompt.spec-workflow.specify";
 pub const PLAN_PROMPT_ID: &str = "prompt.spec-workflow.plan";
 pub const TASKS_PROMPT_ID: &str = "prompt.spec-workflow.tasks";
-pub const CONVERGE_PROMPT_ID: &str = "prompt.spec-workflow.converge";
 
 pub const STAGE_PROMPT_IDS: &[&str] = &[
     SPECIFY_PROMPT_ID,
     PLAN_PROMPT_ID,
     TASKS_PROMPT_ID,
-    CONVERGE_PROMPT_ID,
 ];
 
 fn template(id: &str, name: &str, description: &str, content: String) -> wf_types::Template {
@@ -53,15 +51,6 @@ pub(crate) fn build_stage_prompts(config: &SpecWorkflowConfig) -> Vec<wf_types::
                 change_id = config.change_id,
             ),
         ),
-        template(
-            CONVERGE_PROMPT_ID,
-            "Spec Workflow Converge Prompt",
-            "System prompt for the convergence check LLM node",
-            format!(
-                "You check whether the implementation of change '{change_id}' satisfies its spec, design, and tasks.\nList gaps with severity; report Converged only when no gaps remain. Never modify tasks.md; the report is append-only.",
-                change_id = config.change_id,
-            ),
-        ),
     ]
 }
 
@@ -75,20 +64,11 @@ mod tests {
             requirement: "Add dark mode".into(),
             change_id: "add-dark-mode".into(),
             spec_dir: "openspec/changes".into(),
-            max_iterations: 10,
             spec_profile_id: "a".into(),
             plan_profile_id: "a".into(),
             tasks_profile_id: "a".into(),
-            converge_profile_id: "a".into(),
-            executor_profile_id: None,
-            reviewer_profile_id: None,
-            executor_tools: None,
-            reviewer_tools: None,
-            executor_max_iterations: None,
-            reviewer_max_iterations: None,
             require_spec_gate: true,
             require_plan_gate: true,
-            use_subgraph_delegate: true,
         };
         let prompts = build_stage_prompts(&config);
         assert_eq!(prompts.len(), STAGE_PROMPT_IDS.len());

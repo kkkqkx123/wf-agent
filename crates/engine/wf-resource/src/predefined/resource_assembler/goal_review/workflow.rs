@@ -13,10 +13,20 @@ use super::config::GoalReviewConfig;
 
 pub const GOAL_REVIEW_WORKFLOW_ID: &str = "@standard/goal-review-agent-workflow";
 pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "prompt.goal-review.planner";
+pub const GOAL_REVIEW_PLANNER_PROMPT_KEY: &str = "@standard/goal-review-planner";
 
-const DEFAULT_PLANNER_PROMPT: &str = "You are a task planner for a goal-driven review loop.
-Read the root requirement, the conversation history, and the unresolved review defects.
-Output a single clear task description for the executor to work on next.";
+fn load_agent_prompts() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
+        .expect("embedded agent_prompts.json is valid")
+}
+
+fn default_planner_prompt() -> String {
+    let file = load_agent_prompts();
+    file["prompts"][GOAL_REVIEW_PLANNER_PROMPT_KEY]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {GOAL_REVIEW_PLANNER_PROMPT_KEY}"))
+        .to_string()
+}
 
 const BREAK_CONDITION: &str = "or(eq(status,\"completed\"),eq(status,\"stuck\"))";
 const CONTINUE_CONDITION: &str = "eq(nextIteration,true)";
@@ -37,7 +47,7 @@ pub(crate) fn build_planner_prompt(config: &GoalReviewConfig) -> wf_types::Templ
         content: config
             .planner_system_prompt
             .clone()
-            .unwrap_or_else(|| DEFAULT_PLANNER_PROMPT.to_string()),
+            .unwrap_or_else(default_planner_prompt),
         variables: None,
         fragments: None,
     }

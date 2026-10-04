@@ -29,7 +29,20 @@ pub const PREFETCH_AVAILABLE_TOOLS: &[&str] = &[
     "read_file_folded",
 ];
 
-const PREFETCH_AGENT_SYSTEM_PROMPT: &str = "You collect code context for the task described in the input object.\n\nThe input object carries `task` (what to investigate) plus the scope fields `projectId`, `directoryPrefix` and `maxResults`.\n\nRules:\n1. Start with code_search and code_keyword_search on the task wording; pass `maxResults` as the result-count budget of each search call.\n2. Continue a hit only by file path plus 1-based line number with code_symbols, code_references or code_definition; never invent internal identifiers.\n3. Pass `projectId` to every code tool call that accepts it, and pass `directoryPrefix` to code_search whenever it is non-empty; projectId 0 selects the configured default project.\n4. Prefer high-score and multi-source hits; the iteration limit is the only hard budget - stop earlier once the task is covered.\n5. When the service is unconfigured or a call fails, finish with the evidence gathered so far plus a short skip note instead of retrying.\n6. Finish with a concise evidence list: file path, line range, one-line purpose each, then symbols worth deeper expansion.";
+pub const PREFETCH_AGENT_SYSTEM_PROMPT_KEY: &str = "@standard/code-context-prefetch";
+
+fn load_agent_prompts() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
+        .expect("embedded agent_prompts.json is valid")
+}
+
+fn prefetch_agent_system_prompt() -> String {
+    let file = load_agent_prompts();
+    file["prompts"][PREFETCH_AGENT_SYSTEM_PROMPT_KEY]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {PREFETCH_AGENT_SYSTEM_PROMPT_KEY}"))
+        .to_string()
+}
 
 pub fn prefetch_inline_definition() -> AgentDefinition {
     let tools = PREFETCH_AVAILABLE_TOOLS
@@ -43,7 +56,7 @@ pub fn prefetch_inline_definition() -> AgentDefinition {
         version: Some("1.0.0".into()),
         config: Some(AgentConfig {
             profile_id: Some(PREFETCH_AGENT_PROFILE_ID.into()),
-            system_prompt: Some(PREFETCH_AGENT_SYSTEM_PROMPT.into()),
+            system_prompt: Some(prefetch_agent_system_prompt()),
             max_iterations: Some(PREFETCH_AGENT_MAX_ITERATIONS),
             max_execution_time: None,
             max_retries: None,

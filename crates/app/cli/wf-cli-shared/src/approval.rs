@@ -20,9 +20,20 @@ use crate::stdio_prompt::{parse_approval_answer, render_approval_prompt, StdioPr
 const VERDICT_ALLOW: &str = "ALLOW";
 const VERDICT_DENY: &str = "DENY";
 
-const SYSTEM_PROMPT: &str = "You are a tool-call safety reviewer. Given a tool name and its \
-JSON arguments, decide whether executing it is safe. Reply with exactly one word: \
-ALLOW if the call is routine and non-destructive, DENY otherwise. Do not explain.";
+const APPROVAL_REVIEWER_PROMPT_KEY: &str = "@standard/approval-reviewer";
+
+fn load_approval_prompts() -> serde_json::Value {
+    serde_json::from_str(include_str!("../configs/approval_prompts.json"))
+        .expect("embedded approval_prompts.json is valid")
+}
+
+fn system_prompt() -> String {
+    let file = load_approval_prompts();
+    file["prompts"][APPROVAL_REVIEWER_PROMPT_KEY]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {APPROVAL_REVIEWER_PROMPT_KEY}"))
+        .to_string()
+}
 
 /// Approval handler that defers `Ask` decisions to the configured LLM
 /// profile. Denials are fail-closed: gateway failures and ambiguous replies
@@ -48,7 +59,7 @@ impl LlmApprovalHandler {
         let llm_request = LlmRequest {
             profile_id: self.profile_id.clone(),
             messages: vec![
-                Message::system_text(SYSTEM_PROMPT.to_string()),
+                Message::system_text(system_prompt()),
                 Message::user_text(prompt),
             ],
             parameters: None,

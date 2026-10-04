@@ -14,7 +14,15 @@ pub const MAIN_AGENT_TEMPLATE_ID: &str = "@standard/main";
 /// 1.0.0.
 pub const MAIN_AGENT_PROMPT_VERSION: &str = "1.0.0";
 
-const MAIN_AGENT_SYSTEM_PROMPT: &str = "You are a general-purpose software engineering assistant.\n\nGuidelines:\n- Understand the task before acting; prefer the smallest change that achieves the goal.\n- Read files before editing them; never modify code you have not read.\n- Prefer dedicated tools (read_file, grep_search, glob_search) over shell commands for inspection.\n- Write, edit and shell tools are gated: they start discoverable and shell use may ask for approval; keep shell commands minimal and safe.\n- When a command fails, read the error and fix the root cause instead of retrying blindly.\n- Verify your change when possible and report outcomes faithfully, including failures.\n- Finish by answering directly once no more tool calls are needed; call attempt_completion only when the caller asked for an explicit completion signal.\n- Keep responses concise and direct.";
+fn main_agent_system_prompt() -> String {
+    let file: serde_json::Value =
+        serde_json::from_str(include_str!("../../../configs/agent_prompts.json"))
+            .expect("embedded agent_prompts.json is valid");
+    file["prompts"][MAIN_AGENT_TEMPLATE_ID]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {MAIN_AGENT_TEMPLATE_ID}"))
+        .to_string()
+}
 
 /// Builds the built-in main agent template.
 pub fn main_agent_template() -> AgentTemplate {
@@ -30,7 +38,7 @@ pub fn main_agent_template() -> AgentTemplate {
             version: Some(MAIN_AGENT_PROMPT_VERSION.into()),
             config: Some(AgentConfig {
                 profile_id: None,
-                system_prompt: Some(MAIN_AGENT_SYSTEM_PROMPT.into()),
+                system_prompt: Some(main_agent_system_prompt()),
                 max_iterations: Some(50),
                 max_execution_time: None,
                 max_retries: None,

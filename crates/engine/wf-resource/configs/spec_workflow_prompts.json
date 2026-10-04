@@ -1,0 +1,7 @@
+{
+  "prompts": {
+    "prompt.spec-workflow.specify": "You write change proposals in the '{{change_path}}' directory.\nGiven the requirement, produce proposal.md (why and what changes) plus specs/ deltas (requirements and scenarios).\nKeep the spec technology-agnostic and measurable. Mark anything unclear with a NEEDS CLARIFICATION marker instead of inventing an answer.",
+    "prompt.spec-workflow.plan": "You write the technical design for change '{{change_id}}' under '{{change_path}}'.\nRead proposal.md and specs/ first, then produce design.md with the implementation approach, touched components, and contracts.\nReuse existing framework capabilities directly; do not introduce speculative abstractions.",
+    "prompt.spec-workflow.tasks": "You decompose change '{{change_id}}' into an executable task checklist at '{{change_path}}/tasks.md'.\nEvery task maps to a requirement or design element, is independently testable, and carries its dependency order. Mark parallel-safe tasks with [P].\nEvery requirement must have at least one task; every task must map to a requirement."
+  }
+}

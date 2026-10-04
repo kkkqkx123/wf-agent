@@ -22,33 +22,49 @@ fn template(id: &str, name: &str, description: &str, content: String) -> wf_type
     }
 }
 
+fn load_spec_workflow_prompts() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../../configs/spec_workflow_prompts.json"))
+        .expect("embedded spec_workflow_prompts.json is valid")
+}
+
+fn render_prompt(value: &serde_json::Value, vars: &[(&str, &str)]) -> String {
+    let content = value.as_str().unwrap_or_default();
+    let mut result = content.to_string();
+    for (key, val) in vars {
+        result = result.replace(&format!("{{{{{key}}}}}"), val);
+    }
+    result
+}
+
 pub(crate) fn build_stage_prompts(config: &SpecWorkflowConfig) -> Vec<wf_types::Template> {
+    let file = load_spec_workflow_prompts();
     let change_path = format!("{}/{}", config.spec_dir, config.change_id);
     vec![
         template(
             SPECIFY_PROMPT_ID,
             "Spec Workflow Specify Prompt",
             "System prompt for the spec writer LLM node",
-            format!(
-                "You write change proposals in the '{change_path}' directory.\nGiven the requirement, produce proposal.md (why and what changes) plus specs/ deltas (requirements and scenarios).\nKeep the spec technology-agnostic and measurable. Mark anything unclear with a NEEDS CLARIFICATION marker instead of inventing an answer."
+            render_prompt(
+                &file["prompts"][SPECIFY_PROMPT_ID],
+                &[("change_path", &change_path)],
             ),
         ),
         template(
             PLAN_PROMPT_ID,
             "Spec Workflow Plan Prompt",
             "System prompt for the technical design LLM node",
-            format!(
-                "You write the technical design for change '{change_id}' under '{change_path}'.\nRead proposal.md and specs/ first, then produce design.md with the implementation approach, touched components, and contracts.\nReuse existing framework capabilities directly; do not introduce speculative abstractions.",
-                change_id = config.change_id,
+            render_prompt(
+                &file["prompts"][PLAN_PROMPT_ID],
+                &[("change_id", &config.change_id), ("change_path", &change_path)],
             ),
         ),
         template(
             TASKS_PROMPT_ID,
             "Spec Workflow Tasks Prompt",
             "System prompt for the task decomposer LLM node",
-            format!(
-                "You decompose change '{change_id}' into an executable task checklist at '{change_path}/tasks.md'.\nEvery task maps to a requirement or design element, is independently testable, and carries its dependency order. Mark parallel-safe tasks with [P].\nEvery requirement must have at least one task; every task must map to a requirement.",
-                change_id = config.change_id,
+            render_prompt(
+                &file["prompts"][TASKS_PROMPT_ID],
+                &[("change_id", &config.change_id), ("change_path", &change_path)],
             ),
         ),
     ]

@@ -4,6 +4,27 @@ use wf_types::tool::AvailableTools;
 pub const GOAL_REVIEW_EXECUTOR_TEMPLATE_ID: &str = "@standard/goal-review-executor";
 pub const GOAL_REVIEW_REVIEWER_TEMPLATE_ID: &str = "@standard/goal-review-reviewer";
 
+fn load_agent_prompts() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../../configs/agent_prompts.json"))
+        .expect("embedded agent_prompts.json is valid")
+}
+
+fn goal_review_executor_system_prompt() -> String {
+    let file = load_agent_prompts();
+    file["prompts"][GOAL_REVIEW_EXECUTOR_TEMPLATE_ID]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {GOAL_REVIEW_EXECUTOR_TEMPLATE_ID}"))
+        .to_string()
+}
+
+fn goal_review_reviewer_system_prompt() -> String {
+    let file = load_agent_prompts();
+    file["prompts"][GOAL_REVIEW_REVIEWER_TEMPLATE_ID]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {GOAL_REVIEW_REVIEWER_TEMPLATE_ID}"))
+        .to_string()
+}
+
 pub fn goal_review_executor() -> AgentTemplate {
     let t = wf_common::now();
     AgentTemplate {
@@ -17,7 +38,7 @@ pub fn goal_review_executor() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("gpt-4o".into()),
-                system_prompt: Some("You are an executor working toward a goal.\nYou have full file access. Make changes, run tests, and call attempt_completion when the task is done.".into()),
+                system_prompt: Some(goal_review_executor_system_prompt()),
                 max_iterations: Some(30),
                 max_execution_time: None,
                 max_retries: None,
@@ -81,7 +102,7 @@ pub fn goal_review_reviewer() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("o3-mini".into()),
-                system_prompt: Some("You are a strict code reviewer.\nReview all changes against the root goal. For each file, assign a score (1-10) and actionable feedback.\n\nCall attempt_completion with:\n  data: { judges: [{ file, score, comment, resolved }] }\n  variables: { complete: boolean, status: \"completed\"|\"reviewing\"|\"stuck\" }\n\nResolved field: set resolved=false for each new defect initially.\nSet status to \"completed\" only if ALL criteria are met.\nIf review results are highly similar to previous rounds (same files, same scores, same issues), set status to \"stuck\".".into()),
+                system_prompt: Some(goal_review_reviewer_system_prompt()),
                 max_iterations: Some(10),
                 max_execution_time: None,
                 max_retries: None,

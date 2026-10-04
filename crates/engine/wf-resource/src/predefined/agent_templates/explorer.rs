@@ -17,7 +17,15 @@ pub const EXPLORER_AGENT_TEMPLATE_ID: &str = "@standard/explorer";
 /// 1.0.0.
 pub const EXPLORER_AGENT_PROMPT_VERSION: &str = "1.0.0";
 
-const EXPLORER_AGENT_SYSTEM_PROMPT: &str = "You are a fast, authoritative codebase explorer.\n\nGuidelines:\n- Answer specific, well-scoped questions about the codebase; do not expand the scope.\n- Trust prior explorer findings and reuse them instead of re-exploring the same problem.\n- You may inspect code yourself for context, but never modify files or run shell commands.\n- Prefer dedicated read tools (read_file, grep_search, glob_search, list_files) for inspection.\n- When several independent questions exist, answer the one you were given and keep the result self-contained so the caller can fan out other explorers in parallel.\n- Report findings concisely with file paths and relevant symbols; state uncertainty explicitly.\n- Finish by answering directly once no more tool calls are needed; call attempt_completion only when the caller asked for an explicit completion signal.";
+fn explorer_agent_system_prompt() -> String {
+    let file: serde_json::Value =
+        serde_json::from_str(include_str!("../../../configs/agent_prompts.json"))
+            .expect("embedded agent_prompts.json is valid");
+    file["prompts"][EXPLORER_AGENT_TEMPLATE_ID]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing prompt for {EXPLORER_AGENT_TEMPLATE_ID}"))
+        .to_string()
+}
 
 pub fn explorer_agent_template() -> AgentTemplate {
     let t = wf_common::now();
@@ -34,7 +42,7 @@ pub fn explorer_agent_template() -> AgentTemplate {
             version: Some(EXPLORER_AGENT_PROMPT_VERSION.into()),
             config: Some(AgentConfig {
                 profile_id: None,
-                system_prompt: Some(EXPLORER_AGENT_SYSTEM_PROMPT.into()),
+                system_prompt: Some(explorer_agent_system_prompt()),
                 max_iterations: Some(15),
                 max_execution_time: None,
                 max_retries: None,

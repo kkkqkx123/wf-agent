@@ -222,6 +222,42 @@ enum ResidualPolicy {
     Deny,
 }
 
+/// Render mode controlling residual placeholder policy.
+///
+/// Lenient mode keeps unresolved placeholders verbatim for display and preview.
+/// Strict mode denies rendering when residuals remain, for model-bound text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderMode {
+    Lenient,
+    Strict,
+}
+
+impl From<RenderMode> for ResidualPolicy {
+    fn from(mode: RenderMode) -> Self {
+        match mode {
+            RenderMode::Lenient => ResidualPolicy::Lenient,
+            RenderMode::Strict => ResidualPolicy::Deny,
+        }
+    }
+}
+
+/// Unified typed render entry. Single home for all template rendering.
+///
+/// `mode` controls the residual placeholder policy: [`RenderMode::Lenient`]
+/// keeps unresolved placeholders verbatim for display use;
+/// [`RenderMode::Strict`] denies rendering when residuals remain, for
+/// model-bound text. Shape checks run in both modes so type errors surface
+/// at render time regardless of the caller.
+pub fn render(
+    regs: &ResourceRegistries,
+    id: &str,
+    variables: &HashMap<String, serde_json::Value>,
+    mode: RenderMode,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    render_template_with_json_inner(regs, id, variables, ResidualPolicy::from(mode), metrics)
+}
+
 /// Render a template from structured values, checking each provided value
 /// against its declared shape before stringification. Explicit lenient
 /// display entry: residuals stay verbatim with a warning. Model-bound
@@ -674,7 +710,7 @@ fn resolve_fragments(
     }
     if !missing.is_empty() {
         tracing::warn!(
-            "template '{}' references missing fragments: {}",
+            "template '{}' references missing fragments: {}; register the missing fragment or remove the reference",
             template.id,
             missing.join(", ")
         );
@@ -720,7 +756,7 @@ fn resolve_fragments_with_structured(
     }
     if !missing.is_empty() {
         tracing::warn!(
-            "template '{}' references missing fragments: {}",
+            "template '{}' references missing fragments: {}; register the missing fragment or remove the reference",
             template.id,
             missing.join(", ")
         );

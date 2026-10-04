@@ -59,6 +59,10 @@ pub struct RegisterOptions {
     /// skip-existing semantics; all paths land through the shared
     /// `install_bundle` helper.
     pub resource_assembler_activation: Vec<ResourceAssemblerActivation>,
+    /// Optional path to a fragments JSON file that overrides the embedded
+    /// defaults. When present, fragments from this file replace same-id
+    /// entries from the embedded configuration.
+    pub fragments_config_path: Option<String>,
 }
 
 impl Default for RegisterOptions {
@@ -68,6 +72,7 @@ impl Default for RegisterOptions {
             custom_resources: None,
             custom_validation_level: crate::custom::types::CustomValidationLevel::default(),
             resource_assembler_activation: Vec::new(),
+            fragments_config_path: None,
         }
     }
 }

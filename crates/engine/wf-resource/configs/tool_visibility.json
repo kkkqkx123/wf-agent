@@ -1,0 +1,40 @@
+{
+  "templates": [
+    {
+      "id": "tool-visibility.activation",
+      "name": "Tool Activation Announcement",
+      "description": "Tail system announcement after TOOL_VISIBILITY unblock",
+      "category": "tool-visibility",
+      "content": "[Tool Activation] The following tools are now available: {{tool_names}}.\nYou can call them directly or via the general tool.",
+      "variables": null,
+      "fragments": null
+    },
+    {
+      "id": "tool-visibility.block",
+      "name": "Tool Block Announcement",
+      "description": "Tail system announcement after TOOL_VISIBILITY block",
+      "category": "tool-visibility",
+      "content": "The following tools are now unavailable:\n{{tool_names}}",
+      "variables": null,
+      "fragments": null
+    },
+    {
+      "id": "tool-visibility.discoverable_metadata",
+      "name": "Discoverable Tools Metadata",
+      "description": "Discoverable tool metadata block injected into the system prompt",
+      "category": "tool-visibility",
+      "content": "Discoverable tools:\n{{tool_list}}\nInvoke them via the general tool.",
+      "variables": null,
+      "fragments": null
+    },
+    {
+      "id": "tool-visibility.general_description",
+      "name": "General Tool Description",
+      "description": "Description of the general tool shown to the model",
+      "category": "tool-visibility",
+      "content": "Invoke tools whose schemas are not directly exposed. The request body is a JSON object {\"tool\": \"tool_name\", \"parameters\": {...}} passed as the `request` parameter, e.g.:\n{{invoke_example}}\nThe inner tool is interpreted and executed server-side.",
+      "variables": null,
+      "fragments": null
+    }
+  ]
+}

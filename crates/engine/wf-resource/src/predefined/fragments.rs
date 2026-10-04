@@ -22,7 +22,7 @@ struct FragmentEntry {
 }
 
 fn embedded_fragments() -> FragmentsFile {
-    serde_json::from_str(include_str!("../../../../../configs/predefined/fragments.json"))
+    serde_json::from_str(include_str!("../../configs/fragments.json"))
         .expect("embedded fragments.json is valid")
 }
 

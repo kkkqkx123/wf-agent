@@ -1,0 +1,52 @@
+{
+  "prompts": [
+    {
+      "id": "system.default",
+      "name": "Default System Prompt",
+      "description": "Default system prompt for general-purpose assistant",
+      "category": "system",
+      "content": "{{fragments}}",
+      "variables": null,
+      "fragments": [
+        "fragments.role.assistant",
+        "fragments.capability.general",
+        "fragments.constraint.general",
+        "fragments.tool-usage.xml-summary",
+        "fragments.task-instruction.code-review"
+      ]
+    },
+    {
+      "id": "system.code",
+      "name": "Code Assistant System Prompt",
+      "description": "System prompt specialized for code generation and analysis",
+      "category": "system",
+      "content": "{{fragments}}",
+      "variables": null,
+      "fragments": [
+        "fragments.role.coder",
+        "fragments.capability.general",
+        "fragments.capability.coding",
+        "fragments.constraint.coding",
+        "fragments.constraint.code-safety",
+        "fragments.tool-usage.json-summary",
+        "fragments.task-instruction.code-review"
+      ]
+    },
+    {
+      "id": "system.agent",
+      "name": "Agent System Prompt",
+      "description": "System prompt for autonomous agent mode",
+      "category": "system",
+      "content": "{{fragments}}",
+      "variables": null,
+      "fragments": [
+        "fragments.role.assistant",
+        "fragments.capability.general",
+        "fragments.capability.coding",
+        "fragments.constraint.general",
+        "fragments.tool-usage.xml-summary",
+        "fragments.task-instruction.data-analysis"
+      ]
+    }
+  ]
+}

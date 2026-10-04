@@ -1,0 +1,59 @@
+{
+  "prompts": [
+    {
+      "id": "custom.code-review",
+      "name": "Custom Code Review Prompt",
+      "content": "You are a senior code reviewer. Review the following {{language}} code:\n\n{{diff}}\n\nFocus on:\n1. Correctness and edge cases\n2. Security vulnerabilities\n3. Performance issues\n4. Adherence to {{styleGuide}}",
+      "type": "system",
+      "variables": [
+        {
+          "name": "diff",
+          "type": "string",
+          "required": true,
+          "description": "The code diff to review"
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "required": false,
+          "description": "Programming language",
+          "default_value": "unknown"
+        },
+        {
+          "name": "styleGuide",
+          "type": "string",
+          "required": false,
+          "description": "Style guide reference",
+          "default_value": "default"
+        }
+      ],
+      "fragments": ["fragments.role.coder", "fragments.constraint.code-safety"],
+      "metadata": {
+        "author": "team",
+        "version": "1.0"
+      }
+    },
+    {
+      "id": "custom.data-analysis",
+      "name": "Data Analysis Assistant",
+      "content": "Analyze the provided dataset and provide insights:\n\nDataset: {{dataset}}\nAnalysis type: {{analysisType}}",
+      "type": "system",
+      "variables": [
+        {
+          "name": "dataset",
+          "type": "string",
+          "required": true,
+          "description": "Dataset description or path"
+        },
+        {
+          "name": "analysisType",
+          "type": "string",
+          "required": false,
+          "description": "Type of analysis to perform",
+          "default_value": "summary"
+        }
+      ],
+      "fragments": ["fragments.role.analyst", "fragments.task-instruction.data-analysis"]
+    }
+  ]
+}

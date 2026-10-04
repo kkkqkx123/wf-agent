@@ -8,10 +8,9 @@ use wf_types::workflow_execution::{VariableDefinition, VariableValueType};
 use crate::resource_assembler::workflow_edge;
 
 use super::config::SpecWorkflowConfig;
+use super::prompts::{PLAN_PROMPT_ID, SPECIFY_PROMPT_ID, TASKS_PROMPT_ID};
 
 pub const SPEC_WORKFLOW_ID: &str = "@standard/spec-workflow";
-
-pub use super::prompts::STAGE_PROMPT_IDS;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -40,7 +39,7 @@ fn variable(
     }
 }
 
-fn llm_node(id: &str, name: &str, profile_id: &str) -> BaseStaticNode {
+fn llm_node(id: &str, name: &str, profile_id: &str, prompt_id: &str) -> BaseStaticNode {
     BaseStaticNode {
         id: id.into(),
         node_type: StaticNodeType::Llm,
@@ -49,6 +48,7 @@ fn llm_node(id: &str, name: &str, profile_id: &str) -> BaseStaticNode {
         config: Some(json!({
             "profile_id": profile_id,
             "context_id": "default",
+            "system_prompt_template_id": prompt_id,
         })),
         execution_config: None,
     }
@@ -148,6 +148,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
         "spec_writer",
         "Spec Writer",
         &config.spec_profile_id,
+        SPECIFY_PROMPT_ID,
     ));
 
     let spec_gate_on = config.require_spec_gate;
@@ -192,6 +193,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
         "plan_writer",
         "Plan Writer",
         &config.plan_profile_id,
+        PLAN_PROMPT_ID,
     ));
 
     let plan_gate_on = config.require_plan_gate;
@@ -236,6 +238,7 @@ pub(crate) fn build_workflow(config: &SpecWorkflowConfig) -> Result<WorkflowTemp
         "task_decomposer",
         "Task Decomposer",
         &config.tasks_profile_id,
+        TASKS_PROMPT_ID,
     ));
     nodes.push(BaseStaticNode {
         id: "tasks_route".into(),

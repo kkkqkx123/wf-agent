@@ -58,9 +58,8 @@ pub(crate) fn build_stage_prompts(config: &SpecWorkflowConfig) -> Vec<wf_types::
 mod tests {
     use super::*;
 
-    #[test]
-    fn stage_prompts_cover_change_path() {
-        let config = super::super::config::SpecWorkflowConfig {
+    fn config() -> SpecWorkflowConfig {
+        SpecWorkflowConfig {
             requirement: "Add dark mode".into(),
             change_id: "add-dark-mode".into(),
             spec_dir: "openspec/changes".into(),
@@ -69,8 +68,12 @@ mod tests {
             tasks_profile_id: "a".into(),
             require_spec_gate: true,
             require_plan_gate: true,
-        };
-        let prompts = build_stage_prompts(&config);
+        }
+    }
+
+    #[test]
+    fn stage_prompts_cover_change_path() {
+        let prompts = build_stage_prompts(&config());
         assert_eq!(prompts.len(), STAGE_PROMPT_IDS.len());
         for prompt in &prompts {
             assert!(prompt.content.contains("add-dark-mode"));

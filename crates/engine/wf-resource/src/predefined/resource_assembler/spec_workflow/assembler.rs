@@ -226,6 +226,29 @@ mod tests {
     }
 
     #[test]
+    fn llm_nodes_reference_prompt_templates() {
+        let assembler = SpecWorkflowResourceAssembler::new();
+        let bundle = assembler
+            .assemble(&json!({"requirement": "Add dark mode"}))
+            .unwrap();
+
+        let def = &bundle.workflows[0].definition;
+        for node in &def.nodes {
+            if node.node_type == StaticNodeType::Llm {
+                let config = node.config.as_ref().expect("llm node config");
+                let prompt_id = config["system_prompt_template_id"]
+                    .as_str()
+                    .expect("system_prompt_template_id field");
+                assert!(
+                    prompt_id.starts_with("prompt.spec-workflow."),
+                    "LLM node {} should reference a spec-workflow prompt template",
+                    node.id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn assemble_rejects_empty_requirement() {
         let assembler = SpecWorkflowResourceAssembler::new();
         assert!(assembler.assemble(&json!({})).is_err());

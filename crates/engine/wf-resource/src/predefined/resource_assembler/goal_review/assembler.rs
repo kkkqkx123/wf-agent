@@ -211,6 +211,18 @@ mod tests {
             ]
         );
 
+        // The task_planner LLM node references the planner prompt template.
+        let planner = def
+            .nodes
+            .iter()
+            .find(|n| n.id == "task_planner")
+            .expect("task_planner node");
+        let planner_cfg = planner.config.as_ref().unwrap();
+        assert_eq!(
+            planner_cfg["system_prompt_template_id"].as_str().unwrap(),
+            "prompt.goal-review.planner"
+        );
+
         // Loop wiring matches the break/continue semantics.
         let loop_end = def
             .nodes

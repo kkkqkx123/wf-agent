@@ -1,7 +1,6 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::configs::LoopVariableInput;
 use wf_types::node::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::{EdgeType, WorkflowDefinition, WorkflowMetadata, WorkflowTemplate};
@@ -123,24 +122,6 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
         .maybe_tools(config.reviewer_tools.clone())
         .build_inline();
 
-    let planner_text = config
-        .planner_system_prompt
-        .clone()
-        .unwrap_or_else(|| DEFAULT_PLANNER_PROMPT.to_string());
-    let start_messages = config.initial_messages.clone().unwrap_or_else(|| {
-        vec![Message {
-            id: String::new(),
-            role: MessageRole::System,
-            content: MessageContentValue::Text(planner_text.clone()),
-            timestamp: t,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        }]
-    });
-
     let start_node = BaseStaticNode {
         id: "start".into(),
         node_type: StaticNodeType::Start,
@@ -151,7 +132,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                 "source_context_id": "initial",
                 "internal_name": "default",
                 "required": true,
-                "default_messages": start_messages,
+                "default_messages": config.initial_messages.clone().unwrap_or_default(),
             }],
             "data_inputs": [
                 {"parent_field": "rootRequirement", "internal_name": "rootRequirement", "required": true},
@@ -214,6 +195,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                 config: Some(json!({
                     "profile_id": config.planner_profile_id,
                     "context_id": "default",
+                    "system_prompt_template_id": GOAL_REVIEW_PLANNER_PROMPT_ID,
                 })),
                 execution_config: None,
             },

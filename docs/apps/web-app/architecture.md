@@ -49,7 +49,7 @@
 | 框架 | Svelte 5 + SvelteKit 2，Vite 构建 |
 | 运行环境 | Node.js >= 22（仅构建/工具链） |
 | 质量工具 | `svelte-check`、`tsc --noEmit`、ESLint、Prettier、Vitest |
-| API 类型 | `apps/web-app/openapi.json` → `tools/openapi-codegen` → `src/lib/api/schema.d.ts` |
+| API 类型 | `crates/app/wf-server/openapi.json` → `tools/openapi-codegen` → `src/lib/api/schema.d.ts` |
 | API 客户端 | 规划为 `openapi-fetch`（以生成的 `paths` 泛型为事实源，见集成方案） |
 
 ### 3.2 目标补充（随实施阶段引入）
@@ -89,11 +89,10 @@
 wf-server utoipa 注解
    │  WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document
    ▼
-apps/web-app/openapi.json          （golden-file，提交入库，漂移即测试红）
+crates/app/wf-server/openapi.json          （golden-file，提交入库，漂移即测试红）
    │  cd tools/openapi-codegen && npm run gen
    ▼
-tools/openapi-codegen/schema.d.ts  （中间产物，不提交）
-   │  cp schema.d.ts ../../apps/web-app/src/lib/api/schema.d.ts
+apps/web-app/src/lib/api/schema.d.ts        （生成物，直接写入正式路径并提交）
    ▼
 apps/web-app/src/lib/api/schema.d.ts（唯一正式 REST 类型，提交入库）
 ```
@@ -137,7 +136,6 @@ apps/web-app/src/lib/api/schema.d.ts（唯一正式 REST 类型，提交入库�
 
 ```
 apps/web-app/
-├── openapi.json                     # 后端 OpenAPI 快照（golden-file）
 ├── src/
 │   ├── app.html
 │   ├── lib/

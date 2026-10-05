@@ -79,9 +79,10 @@ done
 # might have leaked into the source tree. These are build artifacts, not
 # source, and should never be copied between projects.
 #
-# The generated API contract (openapi.json) and typed declarations
-# (schema.d.ts) are synced so preview type-checks against the same
-# contract as the main app; only the runtime client stays fixture-backed.
+# src/lib/api/schema.d.ts is deliberately NOT excluded: the synced runtime
+# modules (envelope.ts, services/graph.ts, services/workflow-locks.ts) import
+# types from it, so the preview must type-check against the same contract
+# declarations as the main app. Only the API client stays fixture-backed.
 RSYNC_EXCLUDES+=(
 --exclude="package.json"   # built by the merge step below
 --exclude="node_modules/"
@@ -183,9 +184,6 @@ echo "  - src/lib/api/schema.d.ts     (generated contract types)"
 echo "  - src/lib/components/**/*  src/lib/config/**/*  src/lib/services/**/*"
 echo "  - src/lib/stores/**/*      src/lib/types/**/*    src/lib/utils/**/*"
 echo "  - src/routes/**/*"
-echo
-echo "Mirrored from apps/web-app (contract included):"
-echo "  - openapi.json                (generated API contract)"
 echo
 echo "Preserved in apps/web-app-preview (not overwritten):"
 echo "  - src/lib/api/client.ts   (fixture-backed client)"

@@ -2,8 +2,8 @@
 //!
 //! Central `ApiDoc` aggregates annotated route handlers and schemas.
 //! Served at `/api-docs/openapi.json` in debug builds or with the
-//! `openapi-docs` feature. The committed snapshot under
-//! `apps/web-app/openapi.json` is the offline codegen source of truth.
+//! `openapi-docs` feature. The committed `openapi.json` next to this
+//! crate is the offline codegen source of truth.
 //!
 //! Success bodies use the typed envelope (`ApiEnvelope<T>`) with pagination
 //! shells (`PageView<T>` / `CappedView<T>`); `data` stays generic JSON
@@ -710,10 +710,11 @@ pub async fn serve_openapi_json() -> axum::Json<utoipa::openapi::OpenApi> {
     axum::Json(ApiDoc::openapi())
 }
 
-/// Absolute path to the committed OpenAPI snapshot consumed by web-app codegen.
+/// Absolute path to the committed OpenAPI snapshot consumed by the
+/// TypeScript codegen tool.
 #[cfg(test)]
 fn snapshot_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../apps/web-app/openapi.json")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("openapi.json")
 }
 
 #[cfg(test)]
@@ -825,7 +826,7 @@ mod tests {
         assert_eq!(
             actual,
             expected,
-            "OpenAPI snapshot drifted; run with WF_REFRESH_OPENAPI=1 to refresh apps/web-app/openapi.json"
+            "OpenAPI snapshot drifted; run with WF_REFRESH_OPENAPI=1 to refresh the wf-server openapi.json"
         );
     }
 

@@ -17,7 +17,7 @@ scripts/sync-frontend-preview.sh
 ### 从项目根目录执行
  
 ```bash
-./scripts/sync-web-app-preview.sh
+./scripts/sync-frontend-preview.sh
 ```
  
 脚本支持从任意目录执行，内部会自动定位仓库根目录并解析 `apps/web-app`（源）和 `apps/web-app-preview`（目标）。
@@ -30,7 +30,7 @@ scripts/sync-frontend-preview.sh
 |---------|------|------|
 | 顶层配置 | `apps/web-app/` → `apps/web-app-preview/` | `.gitignore`、`.prettierrc*`、`eslint.config.js`、`svelte.config.js`、`tsconfig.json`、`tsconfig.test.json`、`vite.config.ts`（含 Vitest test 配置） |
 | SvelteKit 入口 | `src/app.html`、`src/app.css` | HTML 模板 + Tailwind 全局样式 |
-| API 模块 | `src/lib/api/envelope.ts` | 信封拆包逻辑（`schema.d.ts` 不再同步，见下方排除项） |
+| API 模块 | `src/lib/api/envelope.ts`、`src/lib/api/schema.d.ts` | 信封拆包逻辑 + 契约类型声明（`schema.d.ts` 必须同步，见下方说明） |
 | 组件 | `src/lib/components/**/*` | `domain` / `layout` / `ui` / `icons` 全部 |
 | 配置 | `src/lib/config/**/*` | 导航配置等 |
 | 服务层 | `src/lib/services/**/*` | 所有业务服务（调用 client.ts） |
@@ -63,7 +63,9 @@ rsync 通过 `--exclude` 保护以下文件：
  
 额外排除项（防止构建产物和编辑器垃圾被同步）：`node_modules/`、`dist/`、`build/`、`.svelte-kit/`、`.env*`、`.DS_Store`、`.vscode/`、`.idea/`。
 
-**为控制 git 历史体积而主动跳过的生成物**：`openapi.json` 与 `*.d.ts`（即 `src/lib/api/schema.d.ts`）。这两个文件是由后端契约生成的大体积产物，且其导出的类型仅用于类型标注、在构建时会被擦除，因此不同步到 preview 项目，避免每次契约更新都在 preview 的 git 历史里堆积大块 diff。preview 运行只依赖同步过来的运行时源码与 fixtures。
+**OpenAPI 快照 `openapi.json` 不同步**：该文件是后端 `wf-server` 的 golden-file 契约产物，由 `WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document` 写出与校验，仓库内路径为 `crates/app/wf-server/openapi.json`。它已不在 `apps/web-app/` 源树内，因此不需要显式 `--exclude`，`rsync --delete` 会自动清掉 preview 侧的旧副本。
+
+**`src/lib/api/schema.d.ts` 必须同步**（不要排除）：preview 的运行时源码 `envelope.ts`、`services/graph.ts`、`services/workflow-locks.ts` 都有 `import type { components } from '$lib/api/schema'`。不同步会导致 preview 类型检查失败。预览端的契约漂移由主项目的 golden-file 测试统一守住，preview 不需要自己再生成一份。
  
 ## 前置条件
  
@@ -77,13 +79,12 @@ rsync 通过 `--exclude` 保护以下文件：
 ```
 apps/web-app (主项目)          apps/web-app-preview (预览)
 ├── package.json               ├── package.json (name 不同)
-├── openapi.json               ├── (不同步：生成物，控制 git 体积)
 ├── src/app.html               ├── src/app.html ← 同步
 ├── src/app.css                ├── src/app.css ← 同步
 ├── src/lib/api/               ├── src/lib/api/
 │   ├── client.ts  ← 真实 API  │   ├── client.ts ← mock (保留)
 │   ├── envelope.ts            │   ├── envelope.ts ← 同步
-│   └── schema.d.ts            │   └── (不同步：生成物，控制 git 体积)
+│   └── schema.d.ts            │   └── schema.d.ts ← 同步
 ├── src/lib/components/**/*    ├── src/lib/components/**/* ← 同步
 ├── src/lib/services/**/*      ├── src/lib/services/**/* ← 同步
 ├── src/lib/stores/**/*        ├── src/lib/stores/**/* ← 同步
@@ -92,6 +93,8 @@ apps/web-app (主项目)          apps/web-app-preview (预览)
 ├── src/routes/**/*            ├── src/routes/**/* ← 同步
 └── (无 fixtures)             └── src/lib/fixtures/**/* ← 保留
 ```
+
+OpenAPI 快照不入前端树：`crates/app/wf-server/openapi.json` → `tools/openapi-codegen` → `src/lib/api/schema.d.ts`。
  
 ### 日常使用
  
@@ -107,7 +110,8 @@ apps/web-app (主项目)          apps/web-app-preview (预览)
 apps/web-app-preview/src/lib/fixtures/*.ts
 ```
  
-3. 如果 `openapi.json` 有新增端点且需要在 preview 中展示：
+3. 如果后端契约快照 `crates/app/wf-server/openapi.json` 有新增端点且需要在 preview 中展示：
+   - 先在主项目刷新快照并重新生成类型（见 `tools/openapi-codegen/README.md`），再运行同步脚本
    - 在对应 fixture 文件里补充样例数据
    - 确保 services 里的 DTO 转换逻辑能适配新字段
  

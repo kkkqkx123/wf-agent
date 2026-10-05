@@ -5,7 +5,7 @@
   "description": "On-demand TypeScript codegen from the committed wf-server OpenAPI snapshot",
   "type": "module",
   "scripts": {
-    "gen": "openapi-typescript ../../apps/web-app/openapi.json -o ../../apps/web-app/src/lib/api/schema.d.ts"
+    "gen": "openapi-typescript ../../crates/app/wf-server/openapi.json -o ../../apps/web-app/src/lib/api/schema.d.ts"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -11,7 +11,7 @@
 - 后端：REST 业务面在 `/api/v1`；系统面（`/`、`/health`、`/system/*`）与 Prometheus `/metrics` 在根路径。
   文档调试路由仅 `/api-docs/openapi.json`（debug 或 `openapi-docs` feature），**无 Swagger UI、无 CDN 页面**。
   响应体统一信封 `ApiEnvelope{success,data,error}`，列表套 `PageView`/`CappedView`；错误统一 `ErrorResponse`。
-- 快照：`apps/web-app/openapi.json` 已提交（golden-file，`cargo test -p wf-server` 校验；`WF_REFRESH_OPENAPI=1` 刷新）；
+- 快照：`crates/app/wf-server/openapi.json` 已提交（golden-file，`cargo test -p wf-server` 校验；`WF_REFRESH_OPENAPI=1` 刷新）；
   当前约 390 paths / 452 operations / 72 component schemas，`securitySchemes: apiKey/header (x-api-key)`。
 - 鉴权真实为 **API key**：默认请求头 `x-api-key`，亦支持 `api_key` 查询参数；
   由 `AUTH_ENABLED` 开关、`API_KEYS` 供密钥（`middleware.rs`）。CORS 走
@@ -29,7 +29,7 @@
 
 ### 快照（输入）
 
-- 仓库持有 `apps/web-app/openapi.json`，由后端测试写出/校验（不是运行时拉取）。
+- 仓库持有 `crates/app/wf-server/openapi.json`，由后端测试写出/校验（不是运行时拉取）。
 - 刷新时机：handler 注解、全局错误码、安全方案或路径集合变更后：
   `WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document`。
 - 漂移检测：默认跑同一测试，与仓库文件 diff 失败即红；可再加 CI `git diff --exit-code`。
@@ -38,8 +38,8 @@
 
 - **独立 npm 小包**，不进入 `apps` workspace，与 web-app 依赖树隔离。
 - 依赖：`openapi-typescript` + peer `typescript@5`。
-- 职责：读入 `../../apps/web-app/openapi.json`，在**本目录**写出 `schema.d.ts`（中间产物，`.gitignore` 忽略）。
-- 正式类型：将 `tools/openapi-codegen/schema.d.ts` 复制为 `apps/web-app/src/lib/api/schema.d.ts` 后提交；codegen 目录生成物不进 git 历史。
+- 职责：读入 `../../crates/app/wf-server/openapi.json`，直接写出 `apps/web-app/src/lib/api/schema.d.ts`。
+- 正式类型：`schema.d.ts` 提交入库；codegen 目录不保留中间产物。
 - 安装与执行仅在**需要重新生成时**进行（低频）。
 
 **为何独立小包而非装在 web-app**
@@ -112,7 +112,7 @@ TS7 programmatic API 官方亦未稳定到可用于此类工具；等待上游�
 
 1. schema-typing 阶段 0（鉴权 apiKey、SSE/下载 content-type）→ **已完成**。
 2. schema-typing 阶段 A（信封/分页外壳类型化）→ **后端已完成**；前端依赖快照与 `.d.ts`。
-3. 离线快照 golden-file → **已完成**（`apps/web-app/openapi.json`）。
+3. 离线快照 golden-file → **已完成**（`crates/app/wf-server/openapi.json`）。
 4. `tools/openapi-codegen`：独立包、TS5、本目录生成后复制到 web-app → **已完成**。
 5. web-app：`openapi-fetch` + `client.ts` 拆包；一个真实只读页打通。
 6. 按页面需要引入 C1 镜像 DTO，替换 `data: unknown`。

@@ -9,7 +9,7 @@
 ### 1.1 前提（已具备）
 
 - `apps/web-app` 为 SvelteKit 2 + Svelte 5 空壳，`check` / `typecheck` / `lint` / `test` 脚本可用。
-- OpenAPI 快照 `apps/web-app/openapi.json` 与生成类型 `src/lib/api/schema.d.ts` 已提交；codegen 管线（`tools/openapi-codegen`）可用。
+- OpenAPI 快照 `crates/app/wf-server/openapi.json` 与生成类型 `src/lib/api/schema.d.ts` 已提交；codegen 管线（`tools/openapi-codegen`）可用。
 - 后端路由、统一分页包络、鉴权、静态托管、服务端缺口项均已落地（`docs/plan/web/server-gaps.md`）。
 
 ### 1.2 本阶段不包含

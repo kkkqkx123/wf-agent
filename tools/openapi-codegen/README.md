@@ -28,11 +28,11 @@ WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document
 cd tools/openapi-codegen
 npm install
 
-# 3. 从快照生成（读 web-app 快照，直写正式类型文件）
+# 3. 从快照生成（读后端快照，直写正式类型文件）
 npm run gen
 ```
 
-- **输入**：`../../apps/web-app/openapi.json`（仓库提交的 golden-file 快照）
+- **输入**：`../../crates/app/wf-server/openapi.json`（仓库提交的 golden-file 快照，由后端测试写出与校验）
 - **输出**：`../../apps/web-app/src/lib/api/schema.d.ts`（提交入库）
 
 ## 日常校验（不重新生成时）

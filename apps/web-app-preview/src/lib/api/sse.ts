@@ -37,19 +37,66 @@ export interface EventStreamOptions {
 	onState: (state: StreamState) => void;
 }
 
+const MOCK_EVENT_TYPES = [
+	'started',
+	'iteration_start',
+	'tool_call',
+	'tool_result',
+	'iteration_end',
+	'completed',
+	'failed',
+] as const;
+
+let mockEventCounter = 0;
+
+function createMockFrame(timestamp: number): StreamFrame {
+	const type = MOCK_EVENT_TYPES[mockEventCounter % MOCK_EVENT_TYPES.length]!;
+	mockEventCounter += 1;
+	return {
+		id: `mock-${mockEventCounter}`,
+		type,
+		timestamp,
+		metadata: {
+			sequence: mockEventCounter,
+			source: 'preview-mock',
+		},
+	};
+}
+
 /**
- * Open the filtered events SSE stream. The server authenticates via the
- * `api_key` query parameter (EventSource cannot set headers), matching the
- * wf-server query-param auth mode. Reconnects with `since=<last timestamp>`
- * so the bounded server-side backlog fills any gap.
+ * Open the filtered events SSE stream. In preview mode (API_BASE_URL === '/mock'),
+ * this simulates a local event stream instead of connecting to a real server,
+ * avoiding infinite reconnection loops against a non-existent endpoint.
  */
 export function openEventStream(options: EventStreamOptions): () => void {
 	const { onEvent, onState } = options;
-	let source: EventSource | null = null;
+	let closed = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let lastTimestamp = 0;
+
+	if (API_BASE_URL === '/mock') {
+		onState('connecting');
+		const handshake = setTimeout(() => {
+			if (closed) return;
+			onState('open');
+			timer = setInterval(() => {
+				if (closed) return;
+				const frame = createMockFrame(Date.now());
+				lastTimestamp = frame.timestamp ?? 0;
+				onEvent(toEventRecord(frame));
+			}, 2000);
+		}, 100);
+
+		return () => {
+			closed = true;
+			clearTimeout(handshake);
+			if (timer !== null) clearInterval(timer);
+			onState('closed');
+		};
+	}
+
+	let source: EventSource | null = null;
 	let attempt = 0;
-	let closed = false;
 
 	function connect(since: number | null): void {
 		const params = new URLSearchParams();

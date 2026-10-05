@@ -2,7 +2,7 @@
 
 对应 `crates/app/wf-server` 内的核心文件：`openapi.rs`（文档聚合、全局修改器、快照测试）、`envelope.rs`（成功/错误信封）、`paged.rs`（分页与截断视图）、`extract.rs`（共享 Path/Query 提取器与 `IntoParams`）。生成方式为编译期静态聚合：每个 handler 上的 `utoipa::path` 注解在编译时被收集，`ApiDoc::openapi()` 在运行时拼出完整文档，不依赖运行时反射或外部扫描。
 
-**消费形态以离线快照 + TypeScript 代码生成为主**：仓库内提交 `apps/web-app/openapi.json`，前端类型由 `tools/openapi-codegen` 按需从该 JSON 一次性生成（见文末）。不提供 Swagger UI，不依赖公网 CDN。
+**消费形态以离线快照 + TypeScript 代码生成为主**：仓库内提交 `crates/app/wf-server/openapi.json`，前端类型由 `tools/openapi-codegen` 按需从该 JSON 一次性生成（见文末）。不提供 Swagger UI，不依赖公网 CDN。
 
 ## 1. 生成链路
 
@@ -11,7 +11,7 @@
 1. handler 注解：每个 handler 上方写 `#[utoipa::path(...)]`，声明方法、路径、tag、参数、请求体、响应与鉴权。
 2. 路径注册：在 `openapi.rs` 的 `ApiDoc` 的 `paths(...)` 列表中登记该 handler 函数路径，登记即进入文档。
 3. 类型注册：在 `components(schemas(...))` 中登记该 handler 引用的具体类型（信封实例、分页壳、本地 `*Body`/视图类型）；泛型每实例化一次登记一次。
-4. 快照与测试：golden-file 测试读写 `apps/web-app/openapi.json`；`openapi::tests` 守住规模、全局错误码与鉴权方案。
+4. 快照与测试：golden-file 测试读写 `crates/app/wf-server/openapi.json`；`openapi::tests` 守住规模、全局错误码与鉴权方案。
 
 路由挂载（`router.rs`）与业务路由相互独立：文档路由仅 `/api-docs/openapi.json`（debug 构建或 `openapi-docs` feature），业务域路由在 `/api/v1` 下，系统面（`/`、`/health`、`/system/*` 等）在根路径。文档路由在状态擦除后挂载，不经业务领域逻辑。
 
@@ -54,7 +54,7 @@
 
 **离线快照（codegen 唯一输入）**
 
-- 路径：`apps/web-app/openapi.json`（已提交）。
+- 路径：`crates/app/wf-server/openapi.json`（已提交）。
 - 刷新：`WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document`。
 - 校验：默认跑同一测试，序列化结果与仓库文件逐字节比对，漂移即失败。
 
@@ -81,10 +81,10 @@
 
 生成与消费分离，**按需、一次性**，不随 dev server 实时刷新：
 
-1. 后端：注解变更后刷新 `apps/web-app/openapi.json`（见第五章）。
+1. 后端：注解变更后刷新 `crates/app/wf-server/openapi.json`（见第五章）。
 2. 工具：独立小包 `tools/openapi-codegen`，仅依赖 `openapi-typescript` 与其 peer `typescript@5`。
-3. 命令：在该目录 `npm install` 后执行 `npm run gen`，读入快照 JSON，在**本目录**写出 `schema.d.ts`（该目录 `.gitignore` 忽略生成物）。
-4. 正式类型：将 `tools/openapi-codegen/schema.d.ts` 复制为 `apps/web-app/src/lib/api/schema.d.ts` 并提交；web-app 日常 `svelte-check`/构建不依赖 codegen 工具链。
+3. 命令：在该目录 `npm install` 后执行 `npm run gen`，读入快照 JSON，直接写出 `apps/web-app/src/lib/api/schema.d.ts`。
+4. 正式类型：`schema.d.ts` 提交入库；codegen 目录不保留中间产物。web-app 日常 `svelte-check`/构建不依赖 codegen 工具链。
 
 **为何独立小包**：`openapi-typescript` 的 peer 为 `typescript ^5.x`，且当前全部 7.x 版本在 TypeScript 7 下运行时失败（上游 issue 仍开放；TS7 根导出无 `ts.factory`）。web-app 使用 TS7（svelte-check）。生成是低频按需操作，用目录隔离 TS5 依赖，避免 npm overrides/legacy peer 与 apps workspace 提升冲突，也不把 TS5 混进前端依赖树。`tools/` 不在 `apps` workspace 内，独立 `package.json` + lockfile。
 

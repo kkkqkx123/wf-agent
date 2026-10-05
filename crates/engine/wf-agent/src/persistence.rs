@@ -120,10 +120,9 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
 
 async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHierarchy> {
     let manager = entity.hierarchy_manager();
-    let children = manager.children();
     let parent = manager.parent();
     let ancestors = entity.get_ancestors();
-    if parent.is_none() && children.is_empty() && ancestors.is_empty() {
+    if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
     Some(ExecutionHierarchy {
@@ -139,11 +138,7 @@ async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHier
         } else {
             Some(ancestors)
         },
-        children: if children.is_empty() {
-            None
-        } else {
-            Some(children)
-        },
+        fork_path: manager.fork_path(),
     })
 }
 
@@ -210,9 +205,6 @@ mod tests {
             )
             .expect("derive");
         let entity = entity("loop-child").with_hierarchy_manager(child_manager.clone());
-        // The derive already registered the child on the root manager; the
-        // entity registers its own grandchild below.
-        entity.register_child(Id::from("loop-gc".to_string())).await;
         let persisted = build_agent_execution(&entity).await;
         let hierarchy = persisted.hierarchy.expect("child must carry hierarchy");
         assert_eq!(hierarchy.depth, 1);
@@ -222,7 +214,9 @@ mod tests {
             hierarchy.parent_execution_type,
             Some(wf_types::execution::ExecutionType::AgentLoop)
         );
-        assert_eq!(hierarchy.children.map(|c| c.len()), Some(1));
+        // A child never records its own children; the tree is recovered by
+        // querying the child records.
+        assert!(root_manager.children().len() == 1);
     }
 
     #[tokio::test]

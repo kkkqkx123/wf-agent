@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use wf_types::checkpoint::{
     BaseCheckpointCore, CheckpointContext, CheckpointTiming, CheckpointType, DeltaStorageConfig,
 };
-use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
 
 /// Shared storage-type decision: aggregate COUNT query semantics live in the
@@ -428,37 +427,6 @@ pub async fn drain_persistence_handles(
     for handle in handles {
         if let Err(join_err) = handle.await {
             tracing::warn!(error = %join_err, "persistence task panicked");
-        }
-    }
-}
-
-/// Read the execution status carried by a restored checkpoint payload.
-///
-/// Shared by the agent-loop and workflow coordinators so both resolve the
-/// status field identically. Returns `None` when the payload carries no
-/// usable status string (absent or unrecognized — unrecognized is surfaced
-/// with a warn, never silently rewritten), letting the caller apply its own
-/// display default.
-pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
-    let raw = value.get("status").and_then(|status| status.as_str())?;
-    match raw.parse::<ExecutionStatus>() {
-        Ok(status) => Some(status),
-        Err(e) => {
-            tracing::warn!(status = %raw, error = %e, "restored checkpoint carries an unrecognized status");
-            None
-        }
-    }
-}
-
-/// Strict parse for registry bookkeeping: unknown values surface with an
-/// error log and register as `Failed` so a corrupt record can never be
-/// revived as a live run.
-pub fn status_or_warn_running(status: &str) -> ExecutionStatus {
-    match status.parse::<ExecutionStatus>() {
-        Ok(parsed) => parsed,
-        Err(e) => {
-            tracing::error!(status = %status, error = %e, "checkpoint entity carries an unrecognized status; registered as Failed");
-            ExecutionStatus::Failed
         }
     }
 }

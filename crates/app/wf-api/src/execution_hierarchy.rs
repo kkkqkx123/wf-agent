@@ -1,20 +1,24 @@
 //! Parent/child queries over the unified execution handle.
 //!
 //! A live execution answers through the hierarchy manager its entity owns; a
-//! persisted workflow or agent record answers through the
-//! `ExecutionHierarchy` stored on the record, so a terminated run keeps
-//! reporting its place in the tree after the live registry drops it.
-
-use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
+//! persisted workflow or agent record answers from its indexed storage
+//! metadata, so a terminated run keeps reporting its place in the tree after
+//! the live registry drops it.
+//!
+//! Every link is stored forward — an execution names its own parent and root
+//! — so the shape of the tree is recovered by querying those fields. Nothing
+//! here follows a child list cached on the parent, which is why a tree stays
+//! correct across a restart and mid-run parent persists.
 
 use serde::Serialize;
-use wf_core::hierarchy::manager::ExecutionHierarchyManager;
+use std::collections::{HashSet, VecDeque};
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::execution_instance::ExecutionKind;
-use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_types::execution::{ExecutionHierarchy, ExecutionType};
-use wf_types::{ExecutionStatus, Id};
+use wf_storage::domain::store::QueryFilter;
+use wf_storage::domain::ExecutionIndexRow;
+use wf_storage::error::StorageError;
+use wf_types::execution::ExecutionType;
+use wf_types::ExecutionStatus;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
@@ -53,8 +57,8 @@ pub struct ExecutionHierarchyView {
 pub struct ExecutionSubtreeNode {
     pub execution_id: String,
     pub execution_type: ExecutionType,
-    /// `None` when the parent still references the child but the child's own
-    /// record is gone, so no status can be reported for it.
+    /// `None` when the child is live but its record has not been written yet,
+    /// or when the child record is gone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ExecutionStatus>,
     /// Nesting level relative to the queried root, which is `0`.
@@ -70,27 +74,80 @@ pub struct ExecutionSubtree {
     /// Set when the node cap dropped descendants, so a caller can tell a
     /// complete tree from a clipped one.
     pub truncated: bool,
+    /// How many descendants the cap dropped, so a clipped tree can be resumed
+    /// rather than merely detected.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub omitted: usize,
     /// Root first, then each level in child order.
     pub nodes: Vec<ExecutionSubtreeNode>,
 }
 
-/// Hierarchy position of one execution plus the engine that owns it.
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+/// Both execution record kinds share one id space, so a hierarchy query has to
+/// consult both and reconcile the rows.
+const KINDS: [ExecutionType; 2] = [ExecutionType::Workflow, ExecutionType::AgentLoop];
+
+/// Read the indexed rows matching `filter` from the store of one entity kind.
+/// Every row is parsed, so a record whose hierarchy metadata is absent or
+/// self-contradictory fails the query instead of dropping out of the tree.
+async fn read_rows(
+    ctx: &ApiContext,
+    kind: &ExecutionType,
+    filter: &QueryFilter,
+) -> ApiResult<Vec<ExecutionIndexRow>> {
+    let raw = match kind {
+        ExecutionType::Workflow => ctx
+            .storage
+            .workflow_execution
+            .entity_store()
+            .list_metadata(Some(filter))
+            .await?,
+        ExecutionType::AgentLoop => ctx
+            .storage
+            .agent_execution
+            .entity_store()
+            .list_metadata(Some(filter))
+            .await?,
+    };
+    raw.into_iter()
+        .map(|(id, meta)| Ok(ExecutionIndexRow::parse(id, &meta).map_err(StorageError::from)?))
+        .collect()
+}
+
+/// Read the indexed rows of every execution matching `filter`, across both
+/// record kinds.
+async fn read_all_rows(ctx: &ApiContext, filter: &QueryFilter) -> ApiResult<Vec<ExecutionIndexRow>> {
+    let mut rows = Vec::new();
+    for kind in KINDS {
+        rows.extend(read_rows(ctx, &kind, filter).await?);
+    }
+    Ok(rows)
+}
+
+/// Read one execution's indexed row from the store of the given kind. A miss
+/// means the record is absent, not that it lacks a hierarchy.
+async fn read_row(ctx: &ApiContext, kind: &ExecutionType, id: &str) -> ApiResult<Option<ExecutionIndexRow>> {
+    let filter = QueryFilter::new().with_id(id);
+    Ok(read_rows(ctx, kind, &filter)
+        .await?
+        .into_iter()
+        .find(|row| row.id() == id))
+}
+
+/// Where one execution sits, taking the live registry first so a running
+/// execution reports its in-memory position, then the persisted rows.
 struct Placement {
     kind: ExecutionType,
     status: ExecutionStatus,
-    manager: Arc<ExecutionHierarchyManager>,
+    parent: Option<String>,
+    root: String,
+    depth: u32,
+    ancestors: Vec<String>,
 }
 
-/// Node queued for subtree expansion; the placement travels with the node so
-/// the root is resolved once instead of twice.
-struct Pending {
-    node: ExecutionSubtreeNode,
-    placement: Placement,
-}
-
-/// Resolve one execution's placement from the live registries, then from the
-/// persisted records of both engines. `None` when the id is unknown to every
-/// layer.
 async fn placement(ctx: &ApiContext, id: &str) -> ApiResult<Option<Placement>> {
     if let Some(handle) = ctx.execution_instance(id) {
         let kind = match handle.kind() {
@@ -101,58 +158,30 @@ async fn placement(ctx: &ApiContext, id: &str) -> ApiResult<Option<Placement>> {
             return Ok(Some(Placement {
                 kind,
                 status: handle.status().into(),
-                manager,
+                parent: manager.parent_id().map(|p| p.to_string()),
+                root: manager.root_execution_id().to_string(),
+                depth: manager.depth(),
+                ancestors: manager
+                    .ancestors()
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect(),
             }));
         }
     }
-    if let Some(record) = ctx.storage.workflow_execution.load(id).await? {
-        return Ok(Some(Placement {
-            kind: ExecutionType::Workflow,
-            status: record.status,
-            manager: record_manager(id, ExecutionType::Workflow, record.hierarchy.as_ref()),
-        }));
-    }
-    Ok(ctx
-        .storage
-        .agent_execution
-        .load(id)
-        .await?
-        .map(|record| Placement {
-            kind: ExecutionType::AgentLoop,
-            status: record.status,
-            manager: record_manager(id, ExecutionType::AgentLoop, record.hierarchy.as_ref()),
-        }))
-}
-
-/// Rebuild the hierarchy manager of a persisted record. A record without a
-/// hierarchy was never linked to a parent, so it is a root of its own.
-fn record_manager(
-    id: &str,
-    kind: ExecutionType,
-    hierarchy: Option<&ExecutionHierarchy>,
-) -> Arc<ExecutionHierarchyManager> {
-    let execution_id = Id::from(id.to_string());
-    match hierarchy {
-        Some(hierarchy) => {
-            ExecutionHierarchyManager::restore(execution_id, kind.clone(), hierarchy, kind.clone())
+    for kind in KINDS {
+        if let Some(row) = read_row(ctx, &kind, id).await? {
+            return Ok(Some(Placement {
+                kind: row.kind().clone(),
+                status: row.status().cloned().unwrap_or(ExecutionStatus::Running),
+                parent: row.parent().map(str::to_string),
+                root: row.root().to_string(),
+                depth: row.depth(),
+                ancestors: row.ancestors(),
+            }));
         }
-        None => Arc::new(ExecutionHierarchyManager::new(execution_id, kind)),
     }
-}
-
-/// Child references in id order. The manager keeps children in a hash map,
-/// so sorting is what makes the output stable.
-fn children_of(manager: &ExecutionHierarchyManager) -> Vec<ExecutionRef> {
-    let mut children: Vec<ExecutionRef> = manager
-        .children()
-        .into_iter()
-        .map(|child| ExecutionRef {
-            execution_id: child.child_id.to_string(),
-            execution_type: child.child_type,
-        })
-        .collect();
-    children.sort_by(|a, b| a.execution_id.cmp(&b.execution_id));
-    children
+    Ok(None)
 }
 
 /// The engine that owns an execution, live or persisted. Queries that need
@@ -169,103 +198,132 @@ pub async fn hierarchy(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionHierarc
     let placement = placement(ctx, id)
         .await?
         .ok_or_else(|| ApiError::execution_not_found(id))?;
-    let manager = &placement.manager;
+    let parent = match &placement.parent {
+        Some(parent_id) => Some(ExecutionRef {
+            execution_id: parent_id.clone(),
+            execution_type: execution_type(ctx, parent_id).await?,
+        }),
+        None => None,
+    };
+    let root = if placement.root == id {
+        ExecutionRef {
+            execution_id: id.to_string(),
+            execution_type: placement.kind.clone(),
+        }
+    } else {
+        ExecutionRef {
+            execution_id: placement.root.clone(),
+            execution_type: execution_type(ctx, &placement.root).await?,
+        }
+    };
     Ok(ExecutionHierarchyView {
         execution_id: id.to_string(),
         execution_type: placement.kind,
         status: placement.status,
-        depth: manager.depth(),
-        parent: manager.parent().map(|parent| ExecutionRef {
-            execution_id: parent.parent_id.to_string(),
-            execution_type: parent.parent_type,
-        }),
-        root: ExecutionRef {
-            execution_id: manager.root_execution_id().to_string(),
-            execution_type: manager.root_execution_type(),
-        },
-        ancestors: manager
-            .ancestors()
-            .iter()
-            .map(|ancestor| ancestor.to_string())
-            .collect(),
-        children: children_of(manager),
+        depth: placement.depth,
+        parent,
+        root,
+        ancestors: placement.ancestors,
+        children: children_of(ctx, id).await?,
     })
 }
 
-/// Root-to-parent id chain of one execution, oldest first.
-pub async fn ancestors(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
-    let placement = placement(ctx, id)
-        .await?
-        .ok_or_else(|| ApiError::execution_not_found(id))?;
-    Ok(placement
-        .manager
-        .ancestors()
-        .iter()
-        .map(|ancestor| ancestor.to_string())
-        .collect())
+/// Direct children of one execution.
+///
+/// A live parent knows the children it spawned but not yet persisted, and a
+/// persisted parent knows the children of earlier runs but has no live
+/// manager, so the two sources are merged rather than one replacing the other.
+async fn children_of(ctx: &ApiContext, id: &str) -> ApiResult<Vec<ExecutionRef>> {
+    let mut children: Vec<ExecutionRef> = Vec::new();
+    if let Some(handle) = ctx.execution_instance(id) {
+        if let Some(manager) = handle.hierarchy_manager() {
+            children.extend(manager.children().into_iter().map(|child| ExecutionRef {
+                execution_id: child.child_id.to_string(),
+                execution_type: child.child_type,
+            }));
+        }
+    }
+    for row in read_all_rows(ctx, &ExecutionIndexRow::children_filter(id)).await? {
+        children.push(ExecutionRef {
+            execution_id: row.id().to_string(),
+            execution_type: row.kind().clone(),
+        });
+    }
+    children.sort_by(|a, b| a.execution_id.cmp(&b.execution_id));
+    children.dedup_by(|a, b| a.execution_id == b.execution_id);
+    Ok(children)
 }
 
-/// Every execution rooted at `root_id`, breadth-first.
+/// Every execution in the tree rooted at `root_id`.
+///
+/// The materialised path makes this one prefix scan per record kind rather
+/// than a query per node. Live executions have no row yet, so the live
+/// managers are walked as well and the two sets are merged.
 pub async fn subtree(ctx: &ApiContext, root_id: &str) -> ApiResult<ExecutionSubtree> {
     let root = placement(ctx, root_id)
         .await?
         .ok_or_else(|| ApiError::execution_not_found(root_id))?;
-    let root_node = ExecutionSubtreeNode {
-        execution_id: root_id.to_string(),
-        execution_type: root.kind.clone(),
-        status: Some(root.status.clone()),
-        depth: 0,
-        parent_execution_id: None,
-    };
-    let mut nodes = vec![root_node.clone()];
-    let mut visited = HashSet::from([root_id.to_string()]);
-    let mut queue: VecDeque<Pending> = VecDeque::from([Pending {
-        node: root_node,
-        placement: root,
-    }]);
-    let mut truncated = false;
 
-    while let Some(Pending {
-        node,
-        placement: parent,
-    }) = queue.pop_front()
-    {
-        for child in children_of(&parent.manager) {
-            if !visited.insert(child.execution_id.clone()) {
+    let mut nodes: Vec<ExecutionSubtreeNode> =
+        read_all_rows(ctx, &ExecutionIndexRow::subtree_filter(root_id))
+            .await?
+            .iter()
+            .map(|row| ExecutionSubtreeNode {
+                execution_id: row.id().to_string(),
+                execution_type: row.kind().clone(),
+                status: row.status().cloned(),
+                depth: depth_within(row, root.depth),
+                parent_execution_id: row.parent().map(str::to_string),
+            })
+            .collect();
+
+    let mut seen: HashSet<String> = nodes.iter().map(|n| n.execution_id.clone()).collect();
+    // A live root has no row for the prefix scan to find, so make sure the
+    // node the caller asked about is always present exactly once.
+    if seen.insert(root_id.to_string()) {
+        nodes.push(ExecutionSubtreeNode {
+            execution_id: root_id.to_string(),
+            execution_type: root.kind.clone(),
+            status: Some(root.status.clone()),
+            depth: 0,
+            parent_execution_id: None,
+        });
+    }
+    let mut frontier: VecDeque<(String, u32)> = VecDeque::from([(root_id.to_string(), 0)]);
+    while let Some((parent_id, parent_depth)) = frontier.pop_front() {
+        for child in children_of(ctx, &parent_id).await? {
+            if !seen.insert(child.execution_id.clone()) {
                 continue;
             }
-            if nodes.len() == MAX_SUBTREE_NODES {
-                truncated = true;
-                break;
-            }
-            let child_placement = placement(ctx, &child.execution_id).await?;
-            let child_node = ExecutionSubtreeNode {
+            frontier.push_back((child.execution_id.clone(), parent_depth + 1));
+            nodes.push(ExecutionSubtreeNode {
                 execution_id: child.execution_id,
                 execution_type: child.execution_type,
-                status: child_placement.as_ref().map(|p| p.status.clone()),
-                depth: node.depth + 1,
-                parent_execution_id: Some(node.execution_id.clone()),
-            };
-            nodes.push(child_node.clone());
-            // A child reference outliving the child's own record leaves a leaf
-            // with no placement to descend into.
-            if let Some(child_placement) = child_placement {
-                queue.push_back(Pending {
-                    node: child_node,
-                    placement: child_placement,
-                });
-            }
-        }
-        if truncated {
-            break;
+                status: None,
+                depth: parent_depth + 1,
+                parent_execution_id: Some(parent_id.clone()),
+            });
         }
     }
 
+    nodes.sort_by(|a, b| a.depth.cmp(&b.depth).then_with(|| a.execution_id.cmp(&b.execution_id)));
+    let total = nodes.len();
+    if total > MAX_SUBTREE_NODES {
+        nodes.truncate(MAX_SUBTREE_NODES);
+    }
+    let omitted = total - nodes.len();
     Ok(ExecutionSubtree {
         root_execution_id: root_id.to_string(),
-        truncated,
+        truncated: omitted > 0,
+        omitted,
         nodes,
     })
+}
+
+/// Nesting level of a row relative to the queried root, which is what the
+/// listing reports as a node's depth.
+fn depth_within(row: &ExecutionIndexRow, root_depth: u32) -> u32 {
+    row.depth().saturating_sub(root_depth)
 }
 
 #[cfg(test)]
@@ -274,8 +332,10 @@ mod tests {
     use std::sync::Arc;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registry::ResourceRegistries;
+    use wf_storage::adapter::base::BaseStorageAdapter;
     use wf_storage::context::StorageContext;
-    use wf_types::execution::ChildExecutionReference;
+    use wf_types::execution::ExecutionHierarchy;
+    use wf_types::Id;
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -284,27 +344,45 @@ mod tests {
         ))
     }
 
-    fn manager(id: &str, kind: ExecutionType) -> Arc<ExecutionHierarchyManager> {
-        Arc::new(ExecutionHierarchyManager::new(
+    fn manager(id: &str, kind: ExecutionType) -> Arc<wf_core::ExecutionHierarchyManager> {
+        Arc::new(wf_core::ExecutionHierarchyManager::new(
             Id::from(id.to_string()),
             kind,
         ))
     }
 
-    fn child(parent: &Arc<ExecutionHierarchyManager>, id: &str, kind: ExecutionType) {
-        parent.register_child_ref(ChildExecutionReference {
-            child_type: kind,
-            child_id: Id::from(id.to_string()),
-            created_at: 1,
-            fork_path: None,
-        });
-    }
-
-    async fn register_agent(ctx: &ApiContext, id: &str, hierarchy: Arc<ExecutionHierarchyManager>) {
+    async fn register_agent(ctx: &ApiContext, id: &str, hierarchy: Arc<wf_core::ExecutionHierarchyManager>) {
         let entity = Arc::new(
             AgentLoopEntity::new(Id::from(id.to_string())).with_hierarchy_manager(hierarchy),
         );
         let _ = ctx.agent_loops.register(entity);
+    }
+
+    /// The persisted form of a manager: the same forward links the engines
+    /// write onto their execution records.
+    fn persisted_hierarchy(
+        manager: &Arc<wf_core::ExecutionHierarchyManager>,
+    ) -> Option<ExecutionHierarchy> {
+        let parent = manager.parent();
+        let ancestors = manager.ancestors();
+        if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
+            return None;
+        }
+        Some(ExecutionHierarchy {
+            workflow_id: manager.execution_id(),
+            execution_id: manager.execution_id(),
+            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
+            depth: manager.depth(),
+            root_execution_id: Some(manager.root_execution_id()),
+            root_execution_type: Some(manager.root_execution_type()),
+            ancestors: if ancestors.is_empty() {
+                None
+            } else {
+                Some(ancestors)
+            },
+            fork_path: manager.fork_path(),
+        })
     }
 
     fn workflow_record(
@@ -366,27 +444,27 @@ mod tests {
         assert_eq!(view.depth, 0);
         assert!(view.parent.is_none());
         assert_eq!(view.root.execution_id, "live-root");
-        assert_eq!(view.root.execution_type, ExecutionType::AgentLoop);
         assert!(view.ancestors.is_empty());
+        assert!(view.children.is_empty());
     }
 
     #[tokio::test]
-    async fn live_child_reports_depth_and_root() {
+    async fn live_child_reports_depth_root_and_parent() {
         let ctx = make_ctx();
-        let root = manager("root", ExecutionType::Workflow);
+        let root = manager("root", ExecutionType::AgentLoop);
         let child = root
             .derive_child(Id::from("kid"), ExecutionType::AgentLoop, None)
             .unwrap();
+        register_agent(&ctx, "root", root).await;
         register_agent(&ctx, "kid", child).await;
 
         let view = hierarchy(&ctx, "kid").await.unwrap();
         assert_eq!(view.depth, 1);
         let parent = view.parent.expect("a derived child has a parent");
         assert_eq!(parent.execution_id, "root");
-        assert_eq!(parent.execution_type, ExecutionType::Workflow);
+        assert_eq!(parent.execution_type, ExecutionType::AgentLoop);
         assert_eq!(view.root.execution_id, "root");
         assert_eq!(view.ancestors, vec!["root".to_string()]);
-        assert_eq!(ancestors(&ctx, "kid").await.unwrap(), vec!["root"]);
     }
 
     #[tokio::test]
@@ -396,12 +474,14 @@ mod tests {
         let a = root
             .derive_child(Id::from("a"), ExecutionType::AgentLoop, None)
             .unwrap();
-        root.derive_child(Id::from("b"), ExecutionType::Workflow, None)
+        let b = root
+            .derive_child(Id::from("b"), ExecutionType::Workflow, None)
             .unwrap();
         a.derive_child(Id::from("a1"), ExecutionType::AgentLoop, None)
             .unwrap();
-        register_agent(&ctx, "root", root.clone()).await;
+        register_agent(&ctx, "root", root).await;
         register_agent(&ctx, "a", a).await;
+        register_agent(&ctx, "b", b).await;
 
         let tree = subtree(&ctx, "root").await.unwrap();
         assert!(!tree.truncated);
@@ -411,21 +491,6 @@ mod tests {
         assert_eq!(depths, vec![0, 1, 1, 2]);
         assert_eq!(tree.nodes[0].parent_execution_id, None);
         assert_eq!(tree.nodes[3].parent_execution_id.as_deref(), Some("a"));
-        // `b` was never registered, so the parent still references it but no
-        // status can be reported for it.
-        assert_eq!(tree.nodes[2].status, None);
-    }
-
-    #[tokio::test]
-    async fn subtree_visits_each_node_once() {
-        let ctx = make_ctx();
-        let root = manager("root", ExecutionType::Workflow);
-        child(&root, "shared", ExecutionType::AgentLoop);
-        child(&root, "shared", ExecutionType::Workflow);
-        register_agent(&ctx, "root", root).await;
-
-        let tree = subtree(&ctx, "root").await.unwrap();
-        assert_eq!(tree.nodes.len(), 2);
     }
 
     #[tokio::test]
@@ -459,38 +524,225 @@ mod tests {
         assert_eq!(view.depth, 1);
         assert_eq!(view.root.execution_id, "wf-root");
         assert_eq!(view.ancestors, vec!["wf-root".to_string()]);
+        assert_eq!(view.parent.unwrap().execution_id, "wf-root");
 
         let tree = subtree(&ctx, "wf-root").await.unwrap();
         assert_eq!(tree.nodes.len(), 2);
         assert_eq!(tree.nodes[1].execution_type, ExecutionType::AgentLoop);
     }
 
-    /// The persisted form of a manager: the same fields the engines write onto
-    /// their execution records.
-    fn persisted_hierarchy(manager: &Arc<ExecutionHierarchyManager>) -> Option<ExecutionHierarchy> {
-        let metadata = manager.to_metadata();
-        let (parent_id, parent_type) = match metadata.parent {
-            Some(parent) => (Some(parent.parent_id), Some(parent.parent_type)),
-            None => (None, None),
-        };
-        Some(ExecutionHierarchy {
-            workflow_id: manager.execution_id(),
-            execution_id: manager.execution_id(),
-            parent_execution_id: parent_id,
-            parent_execution_type: parent_type,
-            depth: metadata.depth,
-            root_execution_id: Some(metadata.root_execution_id),
-            root_execution_type: Some(metadata.root_execution_type),
-            ancestors: metadata.ancestors,
-            children: Some(metadata.children),
-        })
+    /// A parent that last persisted before its children existed still reports
+    /// them, because the child records carry the link rather than the parent
+    /// carrying a snapshot of its children.
+    #[tokio::test]
+    async fn tree_survives_a_parent_that_predates_its_children() {
+        let ctx = make_ctx();
+        let root_manager = manager("wf-root", ExecutionType::Workflow);
+        let child_manager = root_manager
+            .derive_child(Id::from("agent-kid"), ExecutionType::AgentLoop, None)
+            .unwrap();
+
+        // The parent record is written from the manager as it looked before
+        // the child was spawned: no parent, no ancestors, no fork path.
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("wf-root", persisted_hierarchy(&root_manager)))
+            .await
+            .unwrap();
+        // The child record is written afterwards and links forward.
+        ctx.storage
+            .agent_execution
+            .save(&agent_record(
+                "agent-kid",
+                persisted_hierarchy(&child_manager),
+            ))
+            .await
+            .unwrap();
+
+        let tree = subtree(&ctx, "wf-root").await.unwrap();
+        assert_eq!(tree.nodes.len(), 2, "the child is still reachable");
+        assert_eq!(tree.nodes[1].execution_id, "agent-kid");
+    }
+
+    #[tokio::test]
+    async fn a_root_is_never_its_own_child() {
+        let ctx = make_ctx();
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("solo", None))
+            .await
+            .unwrap();
+
+        let view = hierarchy(&ctx, "solo").await.unwrap();
+        assert!(view.parent.is_none());
+        assert_eq!(view.root.execution_id, "solo");
+        assert!(view.children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn ancestors_span_a_three_level_persisted_chain() {
+        let ctx = make_ctx();
+        let root = manager("r", ExecutionType::Workflow);
+        let child = root
+            .derive_child(Id::from("c"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        let grandchild = child
+            .derive_child(Id::from("g"), ExecutionType::AgentLoop, None)
+            .unwrap();
+
+        for (id, mgr) in [
+            ("r", &root),
+            ("c", &child),
+            ("g", &grandchild),
+        ] {
+            ctx.storage
+                .agent_execution
+                .save(&agent_record(id, persisted_hierarchy(mgr)))
+                .await
+                .unwrap();
+        }
+
+        let view = hierarchy(&ctx, "g").await.unwrap();
+        assert_eq!(view.depth, 2);
+        assert_eq!(view.ancestors, vec!["r".to_string(), "c".to_string()]);
+        assert_eq!(view.parent.unwrap().execution_id, "c");
+        assert_eq!(view.root.execution_id, "r");
+    }
+
+    /// Root `r` has two children, `a` and `b`, and `g` hangs under `a`. An
+    /// ancestor query that answered "everything sharing my root at a shallower
+    /// depth" would hand back `b` here, so this shape is the one a chain-only
+    /// fixture cannot cover.
+    async fn branching_tree(ctx: &ApiContext) {
+        let root = manager("r", ExecutionType::Workflow);
+        let a = root
+            .derive_child(Id::from("a"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        let b = root
+            .derive_child(Id::from("b"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        let g = a.derive_child(Id::from("g"), ExecutionType::AgentLoop, None).unwrap();
+
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("r", persisted_hierarchy(&root)))
+            .await
+            .unwrap();
+        for (id, mgr) in [("a", &a), ("b", &b), ("g", &g)] {
+            ctx.storage
+                .agent_execution
+                .save(&agent_record(id, persisted_hierarchy(mgr)))
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sibling_is_never_reported_as_an_ancestor() {
+        let ctx = make_ctx();
+        branching_tree(&ctx).await;
+
+        let view = hierarchy(&ctx, "g").await.unwrap();
+        assert_eq!(view.ancestors, vec!["r".to_string(), "a".to_string()]);
+        assert!(
+            !view.ancestors.contains(&"b".to_string()),
+            "b shares a root and a shallower depth but is not an ancestor"
+        );
+        assert_eq!(view.depth, 2);
+        assert_eq!(view.root.execution_id, "r");
+    }
+
+    #[tokio::test]
+    async fn one_prefix_scan_covers_a_tree_split_across_both_engines() {
+        let ctx = make_ctx();
+        branching_tree(&ctx).await;
+
+        let tree = subtree(&ctx, "r").await.unwrap();
+        assert!(!tree.truncated);
+        assert_eq!(tree.omitted, 0);
+        let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert_eq!(order, vec!["r", "a", "b", "g"]);
+        let depths: Vec<u32> = tree.nodes.iter().map(|n| n.depth).collect();
+        assert_eq!(depths, vec![0, 1, 1, 2]);
+        assert_eq!(tree.nodes[3].parent_execution_id.as_deref(), Some("a"));
+    }
+
+    #[tokio::test]
+    async fn a_subtree_is_scoped_to_the_queried_node() {
+        let ctx = make_ctx();
+        branching_tree(&ctx).await;
+
+        let tree = subtree(&ctx, "a").await.unwrap();
+        let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert_eq!(order, vec!["a", "g"]);
+        let depths: Vec<u32> = tree.nodes.iter().map(|n| n.depth).collect();
+        assert_eq!(depths, vec![0, 1]);
+    }
+
+    #[tokio::test]
+    async fn a_root_named_alike_does_not_join_another_tree() {
+        let ctx = make_ctx();
+        branching_tree(&ctx).await;
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("rx", None))
+            .await
+            .unwrap();
+
+        let tree = subtree(&ctx, "r").await.unwrap();
+        let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert!(!order.contains(&"rx"), "`/r/` must not match `/rx/`");
+    }
+
+    /// A live parent knows the child it spawned a moment ago; a persisted one
+    /// knows the children of earlier runs. Neither source is a superset, so
+    /// dropping either would hide real children.
+    #[tokio::test]
+    async fn direct_children_merge_live_and_persisted() {
+        let ctx = make_ctx();
+        let root = manager("live-root", ExecutionType::AgentLoop);
+        let live_child = root
+            .derive_child(Id::from("live-kid"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        let stored_child = root
+            .derive_child(Id::from("stored-kid"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        register_agent(&ctx, "live-root", root).await;
+        register_agent(&ctx, "live-kid", live_child).await;
+        ctx.storage
+            .agent_execution
+            .save(&agent_record("stored-kid", persisted_hierarchy(&stored_child)))
+            .await
+            .unwrap();
+
+        let view = hierarchy(&ctx, "live-root").await.unwrap();
+        let ids: Vec<&str> = view
+            .children
+            .iter()
+            .map(|c| c.execution_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["live-kid", "stored-kid"]);
+    }
+
+    #[tokio::test]
+    async fn a_live_branch_with_no_records_yet_still_appears() {
+        let ctx = make_ctx();
+        let root = manager("run", ExecutionType::AgentLoop);
+        let child = root
+            .derive_child(Id::from("agent-kid"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        register_agent(&ctx, "run", root).await;
+        register_agent(&ctx, "agent-kid", child).await;
+
+        let tree = subtree(&ctx, "run").await.unwrap();
+        let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert_eq!(order, vec!["run", "agent-kid"]);
     }
 
     #[tokio::test]
     async fn unknown_id_is_not_found() {
         let ctx = make_ctx();
         assert!(hierarchy(&ctx, "nope").await.is_err());
-        assert!(ancestors(&ctx, "nope").await.is_err());
         assert!(subtree(&ctx, "nope").await.is_err());
     }
 }

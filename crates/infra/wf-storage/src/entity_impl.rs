@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::domain::entity::Entity;
 
@@ -57,6 +57,60 @@ impl Entity for wf_types::agent::AgentTemplate {
     }
 }
 
+/// Metadata keys shared by both execution record types.
+///
+/// The hierarchy is stored forward-only: an execution records its own parent
+/// and root, and the shape of the tree is recovered by querying those fields.
+/// A root execution therefore leaves `parentExecutionId` absent (never
+/// pointing at itself, so "children of X" can never match X) and reports
+/// itself as its own root.
+///
+/// `executionPath` is the materialised ancestor chain. It is the only field
+/// that fully describes where a record sits, so the root and the depth are
+/// derived from it rather than copied alongside it: a row whose fields cannot
+/// all agree is then impossible to write.
+///
+/// `timestamp` carries the run start, matching the key the checkpoint records
+/// already use for the same notion, so one index serves both.
+fn execution_metadata(
+    hierarchy: Option<&wf_types::execution::ExecutionHierarchy>,
+    execution_id: &str,
+    execution_kind: &str,
+    started_at: i64,
+    own: &[(&str, Value)],
+) -> Value {
+    let mut map = serde_json::Map::new();
+    map.insert("executionKind".into(), json!(execution_kind));
+    map.insert("timestamp".into(), json!(started_at));
+    match hierarchy {
+        Some(h) => {
+            let chain = h.chain();
+            map.insert("executionPath".into(), json!(h.path()));
+            map.insert("depth".into(), json!(chain.len() as u32 - 1));
+            map.insert(
+                "rootExecutionId".into(),
+                json!(chain.first().map_or(execution_id, String::as_str)),
+            );
+            if let Some(parent) = h.parent_execution_id.as_ref() {
+                map.insert("parentExecutionId".into(), json!(parent));
+            }
+        }
+        None => {
+            map.insert("rootExecutionId".into(), json!(execution_id));
+            map.insert("depth".into(), json!(0));
+            map.insert(
+                "executionPath".into(),
+                json!(wf_types::execution::encode_path(&[execution_id
+                    .to_string()])),
+            );
+        }
+    }
+    for (key, value) in own {
+        map.insert((*key).to_string(), value.clone());
+    }
+    Value::Object(map)
+}
+
 impl Entity for wf_types::WorkflowExecution {
     type Metadata = Value;
 
@@ -69,10 +123,16 @@ impl Entity for wf_types::WorkflowExecution {
     }
 
     fn metadata(&self) -> Self::Metadata {
-        serde_json::json!({
-            "status": self.status,
-            "workflowId": self.workflow_id,
-        })
+        execution_metadata(
+            self.hierarchy.as_ref(),
+            &self.id,
+            "workflow",
+            self.started_at,
+            &[
+                ("status", json!(self.status)),
+                ("workflowId", json!(self.workflow_id)),
+            ],
+        )
     }
 }
 
@@ -138,12 +198,18 @@ impl Entity for wf_types::AgentExecution {
     }
 
     fn metadata(&self) -> Self::Metadata {
-        serde_json::json!({
-            "definitionId": self.definition_id,
-            "status": self.status,
-            "currentIteration": self.current_iteration,
-            "toolCallCount": self.tool_call_count,
-        })
+        execution_metadata(
+            self.hierarchy.as_ref(),
+            &self.id,
+            "agent_loop",
+            self.started_at,
+            &[
+                ("definitionId", json!(self.definition_id)),
+                ("status", json!(self.status)),
+                ("currentIteration", json!(self.current_iteration)),
+                ("toolCallCount", json!(self.tool_call_count)),
+            ],
+        )
     }
 }
 

@@ -19,7 +19,7 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-api = { path = "../wf-api" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-runtime = { path = "../wf-runtime" }
-utoipa = { version = "5" }
+utoipa.workspace = true
 
 [features]
 openapi-docs = []

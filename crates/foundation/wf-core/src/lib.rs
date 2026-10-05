@@ -16,12 +16,8 @@ pub use failure_policy::{
     default_failure_policy_config, default_fallback_policy, default_retry_policy,
     FailurePolicyManager,
 };
-pub use hierarchy::integrity::{
-    HierarchyEntityProvider, HierarchyIntegrityService, HierarchyRegistry,
-    HierarchyValidationResult,
-};
 pub use hierarchy::manager::{
-    ExecutionHierarchyManager, ExecutionHierarchyMetadata, ParentExecutionContext, MAX_DEPTH,
+    ChildExecutionReference, ExecutionHierarchyManager, ParentExecutionContext, MAX_DEPTH,
 };
 pub use internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
 pub use interruption::{InterruptionSignal, InterruptionState};

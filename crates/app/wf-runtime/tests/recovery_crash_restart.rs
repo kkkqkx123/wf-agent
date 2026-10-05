@@ -362,7 +362,7 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
                 root_execution_id: Some(parent_id.clone()),
                 root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
                 ancestors: Some(vec![parent_id.clone()]),
-                children: None,
+                fork_path: None,
             }),
         })
         .await

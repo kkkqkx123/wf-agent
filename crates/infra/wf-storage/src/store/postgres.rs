@@ -92,6 +92,45 @@ impl PostgresStorage {
             );
         }
 
+        let idx5 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_parent ON {}((metadata->>'parentEntityId'))",
+            table_name, table_name
+        );
+        if let Err(e) = sqlx::query(&idx5).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create parentEntityId index (table functional without it)"
+            );
+        }
+
+        let idx6 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_parent_execution ON {}((metadata->>'parentExecutionId'))",
+            table_name, table_name
+        );
+        if let Err(e) = sqlx::query(&idx6).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create parentExecutionId index (table functional without it)"
+            );
+        }
+
+        // text_pattern_ops is what lets this btree index actually serve the
+            // prefix scan a subtree query is; without it Postgres would
+            // sequence-scan the table on every one.
+            let idx7 = format!(
+                "CREATE INDEX IF NOT EXISTS idx_{}_execution_path ON {}((metadata->>'executionPath') text_pattern_ops)",
+                table_name, table_name
+            );
+        if let Err(e) = sqlx::query(&idx7).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create executionPath index (table functional without it)"
+            );
+        }
+
         let idx_ts = format!(
             "CREATE INDEX IF NOT EXISTS idx_{}_timestamp ON {}(((metadata->>'timestamp')::float8))",
             table_name, table_name
@@ -287,6 +326,10 @@ fn build_select_sql(
                 FilterCondition::Eq(key, value) => {
                     conditions.push(format!("metadata->>'{}' = ${}", key, params.len() + 1));
                     params.push(FilterBindValue::S(value.clone()));
+                }
+                FilterCondition::Id(id) => {
+                    conditions.push(format!("id = ${}", params.len() + 1));
+                    params.push(FilterBindValue::S(id.clone()));
                 }
                 FilterCondition::IdPrefix(prefix) => {
                     conditions.push(format!("id LIKE ${} ESCAPE '\\'", params.len() + 1));

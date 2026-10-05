@@ -1,6 +1,6 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, restored_status, status_or_warn_running,
+    publish_persisted,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::AgentDiffCalculator;
@@ -24,9 +24,6 @@ use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_state::restore::hierarchy::{
     HierarchyRestorer, RestoreSummary, StorageChildResolver,
 };
-use checkpoint_state::restore::integrity::{
-    ExecutionRegistry, HierarchyIntegrityService, HierarchyValidationResult,
-};
 use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::AgentCheckpoint;
 use checkpoint_state::state::AgentCheckpointStateManager;
@@ -43,7 +40,6 @@ use wf_types::checkpoint::CheckpointTiming;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 use wf_types::checkpoint::UnifiedCheckpointPolicy;
-use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
 
 /// One timeline anchor: checkpoint id, sequence bounds, trigger label,
@@ -230,7 +226,6 @@ pub struct AgentCheckpointCoordinator {
     strategy: Option<StandardStrategy>,
     error_handler: crate::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
-    execution_registry: Option<Arc<dyn ExecutionRegistry>>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
     /// `contentConfig.async`: defer post-persist side effects to the
     /// background persistence queue.
@@ -250,7 +245,6 @@ impl AgentCheckpointCoordinator {
             strategy: None,
             error_handler: crate::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
-            execution_registry: None,
             file_checkpoint_manager: None,
             async_persistence: false,
             persistence_queue: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -317,13 +311,6 @@ impl AgentCheckpointCoordinator {
     /// post-restore phase.
     pub fn with_restore_registry(mut self, registry: RestoreStrategyRegistry) -> Self {
         self.restore_registry = Some(registry);
-        self
-    }
-
-    /// Register the execution registry used for hierarchy integrity
-    /// validation after restore.
-    pub fn with_execution_registry(mut self, registry: Arc<dyn ExecutionRegistry>) -> Self {
-        self.execution_registry = Some(registry);
         self
     }
 
@@ -456,11 +443,15 @@ impl AgentCheckpointCoordinator {
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-        hierarchy: &wf_types::execution::ExecutionHierarchy,
-        registry: Option<&Arc<dyn ExecutionRegistry>>,
     ) -> Result<(RestoreSummary, Vec<String>), CheckpointError> {
-        let mut children = hierarchy.children.clone().unwrap_or_default();
-        if children.is_empty() {
+        // Children are found by querying the checkpoints whose entity records
+        // this loop as their parent, so the answer covers every child that
+        // ever checkpointed regardless of when the parent last persisted.
+        let latest_by_child = self
+            .state_manager
+            .list_latest_by_parent(parent_entity_id)
+            .await?;
+        if latest_by_child.is_empty() {
             return Ok((
                 RestoreSummary {
                     total: 0,
@@ -471,22 +462,14 @@ impl AgentCheckpointCoordinator {
             ));
         }
 
-        // WORKFLOW children restore before AGENT_LOOP children.
-        children.sort_by_key(|c| match c.child_type {
-            wf_types::execution::ExecutionType::Workflow => 0,
-            wf_types::execution::ExecutionType::AgentLoop => 1,
-        });
-
         // Bounded concurrency for the per-child resolution + restore phase.
         let gate = Arc::new(ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY));
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();
         let mut handles = Vec::new();
-        for child in &children {
+        for meta in &latest_by_child {
             let gate = gate.clone();
-            let child = child.clone();
-            let parent_entity_id = parent_entity_id.to_string();
-            let registry = registry.cloned();
+            let meta = meta.clone();
             let storage = storage.clone();
             let restore_registry = restore_registry.clone();
             handles.push(tokio::spawn(async move {
@@ -499,14 +482,7 @@ impl AgentCheckpointCoordinator {
                     }
                 };
                 let state_manager = AgentCheckpointStateManager::new(storage);
-                restore_child(
-                    &state_manager,
-                    restore_registry.as_ref(),
-                    &child,
-                    &parent_entity_id,
-                    registry.as_deref(),
-                )
-                .await
+                restore_child(&state_manager, restore_registry.as_ref(), meta).await
             }));
         }
 
@@ -636,42 +612,20 @@ impl AgentCheckpointCoordinator {
 async fn restore_child(
     state_manager: &AgentCheckpointStateManager,
     restore_registry: Option<&RestoreStrategyRegistry>,
-    child: &wf_types::execution::ChildExecutionReference,
-    parent_entity_id: &str,
-    registry: Option<&dyn ExecutionRegistry>,
+    meta: CheckpointStorageMetadata,
 ) -> Result<ChildRestoreOutcome, CheckpointError> {
     let mut outcome = ChildRestoreOutcome {
-        child_id: child.child_id.clone(),
-        metadata: None,
+        child_id: meta.entity_id.clone(),
+        metadata: Some(meta.clone()),
         restored: false,
         failed: false,
     };
 
-    let Some(meta) = state_manager.get_latest(&child.child_id).await? else {
-        outcome.failed = true;
-        return Ok(outcome);
-    };
-    outcome.metadata = Some(meta.clone());
-
     if let Some(reg) = restore_registry {
-        let entity_type = match child.child_type {
-            wf_types::execution::ExecutionType::Workflow => "workflow_execution",
-            wf_types::execution::ExecutionType::AgentLoop => "agent_loop",
-        };
+        let entity_type = meta.entity_type.as_str();
         if let Some(data) = state_manager.load_checkpoint_data(&meta.id).await? {
-            let restore_result = reg.restore(entity_type, &meta.id, &data).await;
-            if let Ok(value) = restore_result {
+            if reg.restore(entity_type, &meta.id, &data).await.is_ok() {
                 outcome.restored = true;
-                if let Some(exec_registry) = registry {
-                    let status = restored_status(&value);
-                    register_child(
-                        exec_registry,
-                        &child.child_id,
-                        status,
-                        parent_entity_id,
-                        child.branch_path_id(),
-                    );
-                }
             } else {
                 outcome.failed = true;
             }
@@ -692,19 +646,6 @@ struct ChildRestoreOutcome {
     failed: bool,
 }
 
-fn register_child(
-    registry: &dyn ExecutionRegistry,
-    child_id: &str,
-    status: Option<ExecutionStatus>,
-    parent: &str,
-    fork_path_id: Option<&str>,
-) {
-    let status = status.unwrap_or(ExecutionStatus::Failed);
-    match fork_path_id {
-        Some(path) => registry.register_fork_path(child_id, status, parent, path),
-        None => registry.register_with_parent(child_id, status, Some(parent)),
-    }
-}
 
 impl CheckpointCoordinator for AgentCheckpointCoordinator {
     type Checkpoint = AgentCheckpoint;
@@ -946,7 +887,6 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                     current_iteration: snapshot.current_iteration,
                     snapshot,
                     restore_summary: None,
-                    hierarchy_validation: None,
                 })
             }
             Some(CheckpointType::Delta) => {
@@ -961,7 +901,6 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                     current_iteration: state.current_iteration,
                     snapshot: state,
                     restore_summary: None,
-                    hierarchy_validation: None,
                 })
             }
             None => Err(CheckpointError::Corrupted {
@@ -970,60 +909,13 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             }),
         }?;
 
-        // register the restored entity into the execution registry,
-        // restore child executions, then validate hierarchy integrity.
-        let mut validation: Option<HierarchyValidationResult> = None;
-        let mut failed_child_ids: Vec<String> = Vec::new();
-        if let Some(registry) = &self.execution_registry {
-            let hierarchy = entity.snapshot.hierarchy.clone();
-            let parent = hierarchy
-                .as_ref()
-                .and_then(|h| h.parent_execution_id.clone());
-            registry.register_with_parent(
-                &entity.agent_loop_id,
-                status_or_warn_running(&entity.status),
-                parent.as_deref(),
-            );
-
-            // post-restore phase — restore child executions from hierarchy.
-            if let Some(h) = &hierarchy {
-                if let Ok((summary, failed)) = self
-                    .restore_child_hierarchy(
-                        checkpoint_id,
-                        &entity.agent_loop_id,
-                        h,
-                        Some(registry),
-                    )
-                    .await
-                {
-                    entity.restore_summary = Some(summary);
-                    failed_child_ids = failed;
-                }
-                validation = Some(HierarchyIntegrityService::validate_integrity(
-                    h,
-                    registry.as_ref(),
-                ));
-            }
-        } else if let Some(hierarchy) = entity.snapshot.hierarchy.clone() {
-            // fallback: restore children without a registry.
-            if let Ok((summary, failed)) = self
-                .restore_child_hierarchy(checkpoint_id, &entity.agent_loop_id, &hierarchy, None)
-                .await
-            {
-                entity.restore_summary = Some(summary);
-                failed_child_ids = failed;
-            }
-        }
-        entity.hierarchy_validation = validation;
-
-        // Remove children that could not be restored from the restored
-        // entity's hierarchy metadata.
-        if !failed_child_ids.is_empty() {
-            if let Some(hierarchy) = &mut entity.snapshot.hierarchy {
-                if let Some(children) = &mut hierarchy.children {
-                    children.retain(|c| !failed_child_ids.contains(&c.child_id));
-                }
-            }
+        // Post-restore phase: bring back the child executions spawned from
+        // this one, located through their own records.
+        if let Ok((summary, _failed)) = self
+            .restore_child_hierarchy(checkpoint_id, &entity.agent_loop_id)
+            .await
+        {
+            entity.restore_summary = Some(summary);
         }
 
         // restore the latest file checkpoint for the entity (best-effort).
@@ -1248,7 +1140,6 @@ pub struct AgentLoopEntity {
     pub current_iteration: u32,
     pub snapshot: AgentStateSnapshot,
     pub restore_summary: Option<RestoreSummary>,
-    pub hierarchy_validation: Option<HierarchyValidationResult>,
 }
 
 #[cfg(test)]
@@ -1617,48 +1508,6 @@ mod tests {
 
         let err = coord.restore(&cp.id).await.unwrap_err();
         assert!(matches!(err, CheckpointError::VersionIncompatible { .. }));
-    }
-
-    #[tokio::test]
-    async fn restore_registers_entity_and_validates_hierarchy() {
-        use checkpoint_state::restore::integrity::InMemoryExecutionRegistry;
-        use std::sync::Arc;
-        use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = AgentCheckpointStateManager::new(storage);
-        let registry = Arc::new(InMemoryExecutionRegistry::new());
-        let coord = AgentCheckpointCoordinator::new(sm).with_execution_registry(registry.clone());
-
-        let mut snapshot = make_snapshot();
-        snapshot.hierarchy = Some(ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "loop-1".to_string(),
-            parent_execution_id: None,
-            parent_execution_type: None,
-            depth: 0,
-            root_execution_id: None,
-            root_execution_type: None,
-            ancestors: None,
-            children: Some(vec![ChildExecutionReference {
-                child_type: ExecutionType::AgentLoop,
-                child_id: "child-loop-1".to_string(),
-                created_at: 0,
-                fork_path: None,
-            }]),
-        });
-        let ctx = coord
-            .prepare("loop-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        coord.persist(&cp, "loop-1").await.unwrap();
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        assert!(registry.has("loop-1"), "restored entity registered");
-        let validation = entity.hierarchy_validation.unwrap();
-        assert!(!validation.valid, "orphaned child reference reported");
-        assert_eq!(validation.issues.len(), 1);
     }
 
     #[tokio::test]

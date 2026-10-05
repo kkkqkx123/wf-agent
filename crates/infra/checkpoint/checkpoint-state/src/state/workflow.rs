@@ -37,6 +37,14 @@ impl WorkflowCheckpointStateManager {
     ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
         self.inner.list_latest_by_entities(entity_ids).await
     }
+
+    /// Latest checkpoint of every entity spawned from `parent_entity_id`.
+    pub async fn list_latest_by_parent(
+        &self,
+        parent_entity_id: &str,
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        self.inner.list_latest_by_parent(parent_entity_id).await
+    }
 }
 
 impl CheckpointStateManager for WorkflowCheckpointStateManager {

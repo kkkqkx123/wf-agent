@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 use tokio::sync::Notify;
-use wf_types::execution::ChildExecutionReference;
+use wf_core::ChildExecutionReference;
 use wf_types::Id;
 
 /// Runtime status of one fork branch.
@@ -433,7 +433,7 @@ impl ForkRegistry {
 #[cfg(test)]
 mod aggregation_tests {
     use super::*;
-    use wf_types::execution::{ChildExecutionReference, ExecutionType, ForkPath};
+    use wf_types::execution::{ExecutionType, ForkPath};
 
     fn fork_child(id: &str, path: &str) -> ChildExecutionReference {
         ChildExecutionReference {

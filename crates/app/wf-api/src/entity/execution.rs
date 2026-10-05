@@ -274,6 +274,7 @@ mod tests {
             id: wf_types::Id::from(id.to_string()),
             entity_type: entity_type.to_string(),
             entity_id: entity_id.to_string(),
+            parent_entity_id: None,
             checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
             timestamp: 1000,
             status: wf_types::checkpoint::CheckpointStatus::Active,

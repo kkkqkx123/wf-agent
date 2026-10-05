@@ -332,7 +332,7 @@ impl AgentLoopEntity {
             return;
         }
         self.hierarchy
-            .register_child_ref(wf_types::execution::ChildExecutionReference {
+            .register_child_ref(wf_core::ChildExecutionReference {
                 child_type: wf_types::execution::ExecutionType::AgentLoop,
                 child_id,
                 created_at: wf_common::now(),
@@ -342,7 +342,7 @@ impl AgentLoopEntity {
 
     pub async fn register_child_ref(
         &self,
-        child_ref: wf_types::execution::ChildExecutionReference,
+        child_ref: wf_core::ChildExecutionReference,
     ) {
         self.hierarchy.register_child_ref(child_ref);
     }

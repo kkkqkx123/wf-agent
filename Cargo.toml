@@ -155,6 +155,8 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
 http = "1.1"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "handshake"] }
+# Version only: the OpenAPI document belongs to the transport crate alone.
+utoipa = "5"
 
 # Dev / test only
 tempfile = "3"

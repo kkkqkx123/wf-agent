@@ -18,7 +18,6 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/executions/{id}/hierarchy", get(handle_hierarchy))
         .route("/executions/{id}/subtree", get(handle_subtree))
-        .route("/executions/{id}/ancestors", get(handle_ancestors))
 }
 
 #[utoipa::path(
@@ -55,25 +54,6 @@ pub(crate) async fn handle_subtree(
 ) -> impl IntoResponse {
     match execution_hierarchy::subtree(&state.ctx, &path.id).await {
         Ok(tree) => ok(tree).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/executions/{id}/ancestors",
-    operation_id = "get_executions_id_ancestors",
-    tag = "observation",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<Vec<String>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("api_key" = []))
-)]
-pub(crate) async fn handle_ancestors(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-) -> impl IntoResponse {
-    match execution_hierarchy::ancestors(&state.ctx, &path.id).await {
-        Ok(chain) => ok(chain).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -147,9 +127,6 @@ mod tests {
         assert_eq!(tree_body["data"]["truncated"], false);
         assert_eq!(tree_body["data"]["nodes"].as_array().unwrap().len(), 1);
 
-        let chain = send(ctx, "/api/v1/executions/loop-1/ancestors").await;
-        assert_eq!(chain.status(), StatusCode::OK);
-        assert_eq!(json_body(chain).await["data"], serde_json::json!([]));
     }
 
     #[tokio::test]
@@ -158,7 +135,6 @@ mod tests {
         for uri in [
             "/api/v1/executions/missing/hierarchy",
             "/api/v1/executions/missing/subtree",
-            "/api/v1/executions/missing/ancestors",
         ] {
             let response = send(ctx.clone(), uri).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");

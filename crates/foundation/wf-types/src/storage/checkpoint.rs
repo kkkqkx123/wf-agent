@@ -7,6 +7,12 @@ pub struct CheckpointStorageMetadata {
     pub id: super::super::Id,
     pub entity_type: String,
     pub entity_id: String,
+    /// Execution this checkpoint's entity was spawned from, when it has a
+    /// parent. Carried as a forward link so "which checkpoints belong to the
+    /// children of X" is an indexed lookup instead of a manifest the parent
+    /// has to keep up to date.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_entity_id: Option<String>,
     pub checkpoint_type: super::super::checkpoint::CheckpointType,
     pub timestamp: super::super::Timestamp,
     pub status: CheckpointStatus,

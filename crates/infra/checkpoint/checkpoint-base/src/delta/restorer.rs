@@ -206,6 +206,7 @@ mod tests {
                 id: id.to_string(),
                 entity_type: "test".to_string(),
                 entity_id: "entity-1".to_string(),
+                parent_entity_id: None,
                 checkpoint_type,
                 timestamp: 0,
                 status: CheckpointStatus::Completed,
@@ -375,13 +376,15 @@ mod tests {
         let mut loader = FakeLoader::new();
         // A linear delta chain one link longer than the replay guard allows,
         // terminated by a full baseline so only the length limit can fire.
+        // The walk starts at d0 and follows `previous` toward the base, so
+        // each link must point at the next index rather than the previous one.
         let total = MAX_DELTA_CHAIN_LEN + 1;
         for i in 0..total {
             let id = format!("d{i}");
-            let previous = if i == 0 {
+            let previous = if i + 1 == total {
                 None
             } else {
-                Some(format!("d{}", i - 1))
+                Some(format!("d{}", i + 1))
             };
             if i == total - 1 {
                 loader.add(

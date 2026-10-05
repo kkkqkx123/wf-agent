@@ -19,6 +19,8 @@ use crate::error::StorageError;
 pub enum FilterOp {
     /// Metadata field equals a string value.
     Eq(String, String),
+    /// Record id equals this exact value.
+    Id(String),
     /// Record id starts with a prefix.
     IdPrefix(String),
     /// Metadata field starts with a prefix.
@@ -128,6 +130,14 @@ impl QueryFilter {
         self
     }
 
+    /// Select the single record with this exact id. Combined with a
+    /// metadata-only read this answers "what are the indexed fields of X"
+    /// without touching X's payload.
+    pub fn with_id(mut self, id: &str) -> Self {
+        self.ops.push(FilterOp::Id(id.into()));
+        self
+    }
+
     pub fn with_id_prefix(mut self, prefix: &str) -> Self {
         self.ops.push(FilterOp::IdPrefix(prefix.into()));
         self
@@ -185,6 +195,7 @@ impl QueryFilter {
                 FilterOp::Eq(key, value) => plan
                     .conditions
                     .push(FilterCondition::Eq(key.clone(), value.clone())),
+                FilterOp::Id(id) => plan.conditions.push(FilterCondition::Id(id.clone())),
                 FilterOp::IdPrefix(prefix) => plan
                     .conditions
                     .push(FilterCondition::IdPrefix(prefix.clone())),
@@ -219,6 +230,7 @@ impl QueryFilter {
 /// operators; the condition structure and parameter order are shared.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FilterCondition {
+    Id(String),
     Eq(String, String),
     IdPrefix(String),
     Prefix(String, String),

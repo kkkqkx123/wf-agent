@@ -27,8 +27,6 @@
 
 use std::fmt;
 
-use wf_core::ExecutionHierarchyMetadata;
-use wf_types::execution::ExecutionType;
 use wf_types::Id;
 
 /// Actor kind: the partition semantics of the root execution.
@@ -60,12 +58,6 @@ impl ActorKind {
         }
     }
 
-    fn from_execution_type(execution_type: &ExecutionType) -> Self {
-        match execution_type {
-            ExecutionType::Workflow => ActorKind::Wf,
-            ExecutionType::AgentLoop => ActorKind::Agent,
-        }
-    }
 }
 
 impl fmt::Display for ActorKind {
@@ -157,38 +149,6 @@ impl ActorId {
             )));
         }
         Ok(ActorId(value.to_string()))
-    }
-
-    /// Build the actor id for an execution from its hierarchy metadata.
-    ///
-    /// The kind is derived from the root execution type (`wf` for workflow
-    /// roots, `agent` for agent-loop roots). When the metadata carries a
-    /// full root-to-parent ancestor chain (`metadata.ancestors`), the chain
-    /// is used verbatim with the execution id appended (deep nesting is
-    /// representable). Otherwise the fallback is the root plus the
-    /// execution id when a parent is present (two-level shape).
-    pub fn from_execution(
-        execution_id: &Id,
-        metadata: &ExecutionHierarchyMetadata,
-    ) -> Result<Self, ActorIdError> {
-        let kind = ActorKind::from_execution_type(&metadata.root_execution_type);
-        let chain: Vec<Id> = match metadata.ancestors.as_ref() {
-            Some(ancestors) if !ancestors.is_empty() => {
-                let mut chain = ancestors.clone();
-                if chain.last() != Some(execution_id) {
-                    chain.push(execution_id.clone());
-                }
-                chain
-            }
-            _ => {
-                let mut chain = vec![metadata.root_execution_id.clone()];
-                if metadata.parent.is_some() && *execution_id != metadata.root_execution_id {
-                    chain.push(execution_id.clone());
-                }
-                chain
-            }
-        };
-        Self::new(kind, &chain)
     }
 
     /// The encoded string (stable, unique, parseable).
@@ -302,30 +262,6 @@ mod tests {
         Id::from(value.to_string())
     }
 
-    fn metadata(
-        root_id: &str,
-        root_type: wf_types::execution::ExecutionType,
-    ) -> ExecutionHierarchyMetadata {
-        ExecutionHierarchyMetadata {
-            parent: None,
-            children: Vec::new(),
-            depth: 0,
-            root_execution_id: id(root_id),
-            root_execution_type: root_type,
-            ancestors: None,
-        }
-    }
-
-    fn metadata_with_ancestors(
-        root_id: &str,
-        root_type: wf_types::execution::ExecutionType,
-        ancestors: Vec<&str>,
-    ) -> ExecutionHierarchyMetadata {
-        let mut base = metadata(root_id, root_type);
-        base.ancestors = Some(ancestors.into_iter().map(id).collect());
-        base
-    }
-
     #[test]
     fn encodes_root_workflow_actor() {
         let actor = ActorId::new(ActorKind::Wf, &[id("wf-exec-1")]).unwrap();
@@ -385,65 +321,6 @@ mod tests {
         let child = actor.child(&id("child-2")).unwrap();
         assert_eq!(child.as_str(), "agent:loop-1/child:child-2");
         assert_eq!(child.parent(), Some(actor));
-    }
-
-    #[test]
-    fn from_execution_uses_root_type_and_chain() {
-        let wf_meta = metadata("wf-exec-1", wf_types::execution::ExecutionType::Workflow);
-        let actor = ActorId::from_execution(&id("wf-exec-1"), &wf_meta).unwrap();
-        assert_eq!(actor.as_str(), "wf:wf-exec-1");
-
-        let agent_meta = metadata("loop-exec-1", wf_types::execution::ExecutionType::AgentLoop);
-        let actor = ActorId::from_execution(&id("loop-exec-1"), &agent_meta).unwrap();
-        assert_eq!(actor.as_str(), "agent:loop-exec-1");
-    }
-
-    #[test]
-    fn from_execution_prefers_ancestors_chain() {
-        // Deep nesting: ancestors carries root -> immediate parent, the
-        // execution id is appended to form the full chain.
-        let meta = metadata_with_ancestors(
-            "wf-exec-1",
-            wf_types::execution::ExecutionType::Workflow,
-            vec!["wf-exec-1", "subgraph-2", "subgraph-3"],
-        );
-        let actor = ActorId::from_execution(&id("subgraph-4"), &meta).unwrap();
-        assert_eq!(
-            actor.as_str(),
-            "wf:wf-exec-1/child:subgraph-2/child:subgraph-3/child:subgraph-4"
-        );
-        assert_eq!(
-            actor.hierarchy(),
-            vec!["wf-exec-1", "subgraph-2", "subgraph-3", "subgraph-4"]
-        );
-    }
-
-    #[test]
-    fn from_execution_skips_duplicate_tail() {
-        // When the ancestors chain already ends with the execution id (a
-        // caller that included self), the id is not appended twice.
-        let meta = metadata_with_ancestors(
-            "loop-1",
-            wf_types::execution::ExecutionType::AgentLoop,
-            vec!["loop-1", "child-2", "child-3"],
-        );
-        let actor = ActorId::from_execution(&id("child-3"), &meta).unwrap();
-        assert_eq!(actor.as_str(), "agent:loop-1/child:child-2/child:child-3");
-        assert_eq!(actor.hierarchy(), vec!["loop-1", "child-2", "child-3"]);
-    }
-
-    #[test]
-    fn from_execution_falls_back_without_ancestors() {
-        // Two-level fallback: root + self when a parent is present but no
-        // full chain is available (legacy metadata shape).
-        let mut meta = metadata("loop-1", wf_types::execution::ExecutionType::AgentLoop);
-        meta.parent = Some(wf_core::hierarchy::manager::ParentExecutionContext {
-            parent_id: id("loop-0"),
-            parent_type: wf_types::execution::ExecutionType::AgentLoop,
-        });
-        meta.depth = 1;
-        let actor = ActorId::from_execution(&id("loop-2"), &meta).unwrap();
-        assert_eq!(actor.as_str(), "agent:loop-1/child:loop-2");
     }
 
     #[test]

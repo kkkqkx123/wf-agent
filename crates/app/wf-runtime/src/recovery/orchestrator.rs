@@ -315,7 +315,7 @@ mod tests {
                 root_execution_id: Some("root-1".into()),
                 root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
                 ancestors: Some(vec!["root-1".into()]),
-                children: None,
+                fork_path: None,
             }),
         };
         let root = make_execution("root-1", ExecutionStatus::Running);

@@ -123,11 +123,6 @@ impl WorkflowLifecycleCoordinator {
             );
             entity = entity.with_hierarchy_manager(manager);
         }
-        if let Some(children) = snapshot.hierarchy.as_ref().and_then(|h| h.children.clone()) {
-            for child in children {
-                entity.register_child_ref(child.clone()).await;
-            }
-        }
         {
             let mut state = entity.state.write().await;
             state.start()?;

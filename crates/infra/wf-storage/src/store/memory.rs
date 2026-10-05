@@ -201,6 +201,7 @@ fn matches_meta_in(metadata: &Value, key: &str, values: &[String]) -> bool {
 fn matches_condition(metadata: &Value, id: &str, cond: &FilterCondition) -> bool {
     match cond {
         FilterCondition::Eq(key, value) => matches_meta_str(metadata, key, value),
+        FilterCondition::Id(exact) => id == exact,
         FilterCondition::IdPrefix(prefix) => id.starts_with(prefix),
         FilterCondition::Prefix(key, prefix) => matches_meta_prefix(metadata, key, prefix),
         FilterCondition::Lt(key, value) => matches_meta_lt(metadata, key, *value),

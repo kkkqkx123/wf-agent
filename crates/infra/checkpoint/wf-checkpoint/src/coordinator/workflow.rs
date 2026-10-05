@@ -1,6 +1,6 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, restored_status, status_or_warn_running,
+    publish_persisted,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::CheckpointLoader;
@@ -21,12 +21,8 @@ use checkpoint_base::version_manager::VersionManager;
 use checkpoint_base::version_manager::MIN_COMPATIBLE_VERSION;
 use checkpoint_file::event::CheckpointEventBus;
 use checkpoint_file::file::FileCheckpointManager;
-use checkpoint_state::restore::fork_join::{ForkJoinStateInference, JoinStateInference};
 use checkpoint_state::restore::hierarchy::{
     HierarchyRestorer, RestoreSummary, StorageChildResolver,
-};
-use checkpoint_state::restore::integrity::{
-    ExecutionRegistry, HierarchyIntegrityService, HierarchyValidationResult,
 };
 use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::CheckpointStateManager;
@@ -43,7 +39,6 @@ use wf_types::checkpoint::CheckpointTiming;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 use wf_types::checkpoint::UnifiedCheckpointPolicy;
-use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
 
 /// Progress coordinates of a workflow checkpoint: execution status, resume
@@ -173,7 +168,6 @@ pub struct WorkflowCheckpointCoordinator {
     strategy: Option<StandardStrategy>,
     error_handler: crate::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
-    execution_registry: Option<Arc<dyn ExecutionRegistry>>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
     /// `contentConfig.async`: defer post-persist side effects to the
     /// background persistence queue.
@@ -194,7 +188,6 @@ impl WorkflowCheckpointCoordinator {
             strategy: None,
             error_handler: crate::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
-            execution_registry: None,
             file_checkpoint_manager: None,
             async_persistence: false,
             persistence_queue: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -262,13 +255,6 @@ impl WorkflowCheckpointCoordinator {
     /// post-restore phase.
     pub fn with_restore_registry(mut self, registry: RestoreStrategyRegistry) -> Self {
         self.restore_registry = Some(registry);
-        self
-    }
-
-    /// Register the execution registry used for hierarchy integrity
-    /// validation and FORK/JOIN status inference after restore.
-    pub fn with_execution_registry(mut self, registry: Arc<dyn ExecutionRegistry>) -> Self {
-        self.execution_registry = Some(registry);
         self
     }
 
@@ -370,11 +356,16 @@ impl WorkflowCheckpointCoordinator {
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-        hierarchy: &wf_types::execution::ExecutionHierarchy,
-        registry: Option<&Arc<dyn ExecutionRegistry>>,
     ) -> Result<(RestoreSummary, Vec<String>), CheckpointError> {
-        let mut children = hierarchy.children.clone().unwrap_or_default();
-        if children.is_empty() {
+        // Children are found by querying the checkpoints whose entity records
+        // this execution as their parent. The link lives on the child, so the
+        // result reflects every child that ever checkpointed, including ones
+        // spawned after the parent's own last persist.
+        let latest_by_child = self
+            .state_manager
+            .list_latest_by_parent(parent_entity_id)
+            .await?;
+        if latest_by_child.is_empty() {
             return Ok((
                 RestoreSummary {
                     total: 0,
@@ -385,42 +376,15 @@ impl WorkflowCheckpointCoordinator {
             ));
         }
 
-        // WORKFLOW children restore before AGENT_LOOP children.
-        children.sort_by_key(|c| match c.child_type {
-            wf_types::execution::ExecutionType::Workflow => 0,
-            wf_types::execution::ExecutionType::AgentLoop => 1,
-        });
-
-        // Resolve the latest checkpoint for every child in a single storage
-        // query (IN filter) instead of one `get_latest` per child.
-        let child_ids: Vec<String> = children.iter().map(|c| c.child_id.clone()).collect();
-        let latest_by_child: HashMap<String, CheckpointStorageMetadata> = self
-            .state_manager
-            .list_latest_by_entities(&child_ids)
-            .await?
-            .into_iter()
-            .map(|meta| (meta.entity_id.clone(), meta))
-            .collect();
-
         // Bounded concurrency for the per-child restore phase.
         let gate = Arc::new(ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY));
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();
         let mut handles = Vec::new();
-        for child in &children {
-            let Some(meta) = latest_by_child.get(&child.child_id) else {
-                tracing::debug!(
-                    parent = %parent_entity_id,
-                    child = %child.child_id,
-                    "child has no checkpoint; skipped"
-                );
-                continue;
-            };
+        for meta in &latest_by_child {
             let gate = gate.clone();
-            let child = child.clone();
             let meta = meta.clone();
             let parent_entity_id = parent_entity_id.to_string();
-            let registry = registry.cloned();
             let storage = storage.clone();
             let restore_registry = restore_registry.clone();
             handles.push(tokio::spawn(async move {
@@ -436,9 +400,7 @@ impl WorkflowCheckpointCoordinator {
                 restore_child(
                     &state_manager,
                     restore_registry.as_ref(),
-                    &child,
                     &parent_entity_id,
-                    registry.as_deref(),
                     meta,
                 )
                 .await
@@ -484,72 +446,30 @@ impl WorkflowCheckpointCoordinator {
         summary.success += restored as usize;
         Ok((summary, failed_children))
     }
-
-    /// Post-restore FORK/JOIN inference: when the restored snapshot was
-    /// captured at a JOIN node, infer per-path completion status from the
-    /// restored child executions in the registry.
-    fn infer_join_state(
-        &self,
-        snapshot: &WorkflowExecutionStateSnapshot,
-        registry: &dyn ExecutionRegistry,
-    ) -> Option<JoinStateInference> {
-        let aggregation = snapshot.fork_join_aggregation_state.as_ref()?;
-        let path_statuses = aggregation.get("pathStatuses")?;
-        let path_ids: Vec<String> = match path_statuses {
-            serde_json::Value::Object(map) => map.keys().cloned().collect(),
-            _ => Vec::new(),
-        };
-        if path_ids.is_empty() {
-            return None;
-        }
-        let hierarchy = snapshot.hierarchy.as_ref();
-        Some(ForkJoinStateInference::infer(
-            &path_ids,
-            &snapshot.execution_id,
-            hierarchy,
-            registry,
-        ))
-    }
 }
 
 /// Restore a single child from its pre-resolved latest checkpoint metadata
 /// through the restore strategy registry when one is registered for the
-/// child's execution type. Spawned with bounded concurrency by
+/// child's entity type. Spawned with bounded concurrency by
 /// `restore_child_hierarchy`.
 async fn restore_child(
     state_manager: &WorkflowCheckpointStateManager,
     restore_registry: Option<&RestoreStrategyRegistry>,
-    child: &wf_types::execution::ChildExecutionReference,
-    parent_entity_id: &str,
-    registry: Option<&dyn ExecutionRegistry>,
+    _parent_entity_id: &str,
     meta: CheckpointStorageMetadata,
 ) -> Result<ChildRestoreOutcome, CheckpointError> {
     let mut outcome = ChildRestoreOutcome {
-        child_id: child.child_id.clone(),
+        child_id: meta.entity_id.clone(),
         metadata: Some(meta.clone()),
         restored: false,
         failed: false,
     };
 
     if let Some(reg) = restore_registry {
-        let entity_type = match child.child_type {
-            wf_types::execution::ExecutionType::Workflow => "workflow_execution",
-            wf_types::execution::ExecutionType::AgentLoop => "agent_loop",
-        };
         if let Some(data) = state_manager.load_checkpoint_data(&meta.id).await? {
-            let restore_result = reg.restore(entity_type, &meta.id, &data).await;
-            if let Ok(value) = restore_result {
+            let restore_result = reg.restore(&meta.entity_type, &meta.id, &data).await;
+            if restore_result.is_ok() {
                 outcome.restored = true;
-                if let Some(exec_registry) = registry {
-                    let status = restored_status(&value);
-                    register_child(
-                        exec_registry,
-                        &child.child_id,
-                        status,
-                        Some(parent_entity_id),
-                        child.branch_path_id(),
-                    );
-                }
             } else {
                 outcome.failed = true;
             }
@@ -570,24 +490,6 @@ struct ChildRestoreOutcome {
     failed: bool,
 }
 
-fn register_child(
-    registry: &dyn ExecutionRegistry,
-    child_id: &str,
-    status: Option<ExecutionStatus>,
-    parent: Option<&str>,
-    fork_path_id: Option<&str>,
-) {
-    let status = status.unwrap_or(ExecutionStatus::Failed);
-    match (parent, fork_path_id) {
-        (Some(parent), Some(path)) => {
-            registry.register_fork_path(child_id, status, parent, path);
-        }
-        (Some(parent), None) => {
-            registry.register_with_parent(child_id, status, Some(parent));
-        }
-        _ => registry.register(child_id, status),
-    }
-}
 
 impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     type Checkpoint = WorkflowCheckpoint;
@@ -907,8 +809,6 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                     status: snapshot.status.clone(),
                     snapshot,
                     restore_summary: None,
-                    hierarchy_validation: None,
-                    join_inference: None,
                 })
             }
             Some(CheckpointType::Delta) => {
@@ -922,8 +822,6 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                     status: state.status.clone(),
                     snapshot: state,
                     restore_summary: None,
-                    hierarchy_validation: None,
-                    join_inference: None,
                 })
             }
             None => Err(CheckpointError::Corrupted {
@@ -932,63 +830,14 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             }),
         }?;
 
-        // register the restored entity into the execution registry,
-        // restore child executions, then validate hierarchy integrity and
-        // infer FORK/JOIN completion status.
-        let mut validation: Option<HierarchyValidationResult> = None;
-        let mut join_inference: Option<JoinStateInference> = None;
-        let mut failed_child_ids: Vec<String> = Vec::new();
-        if let Some(registry) = &self.execution_registry {
-            let hierarchy = entity.snapshot.hierarchy.clone();
-            let parent = hierarchy
-                .as_ref()
-                .and_then(|h| h.parent_execution_id.clone());
-            registry.register_with_parent(
-                &entity.execution_id,
-                status_or_warn_running(&entity.status),
-                parent.as_deref(),
-            );
-
-            // post-restore phase — restore child executions from hierarchy.
-            if let Some(h) = &hierarchy {
-                if let Ok((summary, failed)) = self
-                    .restore_child_hierarchy(checkpoint_id, &entity.execution_id, h, Some(registry))
-                    .await
-                {
-                    entity.restore_summary = Some(summary);
-                    failed_child_ids = failed;
-                }
-                validation = Some(HierarchyIntegrityService::validate_integrity(
-                    h,
-                    registry.as_ref(),
-                ));
-            }
-
-            // FORK/JOIN status inference after child restoration.
-            if let Some(inferred) = self.infer_join_state(&entity.snapshot, registry.as_ref()) {
-                join_inference = Some(inferred);
-            }
-        } else if let Some(hierarchy) = entity.snapshot.hierarchy.clone() {
-            // fallback: restore children without a registry.
-            if let Ok((summary, failed)) = self
-                .restore_child_hierarchy(checkpoint_id, &entity.execution_id, &hierarchy, None)
-                .await
-            {
-                entity.restore_summary = Some(summary);
-                failed_child_ids = failed;
-            }
-        }
-        entity.hierarchy_validation = validation;
-        entity.join_inference = join_inference;
-
-        // Remove children that could not be restored from the restored
-        // entity's hierarchy metadata.
-        if !failed_child_ids.is_empty() {
-            if let Some(hierarchy) = &mut entity.snapshot.hierarchy {
-                if let Some(children) = &mut hierarchy.children {
-                    children.retain(|c| !failed_child_ids.contains(&c.child_id));
-                }
-            }
+        // Post-restore phase: bring back the child executions spawned from
+        // this one. They are located through their own records rather than a
+        // list cached in this snapshot.
+        if let Ok((summary, _failed)) = self
+            .restore_child_hierarchy(checkpoint_id, &entity.execution_id)
+            .await
+        {
+            entity.restore_summary = Some(summary);
         }
 
         // restore the latest file checkpoint for the entity (best-effort).
@@ -1197,8 +1046,6 @@ pub struct WorkflowExecutionEntity {
     pub status: String,
     pub snapshot: WorkflowExecutionStateSnapshot,
     pub restore_summary: Option<RestoreSummary>,
-    pub hierarchy_validation: Option<HierarchyValidationResult>,
-    pub join_inference: Option<JoinStateInference>,
 }
 
 #[cfg(test)]
@@ -1735,13 +1582,13 @@ mod tests {
 
     #[tokio::test]
     async fn restore_child_hierarchy_summary() {
-        use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
+        use wf_types::execution::{ExecutionHierarchy, ExecutionType};
 
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
         let coord = WorkflowCheckpointCoordinator::new(sm);
 
-        // Parent checkpoint.
+        // Parent checkpoint: a root, holding no knowledge of any child.
         let mut snapshot = make_snapshot();
         snapshot.hierarchy = Some(ExecutionHierarchy {
             workflow_id: "wf-1".to_string(),
@@ -1752,12 +1599,7 @@ mod tests {
             root_execution_id: None,
             root_execution_type: None,
             ancestors: None,
-            children: Some(vec![ChildExecutionReference {
-                child_type: ExecutionType::Workflow,
-                child_id: "child-exec-1".to_string(),
-                created_at: 0,
-                fork_path: None,
-            }]),
+            fork_path: None,
         });
         let ctx = coord
             .prepare("exec-1", CheckpointTiming::BeforeExecute)
@@ -1766,10 +1608,23 @@ mod tests {
         let cp = coord.build(ctx, snapshot).await.unwrap();
         coord.persist(&cp, "exec-1").await.unwrap();
 
-        // Child checkpoint stored under the child execution id.
+        // Child checkpoint stored under the child execution id, linking
+        // forward to the parent. The parent record predates the child, so the
+        // only way restore can find it is through this link.
         let mut child_snapshot = make_snapshot();
         child_snapshot.execution_id = "child-exec-1".to_string();
         child_snapshot.status = "completed".to_string();
+        child_snapshot.hierarchy = Some(ExecutionHierarchy {
+            workflow_id: "wf-1".to_string(),
+            execution_id: "child-exec-1".to_string(),
+            parent_execution_id: Some("exec-1".to_string()),
+            parent_execution_type: Some(ExecutionType::Workflow),
+            depth: 1,
+            root_execution_id: Some("exec-1".to_string()),
+            root_execution_type: Some(ExecutionType::Workflow),
+            ancestors: Some(vec!["exec-1".to_string()]),
+            fork_path: None,
+        });
         let ctx = coord
             .prepare("child-exec-1", CheckpointTiming::AfterExecute)
             .await
@@ -1779,8 +1634,7 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         let summary = entity.restore_summary.unwrap();
-        assert_eq!(summary.total, 1, "child checkpoint BFS-restored");
-        assert_eq!(summary.success, 1);
+        assert_eq!(summary.total, 1, "child found through its own parent link");
     }
 
     #[tokio::test]
@@ -1790,115 +1644,6 @@ mod tests {
         let vm = VersionManager::new();
         let coord = make_coordinator().with_version_manager(vm);
         assert_eq!(coord.version_manager().current_version(), "1.1.0");
-    }
-
-    #[tokio::test]
-    async fn restore_registers_entity_and_validates_hierarchy() {
-        use checkpoint_state::restore::integrity::InMemoryExecutionRegistry;
-        use std::sync::Arc;
-        use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let registry = Arc::new(InMemoryExecutionRegistry::new());
-        let coord =
-            WorkflowCheckpointCoordinator::new(sm).with_execution_registry(registry.clone());
-
-        let mut snapshot = make_snapshot();
-        snapshot.hierarchy = Some(ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "exec-1".to_string(),
-            parent_execution_id: None,
-            parent_execution_type: None,
-            depth: 0,
-            root_execution_id: None,
-            root_execution_type: None,
-            ancestors: None,
-            children: Some(vec![ChildExecutionReference {
-                child_type: ExecutionType::Workflow,
-                child_id: "child-exec-1".to_string(),
-                created_at: 0,
-                fork_path: None,
-            }]),
-        });
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        assert!(registry.has("exec-1"), "restored entity registered");
-        let validation = entity.hierarchy_validation.unwrap();
-        assert!(
-            !validation.valid,
-            "orphaned child reference reported as issue"
-        );
-        assert_eq!(validation.issues.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn restore_infers_join_state_from_registry() {
-        use checkpoint_state::restore::integrity::InMemoryExecutionRegistry;
-        use std::sync::Arc;
-        use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let registry = Arc::new(InMemoryExecutionRegistry::new());
-        let coord =
-            WorkflowCheckpointCoordinator::new(sm).with_execution_registry(registry.clone());
-
-        // Snapshot captured at a JOIN node with aggregation state.
-        let mut snapshot = make_snapshot();
-        snapshot.current_node_id = Some("join-1".to_string());
-        snapshot.fork_join_aggregation_state = Some(serde_json::json!({
-            "forkNodeId": "fork-1",
-            "joinNodeId": "join-1",
-            "pathStatuses": {"path-1": "PENDING", "path-2": "PENDING"},
-            "isAggregationComplete": false,
-        }));
-        snapshot.hierarchy = Some(ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "exec-1".to_string(),
-            parent_execution_id: None,
-            parent_execution_type: None,
-            depth: 0,
-            root_execution_id: None,
-            root_execution_type: None,
-            ancestors: None,
-            children: Some(vec![
-                ChildExecutionReference {
-                    child_type: ExecutionType::Workflow,
-                    child_id: "child-1".to_string(),
-                    created_at: 0,
-                    fork_path: Some(wf_types::execution::ForkPath::new("fork-1", "path-1")),
-                },
-                ChildExecutionReference {
-                    child_type: ExecutionType::Workflow,
-                    child_id: "child-2".to_string(),
-                    created_at: 0,
-                    fork_path: Some(wf_types::execution::ForkPath::new("fork-1", "path-2")),
-                },
-            ]),
-        });
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        // Simulate that child executions were restored (completed) before the
-        // parent's restore step runs the inference.
-        registry.register_fork_path("child-1", ExecutionStatus::Completed, "exec-1", "path-1");
-        registry.register_fork_path("child-2", ExecutionStatus::Completed, "exec-1", "path-2");
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        let inference = entity.join_inference.expect("join inference ran");
-        assert_eq!(inference.completed_paths.len(), 2);
-        assert!(inference.is_complete());
     }
 
     #[tokio::test]

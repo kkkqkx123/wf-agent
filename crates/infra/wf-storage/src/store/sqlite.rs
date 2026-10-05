@@ -56,6 +56,10 @@ fn build_select_sql(
                     conditions.push(format!("{} = ?", metadata_text_expr(key)));
                     params.push(FilterBindValue::S(value.clone()));
                 }
+                FilterCondition::Id(id) => {
+                    conditions.push("id = ?".into());
+                    params.push(FilterBindValue::S(id.clone()));
+                }
                 FilterCondition::IdPrefix(prefix) => {
                     conditions.push("id LIKE ? ESCAPE '\\'".into());
                     params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
@@ -185,6 +189,15 @@ impl SqliteStorage {
             ("status", "status"),
             ("execution", "executionId"),
             ("entity", "entityId"),
+            // Forward parent link of execution and checkpoint records; the
+            // reverse "children of X" lookups all resolve through it.
+            ("parent", "parentEntityId"),
+            // Forward parent link of execution records, where a root leaves the
+            // key absent so it can never match itself.
+            ("parent_execution", "parentExecutionId"),
+            // Materialised ancestor path of execution records; one prefix scan
+            // on it answers a whole subtree.
+            ("execution_path", "executionPath"),
         ] {
             let name = format!("idx_{}_{}", table_name, suffix);
             let check: Option<(Option<String>,)> =

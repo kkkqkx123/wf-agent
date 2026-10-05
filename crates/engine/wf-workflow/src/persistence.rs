@@ -138,10 +138,9 @@ pub async fn build_workflow_execution(
 
 async fn build_persisted_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
     let manager = entity.hierarchy_manager();
-    let children = manager.children();
     let parent = manager.parent();
     let ancestors = entity.get_ancestors();
-    if parent.is_none() && children.is_empty() && ancestors.is_empty() {
+    if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
     Some(ExecutionHierarchy {
@@ -157,11 +156,7 @@ async fn build_persisted_hierarchy(entity: &WorkflowExecutionEntity) -> Option<E
         } else {
             Some(ancestors)
         },
-        children: if children.is_empty() {
-            None
-        } else {
-            Some(children)
-        },
+        fork_path: manager.fork_path(),
     })
 }
 
@@ -225,7 +220,6 @@ mod tests {
         let entity = WorkflowExecutionEntity::new("child".to_string(), "wf-1".to_string())
             .with_hierarchy_manager(child_manager)
             .with_execution_type(wf_types::workflow_execution::WorkflowExecutionType::Subgraph);
-        entity.register_child("gc".to_string()).await;
         let record =
             build_workflow_execution(&entity, &empty_graph(), &empty_options(), None).await;
         let hierarchy = record.hierarchy.expect("child must carry hierarchy");
@@ -233,7 +227,9 @@ mod tests {
         assert_eq!(hierarchy.root_execution_id.as_deref(), Some("root"));
         assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("root"));
         assert_eq!(hierarchy.ancestors, Some(vec!["root".to_string()]));
-        assert_eq!(hierarchy.children.map(|c| c.len()), Some(1));
+        // A child never records its own children; the tree is recovered by
+        // querying the child records.
+        assert_eq!(root_manager.children().len(), 1);
         assert_eq!(
             record.execution_type,
             Some(wf_types::workflow_execution::WorkflowExecutionType::Subgraph)

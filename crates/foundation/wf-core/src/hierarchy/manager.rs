@@ -6,32 +6,41 @@ use wf_common::lock::read_ok;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use wf_types::execution::{ChildExecutionReference, ExecutionType, ForkPath};
+use wf_types::execution::{ExecutionType, ForkPath};
 use wf_types::Id;
 
 use crate::error::{CoreError, CoreResult};
 
 pub const MAX_DEPTH: u32 = 10;
 
+/// One live child execution tracked by its parent's manager. This is runtime
+/// bookkeeping for subtree control (pause / resume / stop / cancel) and depth
+/// accounting; it is never persisted. Durable parent-child links live on the
+/// child side, so a child's own record is the single source of truth for the
+/// shape of the tree.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChildExecutionReference {
+    pub child_type: ExecutionType,
+    pub child_id: Id,
+    pub created_at: wf_types::Timestamp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_path: Option<ForkPath>,
+}
+
+impl ChildExecutionReference {
+    pub fn branch_path_id(&self) -> Option<&str> {
+        self.fork_path.as_ref().map(|p| p.branch_path_id())
+    }
+
+    pub fn fork_node_id(&self) -> Option<&str> {
+        self.fork_path.as_ref().map(|p| p.fork_node_id())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParentExecutionContext {
     pub parent_id: Id,
     pub parent_type: ExecutionType,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionHierarchyMetadata {
-    pub parent: Option<ParentExecutionContext>,
-    pub children: Vec<ChildExecutionReference>,
-    pub depth: u32,
-    pub root_execution_id: Id,
-    pub root_execution_type: ExecutionType,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// `None` when the chain is unknown (e.g. legacy metadata or a root
-    /// execution with no ancestors). ActorId resolution prefers this chain
-    /// over the two-level root+parent fallback.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ancestors: Option<Vec<Id>>,
 }
 
 pub struct ExecutionHierarchyManager {
@@ -48,9 +57,11 @@ struct HierarchyInner {
     root_execution_id: Id,
     root_execution_type: ExecutionType,
     /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Populated by `set_ancestors` / `from_metadata` when the full chain
-    /// is known; empty for roots or when only the direct parent is known.
+    /// Populated by `set_parent` when the full chain is known; empty for
+    /// roots or when only the direct parent is known.
     ancestors: Vec<Id>,
+    /// Set when this execution was produced by a FORK branch.
+    fork_path: Option<ForkPath>,
 }
 
 impl ExecutionHierarchyManager {
@@ -65,36 +76,7 @@ impl ExecutionHierarchyManager {
                 root_execution_id: execution_id,
                 root_execution_type: execution_type,
                 ancestors: Vec::new(),
-            }),
-        }
-    }
-
-    pub fn from_metadata(
-        execution_id: Id,
-        execution_type: ExecutionType,
-        metadata: ExecutionHierarchyMetadata,
-    ) -> Self {
-        let children: HashMap<String, ChildExecutionReference> = metadata
-            .children
-            .into_iter()
-            .map(|c| {
-                (
-                    format!("{}:{}", child_type_str(&c.child_type), c.child_id),
-                    c,
-                )
-            })
-            .collect();
-
-        Self {
-            inner: RwLock::new(HierarchyInner {
-                execution_id,
-                execution_type,
-                parent: metadata.parent,
-                children,
-                depth: metadata.depth,
-                root_execution_id: metadata.root_execution_id,
-                root_execution_type: metadata.root_execution_type,
-                ancestors: metadata.ancestors.unwrap_or_default(),
+                fork_path: None,
             }),
         }
     }
@@ -265,6 +247,7 @@ impl ExecutionHierarchyManager {
                 root_execution_id: parent_root_id,
                 root_execution_type: parent_root_type,
                 ancestors: chain,
+                fork_path: fork_path.clone(),
             }),
         });
         let child_ref = ChildExecutionReference {
@@ -277,11 +260,12 @@ impl ExecutionHierarchyManager {
         Ok(child)
     }
 
-    /// Rebuild a manager from a persisted snapshot hierarchy. The parent
-    /// type falls back to `default_parent_type` when the snapshot predates
-    /// it; the root falls back through explicit root, ancestor chain head,
-    /// parent, then self. Registered children keep their full references
-    /// (type, fork path, creation time).
+    /// Rebuild a manager from a persisted record hierarchy. The parent type
+    /// falls back to `default_parent_type` when the record predates it; the
+    /// root falls back through explicit root, ancestor chain head, parent,
+    /// then self. Children are not restored: they are discovered by querying
+    /// the child records themselves, so a manager rebuilt from storage never
+    /// carries a stale child list.
     pub fn restore(
         execution_id: Id,
         execution_type: ExecutionType,
@@ -314,20 +298,18 @@ impl ExecutionHierarchyManager {
                 manager.root_execution_type()
             }
         });
-        manager.sync_restored(parent, ancestors, hierarchy.depth, root_id, root_type);
-        if let Some(children) = hierarchy.children.as_ref() {
-            for child in children {
-                manager.register_child_ref(child.clone());
-            }
-        }
+        manager.sync_restored(
+            parent,
+            ancestors,
+            hierarchy.depth,
+            root_id,
+            root_type,
+            hierarchy.fork_path.clone(),
+        );
         manager
     }
 
     pub fn register_child_ref(&self, child_ref: ChildExecutionReference) {
-        self.add_child(child_ref);
-    }
-
-    pub fn register_complete_child_ref(&self, child_ref: ChildExecutionReference) {
         self.add_child(child_ref);
     }
 
@@ -338,6 +320,7 @@ impl ExecutionHierarchyManager {
         depth: u32,
         root_id: Id,
         root_type: ExecutionType,
+        fork_path: Option<ForkPath>,
     ) {
         let mut inner = wf_common::lock::write_ok(self.inner.write());
         inner.parent = parent;
@@ -345,6 +328,7 @@ impl ExecutionHierarchyManager {
         inner.depth = depth;
         inner.root_execution_id = root_id;
         inner.root_execution_type = root_type;
+        inner.fork_path = fork_path;
     }
 
     pub fn add_child(&self, child_ref: ChildExecutionReference) {
@@ -404,20 +388,10 @@ impl ExecutionHierarchyManager {
             .clone()
     }
 
-    pub fn to_metadata(&self) -> ExecutionHierarchyMetadata {
-        let inner = wf_common::lock::read_ok(self.inner.read());
-        ExecutionHierarchyMetadata {
-            parent: inner.parent.clone(),
-            children: inner.children.values().cloned().collect(),
-            depth: inner.depth,
-            root_execution_id: inner.root_execution_id.clone(),
-            root_execution_type: inner.root_execution_type.clone(),
-            ancestors: if inner.ancestors.is_empty() {
-                None
-            } else {
-                Some(inner.ancestors.clone())
-            },
-        }
+    /// The FORK branch this execution was produced by, when it was spawned
+    /// from a fork node.
+    pub fn fork_path(&self) -> Option<ForkPath> {
+        read_ok(self.inner.read()).fork_path.clone()
     }
 
     pub fn would_create_cycle(&self, ancestor_chain: &[Id]) -> bool {
@@ -473,6 +447,27 @@ mod tests {
             child_id: id.to_string(),
             created_at: wf_common::time::now(),
             fork_path: None,
+        }
+    }
+
+    /// The persisted shape a manager is rebuilt from: forward links only.
+    fn record_of(manager: &ExecutionHierarchyManager) -> wf_types::execution::ExecutionHierarchy {
+        let parent = manager.parent();
+        let ancestors = manager.ancestors();
+        wf_types::execution::ExecutionHierarchy {
+            workflow_id: manager.execution_id(),
+            execution_id: manager.execution_id(),
+            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
+            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
+            depth: manager.depth(),
+            root_execution_id: Some(manager.root_execution_id()),
+            root_execution_type: Some(manager.root_execution_type()),
+            ancestors: if ancestors.is_empty() {
+                None
+            } else {
+                Some(ancestors)
+            },
+            fork_path: manager.fork_path(),
         }
     }
 
@@ -542,7 +537,7 @@ mod tests {
             vec!["root".to_string(), "parent".to_string()]
         );
         assert_eq!(
-            m.to_metadata().ancestors,
+            record_of(&m).ancestors,
             Some(vec!["root".to_string(), "parent".to_string()])
         );
     }
@@ -559,7 +554,7 @@ mod tests {
         )
         .unwrap();
         assert!(m.ancestors().is_empty());
-        assert!(m.to_metadata().ancestors.is_none());
+        assert!(record_of(&m).ancestors.is_none());
     }
 
     #[test]
@@ -580,9 +575,9 @@ mod tests {
     }
 
     #[test]
-    fn test_three_level_chain_roundtrip_through_metadata() {
+    fn test_three_level_chain_roundtrip_through_record() {
         // root -> child -> grandchild: the grandchild's chain is the child's
-        // chain extended by the child id, and survives a metadata roundtrip.
+        // chain extended by the child id, and survives a record roundtrip.
         // The child knows its parent but the parent (root) has no chain,
         // expressed as an explicit empty slice rather than `None`.
         let child = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
@@ -614,15 +609,18 @@ mod tests {
             vec!["root".to_string(), "child".to_string()]
         );
 
-        let restored = ExecutionHierarchyManager::from_metadata(
+        let restored = ExecutionHierarchyManager::restore(
             "grandchild".to_string(),
             ExecutionType::AgentLoop,
-            grandchild.to_metadata(),
+            &record_of(&grandchild),
+            ExecutionType::AgentLoop,
         );
         assert_eq!(
             restored.ancestors(),
             vec!["root".to_string(), "child".to_string()]
         );
+        assert_eq!(restored.depth(), 2);
+        assert_eq!(restored.root_execution_id(), "root");
     }
 
     #[test]
@@ -633,39 +631,41 @@ mod tests {
     }
 
     #[test]
-    fn test_to_metadata_roundtrip() {
+    fn test_restore_carries_no_children() {
+        // Children are discovered from the child records, so a manager
+        // rebuilt from a persisted record starts with an empty child list
+        // even when the live manager had registered children.
         let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::AgentLoop);
         m.add_child(make_ref("c1", ExecutionType::Workflow));
         m.add_child(make_ref("c2", ExecutionType::AgentLoop));
+        assert_eq!(m.children().len(), 2);
 
-        let metadata = m.to_metadata();
-        assert_eq!(metadata.children.len(), 2);
-        assert_eq!(metadata.root_execution_id, "exec1");
-
-        let restored = ExecutionHierarchyManager::from_metadata(
+        let restored = ExecutionHierarchyManager::restore(
             "exec1".to_string(),
             ExecutionType::AgentLoop,
-            metadata,
+            &record_of(&m),
+            ExecutionType::AgentLoop,
         );
-        assert_eq!(restored.children().len(), 2);
+        assert!(restored.children().is_empty());
         assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
     }
 
     #[test]
-    fn test_ancestors_roundtrip_through_metadata() {
+    fn test_ancestors_roundtrip_through_record() {
         let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::Workflow);
         m.set_ancestors(vec!["parent-1".to_string(), "parent-2".to_string()]);
 
-        let metadata = m.to_metadata();
+        let record = record_of(&m);
         assert_eq!(
-            metadata.ancestors,
+            record.ancestors,
             Some(vec!["parent-1".to_string(), "parent-2".to_string()])
         );
 
-        let restored = ExecutionHierarchyManager::from_metadata(
+        let restored = ExecutionHierarchyManager::restore(
             "child".to_string(),
             ExecutionType::Workflow,
-            metadata,
+            &record,
+            ExecutionType::Workflow,
         );
         assert_eq!(
             restored.ancestors(),
@@ -677,7 +677,7 @@ mod tests {
     fn test_root_has_no_ancestors() {
         let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::AgentLoop);
         assert!(m.ancestors().is_empty());
-        assert!(m.to_metadata().ancestors.is_none());
+        assert!(record_of(&m).ancestors.is_none());
     }
 
     #[test]
@@ -777,14 +777,14 @@ mod tests {
     }
 
     #[test]
-    fn test_from_metadata_keeps_own_execution_type() {
+    fn test_restore_keeps_own_execution_type() {
         let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::AgentLoop);
         m.add_child(make_ref("c1", ExecutionType::Workflow));
-        let metadata = m.to_metadata();
-        let restored = ExecutionHierarchyManager::from_metadata(
+        let restored = ExecutionHierarchyManager::restore(
             "exec1".to_string(),
             ExecutionType::AgentLoop,
-            metadata,
+            &record_of(&m),
+            ExecutionType::AgentLoop,
         );
         assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
     }
@@ -802,6 +802,7 @@ mod tests {
         assert_eq!(child.root_execution_id(), "root");
         assert_eq!(child.ancestors(), vec!["root".to_string()]);
         assert_eq!(parent.children().len(), 1);
+        assert!(child.fork_path().is_none());
     }
 
     #[test]
@@ -819,6 +820,10 @@ mod tests {
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].fork_node_id(), Some("fork-1"));
         assert_eq!(children[0].branch_path_id(), Some("path-a"));
+        // The child also keeps its own provenance, so a record written from
+        // the child alone still reports which branch produced it.
+        assert_eq!(child.fork_path().unwrap().fork_node_id(), "fork-1");
+        assert_eq!(child.fork_path().unwrap().branch_path_id(), "path-a");
     }
 
     #[test]

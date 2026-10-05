@@ -848,16 +848,16 @@ async fn build_checkpoint_snapshot(
 }
 
 /// Build the execution hierarchy captured at checkpoint time: read directly
-/// from the entity hierarchy manager so fork paths, child types and creation
-/// times survive the snapshot instead of being refabricated.
+/// from the entity hierarchy manager so fork provenance, parent type and the
+/// ancestor chain survive the snapshot instead of being refabricated.
+/// Forward links only — the child side of the tree is discovered by querying
+/// the child records, never from a list cached in this snapshot.
 async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
     use wf_execution_shared::types::execution_entity::ExecutionEntity;
     let manager = entity.hierarchy_manager();
-    let children = manager.children();
-    let has_children = !children.is_empty();
     let parent = manager.parent();
     let ancestors = entity.get_ancestors();
-    if parent.is_none() && !has_children && ancestors.is_empty() {
+    if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
     Some(ExecutionHierarchy {
@@ -873,7 +873,7 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
         } else {
             Some(ancestors)
         },
-        children: if has_children { Some(children) } else { None },
+        fork_path: manager.fork_path(),
     })
 }
 
@@ -1912,7 +1912,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_hierarchy_carries_depth_root_and_children() {
+    async fn build_hierarchy_carries_depth_root_and_fork_path() {
         let root_manager =
             std::sync::Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 "root".to_string(),
@@ -1925,18 +1925,36 @@ mod tests {
                 None,
             )
             .expect("derive");
+        let fork_manager = root_manager
+            .derive_child(
+                "branch".to_string(),
+                wf_types::execution::ExecutionType::Workflow,
+                Some(wf_types::execution::ForkPath::new("fork-1", "path-a")),
+            )
+            .expect("derive");
         let entity = wf_workflow::entity::WorkflowExecutionEntity::new(
             "child".to_string(),
             "wf-1".to_string(),
         )
         .with_hierarchy_manager(child_manager);
-        entity.register_child("gc".to_string()).await;
+        let fork_entity = wf_workflow::entity::WorkflowExecutionEntity::new(
+            "branch".to_string(),
+            "wf-1".to_string(),
+        )
+        .with_hierarchy_manager(fork_manager);
         let hierarchy = build_hierarchy(&entity).await.expect("hierarchy built");
         assert_eq!(hierarchy.depth, 1);
         assert_eq!(hierarchy.root_execution_id.as_deref(), Some("root"));
         assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("root"));
         assert_eq!(hierarchy.ancestors, Some(vec!["root".to_string()]));
-        assert_eq!(hierarchy.children.map(|c| c.len()), Some(1));
+        // Creation provenance belongs to the child, never to a child list on
+        // the parent.
+        assert!(hierarchy.fork_path.is_none());
+        let fork_hierarchy = build_hierarchy(&fork_entity).await.expect("hierarchy built");
+        assert_eq!(
+            fork_hierarchy.fork_path.as_ref().map(|p| p.branch_path_id()),
+            Some("path-a")
+        );
     }
 
     #[tokio::test]

@@ -130,6 +130,22 @@ async fn restore_latest_snapshot(
         .snapshot
 }
 
+/// Child executions of `parent_id`, located through the parent link each
+/// child record carries. The parent record itself lists no children.
+async fn child_execution_ids(
+    store: &Arc<StorageBackend>,
+    parent_id: &str,
+) -> Vec<String> {
+    let manager = WorkflowCheckpointStateManager::new(store.clone());
+    manager
+        .list_latest_by_parent(parent_id)
+        .await
+        .expect("child lookup succeeds")
+        .into_iter()
+        .map(|meta| meta.entity_id)
+        .collect()
+}
+
 fn fork_join_graph() -> WorkflowGraphStructure {
     graph(
         vec![
@@ -217,25 +233,28 @@ async fn fork_completion_snapshot_carries_live_aggregation() {
         .expect("aggregation maps paths to branch executions");
     assert_eq!(branch_children.len(), 2);
 
-    // The branch map and the hierarchy child references describe the same
-    // linkage: every mapped branch id is a registered fork child.
-    let hierarchy = snapshot
-        .hierarchy
-        .expect("parent snapshot carries hierarchy");
-    let children = hierarchy.children.expect("parent links both branches");
-    assert_eq!(children.len(), 2);
-    for child in &children {
-        assert_eq!(child.fork_node_id(), Some("fork"));
-        assert!(child.branch_path_id().is_some());
-    }
-    let mut mapped: Vec<&str> = branch_children
+    // The branch map and the child records describe the same linkage: every
+    // mapped branch id is a child that records its own fork provenance.
+    let mut mapped: Vec<String> = branch_children
         .values()
         .filter_map(|v| v.as_str())
+        .map(str::to_string)
         .collect();
     mapped.sort();
-    let mut linked: Vec<&str> = children.iter().map(|c| c.child_id.as_str()).collect();
+
+    let mut linked = child_execution_ids(&store, snapshot.execution_id.as_str()).await;
     linked.sort();
-    assert_eq!(mapped, linked);
+    assert_eq!(mapped, linked, "branch map matches the child records");
+
+    for branch_id in &mapped {
+        let child = restore_latest_snapshot(&store, branch_id).await;
+        let hierarchy = child
+            .hierarchy
+            .expect("child snapshot carries hierarchy");
+        assert_eq!(hierarchy.fork_path.as_ref().map(|p| p.fork_node_id()), Some("fork"));
+        assert!(hierarchy.fork_path.as_ref().is_some_and(|p| !p.branch_path_id().is_empty()));
+        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some(snapshot.execution_id.as_str()));
+    }
 }
 
 #[tokio::test]
@@ -293,19 +312,11 @@ async fn subgraph_completion_snapshot_preserves_child_linkage() {
         .expect("subgraph workflow completes");
     assert_eq!(output.execution_id.as_str(), execution_id);
 
-    // The parent snapshot links exactly one child; the child's own snapshot
-    // carries the matching parent, depth, root and ancestor chain.
-    let parent_snapshot = restore_latest_snapshot(&store, execution_id).await;
-    let parent_hierarchy = parent_snapshot
-        .hierarchy
-        .expect("parent snapshot carries hierarchy");
-    let parent_children = parent_hierarchy.children.expect("parent links the child");
-    assert_eq!(parent_children.len(), 1);
-    assert_eq!(
-        parent_children[0].child_type,
-        wf_types::execution::ExecutionType::Workflow
-    );
-    let child_id = parent_children[0].child_id.to_string();
+    // The child is found through the parent link on its own record, and that
+    // same record carries the parent, depth, root and ancestor chain.
+    let children = child_execution_ids(&store, execution_id).await;
+    assert_eq!(children.len(), 1);
+    let child_id = children[0].clone();
 
     let child_snapshot = restore_latest_snapshot(&store, &child_id).await;
     let child_hierarchy = child_snapshot

@@ -116,6 +116,7 @@ impl<T> StorageBackedStateManager<T> {
             "id": args.id,
             "entityType": args.entity_type,
             "entityId": args.entity_id,
+            "parentEntityId": args.parent_entity_id,
             "checkpointType": args.checkpoint_type,
             "timestamp": args.timestamp,
             "status": "completed",
@@ -136,6 +137,7 @@ struct MetadataArgs<'a> {
     id: &'a str,
     entity_type: &'a str,
     entity_id: &'a str,
+    parent_entity_id: Option<&'a str>,
     checkpoint_type: CheckpointType,
     timestamp: i64,
     base_checkpoint_id: Option<&'a str>,
@@ -209,6 +211,40 @@ where
         Ok(latest)
     }
 
+    /// Resolve the latest checkpoint metadata of every entity spawned directly
+    /// from `parent_entity_id`, in one storage query on the indexed
+    /// `parentEntityId` metadata field. This is how a parent restore finds its
+    /// children: the link lives on the child, so the answer is current even
+    /// when the parent last persisted before the child existed.
+    pub async fn list_latest_by_parent(
+        &self,
+        parent_entity_id: &str,
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        let filter = QueryFilter::new()
+            .with_field("parentEntityId", parent_entity_id)
+            .with_order_by("timestamp", true);
+
+        let entries = self
+            .storage
+            .list(Some(&filter))
+            .await
+            .map_err(CheckpointError::Storage)?;
+
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut latest: Vec<CheckpointStorageMetadata> = Vec::new();
+        for (id, meta) in entries {
+            let entity_id = meta
+                .get("entityId")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if seen.insert(entity_id.clone()) {
+                latest.push(parse_storage_metadata(&id, &entity_id, &meta));
+            }
+        }
+        Ok(latest)
+    }
+
     fn extract_tags(&self, checkpoint: &T) -> Option<Vec<String>> {
         serde_json::to_value(checkpoint).ok().and_then(|json| {
             json.get("metadata")
@@ -223,6 +259,20 @@ where
                 .and_then(|m| m.get("customFields").or_else(|| m.get("custom_fields")))
                 .and_then(|v| v.as_object())
                 .cloned()
+        })
+    }
+
+    /// The parent execution id carried by the checkpoint payload's snapshot
+    /// hierarchy. Recorded on the storage metadata so child checkpoints are
+    /// discoverable by querying their parent, rather than by reading a child
+    /// list the parent must keep current.
+    fn extract_parent_entity_id(&self, checkpoint: &T) -> Option<String> {
+        serde_json::to_value(checkpoint).ok().and_then(|json| {
+            json.get("snapshot")
+                .and_then(|s| s.get("hierarchy"))
+                .and_then(|h| h.get("parent_execution_id").or_else(|| h.get("parentExecutionId")))
+                .and_then(|v| v.as_str())
+                .map(|v| v.to_string())
         })
     }
 
@@ -534,11 +584,13 @@ where
             .await?;
         let tags = self.extract_tags(checkpoint);
         let custom_fields = self.extract_custom_fields(checkpoint);
+        let parent_entity_id = self.extract_parent_entity_id(checkpoint);
 
         let metadata = self.build_metadata(MetadataArgs {
             id: &id,
             entity_type,
             entity_id,
+            parent_entity_id: parent_entity_id.as_deref(),
             checkpoint_type,
             timestamp,
             base_checkpoint_id: base_checkpoint_id.as_deref(),
@@ -836,6 +888,10 @@ pub fn parse_storage_metadata(
         id: id.to_string(),
         entity_type,
         entity_id: entity_id.to_string(),
+        parent_entity_id: meta
+            .get("parentEntityId")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         checkpoint_type: cp_type,
         timestamp,
         status,

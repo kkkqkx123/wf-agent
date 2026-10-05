@@ -367,7 +367,7 @@ impl ForkHandler {
                     .get("path_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("path");
-                parent_manager.register_child_ref(wf_types::execution::ChildExecutionReference {
+                parent_manager.register_child_ref(wf_core::ChildExecutionReference {
                     child_type: wf_types::execution::ExecutionType::Workflow,
                     child_id: branch_id.clone(),
                     created_at: wf_common::now(),

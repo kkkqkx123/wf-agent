@@ -276,6 +276,7 @@ async fn test_checkpoint_latest_by_entity() {
                 id: format!("cp-{}", i),
                 entity_type: "checkpoint".into(),
                 entity_id: "ex-1".into(),
+                parent_entity_id: None,
                 checkpoint_type: wf_types::checkpoint::base::CheckpointType::Full,
                 timestamp: ts,
                 status: wf_types::checkpoint::base::CheckpointStatus::Active,

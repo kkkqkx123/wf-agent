@@ -625,12 +625,11 @@ impl AgentCheckpointIntegration {
     ) -> Option<wf_types::execution::ExecutionHierarchy> {
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
         let manager = entity.hierarchy_manager();
-        let children = manager.children();
         let parent = manager.parent();
-        if parent.is_none() && children.is_empty() {
+        let ancestors = entity.get_ancestors();
+        if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
             return None;
         }
-        let ancestors = entity.get_ancestors();
         Some(wf_types::execution::ExecutionHierarchy {
             workflow_id: entity.definition_id().clone(),
             execution_id: entity.id().clone(),
@@ -644,11 +643,7 @@ impl AgentCheckpointIntegration {
             } else {
                 Some(ancestors)
             },
-            children: if children.is_empty() {
-                None
-            } else {
-                Some(children)
-            },
+            fork_path: manager.fork_path(),
         })
     }
 

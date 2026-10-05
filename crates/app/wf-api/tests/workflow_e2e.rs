@@ -312,6 +312,7 @@ async fn checkpoint_crud_across_pipeline() {
         id: "cp-e2e-1".into(),
         entity_type: "execution".into(),
         entity_id: "exec-e2e-1".into(),
+        parent_entity_id: None,
         checkpoint_type: CheckpointType::Full,
         timestamp: wf_common::now(),
         status: CheckpointStatus::Active,

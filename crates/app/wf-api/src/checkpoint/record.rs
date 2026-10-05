@@ -367,6 +367,7 @@ mod tests {
             id: id.into(),
             entity_type: "checkpoint".into(),
             entity_id: entity_id.into(),
+            parent_entity_id: None,
             checkpoint_type: CheckpointType::Full,
             timestamp: ts,
             status: CheckpointStatus::Active,

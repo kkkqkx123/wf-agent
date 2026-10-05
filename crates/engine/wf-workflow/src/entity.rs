@@ -142,7 +142,7 @@ impl WorkflowExecutionEntity {
             return;
         }
         self.hierarchy
-            .register_child_ref(wf_types::execution::ChildExecutionReference {
+            .register_child_ref(wf_core::ChildExecutionReference {
                 child_type: wf_types::execution::ExecutionType::Workflow,
                 child_id,
                 created_at: wf_common::now(),
@@ -152,7 +152,7 @@ impl WorkflowExecutionEntity {
 
     pub async fn register_child_ref(
         &self,
-        child_ref: wf_types::execution::ChildExecutionReference,
+        child_ref: wf_core::ChildExecutionReference,
     ) {
         self.hierarchy.register_child_ref(child_ref);
     }
@@ -403,7 +403,7 @@ mod tests {
             root_execution_id: Some("root".to_string()),
             root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
             ancestors: Some(vec!["root".to_string(), "child".to_string()]),
-            children: None,
+            fork_path: None,
         };
         let restored_manager = ExecutionHierarchyManager::restore(
             "gc".to_string(),

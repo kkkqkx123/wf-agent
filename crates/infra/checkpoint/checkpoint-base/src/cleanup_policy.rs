@@ -391,6 +391,7 @@ mod tests {
             id: id.to_string(),
             entity_type: "test".to_string(),
             entity_id: "entity-1".to_string(),
+            parent_entity_id: None,
             checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
             timestamp: timestamp_ms,
             status: wf_types::checkpoint::CheckpointStatus::Completed,

@@ -8,7 +8,7 @@ use crate::resource_assembler::{
 };
 
 use super::config::{GoalReviewConfig, DEFAULT_MAX_ITERATIONS, DEFAULT_PLANNER_PROFILE_ID};
-use super::workflow::{build_planner_prompt, build_workflow};
+use super::workflow::build_workflow;
 
 pub const GOAL_REVIEW_RESOURCE_ASSEMBLER_ID: &str = "@standard/goal-review-agent";
 
@@ -95,30 +95,30 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
                     },
                 ),
                 (
-                    "planner_system_prompt".into(),
+                    "planner_system_prompt_template_id".into(),
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::String,
-                        description: "Custom system prompt for the task planner".into(),
+                        description: "Template ID for the task planner system prompt".into(),
                         default: None,
                         required: None,
                         allowed_functions: None,
                     },
                 ),
                 (
-                    "executor_system_prompt".into(),
+                    "executor_system_prompt_template_id".into(),
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::String,
-                        description: "Override system prompt for the executor agent".into(),
+                        description: "Template ID for the executor agent system prompt".into(),
                         default: None,
                         required: None,
                         allowed_functions: None,
                     },
                 ),
                 (
-                    "reviewer_system_prompt".into(),
+                    "reviewer_system_prompt_template_id".into(),
                     ResourceAssemblerConfigField {
                         r#type: ResourceAssemblerConfigFieldType::String,
-                        description: "Override system prompt for the reviewer agent".into(),
+                        description: "Template ID for the reviewer agent system prompt".into(),
                         default: None,
                         required: None,
                         allowed_functions: None,
@@ -153,7 +153,6 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
         let config = GoalReviewConfig::parse(config)?;
         Ok(ResourceBundle::builder()
             .workflow(build_workflow(&config)?)
-            .prompt(build_planner_prompt(&config))
             .build())
     }
 }
@@ -161,6 +160,9 @@ impl ResourceAssembler for GoalReviewResourceAssembler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::predefined::agent_prompts::GOAL_REVIEW_PLANNER_PROMPT_KEY;
+    use crate::registry::{RegisterOptions, ResourceRegistries};
+    use wf_core::Registry;
     use wf_types::agent::AgentDefinition;
     use wf_types::node::StaticNodeType;
     use wf_types::workflow::EdgeType;
@@ -186,8 +188,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(bundle.workflows.len(), 1);
-        assert_eq!(bundle.prompts.len(), 1);
-        assert_eq!(bundle.prompts[0].id, "prompt.goal-review.planner");
+        // The planner prompt is not copied into the bundle: the node resolves
+        // the registry template id, so the built-in `@standard` prompt already
+        // registered by the agent prompt registration stage applies.
+        assert!(bundle.prompts.is_empty());
 
         let wf = &bundle.workflows[0];
         assert_eq!(wf.id, "@standard/goal-review-agent-workflow");
@@ -211,7 +215,8 @@ mod tests {
             ]
         );
 
-        // The task_planner LLM node references the planner prompt template.
+        // The task_planner LLM node references the built-in planner prompt
+        // template by id rather than an assembler-local copy.
         let planner = def
             .nodes
             .iter()
@@ -220,7 +225,7 @@ mod tests {
         let planner_cfg = planner.config.as_ref().unwrap();
         assert_eq!(
             planner_cfg["system_prompt_template_id"].as_str().unwrap(),
-            "prompt.goal-review.planner"
+            GOAL_REVIEW_PLANNER_PROMPT_KEY
         );
 
         // Loop wiring matches the break/continue semantics.
@@ -285,7 +290,7 @@ mod tests {
                 "executor_profile_id": "custom-exec",
                 "executor_max_iterations": 42,
                 "executor_tools": ["read_file", "grep"],
-                "reviewer_system_prompt": "be strict",
+                "reviewer_system_prompt_template_id": "@standard/goal-review-reviewer",
             }))
             .unwrap();
 
@@ -305,8 +310,74 @@ mod tests {
         let rev_cfg = reviewer.config.as_ref().unwrap()["inline_definition"].clone();
         let rev_def: AgentDefinition = serde_json::from_value(rev_cfg).unwrap();
         assert_eq!(
-            rev_def.config.unwrap().system_prompt.as_deref(),
-            Some("be strict")
+            rev_def.config.unwrap().system_prompt_template_id.as_deref(),
+            Some("@standard/goal-review-reviewer")
         );
+    }
+
+    #[test]
+    fn assemble_planner_prompt_template_id_is_configurable() {
+        let assembler = GoalReviewResourceAssembler::new();
+        let bundle = assembler
+            .assemble(&json!({
+                "root_requirement": "review",
+                "planner_system_prompt_template_id": "@custom/planner",
+            }))
+            .unwrap();
+
+        let def = &bundle.workflows[0].definition;
+        let planner = def.nodes.iter().find(|n| n.id == "task_planner").unwrap();
+        assert_eq!(
+            planner.config.as_ref().unwrap()["system_prompt_template_id"]
+                .as_str()
+                .unwrap(),
+            "@custom/planner"
+        );
+    }
+
+    /// The planner node must resolve its prompt through the registry rather
+    /// than a snapshot taken at assemble time, so a user-defined prompt
+    /// registered under the built-in id is what the workflow actually uses.
+    #[test]
+    fn planner_prompt_resolves_through_registry_override() {
+        // Mirror the registration order in `register_all`: the user-defined
+        // prompt lands first, so the built-in registration skips it.
+        let regs = ResourceRegistries::new();
+        let override_text = "planner override text";
+        crate::registry::register_item_skip(
+            &regs.templates,
+            GOAL_REVIEW_PLANNER_PROMPT_KEY.into(),
+            wf_types::Template {
+                id: GOAL_REVIEW_PLANNER_PROMPT_KEY.into(),
+                name: "Planner Override".into(),
+                description: None,
+                category: "system".into(),
+                content: override_text.into(),
+                variables: None,
+                fragments: None,
+            },
+        );
+        crate::predefined::agent_prompts::register(&regs, &RegisterOptions::default());
+
+        let bundle = GoalReviewResourceAssembler::new()
+            .assemble(&json!({"root_requirement": "review"}))
+            .unwrap();
+        let def = &bundle.workflows[0].definition;
+        let planner = def.nodes.iter().find(|n| n.id == "task_planner").unwrap();
+        let referenced = planner.config.as_ref().unwrap()["system_prompt_template_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // The workflow references the registry id, and the registry serves the
+        // override under that same id.
+        assert_eq!(referenced, GOAL_REVIEW_PLANNER_PROMPT_KEY);
+        let served = regs
+            .templates
+            .get(&referenced)
+            .expect("planner prompt registered")
+            .content
+            .clone();
+        assert_eq!(served, override_text);
     }
 }

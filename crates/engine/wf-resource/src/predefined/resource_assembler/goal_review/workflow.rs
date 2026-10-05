@@ -12,8 +12,6 @@ use super::agent::{goal_review_executor, goal_review_reviewer};
 use super::config::GoalReviewConfig;
 
 pub const GOAL_REVIEW_WORKFLOW_ID: &str = "@standard/goal-review-agent-workflow";
-pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "prompt.goal-review.planner";
-pub use crate::predefined::agent_prompts::GOAL_REVIEW_PLANNER_PROMPT_KEY as GOAL_REVIEW_PLANNER_PROMPT_KEY;
 
 const BREAK_CONDITION: &str = "or(eq(status,\"completed\"),eq(status,\"stuck\"))";
 const CONTINUE_CONDITION: &str = "eq(nextIteration,true)";
@@ -23,20 +21,6 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
-}
-
-pub(crate) fn build_planner_prompt(config: &GoalReviewConfig) -> wf_types::Template {
-    wf_types::Template {
-        id: GOAL_REVIEW_PLANNER_PROMPT_ID.into(),
-        name: "Goal Review Planner Prompt".into(),
-        description: Some("System prompt for the task planner LLM node".into()),
-        category: "system".into(),
-        content: config.planner_system_prompt.clone().unwrap_or_else(|| {
-            crate::embedded_assets::agent_prompt(GOAL_REVIEW_PLANNER_PROMPT_KEY).to_string()
-        }),
-        variables: None,
-        fragments: None,
-    }
 }
 
 pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTemplate, String> {
@@ -107,13 +91,13 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
 
     let executor_inline = AgentTemplateBuilder::new(goal_review_executor())
         .maybe_profile(config.executor_profile_id.clone())
-        .maybe_system_prompt(config.executor_system_prompt.clone())
+        .maybe_system_prompt_template_id(config.executor_system_prompt_template_id.clone())
         .maybe_max_iterations(config.executor_max_iterations)
         .maybe_tools(config.executor_tools.clone())
         .build_inline();
     let reviewer_inline = AgentTemplateBuilder::new(goal_review_reviewer())
         .maybe_profile(config.reviewer_profile_id.clone())
-        .maybe_system_prompt(config.reviewer_system_prompt.clone())
+        .maybe_system_prompt_template_id(config.reviewer_system_prompt_template_id.clone())
         .maybe_max_iterations(config.reviewer_max_iterations)
         .maybe_tools(config.reviewer_tools.clone())
         .build_inline();
@@ -191,7 +175,7 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
                 config: Some(json!({
                     "profile_id": config.planner_profile_id,
                     "context_id": "default",
-                    "system_prompt_template_id": GOAL_REVIEW_PLANNER_PROMPT_ID,
+                    "system_prompt_template_id": config.planner_prompt_template_id(),
                 })),
                 execution_config: None,
             },

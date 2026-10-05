@@ -447,18 +447,9 @@ pub fn register_all(
 ) -> Summary {
     let mut total = Summary::new();
 
-    // Predefined resources
-    total.merge(predefined::fragments::register(regs, opts));
-    total.merge(predefined::prompts::register(regs, opts));
-    total.merge(predefined::agent_prompts::register(regs, opts));
-    total.merge(predefined::tool_descriptions::register(regs, opts));
-    total.merge(predefined::agent_templates::register(regs, opts));
-    total.merge(predefined::tools::register(tool_registry, opts));
-    total.merge(predefined::workflow::register(regs, opts));
-    total.merge(predefined::tool_visibility::register(regs, opts));
-
     // Custom resources arrive already loaded; file location stays at the
-    // bootstrap edge.
+    // bootstrap edge. Registered first so predefined skip_if_exists
+    // semantics let custom resources win over built-in defaults.
     if let Some(ref resources) = opts.custom_resources {
         total.merge(custom::register::register_custom_resources(
             regs,
@@ -468,6 +459,16 @@ pub fn register_all(
             opts.custom_validation_level,
         ));
     }
+
+    // Predefined resources
+    total.merge(predefined::fragments::register(regs, opts));
+    total.merge(predefined::prompts::register(regs, opts));
+    total.merge(predefined::agent_prompts::register(regs, opts));
+    total.merge(predefined::tool_descriptions::register(regs, opts));
+    total.merge(predefined::agent_templates::register(regs, opts));
+    total.merge(predefined::tools::register(tool_registry, opts));
+    total.merge(predefined::workflow::register(regs, opts));
+    total.merge(predefined::tool_visibility::register(regs, opts));
 
     total
 }

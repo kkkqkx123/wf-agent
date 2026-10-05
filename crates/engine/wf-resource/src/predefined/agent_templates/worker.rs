@@ -9,7 +9,6 @@
 //! user-defined template with the same id takes precedence
 //! (`register_item_skip`).
 
-use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
@@ -35,9 +34,8 @@ pub fn worker_agent_template() -> AgentTemplate {
             version: Some(WORKER_AGENT_PROMPT_VERSION.into()),
             config: Some(AgentConfig {
                 profile_id: None,
-                system_prompt: Some(
-                    embedded_assets::agent_prompt(WORKER_AGENT_TEMPLATE_ID).to_string(),
-                ),
+                system_prompt: None,
+                system_prompt_template_id: Some(WORKER_AGENT_TEMPLATE_ID.into()),
                 max_iterations: Some(30),
                 max_execution_time: None,
                 max_retries: None,
@@ -74,7 +72,6 @@ pub fn worker_agent_template() -> AgentTemplate {
                     require_approval: Some(vec!["execute_command".into()]),
                     allowed_workflows: None,
                 }),
-                system_prompt_template_id: None,
                 system_prompt_template_variables: None,
                 initial_messages: None,
                 stream: Some(true),

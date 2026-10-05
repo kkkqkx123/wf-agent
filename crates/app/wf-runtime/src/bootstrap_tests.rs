@@ -418,8 +418,9 @@ async fn test_runtime_goal_review_resource_assembler_activation() {
     let runtime = Runtime::bootstrap(config).await.unwrap();
 
     // Built-in resource assembler registered and activated through the
-    // unified plugin engine: workflow + planner prompt land in the
-    // registries via the contribution bridge.
+    // unified plugin engine: the workflow lands in the registries via the
+    // contribution bridge, and the planner node it wires resolves its system
+    // prompt through the built-in `@standard` planner prompt template.
     let engine = runtime
         .plugin_engine()
         .expect("plugin engine is enabled by default");
@@ -440,7 +441,7 @@ async fn test_runtime_goal_review_resource_assembler_activation() {
     assert!(runtime
         .registries()
         .templates
-        .has("prompt.goal-review.planner"));
+        .has("@standard/goal-review-planner"));
 
     // The assembled workflow is structurally valid (loop pairs, edges,
     // reachability) so it can be executed by the workflow engine.
@@ -477,10 +478,8 @@ async fn test_runtime_goal_review_resource_assembler_activation() {
         .registries()
         .workflows
         .has("@standard/goal-review-agent-workflow"));
-    assert!(!runtime
-        .registries()
-        .templates
-        .has("prompt.goal-review.planner"));
+    // The built-in planner prompt is owned by the agent prompt registration
+    // stage, not the assembler bundle, so deactivation leaves it in place.
 
     runtime.shutdown().await.unwrap();
     clear_env_vars();

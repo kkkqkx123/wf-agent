@@ -100,7 +100,9 @@ mod tests {
                 crate::embedded_assets::spec_workflow_prompt(id),
             );
             assert!(
-                placeholders.iter().all(|name| KNOWN.contains(&name.as_str())),
+                placeholders
+                    .iter()
+                    .all(|name| KNOWN.contains(&name.as_str())),
                 "spec prompt '{id}' has unexpected placeholders: {placeholders:?}"
             );
         }

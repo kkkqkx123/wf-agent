@@ -101,10 +101,6 @@ fn start_node() -> BaseStaticNode {
     }
 }
 
-fn agent_node() -> BaseStaticNode {
-    agent_node_with_prompt(None)
-}
-
 fn agent_node_with_prompt(system_prompt: Option<String>) -> BaseStaticNode {
     let inline = prefetch_inline_definition_with_prompt(system_prompt);
     let inline = serde_json::to_value(&inline).expect("inline definition serializes");

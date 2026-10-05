@@ -1,6 +1,7 @@
 use serde_json::Value;
 use wf_types::message::Message;
 
+use crate::predefined::agent_prompts::GOAL_REVIEW_PLANNER_PROMPT_KEY;
 use crate::resource_assembler::AssemblerConfig;
 
 pub(crate) const DEFAULT_MAX_ITERATIONS: u32 = 10;
@@ -14,14 +15,28 @@ pub struct GoalReviewConfig {
     pub planner_profile_id: String,
     pub executor_profile_id: Option<String>,
     pub reviewer_profile_id: Option<String>,
-    pub planner_system_prompt: Option<String>,
-    pub executor_system_prompt: Option<String>,
-    pub reviewer_system_prompt: Option<String>,
+    pub planner_system_prompt_template_id: Option<String>,
+    pub executor_system_prompt_template_id: Option<String>,
+    pub reviewer_system_prompt_template_id: Option<String>,
     pub executor_tools: Option<Vec<String>>,
     pub reviewer_tools: Option<Vec<String>>,
     pub executor_max_iterations: Option<u32>,
     pub reviewer_max_iterations: Option<u32>,
     pub initial_messages: Option<Vec<Message>>,
+}
+
+impl GoalReviewConfig {
+    /// Template id the planner LLM node resolves its system prompt through.
+    ///
+    /// The planner has no base agent template to inherit from, so the
+    /// built-in `@standard` planner prompt is the default. Resolution happens
+    /// in the template registry at execution time, where a user-defined prompt
+    /// registered under the same id has already won over the built-in text.
+    pub fn planner_prompt_template_id(&self) -> &str {
+        self.planner_system_prompt_template_id
+            .as_deref()
+            .unwrap_or(GOAL_REVIEW_PLANNER_PROMPT_KEY)
+    }
 }
 
 impl AssemblerConfig for GoalReviewConfig {
@@ -97,16 +112,16 @@ impl AssemblerConfig for GoalReviewConfig {
                 .get("reviewer_profile_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            planner_system_prompt: value
-                .get("planner_system_prompt")
+            planner_system_prompt_template_id: value
+                .get("planner_system_prompt_template_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            executor_system_prompt: value
-                .get("executor_system_prompt")
+            executor_system_prompt_template_id: value
+                .get("executor_system_prompt_template_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            reviewer_system_prompt: value
-                .get("reviewer_system_prompt")
+            reviewer_system_prompt_template_id: value
+                .get("reviewer_system_prompt_template_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             executor_tools,

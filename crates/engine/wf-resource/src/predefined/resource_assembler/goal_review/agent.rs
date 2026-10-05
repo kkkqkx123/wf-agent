@@ -1,4 +1,3 @@
-use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
@@ -20,9 +19,8 @@ pub fn goal_review_executor() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("gpt-4o".into()),
-                system_prompt: Some(
-                    embedded_assets::agent_prompt(GOAL_REVIEW_EXECUTOR_TEMPLATE_ID).to_string(),
-                ),
+                system_prompt: None,
+                system_prompt_template_id: Some(GOAL_REVIEW_EXECUTOR_TEMPLATE_ID.into()),
                 max_iterations: Some(30),
                 max_execution_time: None,
                 max_retries: None,
@@ -48,7 +46,6 @@ pub fn goal_review_executor() -> AgentTemplate {
                     require_approval: None,
                     allowed_workflows: None,
                 }),
-                system_prompt_template_id: None,
                 system_prompt_template_variables: None,
                 initial_messages: None,
                 stream: None,
@@ -86,9 +83,8 @@ pub fn goal_review_reviewer() -> AgentTemplate {
             version: Some("1.0.0".into()),
             config: Some(AgentConfig {
                 profile_id: Some("o3-mini".into()),
-                system_prompt: Some(
-                    embedded_assets::agent_prompt(GOAL_REVIEW_REVIEWER_TEMPLATE_ID).to_string(),
-                ),
+                system_prompt: None,
+                system_prompt_template_id: Some(GOAL_REVIEW_REVIEWER_TEMPLATE_ID.into()),
                 max_iterations: Some(10),
                 max_execution_time: None,
                 max_retries: None,
@@ -111,7 +107,6 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                     require_approval: None,
                     allowed_workflows: None,
                 }),
-                system_prompt_template_id: None,
                 system_prompt_template_variables: None,
                 initial_messages: None,
                 stream: None,

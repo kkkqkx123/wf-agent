@@ -11,4 +11,4 @@ pub use assembler::{
     builtin_resource_assemblers, GoalReviewResourceAssembler, GOAL_REVIEW_RESOURCE_ASSEMBLER_ID,
 };
 pub use config::GoalReviewConfig;
-pub use workflow::{GOAL_REVIEW_PLANNER_PROMPT_ID, GOAL_REVIEW_WORKFLOW_ID};
+pub use workflow::GOAL_REVIEW_WORKFLOW_ID;

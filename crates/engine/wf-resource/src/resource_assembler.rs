@@ -200,6 +200,7 @@ pub fn merge_agent_config(
     template: &AgentTemplate,
     profile_id: Option<String>,
     system_prompt: Option<String>,
+    system_prompt_template_id: Option<String>,
     max_iterations: Option<u32>,
     tools: Option<Vec<String>>,
 ) -> AgentDefinition {
@@ -210,6 +211,9 @@ pub fn merge_agent_config(
         }
         if let Some(prompt) = system_prompt {
             config.system_prompt = Some(prompt);
+        }
+        if let Some(id) = system_prompt_template_id {
+            config.system_prompt_template_id = Some(id);
         }
         if let Some(iterations) = max_iterations {
             config.max_iterations = Some(iterations);
@@ -242,6 +246,7 @@ pub struct AgentTemplateBuilder {
     base: AgentTemplate,
     profile_id: Option<String>,
     system_prompt: Option<String>,
+    system_prompt_template_id: Option<String>,
     max_iterations: Option<u32>,
     tools: Option<Vec<String>>,
 }
@@ -252,6 +257,7 @@ impl AgentTemplateBuilder {
             base,
             profile_id: None,
             system_prompt: None,
+            system_prompt_template_id: None,
             max_iterations: None,
             tools: None,
         }
@@ -264,6 +270,11 @@ impl AgentTemplateBuilder {
 
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    pub fn with_system_prompt_template_id(mut self, id: impl Into<String>) -> Self {
+        self.system_prompt_template_id = Some(id.into());
         self
     }
 
@@ -291,6 +302,13 @@ impl AgentTemplateBuilder {
         self
     }
 
+    pub fn maybe_system_prompt_template_id(mut self, id: Option<String>) -> Self {
+        if let Some(id) = id {
+            self.system_prompt_template_id = Some(id);
+        }
+        self
+    }
+
     pub fn maybe_max_iterations(mut self, n: Option<u32>) -> Self {
         if let Some(n) = n {
             self.max_iterations = Some(n);
@@ -310,6 +328,7 @@ impl AgentTemplateBuilder {
             &self.base,
             self.profile_id,
             self.system_prompt,
+            self.system_prompt_template_id,
             self.max_iterations,
             self.tools,
         )
@@ -596,22 +615,11 @@ pub fn install_bundle(
         skip_if_exists,
     ));
     for prompt in &bundle.prompts {
-        let mut prompt = prompt.clone();
-        // A prompt template registered under the same id overrides the
-        // bundle's prompt at the install edge, mirroring the agent-template
-        // override; placeholder-carrying overrides are rejected because
-        // install-time patching cannot render them.
-        match crate::predefined::agent_prompts::bundle_prompt_override(registries, &prompt) {
-            crate::predefined::agent_prompts::BundlePromptOverride::Patch(content) => {
-                prompt.content = content;
-            }
-            crate::predefined::agent_prompts::BundlePromptOverride::Reject(message) => {
-                total.merge(Summary::err(&prompt.id, message));
-                continue;
-            }
-            crate::predefined::agent_prompts::BundlePromptOverride::KeepBundle => {}
-        }
-        total.merge(register_template(registries, prompt, skip_if_exists));
+        total.merge(register_template(
+            registries,
+            prompt.clone(),
+            skip_if_exists,
+        ));
     }
     for fragment in &bundle.fragments {
         total.merge(register_fragment(
@@ -638,21 +646,10 @@ pub fn install_bundle(
     }
     for agent_tmpl in &bundle.agent_templates {
         let key = agent_tmpl.id.clone();
-        // A prompt template registered under the same `@standard/*` id
-        // overrides the embedded system prompt, matching the
-        // predefined agent-template registration edge.
-        let mut agent_tmpl = agent_tmpl.clone();
-        if let Some(prompt) =
-            crate::predefined::agent_prompts::resolve_system_prompt(registries, &agent_tmpl.id)
-        {
-            if let Some(config) = agent_tmpl.definition.config.as_mut() {
-                config.system_prompt = Some(prompt);
-            }
-        }
         total.merge(if skip_if_exists {
-            register_item_skip(&registries.agent_templates, key, agent_tmpl)
+            register_item_skip(&registries.agent_templates, key, agent_tmpl.clone())
         } else {
-            register_item_strict(&registries.agent_templates, key, agent_tmpl)
+            register_item_strict(&registries.agent_templates, key, agent_tmpl.clone())
         });
     }
 
@@ -813,7 +810,8 @@ mod tests {
         let tool_registry = ToolRegistry::new();
 
         // A prompt template registered under the executor's `@standard/*` id
-        // overrides the bundle agent template's embedded system prompt.
+        // is what the installed agent template resolves its system prompt
+        // through; the agent carries the reference, not a copied prompt.
         crate::registry::register_item_skip(
             &regs.templates,
             "@standard/goal-review-executor".into(),
@@ -831,30 +829,47 @@ mod tests {
         let summary = install_bundle(&regs, &tool_registry, &bundle(), true);
         assert!(summary.is_ok());
 
-        let executor = regs
+        let executor_config = regs
             .agent_templates
             .get("@standard/goal-review-executor")
-            .expect("executor installed");
-        let prompt = executor
+            .expect("executor installed")
             .definition
             .config
             .as_ref()
-            .and_then(|c| c.system_prompt.as_deref())
-            .expect("system prompt present");
-        assert_eq!(prompt, "custom executor prompt");
+            .cloned()
+            .expect("agent config");
+        let referenced = executor_config
+            .system_prompt_template_id
+            .as_deref()
+            .expect("template reference");
+        assert_eq!(referenced, "@standard/goal-review-executor");
+        assert_eq!(
+            executor_config.system_prompt, None,
+            "the prompt is referenced by id, never inlined"
+        );
 
-        // The reviewer has no override and keeps its embedded prompt.
+        // Resolution serves the override registered under the referenced id.
+        let resolved = regs
+            .templates
+            .get(referenced)
+            .expect("override registered")
+            .content
+            .clone();
+        assert_eq!(resolved, "custom executor prompt");
+
+        // The reviewer references the built-in prompt and has no override.
         let reviewer = regs
             .agent_templates
             .get("@standard/goal-review-reviewer")
             .expect("reviewer installed");
-        let reviewer_prompt = reviewer
+        let reviewer_ref = reviewer
             .definition
             .config
             .as_ref()
-            .and_then(|c| c.system_prompt.as_deref())
-            .expect("system prompt present");
-        assert_ne!(reviewer_prompt, "custom executor prompt");
+            .and_then(|c| c.system_prompt_template_id.as_deref())
+            .expect("template reference");
+        assert_eq!(reviewer_ref, "@standard/goal-review-reviewer");
+        assert!(!regs.templates.has(reviewer_ref));
     }
 
     #[test]

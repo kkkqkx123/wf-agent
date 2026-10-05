@@ -206,6 +206,7 @@ pub(crate) async fn load_plugin_module(
     base: &Path,
     options: &PluginSystemConfig,
 ) -> PluginResult<Arc<dyn Plugin>> {
+    let _ = base;
     let plugin_type = resolve_plugin_type(manifest)?;
     check_backend_gate(&manifest.id, &plugin_type, options)?;
     match plugin_type {

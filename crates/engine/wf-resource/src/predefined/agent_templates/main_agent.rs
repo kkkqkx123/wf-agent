@@ -4,7 +4,6 @@
 //! through the standard predefined agent-template path so a user-defined
 //! template with the same id takes precedence (`register_item_skip`).
 
-use crate::embedded_assets;
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
 
@@ -29,9 +28,8 @@ pub fn main_agent_template() -> AgentTemplate {
             version: Some(MAIN_AGENT_PROMPT_VERSION.into()),
             config: Some(AgentConfig {
                 profile_id: None,
-                system_prompt: Some(
-                    embedded_assets::agent_prompt(MAIN_AGENT_TEMPLATE_ID).to_string(),
-                ),
+                system_prompt: None,
+                system_prompt_template_id: Some(MAIN_AGENT_TEMPLATE_ID.into()),
                 max_iterations: Some(50),
                 max_execution_time: None,
                 max_retries: None,
@@ -68,7 +66,6 @@ pub fn main_agent_template() -> AgentTemplate {
                     require_approval: Some(vec!["execute_command".into()]),
                     allowed_workflows: None,
                 }),
-                system_prompt_template_id: None,
                 system_prompt_template_variables: None,
                 initial_messages: None,
                 stream: Some(true),

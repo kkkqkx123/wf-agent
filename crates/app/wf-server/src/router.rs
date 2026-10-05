@@ -93,6 +93,8 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::observation::query::routes())
         .merge(api::observation::audit::routes())
         .merge(api::observation::analysis::routes())
+        .merge(api::observation::hierarchy::routes())
+        .merge(api::observation::history::routes())
         // system domain (events + impact + discovery; health carries its
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())

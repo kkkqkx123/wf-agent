@@ -28,6 +28,89 @@ export interface Execution {
 	error?: string | null;
 }
 
+/** Which engine owns an execution. */
+export type ExecutionKind = 'workflow' | 'agent_loop';
+
+/** One execution as referenced from a hierarchy view. */
+export interface ExecutionRef {
+	executionId: string;
+	executionType: ExecutionKind;
+}
+
+/** Where one execution sits in the parent/child tree of nested runs. */
+export interface ExecutionHierarchy {
+	executionId: string;
+	executionType: ExecutionKind;
+	status: string;
+	/** Nesting level below the root; a root execution is 0. */
+	depth: number;
+	/** Absent for a root execution. */
+	parent: ExecutionRef | null;
+	/** The execution this one descends from; equals `executionId` at the root. */
+	root: ExecutionRef;
+	/** Root-to-parent id chain, oldest first, excluding this execution. */
+	ancestors: string[];
+	children: ExecutionRef[];
+}
+
+/** One node of a subtree listing, breadth-first from the queried root. */
+export interface ExecutionSubtreeNode {
+	executionId: string;
+	executionType: ExecutionKind;
+	/** Null when the parent still references this run but its record is gone. */
+	status: string | null;
+	/** Nesting level relative to the queried root, which is 0. */
+	depth: number;
+	parentExecutionId: string | null;
+}
+
+export interface ExecutionSubtree {
+	rootExecutionId: string;
+	/** Set when the backend node cap dropped descendants. */
+	truncated: boolean;
+	nodes: ExecutionSubtreeNode[];
+}
+
+/** One agent iteration; workflow executions have none. */
+export interface IterationRecord {
+	iteration: number;
+	durationMs: number;
+	toolCallCount: number;
+	toolCalls: Array<{ name: string; durationMs: number; success: boolean }>;
+	responseContent: string | null;
+}
+
+/** One status transition; workflow executions record these. */
+export interface StatusTransition {
+	from: string;
+	to: string;
+	timestamp: number;
+}
+
+/** One context growth step; agent loops record these. */
+export interface ContextEvolutionStep {
+	timestamp: number;
+	iteration: number;
+	status: string;
+	description: string;
+	toolCalls: number | null;
+}
+
+/**
+ * Everything one execution recorded, grouped by section. A section the owning
+ * engine does not record comes back empty rather than absent, so consumers
+ * read one shape for both engines.
+ */
+export interface ExecutionHistory {
+	executionId: string;
+	executionType: ExecutionKind;
+	timeline: TimelineEntry[];
+	iterations: IterationRecord[];
+	variables: KeyValue[];
+	contextEvolution: ContextEvolutionStep[];
+	statusTransitions: StatusTransition[];
+}
+
 export interface StackFrame {
 	node: string;
 	depth: number;

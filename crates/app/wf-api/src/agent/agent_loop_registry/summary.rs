@@ -207,6 +207,7 @@ pub async fn live_summary(entity: &wf_agent::entity::AgentLoopEntity) -> AgentLo
             _ => None,
         },
         profile_id: Some(entity.model().to_string()),
+        parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
     }
 }
 
@@ -225,6 +226,11 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
             _ => None,
         },
         profile_id: record.context.as_ref().and_then(|c| c.profile_id.clone()),
+        parent_execution_id: record
+            .hierarchy
+            .as_ref()
+            .and_then(|h| h.parent_execution_id.as_ref())
+            .map(|p| p.to_string()),
     }
 }
 
@@ -239,5 +245,6 @@ fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> AgentLoopSummary {
         end_time: None,
         execution_time: None,
         profile_id: None,
+        parent_execution_id: None,
     }
 }

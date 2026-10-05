@@ -460,6 +460,10 @@ use utoipa::OpenApi;
         crate::api::observation::query::handle_distinct,
         crate::api::observation::query::handle_group_by,
         crate::api::observation::query::handle_evaluate,
+        crate::api::observation::hierarchy::handle_hierarchy,
+        crate::api::observation::hierarchy::handle_subtree,
+        crate::api::observation::hierarchy::handle_ancestors,
+        crate::api::observation::history::handle_history,
         // ── system ──
         crate::api::system::dependencies::handle_dependents,
         crate::api::system::dependencies::handle_impact,

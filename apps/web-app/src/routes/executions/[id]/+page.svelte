@@ -8,6 +8,10 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
+	import {
+		isExecutionTab,
+		type ExecutionTab,
+	} from '$lib/config/execution-tabs';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import {
 		cancelExecution,
@@ -26,17 +30,9 @@
 	let controlBusy = $state(false);
 	let cancelArmed = $state(false);
 
-	const TAB_IDS = [
-		'overview',
-		'graph',
-		'timeline',
-		'tools',
-		'analysis',
-		'state',
-	];
-	const requestedTab = parseListParams(page.url).tab;
-	let tab = $state(
-		requestedTab && TAB_IDS.includes(requestedTab) ? requestedTab : 'overview',
+	const requestedTab = parseListParams(page.url).tab ?? null;
+	let tab = $state<ExecutionTab>(
+		isExecutionTab(requestedTab) ? requestedTab : 'overview',
 	);
 
 	$effect(() => {

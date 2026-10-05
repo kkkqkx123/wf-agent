@@ -1,9 +1,12 @@
 import type {
 	Execution,
 	ExecutionDetail,
+	ExecutionHierarchy,
+	ExecutionHistory,
+	ExecutionSubtree,
 	ToolCallEntry,
 } from '$lib/types/models';
-import { durationOf, minutesAgo } from './clock';
+import { FIXTURE_EPOCH, durationOf, minutesAgo } from './clock';
 
 export const executions: Execution[] = [
 	{
@@ -267,3 +270,66 @@ export const executionToolCalls: ToolCallEntry[] = [
 		output: 'awaiting human confirmation',
 	},
 ];
+
+/** Sample tree: a workflow root that spawned an agent loop, which spawned a
+ * nested agent loop of its own. Ids match `executionDetail.id` so the preview
+ * opens on a run that actually has children. */
+const HIERARCHY_ROOT = 'exec-7f31c2a9';
+const HIERARCHY_CHILD = 'loop-triage-01';
+const HIERARCHY_GRANDCHILD = 'loop-triage-02';
+
+export const executionHierarchy: ExecutionHierarchy = {
+	executionId: HIERARCHY_ROOT,
+	executionType: 'workflow',
+	status: 'running',
+	depth: 0,
+	parent: null,
+	root: { executionId: HIERARCHY_ROOT, executionType: 'workflow' },
+	ancestors: [],
+	children: [{ executionId: HIERARCHY_CHILD, executionType: 'agent_loop' }],
+};
+
+export const executionSubtree: ExecutionSubtree = {
+	rootExecutionId: HIERARCHY_ROOT,
+	truncated: false,
+	nodes: [
+		{
+			executionId: HIERARCHY_ROOT,
+			executionType: 'workflow',
+			status: 'running',
+			depth: 0,
+			parentExecutionId: null,
+		},
+		{
+			executionId: HIERARCHY_CHILD,
+			executionType: 'agent_loop',
+			status: 'running',
+			depth: 1,
+			parentExecutionId: HIERARCHY_ROOT,
+		},
+		{
+			executionId: HIERARCHY_GRANDCHILD,
+			executionType: 'agent_loop',
+			status: 'completed',
+			depth: 2,
+			parentExecutionId: HIERARCHY_CHILD,
+		},
+	],
+};
+
+export const executionHistory: ExecutionHistory = {
+	executionId: HIERARCHY_ROOT,
+	executionType: 'workflow',
+	timeline: [],
+	iterations: [],
+	variables: [
+		{ key: 'releaseChannel', value: 'staging' },
+		{ key: 'candidate', value: '4.2.0-rc3' },
+		{ key: 'triageDepth', value: '2' },
+	],
+	contextEvolution: [],
+	statusTransitions: [
+		{ from: 'created', to: 'running', timestamp: FIXTURE_EPOCH - 14 * 60_000 },
+		{ from: 'running', to: 'completed', timestamp: FIXTURE_EPOCH - 1 * 60_000 },
+	],
+};

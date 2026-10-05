@@ -774,6 +774,28 @@ pub enum ExecutionSub {
         #[arg(long)]
         memory: bool,
     },
+    /// Show where an execution sits in the parent/child tree.
+    Hierarchy {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show every execution below a root, indented by depth.
+    Subtree {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show everything an execution recorded, grouped by section.
+    History {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Sections to load (timeline, nodes, iterations, variables, context,
+        /// transitions); all sections when omitted.
+        #[arg(long, value_name = "SECTIONS")]
+        include: Option<String>,
+    },
     /// Performance profile of an execution.
     Performance {
         /// Execution id.

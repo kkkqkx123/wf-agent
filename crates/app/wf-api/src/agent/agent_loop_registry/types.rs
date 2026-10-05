@@ -31,6 +31,9 @@ pub struct AgentLoopSummary {
     pub execution_time: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,
+    /// Execution this loop was spawned under, absent for a root loop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_execution_id: Option<String>,
 }
 
 /// Iteration detail for agent loop history.

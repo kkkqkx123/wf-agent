@@ -1,6 +1,9 @@
 <script lang="ts">
 	import type {
 		ExecutionDetail,
+		ExecutionHierarchy,
+		ExecutionHistory,
+		ExecutionSubtree,
 		NodeTrace,
 		TimelineEntry,
 		ToolCallEntry,
@@ -16,6 +19,9 @@
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import NodeTracePanel from './NodeTracePanel.svelte';
+	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
+	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
+	import ExecutionHistoryPanel from './ExecutionHistoryPanel.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { extractMarkdownText } from '$lib/utils/markdown';
 	import GraphExplorer, {
@@ -28,6 +34,9 @@
 		getExecutionVariables,
 		getExecutionCallStack,
 		getExecutionMemory,
+		getExecutionHierarchy,
+		getExecutionSubtree,
+		getExecutionHistory,
 	} from '$lib/services/executions';
 	import { getExecutionNodeTraces } from '$lib/services/node-trace';
 	import {
@@ -57,6 +66,10 @@
 		projectEdgeOverlay,
 		projectExecutionOverlay,
 	} from '$lib/graph/execution-projection';
+	import {
+		EXECUTION_TABS,
+		type ExecutionTab,
+	} from '$lib/config/execution-tabs';
 	import { openEventStream, type StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -64,7 +77,7 @@
 
 	interface Props {
 		execution: ExecutionDetail;
-		tab?: string;
+		tab?: ExecutionTab;
 		class?: string;
 	}
 
@@ -115,6 +128,14 @@
 	let seenGraph = $state('');
 	let seenAnalysis = $state('');
 	let seenState = $state('');
+	let seenHierarchy = $state('');
+	let seenHistory = $state('');
+
+	let hierarchy = $state<ExecutionHierarchy | null>(null);
+	let hierarchyError = $state<string | null>(null);
+	let subtree = $state<ExecutionSubtree | null>(null);
+	let recordedHistory = $state<ExecutionHistory | null>(null);
+	let historyError = $state<string | null>(null);
 
 	// Live execution overlay: SSE frames buffer here and flush on a fixed
 	// tick, so high-frequency node updates never re-render per frame.
@@ -653,17 +674,43 @@
 			seenState = id;
 			void loadState(id);
 		}
+		if (tab === 'hierarchy' && seenHierarchy !== id) {
+			seenHierarchy = id;
+			void loadHierarchy(id);
+		}
+		if (tab === 'history' && seenHistory !== id) {
+			seenHistory = id;
+			void loadHistory(id);
+		}
 	});
 
-	const TABS = [
-		{ id: 'overview', label: 'Overview' },
-		{ id: 'graph', label: 'Graph' },
-		{ id: 'trace', label: 'Trace' },
-		{ id: 'timeline', label: 'Timeline' },
-		{ id: 'tools', label: 'Tools' },
-		{ id: 'analysis', label: 'Analysis' },
-		{ id: 'state', label: 'State' },
-	];
+	async function loadHierarchy(id: string): Promise<void> {
+		hierarchyError = null;
+		try {
+			const [view, tree] = await Promise.all([
+				getExecutionHierarchy(id),
+				getExecutionSubtree(id),
+			]);
+			hierarchy = view;
+			subtree = tree;
+		} catch (e: unknown) {
+			seenHierarchy = '';
+			hierarchy = null;
+			subtree = null;
+			hierarchyError = e instanceof Error ? e.message : 'Hierarchy failed.';
+		}
+	}
+
+	async function loadHistory(id: string): Promise<void> {
+		historyError = null;
+		try {
+			recordedHistory = await getExecutionHistory(id);
+		} catch (e: unknown) {
+			seenHistory = '';
+			recordedHistory = null;
+			historyError = e instanceof Error ? e.message : 'History failed.';
+		}
+	}
 
 	const tone = $derived(statusTone(execution.status));
 	const contextItems = $derived(
@@ -746,7 +793,7 @@
 	</div>
 
 	<Segmented
-		items={TABS}
+		items={EXECUTION_TABS}
 		bind:value={tab}
 		size="sm"
 		class="px-2"
@@ -1186,6 +1233,41 @@
 						</p>
 					</Card>
 				</div>
+			{/if}
+		{:else if tab === 'hierarchy'}
+			{#if hierarchyError}
+				<ErrorState
+					title="Hierarchy failed to load"
+					description={hierarchyError}
+					onretry={() => loadHierarchy(execution.id)}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else if hierarchy && subtree}
+				<div class="space-y-4">
+					<ExecutionHierarchyBreadcrumb {hierarchy} />
+					<ExecutionHierarchyTree {subtree} currentId={execution.id} />
+				</div>
+			{:else}
+				<Skeleton
+					lines={6}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
+			{/if}
+		{:else if tab === 'history'}
+			{#if historyError}
+				<ErrorState
+					title="History failed to load"
+					description={historyError}
+					onretry={() => loadHistory(execution.id)}
+					class="rounded-lg border border-border bg-card"
+				/>
+			{:else if recordedHistory}
+				<ExecutionHistoryPanel history={recordedHistory} />
+			{:else}
+				<Skeleton
+					lines={6}
+					class="rounded-lg border border-border bg-card p-4"
+				/>
 			{/if}
 		{:else}
 			{#if stateLoading}

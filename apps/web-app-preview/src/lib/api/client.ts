@@ -19,7 +19,14 @@ import {
         loopDetail,
 } from '$lib/fixtures/agentLoops';
 import { checkpoints, fileChanges, approvals } from '$lib/fixtures/checkpoints';
-import { executions, executionDetail, executionToolCalls } from '$lib/fixtures/executions';
+import {
+	executions,
+	executionDetail,
+	executionHierarchy,
+	executionHistory,
+	executionSubtree,
+	executionToolCalls,
+} from '$lib/fixtures/executions';
 import {
         overviewMetrics,
         templates,
@@ -292,6 +299,15 @@ router.on('GET', '/api/v1/executions/{id}/audit/timeline', () => {
 });
 router.on('GET', '/api/v1/events/execution-timeline/{executionId}', () => {
         return camelToSnakeDeep(executionTimeline);
+});
+router.on('GET', '/api/v1/executions/{id}/hierarchy', () => {
+        return camelToSnakeDeep(executionHierarchy);
+});
+router.on('GET', '/api/v1/executions/{id}/subtree', () => {
+        return camelToSnakeDeep(executionSubtree);
+});
+router.on('GET', '/api/v1/executions/{id}/history', () => {
+        return camelToSnakeDeep(executionHistory);
 });
 
 // ---------- agent-loops ----------

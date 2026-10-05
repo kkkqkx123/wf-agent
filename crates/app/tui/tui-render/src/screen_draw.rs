@@ -59,6 +59,11 @@ fn render_rows(
     frame.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
+/// Leading indentation for a row nested `depth` levels under its parent.
+fn depth_indent(depth: u32) -> String {
+    "  ".repeat(depth as usize)
+}
+
 pub fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
     let inner = match data {
         ScreenData::Dashboard(d) => format!(
@@ -125,7 +130,8 @@ pub fn draw_executions(
             .iter()
             .map(|r| {
                 format!(
-                    "{} · {} · iter {} · {} tools · {}",
+                    "{}{} · {} · iter {} · {} tools · {}",
+                    depth_indent(r.depth),
                     short_id(&r.id),
                     r.status,
                     r.iteration,
@@ -159,7 +165,8 @@ pub fn draw_agent_loops(
             .iter()
             .map(|r| {
                 format!(
-                    "{} · {} · iter {} · {} tools · {}",
+                    "{}{} · {} · iter {} · {} tools · {}",
+                    depth_indent(r.depth),
                     short_id(&r.id),
                     r.status,
                     r.iteration,

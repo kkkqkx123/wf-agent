@@ -84,57 +84,35 @@ fn synthetic_workflows() -> ScreenData {
 }
 
 fn synthetic_executions() -> ScreenData {
-    ScreenData::Executions(vec![
-        ExecRow {
-            id: "exec-a1b2c3d4".into(),
-            status: "Completed".into(),
-            iteration: 2,
-            tool_calls: 4,
-            started: "2 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-e5f6g7h8".into(),
-            status: "Running".into(),
-            iteration: 5,
-            tool_calls: 12,
-            started: "5 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-i9j0k1l2".into(),
-            status: "Failed".into(),
-            iteration: 1,
-            tool_calls: 2,
-            started: "10 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-m3n4o5p6".into(),
-            status: "Completed".into(),
-            iteration: 1,
-            tool_calls: 1,
-            started: "15 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-q7r8s9t0".into(),
-            status: "Cancelled".into(),
-            iteration: 3,
-            tool_calls: 6,
-            started: "20 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-u1v2w3x4".into(),
-            status: "Completed".into(),
-            iteration: 3,
-            tool_calls: 8,
-            started: "30 min ago".into(),
-        },
-        ExecRow {
-            id: "exec-y5z6a7b8".into(),
-            status: "Running".into(),
-            iteration: 2,
-            tool_calls: 3,
-            started: "1 min ago".into(),
-        },
-    ])
+    let row = |id: &str, status: &str, iteration, tool_calls, started: &str| ExecRow {
+        id: id.into(),
+        status: status.into(),
+        iteration,
+        tool_calls,
+        started: started.into(),
+        depth: 0,
+        parent_id: None,
+    };
+    let mut rows = vec![
+        row("exec-a1b2c3d4", "Completed", 2, 4, "2 min ago"),
+        row("exec-e5f6g7h8", "Running", 5, 12, "5 min ago"),
+        row("exec-i9j0k1l2", "Failed", 1, 2, "10 min ago"),
+        row("exec-m3n4o5p6", "Completed", 1, 1, "15 min ago"),
+        row("exec-q7r8s9t0", "Cancelled", 3, 6, "20 min ago"),
+        row("exec-u1v2w3x4", "Completed", 3, 8, "30 min ago"),
+        row("exec-y5z6a7b8", "Running", 2, 3, "1 min ago"),
+    ];
+    // Two nested runs under one parent, so the screen shows the indentation
+    // that separates a spawning run from the runs it spawned.
+    let mut child = row("loop-child-01", "Running", 1, 2, "just now");
+    child.depth = 1;
+    child.parent_id = Some("exec-e5f6g7h8".into());
+    rows.push(child);
+    let mut grandchild = row("loop-child-02", "Completed", 1, 1, "just now");
+    grandchild.depth = 2;
+    grandchild.parent_id = Some("loop-child-01".into());
+    rows.push(grandchild);
+    ScreenData::Executions(rows)
 }
 
 fn synthetic_checkpoints() -> ScreenData {

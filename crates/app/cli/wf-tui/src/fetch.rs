@@ -4,6 +4,7 @@
 //! [`ScreenData`] model. The fetch runs on a background task; the draw
 //! path only sees the cached result.
 
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use wf_api::agent::agent_execution_registry::AgentExecutionFilter;
@@ -117,6 +118,8 @@ async fn fetch_executions(ctx: &ApiContext, filter: ExecStatusFilter) -> CliResu
                 iteration: e.current_iteration,
                 tool_calls: e.tool_call_count,
                 started: format_ts(e.start_time),
+                depth: 0,
+                parent_id: e.parent_execution_id,
             })
             .filter(|row| filter.matches(&row.status))
             .collect();
@@ -135,15 +138,24 @@ async fn fetch_executions(ctx: &ApiContext, filter: ExecStatusFilter) -> CliResu
             iteration: s.current_iteration,
             tool_calls: s.tool_call_count,
             started: format_ts(s.start_time.unwrap_or(0)),
+            depth: 0,
+            parent_id: s.parent_execution_id,
         })
     }));
 
+    let depths = hierarchy_depths(
+        rows.iter()
+            .map(|row| (row.id.as_str(), row.parent_id.as_deref())),
+    );
+    for row in &mut rows {
+        row.depth = depths.get(row.id.as_str()).copied().unwrap_or(0);
+    }
     Ok(ScreenData::Executions(rows))
 }
 
 async fn fetch_agent_loops(ctx: &ApiContext) -> CliResult<ScreenData> {
     let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
-    let rows = sessions
+    let mut rows: Vec<LoopRow> = sessions
         .into_iter()
         .map(|s| LoopRow {
             id: s.id,
@@ -151,9 +163,54 @@ async fn fetch_agent_loops(ctx: &ApiContext) -> CliResult<ScreenData> {
             iteration: s.current_iteration,
             tool_calls: s.tool_call_count,
             started: format_ts(s.start_time.unwrap_or(0)),
+            depth: 0,
+            parent_id: s.parent_execution_id,
         })
         .collect();
+    let depths = hierarchy_depths(
+        rows.iter()
+            .map(|row| (row.id.as_str(), row.parent_id.as_deref())),
+    );
+    for row in &mut rows {
+        row.depth = depths.get(row.id.as_str()).copied().unwrap_or(0);
+    }
     Ok(ScreenData::AgentLoops(rows))
+}
+
+/// Nesting level of each linked id, derived from the parent links of the rows
+/// on screen.
+///
+/// The walk stops at the first id that is not itself displayed, so a status
+/// filter that hides a parent leaves its children at the top level instead of
+/// indenting them under a row nobody can see. It also stops after one step per
+/// displayed row, which is exactly the point at which a chain must have
+/// revisited an id, so a parent cycle terminates instead of spinning.
+fn hierarchy_depths<'a>(
+    links: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> HashMap<String, u32> {
+    let links: Vec<(&str, Option<&str>)> = links.into_iter().collect();
+    let parents: HashMap<&str, &str> = links
+        .iter()
+        .filter_map(|(id, parent)| parent.map(|parent| (*id, parent)))
+        .collect();
+    let displayed: HashSet<&str> = links.iter().map(|(id, _)| *id).collect();
+    let mut depths = HashMap::with_capacity(links.len());
+    for (id, _) in links {
+        let mut depth = 0u32;
+        let mut cursor = id;
+        for _ in 0..displayed.len() {
+            let Some(parent) = parents.get(cursor) else {
+                break;
+            };
+            if !displayed.contains(parent) {
+                break;
+            }
+            depth += 1;
+            cursor = parent;
+        }
+        depths.insert(id.to_string(), depth);
+    }
+    depths
 }
 
 async fn fetch_insights(ctx: &ApiContext) -> CliResult<ScreenData> {
@@ -307,5 +364,35 @@ mod tests {
         // Seconds and milliseconds of the same instant must agree.
         let secs = 1_700_000_000_i64;
         assert_eq!(format_ts(secs), format_ts(secs * 1000));
+    }
+
+    #[test]
+    fn depths_follow_the_parent_chain() {
+        let depths = hierarchy_depths([
+            ("root", None),
+            ("child", Some("root")),
+            ("grandchild", Some("child")),
+        ]);
+        assert_eq!(depths["root"], 0);
+        assert_eq!(depths["child"], 1);
+        assert_eq!(depths["grandchild"], 2);
+    }
+
+    #[test]
+    fn a_hidden_parent_leaves_its_children_at_the_top_level() {
+        // A status filter can drop the parent row; the child must not stay
+        // indented under a row the screen no longer shows.
+        let depths = hierarchy_depths([("child", Some("root"))]);
+        assert_eq!(depths["child"], 0);
+    }
+
+    #[test]
+    fn a_parent_cycle_terminates() {
+        // Two rows naming each other as parent. A chain longer than the
+        // displayed set must have revisited an id, so the walk stops there
+        // instead of following the cycle forever.
+        let depths = hierarchy_depths([("a", Some("b")), ("b", Some("a"))]);
+        assert_eq!(depths["a"], depths["b"]);
+        assert_eq!(depths["a"], 2);
     }
 }

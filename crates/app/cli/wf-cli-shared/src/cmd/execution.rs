@@ -5,10 +5,16 @@
 //! `wf_api::workflow::{execution, workflow_execution}` (agent first,
 //! workflow fallback); the `performance` / `bottleneck` / `errors` /
 //! `compare` / `progress` arms delegate to the shared builders in
-//! `crate::cmd::analysis` so both surfaces stay in sync.
+//! `crate::cmd::analysis` so both surfaces stay in sync. The
+//! `hierarchy` / `subtree` / `history` arms read the cross-engine queries
+//! in `wf_api::{execution_hierarchy, execution_history}`, which resolve the
+//! owning engine from the id itself.
 use wf_api::agent::agent_loop_registry;
+use wf_api::execution_hierarchy::{self, ExecutionHierarchyView, ExecutionSubtree};
+use wf_api::execution_history::{self, ExecutionHistorySections, ExecutionHistoryView};
 use wf_api::workflow::{execution::list_executions, workflow_execution};
 use wf_api::WorkflowExecutionListOptions;
+use wf_types::execution::ExecutionType;
 
 use crate::args::{Cli, ExecutionSub};
 use crate::cmd::render::render_envelope;
@@ -420,6 +426,46 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
                 OutputEnvelope::success("execution-inspect", data).with_entity(id.clone()),
             )
         }
+        ExecutionSub::Hierarchy { id } => {
+            let view = execution_hierarchy::hierarchy(ctx, id).await?;
+            if cli.output == crate::output::OutputFormat::Text {
+                print_hierarchy(&view);
+                Ok(())
+            } else {
+                let data = serde_json::to_value(&view)?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("execution-hierarchy", data).with_entity(id.clone()),
+                )
+            }
+        }
+        ExecutionSub::Subtree { id } => {
+            let tree = execution_hierarchy::subtree(ctx, id).await?;
+            if cli.output == crate::output::OutputFormat::Text {
+                print_subtree(&tree);
+                Ok(())
+            } else {
+                let data = serde_json::to_value(&tree)?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("execution-subtree", data).with_entity(id.clone()),
+                )
+            }
+        }
+        ExecutionSub::History { id, include } => {
+            let sections = ExecutionHistorySections::parse(include.as_deref())?;
+            let view = execution_history::history(ctx, id, &sections).await?;
+            if cli.output == crate::output::OutputFormat::Text {
+                print_history(&view);
+                Ok(())
+            } else {
+                let data = serde_json::to_value(&view)?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("execution-history", data).with_entity(id.clone()),
+                )
+            }
+        }
         ExecutionSub::Performance { id } => {
             let data = crate::cmd::analysis::performance_data(ctx, id).await?;
             render_envelope(
@@ -543,6 +589,156 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
     result
 }
 
+/// Wire name of the engine that owns an execution.
+fn execution_type_label(kind: &ExecutionType) -> &'static str {
+    match kind {
+        ExecutionType::Workflow => "workflow",
+        ExecutionType::AgentLoop => "agent_loop",
+    }
+}
+
+/// One execution's place in the parent/child tree.
+fn print_hierarchy(view: &ExecutionHierarchyView) {
+    println!(
+        "{} ({}) {}",
+        view.execution_id,
+        execution_type_label(&view.execution_type),
+        view.status.as_str()
+    );
+    println!("  depth: {}", view.depth);
+    match &view.parent {
+        Some(parent) => println!(
+            "  parent: {} ({})",
+            parent.execution_id,
+            execution_type_label(&parent.execution_type)
+        ),
+        None => println!("  parent: -"),
+    }
+    println!(
+        "  root: {} ({})",
+        view.root.execution_id,
+        execution_type_label(&view.root.execution_type)
+    );
+    println!(
+        "  ancestors: {}",
+        if view.ancestors.is_empty() {
+            "-".to_string()
+        } else {
+            view.ancestors.join(" -> ")
+        }
+    );
+    if view.children.is_empty() {
+        println!("  children: -");
+        return;
+    }
+    println!("  children:");
+    for child in &view.children {
+        println!(
+            "    {} ({})",
+            child.execution_id,
+            execution_type_label(&child.execution_type)
+        );
+    }
+}
+
+/// A subtree, one execution per line, indented by depth.
+fn print_subtree(tree: &ExecutionSubtree) {
+    for node in &tree.nodes {
+        let marker = if node.depth == 0 { "" } else { "  " };
+        let status = node
+            .status
+            .as_ref()
+            .map(|status| status.as_str().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        println!(
+            "{}{} {} [{}] {}",
+            marker.repeat(node.depth as usize),
+            node.execution_id,
+            execution_type_label(&node.execution_type),
+            status,
+            tree_label(node.depth)
+        );
+    }
+    if tree.truncated {
+        println!(
+            "truncated at {} nodes; narrow the query or inspect a child directly",
+            tree.nodes.len()
+        );
+    }
+}
+
+/// The parent/child relationship label of one subtree row.
+fn tree_label(depth: u32) -> &'static str {
+    match depth {
+        0 => "root",
+        1 => "child",
+        _ => "descendant",
+    }
+}
+
+/// An execution's recorded history, one section per heading.
+fn print_history(view: &ExecutionHistoryView) {
+    println!(
+        "{} ({})",
+        view.execution_id,
+        execution_type_label(&view.execution_type)
+    );
+
+    if !view.timeline.is_empty() {
+        println!("timeline ({}):", view.timeline.len());
+        for event in &view.timeline {
+            println!("  [{}] {}", event.timestamp, event.r#type.as_str());
+        }
+    }
+
+    if !view.node_executions.is_empty() {
+        println!("nodes ({}):", view.node_executions.len());
+        for node in &view.node_executions {
+            println!(
+                "  {} {} {}ms",
+                node.node_id, node.node_type, node.duration_ms
+            );
+        }
+    }
+
+    if !view.iterations.is_empty() {
+        println!("iterations ({}):", view.iterations.len());
+        for iteration in &view.iterations {
+            println!(
+                "  #{} {}ms {} tools",
+                iteration.iteration, iteration.duration, iteration.tool_call_count
+            );
+        }
+    }
+
+    if !view.variables.is_empty() {
+        println!("variables ({}):", view.variables.len());
+        for (name, value) in &view.variables {
+            println!("  {name} = {value}");
+        }
+    }
+
+    if !view.context_evolution.is_empty() {
+        println!("context ({}):", view.context_evolution.len());
+        for entry in &view.context_evolution {
+            println!(
+                "  [{}] #{} {}",
+                entry.timestamp, entry.iteration, entry.description
+            );
+        }
+    }
+
+    if !view.status_transitions.is_empty() {
+        println!("transitions ({}):", view.status_transitions.len());
+        for transition in &view.status_transitions {
+            println!(
+                "  [{}] {} -> {}",
+                transition.timestamp, transition.from, transition.to
+            );
+        }
+    }
+}
+
 fn parse_status(s: &str) -> Option<agent_loop_registry::AgentLoopFilter> {
     // Strict parse: every known status is accepted, and an unrecognized one
     // is rejected instead of being coerced, so a typo never silently filters
@@ -617,6 +813,37 @@ async fn run_remote(
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-status", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Hierarchy { id } => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/hierarchy"))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-hierarchy", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Subtree { id } => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/subtree"))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-subtree", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::History { id, include } => {
+            let path = match include {
+                Some(sections) => {
+                    format!("/api/v1/executions/{id}/history?include={sections}")
+                }
+                None => format!("/api/v1/executions/{id}/history"),
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-history", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Delete { id, .. } => {

@@ -307,6 +307,23 @@ mod tests {
         wf_resource::predefined::agent_templates::main_agent_template()
     }
 
+    /// Registries holding the built-in main agent template plus the built-in
+    /// prompt templates its `system_prompt_template_id` points at. Both halves
+    /// are required for the prompt assembly to resolve a system header.
+    fn registries() -> ResourceRegistries {
+        let regs = ResourceRegistries::new();
+        register_item_skip(
+            &regs.agent_templates,
+            MAIN_AGENT_TEMPLATE_ID.into(),
+            main_template(),
+        );
+        wf_resource::predefined::agent_prompts::register(
+            &regs,
+            &wf_resource::registry::RegisterOptions::default(),
+        );
+        regs
+    }
+
     fn empty_config(agent_id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: wf_types::Id::from(agent_id.to_string()),
@@ -341,12 +358,7 @@ mod tests {
 
     #[test]
     fn builtin_template_resolves_for_builtin_id() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         let t =
             resolve_template(&regs, MAIN_AGENT_TEMPLATE_ID).expect("builtin resolves by exact id");
         assert_eq!(t.id, MAIN_AGENT_TEMPLATE_ID);
@@ -354,12 +366,7 @@ mod tests {
 
     #[test]
     fn empty_id_is_rejected() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         assert!(resolve_template(&regs, "").is_none());
         let env = env_for(&regs);
         let err = resolve_and_apply(&env, empty_config(""), input_with("hi"))
@@ -369,12 +376,7 @@ mod tests {
 
     #[test]
     fn explicit_unknown_id_does_not_fall_back() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         assert!(resolve_template(&regs, "unknown-agent").is_none());
         let env = env_for(&regs);
         let (config, _) = resolve_and_apply(&env, empty_config("unknown-agent"), input_with("hi"))
@@ -401,12 +403,7 @@ mod tests {
 
     #[test]
     fn caller_fields_win_over_template_defaults() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
         config.max_iterations = Some(7);
         let env = env_for(&regs);
@@ -428,12 +425,7 @@ mod tests {
 
     #[test]
     fn system_prompt_seeded_when_absent() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         let env = env_for(&regs);
         let (_, input) =
             resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
@@ -444,12 +436,7 @@ mod tests {
 
     #[test]
     fn stale_system_message_is_refreshed_in_place() {
-        let regs = ResourceRegistries::new();
-        register_item_skip(
-            &regs.agent_templates,
-            MAIN_AGENT_TEMPLATE_ID.into(),
-            main_template(),
-        );
+        let regs = registries();
         let mut input = input_with("hi");
         input.conversation.push(Message {
             id: wf_types::Id::new(),

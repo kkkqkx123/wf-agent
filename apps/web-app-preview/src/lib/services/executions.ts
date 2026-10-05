@@ -9,6 +9,11 @@ import type { PageResult } from '$lib/api/envelope';
 import type {
 	Execution,
 	ExecutionDetail,
+	ExecutionHierarchy,
+	ExecutionHistory,
+	ExecutionKind,
+	ExecutionRef,
+	ExecutionSubtree,
 	Metric,
 	TimelineEntry,
 	ToolCallEntry,
@@ -414,4 +419,203 @@ export async function filterExecutionsByStatus(
 ): Promise<Execution[]> {
 	const page = await listExecutions({ status, limit: 200 });
 	return page.items;
+}
+
+interface ExecutionRefDto {
+	execution_id?: string;
+	execution_type?: string;
+}
+
+interface ExecutionHierarchyDto {
+	execution_id?: string;
+	execution_type?: string;
+	status?: string;
+	depth?: number;
+	parent?: ExecutionRefDto | null;
+	root?: ExecutionRefDto;
+	ancestors?: string[];
+	children?: ExecutionRefDto[];
+}
+
+function toExecutionKind(value: string | undefined): ExecutionKind {
+	return value === 'workflow' ? 'workflow' : 'agent_loop';
+}
+
+function toExecutionRef(d: ExecutionRefDto): ExecutionRef {
+	return {
+		executionId: d.execution_id ?? '',
+		executionType: toExecutionKind(d.execution_type),
+	};
+}
+
+/** Where an execution sits in the parent/child tree of nested runs. */
+export async function getExecutionHierarchy(
+	executionId: string,
+): Promise<ExecutionHierarchy> {
+	const data = requireData(
+		await call<ExecutionHierarchyDto>(
+			client.GET('/api/v1/executions/{id}/hierarchy', {
+				params: { path: { id: executionId } },
+			}),
+		),
+		`Hierarchy missing for execution ${executionId}`,
+	);
+	const kind = toExecutionKind(data.execution_type);
+	return {
+		executionId: data.execution_id ?? executionId,
+		executionType: kind,
+		status: data.status ?? '',
+		depth: data.depth ?? 0,
+		parent: data.parent ? toExecutionRef(data.parent) : null,
+		root: toExecutionRef(
+			data.root ?? {
+				execution_id: data.execution_id ?? executionId,
+				execution_type: data.execution_type,
+			},
+		),
+		ancestors: data.ancestors ?? [],
+		children: (data.children ?? []).map(toExecutionRef),
+	};
+}
+
+interface ExecutionSubtreeNodeDto {
+	execution_id?: string;
+	execution_type?: string;
+	status?: string | null;
+	depth?: number;
+	parent_execution_id?: string | null;
+}
+
+interface ExecutionSubtreeDto {
+	root_execution_id?: string;
+	truncated?: boolean;
+	nodes?: ExecutionSubtreeNodeDto[];
+}
+
+/** Every execution below a root, breadth-first. */
+export async function getExecutionSubtree(
+	executionId: string,
+): Promise<ExecutionSubtree> {
+	const data = requireData(
+		await call<ExecutionSubtreeDto>(
+			client.GET('/api/v1/executions/{id}/subtree', {
+				params: { path: { id: executionId } },
+			}),
+		),
+		`Subtree missing for execution ${executionId}`,
+	);
+	return {
+		rootExecutionId: data.root_execution_id ?? executionId,
+		truncated: data.truncated ?? false,
+		nodes: (data.nodes ?? []).map((n) => ({
+			executionId: n.execution_id ?? '',
+			executionType: toExecutionKind(n.execution_type),
+			status: n.status ?? null,
+			depth: n.depth ?? 0,
+			parentExecutionId: n.parent_execution_id ?? null,
+		})),
+	};
+}
+
+interface ToolCallInIterationDto {
+	name?: string;
+	duration_ms?: number;
+	success?: boolean;
+}
+
+interface IterationRecordDto {
+	iteration?: number;
+	duration?: number;
+	tool_call_count?: number;
+	tool_calls?: ToolCallInIterationDto[];
+	response_content?: string | null;
+}
+
+interface StatusTransitionDto {
+	from?: string;
+	to?: string;
+	timestamp?: number;
+}
+
+interface ContextEvolutionStepDto {
+	timestamp?: number;
+	iteration?: number;
+	status?: string;
+	description?: string;
+	tool_calls?: number | null;
+}
+
+interface ExecutionHistoryDto {
+	execution_id?: string;
+	execution_type?: string;
+	timeline?: TimelineDto[];
+	iterations?: IterationRecordDto[];
+	variables?: Record<string, unknown>;
+	context_evolution?: ContextEvolutionStepDto[];
+	status_transitions?: StatusTransitionDto[];
+}
+
+/** Names accepted by the history `include` parameter. */
+export const HISTORY_SECTIONS = [
+	'timeline',
+	'nodes',
+	'iterations',
+	'variables',
+	'context',
+	'transitions',
+] as const;
+
+export type HistorySection = (typeof HISTORY_SECTIONS)[number];
+
+/**
+ * Everything an execution recorded, grouped by section. `include` narrows
+ * what the backend loads; omitted sections come back empty.
+ */
+export async function getExecutionHistory(
+	executionId: string,
+	include?: HistorySection[],
+): Promise<ExecutionHistory> {
+	const data = requireData(
+		await call<ExecutionHistoryDto>(
+			client.GET('/api/v1/executions/{id}/history', {
+				params: {
+					path: { id: executionId },
+					query: include ? { include: include.join(',') } : {},
+				},
+			}),
+		),
+		`History missing for execution ${executionId}`,
+	);
+	return {
+		executionId: data.execution_id ?? executionId,
+		executionType: toExecutionKind(data.execution_type),
+		timeline: (data.timeline ?? []).map(toTimelineEntry),
+		iterations: (data.iterations ?? []).map((d) => ({
+			iteration: d.iteration ?? 0,
+			durationMs: d.duration ?? 0,
+			toolCallCount: d.tool_call_count ?? 0,
+			toolCalls: (d.tool_calls ?? []).map((t) => ({
+				name: t.name ?? '',
+				durationMs: t.duration_ms ?? 0,
+				success: t.success ?? false,
+			})),
+			responseContent: d.response_content ?? null,
+		})),
+		variables: Object.entries(data.variables ?? {}).map(([key, value]) => ({
+			key,
+			value: stringify(value),
+		})),
+		contextEvolution: (data.context_evolution ?? []).map((d) => ({
+			timestamp: d.timestamp ?? 0,
+			iteration: d.iteration ?? 0,
+			status: d.status ?? '',
+			description: d.description ?? '',
+			toolCalls: d.tool_calls ?? null,
+		})),
+		statusTransitions: (data.status_transitions ?? []).map((d) => ({
+			from: d.from ?? '',
+			to: d.to ?? '',
+			timestamp: d.timestamp ?? 0,
+		})),
+	};
 }

@@ -177,14 +177,70 @@ impl RemoteClient {
         self.get_json(&format!("/api/v1/workflows/{}", id)).await
     }
 
+    /// Workflow execution list with full filter support. `order` accepts
+    /// `asc` / `desc`; absent preserves server storage order.
     pub async fn list_executions(
         &self,
         limit: Option<usize>,
+        offset: Option<usize>,
+        status: Option<&str>,
+        workflow_id: Option<&str>,
+        order: Option<&str>,
     ) -> Result<serde_json::Value, RemoteError> {
-        let mut path = "/api/v1/executions".to_string();
+        let mut params: Vec<String> = Vec::new();
         if let Some(l) = limit {
-            path = format!("{path}?limit={l}");
+            params.push(format!("limit={l}"));
         }
+        if let Some(o) = offset {
+            params.push(format!("offset={o}"));
+        }
+        if let Some(s) = status {
+            params.push(format!("status={s}"));
+        }
+        if let Some(w) = workflow_id {
+            params.push(format!("workflow_id={w}"));
+        }
+        if let Some(o) = order {
+            params.push(format!("order={o}"));
+        }
+        let path = if params.is_empty() {
+            "/api/v1/executions".to_string()
+        } else {
+            format!("/api/v1/executions?{}", params.join("&"))
+        };
+        self.get_json(&path).await
+    }
+
+    /// Agent execution list with full filter support.
+    pub async fn list_agent_executions(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+        status: Option<&str>,
+        agent_id: Option<&str>,
+        order: Option<&str>,
+    ) -> Result<serde_json::Value, RemoteError> {
+        let mut params: Vec<String> = Vec::new();
+        if let Some(l) = limit {
+            params.push(format!("limit={l}"));
+        }
+        if let Some(o) = offset {
+            params.push(format!("offset={o}"));
+        }
+        if let Some(s) = status {
+            params.push(format!("status={s}"));
+        }
+        if let Some(a) = agent_id {
+            params.push(format!("agent_id={a}"));
+        }
+        if let Some(o) = order {
+            params.push(format!("order={o}"));
+        }
+        let path = if params.is_empty() {
+            "/api/v1/agent-executions".to_string()
+        } else {
+            format!("/api/v1/agent-executions?{}", params.join("&"))
+        };
         self.get_json(&path).await
     }
 

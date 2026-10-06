@@ -571,6 +571,8 @@ pub(crate) struct LoopSummariesQuery {
     limit: Option<u64>,
     /// Page offset
     offset: Option<u64>,
+    /// Sort by start time: `asc` or `desc`. Absent preserves registry order.
+    order: Option<String>,
 }
 
 /// Live-first agent loop summaries (live registry merged with persisted
@@ -611,7 +613,22 @@ pub(crate) async fn handle_loop_summaries(
         created_at_range: None,
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
-        Ok(summaries) => {
+        Ok(mut summaries) => {
+            match query.order.as_deref() {
+                None => {}
+                Some(raw) if raw.eq_ignore_ascii_case("desc") => {
+                    summaries.sort_by_key(|s| std::cmp::Reverse(s.start_time.unwrap_or(i64::MIN)));
+                }
+                Some(raw) if raw.eq_ignore_ascii_case("asc") => {
+                    summaries.sort_by_key(|s| s.start_time.unwrap_or(i64::MAX));
+                }
+                Some(raw) => {
+                    return crate::envelope::err(crate::envelope::ApiError::validation(
+                        format!("unknown order: {raw} (expected asc or desc)"),
+                    ))
+                    .into_response();
+                }
+            }
             let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = summaries
                 .into_iter()

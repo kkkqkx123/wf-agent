@@ -52,6 +52,24 @@ pub async fn list_executions(
         .map_err(Into::into)
 }
 
+/// Count workflow executions matching the filter fields of `options`.
+/// Pagination and ordering are ignored so the result reports the total
+/// number of matches rather than the size of one page.
+pub async fn count_executions(
+    ctx: &ApiContext,
+    options: Option<WorkflowExecutionListOptions>,
+) -> crate::ApiResult<u64> {
+    use wf_storage::domain::store::QueryFilter;
+    let filter: QueryFilter = options.unwrap_or_default().into();
+    let count_filter = filter.stripped_for_count();
+    ctx.storage
+        .workflow_execution
+        .entity_store()
+        .count(Some(&count_filter))
+        .await
+        .map_err(Into::into)
+}
+
 pub async fn update_execution_status(
     ctx: &ApiContext,
     id: &str,

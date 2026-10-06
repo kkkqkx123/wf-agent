@@ -9,6 +9,9 @@ pub struct WorkflowExecutionListOptions {
     pub limit: Option<u64>,
     pub status_filter: Option<String>,
     pub workflow_id_filter: Option<String>,
+    /// Sort by execution start time; true sorts newest first.
+    /// Absent preserves backend default order.
+    pub order_desc: Option<bool>,
 }
 
 impl From<WorkflowExecutionListOptions> for QueryFilter {
@@ -25,6 +28,9 @@ impl From<WorkflowExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.workflow_id_filter {
             filter.add_op(FilterOp::Eq("workflowId".into(), value));
+        }
+        if let Some(descending) = opts.order_desc {
+            filter.add_op(FilterOp::OrderBy("startedAt".into(), descending));
         }
         filter
     }

@@ -9,6 +9,9 @@ pub struct AgentExecutionListOptions {
     pub limit: Option<u64>,
     pub definition_id_filter: Option<String>,
     pub status_filter: Option<String>,
+    /// Sort by execution start time; true sorts newest first.
+    /// Absent preserves backend default order.
+    pub order_desc: Option<bool>,
 }
 
 impl From<AgentExecutionListOptions> for QueryFilter {
@@ -25,6 +28,9 @@ impl From<AgentExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.definition_id_filter {
             filter.add_op(FilterOp::Eq("definitionId".into(), value));
+        }
+        if let Some(descending) = opts.order_desc {
+            filter.add_op(FilterOp::OrderBy("startedAt".into(), descending));
         }
         filter
     }

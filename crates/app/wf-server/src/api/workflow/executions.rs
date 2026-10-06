@@ -32,6 +32,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         // ── execution list / detail / control ──
         .route("/executions", get(handle_list_executions))
+        .route("/executions/count", get(handle_count_executions))
         .route(
             "/executions/{id}",
             get(handle_get_execution).delete(handle_delete_execution),
@@ -138,6 +139,31 @@ pub(crate) struct ListExecutionsQuery {
     offset: Option<u64>,
     workflow_id: Option<String>,
     status: Option<String>,
+    /// Sort by start time: `asc` or `desc`. Absent preserves storage order.
+    order: Option<String>,
+}
+
+/// Filter for the execution count endpoint. Pagination is meaningless
+/// for a total, so only the filter dimensions are accepted.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct CountExecutionsQuery {
+    workflow_id: Option<String>,
+    status: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ExecutionCountView {
+    pub(crate) count: u64,
+}
+
+fn parse_order(order: Option<&str>) -> Result<Option<bool>, String> {
+    match order {
+        None => Ok(None),
+        Some(raw) if raw.eq_ignore_ascii_case("desc") => Ok(Some(true)),
+        Some(raw) if raw.eq_ignore_ascii_case("asc") => Ok(Some(false)),
+        Some(raw) => Err(format!("unknown order: {raw} (expected asc or desc)")),
+    }
 }
 
 #[utoipa::path(
@@ -152,15 +178,48 @@ pub(crate) async fn handle_list_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
+    let order_desc = match parse_order(query.order.as_deref()) {
+        Ok(order) => order,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = WorkflowExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
         workflow_id_filter: query.workflow_id,
         status_filter: query.status,
+        order_desc,
     };
     match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
         Ok(executions) => ok_page(executions, limit, offset).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/executions/count",
+    tag = "workflow",
+    params(CountExecutionsQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecutionCountView>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_count_executions(
+    State(state): State<ApiState>,
+    Query(query): Query<CountExecutionsQuery>,
+) -> impl IntoResponse {
+    let options = WorkflowExecutionListOptions {
+        offset: None,
+        limit: None,
+        workflow_id_filter: query.workflow_id,
+        status_filter: query.status,
+        order_desc: None,
+    };
+    match wf_api::workflow::execution::count_executions(&state.ctx, Some(options)).await {
+        Ok(count) => ok(ExecutionCountView { count }).into_response(),
         Err(e) => error_response(e),
     }
 }

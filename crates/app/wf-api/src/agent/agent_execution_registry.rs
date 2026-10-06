@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use wf_storage::adapter::agent_execution::AgentExecutionListOptions;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::ExecutionStatus;
 
@@ -26,6 +27,11 @@ pub struct AgentExecutionSummary {
     pub end_time: Option<i64>,
     pub error: Option<String>,
     pub parent_execution_id: Option<String>,
+    /// Agent definition this run belongs to. Present for live runs and for
+    /// persisted records that carry it, so definition filtering works
+    /// without consulting the live registry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition_id: Option<String>,
 }
 
 /// Execution summaries, optionally filtered.
@@ -34,30 +40,44 @@ pub async fn summaries(
     filter: Option<&AgentExecutionFilter>,
 ) -> ApiResult<Vec<AgentExecutionSummary>> {
     let mut records = live_records(ctx).await;
-    if let Ok(persisted) = ctx.storage.agent_execution.list(None).await {
-        for record in persisted {
-            if records
-                .iter()
-                .any(|r: &AgentExecutionSummary| r.execution_id == record.id)
-            {
-                continue;
-            }
-            let parent_execution_id = record
-                .hierarchy
-                .as_ref()
-                .and_then(|h| h.parent_execution_id())
-                .map(|p| p.to_string());
-            records.push(AgentExecutionSummary {
-                execution_id: record.id.to_string(),
-                status: record.status.clone(),
-                current_iteration: record.current_iteration,
-                tool_call_count: record.tool_call_count,
-                start_time: record.started_at,
-                end_time: record.completed_at,
-                error: record.error.clone(),
-                parent_execution_id,
-            });
+    let storage_options = filter.map(|f| AgentExecutionListOptions {
+        status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
+        definition_id_filter: f.agent_id.clone(),
+        ..AgentExecutionListOptions::default()
+    });
+    let persisted = ctx
+        .storage
+        .agent_execution
+        .list(storage_options)
+        .await
+        .unwrap_or_default();
+    for record in persisted {
+        if records
+            .iter()
+            .any(|r: &AgentExecutionSummary| r.execution_id == record.id)
+        {
+            continue;
         }
+        let parent_execution_id = record
+            .hierarchy
+            .as_ref()
+            .and_then(|h| h.parent_execution_id())
+            .map(|p| p.to_string());
+        let definition_id = {
+            let raw = record.definition_id.to_string();
+            if raw.is_empty() { None } else { Some(raw) }
+        };
+        records.push(AgentExecutionSummary {
+            execution_id: record.id.to_string(),
+            status: record.status.clone(),
+            current_iteration: record.current_iteration,
+            tool_call_count: record.tool_call_count,
+            start_time: record.started_at,
+            end_time: record.completed_at,
+            error: record.error.clone(),
+            parent_execution_id,
+            definition_id,
+        });
     }
     records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
 
@@ -69,10 +89,7 @@ pub async fn summaries(
                 }
             }
             if let Some(agent_id) = &filter.agent_id {
-                let matches = definition_of(ctx, &r.execution_id)
-                    .map(|d| d == *agent_id)
-                    .unwrap_or(false);
-                if !matches {
+                if r.definition_id.as_deref() != Some(agent_id.as_str()) {
                     return false;
                 }
             }
@@ -81,6 +98,15 @@ pub async fn summaries(
     }
 
     Ok(records)
+}
+
+/// Number of executions matching a filter (live merged with persisted,
+// deduplicated by execution id).
+pub async fn count_filtered(
+    ctx: &ApiContext,
+    filter: Option<&AgentExecutionFilter>,
+) -> ApiResult<usize> {
+    Ok(summaries(ctx, filter).await?.len())
 }
 
 /// Status of one execution, or `None` when unknown.
@@ -138,16 +164,7 @@ pub async fn has(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<bool> {
 /// records, deduplicated by execution id so the two sources are not
 /// double-counted).
 pub async fn count(ctx: &ApiContext) -> ApiResult<usize> {
-    let mut ids = std::collections::HashSet::new();
-    for record in live_records(ctx).await {
-        ids.insert(record.execution_id);
-    }
-    if let Ok(persisted) = ctx.storage.agent_execution.list(None).await {
-        for record in persisted {
-            ids.insert(record.id.to_string());
-        }
-    }
-    Ok(ids.len())
+    count_filtered(ctx, None).await
 }
 
 /// Counts by status across all known executions.
@@ -169,17 +186,11 @@ async fn live_records(ctx: &ApiContext) -> Vec<AgentExecutionSummary> {
                 end_time: state.end_time(),
                 error: state.error().map(String::from),
                 parent_execution_id: entity.parent_execution_id().map(|p| p.to_string()),
+                definition_id: Some(entity.definition_id().to_string()),
             });
         }
     }
     records
-}
-
-fn definition_of(ctx: &ApiContext, agent_loop_id: &str) -> Option<String> {
-    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
-        return Some(entity.definition_id().to_string());
-    }
-    None
 }
 
 async fn list_by_status(

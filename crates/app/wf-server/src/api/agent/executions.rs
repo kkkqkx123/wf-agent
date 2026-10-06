@@ -20,6 +20,7 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         // ── agent executions ──
         .route("/agent-executions", get(handle_agent_executions))
+        .route("/agent-executions/count", get(handle_agent_executions_count))
         .route(
             "/agent-executions/{id}",
             get(handle_get_agent_execution).delete(handle_delete_agent_execution),
@@ -71,6 +72,30 @@ pub(crate) struct AgentExecutionsQuery {
     offset: Option<u64>,
     status: Option<String>,
     agent_id: Option<String>,
+    /// Sort by start time: `asc` or `desc` (default `desc`).
+    order: Option<String>,
+}
+
+/// Filter for the agent execution count endpoint.
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct AgentExecutionsCountQuery {
+    status: Option<String>,
+    agent_id: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct AgentExecutionCountView {
+    pub(crate) count: usize,
+}
+
+fn parse_order(order: Option<&str>) -> Result<bool, String> {
+    match order {
+        None => Ok(true),
+        Some(raw) if raw.eq_ignore_ascii_case("desc") => Ok(true),
+        Some(raw) if raw.eq_ignore_ascii_case("asc") => Ok(false),
+        Some(raw) => Err(format!("unknown order: {raw} (expected asc or desc)")),
+    }
 }
 
 #[utoipa::path(
@@ -89,6 +114,13 @@ pub(crate) async fn handle_agent_executions(
     State(state): State<ApiState>,
     Query(query): Query<AgentExecutionsQuery>,
 ) -> impl IntoResponse {
+    let order_desc = match parse_order(query.order.as_deref()) {
+        Ok(order) => order,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let filter = wf_api::AgentExecutionFilter {
         status: query
@@ -98,7 +130,10 @@ pub(crate) async fn handle_agent_executions(
         agent_id: query.agent_id,
     };
     match wf_api::agent::agent_execution_registry::summaries(&state.ctx, Some(&filter)).await {
-        Ok(summaries) => {
+        Ok(mut summaries) => {
+            if !order_desc {
+                summaries.reverse();
+            }
             let window = summaries
                 .into_iter()
                 .skip(offset as usize)
@@ -106,6 +141,35 @@ pub(crate) async fn handle_agent_executions(
                 .collect();
             ok_page(window, limit, offset).into_response()
         }
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/agent-executions/count",
+    tag = "agent",
+    params(AgentExecutionsCountQuery),
+    responses(
+        (status = 200, description = "Agent execution count", body = crate::envelope::ApiEnvelope<crate::api::agent::executions::AgentExecutionCountView>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_agent_executions_count(
+    State(state): State<ApiState>,
+    Query(query): Query<AgentExecutionsCountQuery>,
+) -> impl IntoResponse {
+    let filter = wf_api::AgentExecutionFilter {
+        status: query
+            .status
+            .as_deref()
+            .and_then(|s| serde_json::from_value(serde_json::json!(s)).ok()),
+        agent_id: query.agent_id,
+    };
+    match wf_api::agent::agent_execution_registry::count_filtered(&state.ctx, Some(&filter)).await
+    {
+        Ok(count) => ok(AgentExecutionCountView { count }).into_response(),
         Err(e) => error_response(e),
     }
 }

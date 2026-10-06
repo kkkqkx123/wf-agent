@@ -665,6 +665,10 @@ pub enum ExecutionSub {
         /// Filter by workflow id.
         #[arg(long, value_name = "WORKFLOW")]
         workflow: Option<String>,
+        /// Filter by agent definition id (agent executions only;
+        /// cannot be combined with --workflow).
+        #[arg(long, value_name = "AGENT")]
+        agent: Option<String>,
         /// Maximum number of results.
         #[arg(long, value_name = "N")]
         limit: Option<usize>,

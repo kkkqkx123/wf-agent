@@ -9,6 +9,7 @@
 //! `hierarchy` / `subtree` / `history` arms read the cross-engine queries
 //! in `wf_api::{execution_hierarchy, execution_history}`, which resolve the
 //! owning engine from the id itself.
+use wf_api::agent::agent_execution_registry;
 use wf_api::agent::agent_loop_registry;
 use wf_api::execution_hierarchy::{self, ExecutionHierarchyView, ExecutionSubtree};
 use wf_api::execution_history::{self, ExecutionHistorySections, ExecutionHistoryView};
@@ -34,20 +35,53 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
         ExecutionSub::List {
             status,
             workflow,
+            agent,
             limit,
             offset,
             order,
         } => {
+            if workflow.is_some() && agent.is_some() {
+                return Err(crate::error::CliError::Configuration(
+                    "--workflow cannot be combined with --agent; query one engine at a time"
+                        .to_string(),
+                ));
+            }
             let order_desc = order
                 .as_deref()
                 .map(|o| o.eq_ignore_ascii_case("desc"))
                 .unwrap_or(true);
-            if let Some(wf) = workflow {
+            if let Some(agent_id) = agent {
+                let parsed_status = status
+                    .as_deref()
+                    .map(|s| {
+                        s.parse::<wf_types::ExecutionStatus>().map_err(|_| {
+                            crate::error::CliError::Configuration(format!(
+                                "unknown status: {s}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                let filter = agent_execution_registry::AgentExecutionFilter {
+                    status: parsed_status,
+                    agent_id: Some(agent_id.clone()),
+                };
+                let mut summaries =
+                    agent_execution_registry::summaries(ctx, Some(&filter)).await?;
+                if !order_desc {
+                    summaries.reverse();
+                }
+                let off = offset.unwrap_or(0);
+                let lim = limit.unwrap_or(usize::MAX);
+                let paged: Vec<_> = summaries.into_iter().skip(off).take(lim).collect();
+                let data = serde_json::to_value(&paged)?;
+                render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
+            } else if let Some(wf) = workflow {
                 let executions = list_executions(
                     ctx,
                     Some(WorkflowExecutionListOptions {
                         workflow_id_filter: Some(wf.clone()),
                         status_filter: status.clone(),
+                        order_desc: Some(order_desc),
                         ..Default::default()
                     }),
                 )
@@ -60,7 +94,7 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
                 } else {
                     executions
                 };
-                // Order by started_at; storage has no order semantic so we sort.
+                // Final in-memory sort stabilizes the storage order for display.
                 filtered.sort_by_key(|e| e.started_at);
                 if order_desc {
                     filtered.reverse();
@@ -753,8 +787,41 @@ async fn run_remote(
     use crate::cmd::render::render_envelope;
     use crate::output::OutputEnvelope;
     match sub {
-        ExecutionSub::List { limit, .. } => {
-            let data: serde_json::Value = client.list_executions(*limit).await?;
+        ExecutionSub::List {
+            status,
+            workflow,
+            agent,
+            limit,
+            offset,
+            order,
+        } => {
+            if workflow.is_some() && agent.is_some() {
+                return Err(crate::error::CliError::Configuration(
+                    "--workflow cannot be combined with --agent; query one engine at a time"
+                        .to_string(),
+                ));
+            }
+            let data: serde_json::Value = if let Some(agent_id) = agent {
+                client
+                    .list_agent_executions(
+                        *limit,
+                        *offset,
+                        status.as_deref(),
+                        Some(agent_id.as_str()),
+                        order.as_deref(),
+                    )
+                    .await?
+            } else {
+                client
+                    .list_executions(
+                        *limit,
+                        *offset,
+                        status.as_deref(),
+                        workflow.as_deref(),
+                        order.as_deref(),
+                    )
+                    .await?
+            };
             render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
         }
         ExecutionSub::Show { id, .. } => {

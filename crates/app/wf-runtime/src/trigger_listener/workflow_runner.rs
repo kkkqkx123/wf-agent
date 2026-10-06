@@ -28,9 +28,10 @@ use wf_workflow::handler::NodeHandler;
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
 use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
+use super::ledger::{record_trigger_execution, TriggerOutcome};
+use super::write_back::{handle_subworkflow_output, CompressionWriteBackError};
 use super::{
-    handle_subworkflow_output, record_trigger_execution, CompressionWriteBackError,
-    ExecutionContextRegistry, TriggerLedger, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
+    ExecutionContextRegistry, TriggerLedger, DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 /// Trigger template registry backed by the wf-resource registrar.
@@ -547,7 +548,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                 match handle_subworkflow_output(
                                     &contexts,
                                     &bus,
-                                    &super::CompressionWriteBack {
+                                    &super::write_back::CompressionWriteBack {
                                         execution_id: event.execution_id.as_deref().unwrap_or_default(),
                                         agent_loop_id: event.agent_loop_id.as_deref(),
                                         target_context_id: &target_context_id,
@@ -646,7 +647,7 @@ impl SubworkflowActionRunner {
         handle_subworkflow_output(
             &self.contexts,
             &self.bus,
-            &super::CompressionWriteBack {
+            &super::write_back::CompressionWriteBack {
                 execution_id: event.execution_id.as_deref().unwrap_or_default(),
                 agent_loop_id: event.agent_loop_id.as_deref(),
                 target_context_id,

@@ -77,7 +77,7 @@ impl StorageManager {
                 StorageContext::new_memory()
             }
             StorageBackendType::Sqlite => {
-                let db_path = crate::bootstrap::bootstrap_helpers::storage_db_path(&self.config);
+                let db_path = crate::bootstrap::storage_db_path(&self.config);
                 let path_str = db_path.to_string_lossy();
                 info!("Initializing Sqlite storage at {:?}", db_path);
                 StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
@@ -87,8 +87,7 @@ impl StorageManager {
                     RuntimeError::Config("PostgreSQL storage config is missing".into())
                 })?;
                 info!("Initializing PostgreSQL storage");
-                let conn =
-                    crate::bootstrap::bootstrap_helpers::postgres_connection_string(pg_config);
+                let conn = crate::bootstrap::postgres_connection_string(pg_config);
                 StorageContext::new_postgres(&conn, CacheConfig::default()).await?
             }
         };

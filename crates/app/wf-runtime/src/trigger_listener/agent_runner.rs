@@ -24,7 +24,7 @@ use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger::TriggerActionRunner;
 
-use super::{record_trigger_execution, TriggerLedger, TriggerOutcome};
+use super::{TriggerLedger}; use super::ledger::{record_trigger_execution, TriggerOutcome};
 use wf_types::TriggerExecutionOutcome;
 
 /// The nested-agent-execution trigger action: the concrete

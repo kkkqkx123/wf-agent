@@ -19,7 +19,8 @@ use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner};
 
 use super::scheduler::TRIGGER_INPUT_METADATA_KEY;
-use super::{record_trigger_execution, TriggerLedger, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS};
+use super::ledger::{record_trigger_execution, TriggerOutcome};
+use super::{TriggerLedger, DEFAULT_TRIGGER_TIMEOUT_MS};
 use wf_types::TriggerExecutionOutcome;
 
 /// Cold-start workflow runner behind `TriggerAction::ExecuteWorkflow`.

@@ -1,11 +1,11 @@
 import { client } from '$lib/api/client';
 import {
 	call,
-	extractCapped,
+	extractCursorPage,
 	extractPage,
 	requireData,
 } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import type { CursorPageResult, PageResult } from '$lib/api/envelope';
 import type {
 	AgentLoop,
 	AgentLoopDetail,
@@ -279,13 +279,23 @@ export async function listLoopIterations(
 }
 
 export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/agent-loops/{id}/timeline', {
-			params: { path: { id } },
-		}),
-	);
-	requireData(data, `Timeline missing for loop ${id}`);
-	return extractCapped<TimelineDto>(data).items.map(toTimelineEntry);
+	const rows: TimelineEntry[] = [];
+	let cursor: string | undefined = undefined;
+	for (;;) {
+		const data: unknown = await call<unknown>(
+			client.GET('/api/v1/agent-loops/{id}/timeline', {
+				params: { path: { id }, query: { limit: 500, cursor } },
+			}),
+		);
+		requireData(data, `Timeline missing for loop ${id}`);
+		const page: CursorPageResult<TimelineDto> = extractCursorPage<TimelineDto>(data);
+		for (const item of page.items) {
+			rows.push(toTimelineEntry(item));
+		}
+		if (page.nextCursor === null || !page.hasMore) break;
+		cursor = page.nextCursor;
+	}
+	return rows;
 }
 
 /** The loop variable endpoint answers with `[name, value]` pairs. */

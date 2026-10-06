@@ -9,6 +9,10 @@ pub struct AgentExecutionListOptions {
     pub limit: Option<u64>,
     pub definition_id_filter: Option<String>,
     pub status_filter: Option<String>,
+    /// Inclusive lower bound on `startedAt` (ms epoch).
+    pub started_from: Option<i64>,
+    /// Inclusive upper bound on `startedAt` (ms epoch).
+    pub started_to: Option<i64>,
     /// Sort by execution start time; true sorts newest first.
     /// Absent preserves backend default order.
     pub order_desc: Option<bool>,
@@ -28,6 +32,22 @@ impl From<AgentExecutionListOptions> for QueryFilter {
         }
         if let Some(value) = opts.definition_id_filter {
             filter.add_op(FilterOp::Eq("definitionId".into(), value));
+        }
+        match (opts.started_from, opts.started_to) {
+            (Some(from), Some(to)) => {
+                filter.add_op(FilterOp::Between("startedAt".into(), from, to));
+            }
+            (Some(from), None) => {
+                if from > i64::MIN {
+                    filter.add_op(FilterOp::Gt("startedAt".into(), from - 1));
+                }
+            }
+            (None, Some(to)) => {
+                if to < i64::MAX {
+                    filter.add_op(FilterOp::Lt("startedAt".into(), to + 1));
+                }
+            }
+            (None, None) => {}
         }
         if let Some(descending) = opts.order_desc {
             filter.add_op(FilterOp::OrderBy("startedAt".into(), descending));

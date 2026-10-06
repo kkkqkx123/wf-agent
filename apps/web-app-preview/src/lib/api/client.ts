@@ -105,6 +105,21 @@ function pageView<T>(items: T[], limit = 50, offset = 0) {
         };
 }
 
+/** Wrap a list of DTOs in the backend's CursorPageView shape. The cursor
+ *  is the next numeric offset encoded as a string, matching the server. */
+function cursorPageView<T>(items: T[], limit = 50, cursor?: unknown) {
+        const offset = Math.max(0, parseInt(String(cursor ?? '0'), 10) || 0);
+        const window = items.slice(offset, offset + limit + 1);
+        const hasMore = window.length > limit;
+        window.length = Math.min(window.length, limit);
+        return {
+                items: window,
+                limit,
+                next_cursor: hasMore ? String(offset + limit) : null,
+                has_more: hasMore,
+        };
+}
+
 /** Best-effort extract of a query param from params.query. openapi-fetch
  *  passes `{ query: { limit, offset } }` for list calls. */
 function queryOf(params?: Record<string, unknown>): Record<string, unknown> {
@@ -297,8 +312,72 @@ router.on('GET', '/api/v1/executions/{id}/audit/tool-calls', () => {
 router.on('GET', '/api/v1/executions/{id}/audit/timeline', () => {
         return camelToSnakeDeep(executionTimeline);
 });
-router.on('GET', '/api/v1/events/execution-timeline/{executionId}', () => {
-        return camelToSnakeDeep(executionTimeline);
+router.on('GET', '/api/v1/events/execution-timeline/{executionId}', (_p, query) => {
+        const events = executionTimeline.map((entry) => ({
+                ...entry,
+                timestamp: Date.parse(entry.at),
+                type: entry.kind,
+        }));
+        const page = cursorPageView(
+                camelToSnakeDeep(events),
+                +(query.limit ?? 50),
+                query.cursor,
+        );
+        return { ...page, total: events.length };
+});
+router.on('GET', '/api/v1/unified-executions', (_p, query) => {
+        const unified = [
+                ...executions.map((e) => ({
+                        execution_id: e.id,
+                        execution_type: 'workflow',
+                        status: e.status,
+                        start_time: Date.parse(e.startedAt),
+                        end_time: e.endedAt ? Date.parse(e.endedAt) : null,
+                        definition_id: e.workflowId,
+                        parent_execution_id: null,
+                        error: e.error ?? null,
+                })),
+                ...agentLoops.map((loop) => ({
+                        execution_id: loop.id,
+                        execution_type: 'agent_loop',
+                        status: loop.status,
+                        start_time: Date.parse(loop.startedAt),
+                        end_time: Date.parse(loop.updatedAt),
+                        definition_id: loop.name,
+                        parent_execution_id: null,
+                        error: null,
+                })),
+        ].sort((a, b) => b.start_time - a.start_time);
+        const status = typeof query.status === 'string' ? query.status : null;
+        const filtered = status
+                ? unified.filter((e) => e.status === status)
+                : unified;
+        return cursorPageView(filtered, +(query.limit ?? 50), query.cursor);
+});
+router.on('GET', '/api/v1/executions/{id}/logs', (_p, query) => {
+        const entries = executionTimeline.map((entry, index) => ({
+                execution_id: null,
+                workflow_id: null,
+                timestamp: Date.parse(entry.at) + index,
+                event_type: entry.kind,
+                event_name: null,
+                message: `${entry.title} — ${entry.detail}`,
+        }));
+        return cursorPageView(entries, +(query.limit ?? 50), query.cursor);
+});
+router.on('GET', '/api/v1/executions/{id}/artifacts', (_p, query) => {
+        const entries = [
+                {
+                        execution_id: 'preview',
+                        execution_type: 'workflow',
+                        name: 'output',
+                        kind: 'workflow_output',
+                        preview: '{"preview": true}',
+                        truncated: false,
+                        size_bytes: 18,
+                },
+        ];
+        return cursorPageView(entries, +(query.limit ?? 50), query.cursor);
 });
 router.on('GET', '/api/v1/executions/{id}/hierarchy', () => {
         return camelToSnakeDeep(executionHierarchy);
@@ -373,8 +452,9 @@ router.on('GET', '/api/v1/agent-loops/{id}/iteration-history', () => {
 });
 router.on('GET', '/api/v1/agent-loops/{id}/timeline', () => ({
         items: [],
-        total: 0,
-        truncated: false,
+        limit: 50,
+        next_cursor: null,
+        has_more: false,
 }));
 router.on('GET', '/api/v1/agent-loops/{id}/checkpoints/chain', () => {
         return {

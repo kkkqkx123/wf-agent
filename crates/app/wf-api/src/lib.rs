@@ -3,8 +3,11 @@ pub mod analysis;
 pub mod audit;
 pub mod checkpoint;
 pub mod entity;
+pub mod execution_artifacts;
 pub mod execution_hierarchy;
 pub mod execution_history;
+pub mod execution_listing;
+pub mod execution_logs;
 pub mod infra;
 pub mod llm;
 pub mod query;
@@ -75,7 +78,10 @@ pub use audit::{
 pub use entity::execution::{
     ensure_execution_domain, resolve_execution, resolve_execution_with_override, ExecutionDomain,
 };
+pub use execution_artifacts::{ArtifactEntry, ArtifactFilter, ArtifactKind};
+pub use execution_listing::{UnifiedExecutionFilter, UnifiedExecutionSummary};
 pub use entity::message::{MessageOrder, MessageStats};
+pub use execution_logs::{LogEntry, LogFilter};
 pub use entity::resource::ResourceApi;
 pub use entity::skill::{SkillFilter, SkillResourceEntry};
 pub use entity::variable::{VariableHistoryEntry, VariableStatistics};

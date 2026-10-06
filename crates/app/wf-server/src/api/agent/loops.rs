@@ -16,10 +16,10 @@ use wf_api::AgentLoopListOptions;
 use wf_api::Message;
 use wf_api::{AgentLoopConfig, AgentLoopInput};
 
-use crate::envelope::{error_response, ok};
-use crate::extract::{IdNamePath, IdPath, ListQuery};
+use crate::envelope::{err, error_response, ok, ApiError};
+use crate::extract::{CursorQuery, IdNamePath, IdPath, ListQuery};
 use crate::paged::{
-    fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_TIMELINE_ENTRIES,
+    fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page, resolve_page_fields,
 };
 use crate::router::ApiState;
 use crate::sse::{execution_frames, sse_response};
@@ -745,9 +745,10 @@ pub(crate) async fn handle_iteration_history_summary(
     get,
     path = "/api/v1/agent-loops/{id}/timeline",
     tag = "agent",
-    params(IdPath),
+    params(IdPath, CursorQuery),
     responses(
-        (status = 200, description = "Execution timeline", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
+        (status = 200, description = "Execution timeline", body = crate::envelope::ApiEnvelope<crate::paged::CursorPageView<serde_json::Value>>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -756,9 +757,21 @@ pub(crate) async fn handle_iteration_history_summary(
 pub(crate) async fn handle_loop_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<CursorQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
     match wf_api::agent::agent_loop_registry::execution_timeline(&state.ctx, &path.id).await {
-        Ok(timeline) => ok_capped(timeline, MAX_TIMELINE_ENTRIES).into_response(),
+        Ok(timeline) => {
+            let window = timeline
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_cursor_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

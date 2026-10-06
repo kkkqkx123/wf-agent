@@ -3,19 +3,20 @@
 //! answers what a single execution recorded rather than how it relates to
 //! others.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use serde::Serialize;
-use utoipa::ToSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::execution_hierarchy;
 use wf_types::execution::ExecutionType;
 use wf_types::ExecutionStatus;
 
-use crate::envelope::{error_response, ok};
+use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::IdPath;
+use crate::paged::encode_cursor;
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -119,17 +120,18 @@ impl From<execution_hierarchy::RejectedRow> for RejectedRowDoc {
     }
 }
 
-/// Every execution below a root, breadth-first.
+/// One page of the executions below a root, breadth-first.
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct SubtreeDoc {
     root_execution_id: String,
-    /// Set when the node cap dropped descendants, so a caller can tell a
-    /// complete tree from a clipped one.
+    /// Set when nodes remain past this page; follow `next_cursor` for them.
     truncated: bool,
-    /// How many descendants the node cap dropped. Query a descendant for the
-    /// part of the tree this response left out.
+    /// How many descendants sit past this page.
     #[serde(skip_serializing_if = "is_zero")]
     omitted: usize,
+    /// Opaque cursor for the following page; absent on the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
     /// Root first, then each level in child order.
     nodes: Vec<SubtreeNodeDoc>,
     rejected: Vec<RejectedRowDoc>,
@@ -145,6 +147,7 @@ impl From<execution_hierarchy::ExecutionSubtree> for SubtreeDoc {
             root_execution_id: tree.root_execution_id,
             truncated: tree.truncated,
             omitted: tree.omitted,
+            next_cursor: tree.next_offset.map(encode_cursor),
             nodes: tree.nodes.into_iter().map(SubtreeNodeDoc::from).collect(),
             rejected: tree
                 .rejected
@@ -153,6 +156,15 @@ impl From<execution_hierarchy::ExecutionSubtree> for SubtreeDoc {
                 .collect(),
         }
     }
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct SubtreeQuery {
+    /// Page limit
+    limit: Option<u64>,
+    /// Opaque cursor from a previous page
+    cursor: Option<String>,
 }
 
 #[utoipa::path(
@@ -179,15 +191,21 @@ pub(crate) async fn handle_hierarchy(
     path = "/api/v1/executions/{id}/subtree",
     operation_id = "get_executions_id_subtree",
     tag = "observation",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::hierarchy::SubtreeDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    params(IdPath, SubtreeQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::hierarchy::SubtreeDoc>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_subtree(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<SubtreeQuery>,
 ) -> impl IntoResponse {
-    match execution_hierarchy::subtree(&state.ctx, &path.id).await {
+    let (limit, offset) = match crate::paged::resolve_cursor_page(query.limit, query.cursor.as_deref())
+    {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
+    match execution_hierarchy::subtree(&state.ctx, &path.id, limit as usize, offset as usize).await {
         Ok(tree) => ok(SubtreeDoc::from(tree)).into_response(),
         Err(e) => error_response(e),
     }

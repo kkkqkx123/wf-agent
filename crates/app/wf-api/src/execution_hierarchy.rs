@@ -24,15 +24,6 @@ use wf_types::ExecutionStatus;
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
 
-/// Node cap for one subtree query. A wide hierarchy would otherwise make a
-/// single request unbounded; the truncation is reported instead of silent.
-///
-/// The cap guards response size only: the prefix scan already returns every
-/// matching row, so clipping costs no query work. There is no continuation
-/// cursor, because a caller that needs more asks for a descendant, whose own
-/// subtree is a strictly narrower answer.
-pub const MAX_SUBTREE_NODES: usize = 512;
-
 /// One execution as referenced from a hierarchy view.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ExecutionRef {
@@ -73,17 +64,18 @@ pub struct ExecutionSubtreeNode {
     pub parent_execution_id: Option<String>,
 }
 
-/// Every execution below a root, breadth-first.
+/// One page of the executions below a root, breadth-first.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecutionSubtree {
     pub root_execution_id: String,
-    /// Set when the node cap dropped descendants, so a caller can tell a
-    /// complete tree from a clipped one.
+    /// Set when nodes remain past this page; follow `next_offset` for them.
     pub truncated: bool,
-    /// How many descendants the node cap dropped. Query a descendant for the
-    /// part of the tree this response left out.
+    /// How many descendants sit past this page.
     #[serde(skip_serializing_if = "is_zero")]
     pub omitted: usize,
+    /// Offset of the following page; absent when this page is the last one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
     /// Root first, then each level in child order.
     pub nodes: Vec<ExecutionSubtreeNode>,
     /// Rows this scan reached but could not read. Reported so a caller can
@@ -334,13 +326,20 @@ pub async fn hierarchy(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionHierarc
     })
 }
 
-/// Every execution in the tree rooted at `root_id`.
+/// One page of the executions in the tree rooted at `root_id`.
 ///
 /// One prefix scan per record kind covers every persisted node; the live
 /// managers are then walked in memory and the two sets reconciled by
 /// [`merge_persisted_then_live`]. Neither step issues a query per node, so the
-/// cost does not grow with the width of the tree.
-pub async fn subtree(ctx: &ApiContext, root_id: &str) -> ApiResult<ExecutionSubtree> {
+/// cost does not grow with the width of the tree. Paging only bounds the
+/// response: nodes sort breadth-first (root first, then each level in child
+/// order) and the page carries the offset of the following page.
+pub async fn subtree(
+    ctx: &ApiContext,
+    root_id: &str,
+    limit: usize,
+    offset: usize,
+) -> ApiResult<ExecutionSubtree> {
     // The queried node's own path is the prefix that selects it and everything
     // below, so a nested node answers the same way a root does.
     let root = placement(ctx, root_id)
@@ -384,15 +383,23 @@ pub async fn subtree(ctx: &ApiContext, root_id: &str) -> ApiResult<ExecutionSubt
             .then_with(|| a.execution_id.cmp(&b.execution_id))
     });
     let total = nodes.len();
-    if total > MAX_SUBTREE_NODES {
-        nodes.truncate(MAX_SUBTREE_NODES);
-    }
-    let omitted = total - nodes.len();
+    let start = offset.min(total);
+    let window: Vec<ExecutionSubtreeNode> = nodes
+        .into_iter()
+        .skip(start)
+        .take(limit.saturating_add(1))
+        .collect();
+    let has_more = window.len() > limit;
+    let mut window = window;
+    window.truncate(limit);
+    let end = start.saturating_add(window.len());
+    let omitted = total.saturating_sub(end);
     Ok(ExecutionSubtree {
         root_execution_id: root_id.to_string(),
-        truncated: omitted > 0,
+        truncated: has_more,
         omitted,
-        nodes,
+        next_offset: has_more.then_some(end as u64),
+        nodes: window,
         rejected: rejected_rows(rejected),
     })
 }
@@ -558,7 +565,7 @@ mod tests {
         register_agent(&ctx, "b", b).await;
         register_agent(&ctx, "a1", a1).await;
 
-        let tree = subtree(&ctx, "root").await.unwrap();
+        let tree = subtree(&ctx, "root", usize::MAX, 0).await.unwrap();
         assert!(!tree.truncated);
         let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert_eq!(order, vec!["root", "a", "b", "a1"]);
@@ -581,7 +588,7 @@ mod tests {
                     memory.reset_read_count();
                 }
             }
-            let tree = subtree(ctx, "r").await.unwrap();
+            let tree = subtree(ctx, "r", usize::MAX, 0).await.unwrap();
             assert_eq!(tree.nodes.len(), child_count + 1);
             ctx.storage
                 .workflow_execution
@@ -633,7 +640,7 @@ mod tests {
         assert_eq!(view.ancestors, vec!["wf-root".to_string()]);
         assert_eq!(view.parent.unwrap().execution_id, "wf-root");
 
-        let tree = subtree(&ctx, "wf-root").await.unwrap();
+        let tree = subtree(&ctx, "wf-root", usize::MAX, 0).await.unwrap();
         assert_eq!(tree.nodes.len(), 2);
         assert_eq!(tree.nodes[1].execution_type, ExecutionType::AgentLoop);
     }
@@ -669,7 +676,7 @@ mod tests {
             .await
             .unwrap();
 
-        let tree = subtree(&ctx, "wf-root").await.unwrap();
+        let tree = subtree(&ctx, "wf-root", usize::MAX, 0).await.unwrap();
         assert_eq!(tree.nodes.len(), 2, "the child is still reachable");
         assert_eq!(tree.nodes[1].execution_id, "agent-kid");
     }
@@ -687,7 +694,7 @@ mod tests {
         assert!(view.parent.is_none());
         assert_eq!(view.root.execution_id, "solo");
 
-        let tree = subtree(&ctx, "solo").await.unwrap();
+        let tree = subtree(&ctx, "solo", usize::MAX, 0).await.unwrap();
         assert_eq!(tree.nodes.len(), 1, "a root lists only itself");
         assert_eq!(tree.nodes[0].execution_id, "solo");
         assert!(tree.nodes[0].parent_execution_id.is_none());
@@ -790,7 +797,7 @@ mod tests {
         let ctx = make_ctx();
         branching_tree(&ctx).await;
 
-        let tree = subtree(&ctx, "r").await.unwrap();
+        let tree = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();
         assert!(!tree.truncated);
         assert_eq!(tree.omitted, 0);
         let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
@@ -805,7 +812,7 @@ mod tests {
         let ctx = make_ctx();
         branching_tree(&ctx).await;
 
-        let tree = subtree(&ctx, "a").await.unwrap();
+        let tree = subtree(&ctx, "a", usize::MAX, 0).await.unwrap();
         let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert_eq!(order, vec!["a", "g"]);
         let depths: Vec<u32> = tree.nodes.iter().map(|n| n.depth).collect();
@@ -822,7 +829,7 @@ mod tests {
             .await
             .unwrap();
 
-        let tree = subtree(&ctx, "r").await.unwrap();
+        let tree = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();
         let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert!(!order.contains(&"rx"), "`/r/` must not match `/rx/`");
     }
@@ -851,7 +858,7 @@ mod tests {
             .await
             .unwrap();
 
-        let tree = subtree(&ctx, "live-root").await.unwrap();
+        let tree = subtree(&ctx, "live-root", usize::MAX, 0).await.unwrap();
         let ids: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert_eq!(ids, vec!["live-root", "live-kid", "stored-kid"]);
     }
@@ -866,7 +873,7 @@ mod tests {
         register_agent(&ctx, "run", root).await;
         register_agent(&ctx, "agent-kid", child).await;
 
-        let tree = subtree(&ctx, "run").await.unwrap();
+        let tree = subtree(&ctx, "run", usize::MAX, 0).await.unwrap();
         let order: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert_eq!(order, vec!["run", "agent-kid"]);
     }
@@ -875,22 +882,38 @@ mod tests {
     async fn unknown_id_is_not_found() {
         let ctx = make_ctx();
         assert!(hierarchy(&ctx, "nope").await.is_err());
-        assert!(subtree(&ctx, "nope").await.is_err());
+        assert!(subtree(&ctx, "nope", usize::MAX, 0).await.is_err());
     }
 
-    /// The node cap guards response size only, so crossing it drops the
-    /// tail of the listing and reports how much went missing rather than
-    /// failing or silently returning a shorter tree.
+    /// Paging bounds the response without silently clipping the tree: a
+    /// short page reports how many nodes remain and the offset that
+    /// resumes them, and following the offsets walks the whole tree.
     #[tokio::test]
-    async fn a_subtree_reports_how_many_nodes_the_cap_dropped() {
+    async fn a_subtree_pages_without_silent_clipping() {
         let ctx = make_ctx();
-        persisted_star(&ctx, MAX_SUBTREE_NODES).await;
+        persisted_star(&ctx, 4).await;
 
-        let tree = subtree(&ctx, "r").await.unwrap();
-        assert_eq!(tree.nodes.len(), MAX_SUBTREE_NODES);
-        assert!(tree.truncated);
-        assert_eq!(tree.omitted, 1);
-        assert!(tree.rejected.is_empty());
+        let first = subtree(&ctx, "r", 2, 0).await.unwrap();
+        assert_eq!(first.nodes.len(), 2);
+        assert!(first.truncated);
+        assert_eq!(first.omitted, 3);
+        assert_eq!(first.next_offset, Some(2));
+        assert!(first.rejected.is_empty());
+
+        let second = subtree(&ctx, "r", 2, 2).await.unwrap();
+        assert_eq!(second.nodes.len(), 2);
+        assert!(second.truncated);
+        assert_eq!(second.omitted, 1);
+
+        let last = subtree(&ctx, "r", 2, 4).await.unwrap();
+        assert_eq!(last.nodes.len(), 1);
+        assert!(!last.truncated);
+        assert_eq!(last.omitted, 0);
+        assert_eq!(last.next_offset, None);
+
+        let whole = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();
+        assert_eq!(whole.nodes.len(), 5);
+        assert!(!whole.truncated);
     }
 
     /// One record whose path names a different execution sits inside the
@@ -916,7 +939,7 @@ mod tests {
             .await
             .unwrap();
 
-        let tree = subtree(&ctx, "r").await.unwrap();
+        let tree = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();
         let ids: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
         assert_eq!(ids, vec!["r", "a", "b", "g"], "good rows still answer");
         assert_eq!(tree.rejected.len(), 1);
@@ -966,7 +989,7 @@ mod tests {
             ExecutionType::AgentLoop
         );
 
-        let tree = subtree(&ctx, "r").await.unwrap();
+        let tree = subtree(&ctx, "r", usize::MAX, 0).await.unwrap();
         let node = tree
             .nodes
             .iter()

@@ -18,15 +18,13 @@ use wf_api::EventSubscriptionOptions;
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::paged::{
-    fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_TIMELINE_ENTRIES,
+    fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page,
 };
 use crate::router::ApiState;
 use crate::sse::sse_response;
 
 /// Max concurrent SSE connections, default of 100.
 const MAX_SSE_CLIENTS: usize = 100;
-/// Max events pulled for one `GET /events` page (offset + limit + 1).
-const MAX_EVENT_FETCH: usize = 5000;
 static SSE_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Decrements the SSE client counter when the response body is dropped
@@ -84,8 +82,8 @@ pub(crate) fn routes() -> Router<ApiState> {
 pub(crate) struct ListEventsQuery {
     /// Page limit
     limit: Option<u64>,
-    /// Page offset
-    offset: Option<u64>,
+    /// Opaque cursor from a previous page
+    cursor: Option<String>,
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
@@ -96,20 +94,21 @@ pub(crate) struct ListEventsQuery {
     path = "/api/v1/events",
     tag = "system",
     params(ListEventsQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CursorPageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_events(
     State(state): State<ApiState>,
     Query(query): Query<ListEventsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
-    // `history` truncates to `limit` from the start, so deep pages must
-    // over-fetch past the offset; the fetch stays bounded.
-    let fetch = offset
-        .saturating_add(limit)
-        .saturating_add(1)
-        .min(MAX_EVENT_FETCH as u64) as usize;
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
+    // `history` truncates to `limit` from the start, so deep pages
+    // over-fetch past the offset. The fetch grows with the offset instead
+    // of stopping at a cap, so deep pages stay correct.
+    let fetch = offset.saturating_add(limit).saturating_add(1) as usize;
     let options = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
@@ -124,7 +123,7 @@ pub(crate) async fn handle_list_events(
                 .skip(offset as usize)
                 .take(fetch_size(limit) as usize)
                 .collect();
-            ok_page(window, limit, offset).into_response()
+            ok_cursor_page(window, limit, offset).into_response()
         }
         Err(e) => error_response(e),
     }
@@ -185,8 +184,8 @@ pub(crate) struct SearchEventsQuery {
     workflow_id: Option<String>,
     /// Page limit
     limit: Option<u64>,
-    /// Page offset
-    offset: Option<u64>,
+    /// Opaque cursor from a previous page
+    cursor: Option<String>,
 }
 
 #[utoipa::path(
@@ -194,18 +193,18 @@ pub(crate) struct SearchEventsQuery {
     path = "/api/v1/events/search",
     tag = "system",
     params(SearchEventsQuery),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CursorPageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_search_events(
     State(state): State<ApiState>,
     Query(query): Query<SearchEventsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
-    let fetch = offset
-        .saturating_add(limit)
-        .saturating_add(1)
-        .min(MAX_EVENT_FETCH as u64) as usize;
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
+    let fetch = offset.saturating_add(limit).saturating_add(1) as usize;
     let options = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
@@ -220,7 +219,7 @@ pub(crate) async fn handle_search_events(
                 .skip(offset as usize)
                 .take(fetch_size(limit) as usize)
                 .collect();
-            ok_page(window, limit, offset).into_response()
+            ok_cursor_page(window, limit, offset).into_response()
         }
         Err(e) => error_response(e),
     }
@@ -258,16 +257,28 @@ pub(crate) async fn handle_event_time_range(State(state): State<ApiState>) -> im
     get,
     path = "/api/v1/events/timeline/{executionId}",
     tag = "system",
-    params(ExecutionIdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    params(ExecutionIdPath, crate::extract::CursorQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CursorPageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_timeline(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<crate::extract::CursorQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
     match wf_api::infra::events::timeline(&state.ctx, &path.execution_id).await {
-        Ok(events) => ok_capped(events, MAX_TIMELINE_ENTRIES).into_response(),
+        Ok(events) => {
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_cursor_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -276,16 +287,28 @@ pub(crate) async fn handle_execution_timeline(
     get,
     path = "/api/v1/events/agent-timeline/{id}",
     tag = "system",
-    params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    params(IdPath, crate::extract::CursorQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CursorPageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<crate::extract::CursorQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
     match wf_api::infra::events::agent_timeline(&state.ctx, &path.id).await {
-        Ok(events) => ok_capped(events, MAX_TIMELINE_ENTRIES).into_response(),
+        Ok(events) => {
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_cursor_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -294,25 +317,31 @@ pub(crate) async fn handle_agent_timeline(
     get,
     path = "/api/v1/events/execution-timeline/{executionId}",
     tag = "system",
-    params(ExecutionIdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    params(ExecutionIdPath, crate::extract::CursorQuery),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_timeline_view(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<crate::extract::CursorQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = match resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+        Ok(page) => page,
+        Err(message) => return err(ApiError::validation(message)).into_response(),
+    };
     match wf_api::infra::events::get_execution_timeline(&state.ctx, &path.execution_id).await {
-        Ok(Some(timeline)) => ok(cap_execution_timeline(timeline)).into_response(),
+        Ok(Some(timeline)) => ok(page_execution_timeline(timeline, limit, offset)).into_response(),
         Ok(None) => ok(serde_json::Value::Null).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-/// Capped execution timeline view with an explicit truncation flag and
-/// pre-truncation total.
+/// Paged execution timeline view: lifecycle phases stay whole while the
+/// flat event list pages with an explicit continuation, so no event is
+/// silently dropped past a cap.
 #[derive(Serialize)]
-pub(crate) struct CappedExecutionTimelineView {
+pub(crate) struct PagedExecutionTimelineView {
     execution_id: String,
     workflow_id: Option<String>,
     status: String,
@@ -321,18 +350,30 @@ pub(crate) struct CappedExecutionTimelineView {
     total_elapsed: i64,
     phases: Vec<wf_api::infra::events::ExecutionTimelinePhase>,
     events: Vec<wf_types::events::BaseEvent>,
-    truncated: bool,
+    limit: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_cursor: Option<String>,
+    has_more: bool,
     total: usize,
 }
 
-fn cap_execution_timeline(
+fn page_execution_timeline(
     timeline: wf_api::infra::events::ExecutionTimeline,
-) -> CappedExecutionTimelineView {
+    limit: u64,
+    offset: u64,
+) -> PagedExecutionTimelineView {
     let total = timeline.events.len();
-    let truncated = total > MAX_TIMELINE_ENTRIES;
-    let mut events = timeline.events;
-    events.truncate(MAX_TIMELINE_ENTRIES);
-    CappedExecutionTimelineView {
+    let window: Vec<wf_types::events::BaseEvent> = timeline
+        .events
+        .into_iter()
+        .skip(offset as usize)
+        .take(fetch_size(limit) as usize)
+        .collect();
+    let has_more = window.len() as u64 > limit;
+    let next_cursor = has_more.then(|| crate::paged::encode_cursor(offset.saturating_add(limit)));
+    let mut events = window;
+    events.truncate(limit as usize);
+    PagedExecutionTimelineView {
         execution_id: timeline.execution_id,
         workflow_id: timeline.workflow_id,
         status: timeline.status,
@@ -341,7 +382,9 @@ fn cap_execution_timeline(
         total_elapsed: timeline.total_elapsed,
         phases: timeline.phases,
         events,
-        truncated,
+        limit,
+        next_cursor,
+        has_more,
         total,
     }
 }

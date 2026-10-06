@@ -24,8 +24,6 @@ pub(crate) const MAX_PAGE_LIMIT: u64 = 500;
 /// Hard cap for checkpoint and tool chains; chains are single-parent
 /// structures, so they are capped with a truncation flag instead of paged.
 pub(crate) const MAX_CHAIN_ENTRIES: usize = 500;
-/// Hard cap for per-execution and per-loop timelines and event views.
-pub(crate) const MAX_TIMELINE_ENTRIES: usize = 5000;
 
 /// One page of a list response.
 #[derive(Serialize, ToSchema)]
@@ -76,6 +74,71 @@ pub(crate) fn ok_page<T: Serialize>(
     ok(PageView::from_window(window, limit, offset))
 }
 
+/// One cursor page of a list response.
+///
+/// `next_cursor` is opaque: callers pass it back verbatim and never parse
+/// it. It currently encodes the next numeric offset, but that shape is an
+/// internal detail and may change without notice.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct CursorPageView<T: Serialize> {
+    pub(crate) items: Vec<T>,
+    pub(crate) limit: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) next_cursor: Option<String>,
+    pub(crate) has_more: bool,
+}
+
+impl<T: Serialize> CursorPageView<T> {
+    /// Build a cursor page from a window starting at `offset` with at most
+    /// `limit + 1` items; the extra item becomes `has_more` and the cursor
+    /// for the following page.
+    pub(crate) fn from_window(mut window: Vec<T>, limit: u64, offset: u64) -> Self {
+        let has_more = window.len() as u64 > limit;
+        window.truncate(limit as usize);
+        let next_cursor = has_more.then(|| encode_cursor(offset.saturating_add(limit)));
+        Self {
+            items: window,
+            limit,
+            next_cursor,
+            has_more,
+        }
+    }
+}
+
+/// Encode a numeric offset as an opaque cursor.
+pub(crate) fn encode_cursor(offset: u64) -> String {
+    offset.to_string()
+}
+
+/// Decode an opaque cursor back to its numeric offset.
+pub(crate) fn decode_cursor(cursor: &str) -> Result<u64, String> {
+    cursor
+        .parse::<u64>()
+        .map_err(|_| format!("unknown cursor: {cursor}"))
+}
+
+/// Resolve `limit` with defaults and the hard cap plus an opaque `cursor`.
+pub(crate) fn resolve_cursor_page(
+    limit: Option<u64>,
+    cursor: Option<&str>,
+) -> Result<(u64, u64), String> {
+    let limit = limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT);
+    let offset = match cursor {
+        None | Some("") => 0,
+        Some(raw) => decode_cursor(raw)?,
+    };
+    Ok((limit, offset))
+}
+
+/// Render a window through the cursor-page envelope.
+pub(crate) fn ok_cursor_page<T: Serialize>(
+    window: Vec<T>,
+    limit: u64,
+    offset: u64,
+) -> Json<ApiEnvelope<CursorPageView<T>>> {
+    ok(CursorPageView::from_window(window, limit, offset))
+}
+
 /// Capped list view for chains and timelines: full structure up to a hard
 /// cap with an explicit truncation flag and pre-truncation total.
 #[derive(Serialize, ToSchema)]
@@ -120,6 +183,30 @@ mod tests {
         let page = PageView::<i32>::from_window(vec![1, 2], 2, 4);
         assert!(!page.has_more);
         assert_eq!(page.offset, 4);
+    }
+
+    #[test]
+    fn cursor_round_trips_offset() {
+        assert_eq!(decode_cursor(&encode_cursor(0)), Ok(0));
+        assert_eq!(decode_cursor(&encode_cursor(42)), Ok(42));
+        assert!(decode_cursor("not-a-cursor").is_err());
+        assert_eq!(resolve_cursor_page(None, None), Ok((DEFAULT_PAGE_LIMIT, 0)));
+        assert_eq!(
+            resolve_cursor_page(Some(10), Some(&encode_cursor(20))),
+            Ok((10, 20))
+        );
+        assert!(resolve_cursor_page(None, Some("bogus")).is_err());
+    }
+
+    #[test]
+    fn cursor_window_splits_has_more() {
+        let page = CursorPageView::from_window(vec![1, 2, 3], 2, 0);
+        assert_eq!(page.items, vec![1, 2]);
+        assert!(page.has_more);
+        assert_eq!(page.next_cursor, Some("2".to_string()));
+        let last = CursorPageView::from_window(vec![3], 2, 2);
+        assert!(!last.has_more);
+        assert_eq!(last.next_cursor, None);
     }
 
     #[test]

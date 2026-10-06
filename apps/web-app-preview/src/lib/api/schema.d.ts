@@ -84,6 +84,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent-executions/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_agent_executions_count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent-executions/stats": {
         parameters: {
             query?: never;
@@ -1469,6 +1485,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_query_artifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/checkpoints": {
         parameters: {
             query?: never;
@@ -1949,6 +1981,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/executions/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_count_executions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/executions/{id}": {
         parameters: {
             query?: never;
@@ -2117,6 +2165,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["handle_slow_nodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/executions/{id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_execution_artifacts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2722,6 +2786,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["handle_llm_reasoning_path"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/executions/{id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_execution_logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4025,6 +4105,22 @@ export interface paths {
         };
         /** Off-hot-path model listing for a provider definition. */
         get: operations["handle_list_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_query_logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5589,6 +5685,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/unified-executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_unified_executions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/unified-executions/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_unified_executions_count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/variables": {
         parameters: {
             query?: never;
@@ -6109,6 +6237,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflows/{id}/execute/background": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_execute_background"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows/{id}/execute/stream": {
         parameters: {
             query?: never;
@@ -6527,6 +6671,9 @@ export interface components {
             owner_id: string;
             owner_name: string;
         };
+        AgentExecutionCountView: {
+            count: number;
+        };
         AgentRespondBody: {
             agent_loop_id?: string | null;
             response_data?: unknown;
@@ -6549,6 +6696,13 @@ export interface components {
             filters?: unknown;
             operations?: string[];
         };
+        ApiEnvelope_AgentExecutionCountView: {
+            data?: {
+                count: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_AgentResumeView: {
             data?: {
                 agent_loop_id: string;
@@ -6565,6 +6719,14 @@ export interface components {
                 /** Format: int32 */
                 iterations: number;
                 result: unknown;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_BackgroundExecuteView: {
+            data?: {
+                background: boolean;
+                execution_id: string;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -6587,6 +6749,105 @@ export interface components {
                 items: unknown[];
                 total: number;
                 truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CursorPageView_ArtifactEntryDoc: {
+            /**
+             * @description One cursor page of a list response.
+             *
+             *     `next_cursor` is opaque: callers pass it back verbatim and never parse
+             *     it. It currently encodes the next numeric offset, but that shape is an
+             *     internal detail and may change without notice.
+             */
+            data?: {
+                has_more: boolean;
+                items: {
+                    execution_id: string;
+                    execution_type: string;
+                    kind: string;
+                    name: string;
+                    preview: string;
+                    size_bytes: number;
+                    truncated: boolean;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                next_cursor?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CursorPageView_LogEntryDoc: {
+            /**
+             * @description One cursor page of a list response.
+             *
+             *     `next_cursor` is opaque: callers pass it back verbatim and never parse
+             *     it. It currently encodes the next numeric offset, but that shape is an
+             *     internal detail and may change without notice.
+             */
+            data?: {
+                has_more: boolean;
+                items: {
+                    event_name?: string | null;
+                    event_type: string;
+                    execution_id?: string | null;
+                    message: string;
+                    /** Format: int64 */
+                    timestamp: number;
+                    workflow_id?: string | null;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                next_cursor?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CursorPageView_UnifiedExecutionDoc: {
+            /**
+             * @description One cursor page of a list response.
+             *
+             *     `next_cursor` is opaque: callers pass it back verbatim and never parse
+             *     it. It currently encodes the next numeric offset, but that shape is an
+             *     internal detail and may change without notice.
+             */
+            data?: {
+                has_more: boolean;
+                items: {
+                    definition_id?: string | null;
+                    /** Format: int64 */
+                    end_time?: number | null;
+                    error?: string | null;
+                    execution_id: string;
+                    execution_type: string;
+                    parent_execution_id?: string | null;
+                    /** Format: int64 */
+                    start_time: number;
+                    status: string;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                next_cursor?: string | null;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CursorPageView_Value: {
+            /**
+             * @description One cursor page of a list response.
+             *
+             *     `next_cursor` is opaque: callers pass it back verbatim and never parse
+             *     it. It currently encodes the next numeric offset, but that shape is an
+             *     internal detail and may change without notice.
+             */
+            data?: {
+                has_more: boolean;
+                items: unknown[];
+                /** Format: int64 */
+                limit: number;
+                next_cursor?: string | null;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -6622,6 +6883,14 @@ export interface components {
             data?: {
                 execution_id: string;
                 result: unknown;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_ExecutionCountView: {
+            data?: {
+                /** Format: int64 */
+                count: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -6809,21 +7078,17 @@ export interface components {
             success: boolean;
         };
         ApiEnvelope_SubtreeDoc: {
-            /** @description Every execution below a root, breadth-first. */
+            /** @description One page of the executions below a root, breadth-first. */
             data?: {
+                /** @description Opaque cursor for the following page; absent on the last page. */
+                next_cursor?: string | null;
                 /** @description Root first, then each level in child order. */
                 nodes: components["schemas"]["SubtreeNodeDoc"][];
-                /**
-                 * @description How many descendants the node cap dropped. Query a descendant for the
-                 *     part of the tree this response left out.
-                 */
+                /** @description How many descendants sit past this page. */
                 omitted?: number;
                 rejected: components["schemas"]["RejectedRowDoc"][];
                 root_execution_id: string;
-                /**
-                 * @description Set when the node cap dropped descendants, so a caller can tell a
-                 *     complete tree from a clipped one.
-                 */
+                /** @description Set when nodes remain past this page; follow `next_cursor` for them. */
                 truncated: boolean;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -6835,6 +7100,13 @@ export interface components {
                 cycle_nodes: string[];
                 sorted_nodes: string[];
                 success: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_UnifiedExecutionCountView: {
+            data?: {
+                count: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -6988,6 +7260,20 @@ export interface components {
              */
             paths?: string[] | null;
         };
+        /** @description One named output of an execution. */
+        ArtifactEntryDoc: {
+            execution_id: string;
+            execution_type: string;
+            kind: string;
+            name: string;
+            preview: string;
+            size_bytes: number;
+            truncated: boolean;
+        };
+        BackgroundExecuteView: {
+            background: boolean;
+            execution_id: string;
+        };
         BatchRespondBody: {
             /**
              * @description Optional loop ownership guard; when present each id is validated
@@ -7052,6 +7338,20 @@ export interface components {
         CreateFromTemplateBody: {
             overrides: unknown;
             template_name: string;
+        };
+        /**
+         * @description One cursor page of a list response.
+         *
+         *     `next_cursor` is opaque: callers pass it back verbatim and never parse
+         *     it. It currently encodes the next numeric offset, but that shape is an
+         *     internal detail and may change without notice.
+         */
+        CursorPageView_Value: {
+            has_more: boolean;
+            items: unknown[];
+            /** Format: int64 */
+            limit: number;
+            next_cursor?: string | null;
         };
         /** @description Structural cycle detection result. */
         CycleDetectionDoc: {
@@ -7136,6 +7436,10 @@ export interface components {
         ExecuteView: {
             execution_id: string;
             result: unknown;
+        };
+        ExecutionCountView: {
+            /** Format: int64 */
+            count: number;
         };
         /** @description Digest of one resolved execution path. */
         ExecutionPathStatsDoc: {
@@ -7325,6 +7629,16 @@ export interface components {
             owner_id: string;
             owner_name: string;
         };
+        /** @description One log line projected from a lifecycle event. */
+        LogEntryDoc: {
+            event_name?: string | null;
+            event_type: string;
+            execution_id?: string | null;
+            message: string;
+            /** Format: int64 */
+            timestamp: number;
+            workflow_id?: string | null;
+        };
         LoopVariableBatchBody: {
             /** @description Variable entries (1-100) */
             entries: components["schemas"]["LoopVariableBatchEntry"][];
@@ -7507,21 +7821,17 @@ export interface components {
             timestamp: number;
             to: string;
         };
-        /** @description Every execution below a root, breadth-first. */
+        /** @description One page of the executions below a root, breadth-first. */
         SubtreeDoc: {
+            /** @description Opaque cursor for the following page; absent on the last page. */
+            next_cursor?: string | null;
             /** @description Root first, then each level in child order. */
             nodes: components["schemas"]["SubtreeNodeDoc"][];
-            /**
-             * @description How many descendants the node cap dropped. Query a descendant for the
-             *     part of the tree this response left out.
-             */
+            /** @description How many descendants sit past this page. */
             omitted?: number;
             rejected: components["schemas"]["RejectedRowDoc"][];
             root_execution_id: string;
-            /**
-             * @description Set when the node cap dropped descendants, so a caller can tell a
-             *     complete tree from a clipped one.
-             */
+            /** @description Set when nodes remain past this page; follow `next_cursor` for them. */
             truncated: boolean;
         };
         /** @description One node of a subtree listing. */
@@ -7597,6 +7907,22 @@ export interface components {
         TransformWorkflowBody: {
             edges: Record<string, never>;
             nodes: Record<string, never>;
+        };
+        UnifiedExecutionCountView: {
+            count: number;
+        };
+        /** @description One run in the unified listing, regardless of owning engine. */
+        UnifiedExecutionDoc: {
+            definition_id?: string | null;
+            /** Format: int64 */
+            end_time?: number | null;
+            error?: string | null;
+            execution_id: string;
+            execution_type: string;
+            parent_execution_id?: string | null;
+            /** Format: int64 */
+            start_time: number;
+            status: string;
         };
         UpdateLoopStatusBody: {
             /** @description New status value (e.g., "running", "paused", "completed", "failed") */
@@ -7782,6 +8108,12 @@ export interface operations {
                 offset?: number;
                 status?: string;
                 agent_id?: string;
+                /** @description Inclusive lower bound on `startedAt` (ms epoch). */
+                started_from?: number;
+                /** @description Inclusive upper bound on `startedAt` (ms epoch). */
+                started_to?: number;
+                /** @description Sort by start time: `asc` or `desc` (default `desc`). */
+                order?: string;
             };
             header?: never;
             path?: never;
@@ -7961,6 +8293,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_agent_executions_count: {
+        parameters: {
+            query?: {
+                status?: string;
+                agent_id?: string;
+                started_from?: number;
+                started_to?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent execution count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_AgentExecutionCountView"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -9297,6 +9698,8 @@ export interface operations {
                 limit?: number;
                 /** @description Page offset */
                 offset?: number;
+                /** @description Sort by start time: `asc` or `desc`. Absent preserves registry order. */
+                order?: string;
             };
             header?: never;
             path?: never;
@@ -13221,7 +13624,10 @@ export interface operations {
     };
     handle_loop_timeline: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -13236,7 +13642,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_CappedView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -15592,6 +16007,90 @@ export interface operations {
             };
         };
     };
+    handle_query_artifacts: {
+        parameters: {
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+                /** @description Only artifacts of this execution */
+                execution_id?: string;
+                /** @description Only this artifact kind */
+                kind?: string;
+                /** @description Case-insensitive substring match against the name */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_ArtifactEntryDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_checkpoints: {
         parameters: {
             query?: {
@@ -16590,8 +17089,8 @@ export interface operations {
             query?: {
                 /** @description Page limit */
                 limit?: number;
-                /** @description Page offset */
-                offset?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
                 execution_id?: string;
                 agent_loop_id?: string;
                 workflow_id?: string;
@@ -16608,7 +17107,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_Value"];
                 };
             };
             /** @description Invalid parameters */
@@ -16743,7 +17242,10 @@ export interface operations {
     };
     handle_agent_timeline: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -16758,7 +17260,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_CappedView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17143,7 +17654,10 @@ export interface operations {
     };
     handle_execution_timeline_view: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 executionId: string;
@@ -17159,6 +17673,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17375,8 +17898,8 @@ export interface operations {
                 workflow_id?: string;
                 /** @description Page limit */
                 limit?: number;
-                /** @description Page offset */
-                offset?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -17390,7 +17913,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_Value"];
                 };
             };
             /** @description Invalid parameters */
@@ -17724,7 +18247,10 @@ export interface operations {
     };
     handle_execution_timeline: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
             header?: never;
             path: {
                 executionId: string;
@@ -17739,7 +18265,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_CappedView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17806,6 +18341,12 @@ export interface operations {
                 offset?: number;
                 workflow_id?: string;
                 status?: string;
+                /** @description Inclusive lower bound on `startedAt` (ms epoch). */
+                started_from?: number;
+                /** @description Inclusive upper bound on `startedAt` (ms epoch). */
+                started_to?: number;
+                /** @description Sort by start time: `asc` or `desc`. Absent preserves storage order. */
+                order?: string;
             };
             header?: never;
             path?: never;
@@ -18148,6 +18689,75 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_count_executions: {
+        parameters: {
+            query?: {
+                workflow_id?: string;
+                status?: string;
+                started_from?: number;
+                started_to?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_ExecutionCountView"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
@@ -19026,6 +19636,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_execution_artifacts: {
+        parameters: {
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+                /** @description Only this artifact kind */
+                kind?: string;
+                /** @description Case-insensitive substring match against the name */
+                name?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_ArtifactEntryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -21968,6 +22671,92 @@ export interface operations {
             };
         };
     };
+    handle_execution_logs: {
+        parameters: {
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+                /** @description Only these event types (comma separated) */
+                event_types?: string;
+                /** @description Only entries at or after this timestamp (ms epoch) */
+                since?: number;
+                /** @description Case-insensitive substring match against the message */
+                message?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_LogEntryDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_memory: {
         parameters: {
             query?: never;
@@ -24184,7 +24973,12 @@ export interface operations {
     };
     get_executions_id_subtree: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -24200,6 +24994,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_SubtreeDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -28992,6 +29795,92 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_query_logs: {
+        parameters: {
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+                /** @description Only entries of this execution */
+                execution_id?: string;
+                /** @description Only these event types (comma separated) */
+                event_types?: string;
+                /** @description Only entries at or after this timestamp (ms epoch) */
+                since?: number;
+                /** @description Case-insensitive substring match against the message */
+                message?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_LogEntryDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {
@@ -38262,6 +39151,174 @@ export interface operations {
             };
         };
     };
+    handle_unified_executions: {
+        parameters: {
+            query?: {
+                /** @description Page limit */
+                limit?: number;
+                /** @description Opaque cursor from a previous page */
+                cursor?: string;
+                /** @description Filter by status (running, paused, completed, failed, ...) */
+                status?: string;
+                /** @description Filter by engine (`workflow` or `agent_loop`) */
+                execution_type?: string;
+                /** @description Inclusive lower bound on start time (ms epoch) */
+                started_from?: number;
+                /** @description Inclusive upper bound on start time (ms epoch) */
+                started_to?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_CursorPageView_UnifiedExecutionDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_unified_executions_count: {
+        parameters: {
+            query?: {
+                /** @description Filter by status (running, paused, completed, failed, ...) */
+                status?: string;
+                /** @description Filter by engine (`workflow` or `agent_loop`) */
+                execution_type?: string;
+                /** @description Inclusive lower bound on start time (ms epoch) */
+                started_from?: number;
+                /** @description Inclusive upper bound on start time (ms epoch) */
+                started_to?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_UnifiedExecutionCountView"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     get_variables: {
         parameters: {
             query?: {
@@ -41240,6 +42297,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_ExecuteView"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_execute_background: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecuteBody"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_BackgroundExecuteView"];
                 };
             };
             /** @description Invalid parameters */

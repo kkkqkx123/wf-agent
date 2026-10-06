@@ -9,6 +9,8 @@ export interface Execution {
 	id: string;
 	workflowId: string;
 	workflowName: string;
+	/** Owning engine; absent on rows from the workflow-only list. */
+	kind?: ExecutionKind;
 	status: string;
 	startedAt: string;
 	endedAt: string | null;
@@ -65,9 +67,9 @@ export interface ExecutionSubtreeNode {
 
 export interface ExecutionSubtree {
 	rootExecutionId: string;
-	/** Set when the backend node cap dropped descendants. */
+	/** Set when nodes remain past the fetched pages. */
 	truncated: boolean;
-	/** How many descendants the node cap dropped. */
+	/** How many descendants sit past the fetched pages. */
 	omitted: number;
 	nodes: ExecutionSubtreeNode[];
 }

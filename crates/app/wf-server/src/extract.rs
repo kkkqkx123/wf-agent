@@ -105,3 +105,13 @@ pub(crate) struct ListQuery {
     pub(crate) limit: Option<u64>,
     pub(crate) offset: Option<u64>,
 }
+
+/// Shared `limit` / `cursor` pagination query parameters for cursor-paged
+/// timelines and listings. The cursor is opaque: callers pass back the
+/// `next_cursor` of the previous page verbatim.
+#[derive(Deserialize, Debug, Default, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct CursorQuery {
+    pub(crate) limit: Option<u64>,
+    pub(crate) cursor: Option<String>,
+}

@@ -105,6 +105,7 @@ async fn fetch_executions(ctx: &ApiContext, filter: ExecStatusFilter) -> CliResu
     let query = AgentExecutionFilter {
         status,
         agent_id: None,
+        ..AgentExecutionFilter::default()
     };
     let mut rows: Vec<ExecRow> =
         wf_api::agent::agent_execution_registry::summaries(ctx, Some(&query))

@@ -72,6 +72,10 @@ pub(crate) struct AgentExecutionsQuery {
     offset: Option<u64>,
     status: Option<String>,
     agent_id: Option<String>,
+    /// Inclusive lower bound on `startedAt` (ms epoch).
+    started_from: Option<i64>,
+    /// Inclusive upper bound on `startedAt` (ms epoch).
+    started_to: Option<i64>,
     /// Sort by start time: `asc` or `desc` (default `desc`).
     order: Option<String>,
 }
@@ -82,6 +86,8 @@ pub(crate) struct AgentExecutionsQuery {
 pub(crate) struct AgentExecutionsCountQuery {
     status: Option<String>,
     agent_id: Option<String>,
+    started_from: Option<i64>,
+    started_to: Option<i64>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -95,6 +101,16 @@ fn parse_order(order: Option<&str>) -> Result<bool, String> {
         Some(raw) if raw.eq_ignore_ascii_case("desc") => Ok(true),
         Some(raw) if raw.eq_ignore_ascii_case("asc") => Ok(false),
         Some(raw) => Err(format!("unknown order: {raw} (expected asc or desc)")),
+    }
+}
+
+fn parse_status_opt(status: Option<&str>) -> Result<Option<wf_types::ExecutionStatus>, String> {
+    match status {
+        None => Ok(None),
+        Some(raw) => raw
+            .parse::<wf_types::ExecutionStatus>()
+            .map(Some)
+            .map_err(|_| format!("unknown status: {raw}")),
     }
 }
 
@@ -121,13 +137,19 @@ pub(crate) async fn handle_agent_executions(
                 .into_response()
         }
     };
+    let status = match parse_status_opt(query.status.as_deref()) {
+        Ok(status) => status,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let filter = wf_api::AgentExecutionFilter {
-        status: query
-            .status
-            .as_deref()
-            .and_then(|s| serde_json::from_value(serde_json::json!(s)).ok()),
+        status,
         agent_id: query.agent_id,
+        started_from: query.started_from,
+        started_to: query.started_to,
     };
     match wf_api::agent::agent_execution_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(mut summaries) => {
@@ -160,12 +182,18 @@ pub(crate) async fn handle_agent_executions_count(
     State(state): State<ApiState>,
     Query(query): Query<AgentExecutionsCountQuery>,
 ) -> impl IntoResponse {
+    let status = match parse_status_opt(query.status.as_deref()) {
+        Ok(status) => status,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let filter = wf_api::AgentExecutionFilter {
-        status: query
-            .status
-            .as_deref()
-            .and_then(|s| serde_json::from_value(serde_json::json!(s)).ok()),
+        status,
         agent_id: query.agent_id,
+        started_from: query.started_from,
+        started_to: query.started_to,
     };
     match wf_api::agent::agent_execution_registry::count_filtered(&state.ctx, Some(&filter)).await
     {
@@ -286,18 +314,24 @@ pub(crate) async fn handle_executions_by_status(
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = resolve_page(&query);
-    let result = match path.status.as_str() {
-        "running" => wf_api::agent::agent_execution_registry::running(&state.ctx).await,
-        "paused" => wf_api::agent::agent_execution_registry::paused(&state.ctx).await,
-        "completed" => wf_api::agent::agent_execution_registry::completed(&state.ctx).await,
-        "failed" => wf_api::agent::agent_execution_registry::failed(&state.ctx).await,
-        other => {
+    let status = match path.status.parse::<wf_types::ExecutionStatus>() {
+        Ok(status) => status,
+        Err(_) => {
             return crate::envelope::err(crate::envelope::ApiError::validation(format!(
-                "unknown agent execution status: {other}"
+                "unknown agent execution status: {}",
+                path.status
             )))
             .into_response()
         }
     };
+    let result = wf_api::agent::agent_execution_registry::summaries(
+        &state.ctx,
+        Some(&wf_api::AgentExecutionFilter {
+            status: Some(status),
+            ..Default::default()
+        }),
+    )
+    .await;
     match result {
         Ok(summaries) => {
             let window = summaries

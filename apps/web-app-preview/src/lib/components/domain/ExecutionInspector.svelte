@@ -29,25 +29,23 @@
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,
-		getExecutionContext,
-		getExecutionVariables,
-		getExecutionCallStack,
-		getExecutionMemory,
-		getExecutionHierarchy,
-		getExecutionSubtree,
 	} from '$lib/services/executions';
-	import { getExecutionNodeTraces } from '$lib/services/node-trace';
-	import {
-		getExecutionCriticalPath,
-		getExecutionDecisionPoints,
-		getExecutionEfficiency,
-		getExecutionFailedNodes,
-		getExecutionGraphNeighbors,
-		getExecutionGraphOverview,
-		getExecutionSlowNodes,
-		type EfficiencyEntry,
-		type SlowNodeEntry,
+	import { getExecutionGraphNeighbors } from '$lib/services/graph';
+	import type {
+		EfficiencyEntry,
+		SlowNodeEntry,
 	} from '$lib/services/graph';
+	import {
+		loadAnalysisData,
+		loadGraphData,
+		loadHierarchyData,
+		loadStateData,
+		loadTraceData,
+	} from '$lib/services/inspector-loaders';
+	import {
+		isLiveStatus,
+		watchExecutionActivity,
+	} from '$lib/services/inspector-activity';
 	import {
 		formatBytes,
 		formatDateTime,
@@ -68,7 +66,7 @@
 		EXECUTION_TABS,
 		type ExecutionTab,
 	} from '$lib/config/execution-tabs';
-	import { openEventStream, type StreamState } from '$lib/api/sse';
+	import type { StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -77,12 +75,15 @@
 		execution: ExecutionDetail;
 		tab?: ExecutionTab;
 		class?: string;
+		/** Reload the execution detail, typically after a terminal event. */
+		onrefresh?: () => void;
 	}
 
 	let {
 		execution,
 		tab = $bindable('overview'),
 		class: className = '',
+		onrefresh,
 	}: Props = $props();
 
 	let toolCalls = $state<ToolCallEntry[]>([]);
@@ -426,26 +427,47 @@
 		if (node && status) pendingLive.set(node, status);
 	}
 
-	const isLive = $derived(
-		[
-			'running',
-			'in_progress',
-			'executing',
-			'streaming',
-			'started',
-			'pending',
-		].includes(execution.status.trim().toLowerCase()),
-	);
+	const isLive = $derived(isLiveStatus(execution.status));
 
-	// Live subscription lives only while the graph tab is visible and the
-	// execution is still active; leaving the tab closes the stream.
+	// Activity subscription follows the execution itself, not the visible
+	// tab: timeline, tools and traces invalidate here and refetch through
+	// the tab loader below, so live runs never show a stale first fetch.
+	// Invalidations are debounced so high-frequency node updates refetch at
+	// most once per window instead of once per event.
+	let lastInvalidate = 0;
 	$effect(() => {
-		if (tab !== 'graph' || !isLive) return;
-		const stop = openEventStream({
-			executionId: execution.id,
-			onEvent: noteLiveEvent,
+		const id = execution.id;
+		if (!id || !isLive) return;
+		return watchExecutionActivity(id, {
+			onEvent: (event) => {
+				if (tab === 'graph') noteLiveEvent(event);
+				const now = Date.now();
+				if (now - lastInvalidate < 2000) return;
+				lastInvalidate = now;
+				if (seenTools === id) seenTools = '';
+				if (seenTimeline === id) seenTimeline = '';
+				if (seenTrace === id) seenTrace = '';
+			},
+			onTerminal: () => {
+				seenTools = '';
+				seenTimeline = '';
+				seenTrace = '';
+				seenGraph = '';
+				seenAnalysis = '';
+				seenState = '';
+				seenHierarchy = null;
+				onrefresh?.();
+			},
 			onState: (state) => (streamState = state),
 		});
+	});
+
+	// Live frames buffer here and flush on a fixed tick, so high-frequency
+	// node updates never re-render per frame. Frames arrive through the
+	// activity subscription below, which stays open on every tab; the
+	// overlay only consumes them while the graph tab is visible.
+	$effect(() => {
+		if (tab !== 'graph' || !isLive) return;
 		const timer = setInterval(() => {
 			if (pendingLive.size === 0) return;
 			const flushed = Object.fromEntries(pendingLive);
@@ -455,7 +477,6 @@
 		return () => {
 			clearInterval(timer);
 			pendingLive.clear();
-			stop();
 		};
 	});
 
@@ -514,22 +535,11 @@
 		graphLoading = true;
 		graphError = null;
 		try {
-			const overview = await getExecutionGraphOverview(id);
-			graphNodes = overview.graph.nodes.map((node) => ({
-				id: node.id,
-				label: node.label,
-				kind: node.kind,
-				status: node.status,
-			}));
-			graphEdges = overview.graph.edges.map((edge) => ({
-				id: edge.id,
-				source: edge.from,
-				target: edge.to,
-				label: edge.label,
-				kind: edge.kind,
-			}));
-			failedNodes = overview.failedNodes;
-			criticalPath = overview.criticalPath;
+			const snapshot = await loadGraphData(id);
+			graphNodes = snapshot.nodes;
+			graphEdges = snapshot.edges;
+			failedNodes = snapshot.failedNodes;
+			criticalPath = snapshot.criticalPath;
 		} catch (e) {
 			graphError = e instanceof Error ? e.message : 'Graph failed to load.';
 		} finally {
@@ -541,18 +551,12 @@
 		analysisLoading = true;
 		analysisError = null;
 		try {
-			const [slow, points, failed, critical, ratio] = await Promise.all([
-				getExecutionSlowNodes(id),
-				getExecutionDecisionPoints(id),
-				getExecutionFailedNodes(id),
-				getExecutionCriticalPath(id),
-				getExecutionEfficiency(id),
-			]);
-			slowNodes = slow;
-			decisionPoints = points;
-			failedNodes = failed;
-			criticalPath = critical;
-			efficiency = ratio;
+			const snapshot = await loadAnalysisData(id);
+			slowNodes = snapshot.slowNodes;
+			decisionPoints = snapshot.decisionPoints;
+			failedNodes = snapshot.failedNodes;
+			criticalPath = snapshot.criticalPath;
+			efficiency = snapshot.efficiency;
 		} catch (e) {
 			analysisError = e instanceof Error ? e.message : 'Analysis failed.';
 		} finally {
@@ -564,16 +568,11 @@
 		stateLoading = true;
 		stateError = null;
 		try {
-			const [ctx, vars, stack, mem] = await Promise.all([
-				getExecutionContext(id),
-				getExecutionVariables(id),
-				getExecutionCallStack(id),
-				getExecutionMemory(id),
-			]);
-			context = ctx;
-			variables = vars;
-			callStack = stack;
-			memory = mem.peakBytes > 0 ? mem : { currentBytes: 0, peakBytes: 0 };
+			const snapshot = await loadStateData(id);
+			context = snapshot.context;
+			variables = snapshot.variables;
+			callStack = snapshot.callStack;
+			memory = snapshot.memory;
 		} catch (e) {
 			stateError = e instanceof Error ? e.message : 'State failed to load.';
 		} finally {
@@ -586,9 +585,9 @@
 		nodeTracesError = null;
 		nodeTracesLoading = true;
 		try {
-			const page = await getExecutionNodeTraces(id);
-			nodeTraces = page.items;
-			nodeTracesSkipped = page.skipped;
+			const snapshot = await loadTraceData(id);
+			nodeTraces = snapshot.items;
+			nodeTracesSkipped = snapshot.skipped;
 		} catch (e) {
 			seenTrace = '';
 			nodeTraces = [];
@@ -679,12 +678,9 @@
 	async function loadHierarchy(id: string): Promise<void> {
 		hierarchyError = null;
 		try {
-			const [view, tree] = await Promise.all([
-				getExecutionHierarchy(id),
-				getExecutionSubtree(id),
-			]);
-			hierarchy = view;
-			subtree = tree;
+			const snapshot = await loadHierarchyData(id);
+			hierarchy = snapshot.hierarchy;
+			subtree = snapshot.subtree;
 		} catch (e: unknown) {
 			seenHierarchy = null;
 			hierarchy = null;

@@ -37,6 +37,14 @@ export interface CappedResult<T> {
 	truncated: boolean;
 }
 
+/** One cursor page: items plus the opaque cursor of the following page. */
+export interface CursorPageResult<T> {
+	items: T[];
+	hasMore: boolean;
+	limit: number;
+	nextCursor: string | null;
+}
+
 /**
  * Await an openapi-fetch client call and return the payload.
  *
@@ -96,6 +104,25 @@ export function extractPage<T>(data: unknown): PageResult<T> {
 		hasMore: (d.has_more as boolean | undefined) ?? false,
 		limit: (d.limit as number | undefined) ?? items.length,
 		offset: (d.offset as number | undefined) ?? 0,
+	};
+}
+
+/** Extract a CursorPageView from the call result. */
+export function extractCursorPage<T>(data: unknown): CursorPageResult<T> {
+	if (!data || typeof data !== 'object') {
+		return { items: [], hasMore: false, limit: 0, nextCursor: null };
+	}
+	const d = data as Record<string, unknown>;
+	const items = (Array.isArray(d.items) ? d.items : []) as T[];
+	const nextCursor =
+		typeof d.next_cursor === 'string' && d.next_cursor !== ''
+			? d.next_cursor
+			: null;
+	return {
+		items,
+		hasMore: (d.has_more as boolean | undefined) ?? nextCursor !== null,
+		limit: (d.limit as number | undefined) ?? items.length,
+		nextCursor,
 	};
 }
 

@@ -3,10 +3,11 @@ import type { components } from '$lib/api/schema';
 import {
 	call,
 	extractCapped,
+	extractCursorPage,
 	extractPage,
 	requireData,
 } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import type { CursorPageResult, PageResult } from '$lib/api/envelope';
 import type {
 	Execution,
 	ExecutionDetail,
@@ -398,22 +399,46 @@ function toTimelineEntry(d: TimelineDto, index: number): TimelineEntry {
 	};
 }
 
-/** Timeline events for an execution. */
+/** Timeline events for an execution, following every cursor page so no
+ * event is silently dropped past the page limit. */
 export async function getExecutionTimeline(
 	executionId: string,
 ): Promise<TimelineEntry[]> {
-	const data = await call<unknown>(
-		client.GET('/api/v1/events/execution-timeline/{executionId}', {
-			params: { path: { executionId } },
-		}),
-	);
-	requireData(data, `Timeline missing for execution ${executionId}`);
-	const capped = extractCapped<TimelineDto>(data);
-	const items =
-		capped.items.length > 0
-			? capped.items
-			: extractPage<TimelineDto>(data).items;
-	return items.map((d, index) => toTimelineEntry(d, index));
+	const rows: TimelineEntry[] = [];
+	let cursor: string | undefined = undefined;
+	let index = 0;
+	for (;;) {
+		const data = await call<unknown>(
+			client.GET('/api/v1/events/execution-timeline/{executionId}', {
+				params: { path: { executionId }, query: { limit: 500, cursor } },
+			}),
+		);
+		const view = requireData(
+			data,
+			`Timeline missing for execution ${executionId}`,
+		) as {
+			events?: TimelineDto[];
+			next_cursor?: string | null;
+			has_more?: boolean;
+		};
+		// Older backends answer a capped view; newer ones page the flat
+		// event list. Both shapes accumulate the same way.
+		const events = Array.isArray(view.events)
+			? view.events
+			: extractCapped<TimelineDto>(data).items;
+		for (const event of events) {
+			rows.push(toTimelineEntry(event, index));
+			index += 1;
+		}
+		const next =
+			typeof view.next_cursor === 'string' && view.next_cursor !== ''
+				? view.next_cursor
+				: null;
+		if (next === null || events.length === 0) break;
+		cursor = next;
+		if (!view.has_more) break;
+	}
+	return rows;
 }
 
 /** Filter executions by status. */
@@ -422,6 +447,118 @@ export async function filterExecutionsByStatus(
 ): Promise<Execution[]> {
 	const page = await listExecutions({ status, limit: 200 });
 	return page.items;
+}
+
+interface UnifiedExecutionDto {
+	execution_id?: string;
+	execution_type?: string;
+	status?: string;
+	start_time?: number;
+	end_time?: number | null;
+	definition_id?: string | null;
+	parent_execution_id?: string | null;
+	error?: string | null;
+}
+
+function toUnifiedExecution(d: UnifiedExecutionDto): Execution {
+	const status = String(d.status ?? 'running').toLowerCase();
+	const completed =
+		status === 'completed' || status === 'succeeded' || status === 'success';
+	const kind = d.execution_type === 'agent_loop' ? 'agent_loop' : 'workflow';
+	return {
+		id: d.execution_id ?? '',
+		workflowId: d.definition_id ?? '',
+		workflowName: d.definition_id ?? d.execution_id ?? '',
+		status,
+		startedAt: toIso(d.start_time),
+		endedAt: toIsoOrNull(d.end_time),
+		durationMs: null,
+		progress: completed ? 1 : 0,
+		currentNode: null,
+		trigger: null,
+		tasksTotal: 0,
+		tasksDone: completed ? 1 : 0,
+		failedNodes: 0,
+		memoryPeakBytes: null,
+		error: d.error ?? null,
+		kind,
+	};
+}
+
+/** Cross-engine execution listing, newest first, with cursor paging. */
+export async function listUnifiedExecutions(params?: {
+	limit?: number;
+	cursor?: string;
+	status?: string;
+	executionType?: string;
+}): Promise<CursorPageResult<Execution>> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/unified-executions', {
+			params: {
+				query: {
+					limit: params?.limit,
+					cursor: params?.cursor,
+					status: params?.status,
+					execution_type: params?.executionType,
+				},
+			},
+		}),
+	);
+	const page = extractCursorPage<UnifiedExecutionDto>(
+		requireData(data, 'Unified execution list'),
+	);
+	return { ...page, items: page.items.map(toUnifiedExecution) };
+}
+
+interface LogEntryDto {
+	execution_id?: string | null;
+	workflow_id?: string | null;
+	timestamp?: number;
+	event_type?: string;
+	event_name?: string | null;
+	message?: string;
+}
+
+/** Log entries of one execution, oldest first, with cursor paging. */
+export async function getExecutionLogs(
+	executionId: string,
+	params?: { limit?: number; cursor?: string; message?: string },
+): Promise<CursorPageResult<LogEntryDto>> {
+	const id = requireExecutionId(executionId);
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/logs', {
+			params: { path: { id }, query: params ?? {} },
+		}),
+	);
+	return extractCursorPage<LogEntryDto>(
+		requireData(data, `Logs missing for execution ${id}`),
+	);
+}
+
+interface ArtifactEntryDto {
+	execution_id?: string;
+	execution_type?: string;
+	name?: string;
+	kind?: string;
+	preview?: string;
+	truncated?: boolean;
+	size_bytes?: number;
+}
+
+/** Artifacts of one execution with cursor paging. */
+export async function getExecutionArtifacts(
+	executionId: string,
+	params?: { limit?: number; cursor?: string; kind?: string },
+): Promise<CursorPageResult<ArtifactEntryDto>> {
+	const id = requireExecutionId(executionId);
+	const data = await call<unknown>(
+		client.GET('/api/v1/executions/{id}/artifacts', {
+			params: { path: { id }, query: params ?? {} },
+		}),
+	);
+	return extractCursorPage<ArtifactEntryDto>(
+		requireData(data, `Artifacts missing for execution ${id}`),
+	);
 }
 
 type HierarchyDoc = components['schemas']['HierarchyDoc'];
@@ -504,24 +641,40 @@ function toSubtreeNode(node: SubtreeNodeDoc): ExecutionSubtreeNode {
 	};
 }
 
-/** Every execution below a root, breadth-first. */
+/** Every execution below a root, breadth-first, following every cursor
+ * page so wide trees arrive whole instead of clipped. */
 export async function getExecutionSubtree(
 	executionId: string,
 ): Promise<ExecutionSubtree> {
 	const id = requireExecutionId(executionId);
-	const data = requireData(
-		await call<SubtreeDoc>(
-			client.GET('/api/v1/executions/{id}/subtree', {
-				params: { path: { id } },
-			}),
-		),
-		`Subtree missing for execution ${id}`,
-	);
+	const nodes: ExecutionSubtreeNode[] = [];
+	let cursor: string | undefined = undefined;
+	let rootExecutionId: string | null = null;
+	for (;;) {
+		const data: SubtreeDoc & { next_cursor?: string | null } = requireData(
+			await call<SubtreeDoc & { next_cursor?: string | null }>(
+				client.GET('/api/v1/executions/{id}/subtree', {
+					params: { path: { id }, query: { limit: 500, cursor } },
+				}),
+			),
+			`Subtree missing for execution ${id}`,
+		);
+		rootExecutionId ??= data.root_execution_id;
+		for (const node of data.nodes) {
+			nodes.push(toSubtreeNode(node));
+		}
+		const next: string | null =
+			typeof data.next_cursor === 'string' && data.next_cursor !== ''
+				? data.next_cursor
+				: null;
+		if (next === null || !data.truncated) break;
+		cursor = next;
+	}
 	return {
-		rootExecutionId: data.root_execution_id,
-		truncated: data.truncated,
-		omitted: data.omitted ?? 0,
-		nodes: data.nodes.map(toSubtreeNode),
+		rootExecutionId: rootExecutionId ?? id,
+		truncated: false,
+		omitted: 0,
+		nodes,
 	};
 }
 

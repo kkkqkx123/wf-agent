@@ -42,13 +42,13 @@ impl ExecutionStatus {
         }
     }
 
-    /// Lenient parse of the canonical wire form. Unknown input resolves to
-    /// `Running` so that legacy or partially populated records stay usable
-    /// instead of being discarded. Matching is case-insensitive because
-    /// status values cross process and storage boundaries that have not
-    /// always normalized casing.
-    pub fn from_wire(status: &str) -> Self {
-        Self::from_str(status).unwrap_or(Self::Running)
+    /// Strict parse of the canonical wire form. Unknown input returns
+    /// `UnknownExecutionStatus` so corrupt records surface instead of
+    /// being coerced to an unrelated status. Matching stays
+    /// case-insensitive because status values cross process and storage
+    /// boundaries that have not always normalized casing.
+    pub fn from_wire(status: &str) -> Result<Self, UnknownExecutionStatus> {
+        Self::from_str(status)
     }
 }
 
@@ -100,7 +100,7 @@ mod tests {
             ExecutionStatus::Timeout
         );
         assert_eq!(
-            ExecutionStatus::from_wire("timeout"),
+            ExecutionStatus::from_wire("timeout").expect("timeout is a known status"),
             ExecutionStatus::Timeout
         );
     }
@@ -108,21 +108,18 @@ mod tests {
     #[test]
     fn parsing_is_case_and_whitespace_insensitive() {
         assert_eq!(
-            ExecutionStatus::from_wire("Running"),
+            ExecutionStatus::from_wire("Running").expect("Running is a known status"),
             ExecutionStatus::Running
         );
         assert_eq!(
-            ExecutionStatus::from_wire(" TIMEOUT "),
+            ExecutionStatus::from_wire(" TIMEOUT ").expect("timeout is a known status"),
             ExecutionStatus::Timeout
         );
     }
 
     #[test]
-    fn unknown_status_falls_back_to_running() {
-        assert_eq!(
-            ExecutionStatus::from_wire("not-a-status"),
-            ExecutionStatus::Running
-        );
+    fn unknown_status_is_rejected() {
+        assert!(ExecutionStatus::from_wire("not-a-status").is_err());
         assert!(ExecutionStatus::from_str("not-a-status").is_err());
     }
 }

@@ -5,12 +5,14 @@
 //! in memory), aggregations, distinct/group-by and CSV/XML/JSON export.
 //!
 //! Filtering follows a two-layer strategy:
-//! 1. Basic criteria (`workflow_id` / `status`) are pushed down through
+//! 1. Basic criteria (`workflow_id` / `status` / `start_time` range) are
+//!    pushed down through
 //!    [`wf_storage::adapter::execution::WorkflowExecutionListOptions`].
-//! 2. Everything else (`start_time` range, tags, custom fields and the
-//!    advanced [`FilterExpression`]s) is evaluated in memory on the loaded
-//!    records — `nin` / `contains` / `regex` stay in memory to avoid touching
-//!    the per-backend SQL generation.
+//! 2. Everything else (tags, custom fields and the advanced
+//!    [`FilterExpression`]s) is evaluated in memory on the loaded records —
+//!    `nin` / `contains` / `regex` stay in memory to avoid touching the
+//!    per-backend SQL generation. The time range is rechecked in memory as
+//!    well so backends without native range support stay correct.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -200,17 +202,31 @@ impl From<WorkflowExecution> for ExecutionRecord {
 
 /// Query execution records with basic filters, sort and pagination.
 ///
-/// `workflow_id` / `status` are pushed down to the storage layer; the time
-/// range, tags and custom criteria are applied in memory after loading.
+/// `workflow_id` / `status` / `start_time` range are pushed down to the
+/// storage layer; tags and custom criteria are applied in memory after
+/// loading.
 pub async fn query(
     ctx: &ApiContext,
     filters: Option<&FilterCriteria>,
     sort: Option<&SortOptions>,
     pagination: Option<&PaginationOptions>,
 ) -> ApiResult<Vec<ExecutionRecord>> {
+    let status_filter = match filters.and_then(|f| f.status.clone()) {
+        None => None,
+        Some(raw) => match raw.parse::<wf_types::ExecutionStatus>() {
+            Ok(status) => Some(status.as_str().to_string()),
+            Err(_) => {
+                return Err(crate::infra::error::ApiError::Validation(format!(
+                    "unknown status: {raw}"
+                )));
+            }
+        },
+    };
     let options = WorkflowExecutionListOptions {
         workflow_id_filter: filters.and_then(|f| f.workflow_id.clone()),
-        status_filter: filters.and_then(|f| f.status.clone()),
+        status_filter,
+        started_from: filters.and_then(|f| f.start_time_from),
+        started_to: filters.and_then(|f| f.start_time_to),
         ..Default::default()
     };
     let executions = crate::workflow::list_executions(ctx, Some(options)).await?;

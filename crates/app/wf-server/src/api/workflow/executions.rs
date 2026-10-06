@@ -30,6 +30,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/workflows/{id}/execute/stream",
             post(handle_execute_stream),
         )
+        .route(
+            "/workflows/{id}/execute/background",
+            post(handle_execute_background),
+        )
         // ── execution list / detail / control ──
         .route("/executions", get(handle_list_executions))
         .route("/executions/count", get(handle_count_executions))
@@ -130,6 +134,60 @@ pub(crate) async fn handle_execute_stream(
     )
 }
 
+#[derive(Serialize, ToSchema)]
+pub(crate) struct BackgroundExecuteView {
+    pub(crate) execution_id: String,
+    pub(crate) background: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/workflows/{id}/execute/background",
+    tag = "workflow",
+    params(IdPath),
+    request_body = ExecuteBody,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::BackgroundExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_execute_background(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<ExecuteBody>,
+) -> impl IntoResponse {
+    let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
+        workflow_id: path.id,
+        input: body.input,
+        options: None,
+    };
+    // `stream` spawns the driver detached from this request and hands back
+    // the id immediately. Draining the stream in a server task keeps the
+    // driver alive until its terminal event; the client already holds the
+    // id and polls status separately.
+    match wf_api::workflow::workflow_execution::stream(state.ctx, params).await {
+        Ok((execution_id, mut stream)) => {
+            let id = execution_id.to_string();
+            tokio::spawn(async move {
+                while let Some(event) = stream.next().await {
+                    if matches!(
+                        event,
+                        wf_api::infra::stream::ExecutionStreamEvent::Completed { .. }
+                            | wf_api::infra::stream::ExecutionStreamEvent::Failed { .. }
+                            | wf_api::infra::stream::ExecutionStreamEvent::Interrupted { .. }
+                    ) {
+                        break;
+                    }
+                }
+            });
+            ok(BackgroundExecuteView {
+                execution_id: id,
+                background: true,
+            })
+            .into_response()
+        }
+        Err(e) => error_response(e),
+    }
+}
+
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(crate) struct ListExecutionsQuery {
@@ -139,6 +197,10 @@ pub(crate) struct ListExecutionsQuery {
     offset: Option<u64>,
     workflow_id: Option<String>,
     status: Option<String>,
+    /// Inclusive lower bound on `startedAt` (ms epoch).
+    started_from: Option<i64>,
+    /// Inclusive upper bound on `startedAt` (ms epoch).
+    started_to: Option<i64>,
     /// Sort by start time: `asc` or `desc`. Absent preserves storage order.
     order: Option<String>,
 }
@@ -150,6 +212,8 @@ pub(crate) struct ListExecutionsQuery {
 pub(crate) struct CountExecutionsQuery {
     workflow_id: Option<String>,
     status: Option<String>,
+    started_from: Option<i64>,
+    started_to: Option<i64>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -163,6 +227,16 @@ fn parse_order(order: Option<&str>) -> Result<Option<bool>, String> {
         Some(raw) if raw.eq_ignore_ascii_case("desc") => Ok(Some(true)),
         Some(raw) if raw.eq_ignore_ascii_case("asc") => Ok(Some(false)),
         Some(raw) => Err(format!("unknown order: {raw} (expected asc or desc)")),
+    }
+}
+
+fn parse_status_opt(status: Option<&str>) -> Result<Option<String>, String> {
+    match status {
+        None => Ok(None),
+        Some(raw) => raw
+            .parse::<wf_types::ExecutionStatus>()
+            .map(|s| Some(s.as_str().to_string()))
+            .map_err(|_| format!("unknown status: {raw}")),
     }
 }
 
@@ -185,12 +259,21 @@ pub(crate) async fn handle_list_executions(
                 .into_response()
         }
     };
+    let status_filter = match parse_status_opt(query.status.as_deref()) {
+        Ok(status) => status,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = WorkflowExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
         workflow_id_filter: query.workflow_id,
-        status_filter: query.status,
+        status_filter,
+        started_from: query.started_from,
+        started_to: query.started_to,
         order_desc,
     };
     match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
@@ -211,11 +294,20 @@ pub(crate) async fn handle_count_executions(
     State(state): State<ApiState>,
     Query(query): Query<CountExecutionsQuery>,
 ) -> impl IntoResponse {
+    let status_filter = match parse_status_opt(query.status.as_deref()) {
+        Ok(status) => status,
+        Err(message) => {
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
     let options = WorkflowExecutionListOptions {
         offset: None,
         limit: None,
         workflow_id_filter: query.workflow_id,
-        status_filter: query.status,
+        status_filter,
+        started_from: query.started_from,
+        started_to: query.started_to,
         order_desc: None,
     };
     match wf_api::workflow::execution::count_executions(&state.ctx, Some(options)).await {

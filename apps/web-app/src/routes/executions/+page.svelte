@@ -20,6 +20,7 @@
 	import { onMount } from 'svelte';
 	import {
 		listExecutions,
+		listUnifiedExecutions,
 		getExecutionDetail,
 		getExecutionStats,
 	} from '$lib/services/executions';
@@ -43,6 +44,7 @@
 
 	let query = $state('');
 	let status = $state('');
+	let engine = $state<'all' | 'workflow' | 'agent_loop'>('workflow');
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
 	let compareMode = $state(false);
@@ -52,6 +54,7 @@
 		items: [],
 		hasMore: false,
 	});
+	let nextCursor = $state<string | null>(null);
 	let detail = $state<ExecutionDetail | null>(null);
 	let overviewMetrics = $state<Metric[]>([]);
 	let loading = $state(true);
@@ -69,13 +72,20 @@
 		error = null;
 		try {
 			const [page, metrics] = await Promise.all([
-				listExecutions({
-					limit: EXECUTIONS_PAGE,
-					status: status || undefined,
-				}),
+				engine === 'workflow'
+					? listExecutions({
+							limit: EXECUTIONS_PAGE,
+							status: status || undefined,
+						})
+					: listUnifiedExecutions({
+							limit: EXECUTIONS_PAGE,
+							status: status || undefined,
+							executionType: engine === 'all' ? undefined : engine,
+						}),
 				getExecutionStats(),
 			]);
 			allExecutions = { items: page.items, hasMore: page.hasMore };
+			nextCursor = 'nextCursor' in page ? page.nextCursor : null;
 			overviewMetrics = metrics;
 			if (page.items.length > 0 && !selectedId) {
 				selectedId = page.items[0].id;
@@ -91,11 +101,20 @@
 		if (loadingMore || !allExecutions.hasMore) return;
 		loadingMore = true;
 		try {
-			const page = await listExecutions({
-				limit: EXECUTIONS_PAGE,
-				offset: allExecutions.items.length,
-				status: status || undefined,
-			});
+			const page =
+				engine === 'workflow'
+					? await listExecutions({
+							limit: EXECUTIONS_PAGE,
+							offset: allExecutions.items.length,
+							status: status || undefined,
+						})
+					: await listUnifiedExecutions({
+							limit: EXECUTIONS_PAGE,
+							cursor: nextCursor ?? undefined,
+							status: status || undefined,
+							executionType: engine === 'all' ? undefined : engine,
+						});
+			nextCursor = 'nextCursor' in page ? page.nextCursor : null;
 			allExecutions = {
 				items: [...allExecutions.items, ...page.items],
 				hasMore: page.hasMore,
@@ -111,6 +130,10 @@
 	$effect(() => {
 		const id = selectedId;
 		if (!id) {
+			detail = null;
+			return;
+		}
+		if (selectedItem?.kind === 'agent_loop') {
 			detail = null;
 			return;
 		}
@@ -133,7 +156,7 @@
 			compareDetail = null;
 			return;
 		}
-		if (id === selectedId) {
+		if (id === selectedId || comparedItem?.kind === 'agent_loop') {
 			compareDetail = null;
 			return;
 		}
@@ -164,6 +187,15 @@
 
 	const selected = $derived(detail);
 	const compared = $derived(compareDetail);
+
+	// Agent runs drill down on the agent-loops surface, whose detail
+	// endpoints differ from the workflow ones used above.
+	const selectedItem = $derived(
+		filtered.find((execution) => execution.id === selectedId) ?? null,
+	);
+	const comparedItem = $derived(
+		filtered.find((execution) => execution.id === compareId) ?? null,
+	);
 
 	// Compare candidates exclude the primary selection so A/B never render
 	// the same run twice. Labels stay short: the full id remains in detail.
@@ -280,6 +312,24 @@
 				onstatuschange={() => void reload()}
 			>
 				{#snippet trailing()}
+					<Select
+						value={engine}
+						options={[
+							{ value: 'all', label: 'All engines' },
+							{ value: 'workflow', label: 'Workflow' },
+							{ value: 'agent_loop', label: 'Agent' },
+						]}
+						size="sm"
+						class="w-36"
+						onchange={(value) => {
+							engine =
+								value === 'agent_loop' || value === 'workflow'
+									? value
+									: 'all';
+							selectedId = null;
+							void reload();
+						}}
+					/>
 					<span class="text-caption text-muted-foreground"
 						>{filtered.length} shown</span
 					>
@@ -369,14 +419,66 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if selected}
-			<ExecutionInspector execution={selected} />
+		{#if selectedItem?.kind === 'agent_loop' && selectedId}
+			<div class="m-3 rounded-lg border border-border bg-card p-4">
+				<p class="text-sm font-medium">Agent run {selectedId.slice(0, 8)}</p>
+				<p class="text-caption text-muted-foreground">
+					Agent runs drill down on the agent-loops surface.
+				</p>
+				<Button size="sm" href="/agent-loops" class="mt-2">
+					Open agent loops
+				</Button>
+			</div>
+		{:else if selected}
+			<ExecutionInspector
+				execution={selected}
+				onrefresh={() => {
+					const id = selectedId;
+					if (!id) return;
+					void getExecutionDetail(id)
+						.then((row) => {
+							detail = row;
+						})
+						.catch((e) => {
+							toasts.error(
+								'Execution detail failed',
+								e instanceof Error ? e.message : undefined,
+							);
+						});
+				}}
+			/>
 		{/if}
 	{/snippet}
 
 	{#snippet secondary()}
-		{#if compared}
-			<ExecutionInspector execution={compared} />
+		{#if comparedItem?.kind === 'agent_loop' && compareId}
+			<div class="m-3 rounded-lg border border-border bg-card p-4">
+				<p class="text-sm font-medium">Agent run {compareId.slice(0, 8)}</p>
+				<p class="text-caption text-muted-foreground">
+					Agent runs drill down on the agent-loops surface.
+				</p>
+				<Button size="sm" href="/agent-loops" class="mt-2">
+					Open agent loops
+				</Button>
+			</div>
+		{:else if compared}
+			<ExecutionInspector
+				execution={compared}
+				onrefresh={() => {
+					const id = compareId;
+					if (!id) return;
+					void getExecutionDetail(id)
+						.then((row) => {
+							compareDetail = row;
+						})
+						.catch((e) => {
+							toasts.error(
+								'Compare detail failed',
+								e instanceof Error ? e.message : undefined,
+							);
+						});
+				}}
+			/>
 		{:else}
 			<EmptyState
 				icon="copy"

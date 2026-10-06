@@ -988,9 +988,15 @@ pub async fn agent_execution_get_state(
             agent_loop_id,
             "agent state: no live entity or execution record, degrading to metadata"
         );
+        let Some(status) = parse_status(&meta.status) else {
+            return Err(ApiError::Conflict(format!(
+                "record [{}] carries unknown status [{}]",
+                meta.id, meta.status
+            )));
+        };
         return Ok(AgentLoopStateView {
             agent_loop_id: meta.id.clone(),
-            status: parse_status(&meta.status),
+            status,
             current_iteration: meta.current_iteration,
             tool_call_count: 0,
             iteration_history: Vec::new(),
@@ -1052,9 +1058,10 @@ fn record_variable_map(
 /// Parse the persisted string status of an `AgentLoopStorageMetadata` onto
 /// the typed contract. Delegates to the canonical status parser so that every
 /// known status (including `timeout`) resolves identically across crates;
-/// unknown values resolve to `Running`.
-pub(crate) fn parse_status(status: &str) -> ExecutionStatus {
-    ExecutionStatus::from_wire(status)
+/// unknown values return `None` so corrupt records surface instead of
+/// being coerced to an unrelated status.
+pub(crate) fn parse_status(status: &str) -> Option<ExecutionStatus> {
+    ExecutionStatus::from_wire(status).ok()
 }
 
 /// The serialized status string (serde snake_case form).

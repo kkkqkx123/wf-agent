@@ -169,7 +169,14 @@
 				class="h-full overflow-hidden rounded-lg border border-border bg-card"
 			>
 				{#if execution}
-					<ExecutionInspector {execution} bind:tab />
+					<ExecutionInspector
+						{execution}
+						bind:tab
+						onrefresh={() => {
+							const id = page.params.id;
+							if (id) void load(id);
+						}}
+					/>
 				{/if}
 			</div>
 		</PageState>

@@ -35,7 +35,13 @@ pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<
         return Ok(Some(persisted_summary(&record)));
     }
     if let Some(meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
-        return Ok(Some(meta_summary(&meta)));
+        let Some(summary) = meta_summary(&meta) else {
+            return Err(ApiError::Conflict(format!(
+                "record [{}] carries unknown status [{}]",
+                meta.id, meta.status
+            )));
+        };
+        return Ok(Some(summary));
     }
     Ok(None)
 }
@@ -129,9 +135,13 @@ pub async fn all_summaries(ctx: &ApiContext) -> Vec<AgentLoopSummary> {
 
     if let Ok(metas) = ctx.storage.agent_loop.list(None).await {
         for meta in metas {
-            by_id
-                .entry(meta.id.to_string())
-                .or_insert_with(|| meta_summary(&meta));
+            let id = meta.id.to_string();
+            if by_id.contains_key(&id) {
+                continue;
+            }
+            if let Some(summary) = meta_summary(&meta) {
+                by_id.insert(id, summary);
+            }
         }
     }
 
@@ -233,11 +243,12 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
     }
 }
 
-fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> AgentLoopSummary {
+fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> Option<AgentLoopSummary> {
+    let status = parse_status(&meta.status)?;
     let start_time = meta.started_at;
-    AgentLoopSummary {
+    Some(AgentLoopSummary {
         id: meta.id.to_string(),
-        status: parse_status(&meta.status),
+        status,
         current_iteration: meta.current_iteration,
         tool_call_count: 0,
         start_time: Some(start_time),
@@ -245,5 +256,5 @@ fn meta_summary(meta: &wf_types::AgentLoopStorageMetadata) -> AgentLoopSummary {
         execution_time: None,
         profile_id: None,
         parent_execution_id: None,
-    }
+    })
 }

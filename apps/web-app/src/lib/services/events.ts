@@ -1,6 +1,6 @@
 import { client } from '$lib/api/client';
-import { call, extractPage } from '$lib/api/envelope';
-import type { PageResult } from '$lib/api/envelope';
+import { call, extractCursorPage } from '$lib/api/envelope';
+import type { CursorPageResult } from '$lib/api/envelope';
 import type { EventRecord, Dependency, Diagnostic } from '$lib/types/models';
 
 interface EventDto {
@@ -90,14 +90,14 @@ function toDiagnosticFromHealth(h: HealthDto): Diagnostic[] {
 
 export async function listEvents(params?: {
 	limit?: number;
-	offset?: number;
-}): Promise<PageResult<EventRecord>> {
+	cursor?: string;
+}): Promise<CursorPageResult<EventRecord>> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/events', {
 			params: { query: params ?? {} },
 		}),
 	);
-	const page = extractPage<EventDto>(data);
+	const page = extractCursorPage<EventDto>(data);
 	return { ...page, items: page.items.map(toEvent) };
 }
 

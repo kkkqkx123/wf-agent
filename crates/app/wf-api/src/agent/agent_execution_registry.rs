@@ -14,6 +14,10 @@ pub struct AgentExecutionFilter {
     pub status: Option<ExecutionStatus>,
     /// Agent definition id (all runs of the definition).
     pub agent_id: Option<String>,
+    /// Inclusive lower bound on the execution start time (ms epoch).
+    pub started_from: Option<i64>,
+    /// Inclusive upper bound on the execution start time (ms epoch).
+    pub started_to: Option<i64>,
 }
 
 /// Execution summary of an agent loop.
@@ -43,6 +47,8 @@ pub async fn summaries(
     let storage_options = filter.map(|f| AgentExecutionListOptions {
         status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
         definition_id_filter: f.agent_id.clone(),
+        started_from: f.started_from,
+        started_to: f.started_to,
         ..AgentExecutionListOptions::default()
     });
     let persisted = ctx
@@ -90,6 +96,16 @@ pub async fn summaries(
             }
             if let Some(agent_id) = &filter.agent_id {
                 if r.definition_id.as_deref() != Some(agent_id.as_str()) {
+                    return false;
+                }
+            }
+            if let Some(from) = filter.started_from {
+                if r.start_time < from {
+                    return false;
+                }
+            }
+            if let Some(to) = filter.started_to {
+                if r.start_time > to {
                     return false;
                 }
             }

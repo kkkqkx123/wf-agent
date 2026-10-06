@@ -111,24 +111,33 @@ impl<T> StorageBackedStateManager<T> {
         BatchItem::new(key, Vec::new(), metadata)
     }
 
+    /// Build the indexed metadata document for one checkpoint row. The record
+    /// type owns the key set; `compressed` describes the encoded blob, which
+    /// only this writer knows.
     fn build_metadata(&self, args: MetadataArgs<'_>) -> Value {
-        serde_json::json!({
-            "id": args.id,
-            "entityType": args.entity_type,
-            "entityId": args.entity_id,
-            "parentEntityId": args.parent_entity_id,
-            "checkpointType": args.checkpoint_type,
-            "timestamp": args.timestamp,
-            "status": "completed",
-            "compressed": args.compressed,
-            "baseCheckpointId": args.base_checkpoint_id,
-            "previousCheckpointId": args.previous_checkpoint_id,
-            "chainRootId": args.chain_root_id,
-            "chainPosition": args.chain_position,
-            "blobSize": args.blob_size,
-            "tags": args.tags,
-            "customFields": args.custom_fields,
-        })
+        let record = CheckpointStorageMetadata {
+            id: args.id.to_string(),
+            entity_type: args.entity_type.to_string(),
+            entity_id: args.entity_id.to_string(),
+            parent_entity_id: args.parent_entity_id.map(String::from),
+            checkpoint_type: args.checkpoint_type,
+            timestamp: args.timestamp,
+            // A row is only written once its payload is stored, so the write
+            // itself has completed.
+            status: wf_types::checkpoint::CheckpointStatus::Completed,
+            previous_checkpoint_id: args.previous_checkpoint_id.map(String::from),
+            base_checkpoint_id: args.base_checkpoint_id.map(String::from),
+            chain_root_id: args.chain_root_id.map(String::from),
+            chain_position: args.chain_position,
+            blob_size: Some(args.blob_size),
+            tags: args.tags.cloned(),
+            custom_fields: args.custom_fields.cloned(),
+        };
+        let mut metadata = record.metadata_document();
+        if let Some(map) = metadata.as_object_mut() {
+            map.insert("compressed".into(), Value::Bool(args.compressed));
+        }
+        metadata
     }
 }
 
@@ -147,7 +156,7 @@ struct MetadataArgs<'a> {
     blob_size: u64,
     compressed: bool,
     tags: Option<&'a Vec<String>>,
-    custom_fields: Option<&'a serde_json::Map<String, Value>>,
+    custom_fields: Option<&'a wf_types::Metadata>,
 }
 
 impl<T> StorageBackedStateManager<T>
@@ -212,68 +221,40 @@ where
     }
 
     /// Resolve the latest checkpoint metadata of every entity spawned directly
-    /// from `parent_entity_id`, in one storage query on the indexed
-    /// `parentEntityId` metadata field. This is how a parent restore finds its
-    /// children: the link lives on the child, so the answer is current even
-    /// when the parent last persisted before the child existed.
+    /// from `parent_entity_id`. The link lives on the child, so the answer is
+    /// current even when the parent last persisted before the child existed.
+    ///
+    /// Two constant queries rather than one: only a full checkpoint carries a
+    /// snapshot, so the indexed `parentEntityId` scan identifies *which*
+    /// entities are children, and the per-child latest lookup then returns
+    /// each child's newest row whatever its type. Reading the latest row out
+    /// of the link scan instead would hand back the newest full checkpoint of
+    /// a child whose newest checkpoint is a delta.
     pub async fn list_latest_by_parent(
         &self,
         parent_entity_id: &str,
     ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
-        let filter = QueryFilter::new()
-            .with_field("parentEntityId", parent_entity_id)
-            .with_order_by("timestamp", true);
-
-        let entries = self
+        let linked = self
             .storage
-            .list(Some(&filter))
+            .list(Some(
+                &QueryFilter::new().with_field("parentEntityId", parent_entity_id),
+            ))
             .await
             .map_err(CheckpointError::Storage)?;
 
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut latest: Vec<CheckpointStorageMetadata> = Vec::new();
-        for (id, meta) in entries {
-            let entity_id = meta
-                .get("entityId")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            if seen.insert(entity_id.clone()) {
-                latest.push(parse_storage_metadata(&id, &entity_id, &meta));
+        let mut child_ids: Vec<String> = Vec::new();
+        for (_, meta) in linked {
+            let Some(entity_id) = meta.get("entityId").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if !child_ids.iter().any(|id| id == entity_id) {
+                child_ids.push(entity_id.to_string());
             }
         }
-        Ok(latest)
-    }
-
-    fn extract_tags(&self, checkpoint: &T) -> Option<Vec<String>> {
-        serde_json::to_value(checkpoint).ok().and_then(|json| {
-            json.get("metadata")
-                .and_then(|m| m.get("tags"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-        })
-    }
-
-    fn extract_custom_fields(&self, checkpoint: &T) -> Option<serde_json::Map<String, Value>> {
-        serde_json::to_value(checkpoint).ok().and_then(|json| {
-            json.get("metadata")
-                .and_then(|m| m.get("customFields").or_else(|| m.get("custom_fields")))
-                .and_then(|v| v.as_object())
-                .cloned()
-        })
-    }
-
-    /// The parent execution id carried by the checkpoint payload's snapshot
-    /// hierarchy. Recorded on the storage metadata so child checkpoints are
-    /// discoverable by querying their parent, rather than by reading a child
-    /// list the parent must keep current.
-    fn extract_parent_entity_id(&self, checkpoint: &T) -> Option<String> {
-        serde_json::to_value(checkpoint).ok().and_then(|json| {
-            json.get("snapshot")
-                .and_then(|s| s.get("hierarchy"))
-                .and_then(|h| h.get("parent_execution_id").or_else(|| h.get("parentExecutionId")))
-                .and_then(|v| v.as_str())
-                .map(|v| v.to_string())
-        })
+        if child_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.list_latest_by_entities(&child_ids).await
     }
 
     /// Execute a cleanup run for an entity with dependency protection:
@@ -546,10 +527,14 @@ where
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
         let start = Instant::now();
-        let id = extract_field_as_str(checkpoint, "id")?;
-        let checkpoint_type = extract_checkpoint_type(checkpoint)?;
+        // Every indexed field below is read off one serialization of the
+        // payload: the save path walks a large snapshot several times and
+        // re-encoding it per field dominated the write.
+        let payload = payload_value(checkpoint)?;
+        let id = field_as_str(&payload, "id")?;
+        let checkpoint_type = checkpoint_type_of(&payload);
         let is_full = checkpoint_type == CheckpointType::Full;
-        let timestamp = extract_optional_i64_field(checkpoint, "timestamp")?
+        let timestamp = optional_i64_field(&payload, "timestamp")
             .or_else(|| self.clock.now_ms())
             .ok_or_else(|| {
                 CheckpointError::Internal(
@@ -558,12 +543,9 @@ where
                 )
             })?;
         let base_checkpoint_id =
-            extract_optional_field_as_str(checkpoint, "baseCheckpointId", "base_checkpoint_id")?;
-        let previous_checkpoint_id = extract_optional_field_as_str(
-            checkpoint,
-            "previousCheckpointId",
-            "previous_checkpoint_id",
-        )?;
+            optional_field_as_str(&payload, "baseCheckpointId", "base_checkpoint_id");
+        let previous_checkpoint_id =
+            optional_field_as_str(&payload, "previousCheckpointId", "previous_checkpoint_id");
 
         // compression is enabled on the save path with an `Auto`
         // strategy (payloads larger than the compression threshold are gzip
@@ -582,15 +564,12 @@ where
         let (chain_root_id, chain_position) = self
             .compute_chain_info(&id, &checkpoint_type, previous_checkpoint_id.as_deref())
             .await?;
-        let tags = self.extract_tags(checkpoint);
-        let custom_fields = self.extract_custom_fields(checkpoint);
-        let parent_entity_id = self.extract_parent_entity_id(checkpoint);
 
         let metadata = self.build_metadata(MetadataArgs {
             id: &id,
             entity_type,
             entity_id,
-            parent_entity_id: parent_entity_id.as_deref(),
+            parent_entity_id: parent_entity_id_of(&payload).as_deref(),
             checkpoint_type,
             timestamp,
             base_checkpoint_id: base_checkpoint_id.as_deref(),
@@ -599,8 +578,8 @@ where
             chain_position,
             blob_size: data.len() as u64,
             compressed: CheckpointSerializer::is_compressed(&data),
-            tags: tags.as_ref(),
-            custom_fields: custom_fields.as_ref(),
+            tags: tags_of(&payload).as_ref(),
+            custom_fields: custom_fields_of(&payload).as_ref(),
         });
 
         self.storage
@@ -813,35 +792,77 @@ where
     }
 }
 
-fn extract_optional_field_as_str<T: Serialize>(
-    value: &T,
-    field_camel: &str,
-    field_snake: &str,
-) -> Result<Option<String>, CheckpointError> {
-    let json = serde_json::to_value(value).map_err(|e| {
-        CheckpointError::Serialization(format!(
-            "failed to serialize for field {}: {}",
-            field_camel, e
-        ))
-    })?;
-    Ok(json
-        .get(field_camel)
-        .or_else(|| json.get(field_snake))
-        .and_then(|v| v.as_str())
-        .map(String::from))
+/// Encode the checkpoint payload once for the metadata field reads on the save
+/// path.
+fn payload_value<T: Serialize>(checkpoint: &T) -> Result<Value, CheckpointError> {
+    serde_json::to_value(checkpoint)
+        .map_err(|e| CheckpointError::Serialization(format!("failed to serialize: {e}")))
 }
 
-fn extract_optional_i64_field<T: Serialize>(
-    value: &T,
-    field: &str,
-) -> Result<Option<i64>, CheckpointError> {
-    let json = serde_json::to_value(value).map_err(|e| {
-        CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
-    })?;
-    Ok(json.get(field).and_then(|v| {
+fn field_as_str(payload: &Value, field: &str) -> Result<String, CheckpointError> {
+    payload
+        .get(field)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| CheckpointError::Validation {
+            reason: format!("missing field: {field}"),
+        })
+}
+
+/// A missing or unrecognised `type` field means a full checkpoint, which is
+/// also what a payload written before type tracking looked like.
+fn checkpoint_type_of(payload: &Value) -> CheckpointType {
+    match payload.get("type").and_then(|v| v.as_str()) {
+        Some("delta") | Some("DELTA") => CheckpointType::Delta,
+        _ => CheckpointType::Full,
+    }
+}
+
+fn optional_field_as_str(payload: &Value, field_camel: &str, field_snake: &str) -> Option<String> {
+    payload
+        .get(field_camel)
+        .or_else(|| payload.get(field_snake))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
+
+fn optional_i64_field(payload: &Value, field: &str) -> Option<i64> {
+    payload.get(field).and_then(|v| {
         v.as_i64()
             .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-    }))
+    })
+}
+
+fn tags_of(payload: &Value) -> Option<Vec<String>> {
+    payload
+        .get("metadata")
+        .and_then(|m| m.get("tags"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+}
+
+fn custom_fields_of(payload: &Value) -> Option<wf_types::Metadata> {
+    payload
+        .get("metadata")
+        .and_then(|m| m.get("customFields").or_else(|| m.get("custom_fields")))
+        .and_then(|v| v.as_object())
+        .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+}
+
+/// The parent execution id carried by the payload's snapshot hierarchy.
+/// Recorded on the storage metadata so child checkpoints are discoverable by
+/// querying their parent, rather than by reading a child list the parent must
+/// keep current. A delta has no snapshot, so it carries no link of its own and
+/// `list_latest_by_parent` resolves the newest row per child entity instead.
+fn parent_entity_id_of(payload: &Value) -> Option<String> {
+    payload
+        .get("snapshot")
+        .and_then(|s| s.get("hierarchy"))
+        .and_then(|h| {
+            h.get("parent_execution_id")
+                .or_else(|| h.get("parentExecutionId"))
+        })
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 pub fn parse_storage_metadata(
@@ -951,28 +972,6 @@ impl<T: Send + Sync> CheckpointLoader for StorageBackedStateManager<T> {
             }
             None => Ok(None),
         }
-    }
-}
-
-fn extract_field_as_str<T: Serialize>(value: &T, field: &str) -> Result<String, CheckpointError> {
-    let json = serde_json::to_value(value).map_err(|e| {
-        CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
-    })?;
-    json.get(field)
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .ok_or_else(|| CheckpointError::Validation {
-            reason: format!("missing field: {}", field),
-        })
-}
-
-fn extract_checkpoint_type<T: Serialize>(value: &T) -> Result<CheckpointType, CheckpointError> {
-    let json = serde_json::to_value(value).map_err(|e| {
-        CheckpointError::Serialization(format!("failed to serialize for type extraction: {}", e))
-    })?;
-    match json.get("type").and_then(|v| v.as_str()) {
-        Some("delta") | Some("DELTA") => Ok(CheckpointType::Delta),
-        _ => Ok(CheckpointType::Full),
     }
 }
 
@@ -1624,6 +1623,98 @@ mod tests {
             by_entity.get("exec-2").map(String::as_str),
             Some("cp-exec-2-0")
         );
+    }
+
+    #[tokio::test]
+    async fn list_latest_by_parent_returns_a_child_whose_newest_row_is_a_delta() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+        let parent = json!({"hierarchy": {"parent_execution_id": "parent-1"}});
+
+        mgr.save(
+            &make_envelope("child-full", None, None, 1000, None, Some(parent.clone())),
+            "workflow_execution",
+            "child-1",
+        )
+        .await
+        .unwrap();
+        mgr.save(
+            &make_envelope(
+                "child-delta",
+                Some(CheckpointType::Delta),
+                Some("child-full"),
+                2000,
+                Some(json!({"state": "s1"})),
+                None,
+            ),
+            "workflow_execution",
+            "child-1",
+        )
+        .await
+        .unwrap();
+        // A second child whose newest row is a full checkpoint.
+        mgr.save(
+            &make_envelope("other-full", None, None, 1500, None, Some(parent)),
+            "workflow_execution",
+            "child-2",
+        )
+        .await
+        .unwrap();
+
+        let children = mgr.list_latest_by_parent("parent-1").await.unwrap();
+        let by_entity: std::collections::HashMap<_, _> = children
+            .into_iter()
+            .map(|m| (m.entity_id.clone(), m.id.clone()))
+            .collect();
+        assert_eq!(by_entity.len(), 2);
+        assert_eq!(
+            by_entity.get("child-1").map(String::as_str),
+            Some("child-delta"),
+            "the newest row is a delta, which carries no snapshot and so no parent link"
+        );
+        assert_eq!(
+            by_entity.get("child-2").map(String::as_str),
+            Some("other-full")
+        );
+    }
+
+    #[tokio::test]
+    async fn list_latest_by_parent_ignores_checkpoints_of_other_parents() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+
+        mgr.save(
+            &make_envelope(
+                "mine",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"hierarchy": {"parent_execution_id": "parent-1"}})),
+            ),
+            "workflow_execution",
+            "child-1",
+        )
+        .await
+        .unwrap();
+        mgr.save(
+            &make_envelope(
+                "theirs",
+                None,
+                None,
+                2000,
+                None,
+                Some(json!({"hierarchy": {"parent_execution_id": "parent-2"}})),
+            ),
+            "workflow_execution",
+            "child-2",
+        )
+        .await
+        .unwrap();
+
+        let children = mgr.list_latest_by_parent("parent-1").await.unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].entity_id, "child-1");
     }
 
     #[tokio::test]

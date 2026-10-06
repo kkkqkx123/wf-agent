@@ -143,21 +143,14 @@ async fn build_persisted_hierarchy(entity: &WorkflowExecutionEntity) -> Option<E
     if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
-    Some(ExecutionHierarchy {
-        workflow_id: entity.workflow_id().clone(),
-        execution_id: entity.id().clone(),
-        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
-        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
-        depth: entity.get_hierarchy_depth(),
-        root_execution_id: entity.get_root_execution_id(),
-        root_execution_type: Some(manager.root_execution_type()),
-        ancestors: if ancestors.is_empty() {
-            None
-        } else {
-            Some(ancestors)
-        },
-        fork_path: manager.fork_path(),
-    })
+    Some(ExecutionHierarchy::new(
+        entity.workflow_id().clone(),
+        entity.id().clone(),
+        ancestors,
+        parent.as_ref().map(|p| p.parent_type.clone()),
+        Some(manager.root_execution_type()),
+        manager.fork_path(),
+    ))
 }
 
 #[cfg(test)]
@@ -171,8 +164,6 @@ mod tests {
             end_node_ids: Vec::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
-            adjacency_list: std::collections::HashMap::new(),
-            reverse_adjacency_list: std::collections::HashMap::new(),
             error_default: None,
         }
     }
@@ -223,10 +214,10 @@ mod tests {
         let record =
             build_workflow_execution(&entity, &empty_graph(), &empty_options(), None).await;
         let hierarchy = record.hierarchy.expect("child must carry hierarchy");
-        assert_eq!(hierarchy.depth, 1);
-        assert_eq!(hierarchy.root_execution_id.as_deref(), Some("root"));
-        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("root"));
-        assert_eq!(hierarchy.ancestors, Some(vec!["root".to_string()]));
+        assert_eq!(hierarchy.depth(), 1);
+        assert_eq!(hierarchy.root_execution_id(), "root");
+        assert_eq!(hierarchy.parent_execution_id().as_deref(), Some("root"));
+        assert_eq!(hierarchy.ancestors(), vec!["root".to_string()]);
         // A child never records its own children; the tree is recovered by
         // querying the child records.
         assert_eq!(root_manager.children().len(), 1);

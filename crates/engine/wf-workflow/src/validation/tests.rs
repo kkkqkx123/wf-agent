@@ -1,7 +1,5 @@
 //! Unit tests for the graph validation rule modules.
 
-use std::collections::HashMap;
-
 use wf_types::workflow::edge::EdgeType;
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
 
@@ -47,8 +45,6 @@ fn make_graph(
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: start.map(|s| s.to_string()),
         end_node_ids: ends.into_iter().map(|s| s.to_string()).collect(),
         error_default: None,

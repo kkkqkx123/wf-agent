@@ -11322,76 +11322,6 @@
         ]
       }
     },
-    "/api/v1/executions/{id}/ancestors": {
-      "get": {
-        "tags": [
-          "observation"
-        ],
-        "operationId": "get_executions_id_ancestors",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Vec_String"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
     "/api/v1/executions/{id}/audit/iterations": {
       "get": {
         "tags": [
@@ -13934,7 +13864,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_HierarchyDoc"
                 }
               }
             }
@@ -14013,7 +13943,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_HistoryDoc"
                 }
               }
             }
@@ -16434,7 +16364,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_SubtreeDoc"
                 }
               }
             }
@@ -35678,6 +35608,157 @@
           }
         }
       },
+      "ApiEnvelope_HierarchyDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Where one execution sits in the parent/child tree of nested runs.",
+            "required": [
+              "execution_id",
+              "execution_type",
+              "status",
+              "depth",
+              "root",
+              "ancestors"
+            ],
+            "properties": {
+              "ancestors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Root-to-parent id chain, oldest first, excluding this execution."
+              },
+              "depth": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Nesting level below the root; a root execution is `0`.",
+                "minimum": 0
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "execution_type": {
+                "type": "string"
+              },
+              "parent": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExecutionRefDoc",
+                    "description": "Absent for a root execution."
+                  }
+                ]
+              },
+              "root": {
+                "$ref": "#/components/schemas/ExecutionRefDoc"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_HistoryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Everything an execution recorded, grouped by section. A section that was\nnot asked for comes back empty rather than absent, so the payload shape\nnever changes.",
+            "required": [
+              "execution_id",
+              "execution_type",
+              "timeline_limit"
+            ],
+            "properties": {
+              "context_evolution": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ContextEvolutionDoc"
+                }
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "execution_type": {
+                "type": "string"
+              },
+              "iterations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IterationDoc"
+                }
+              },
+              "node_executions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NodeExecutionDoc"
+                }
+              },
+              "status_transitions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/StateTransitionDoc"
+                }
+              },
+              "timeline": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TimelineEventDoc"
+                }
+              },
+              "timeline_limit": {
+                "type": "integer",
+                "description": "Cap on `timeline`: one read never carries more lifecycle events than\nthis, and a run past the cap has its later events left out.",
+                "minimum": 0
+              },
+              "variables": {
+                "type": "object",
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_InfoView": {
         "type": "object",
         "required": [
@@ -36019,6 +36100,64 @@
         "properties": {
           "data": {
             "type": "string"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_SubtreeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Every execution below a root, breadth-first.",
+            "required": [
+              "root_execution_id",
+              "truncated",
+              "nodes",
+              "rejected"
+            ],
+            "properties": {
+              "nodes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SubtreeNodeDoc"
+                },
+                "description": "Root first, then each level in child order."
+              },
+              "omitted": {
+                "type": "integer",
+                "description": "How many descendants the node cap dropped. Query a descendant for the\npart of the tree this response left out.",
+                "minimum": 0
+              },
+              "rejected": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RejectedRowDoc"
+                }
+              },
+              "root_execution_id": {
+                "type": "string"
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "Set when the node cap dropped descendants, so a caller can tell a\ncomplete tree from a clipped one."
+              }
+            }
           },
           "error": {
             "oneOf": [
@@ -36457,33 +36596,6 @@
           }
         }
       },
-      "ApiEnvelope_Vec_String": {
-        "type": "object",
-        "required": [
-          "success"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "error": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ApiErrorBody"
-              }
-            ]
-          },
-          "success": {
-            "type": "boolean"
-          }
-        }
-      },
       "ApiEnvelope_Vec_TemplateSummaryDoc": {
         "type": "object",
         "required": [
@@ -36893,6 +37005,41 @@
           }
         }
       },
+      "ContextEvolutionDoc": {
+        "type": "object",
+        "description": "Context growth at one point in an agent loop.",
+        "required": [
+          "timestamp",
+          "iteration",
+          "status",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "iteration": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tool_calls": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "CreateCheckpointBody": {
         "type": "object",
         "properties": {
@@ -37279,6 +37426,22 @@
           }
         }
       },
+      "ExecutionRefDoc": {
+        "type": "object",
+        "description": "One execution as referenced from a hierarchy view: the id and the engine\nthat owns it.",
+        "required": [
+          "execution_id",
+          "execution_type"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_type": {
+            "type": "string"
+          }
+        }
+      },
       "ExportBody": {
         "type": "object",
         "properties": {
@@ -37559,6 +37722,115 @@
           }
         }
       },
+      "HierarchyDoc": {
+        "type": "object",
+        "description": "Where one execution sits in the parent/child tree of nested runs.",
+        "required": [
+          "execution_id",
+          "execution_type",
+          "status",
+          "depth",
+          "root",
+          "ancestors"
+        ],
+        "properties": {
+          "ancestors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Root-to-parent id chain, oldest first, excluding this execution."
+          },
+          "depth": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Nesting level below the root; a root execution is `0`.",
+            "minimum": 0
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_type": {
+            "type": "string"
+          },
+          "parent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExecutionRefDoc",
+                "description": "Absent for a root execution."
+              }
+            ]
+          },
+          "root": {
+            "$ref": "#/components/schemas/ExecutionRefDoc"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "HistoryDoc": {
+        "type": "object",
+        "description": "Everything an execution recorded, grouped by section. A section that was\nnot asked for comes back empty rather than absent, so the payload shape\nnever changes.",
+        "required": [
+          "execution_id",
+          "execution_type",
+          "timeline_limit"
+        ],
+        "properties": {
+          "context_evolution": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContextEvolutionDoc"
+            }
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_type": {
+            "type": "string"
+          },
+          "iterations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IterationDoc"
+            }
+          },
+          "node_executions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeExecutionDoc"
+            }
+          },
+          "status_transitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StateTransitionDoc"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEventDoc"
+            }
+          },
+          "timeline_limit": {
+            "type": "integer",
+            "description": "Cap on `timeline`: one read never carries more lifecycle events than\nthis, and a run past the cap has its later events left out.",
+            "minimum": 0
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "IdsBody": {
         "type": "object",
         "required": [
@@ -37649,6 +37921,55 @@
           }
         }
       },
+      "IterationDoc": {
+        "type": "object",
+        "description": "One agent loop iteration.",
+        "required": [
+          "iteration",
+          "start_time",
+          "end_time",
+          "duration",
+          "tool_call_count",
+          "tool_calls"
+        ],
+        "properties": {
+          "duration": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Duration in ms, `-1` while the iteration is still in progress."
+          },
+          "end_time": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "iteration": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "response_content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start_time": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tool_call_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool_calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCallDoc"
+            }
+          }
+        }
+      },
       "LibraryImportBody": {
         "type": "object",
         "required": [
@@ -37709,6 +38030,53 @@
           },
           "value": {
             "description": "Variable value (any JSON)"
+          }
+        }
+      },
+      "NodeExecutionDoc": {
+        "type": "object",
+        "description": "One workflow node execution attempt.",
+        "required": [
+          "node_id",
+          "node_type",
+          "started_at",
+          "duration_ms"
+        ],
+        "properties": {
+          "branch_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completed_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input": {},
+          "node_id": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "result": {},
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -37899,6 +38267,22 @@
         ],
         "properties": {
           "baseline_snapshot_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RejectedRowDoc": {
+        "type": "object",
+        "description": "One row a scan reached but could not read, reported beside the rows that\ncould be read so a single broken record cannot hide the rest of a tree.",
+        "required": [
+          "execution_id",
+          "reason"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "reason": {
             "type": "string"
           }
         }
@@ -38215,6 +38599,100 @@
           }
         }
       },
+      "StateTransitionDoc": {
+        "type": "object",
+        "description": "One status transition of a workflow execution.",
+        "required": [
+          "from",
+          "to",
+          "timestamp"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "SubtreeDoc": {
+        "type": "object",
+        "description": "Every execution below a root, breadth-first.",
+        "required": [
+          "root_execution_id",
+          "truncated",
+          "nodes",
+          "rejected"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubtreeNodeDoc"
+            },
+            "description": "Root first, then each level in child order."
+          },
+          "omitted": {
+            "type": "integer",
+            "description": "How many descendants the node cap dropped. Query a descendant for the\npart of the tree this response left out.",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RejectedRowDoc"
+            }
+          },
+          "root_execution_id": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Set when the node cap dropped descendants, so a caller can tell a\ncomplete tree from a clipped one."
+          }
+        }
+      },
+      "SubtreeNodeDoc": {
+        "type": "object",
+        "description": "One node of a subtree listing.",
+        "required": [
+          "execution_id",
+          "execution_type",
+          "depth"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Nesting level relative to the queried root, which is `0`.",
+            "minimum": 0
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "execution_type": {
+            "type": "string"
+          },
+          "parent_execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent only for a live execution whose record has not been written yet."
+          }
+        }
+      },
       "TemplateSummaryDoc": {
         "type": "object",
         "description": "Uniform template summary over workflow and agent templates.",
@@ -38281,6 +38759,97 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "TimelineEventDoc": {
+        "type": "object",
+        "description": "One lifecycle event on the history timeline.\n\nEvery field mirrors `wf_types::events::BaseEvent` except the\ndiscriminator: that enum's variants grow with the engines, so a schema\nmirroring it would have to be rebuilt on every addition. The wire declares\nthe string the enum actually serializes to instead, taking its\n`SCREAMING_SNAKE_CASE` names such as `WORKFLOW_EXECUTION_STARTED`.",
+        "required": [
+          "id",
+          "type",
+          "timestamp"
+        ],
+        "properties": {
+          "agent_loop_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "type": {
+            "type": "string"
+          },
+          "workflow_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ToolCallDoc": {
+        "type": "object",
+        "description": "One tool call inside an agent iteration.",
+        "required": [
+          "name",
+          "arguments",
+          "duration_ms",
+          "success"
+        ],
+        "properties": {
+          "arguments": {},
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "result": {},
+          "success": {
+            "type": "boolean"
+          },
+          "tool_call_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

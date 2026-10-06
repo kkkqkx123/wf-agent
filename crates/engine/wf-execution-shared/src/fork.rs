@@ -15,9 +15,9 @@ pub enum BranchStatus {
     Cancelled,
 }
 
-/// Snapshot-facing status of one fork branch. Uses the same vocabulary as
-/// the restore-side `forkJoinAggregationState.pathStatuses` record
-/// (`PENDING` / `COMPLETED` / `FAILED`) so snapshots and inference agree.
+/// Snapshot-facing status of one fork branch. Uses the same vocabulary as the
+/// `forkJoinAggregationState.pathStatuses` record written into snapshots
+/// (`PENDING` / `COMPLETED` / `FAILED`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForkChildStatus {
     Pending,

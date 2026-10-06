@@ -286,12 +286,12 @@ export const executionHierarchy: ExecutionHierarchy = {
 	parent: null,
 	root: { executionId: HIERARCHY_ROOT, executionType: 'workflow' },
 	ancestors: [],
-	children: [{ executionId: HIERARCHY_CHILD, executionType: 'agent_loop' }],
 };
 
 export const executionSubtree: ExecutionSubtree = {
 	rootExecutionId: HIERARCHY_ROOT,
 	truncated: false,
+	omitted: 0,
 	nodes: [
 		{
 			executionId: HIERARCHY_ROOT,
@@ -320,6 +320,7 @@ export const executionSubtree: ExecutionSubtree = {
 export const executionHistory: ExecutionHistory = {
 	executionId: HIERARCHY_ROOT,
 	executionType: 'workflow',
+	timelineLimit: 100,
 	timeline: [],
 	iterations: [],
 	variables: [

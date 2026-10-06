@@ -2,7 +2,6 @@
 	import type {
 		ExecutionDetail,
 		ExecutionHierarchy,
-		ExecutionHistory,
 		ExecutionSubtree,
 		NodeTrace,
 		TimelineEntry,
@@ -36,7 +35,6 @@
 		getExecutionMemory,
 		getExecutionHierarchy,
 		getExecutionSubtree,
-		getExecutionHistory,
 	} from '$lib/services/executions';
 	import { getExecutionNodeTraces } from '$lib/services/node-trace';
 	import {
@@ -128,14 +126,12 @@
 	let seenGraph = $state('');
 	let seenAnalysis = $state('');
 	let seenState = $state('');
-	let seenHierarchy = $state('');
-	let seenHistory = $state('');
+	/** Null marks "not loaded", which an empty execution id could never mean. */
+	let seenHierarchy = $state<string | null>(null);
 
 	let hierarchy = $state<ExecutionHierarchy | null>(null);
 	let hierarchyError = $state<string | null>(null);
 	let subtree = $state<ExecutionSubtree | null>(null);
-	let recordedHistory = $state<ExecutionHistory | null>(null);
-	let historyError = $state<string | null>(null);
 
 	// Live execution overlay: SSE frames buffer here and flush on a fixed
 	// tick, so high-frequency node updates never re-render per frame.
@@ -678,10 +674,6 @@
 			seenHierarchy = id;
 			void loadHierarchy(id);
 		}
-		if (tab === 'history' && seenHistory !== id) {
-			seenHistory = id;
-			void loadHistory(id);
-		}
 	});
 
 	async function loadHierarchy(id: string): Promise<void> {
@@ -694,21 +686,10 @@
 			hierarchy = view;
 			subtree = tree;
 		} catch (e: unknown) {
-			seenHierarchy = '';
+			seenHierarchy = null;
 			hierarchy = null;
 			subtree = null;
 			hierarchyError = e instanceof Error ? e.message : 'Hierarchy failed.';
-		}
-	}
-
-	async function loadHistory(id: string): Promise<void> {
-		historyError = null;
-		try {
-			recordedHistory = await getExecutionHistory(id);
-		} catch (e: unknown) {
-			seenHistory = '';
-			recordedHistory = null;
-			historyError = e instanceof Error ? e.message : 'History failed.';
 		}
 	}
 
@@ -1254,21 +1235,9 @@
 				/>
 			{/if}
 		{:else if tab === 'history'}
-			{#if historyError}
-				<ErrorState
-					title="History failed to load"
-					description={historyError}
-					onretry={() => loadHistory(execution.id)}
-					class="rounded-lg border border-border bg-card"
-				/>
-			{:else if recordedHistory}
-				<ExecutionHistoryPanel history={recordedHistory} />
-			{:else}
-				<Skeleton
-					lines={6}
-					class="rounded-lg border border-border bg-card p-4"
-				/>
-			{/if}
+			{#key execution.id}
+				<ExecutionHistoryPanel executionId={execution.id} />
+			{/key}
 		{:else}
 			{#if stateLoading}
 				<Skeleton

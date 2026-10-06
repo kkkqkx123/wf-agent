@@ -75,8 +75,6 @@ pub fn extract_branch_subgraph(
         edges: branch_edges,
         start_node_id: Some(branch_edge.target_node_id.clone()),
         end_node_ids,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         error_default: None,
     }
 }
@@ -464,8 +462,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges,
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
             error_default: None,

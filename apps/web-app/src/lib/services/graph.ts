@@ -630,8 +630,8 @@ export async function getExecutionGraphOverview(executionId: string): Promise<{
 }> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/executions/{id}/graph/overview', {
-			params: { path: { id: executionId } }
-		})
+			params: { path: { id: executionId } },
+		}),
 	);
 	const overview = requireData(
 		data,

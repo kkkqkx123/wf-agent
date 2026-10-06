@@ -87,11 +87,6 @@ pub struct ExecRow {
     pub iteration: u32,
     pub tool_calls: u32,
     pub started: String,
-    /// Nesting level below the nearest displayed ancestor; the row renderer
-    /// indents by it so a parent run and its children read as one group.
-    pub depth: u32,
-    /// Execution this run was spawned under, absent for a root run.
-    pub parent_id: Option<String>,
 }
 
 /// Status filter applied to the execution list.
@@ -186,11 +181,6 @@ pub struct LoopRow {
     pub iteration: u32,
     pub tool_calls: u32,
     pub started: String,
-    /// Nesting level below the nearest displayed ancestor; the row renderer
-    /// indents by it so a parent session and its children read as one group.
-    pub depth: u32,
-    /// Execution this session was spawned under, absent for a root session.
-    pub parent_id: Option<String>,
 }
 
 /// One pre-aggregated metrics table rendered on the insights screen.

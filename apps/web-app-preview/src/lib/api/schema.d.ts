@@ -2125,22 +2125,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/executions/{id}/ancestors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_executions_id_ancestors"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/executions/{id}/audit/iterations": {
         parameters: {
             query?: never;
@@ -6700,6 +6684,51 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_HierarchyDoc: {
+            /** @description Where one execution sits in the parent/child tree of nested runs. */
+            data?: {
+                /** @description Root-to-parent id chain, oldest first, excluding this execution. */
+                ancestors: string[];
+                /**
+                 * Format: int32
+                 * @description Nesting level below the root; a root execution is `0`.
+                 */
+                depth: number;
+                execution_id: string;
+                execution_type: string;
+                parent?: null | components["schemas"]["ExecutionRefDoc"];
+                root: components["schemas"]["ExecutionRefDoc"];
+                status: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_HistoryDoc: {
+            /**
+             * @description Everything an execution recorded, grouped by section. A section that was
+             *     not asked for comes back empty rather than absent, so the payload shape
+             *     never changes.
+             */
+            data?: {
+                context_evolution?: components["schemas"]["ContextEvolutionDoc"][];
+                execution_id: string;
+                execution_type: string;
+                iterations?: components["schemas"]["IterationDoc"][];
+                node_executions?: components["schemas"]["NodeExecutionDoc"][];
+                status_transitions?: components["schemas"]["StateTransitionDoc"][];
+                timeline?: components["schemas"]["TimelineEventDoc"][];
+                /**
+                 * @description Cap on `timeline`: one read never carries more lifecycle events than
+                 *     this, and a run past the cap has its later events left out.
+                 */
+                timeline_limit: number;
+                variables?: {
+                    [key: string]: unknown;
+                };
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_InfoView: {
             data?: {
                 apiVersion: string;
@@ -6776,6 +6805,27 @@ export interface components {
         };
         ApiEnvelope_String: {
             data?: string;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_SubtreeDoc: {
+            /** @description Every execution below a root, breadth-first. */
+            data?: {
+                /** @description Root first, then each level in child order. */
+                nodes: components["schemas"]["SubtreeNodeDoc"][];
+                /**
+                 * @description How many descendants the node cap dropped. Query a descendant for the
+                 *     part of the tree this response left out.
+                 */
+                omitted?: number;
+                rejected: components["schemas"]["RejectedRowDoc"][];
+                root_execution_id: string;
+                /**
+                 * @description Set when the node cap dropped descendants, so a caller can tell a
+                 *     complete tree from a clipped one.
+                 */
+                truncated: boolean;
+            };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -6868,11 +6918,6 @@ export interface components {
                 name?: string | null;
                 node_type: string;
             }[];
-            error?: null | components["schemas"]["ApiErrorBody"];
-            success: boolean;
-        };
-        ApiEnvelope_Vec_String: {
-            data?: string[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -6989,6 +7034,17 @@ export interface components {
             kind: string;
             new_name?: string | null;
         };
+        /** @description Context growth at one point in an agent loop. */
+        ContextEvolutionDoc: {
+            description: string;
+            /** Format: int32 */
+            iteration: number;
+            status: string;
+            /** Format: int64 */
+            timestamp: number;
+            /** Format: int32 */
+            tool_calls?: number | null;
+        };
         CreateCheckpointBody: {
             /** @description Optional description for the checkpoint */
             description?: string | null;
@@ -7101,6 +7157,14 @@ export interface components {
             /** Format: int64 */
             timestamp: number;
         };
+        /**
+         * @description One execution as referenced from a hierarchy view: the id and the engine
+         *     that owns it.
+         */
+        ExecutionRefDoc: {
+            execution_id: string;
+            execution_type: string;
+        };
         ExportBody: {
             /** @description When true, answer as a file download instead of the JSON envelope. */
             download?: boolean | null;
@@ -7171,6 +7235,43 @@ export interface components {
             ready: boolean;
             storage: string;
         };
+        /** @description Where one execution sits in the parent/child tree of nested runs. */
+        HierarchyDoc: {
+            /** @description Root-to-parent id chain, oldest first, excluding this execution. */
+            ancestors: string[];
+            /**
+             * Format: int32
+             * @description Nesting level below the root; a root execution is `0`.
+             */
+            depth: number;
+            execution_id: string;
+            execution_type: string;
+            parent?: null | components["schemas"]["ExecutionRefDoc"];
+            root: components["schemas"]["ExecutionRefDoc"];
+            status: string;
+        };
+        /**
+         * @description Everything an execution recorded, grouped by section. A section that was
+         *     not asked for comes back empty rather than absent, so the payload shape
+         *     never changes.
+         */
+        HistoryDoc: {
+            context_evolution?: components["schemas"]["ContextEvolutionDoc"][];
+            execution_id: string;
+            execution_type: string;
+            iterations?: components["schemas"]["IterationDoc"][];
+            node_executions?: components["schemas"]["NodeExecutionDoc"][];
+            status_transitions?: components["schemas"]["StateTransitionDoc"][];
+            timeline?: components["schemas"]["TimelineEventDoc"][];
+            /**
+             * @description Cap on `timeline`: one read never carries more lifecycle events than
+             *     this, and a run past the cap has its later events left out.
+             */
+            timeline_limit: number;
+            variables?: {
+                [key: string]: unknown;
+            };
+        };
         IdsBody: {
             ids: string[];
         };
@@ -7197,6 +7298,24 @@ export interface components {
             timestamp: string;
             version: string;
         };
+        /** @description One agent loop iteration. */
+        IterationDoc: {
+            /**
+             * Format: int64
+             * @description Duration in ms, `-1` while the iteration is still in progress.
+             */
+            duration: number;
+            /** Format: int64 */
+            end_time: number;
+            /** Format: int32 */
+            iteration: number;
+            response_content?: string | null;
+            /** Format: int64 */
+            start_time: number;
+            /** Format: int32 */
+            tool_call_count: number;
+            tool_calls: components["schemas"]["ToolCallDoc"][];
+        };
         LibraryImportBody: {
             json: string;
         };
@@ -7215,6 +7334,21 @@ export interface components {
             name: string;
             /** @description Variable value (any JSON) */
             value: unknown;
+        };
+        /** @description One workflow node execution attempt. */
+        NodeExecutionDoc: {
+            branch_id?: string | null;
+            /** Format: int64 */
+            completed_at?: number | null;
+            /** Format: int64 */
+            duration_ms: number;
+            error?: string | null;
+            input?: unknown;
+            node_id: string;
+            node_type: string;
+            result?: unknown;
+            /** Format: int64 */
+            started_at: number;
         };
         OwnerBody: {
             owner_id: string;
@@ -7266,6 +7400,14 @@ export interface components {
         };
         RejectResponse: {
             baseline_snapshot_id: string;
+        };
+        /**
+         * @description One row a scan reached but could not read, reported beside the rows that
+         *     could be read so a single broken record cannot hide the rest of a tree.
+         */
+        RejectedRowDoc: {
+            execution_id: string;
+            reason: string;
         };
         RenameFileRequest: {
             actor: string;
@@ -7358,6 +7500,43 @@ export interface components {
             /** @description Variable value (any JSON) */
             value: unknown;
         };
+        /** @description One status transition of a workflow execution. */
+        StateTransitionDoc: {
+            from: string;
+            /** Format: int64 */
+            timestamp: number;
+            to: string;
+        };
+        /** @description Every execution below a root, breadth-first. */
+        SubtreeDoc: {
+            /** @description Root first, then each level in child order. */
+            nodes: components["schemas"]["SubtreeNodeDoc"][];
+            /**
+             * @description How many descendants the node cap dropped. Query a descendant for the
+             *     part of the tree this response left out.
+             */
+            omitted?: number;
+            rejected: components["schemas"]["RejectedRowDoc"][];
+            root_execution_id: string;
+            /**
+             * @description Set when the node cap dropped descendants, so a caller can tell a
+             *     complete tree from a clipped one.
+             */
+            truncated: boolean;
+        };
+        /** @description One node of a subtree listing. */
+        SubtreeNodeDoc: {
+            /**
+             * Format: int32
+             * @description Nesting level relative to the queried root, which is `0`.
+             */
+            depth: number;
+            execution_id: string;
+            execution_type: string;
+            parent_execution_id?: string | null;
+            /** @description Absent only for a live execution whose record has not been written yet. */
+            status?: string | null;
+        };
         /** @description Uniform template summary over workflow and agent templates. */
         TemplateSummaryDoc: {
             author?: string | null;
@@ -7375,6 +7554,39 @@ export interface components {
             updated_at: number;
             /** Format: int64 */
             usage_count: number;
+        };
+        /**
+         * @description One lifecycle event on the history timeline.
+         *
+         *     Every field mirrors `wf_types::events::BaseEvent` except the
+         *     discriminator: that enum's variants grow with the engines, so a schema
+         *     mirroring it would have to be rebuilt on every addition. The wire declares
+         *     the string the enum actually serializes to instead, taking its
+         *     `SCREAMING_SNAKE_CASE` names such as `WORKFLOW_EXECUTION_STARTED`.
+         */
+        TimelineEventDoc: {
+            agent_loop_id?: string | null;
+            event_name?: string | null;
+            execution_id?: string | null;
+            id: string;
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Format: int64 */
+            timestamp: number;
+            type: string;
+            workflow_id?: string | null;
+        };
+        /** @description One tool call inside an agent iteration. */
+        ToolCallDoc: {
+            arguments: unknown;
+            /** Format: int64 */
+            duration_ms: number;
+            error?: string | null;
+            name: string;
+            result?: unknown;
+            success: boolean;
+            tool_call_id?: string | null;
         };
         /** @description Topological sort result. */
         TopologicalSortDoc: {
@@ -18880,81 +19092,6 @@ export interface operations {
             };
         };
     };
-    get_executions_id_ancestors: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Success */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Vec_String"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     handle_audit_iterations: {
         parameters: {
             query?: {
@@ -21532,7 +21669,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_HierarchyDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -21613,7 +21750,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_HistoryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -24062,7 +24199,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_SubtreeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

@@ -57,12 +57,7 @@ impl ApiRecoveryExecutor {
             let parent_id = execution
                 .hierarchy
                 .as_ref()
-                .and_then(|h| {
-                    h.parent_execution_id
-                        .clone()
-                        .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
-                })
-                .map(|id| id.to_string());
+                .and_then(|h| h.parent_execution_id());
             if let Some(parent_id) = parent_id {
                 let parent_typed = wf_types::Id::from(parent_id.clone());
                 let parent_latest = state_manager

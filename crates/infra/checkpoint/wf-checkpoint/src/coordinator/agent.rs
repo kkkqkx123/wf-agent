@@ -1,6 +1,5 @@
 use crate::coordinator::base::{
-    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted,
+    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed, publish_persisted,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::AgentDiffCalculator;
@@ -433,17 +432,13 @@ impl AgentCheckpointCoordinator {
         CheckpointSerializer::auto_deserialize(&migrated)
     }
 
-    /// Post-restore phase: restore child executions through hierarchy metadata
-    /// with BFS `HierarchyRestorer` plus the registered restore strategies.
-    /// Restored children are registered into the execution registry for
-    /// hierarchy integrity validation. Children whose latest checkpoint could
-    /// not be resolved or restored are returned so the caller can remove them
-    /// from the restored entity's hierarchy metadata.
+    /// Post-restore phase: restore child executions through BFS
+    /// `HierarchyRestorer` plus the registered restore strategies.
     async fn restore_child_hierarchy(
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-    ) -> Result<(RestoreSummary, Vec<String>), CheckpointError> {
+    ) -> Result<RestoreSummary, CheckpointError> {
         // Children are found by querying the checkpoints whose entity records
         // this loop as their parent, so the answer covers every child that
         // ever checkpointed regardless of when the parent last persisted.
@@ -452,14 +447,11 @@ impl AgentCheckpointCoordinator {
             .list_latest_by_parent(parent_entity_id)
             .await?;
         if latest_by_child.is_empty() {
-            return Ok((
-                RestoreSummary {
-                    total: 0,
-                    success: 0,
-                    failed: 0,
-                },
-                Vec::new(),
-            ));
+            return Ok(RestoreSummary {
+                total: 0,
+                success: 0,
+                failed: 0,
+            });
         }
 
         // Bounded concurrency for the per-child resolution + restore phase.
@@ -488,25 +480,23 @@ impl AgentCheckpointCoordinator {
 
         let resolver = StorageChildResolver::new();
         let mut index: HashMap<String, CheckpointStorageMetadata> = HashMap::new();
-        let mut failed_children = Vec::new();
         let mut restored = 0u32;
 
         for handle in handles {
             match handle.await {
                 Ok(Ok(outcome)) => {
-                    if let Some(meta) = outcome.metadata {
-                        index.insert(meta.id.clone(), meta.clone());
-                        resolver.register_relationship(checkpoint_id, &meta.id);
-                        if outcome.restored {
-                            restored += 1;
-                        }
-                    }
-                    if outcome.failed {
-                        failed_children.push(outcome.child_id);
+                    index.insert(outcome.metadata.id.clone(), outcome.metadata.clone());
+                    resolver.register_relationship(checkpoint_id, &outcome.metadata.id);
+                    if outcome.restored {
+                        restored += 1;
                     }
                 }
-                Ok(Err(_)) => {
-                    // resolution/restore error: treat the child as failed.
+                Ok(Err(err)) => {
+                    tracing::warn!(
+                        parent = %parent_entity_id,
+                        error = %err,
+                        "child restore failed"
+                    );
                 }
                 Err(join_err) => {
                     tracing::warn!(
@@ -523,7 +513,7 @@ impl AgentCheckpointCoordinator {
         let results = restorer.restore_children_bfs(checkpoint_id, &loader, 8, None)?;
         let mut summary = HierarchyRestorer::summarize_results(&results);
         summary.success += restored as usize;
-        Ok((summary, failed_children))
+        Ok(summary)
     }
 }
 
@@ -615,22 +605,24 @@ async fn restore_child(
     meta: CheckpointStorageMetadata,
 ) -> Result<ChildRestoreOutcome, CheckpointError> {
     let mut outcome = ChildRestoreOutcome {
-        child_id: meta.entity_id.clone(),
-        metadata: Some(meta.clone()),
+        metadata: meta.clone(),
         restored: false,
-        failed: false,
     };
 
     if let Some(reg) = restore_registry {
         let entity_type = meta.entity_type.as_str();
         if let Some(data) = state_manager.load_checkpoint_data(&meta.id).await? {
-            if reg.restore(entity_type, &meta.id, &data).await.is_ok() {
-                outcome.restored = true;
-            } else {
-                outcome.failed = true;
+            match reg.restore(entity_type, &meta.id, &data).await {
+                Ok(_) => outcome.restored = true,
+                Err(err) => {
+                    tracing::warn!(
+                        child_id = %meta.entity_id,
+                        checkpoint_id = %meta.id,
+                        error = %err,
+                        "child restore strategy failed"
+                    );
+                }
             }
-        } else {
-            outcome.failed = true;
         }
     }
     Ok(outcome)
@@ -640,12 +632,9 @@ async fn restore_child(
 const CHILD_RESTORE_CONCURRENCY: usize = 5;
 
 struct ChildRestoreOutcome {
-    child_id: String,
-    metadata: Option<CheckpointStorageMetadata>,
+    metadata: CheckpointStorageMetadata,
     restored: bool,
-    failed: bool,
 }
-
 
 impl CheckpointCoordinator for AgentCheckpointCoordinator {
     type Checkpoint = AgentCheckpoint;
@@ -911,7 +900,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
 
         // Post-restore phase: bring back the child executions spawned from
         // this one, located through their own records.
-        if let Ok((summary, _failed)) = self
+        if let Ok(summary) = self
             .restore_child_hierarchy(checkpoint_id, &entity.agent_loop_id)
             .await
         {

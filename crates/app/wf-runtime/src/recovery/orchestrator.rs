@@ -306,17 +306,14 @@ mod tests {
             error: None,
             execution_type: None,
             fork_join_context: None,
-            hierarchy: Some(wf_types::execution::ExecutionHierarchy {
-                workflow_id: "wf-1".into(),
-                execution_id: "child-1".into(),
-                parent_execution_id: Some("root-1".into()),
-                parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-                depth: 1,
-                root_execution_id: Some("root-1".into()),
-                root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-                ancestors: Some(vec!["root-1".into()]),
-                fork_path: None,
-            }),
+            hierarchy: Some(wf_types::execution::ExecutionHierarchy::new(
+                "wf-1".into(),
+                "child-1".into(),
+                vec!["root-1".into()],
+                Some(wf_types::execution::ExecutionType::Workflow),
+                Some(wf_types::execution::ExecutionType::Workflow),
+                None,
+            )),
         };
         let root = make_execution("root-1", ExecutionStatus::Running);
         // Save child first so scan order alone would recover it first.

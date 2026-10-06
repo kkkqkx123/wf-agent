@@ -150,10 +150,7 @@ impl WorkflowExecutionEntity {
             });
     }
 
-    pub async fn register_child_ref(
-        &self,
-        child_ref: wf_core::ChildExecutionReference,
-    ) {
+    pub async fn register_child_ref(&self, child_ref: wf_core::ChildExecutionReference) {
         self.hierarchy.register_child_ref(child_ref);
     }
 
@@ -394,17 +391,14 @@ mod tests {
 
         // Grandchild restored from a snapshot hierarchy -> oldest ancestor
         // is the root, depth and chain preserved.
-        let hierarchy = ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "gc".to_string(),
-            parent_execution_id: Some("child".to_string()),
-            parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-            depth: 2,
-            root_execution_id: Some("root".to_string()),
-            root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-            ancestors: Some(vec!["root".to_string(), "child".to_string()]),
-            fork_path: None,
-        };
+        let hierarchy = ExecutionHierarchy::new(
+            "wf-1".to_string(),
+            "gc".to_string(),
+            vec!["root".to_string(), "child".to_string()],
+            Some(wf_types::execution::ExecutionType::Workflow),
+            Some(wf_types::execution::ExecutionType::Workflow),
+            None,
+        );
         let restored_manager = ExecutionHierarchyManager::restore(
             "gc".to_string(),
             wf_types::execution::ExecutionType::Workflow,

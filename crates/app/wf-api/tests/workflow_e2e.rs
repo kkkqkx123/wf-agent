@@ -170,9 +170,13 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
         .unwrap();
     let mut ctx = ApiContext::new(storage, Arc::new(ResourceRegistries::new()));
     ctx = ctx.with_checkpoint_store(Arc::new(
-        wf_storage::backend::StorageBackend::new_sqlite(":memory:", "checkpoint_store")
-            .await
-            .unwrap(),
+        wf_storage::backend::StorageBackend::new_sqlite(
+            ":memory:",
+            "checkpoint_store",
+            wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+        )
+        .await
+        .unwrap(),
     ));
     let ctx = Arc::new(ctx);
 
@@ -229,9 +233,13 @@ async fn checkpoint_chain_respects_node_config_via_api() {
         .unwrap();
     let mut ctx = ApiContext::new(storage, Arc::new(ResourceRegistries::new()));
     ctx = ctx.with_checkpoint_store(Arc::new(
-        wf_storage::backend::StorageBackend::new_sqlite(":memory:", "checkpoint_store")
-            .await
-            .unwrap(),
+        wf_storage::backend::StorageBackend::new_sqlite(
+            ":memory:",
+            "checkpoint_store",
+            wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+        )
+        .await
+        .unwrap(),
     ));
     let ctx = Arc::new(ctx);
 

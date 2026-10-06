@@ -460,11 +460,11 @@ export async function importTemplate(
 	const saved = await call<string>(
 		kind === 'workflow'
 			? client.POST('/api/v1/templates/library/workflows/import', {
-					body: { json }
+					body: { json },
 				})
 			: client.POST('/api/v1/templates/library/agents/import', {
-					body: { json }
-				})
+					body: { json },
+				}),
 	);
 	if (!saved) throw new Error('Import returned no id');
 	return saved;

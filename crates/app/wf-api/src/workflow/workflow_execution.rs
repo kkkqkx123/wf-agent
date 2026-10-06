@@ -415,7 +415,7 @@ pub async fn restore_checkpoint(
 
     // Build a fresh live entity backfilled from the restored snapshot. The
     // hierarchy manager is rebuilt from the snapshot in one place so the
-    // restored parent, ancestors, depth, root and children stay consistent.
+    // restored parent, ancestors, depth and root stay consistent.
     let mut entity =
         WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
     if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
@@ -772,11 +772,11 @@ async fn entity_resume_snapshot(
 /// Enriched beyond the resume-view snapshot so a cross-process restore
 /// reconstructs a runnable execution: the captured execution options
 /// (input + options, used to rebuild the `ExecutorContext`), the execution
-/// hierarchy (parent/children linkage) and the recorded error records are
-/// all persisted. `fork_join_context` is not tracked on the entity and
-/// Fork aggregation state is derived from the manager fork children so the
-/// JOIN inference has path keys to work with; live branch statuses stay in
-/// the fork registry and are inferred at restore time.
+/// hierarchy (the parent/root links a child records about itself) and the
+/// recorded error records are all persisted. `fork_join_context` is not
+/// tracked on the entity; Fork aggregation state is derived from the manager
+/// fork children against the live execution registry, so it is recomputed on
+/// every checkpoint rather than restored.
 async fn build_checkpoint_snapshot(
     ctx: &ApiContext,
     entity: &WorkflowExecutionEntity,
@@ -860,27 +860,20 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
     if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
-    Some(ExecutionHierarchy {
-        workflow_id: entity.workflow_id().clone(),
-        execution_id: entity.id().clone(),
-        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
-        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
-        depth: entity.get_hierarchy_depth(),
-        root_execution_id: entity.get_root_execution_id(),
-        root_execution_type: Some(manager.root_execution_type()),
-        ancestors: if ancestors.is_empty() {
-            None
-        } else {
-            Some(ancestors)
-        },
-        fork_path: manager.fork_path(),
-    })
+    Some(ExecutionHierarchy::new(
+        entity.workflow_id().clone(),
+        entity.id().clone(),
+        ancestors,
+        parent.as_ref().map(|p| p.parent_type.clone()),
+        Some(manager.root_execution_type()),
+        manager.fork_path(),
+    ))
 }
 
 /// Build the fork aggregation record from the manager's fork children,
 /// resolving each branch path status from the live execution registry.
-/// A branch with no live handle reads as pending, matching the restore-side
-/// inference for not-yet-restored children.
+/// A branch with no live handle reads as pending, which is also the state a
+/// branch that has not started yet is in.
 fn build_fork_aggregation_state(
     ctx: &ApiContext,
     entity: &WorkflowExecutionEntity,
@@ -1216,8 +1209,6 @@ pub fn definition_to_graph(
         },
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         error_default: definition
             .config
             .as_ref()
@@ -1943,16 +1934,21 @@ mod tests {
         )
         .with_hierarchy_manager(fork_manager);
         let hierarchy = build_hierarchy(&entity).await.expect("hierarchy built");
-        assert_eq!(hierarchy.depth, 1);
-        assert_eq!(hierarchy.root_execution_id.as_deref(), Some("root"));
-        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("root"));
-        assert_eq!(hierarchy.ancestors, Some(vec!["root".to_string()]));
+        assert_eq!(hierarchy.depth(), 1);
+        assert_eq!(hierarchy.root_execution_id(), "root");
+        assert_eq!(hierarchy.parent_execution_id().as_deref(), Some("root"));
+        assert_eq!(hierarchy.ancestors(), vec!["root".to_string()]);
         // Creation provenance belongs to the child, never to a child list on
         // the parent.
         assert!(hierarchy.fork_path.is_none());
-        let fork_hierarchy = build_hierarchy(&fork_entity).await.expect("hierarchy built");
+        let fork_hierarchy = build_hierarchy(&fork_entity)
+            .await
+            .expect("hierarchy built");
         assert_eq!(
-            fork_hierarchy.fork_path.as_ref().map(|p| p.branch_path_id()),
+            fork_hierarchy
+                .fork_path
+                .as_ref()
+                .map(|p| p.branch_path_id()),
             Some("path-a")
         );
     }

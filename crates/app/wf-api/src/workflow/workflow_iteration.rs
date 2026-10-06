@@ -771,8 +771,6 @@ mod tests {
                     inner: serde_json::json!({}),
                 }],
                 edges: Vec::new(),
-                adjacency_list: Default::default(),
-                reverse_adjacency_list: Default::default(),
                 start_node_id: None,
                 end_node_ids: Vec::new(),
                 error_default: None,

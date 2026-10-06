@@ -13,7 +13,6 @@ pub struct AgentExecutionFilter {
     pub status: Option<ExecutionStatus>,
     /// Agent definition id (all runs of the definition).
     pub agent_id: Option<String>,
-    pub parent_execution_id: Option<String>,
 }
 
 /// Execution summary of an agent loop.
@@ -46,7 +45,7 @@ pub async fn summaries(
             let parent_execution_id = record
                 .hierarchy
                 .as_ref()
-                .and_then(|h| h.parent_execution_id.clone())
+                .and_then(|h| h.parent_execution_id())
                 .map(|p| p.to_string());
             records.push(AgentExecutionSummary {
                 execution_id: record.id.to_string(),
@@ -74,11 +73,6 @@ pub async fn summaries(
                     .map(|d| d == *agent_id)
                     .unwrap_or(false);
                 if !matches {
-                    return false;
-                }
-            }
-            if let Some(parent_id) = &filter.parent_execution_id {
-                if r.parent_execution_id.as_deref() != Some(parent_id.as_str()) {
                     return false;
                 }
             }

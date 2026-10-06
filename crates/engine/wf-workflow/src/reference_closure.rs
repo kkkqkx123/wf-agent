@@ -689,7 +689,6 @@ fn validate_subgraph_recursion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
 
     fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
@@ -705,8 +704,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges: Vec::<WorkflowEdge>::new(),
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: None,
             end_node_ids: Vec::new(),
             error_default: None,

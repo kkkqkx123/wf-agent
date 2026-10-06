@@ -295,7 +295,6 @@ pub fn analyze_graph(graph: &WorkflowGraphStructure) -> GraphAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use wf_types::workflow::EdgeType;
     use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
 
@@ -330,8 +329,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges,
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: start.map(String::from),
             end_node_ids: ends.into_iter().map(String::from).collect(),
             error_default: None,

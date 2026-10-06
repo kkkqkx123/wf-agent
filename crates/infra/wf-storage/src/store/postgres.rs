@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 
+use crate::domain::indexes::{index_name, EntityIndexes};
 use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
     prefix_like_pattern, BatchItem, FilterBindValue, FilterCondition, Maintainable, QueryFilter,
@@ -17,12 +18,33 @@ pub struct PostgresStorage {
 }
 
 impl PostgresStorage {
-    pub async fn new(connection_string: &str, table_name: &str) -> Result<Self, StorageError> {
+    pub async fn new(
+        connection_string: &str,
+        table_name: &str,
+        indexes: EntityIndexes,
+    ) -> Result<Self, StorageError> {
         let pool = create_pg_pool(connection_string).await?;
-        Self::with_pool(pool, table_name).await
+        Self::with_pool(pool, table_name, indexes).await
     }
 
-    pub async fn with_pool(pool: PgPool, table_name: &str) -> Result<Self, StorageError> {
+    /// Create one declared index, reporting a failure without failing the
+    /// open: the table stays usable without it, and the next open retries.
+    async fn create_index(pool: &PgPool, table_name: &str, name: &str, sql: &str) {
+        if let Err(e) = sqlx::query(sql).execute(pool).await {
+            tracing::warn!(
+                table = table_name,
+                index = name,
+                error = %e,
+                "failed to create metadata index (table functional without it)"
+            );
+        }
+    }
+
+    pub async fn with_pool(
+        pool: PgPool,
+        table_name: &str,
+        indexes: EntityIndexes,
+    ) -> Result<Self, StorageError> {
         let create_sql = format!(
             "CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
@@ -44,103 +66,39 @@ impl PostgresStorage {
             }
         })?;
 
-        let idx1 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_entity_type ON {}((metadata->>'entityType'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx1).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create entityType index (table functional without it)"
+        // Equality keys serve `metadata->>'key' = value`; the default btree
+        // operator class is what makes that a range probe.
+        for key in indexes.equality {
+            let name = index_name(table_name, key);
+            let sql = format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}((metadata->>'{}'))",
+                name, table_name, key
             );
+            Self::create_index(&pool, table_name, &name, &sql).await;
         }
 
-        let idx2 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_status ON {}((metadata->>'status'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx2).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create status index (table functional without it)"
+        // text_pattern_ops is what lets a btree index actually serve the
+        // prefix scan these keys are read with; without it Postgres would
+        // sequence-scan the table on every one.
+        for key in indexes.prefix {
+            let name = index_name(table_name, key);
+            let sql = format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}((metadata->>'{}') text_pattern_ops)",
+                name, table_name, key
             );
+            Self::create_index(&pool, table_name, &name, &sql).await;
         }
 
-        let idx3 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_execution ON {}((metadata->>'executionId'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx3).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create executionId index (table functional without it)"
+        // The declared numeric key backs range filters and ordering, so it is
+        // indexed as a number rather than as text: a text order puts `"10"`
+        // before `"9"` and cannot serve a numeric comparison.
+        if let Some(key) = indexes.numeric {
+            let name = index_name(table_name, key);
+            let sql = format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(((metadata->>'{}')::float8))",
+                name, table_name, key
             );
-        }
-
-        let idx4 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_entity ON {}((metadata->>'entityId'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx4).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create entityId index (table functional without it)"
-            );
-        }
-
-        let idx5 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_parent ON {}((metadata->>'parentEntityId'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx5).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create parentEntityId index (table functional without it)"
-            );
-        }
-
-        let idx6 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_parent_execution ON {}((metadata->>'parentExecutionId'))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx6).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create parentExecutionId index (table functional without it)"
-            );
-        }
-
-        // text_pattern_ops is what lets this btree index actually serve the
-            // prefix scan a subtree query is; without it Postgres would
-            // sequence-scan the table on every one.
-            let idx7 = format!(
-                "CREATE INDEX IF NOT EXISTS idx_{}_execution_path ON {}((metadata->>'executionPath') text_pattern_ops)",
-                table_name, table_name
-            );
-        if let Err(e) = sqlx::query(&idx7).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create executionPath index (table functional without it)"
-            );
-        }
-
-        let idx_ts = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_timestamp ON {}(((metadata->>'timestamp')::float8))",
-            table_name, table_name
-        );
-        if let Err(e) = sqlx::query(&idx_ts).execute(&pool).await {
-            tracing::warn!(
-                table = table_name,
-                error = %e,
-                "failed to create timestamp index (table functional without it)"
-            );
+            Self::create_index(&pool, table_name, &name, &sql).await;
         }
 
         // Schema version check: insert on first open, reject on mismatch.
@@ -887,7 +845,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_postgres_new_with_invalid_url() {
-        let result = PostgresStorage::new("not-a-url", "test").await;
+        let result = PostgresStorage::new("not-a-url", "test", EntityIndexes::NONE).await;
         assert!(result.is_err());
     }
 

@@ -59,49 +59,50 @@ impl Entity for wf_types::agent::AgentTemplate {
 
 /// Metadata keys shared by both execution record types.
 ///
-/// The hierarchy is stored forward-only: an execution records its own parent
-/// and root, and the shape of the tree is recovered by querying those fields.
-/// A root execution therefore leaves `parentExecutionId` absent (never
-/// pointing at itself, so "children of X" can never match X) and reports
+/// The hierarchy is stored forward-only as one materialised path: an execution
+/// records where it sits, and everything its path can answer — root, depth,
+/// ancestors, direct parent — is read off that path rather than copied
+/// alongside it, so no pair of indexed keys can describe a different tree. The
+/// engines that own the parent and the root cannot be derived from a path of
+/// ids, so those two are carried as their own keys. A root execution therefore
+/// leaves `parentExecutionId` absent (never pointing at itself) and reports
 /// itself as its own root.
 ///
-/// `executionPath` is the materialised ancestor chain. It is the only field
-/// that fully describes where a record sits, so the root and the depth are
-/// derived from it rather than copied alongside it: a row whose fields cannot
-/// all agree is then impossible to write.
-///
-/// `timestamp` carries the run start, matching the key the checkpoint records
-/// already use for the same notion, so one index serves both.
+/// `startedAt` carries the run start under its own name rather than sharing
+/// `timestamp`: checkpoint and message rows use that key for the time of
+/// their own event, so one range filter over `timestamp` would mean a
+/// different window on an execution row than on a checkpoint row.
 fn execution_metadata(
     hierarchy: Option<&wf_types::execution::ExecutionHierarchy>,
     execution_id: &str,
-    execution_kind: &str,
     started_at: i64,
     own: &[(&str, Value)],
 ) -> Value {
     let mut map = serde_json::Map::new();
-    map.insert("executionKind".into(), json!(execution_kind));
-    map.insert("timestamp".into(), json!(started_at));
+    map.insert("startedAt".into(), json!(started_at));
     match hierarchy {
         Some(h) => {
-            let chain = h.chain();
             map.insert("executionPath".into(), json!(h.path()));
-            map.insert("depth".into(), json!(chain.len() as u32 - 1));
-            map.insert(
-                "rootExecutionId".into(),
-                json!(chain.first().map_or(execution_id, String::as_str)),
-            );
-            if let Some(parent) = h.parent_execution_id.as_ref() {
+            if let Some(parent) = h.parent_execution_id() {
                 map.insert("parentExecutionId".into(), json!(parent));
+                if let Some(kind) = &h.parent_execution_type {
+                    map.insert("parentExecutionType".into(), json!(kind));
+                }
+            }
+            // Which engine owns the root is a fact about the root, not about
+            // this record, so the path cannot yield it: it is carried alongside
+            // the path so a hierarchy read answers without fetching the root's
+            // own record.
+            if let Some(kind) = &h.root_execution_type {
+                map.insert("rootExecutionType".into(), json!(kind));
             }
         }
         None => {
-            map.insert("rootExecutionId".into(), json!(execution_id));
-            map.insert("depth".into(), json!(0));
             map.insert(
                 "executionPath".into(),
-                json!(wf_types::execution::encode_path(&[execution_id
-                    .to_string()])),
+                json!(wf_types::execution::encode_path(
+                    &[execution_id.to_string()]
+                )),
             );
         }
     }
@@ -126,7 +127,6 @@ impl Entity for wf_types::WorkflowExecution {
         execution_metadata(
             self.hierarchy.as_ref(),
             &self.id,
-            "workflow",
             self.started_at,
             &[
                 ("status", json!(self.status)),
@@ -148,18 +148,7 @@ impl Entity for wf_types::storage::checkpoint::CheckpointStorageMetadata {
     }
 
     fn metadata(&self) -> Self::Metadata {
-        // The record-level `entity_type` (`checkpoint` for workflow
-        // executions, `agent_loop` for agent loops) overrides the static
-        // adapter type: `EntityStore` merges record metadata over the base
-        // map, so domain filters (`list_by_entity`, `entity_type_filter`)
-        // match the owning domain instead of every checkpoint row.
-        serde_json::json!({
-            "entityType": self.entity_type,
-            "entityId": self.entity_id,
-            "checkpointType": self.checkpoint_type,
-            "timestamp": self.timestamp,
-            "status": self.status,
-        })
+        self.metadata_document()
     }
 }
 
@@ -201,7 +190,6 @@ impl Entity for wf_types::AgentExecution {
         execution_metadata(
             self.hierarchy.as_ref(),
             &self.id,
-            "agent_loop",
             self.started_at,
             &[
                 ("definitionId", json!(self.definition_id)),
@@ -456,5 +444,78 @@ impl Entity for wf_types::tool::Tool {
             "toolType": serde_json::to_value(&self.tool_type).ok(),
             "enabled": self.enabled.unwrap_or(true),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::execution::{ExecutionHierarchy, ExecutionType};
+    use wf_types::Id;
+
+    /// The stored keys are the contract the index reader parses: the facts it
+    /// reads have to be present on every row, and the facts it derives from
+    /// the path must not linger beside it where they could contradict it.
+    #[test]
+    fn execution_metadata_carries_the_indexed_facts_only() {
+        let hierarchy = ExecutionHierarchy::new(
+            Id::from("wf-1".to_string()),
+            Id::from("kid".to_string()),
+            vec![Id::from("root".to_string())],
+            Some(ExecutionType::Workflow),
+            Some(ExecutionType::AgentLoop),
+            None,
+        );
+        let meta = execution_metadata(
+            Some(&hierarchy),
+            "kid",
+            1_700_000_000,
+            &[("status", json!("failed"))],
+        );
+
+        assert_eq!(meta["executionPath"], json!("/root/kid/"));
+        assert_eq!(meta["parentExecutionId"], json!("root"));
+        assert_eq!(meta["parentExecutionType"], json!("workflow"));
+        assert_eq!(meta["rootExecutionType"], json!("agent_loop"));
+        assert_eq!(meta["startedAt"], json!(1_700_000_000));
+        assert_eq!(meta["status"], json!("failed"));
+
+        // Both are read off the path now; storing them would let a row
+        // contradict the path it sits on.
+        assert!(meta.get("depth").is_none());
+        assert!(meta.get("rootExecutionId").is_none());
+        // The run start owns `startedAt`; `timestamp` stays the event time of
+        // the other entities that share this metadata layout.
+        assert!(meta.get("timestamp").is_none());
+    }
+
+    /// A root has no parent, so neither does its record, and it still carries
+    /// the path that puts it and its descendants under one prefix.
+    #[test]
+    fn a_root_record_keeps_its_path_without_a_parent() {
+        let hierarchy = ExecutionHierarchy::new(
+            Id::from("wf-1".to_string()),
+            Id::from("root".to_string()),
+            vec![],
+            None,
+            Some(ExecutionType::Workflow),
+            None,
+        );
+        let meta = execution_metadata(Some(&hierarchy), "root", 7, &[]);
+
+        assert_eq!(meta["executionPath"], json!("/root/"));
+        assert!(meta.get("parentExecutionId").is_none());
+        assert!(meta.get("parentExecutionType").is_none());
+        assert_eq!(meta["rootExecutionType"], json!("workflow"));
+        assert_eq!(meta["startedAt"], json!(7));
+    }
+
+    /// Without a lineage the record still states where it sits, so a row
+    /// written before any link exists is readable by the same parser.
+    #[test]
+    fn a_record_without_lineage_states_its_own_path() {
+        let meta = execution_metadata(None, "standalone", 7, &[]);
+        assert_eq!(meta["executionPath"], json!("/standalone/"));
+        assert!(meta.get("parentExecutionId").is_none());
     }
 }

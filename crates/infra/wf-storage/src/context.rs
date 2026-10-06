@@ -8,6 +8,7 @@ use crate::adapter::adapter_impls::{
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics, StorageMetricsSnapshot};
+use crate::domain::indexes::EntityIndexes;
 use crate::domain::store::{CrossTableOperation, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
@@ -25,13 +26,14 @@ macro_rules! make_backend {
 /// Single source of truth for every entity store in the context.
 ///
 /// Each entry provides the identifier variant, the context field name, the
-/// physical table name, and the adapter type. The macro derives the
-/// identifier enum, the table mapping, the context struct, all constructors,
+/// physical table name, the adapter type, and the metadata keys the entity
+/// asks to have indexed. The macro derives the identifier enum, the table
+/// mapping, the index declaration, the context struct, all constructors,
 /// backend lookup, backend iteration, metric aggregation, and clearing from
 /// this one list, so adding an entity means adding one line. The declaration
 /// order doubles as the global lock order for memory cross-store batches.
 macro_rules! define_storage_entities {
-    ($( $variant:ident, $field:ident, $table:literal, $adapter:ident ),* $(,)?) => {
+    ($( $variant:ident, $field:ident, $table:literal, $adapter:ident, $indexes:expr ),* $(,)?) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum EntityStoreId {
             $($variant),*
@@ -43,6 +45,15 @@ macro_rules! define_storage_entities {
             pub fn table(self) -> &'static str {
                 match self {
                     $(Self::$variant => $table),*
+                }
+            }
+
+            /// Metadata keys this entity asks the storage layer to index.
+            /// Declared with the entity, so a table only carries the indexes
+            /// its own read paths are built on.
+            pub fn indexes(self) -> EntityIndexes {
+                match self {
+                    $(Self::$variant => $indexes),*
                 }
             }
 
@@ -94,7 +105,12 @@ macro_rules! define_storage_entities {
                 Ok(Self {
                     $($field: $adapter::new(StorageBackend::Sqlite(InstrumentedStore::new(
                         CachingStore::new(
-                            SqliteStorage::with_pool(pool.clone(), $table).await?,
+                            SqliteStorage::with_pool(
+                                pool.clone(),
+                                $table,
+                                EntityStoreId::$variant.indexes(),
+                            )
+                            .await?,
                             cache,
                         ),
                     )))),*,
@@ -115,7 +131,12 @@ macro_rules! define_storage_entities {
                 Ok(Self {
                     $($field: $adapter::new(StorageBackend::Postgres(InstrumentedStore::new(
                         CachingStore::new(
-                            PostgresStorage::with_pool(pool.clone(), $table).await?,
+                            PostgresStorage::with_pool(
+                                pool.clone(),
+                                $table,
+                                EntityStoreId::$variant.indexes(),
+                            )
+                            .await?,
                             cache,
                         ),
                     )))),*,
@@ -227,86 +248,111 @@ define_storage_entities!(
     workflow,
     "workflow",
     WorkflowStorage,
+    EntityIndexes::NONE,
     WorkflowDraft,
     workflow_draft,
     "workflow_draft",
     WorkflowDraftStorage,
+    EntityIndexes::NONE,
     WorkflowExecution,
     workflow_execution,
     "execution",
     WorkflowExecutionStorage,
+    EntityIndexes::new(&["status"], &["executionPath"], Some("startedAt")),
     Checkpoint,
     checkpoint,
     "checkpoint",
     CheckpointStorage,
+    EntityIndexes::new(
+        &["entityType", "entityId", "parentEntityId"],
+        &[],
+        Some("timestamp")
+    ),
     Task,
     task,
     "task",
     TaskStorage,
+    EntityIndexes::new(&["status"], &[], None),
     AgentLoop,
     agent_loop,
     "agent_loop",
     AgentLoopStorage,
+    EntityIndexes::new(&["status"], &[], None),
     AgentExecution,
     agent_execution,
     "agent_execution",
     AgentExecutionStorage,
+    EntityIndexes::new(&["status"], &["executionPath"], Some("startedAt")),
     AgentProfile,
     agent_profile,
     "agent_profile",
     AgentProfileStorage,
+    EntityIndexes::NONE,
     AgentTemplate,
     agent_template,
     "agent_template",
     AgentTemplateStorage,
+    EntityIndexes::NONE,
     AgentDraft,
     agent_draft,
     "agent_draft",
     AgentDraftStorage,
+    EntityIndexes::NONE,
     TriggerTemplate,
     trigger_template,
     "trigger_template",
     TriggerTemplateStorage,
+    EntityIndexes::NONE,
     TriggerExecution,
     trigger_execution,
     "trigger_execution",
     TriggerExecutionStorage,
+    EntityIndexes::new(&["executionId"], &[], None),
     UserInteraction,
     user_interaction,
     "user_interaction",
     UserInteractionStorage,
+    EntityIndexes::new(&["executionId", "status"], &[], None),
     Tool,
     tool,
     "tool",
     ToolStorage,
+    EntityIndexes::NONE,
     ToolDefinition,
     tool_definition,
     "tool_definition",
     ToolDefinitionStorage,
+    EntityIndexes::NONE,
     Script,
     script,
     "script",
     ScriptStorage,
+    EntityIndexes::NONE,
     NodeTemplate,
     node_template,
     "node_template",
     NodeTemplateStorage,
+    EntityIndexes::NONE,
     Metrics,
     metrics,
     "metrics",
     MetricsStorage,
+    EntityIndexes::new(&[], &[], Some("timestamp")),
     Message,
     message,
     "message",
     MessageStorage,
+    EntityIndexes::new(&["executionId"], &[], Some("timestamp")),
     Variable,
     variable,
     "variable",
     VariableStorage,
+    EntityIndexes::new(&["executionId"], &[], None),
     TemplateUsage,
     template_usage,
     "template_usage",
     TemplateUsageStorage,
+    EntityIndexes::NONE,
 );
 
 /// One operation of a cross-entity atomic batch: which entity store it

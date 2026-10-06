@@ -11,7 +11,6 @@
 //! Regression: no request event when the array is under the limit, and no
 //! event when the node has no named context.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -132,8 +131,6 @@ impl SubworkflowRunner for SummaryRunner {
         let graph = WorkflowGraphStructure {
             edges,
             nodes,
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("s".to_string()),
             end_node_ids: vec!["e".to_string()],
             error_default: None,

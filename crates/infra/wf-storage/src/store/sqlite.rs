@@ -2,10 +2,11 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::SqlitePool;
 
+use crate::domain::indexes::{index_name, EntityIndexes};
 use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
-    prefix_like_pattern, BatchItem, FilterBindValue, FilterCondition, Maintainable, QueryFilter,
-    Store, StoreExt, StoreOperation,
+    BatchItem, FilterBindValue, FilterCondition, Maintainable, QueryFilter, Store, StoreExt,
+    StoreOperation,
 };
 use crate::error::StorageError;
 
@@ -29,6 +30,25 @@ fn metadata_text_expr(key: &str) -> String {
 /// match non-numeric values.
 fn is_numeric_expr(key: &str) -> String {
     format!("json_type(metadata, '$.{}') IN ('integer', 'real')", key)
+}
+
+/// The smallest string greater than every string beginning with `prefix`,
+/// making an open-ended prefix match a closed `BINARY` range.
+///
+/// SQLite's `LIKE` is case-insensitive for ASCII and so cannot use an index
+/// ordered `BINARY`; a range of comparisons can. `None` means no string is
+/// excluded, which is the case for the empty prefix.
+fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut upper: Vec<char> = prefix.chars().collect();
+    while let Some(last) = upper.pop() {
+        // A code point with no successor cannot be raised; it is dropped and
+        // the one before it carries instead.
+        if let Some(next) = char::from_u32(last as u32 + 1) {
+            upper.push(next);
+            return Some(upper.into_iter().collect());
+        }
+    }
+    None
 }
 
 /// Translates a QueryFilter into a complete SELECT statement.
@@ -61,12 +81,21 @@ fn build_select_sql(
                     params.push(FilterBindValue::S(id.clone()));
                 }
                 FilterCondition::IdPrefix(prefix) => {
-                    conditions.push("id LIKE ? ESCAPE '\\'".into());
-                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
+                    conditions.push("id >= ?".into());
+                    params.push(FilterBindValue::S(prefix.clone()));
+                    if let Some(upper) = prefix_upper_bound(prefix) {
+                        conditions.push("id < ?".into());
+                        params.push(FilterBindValue::S(upper));
+                    }
                 }
                 FilterCondition::Prefix(key, prefix) => {
-                    conditions.push(format!("{} LIKE ? ESCAPE '\\'", metadata_text_expr(key)));
-                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
+                    let expr = metadata_text_expr(key);
+                    conditions.push(format!("{} >= ?", expr));
+                    params.push(FilterBindValue::S(prefix.clone()));
+                    if let Some(upper) = prefix_upper_bound(prefix) {
+                        conditions.push(format!("{} < ?", expr));
+                        params.push(FilterBindValue::S(upper));
+                    }
                 }
                 FilterCondition::Lt(key, value) => {
                     conditions.push(format!(
@@ -149,16 +178,24 @@ pub struct SqliteStorage {
 }
 
 impl SqliteStorage {
-    pub async fn new(path: &str, table_name: &str) -> Result<Self, StorageError> {
+    pub async fn new(
+        path: &str,
+        table_name: &str,
+        indexes: EntityIndexes,
+    ) -> Result<Self, StorageError> {
         let pool = Self::create_pool(path).await?;
-        Self::with_pool(pool, table_name).await
+        Self::with_pool(pool, table_name, indexes).await
     }
 
     pub async fn create_pool(path: &str) -> Result<SqlitePool, StorageError> {
         crate::util::pool::create_sqlite_pool(path).await
     }
 
-    pub async fn with_pool(pool: SqlitePool, table_name: &str) -> Result<Self, StorageError> {
+    pub async fn with_pool(
+        pool: SqlitePool,
+        table_name: &str,
+        indexes: EntityIndexes,
+    ) -> Result<Self, StorageError> {
         let create_sql = format!(
             "CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
@@ -180,26 +217,12 @@ impl SqliteStorage {
             }
         })?;
 
-        // Metadata text indexes use the same boolean-normalized expression as
+        // Declared text indexes use the same boolean-normalized expression as
         // the query renderer so the planner can match them. Databases created
         // before the normalization carry the plain CAST version under the same
         // name; drop the stale definition once so it is rebuilt below.
-        for (suffix, key) in [
-            ("entity_type", "entityType"),
-            ("status", "status"),
-            ("execution", "executionId"),
-            ("entity", "entityId"),
-            // Forward parent link of execution and checkpoint records; the
-            // reverse "children of X" lookups all resolve through it.
-            ("parent", "parentEntityId"),
-            // Forward parent link of execution records, where a root leaves the
-            // key absent so it can never match itself.
-            ("parent_execution", "parentExecutionId"),
-            // Materialised ancestor path of execution records; one prefix scan
-            // on it answers a whole subtree.
-            ("execution_path", "executionPath"),
-        ] {
-            let name = format!("idx_{}_{}", table_name, suffix);
+        for key in indexes.equality.iter().chain(indexes.prefix) {
+            let name = index_name(table_name, key);
             let check: Option<(Option<String>,)> =
                 sqlx::query_as("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1")
                     .bind(&name)
@@ -231,11 +254,17 @@ impl SqliteStorage {
             sqlx::query(&create).execute(&pool).await.ok();
         }
 
-        let idx_ts = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_timestamp ON {}(json_extract(metadata, '$.timestamp'))",
-            table_name, table_name
-        );
-        sqlx::query(&idx_ts).execute(&pool).await.ok();
+        // The declared numeric key backs range filters and ordering, so it is
+        // indexed as a number rather than as text: a text order puts `"10"`
+        // before `"9"` and cannot serve a numeric comparison.
+        if let Some(key) = indexes.numeric {
+            let name = index_name(table_name, key);
+            let create = format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(json_extract(metadata, '$.{}'))",
+                name, table_name, key
+            );
+            sqlx::query(&create).execute(&pool).await.ok();
+        }
 
         // Schema version check: insert on first open, reject on mismatch.
         let version_key = schema_version_key(table_name);
@@ -916,7 +945,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_save_load() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save(
                 "id1",
@@ -932,7 +963,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_list_filter() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save(
                 "id1",
@@ -958,7 +991,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_list_pushdown_ops() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         for i in 0..5 {
             store
                 .save(
@@ -993,7 +1028,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_batch() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         let items: Vec<BatchItem> = (0..100)
             .map(|i| {
                 BatchItem::new(
@@ -1009,7 +1046,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_filter_semantics_aligned() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save(
                 "n1",
@@ -1078,7 +1117,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_prefix_like_matches_literal_percent() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         for id in ["wf-1", "wf-2", "other-1", "100%-x"] {
             store
                 .save(id, b"data", &serde_json::json!({"entityType": "wf"}))
@@ -1097,9 +1138,116 @@ mod tests {
         assert_eq!(results[0].0, "100%-x");
     }
 
+    /// A prefix match has to compile to a bounded range: `LIKE` is
+    /// case-insensitive for ASCII here, so it can neither use the `BINARY`
+    /// index nor agree with the other backends.
+    #[test]
+    fn field_prefix_compiles_to_a_bounded_range() {
+        let filter = QueryFilter::new().with_field_prefix("executionPath", "/r/");
+        let (sql, params) = build_select_sql(Some(&filter), "execution", "id, metadata");
+        assert!(
+            !sql.contains("LIKE ?"),
+            "prefix must not compile to LIKE: {sql}"
+        );
+        assert_eq!(
+            params,
+            vec![
+                FilterBindValue::S("/r/".into()),
+                FilterBindValue::S("/r0".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn id_prefix_compiles_to_a_bounded_range() {
+        let filter = QueryFilter::new().with_id_prefix("wf-");
+        let (sql, params) = build_select_sql(Some(&filter), "execution", "id, metadata");
+        assert!(
+            !sql.contains("LIKE ?"),
+            "prefix must not compile to LIKE: {sql}"
+        );
+        assert_eq!(
+            params,
+            vec![
+                FilterBindValue::S("wf-".into()),
+                FilterBindValue::S("wf.".into()),
+            ]
+        );
+    }
+
+    /// Raising the last code point gives the exclusive upper bound; a code
+    /// point with no successor is dropped so the one before it carries, and a
+    /// prefix left with no bound at all still selects exactly its own strings.
+    #[test]
+    fn prefix_upper_bound_raises_or_carries_the_last_code_point() {
+        assert_eq!(prefix_upper_bound("/"), Some("0".to_string()));
+        assert_eq!(prefix_upper_bound("ab"), Some("ac".to_string()));
+        assert_eq!(prefix_upper_bound("a\u{10FFFF}"), Some("b".to_string()));
+        assert_eq!(prefix_upper_bound("\u{10FFFF}\u{10FFFF}"), None);
+        assert_eq!(prefix_upper_bound(""), None);
+    }
+
+    /// The same filter has to select the same rows from either backend, so a
+    /// hierarchy query behaves identically after a backend change.
+    #[tokio::test]
+    async fn prefix_selects_the_same_rows_in_memory_and_sqlite() {
+        use crate::store::memory::MemoryStorage;
+
+        let ids = ["wf-1", "wf-2", "WF-3", "other-1", "wf-", "w"];
+        let memory = MemoryStorage::new("prefix_equivalence");
+        let sqlite = SqliteStorage::new(":memory:", "prefix_equivalence", EntityIndexes::NONE)
+            .await
+            .unwrap();
+        for id in ids {
+            let meta = serde_json::json!({
+                "entityType": "wf",
+                "executionPath": format!("/{}-", id),
+            });
+            memory.save(id, b"d", &meta).await.unwrap();
+            sqlite.save(id, b"d", &meta).await.unwrap();
+        }
+
+        let cases = [
+            ("id prefix", QueryFilter::new().with_id_prefix("wf-")),
+            (
+                "exact path prefix",
+                QueryFilter::new().with_field_prefix("executionPath", "/wf-1-"),
+            ),
+            (
+                "case-differing prefix",
+                QueryFilter::new().with_field_prefix("executionPath", "/W"),
+            ),
+            (
+                "empty prefix",
+                QueryFilter::new().with_field_prefix("executionPath", ""),
+            ),
+        ];
+        for (label, filter) in cases {
+            let mut from_memory: Vec<String> = memory
+                .list(Some(&filter))
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            let mut from_sqlite: Vec<String> = sqlite
+                .list(Some(&filter))
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            from_memory.sort();
+            from_sqlite.sort();
+            assert_eq!(from_memory, from_sqlite, "backend disagreement on {label}");
+        }
+    }
+
     #[tokio::test]
     async fn test_sqlite_count_ignores_pagination() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         for i in 0..5 {
             store
                 .save(
@@ -1122,7 +1270,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_count_by_field_excludes_version_row() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save("id1", b"data", &serde_json::json!({"kind": "a"}))
             .await
@@ -1137,7 +1287,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_large_and_empty_batches() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         // 250 rows exceed the old single-statement variable budget; chunking
         // must absorb them.
         let items: Vec<BatchItem> = (0..250)
@@ -1167,7 +1319,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_update_status() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save(
                 "exec1",
@@ -1183,7 +1337,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_apply_batch_mixed_ops() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         for i in 0..5 {
             store
                 .save(
@@ -1219,7 +1375,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_apply_batch_empty_is_noop() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store.apply_batch(&[]).await.unwrap();
         assert!(store.list(None).await.unwrap().is_empty());
     }
@@ -1229,10 +1387,10 @@ mod tests {
         use crate::domain::store::CrossTableOperation;
 
         let pool = SqliteStorage::create_pool(":memory:").await.unwrap();
-        let first = SqliteStorage::with_pool(pool.clone(), "rollback_a")
+        let first = SqliteStorage::with_pool(pool.clone(), "rollback_a", EntityIndexes::NONE)
             .await
             .unwrap();
-        let _second = SqliteStorage::with_pool(pool.clone(), "rollback_b")
+        let _second = SqliteStorage::with_pool(pool.clone(), "rollback_b", EntityIndexes::NONE)
             .await
             .unwrap();
 
@@ -1261,7 +1419,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_save_preserves_created_at() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         store
             .save("id1", b"v1", &serde_json::json!({"entityType": "test"}))
             .await
@@ -1291,7 +1451,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_save_batch_preserves_created_at() {
-        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        let store = SqliteStorage::new(":memory:", "test", EntityIndexes::NONE)
+            .await
+            .unwrap();
         let items: Vec<BatchItem> = (0..3)
             .map(|i| {
                 BatchItem::new(

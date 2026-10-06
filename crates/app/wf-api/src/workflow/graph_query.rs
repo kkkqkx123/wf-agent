@@ -214,8 +214,6 @@ pub async fn get_execution_graph(
             .unwrap_or_else(|| WorkflowGraphStructure {
                 nodes: Vec::new(),
                 edges: Vec::new(),
-                adjacency_list: Default::default(),
-                reverse_adjacency_list: Default::default(),
                 start_node_id: None,
                 end_node_ids: Vec::new(),
                 error_default: None,

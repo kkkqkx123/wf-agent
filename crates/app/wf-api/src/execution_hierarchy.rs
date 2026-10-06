@@ -11,10 +11,11 @@
 //! correct across a restart and mid-run parent persists.
 
 use serde::Serialize;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::execution_instance::ExecutionKind;
 use wf_storage::domain::store::QueryFilter;
+use wf_storage::domain::ExecutionIndexError;
 use wf_storage::domain::ExecutionIndexRow;
 use wf_storage::error::StorageError;
 use wf_types::execution::ExecutionType;
@@ -25,6 +26,11 @@ use crate::infra::error::{ApiError, ApiResult};
 
 /// Node cap for one subtree query. A wide hierarchy would otherwise make a
 /// single request unbounded; the truncation is reported instead of silent.
+///
+/// The cap guards response size only: the prefix scan already returns every
+/// matching row, so clipping costs no query work. There is no continuation
+/// cursor, because a caller that needs more asks for a descendant, whose own
+/// subtree is a strictly narrower answer.
 pub const MAX_SUBTREE_NODES: usize = 512;
 
 /// One execution as referenced from a hierarchy view.
@@ -49,7 +55,6 @@ pub struct ExecutionHierarchyView {
     pub root: ExecutionRef,
     /// Root-to-parent id chain, oldest first, excluding this execution.
     pub ancestors: Vec<String>,
-    pub children: Vec<ExecutionRef>,
 }
 
 /// One node of a subtree listing.
@@ -57,8 +62,9 @@ pub struct ExecutionHierarchyView {
 pub struct ExecutionSubtreeNode {
     pub execution_id: String,
     pub execution_type: ExecutionType,
-    /// `None` when the child is live but its record has not been written yet,
-    /// or when the child record is gone.
+    /// The node's own status, taken from the live handle when there is one and
+    /// from the persisted row otherwise. `None` only for a live execution whose
+    /// record has not been written yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ExecutionStatus>,
     /// Nesting level relative to the queried root, which is `0`.
@@ -74,12 +80,16 @@ pub struct ExecutionSubtree {
     /// Set when the node cap dropped descendants, so a caller can tell a
     /// complete tree from a clipped one.
     pub truncated: bool,
-    /// How many descendants the cap dropped, so a clipped tree can be resumed
-    /// rather than merely detected.
+    /// How many descendants the node cap dropped. Query a descendant for the
+    /// part of the tree this response left out.
     #[serde(skip_serializing_if = "is_zero")]
     pub omitted: usize,
     /// Root first, then each level in child order.
     pub nodes: Vec<ExecutionSubtreeNode>,
+    /// Rows this scan reached but could not read. Reported so a caller can
+    /// tell a complete tree from one with an unreadable node in it, and can
+    /// name the record to look at.
+    pub rejected: Vec<RejectedRow>,
 }
 
 fn is_zero(value: &usize) -> bool {
@@ -90,46 +100,103 @@ fn is_zero(value: &usize) -> bool {
 /// consult both and reconcile the rows.
 const KINDS: [ExecutionType; 2] = [ExecutionType::Workflow, ExecutionType::AgentLoop];
 
-/// Read the indexed rows matching `filter` from the store of one entity kind.
-/// Every row is parsed, so a record whose hierarchy metadata is absent or
-/// self-contradictory fails the query instead of dropping out of the tree.
+/// One persisted row that could not be interpreted.
+///
+/// Carried beside the rows that could, so a single record whose indexed
+/// metadata is absent or self-contradictory is reported to the caller instead
+/// of failing the query for every other node in the tree.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RejectedRow {
+    pub execution_id: String,
+    pub reason: String,
+}
+
+/// Read the indexed rows matching `filter` from the store of one entity kind,
+/// keeping the rows that fail to parse beside the ones that parse. Every row
+/// is attempted, so one broken record is named rather than allowed to end the
+/// scan for its neighbours.
+async fn scan_rows(
+    ctx: &ApiContext,
+    kind: &ExecutionType,
+    filter: &QueryFilter,
+) -> ApiResult<(Vec<ExecutionIndexRow>, Vec<(String, ExecutionIndexError)>)> {
+    let raw = match kind {
+        ExecutionType::Workflow => {
+            ctx.storage
+                .workflow_execution
+                .entity_store()
+                .list_metadata(Some(filter))
+                .await?
+        }
+        ExecutionType::AgentLoop => {
+            ctx.storage
+                .agent_execution
+                .entity_store()
+                .list_metadata(Some(filter))
+                .await?
+        }
+    };
+    let mut rows = Vec::new();
+    let mut rejected = Vec::new();
+    for (id, meta) in raw {
+        match ExecutionIndexRow::parse(id.clone(), kind.clone(), &meta) {
+            Ok(row) => rows.push(row),
+            Err(err) => rejected.push((id, err)),
+        }
+    }
+    Ok((rows, rejected))
+}
+
+/// Read the indexed rows of every execution matching `filter`, across both
+/// record kinds.
+async fn scan_all_rows(
+    ctx: &ApiContext,
+    filter: &QueryFilter,
+) -> ApiResult<(Vec<ExecutionIndexRow>, Vec<(String, ExecutionIndexError)>)> {
+    let mut rows = Vec::new();
+    let mut rejected = Vec::new();
+    for kind in KINDS {
+        let (kind_rows, kind_rejected) = scan_rows(ctx, &kind, filter).await?;
+        rows.extend(kind_rows);
+        rejected.extend(kind_rejected);
+    }
+    Ok((rows, rejected))
+}
+
+/// Turn rows a scan could not read into their reported form.
+fn rejected_rows(rejected: Vec<(String, ExecutionIndexError)>) -> Vec<RejectedRow> {
+    rejected
+        .into_iter()
+        .map(|(execution_id, err)| RejectedRow {
+            reason: err.to_string(),
+            execution_id,
+        })
+        .collect()
+}
+
+/// Read the rows of one entity kind for a query whose answer is about a single
+/// execution whose own record has to be readable. An unreadable row is then
+/// the failure rather than an omission, and reports as a conflict naming the
+/// record.
 async fn read_rows(
     ctx: &ApiContext,
     kind: &ExecutionType,
     filter: &QueryFilter,
 ) -> ApiResult<Vec<ExecutionIndexRow>> {
-    let raw = match kind {
-        ExecutionType::Workflow => ctx
-            .storage
-            .workflow_execution
-            .entity_store()
-            .list_metadata(Some(filter))
-            .await?,
-        ExecutionType::AgentLoop => ctx
-            .storage
-            .agent_execution
-            .entity_store()
-            .list_metadata(Some(filter))
-            .await?,
-    };
-    raw.into_iter()
-        .map(|(id, meta)| Ok(ExecutionIndexRow::parse(id, &meta).map_err(StorageError::from)?))
-        .collect()
-}
-
-/// Read the indexed rows of every execution matching `filter`, across both
-/// record kinds.
-async fn read_all_rows(ctx: &ApiContext, filter: &QueryFilter) -> ApiResult<Vec<ExecutionIndexRow>> {
-    let mut rows = Vec::new();
-    for kind in KINDS {
-        rows.extend(read_rows(ctx, &kind, filter).await?);
+    let (rows, rejected) = scan_rows(ctx, kind, filter).await?;
+    if let Some((_, err)) = rejected.into_iter().next() {
+        return Err(StorageError::from(err).into());
     }
     Ok(rows)
 }
 
 /// Read one execution's indexed row from the store of the given kind. A miss
 /// means the record is absent, not that it lacks a hierarchy.
-async fn read_row(ctx: &ApiContext, kind: &ExecutionType, id: &str) -> ApiResult<Option<ExecutionIndexRow>> {
+async fn read_row(
+    ctx: &ApiContext,
+    kind: &ExecutionType,
+    id: &str,
+) -> ApiResult<Option<ExecutionIndexRow>> {
     let filter = QueryFilter::new().with_id(id);
     Ok(read_rows(ctx, kind, &filter)
         .await?
@@ -137,51 +204,106 @@ async fn read_row(ctx: &ApiContext, kind: &ExecutionType, id: &str) -> ApiResult
         .find(|row| row.id() == id))
 }
 
-/// Where one execution sits, taking the live registry first so a running
-/// execution reports its in-memory position, then the persisted rows.
+/// Where one execution sits.
 struct Placement {
+    id: String,
     kind: ExecutionType,
     status: ExecutionStatus,
-    parent: Option<String>,
-    root: String,
+    /// Absent at a root, as is the engine recorded with it.
+    parent: Option<ExecutionRef>,
+    root: ExecutionRef,
     depth: u32,
     ancestors: Vec<String>,
+    /// The execution's own materialised path, which is the prefix selecting it
+    /// and everything below it.
+    path: String,
+}
+
+/// Reconcile the answers two sources give about the same executions: the
+/// persisted rows are authoritative, and a live entry is taken only where no
+/// row covers it, because an execution runs before its record is written.
+///
+/// Position resolution and the subtree listing both go through this, so they
+/// cannot come to opposite conclusions about one execution.
+fn merge_persisted_then_live<T>(
+    persisted: Vec<T>,
+    live: Vec<T>,
+    id_of: impl Fn(&T) -> String,
+) -> Vec<T> {
+    let mut merged = persisted;
+    let mut seen: HashSet<String> = merged.iter().map(&id_of).collect();
+    merged.extend(live.into_iter().filter(|entry| seen.insert(id_of(entry))));
+    merged
+}
+
+/// Turn one readable indexed row into its position. The row carries the
+/// engines of the parent and the root, so the position needs no further read.
+fn placement_from_row(row: &ExecutionIndexRow) -> Placement {
+    Placement {
+        id: row.id().to_string(),
+        kind: row.kind().clone(),
+        status: row.status().clone(),
+        parent: row.parent().map(|(parent_id, parent_type)| ExecutionRef {
+            execution_id: parent_id.to_string(),
+            execution_type: parent_type.clone(),
+        }),
+        root: ExecutionRef {
+            execution_id: row.root().to_string(),
+            execution_type: row.root_kind(),
+        },
+        depth: row.depth(),
+        ancestors: row.ancestors(),
+        path: row.path().to_string(),
+    }
+}
+
+/// Position of an execution that is still live. Present only when the live
+/// entity answers with a hierarchy manager, which is what makes a lineage.
+fn live_placement(ctx: &ApiContext, id: &str) -> Option<Placement> {
+    let handle = ctx.execution_instance(id)?;
+    let manager = handle.hierarchy_manager()?;
+    let kind = match handle.kind() {
+        ExecutionKind::Agent => ExecutionType::AgentLoop,
+        ExecutionKind::Workflow => ExecutionType::Workflow,
+    };
+    // One constructor builds lineage for the live answer and for the persisted
+    // record alike, so the two cannot place one execution differently.
+    let lineage = wf_types::execution::ExecutionHierarchy::new(
+        id.to_string(),
+        id.to_string(),
+        manager.ancestors(),
+        manager.parent().map(|p| p.parent_type),
+        Some(manager.root_execution_type()),
+        manager.fork_path(),
+    );
+    Some(Placement {
+        id: id.to_string(),
+        kind,
+        status: handle.status().into(),
+        parent: manager.parent().map(|p| ExecutionRef {
+            execution_id: p.parent_id.to_string(),
+            execution_type: p.parent_type,
+        }),
+        root: ExecutionRef {
+            execution_id: lineage.root_execution_id(),
+            execution_type: manager.root_execution_type(),
+        },
+        depth: lineage.depth(),
+        ancestors: lineage.ancestors(),
+        path: lineage.path().to_string(),
+    })
 }
 
 async fn placement(ctx: &ApiContext, id: &str) -> ApiResult<Option<Placement>> {
-    if let Some(handle) = ctx.execution_instance(id) {
-        let kind = match handle.kind() {
-            ExecutionKind::Agent => ExecutionType::AgentLoop,
-            ExecutionKind::Workflow => ExecutionType::Workflow,
-        };
-        if let Some(manager) = handle.hierarchy_manager() {
-            return Ok(Some(Placement {
-                kind,
-                status: handle.status().into(),
-                parent: manager.parent_id().map(|p| p.to_string()),
-                root: manager.root_execution_id().to_string(),
-                depth: manager.depth(),
-                ancestors: manager
-                    .ancestors()
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect(),
-            }));
-        }
-    }
+    let mut persisted = Vec::new();
     for kind in KINDS {
         if let Some(row) = read_row(ctx, &kind, id).await? {
-            return Ok(Some(Placement {
-                kind: row.kind().clone(),
-                status: row.status().cloned().unwrap_or(ExecutionStatus::Running),
-                parent: row.parent().map(str::to_string),
-                root: row.root().to_string(),
-                depth: row.depth(),
-                ancestors: row.ancestors(),
-            }));
+            persisted.push(placement_from_row(&row));
+            break;
         }
     }
-    Ok(None)
+    let live: Vec<Placement> = live_placement(ctx, id).into_iter().collect();
+    Ok(merge_persisted_then_live(persisted, live, |p| p.id.clone()).pop())
 }
 
 /// The engine that owns an execution, live or persisted. Queries that need
@@ -194,119 +316,73 @@ pub async fn execution_type(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionTy
 }
 
 /// Hierarchy position of one execution.
+///
+/// The parent's and the root's engines come off the same row that gives this
+/// execution's own position, so the answer costs that one row and nothing else.
 pub async fn hierarchy(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionHierarchyView> {
     let placement = placement(ctx, id)
         .await?
         .ok_or_else(|| ApiError::execution_not_found(id))?;
-    let parent = match &placement.parent {
-        Some(parent_id) => Some(ExecutionRef {
-            execution_id: parent_id.clone(),
-            execution_type: execution_type(ctx, parent_id).await?,
-        }),
-        None => None,
-    };
-    let root = if placement.root == id {
-        ExecutionRef {
-            execution_id: id.to_string(),
-            execution_type: placement.kind.clone(),
-        }
-    } else {
-        ExecutionRef {
-            execution_id: placement.root.clone(),
-            execution_type: execution_type(ctx, &placement.root).await?,
-        }
-    };
     Ok(ExecutionHierarchyView {
-        execution_id: id.to_string(),
+        execution_id: placement.id,
         execution_type: placement.kind,
         status: placement.status,
         depth: placement.depth,
-        parent,
-        root,
+        parent: placement.parent,
+        root: placement.root,
         ancestors: placement.ancestors,
-        children: children_of(ctx, id).await?,
     })
-}
-
-/// Direct children of one execution.
-///
-/// A live parent knows the children it spawned but not yet persisted, and a
-/// persisted parent knows the children of earlier runs but has no live
-/// manager, so the two sources are merged rather than one replacing the other.
-async fn children_of(ctx: &ApiContext, id: &str) -> ApiResult<Vec<ExecutionRef>> {
-    let mut children: Vec<ExecutionRef> = Vec::new();
-    if let Some(handle) = ctx.execution_instance(id) {
-        if let Some(manager) = handle.hierarchy_manager() {
-            children.extend(manager.children().into_iter().map(|child| ExecutionRef {
-                execution_id: child.child_id.to_string(),
-                execution_type: child.child_type,
-            }));
-        }
-    }
-    for row in read_all_rows(ctx, &ExecutionIndexRow::children_filter(id)).await? {
-        children.push(ExecutionRef {
-            execution_id: row.id().to_string(),
-            execution_type: row.kind().clone(),
-        });
-    }
-    children.sort_by(|a, b| a.execution_id.cmp(&b.execution_id));
-    children.dedup_by(|a, b| a.execution_id == b.execution_id);
-    Ok(children)
 }
 
 /// Every execution in the tree rooted at `root_id`.
 ///
-/// The materialised path makes this one prefix scan per record kind rather
-/// than a query per node. Live executions have no row yet, so the live
-/// managers are walked as well and the two sets are merged.
+/// One prefix scan per record kind covers every persisted node; the live
+/// managers are then walked in memory and the two sets reconciled by
+/// [`merge_persisted_then_live`]. Neither step issues a query per node, so the
+/// cost does not grow with the width of the tree.
 pub async fn subtree(ctx: &ApiContext, root_id: &str) -> ApiResult<ExecutionSubtree> {
+    // The queried node's own path is the prefix that selects it and everything
+    // below, so a nested node answers the same way a root does.
     let root = placement(ctx, root_id)
         .await?
         .ok_or_else(|| ApiError::execution_not_found(root_id))?;
 
-    let mut nodes: Vec<ExecutionSubtreeNode> =
-        read_all_rows(ctx, &ExecutionIndexRow::subtree_filter(root_id))
-            .await?
-            .iter()
-            .map(|row| ExecutionSubtreeNode {
-                execution_id: row.id().to_string(),
-                execution_type: row.kind().clone(),
-                status: row.status().cloned(),
-                depth: depth_within(row, root.depth),
-                parent_execution_id: row.parent().map(str::to_string),
+    let (rows, rejected) = scan_all_rows(ctx, &ExecutionIndexRow::path_filter(&root.path)).await?;
+    let persisted: Vec<ExecutionSubtreeNode> = rows
+        .iter()
+        .map(|row| ExecutionSubtreeNode {
+            execution_id: row.id().to_string(),
+            execution_type: row.kind().clone(),
+            status: Some(row.status().clone()),
+            depth: depth_within(row, root.depth),
+            parent_execution_id: row.parent().map(|(parent_id, _)| parent_id.to_string()),
+        })
+        .collect();
+
+    let live: Vec<ExecutionSubtreeNode> = ctx
+        .execution_subtree(root_id)
+        .into_iter()
+        .filter_map(|handle| {
+            let manager = handle.hierarchy_manager()?;
+            Some(ExecutionSubtreeNode {
+                execution_id: handle.id().to_string(),
+                execution_type: match handle.kind() {
+                    ExecutionKind::Agent => ExecutionType::AgentLoop,
+                    ExecutionKind::Workflow => ExecutionType::Workflow,
+                },
+                status: Some(handle.status().into()),
+                depth: manager.depth().saturating_sub(root.depth),
+                parent_execution_id: manager.parent_id().map(|p| p.to_string()),
             })
-            .collect();
+        })
+        .collect();
 
-    let mut seen: HashSet<String> = nodes.iter().map(|n| n.execution_id.clone()).collect();
-    // A live root has no row for the prefix scan to find, so make sure the
-    // node the caller asked about is always present exactly once.
-    if seen.insert(root_id.to_string()) {
-        nodes.push(ExecutionSubtreeNode {
-            execution_id: root_id.to_string(),
-            execution_type: root.kind.clone(),
-            status: Some(root.status.clone()),
-            depth: 0,
-            parent_execution_id: None,
-        });
-    }
-    let mut frontier: VecDeque<(String, u32)> = VecDeque::from([(root_id.to_string(), 0)]);
-    while let Some((parent_id, parent_depth)) = frontier.pop_front() {
-        for child in children_of(ctx, &parent_id).await? {
-            if !seen.insert(child.execution_id.clone()) {
-                continue;
-            }
-            frontier.push_back((child.execution_id.clone(), parent_depth + 1));
-            nodes.push(ExecutionSubtreeNode {
-                execution_id: child.execution_id,
-                execution_type: child.execution_type,
-                status: None,
-                depth: parent_depth + 1,
-                parent_execution_id: Some(parent_id.clone()),
-            });
-        }
-    }
-
-    nodes.sort_by(|a, b| a.depth.cmp(&b.depth).then_with(|| a.execution_id.cmp(&b.execution_id)));
+    let mut nodes = merge_persisted_then_live(persisted, live, |n| n.execution_id.clone());
+    nodes.sort_by(|a, b| {
+        a.depth
+            .cmp(&b.depth)
+            .then_with(|| a.execution_id.cmp(&b.execution_id))
+    });
     let total = nodes.len();
     if total > MAX_SUBTREE_NODES {
         nodes.truncate(MAX_SUBTREE_NODES);
@@ -317,6 +393,7 @@ pub async fn subtree(ctx: &ApiContext, root_id: &str) -> ApiResult<ExecutionSubt
         truncated: omitted > 0,
         omitted,
         nodes,
+        rejected: rejected_rows(rejected),
     })
 }
 
@@ -351,7 +428,11 @@ mod tests {
         ))
     }
 
-    async fn register_agent(ctx: &ApiContext, id: &str, hierarchy: Arc<wf_core::ExecutionHierarchyManager>) {
+    async fn register_agent(
+        ctx: &ApiContext,
+        id: &str,
+        hierarchy: Arc<wf_core::ExecutionHierarchyManager>,
+    ) {
         let entity = Arc::new(
             AgentLoopEntity::new(Id::from(id.to_string())).with_hierarchy_manager(hierarchy),
         );
@@ -368,21 +449,14 @@ mod tests {
         if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
             return None;
         }
-        Some(ExecutionHierarchy {
-            workflow_id: manager.execution_id(),
-            execution_id: manager.execution_id(),
-            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
-            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
-            depth: manager.depth(),
-            root_execution_id: Some(manager.root_execution_id()),
-            root_execution_type: Some(manager.root_execution_type()),
-            ancestors: if ancestors.is_empty() {
-                None
-            } else {
-                Some(ancestors)
-            },
-            fork_path: manager.fork_path(),
-        })
+        Some(ExecutionHierarchy::new(
+            manager.execution_id(),
+            manager.execution_id(),
+            ancestors,
+            parent.as_ref().map(|p| p.parent_type.clone()),
+            Some(manager.root_execution_type()),
+            manager.fork_path(),
+        ))
     }
 
     fn workflow_record(
@@ -445,7 +519,6 @@ mod tests {
         assert!(view.parent.is_none());
         assert_eq!(view.root.execution_id, "live-root");
         assert!(view.ancestors.is_empty());
-        assert!(view.children.is_empty());
     }
 
     #[tokio::test]
@@ -477,11 +550,13 @@ mod tests {
         let b = root
             .derive_child(Id::from("b"), ExecutionType::Workflow, None)
             .unwrap();
-        a.derive_child(Id::from("a1"), ExecutionType::AgentLoop, None)
+        let a1 = a
+            .derive_child(Id::from("a1"), ExecutionType::AgentLoop, None)
             .unwrap();
         register_agent(&ctx, "root", root).await;
         register_agent(&ctx, "a", a).await;
         register_agent(&ctx, "b", b).await;
+        register_agent(&ctx, "a1", a1).await;
 
         let tree = subtree(&ctx, "root").await.unwrap();
         assert!(!tree.truncated);
@@ -491,6 +566,38 @@ mod tests {
         assert_eq!(depths, vec![0, 1, 1, 2]);
         assert_eq!(tree.nodes[0].parent_execution_id, None);
         assert_eq!(tree.nodes[3].parent_execution_id.as_deref(), Some("a"));
+    }
+
+    /// A subtree listing must cost the same number of metadata reads whatever
+    /// the width of the tree: one prefix scan per record kind, and the live
+    /// part walked in memory. A per-node children lookup would make the wide
+    /// tree cost proportionally more.
+    #[tokio::test]
+    async fn subtree_reads_do_not_grow_with_the_number_of_nodes() {
+        async fn reads_for(ctx: &ApiContext, child_count: usize) -> usize {
+            persisted_star(ctx, child_count).await;
+            for backend in ctx.storage.all_backends() {
+                if let Some(memory) = backend.memory_storage() {
+                    memory.reset_read_count();
+                }
+            }
+            let tree = subtree(ctx, "r").await.unwrap();
+            assert_eq!(tree.nodes.len(), child_count + 1);
+            ctx.storage
+                .workflow_execution
+                .store()
+                .memory_storage()
+                .unwrap()
+                .read_count()
+        }
+
+        let narrow = make_ctx();
+        let wide = make_ctx();
+        assert_eq!(
+            reads_for(&narrow, 1).await,
+            reads_for(&wide, 20).await,
+            "a wide tree must not cost more metadata reads than a narrow one"
+        );
     }
 
     #[tokio::test]
@@ -546,7 +653,10 @@ mod tests {
         // the child was spawned: no parent, no ancestors, no fork path.
         ctx.storage
             .workflow_execution
-            .save(&workflow_record("wf-root", persisted_hierarchy(&root_manager)))
+            .save(&workflow_record(
+                "wf-root",
+                persisted_hierarchy(&root_manager),
+            ))
             .await
             .unwrap();
         // The child record is written afterwards and links forward.
@@ -576,7 +686,11 @@ mod tests {
         let view = hierarchy(&ctx, "solo").await.unwrap();
         assert!(view.parent.is_none());
         assert_eq!(view.root.execution_id, "solo");
-        assert!(view.children.is_empty());
+
+        let tree = subtree(&ctx, "solo").await.unwrap();
+        assert_eq!(tree.nodes.len(), 1, "a root lists only itself");
+        assert_eq!(tree.nodes[0].execution_id, "solo");
+        assert!(tree.nodes[0].parent_execution_id.is_none());
     }
 
     #[tokio::test]
@@ -590,11 +704,7 @@ mod tests {
             .derive_child(Id::from("g"), ExecutionType::AgentLoop, None)
             .unwrap();
 
-        for (id, mgr) in [
-            ("r", &root),
-            ("c", &child),
-            ("g", &grandchild),
-        ] {
+        for (id, mgr) in [("r", &root), ("c", &child), ("g", &grandchild)] {
             ctx.storage
                 .agent_execution
                 .save(&agent_record(id, persisted_hierarchy(mgr)))
@@ -613,6 +723,27 @@ mod tests {
     /// ancestor query that answered "everything sharing my root at a shallower
     /// depth" would hand back `b` here, so this shape is the one a chain-only
     /// fixture cannot cover.
+    /// A root with `child_count` direct children: the shape both the read
+    /// cost and the node cap tests need.
+    async fn persisted_star(ctx: &ApiContext, child_count: usize) {
+        let root = manager("r", ExecutionType::Workflow);
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("r", persisted_hierarchy(&root)))
+            .await
+            .unwrap();
+        for i in 0..child_count {
+            let child = root
+                .derive_child(Id::from(format!("c{i}")), ExecutionType::AgentLoop, None)
+                .unwrap();
+            ctx.storage
+                .agent_execution
+                .save(&agent_record(&format!("c{i}"), persisted_hierarchy(&child)))
+                .await
+                .unwrap();
+        }
+    }
+
     async fn branching_tree(ctx: &ApiContext) {
         let root = manager("r", ExecutionType::Workflow);
         let a = root
@@ -621,7 +752,9 @@ mod tests {
         let b = root
             .derive_child(Id::from("b"), ExecutionType::AgentLoop, None)
             .unwrap();
-        let g = a.derive_child(Id::from("g"), ExecutionType::AgentLoop, None).unwrap();
+        let g = a
+            .derive_child(Id::from("g"), ExecutionType::AgentLoop, None)
+            .unwrap();
 
         ctx.storage
             .workflow_execution
@@ -711,17 +844,16 @@ mod tests {
         register_agent(&ctx, "live-kid", live_child).await;
         ctx.storage
             .agent_execution
-            .save(&agent_record("stored-kid", persisted_hierarchy(&stored_child)))
+            .save(&agent_record(
+                "stored-kid",
+                persisted_hierarchy(&stored_child),
+            ))
             .await
             .unwrap();
 
-        let view = hierarchy(&ctx, "live-root").await.unwrap();
-        let ids: Vec<&str> = view
-            .children
-            .iter()
-            .map(|c| c.execution_id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["live-kid", "stored-kid"]);
+        let tree = subtree(&ctx, "live-root").await.unwrap();
+        let ids: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert_eq!(ids, vec!["live-root", "live-kid", "stored-kid"]);
     }
 
     #[tokio::test]
@@ -744,5 +876,109 @@ mod tests {
         let ctx = make_ctx();
         assert!(hierarchy(&ctx, "nope").await.is_err());
         assert!(subtree(&ctx, "nope").await.is_err());
+    }
+
+    /// The node cap guards response size only, so crossing it drops the
+    /// tail of the listing and reports how much went missing rather than
+    /// failing or silently returning a shorter tree.
+    #[tokio::test]
+    async fn a_subtree_reports_how_many_nodes_the_cap_dropped() {
+        let ctx = make_ctx();
+        persisted_star(&ctx, MAX_SUBTREE_NODES).await;
+
+        let tree = subtree(&ctx, "r").await.unwrap();
+        assert_eq!(tree.nodes.len(), MAX_SUBTREE_NODES);
+        assert!(tree.truncated);
+        assert_eq!(tree.omitted, 1);
+        assert!(tree.rejected.is_empty());
+    }
+
+    /// One record whose path names a different execution sits inside the
+    /// scanned prefix but cannot be read. It is reported, the nodes that do
+    /// parse still answer, and reading that record on its own is a conflict
+    /// naming it rather than an internal failure the caller would retry.
+    #[tokio::test]
+    async fn one_broken_record_is_reported_and_the_tree_stays_readable() {
+        let ctx = make_ctx();
+        branching_tree(&ctx).await;
+
+        let broken = ExecutionHierarchy::new(
+            Id::from("wf-1".to_string()),
+            Id::from("ghost".to_string()),
+            vec![Id::from("r".to_string())],
+            Some(ExecutionType::Workflow),
+            Some(ExecutionType::Workflow),
+            None,
+        );
+        ctx.storage
+            .agent_execution
+            .save(&agent_record("mismatch", Some(broken)))
+            .await
+            .unwrap();
+
+        let tree = subtree(&ctx, "r").await.unwrap();
+        let ids: Vec<&str> = tree.nodes.iter().map(|n| n.execution_id.as_str()).collect();
+        assert_eq!(ids, vec!["r", "a", "b", "g"], "good rows still answer");
+        assert_eq!(tree.rejected.len(), 1);
+        assert_eq!(tree.rejected[0].execution_id, "mismatch");
+        assert!(!tree.rejected[0].reason.is_empty());
+
+        let err = hierarchy(&ctx, "mismatch").await.unwrap_err();
+        assert!(
+            matches!(err, ApiError::Conflict(_)),
+            "a self-contradictory record is a conflict: {err:?}"
+        );
+    }
+
+    /// The live entity and its persisted row answer for the same execution
+    /// with different statuses. The row is authoritative on every read path,
+    /// and a path that only the live source can answer still reads the type
+    /// both sources agree on.
+    #[tokio::test]
+    async fn a_persisted_row_wins_on_every_read_path() {
+        let ctx = make_ctx();
+        let root = manager("r", ExecutionType::Workflow);
+        let child = root
+            .derive_child(Id::from("kid"), ExecutionType::AgentLoop, None)
+            .unwrap();
+        ctx.storage
+            .workflow_execution
+            .save(&workflow_record("r", persisted_hierarchy(&root)))
+            .await
+            .unwrap();
+        ctx.storage
+            .agent_execution
+            .save(&agent_record("kid", persisted_hierarchy(&child)))
+            .await
+            .unwrap();
+        register_agent(&ctx, "r", root).await;
+        register_agent(&ctx, "kid", child).await;
+
+        // The two sources really do disagree, so the assertions below are not
+        // satisfied by both saying the same thing.
+        let live: ExecutionStatus = ctx.live_execution_status("kid").unwrap().into();
+        assert_ne!(live, ExecutionStatus::Failed);
+
+        let view = hierarchy(&ctx, "kid").await.unwrap();
+        assert_eq!(view.status, ExecutionStatus::Failed);
+        assert_eq!(
+            execution_type(&ctx, "kid").await.unwrap(),
+            ExecutionType::AgentLoop
+        );
+
+        let tree = subtree(&ctx, "r").await.unwrap();
+        let node = tree
+            .nodes
+            .iter()
+            .find(|n| n.execution_id == "kid")
+            .expect("kid is in the tree of its own root");
+        assert_eq!(node.status, Some(ExecutionStatus::Failed));
+        assert_eq!(node.execution_type, view.execution_type);
+        assert_eq!(
+            node.parent_execution_id.as_deref(),
+            view.parent
+                .as_ref()
+                .map(|parent| parent.execution_id.as_str())
+        );
     }
 }

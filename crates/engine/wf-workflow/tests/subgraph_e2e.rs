@@ -2,7 +2,6 @@
 //! Covers variable input/output mapping and missing-subgraph errors.
 //! Each test registers its child graph under a unique id.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -61,8 +60,6 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,
@@ -95,8 +92,6 @@ fn child_graph() -> WorkflowGraphStructure {
             node("end", "END", serde_json::json!({})),
         ],
         edges: vec![edge("start", "v1"), edge("v1", "end")],
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,

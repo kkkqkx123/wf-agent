@@ -55,40 +55,30 @@ impl RecoveryTarget {
 
     pub fn depth(&self) -> u32 {
         match self {
-            Self::Workflow(e) => e.hierarchy.as_ref().map(|h| h.depth).unwrap_or(0),
-            Self::Agent(e) => e.hierarchy.as_ref().map(|h| h.depth).unwrap_or(0),
+            Self::Workflow(e) => e.hierarchy.as_ref().map_or(0, |h| h.depth()),
+            Self::Agent(e) => e.hierarchy.as_ref().map_or(0, |h| h.depth()),
         }
     }
 
     pub fn root_id(&self) -> String {
         match self {
+            // A record that carries no hierarchy is a root that never linked to
+            // a parent, so it is its own root.
             Self::Workflow(e) => e
                 .hierarchy
                 .as_ref()
-                .and_then(|h| h.root_execution_id.clone())
-                .or_else(|| h_ancestors_first(&e.hierarchy).or_else(|| Some(e.id.clone())))
-                .unwrap_or_else(|| e.id.clone()),
+                .map_or_else(|| e.id.clone(), |h| h.root_execution_id()),
             Self::Agent(e) => e
                 .hierarchy
                 .as_ref()
-                .and_then(|h| h.root_execution_id.clone())
-                .or_else(|| h_ancestors_first(&e.hierarchy).or_else(|| Some(e.id.clone())))
-                .unwrap_or_else(|| e.id.clone()),
+                .map_or_else(|| e.id.clone(), |h| h.root_execution_id()),
         }
     }
 
     pub fn parent_id(&self) -> Option<String> {
         match self {
-            Self::Workflow(e) => e.hierarchy.as_ref().and_then(|h| {
-                h.parent_execution_id
-                    .clone()
-                    .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
-            }),
-            Self::Agent(e) => e.hierarchy.as_ref().and_then(|h| {
-                h.parent_execution_id
-                    .clone()
-                    .or_else(|| h.ancestors.as_ref().and_then(|a| a.last().cloned()))
-            }),
+            Self::Workflow(e) => e.hierarchy.as_ref().and_then(|h| h.parent_execution_id()),
+            Self::Agent(e) => e.hierarchy.as_ref().and_then(|h| h.parent_execution_id()),
         }
     }
 
@@ -103,12 +93,6 @@ impl RecoveryTarget {
     pub fn is_workflow(&self) -> bool {
         matches!(self, Self::Workflow(_))
     }
-}
-
-fn h_ancestors_first(h: &Option<wf_types::execution::ExecutionHierarchy>) -> Option<String> {
-    h.as_ref()
-        .and_then(|h| h.ancestors.as_ref())
-        .and_then(|a| a.first().cloned())
 }
 
 /// Backend that actually restarts an incomplete execution. Injected into the

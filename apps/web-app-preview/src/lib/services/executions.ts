@@ -1,4 +1,5 @@
 import { client } from '$lib/api/client';
+import type { components } from '$lib/api/schema';
 import {
 	call,
 	extractCapped,
@@ -14,6 +15,8 @@ import type {
 	ExecutionKind,
 	ExecutionRef,
 	ExecutionSubtree,
+	ExecutionSubtreeNode,
+	IterationRecord,
 	Metric,
 	TimelineEntry,
 	ToolCallEntry,
@@ -421,30 +424,44 @@ export async function filterExecutionsByStatus(
 	return page.items;
 }
 
-interface ExecutionRefDto {
-	execution_id?: string;
-	execution_type?: string;
+type HierarchyDoc = components['schemas']['HierarchyDoc'];
+type ExecutionRefDoc = components['schemas']['ExecutionRefDoc'];
+type SubtreeDoc = components['schemas']['SubtreeDoc'];
+type SubtreeNodeDoc = components['schemas']['SubtreeNodeDoc'];
+type HistoryDoc = components['schemas']['HistoryDoc'];
+type HistoryEventDoc = components['schemas']['TimelineEventDoc'];
+type IterationDoc = components['schemas']['IterationDoc'];
+type StatusTransitionDoc = components['schemas']['StateTransitionDoc'];
+
+/**
+ * The wire carries `ExecutionType` as a plain string so a further engine can
+ * ship without a schema rebuild. The client knows the engines that exist and
+ * refuses to file a run under one it does not recognise, rather than
+ * guessing the majority case and mislabelling the run.
+ */
+function toExecutionKind(value: string): ExecutionKind {
+	if (value === 'workflow') return 'workflow';
+	if (value === 'agent_loop') return 'agent_loop';
+	throw new Error(`Unknown execution type: ${value}`);
 }
 
-interface ExecutionHierarchyDto {
-	execution_id?: string;
-	execution_type?: string;
-	status?: string;
-	depth?: number;
-	parent?: ExecutionRefDto | null;
-	root?: ExecutionRefDto;
-	ancestors?: string[];
-	children?: ExecutionRefDto[];
+/**
+ * A non-empty execution id is the precondition of every id-parameterized
+ * endpoint: an empty one builds a double-slash path and reaches an unrelated
+ * route. Services state the precondition instead of letting the URL decide
+ * what a missing id means.
+ */
+function requireExecutionId(executionId: string): string {
+	if (executionId === '') {
+		throw new Error('Execution id must not be empty');
+	}
+	return executionId;
 }
 
-function toExecutionKind(value: string | undefined): ExecutionKind {
-	return value === 'workflow' ? 'workflow' : 'agent_loop';
-}
-
-function toExecutionRef(d: ExecutionRefDto): ExecutionRef {
+function toExecutionRef(ref: ExecutionRefDoc): ExecutionRef {
 	return {
-		executionId: d.execution_id ?? '',
-		executionType: toExecutionKind(d.execution_type),
+		executionId: ref.execution_id,
+		executionType: toExecutionKind(ref.execution_type),
 	};
 }
 
@@ -452,107 +469,60 @@ function toExecutionRef(d: ExecutionRefDto): ExecutionRef {
 export async function getExecutionHierarchy(
 	executionId: string,
 ): Promise<ExecutionHierarchy> {
+	const id = requireExecutionId(executionId);
 	const data = requireData(
-		await call<ExecutionHierarchyDto>(
+		await call<HierarchyDoc>(
 			client.GET('/api/v1/executions/{id}/hierarchy', {
-				params: { path: { id: executionId } },
+				params: { path: { id } },
 			}),
 		),
-		`Hierarchy missing for execution ${executionId}`,
+		`Hierarchy missing for execution ${id}`,
 	);
-	const kind = toExecutionKind(data.execution_type);
 	return {
-		executionId: data.execution_id ?? executionId,
-		executionType: kind,
-		status: data.status ?? '',
-		depth: data.depth ?? 0,
+		executionId: data.execution_id,
+		executionType: toExecutionKind(data.execution_type),
+		status: data.status,
+		depth: data.depth,
 		parent: data.parent ? toExecutionRef(data.parent) : null,
-		root: toExecutionRef(
-			data.root ?? {
-				execution_id: data.execution_id ?? executionId,
-				execution_type: data.execution_type,
-			},
-		),
-		ancestors: data.ancestors ?? [],
-		children: (data.children ?? []).map(toExecutionRef),
+		root: toExecutionRef(data.root),
+		ancestors: data.ancestors,
 	};
 }
 
-interface ExecutionSubtreeNodeDto {
-	execution_id?: string;
-	execution_type?: string;
-	status?: string | null;
-	depth?: number;
-	parent_execution_id?: string | null;
-}
-
-interface ExecutionSubtreeDto {
-	root_execution_id?: string;
-	truncated?: boolean;
-	nodes?: ExecutionSubtreeNodeDto[];
+/**
+ * The view omits a field whose value is its own zero, so an absent field and
+ * a zero field are one value on this wire rather than two states to pick
+ * between.
+ */
+function toSubtreeNode(node: SubtreeNodeDoc): ExecutionSubtreeNode {
+	return {
+		executionId: node.execution_id,
+		executionType: toExecutionKind(node.execution_type),
+		status: node.status ?? null,
+		depth: node.depth,
+		parentExecutionId: node.parent_execution_id ?? null,
+	};
 }
 
 /** Every execution below a root, breadth-first. */
 export async function getExecutionSubtree(
 	executionId: string,
 ): Promise<ExecutionSubtree> {
+	const id = requireExecutionId(executionId);
 	const data = requireData(
-		await call<ExecutionSubtreeDto>(
+		await call<SubtreeDoc>(
 			client.GET('/api/v1/executions/{id}/subtree', {
-				params: { path: { id: executionId } },
+				params: { path: { id } },
 			}),
 		),
-		`Subtree missing for execution ${executionId}`,
+		`Subtree missing for execution ${id}`,
 	);
 	return {
-		rootExecutionId: data.root_execution_id ?? executionId,
-		truncated: data.truncated ?? false,
-		nodes: (data.nodes ?? []).map((n) => ({
-			executionId: n.execution_id ?? '',
-			executionType: toExecutionKind(n.execution_type),
-			status: n.status ?? null,
-			depth: n.depth ?? 0,
-			parentExecutionId: n.parent_execution_id ?? null,
-		})),
+		rootExecutionId: data.root_execution_id,
+		truncated: data.truncated,
+		omitted: data.omitted ?? 0,
+		nodes: data.nodes.map(toSubtreeNode),
 	};
-}
-
-interface ToolCallInIterationDto {
-	name?: string;
-	duration_ms?: number;
-	success?: boolean;
-}
-
-interface IterationRecordDto {
-	iteration?: number;
-	duration?: number;
-	tool_call_count?: number;
-	tool_calls?: ToolCallInIterationDto[];
-	response_content?: string | null;
-}
-
-interface StatusTransitionDto {
-	from?: string;
-	to?: string;
-	timestamp?: number;
-}
-
-interface ContextEvolutionStepDto {
-	timestamp?: number;
-	iteration?: number;
-	status?: string;
-	description?: string;
-	tool_calls?: number | null;
-}
-
-interface ExecutionHistoryDto {
-	execution_id?: string;
-	execution_type?: string;
-	timeline?: TimelineDto[];
-	iterations?: IterationRecordDto[];
-	variables?: Record<string, unknown>;
-	context_evolution?: ContextEvolutionStepDto[];
-	status_transitions?: StatusTransitionDto[];
 }
 
 /** Names accepted by the history `include` parameter. */
@@ -568,54 +538,89 @@ export const HISTORY_SECTIONS = [
 export type HistorySection = (typeof HISTORY_SECTIONS)[number];
 
 /**
+ * A sectioned read answers only for the sections it named: the rest come
+ * back absent, and absent reads as empty here because an unrequested section
+ * holds no data rather than unknown data.
+ */
+function sectionRows<T>(rows: T[] | undefined): T[] {
+	return rows ?? [];
+}
+
+/**
+ * One stored lifecycle event as a timeline row. These events carry no
+ * display text of their own: the event type names the row, and the optional
+ * secondary name refines it for custom events.
+ */
+function toHistoryTimelineEntry(event: HistoryEventDoc): TimelineEntry {
+	const kind = event.event_name ?? event.type;
+	return {
+		id: event.id,
+		at: toIso(event.timestamp),
+		kind: event.type,
+		title: kind,
+		detail: kind,
+		status: '',
+		nodeId: metadataNodeId(event.metadata ?? undefined),
+	};
+}
+
+function toIterationRecord(record: IterationDoc): IterationRecord {
+	return {
+		iteration: record.iteration,
+		durationMs: record.duration,
+		toolCallCount: record.tool_call_count,
+		toolCalls: record.tool_calls.map((call) => ({
+			name: call.name,
+			durationMs: call.duration_ms,
+			success: call.success,
+		})),
+		responseContent: record.response_content ?? null,
+	};
+}
+
+/**
  * Everything an execution recorded, grouped by section. `include` narrows
- * what the backend loads; omitted sections come back empty.
+ * what the backend loads; a section left out comes back empty.
  */
 export async function getExecutionHistory(
 	executionId: string,
 	include?: HistorySection[],
 ): Promise<ExecutionHistory> {
+	const id = requireExecutionId(executionId);
 	const data = requireData(
-		await call<ExecutionHistoryDto>(
+		await call<HistoryDoc>(
 			client.GET('/api/v1/executions/{id}/history', {
 				params: {
-					path: { id: executionId },
+					path: { id },
 					query: include ? { include: include.join(',') } : {},
 				},
 			}),
 		),
-		`History missing for execution ${executionId}`,
+		`History missing for execution ${id}`,
 	);
 	return {
-		executionId: data.execution_id ?? executionId,
+		executionId: data.execution_id,
 		executionType: toExecutionKind(data.execution_type),
-		timeline: (data.timeline ?? []).map(toTimelineEntry),
-		iterations: (data.iterations ?? []).map((d) => ({
-			iteration: d.iteration ?? 0,
-			durationMs: d.duration ?? 0,
-			toolCallCount: d.tool_call_count ?? 0,
-			toolCalls: (d.tool_calls ?? []).map((t) => ({
-				name: t.name ?? '',
-				durationMs: t.duration_ms ?? 0,
-				success: t.success ?? false,
-			})),
-			responseContent: d.response_content ?? null,
-		})),
+		timelineLimit: data.timeline_limit,
+		timeline: sectionRows(data.timeline).map(toHistoryTimelineEntry),
+		iterations: sectionRows(data.iterations).map(toIterationRecord),
 		variables: Object.entries(data.variables ?? {}).map(([key, value]) => ({
 			key,
 			value: stringify(value),
 		})),
-		contextEvolution: (data.context_evolution ?? []).map((d) => ({
-			timestamp: d.timestamp ?? 0,
-			iteration: d.iteration ?? 0,
-			status: d.status ?? '',
-			description: d.description ?? '',
-			toolCalls: d.tool_calls ?? null,
+		contextEvolution: sectionRows(data.context_evolution).map((step) => ({
+			timestamp: step.timestamp,
+			iteration: step.iteration,
+			status: step.status,
+			description: step.description,
+			toolCalls: step.tool_calls ?? null,
 		})),
-		statusTransitions: (data.status_transitions ?? []).map((d) => ({
-			from: d.from ?? '',
-			to: d.to ?? '',
-			timestamp: d.timestamp ?? 0,
-		})),
+		statusTransitions: sectionRows(data.status_transitions).map(
+			(transition: StatusTransitionDoc) => ({
+				from: transition.from,
+				to: transition.to,
+				timestamp: transition.timestamp,
+			}),
+		),
 	};
 }

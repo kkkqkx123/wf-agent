@@ -74,8 +74,6 @@ fn graph(
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some(start.to_string()),
         end_node_ids: ends.into_iter().map(String::from).collect(),
         error_default: None,
@@ -132,10 +130,7 @@ async fn restore_latest_snapshot(
 
 /// Child executions of `parent_id`, located through the parent link each
 /// child record carries. The parent record itself lists no children.
-async fn child_execution_ids(
-    store: &Arc<StorageBackend>,
-    parent_id: &str,
-) -> Vec<String> {
+async fn child_execution_ids(store: &Arc<StorageBackend>, parent_id: &str) -> Vec<String> {
     let manager = WorkflowCheckpointStateManager::new(store.clone());
     manager
         .list_latest_by_parent(parent_id)
@@ -248,12 +243,19 @@ async fn fork_completion_snapshot_carries_live_aggregation() {
 
     for branch_id in &mapped {
         let child = restore_latest_snapshot(&store, branch_id).await;
-        let hierarchy = child
-            .hierarchy
-            .expect("child snapshot carries hierarchy");
-        assert_eq!(hierarchy.fork_path.as_ref().map(|p| p.fork_node_id()), Some("fork"));
-        assert!(hierarchy.fork_path.as_ref().is_some_and(|p| !p.branch_path_id().is_empty()));
-        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some(snapshot.execution_id.as_str()));
+        let hierarchy = child.hierarchy.expect("child snapshot carries hierarchy");
+        assert_eq!(
+            hierarchy.fork_path.as_ref().map(|p| p.fork_node_id()),
+            Some("fork")
+        );
+        assert!(hierarchy
+            .fork_path
+            .as_ref()
+            .is_some_and(|p| !p.branch_path_id().is_empty()));
+        assert_eq!(
+            hierarchy.parent_execution_id().as_deref(),
+            Some(snapshot.execution_id.as_str())
+        );
     }
 }
 
@@ -323,16 +325,10 @@ async fn subgraph_completion_snapshot_preserves_child_linkage() {
         .hierarchy
         .expect("child snapshot carries hierarchy");
     assert_eq!(
-        child_hierarchy.parent_execution_id.as_deref(),
+        child_hierarchy.parent_execution_id().as_deref(),
         Some(execution_id)
     );
-    assert_eq!(child_hierarchy.depth, 1);
-    assert_eq!(
-        child_hierarchy.root_execution_id.as_deref(),
-        Some(execution_id)
-    );
-    assert_eq!(
-        child_hierarchy.ancestors,
-        Some(vec![execution_id.to_string()])
-    );
+    assert_eq!(child_hierarchy.depth(), 1);
+    assert_eq!(child_hierarchy.root_execution_id(), execution_id);
+    assert_eq!(child_hierarchy.ancestors(), vec![execution_id.to_string()]);
 }

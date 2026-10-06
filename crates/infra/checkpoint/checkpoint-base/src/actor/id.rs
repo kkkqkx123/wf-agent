@@ -27,6 +27,7 @@
 
 use std::fmt;
 
+use wf_types::execution::MAX_EXECUTION_DEPTH;
 use wf_types::Id;
 
 /// Actor kind: the partition semantics of the root execution.
@@ -57,7 +58,6 @@ impl ActorKind {
             _ => None,
         }
     }
-
 }
 
 impl fmt::Display for ActorKind {
@@ -69,8 +69,10 @@ impl fmt::Display for ActorKind {
 /// Separator between hierarchy levels in the encoded string.
 const CHILD_SEPARATOR: &str = "/child:";
 
-/// Max hierarchy depth (aligned with `wf_core::hierarchy::manager::MAX_DEPTH`).
-const MAX_HIERARCHY_DEPTH: usize = 10;
+/// Longest chain an actor id may encode. An actor id spells out the chain
+/// including the execution itself, so a tree at the structural depth limit
+/// encodes one segment more than its depth value.
+const MAX_ACTOR_CHAIN: usize = MAX_EXECUTION_DEPTH as usize + 1;
 
 /// An encoded actor identity, e.g. `agent:{loop_id}` or
 /// `wf:{workflow_id}/child:{subgraph_id}`.
@@ -88,9 +90,9 @@ impl ActorId {
     /// Build an actor id from a kind and the root-to-self execution id
     /// chain (oldest first, raw strings).
     pub fn from_parts(kind: ActorKind, hierarchy: &[String]) -> Result<Self, ActorIdError> {
-        if hierarchy.len() > MAX_HIERARCHY_DEPTH {
+        if hierarchy.len() > MAX_ACTOR_CHAIN {
             return Err(ActorIdError::Validation(format!(
-                "actor hierarchy depth {} exceeds max {MAX_HIERARCHY_DEPTH}",
+                "actor hierarchy depth {} exceeds max {MAX_ACTOR_CHAIN}",
                 hierarchy.len()
             )));
         }
@@ -143,9 +145,9 @@ impl ActorId {
             )));
         }
         let depth = segments.len();
-        if depth > MAX_HIERARCHY_DEPTH {
+        if depth > MAX_ACTOR_CHAIN {
             return Err(ActorIdError::Validation(format!(
-                "actor id '{value}' hierarchy depth {depth} exceeds max {MAX_HIERARCHY_DEPTH}"
+                "actor id '{value}' hierarchy depth {depth} exceeds max {MAX_ACTOR_CHAIN}"
             )));
         }
         Ok(ActorId(value.to_string()))
@@ -199,9 +201,9 @@ impl ActorId {
     pub fn child(&self, child_execution_id: &Id) -> Result<Self, ActorIdError> {
         validate_execution_id(&child_execution_id.to_string())?;
         let depth = self.hierarchy().len();
-        if depth >= MAX_HIERARCHY_DEPTH {
+        if depth >= MAX_ACTOR_CHAIN {
             return Err(ActorIdError::Validation(format!(
-                "actor hierarchy depth {} exceeds max {MAX_HIERARCHY_DEPTH}",
+                "actor hierarchy depth {} exceeds max {MAX_ACTOR_CHAIN}",
                 depth + 1
             )));
         }

@@ -3,6 +3,7 @@ use serde_json::Value;
 
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
+use crate::domain::indexes::EntityIndexes;
 use crate::domain::store::{BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
@@ -53,9 +54,14 @@ impl StorageBackend {
     /// Open a Sqlite backend with the entity cache enabled (default cache
     /// configuration: 1000 entries / 300s TTL). The backend owns its pool and
     /// serves one table; entity tables should use `StorageContext` instead so
-    /// they share a pool and join atomic batches.
-    pub async fn new_sqlite(path: &str, table_name: &str) -> Result<Self, StorageError> {
-        let store = SqliteStorage::new(path, table_name).await?;
+    /// they share a pool and join atomic batches. `indexes` is the metadata
+    /// keys this table's reads are built on, declared with the entity.
+    pub async fn new_sqlite(
+        path: &str,
+        table_name: &str,
+        indexes: EntityIndexes,
+    ) -> Result<Self, StorageError> {
+        let store = SqliteStorage::new(path, table_name, indexes).await?;
         Ok(Self::Sqlite(InstrumentedStore::new(CachingStore::new(
             store,
             CacheConfig::default(),
@@ -65,12 +71,14 @@ impl StorageBackend {
     /// Open a PostgreSQL backend with the entity cache enabled, mirroring
     /// `new_sqlite`. The backend owns its pool and serves one table; entity
     /// tables should use `StorageContext` instead so they share a pool and
-    /// join atomic batches.
+    /// join atomic batches. `indexes` is the metadata keys this table's reads
+    /// are built on, declared with the entity.
     pub async fn new_postgres(
         connection_string: &str,
         table_name: &str,
+        indexes: EntityIndexes,
     ) -> Result<Self, StorageError> {
-        let store = PostgresStorage::new(connection_string, table_name).await?;
+        let store = PostgresStorage::new(connection_string, table_name, indexes).await?;
         Ok(Self::Postgres(InstrumentedStore::new(CachingStore::new(
             store,
             CacheConfig::default(),

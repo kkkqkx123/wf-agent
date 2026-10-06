@@ -5,11 +5,11 @@
 //! views as the interactive rendering.
 //!
 //! The controller's responsibilities are split across sibling submodules of
-//! this module:
+//! this module, with the replay pagination state machine shared with the
+//! history overlay at [`crate::pager`]:
 //!
 //! * [`handlers`] — domain-side approval/interaction adapters that post into
 //!   the session event channel.
-//! * [`pager`] — the pure, I/O-free replay pagination state machine.
 //! * [`keys`] — keyboard input handling (prompt, approval, question, scroll).
 //! * [`render`] — the draw path (scrollback viewport, footer, prompt line).
 //!
@@ -19,11 +19,10 @@
 
 pub mod handlers;
 pub(crate) mod keys;
-mod pager;
 mod render;
 
+use crate::pager::ReplayPager;
 pub use handlers::{TuiApprovalHandler, TuiInteractionHandler};
-use pager::ReplayPager;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -326,6 +325,11 @@ impl InteractiveController {
         if let Some(task) = self.turn_task.take() {
             task.abort();
         }
+    }
+
+    /// Session this controller replays, as its footer reports it.
+    pub fn session_id(&self) -> Option<&str> {
+        self.footer.state.execution_id.as_deref()
     }
 
     /// Load persisted scrollback for an existing execution/session.

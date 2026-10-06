@@ -168,7 +168,6 @@ fn reachable_from(graph: &WorkflowGraphStructure, start: Option<&str>) -> HashSe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use wf_types::workflow::edge::EdgeType;
     use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
 
@@ -177,8 +176,6 @@ mod tests {
         let graph = WorkflowGraphStructure {
             nodes: vec![],
             edges: vec![],
-            adjacency_list: std::collections::HashMap::new(),
-            reverse_adjacency_list: std::collections::HashMap::new(),
             start_node_id: None,
             end_node_ids: vec![],
             error_default: None,
@@ -200,8 +197,6 @@ mod tests {
                 inner: serde_json::json!({}),
             }],
             edges: vec![],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("nonexistent".to_string()),
             end_node_ids: vec!["node_1".to_string()],
             error_default: None,
@@ -236,8 +231,6 @@ mod tests {
                 description: None,
                 error_route: None,
             }],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
             error_default: None,

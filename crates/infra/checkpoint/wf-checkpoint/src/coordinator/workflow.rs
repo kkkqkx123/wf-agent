@@ -1,6 +1,5 @@
 use crate::coordinator::base::{
-    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted,
+    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed, publish_persisted,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::CheckpointLoader;
@@ -344,19 +343,16 @@ impl WorkflowCheckpointCoordinator {
         CheckpointSerializer::auto_deserialize(&migrated)
     }
 
-    /// Post-restore phase: restore child executions through the hierarchy
-    /// metadata. Latest checkpoints of child executions are resolved from
-    /// storage with bounded concurrency, BFS-restored via `HierarchyRestorer`,
-    /// and (when a restore strategy is registered for the child execution
-    /// type) fully restored through the strategy registry. Restored children
-    /// are registered into the execution registry for integrity validation
-    /// and JOIN inference. Children that could not be restored are returned
-    /// so the caller can remove them from the hierarchy metadata.
+    /// Post-restore phase: restore child executions. Latest checkpoints of
+    /// child executions are resolved from storage with bounded concurrency,
+    /// BFS-restored via `HierarchyRestorer`, and (when a restore strategy is
+    /// registered for the child execution type) fully restored through the
+    /// strategy registry.
     async fn restore_child_hierarchy(
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-    ) -> Result<(RestoreSummary, Vec<String>), CheckpointError> {
+    ) -> Result<RestoreSummary, CheckpointError> {
         // Children are found by querying the checkpoints whose entity records
         // this execution as their parent. The link lives on the child, so the
         // result reflects every child that ever checkpointed, including ones
@@ -366,14 +362,11 @@ impl WorkflowCheckpointCoordinator {
             .list_latest_by_parent(parent_entity_id)
             .await?;
         if latest_by_child.is_empty() {
-            return Ok((
-                RestoreSummary {
-                    total: 0,
-                    success: 0,
-                    failed: 0,
-                },
-                Vec::new(),
-            ));
+            return Ok(RestoreSummary {
+                total: 0,
+                success: 0,
+                failed: 0,
+            });
         }
 
         // Bounded concurrency for the per-child restore phase.
@@ -384,7 +377,6 @@ impl WorkflowCheckpointCoordinator {
         for meta in &latest_by_child {
             let gate = gate.clone();
             let meta = meta.clone();
-            let parent_entity_id = parent_entity_id.to_string();
             let storage = storage.clone();
             let restore_registry = restore_registry.clone();
             handles.push(tokio::spawn(async move {
@@ -397,37 +389,29 @@ impl WorkflowCheckpointCoordinator {
                     }
                 };
                 let state_manager = WorkflowCheckpointStateManager::new(storage);
-                restore_child(
-                    &state_manager,
-                    restore_registry.as_ref(),
-                    &parent_entity_id,
-                    meta,
-                )
-                .await
+                restore_child(&state_manager, restore_registry.as_ref(), meta).await
             }));
         }
 
         let resolver = StorageChildResolver::new();
         let mut index: HashMap<String, CheckpointStorageMetadata> = HashMap::new();
-        let mut failed_children = Vec::new();
         let mut restored = 0u32;
 
         for handle in handles {
             match handle.await {
                 Ok(Ok(outcome)) => {
-                    if let Some(meta) = outcome.metadata {
-                        index.insert(meta.id.clone(), meta.clone());
-                        resolver.register_relationship(checkpoint_id, &meta.id);
-                        if outcome.restored {
-                            restored += 1;
-                        }
-                    }
-                    if outcome.failed {
-                        failed_children.push(outcome.child_id);
+                    index.insert(outcome.metadata.id.clone(), outcome.metadata.clone());
+                    resolver.register_relationship(checkpoint_id, &outcome.metadata.id);
+                    if outcome.restored {
+                        restored += 1;
                     }
                 }
-                Ok(Err(_)) => {
-                    // resolution/restore error: treat the child as failed.
+                Ok(Err(err)) => {
+                    tracing::warn!(
+                        parent = %parent_entity_id,
+                        error = %err,
+                        "child restore failed"
+                    );
                 }
                 Err(join_err) => {
                     tracing::warn!(
@@ -444,7 +428,7 @@ impl WorkflowCheckpointCoordinator {
         let results = restorer.restore_children_bfs(checkpoint_id, &loader, 8, None)?;
         let mut summary = HierarchyRestorer::summarize_results(&results);
         summary.success += restored as usize;
-        Ok((summary, failed_children))
+        Ok(summary)
     }
 }
 
@@ -455,26 +439,26 @@ impl WorkflowCheckpointCoordinator {
 async fn restore_child(
     state_manager: &WorkflowCheckpointStateManager,
     restore_registry: Option<&RestoreStrategyRegistry>,
-    _parent_entity_id: &str,
     meta: CheckpointStorageMetadata,
 ) -> Result<ChildRestoreOutcome, CheckpointError> {
     let mut outcome = ChildRestoreOutcome {
-        child_id: meta.entity_id.clone(),
-        metadata: Some(meta.clone()),
+        metadata: meta.clone(),
         restored: false,
-        failed: false,
     };
 
     if let Some(reg) = restore_registry {
         if let Some(data) = state_manager.load_checkpoint_data(&meta.id).await? {
-            let restore_result = reg.restore(&meta.entity_type, &meta.id, &data).await;
-            if restore_result.is_ok() {
-                outcome.restored = true;
-            } else {
-                outcome.failed = true;
+            match reg.restore(&meta.entity_type, &meta.id, &data).await {
+                Ok(_) => outcome.restored = true,
+                Err(err) => {
+                    tracing::warn!(
+                        child_id = %meta.entity_id,
+                        checkpoint_id = %meta.id,
+                        error = %err,
+                        "child restore strategy failed"
+                    );
+                }
             }
-        } else {
-            outcome.failed = true;
         }
     }
     Ok(outcome)
@@ -484,12 +468,9 @@ async fn restore_child(
 const CHILD_RESTORE_CONCURRENCY: usize = 5;
 
 struct ChildRestoreOutcome {
-    child_id: String,
-    metadata: Option<CheckpointStorageMetadata>,
+    metadata: CheckpointStorageMetadata,
     restored: bool,
-    failed: bool,
 }
-
 
 impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     type Checkpoint = WorkflowCheckpoint;
@@ -833,7 +814,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         // Post-restore phase: bring back the child executions spawned from
         // this one. They are located through their own records rather than a
         // list cached in this snapshot.
-        if let Ok((summary, _failed)) = self
+        if let Ok(summary) = self
             .restore_child_hierarchy(checkpoint_id, &entity.execution_id)
             .await
         {
@@ -1590,17 +1571,14 @@ mod tests {
 
         // Parent checkpoint: a root, holding no knowledge of any child.
         let mut snapshot = make_snapshot();
-        snapshot.hierarchy = Some(ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "exec-1".to_string(),
-            parent_execution_id: None,
-            parent_execution_type: None,
-            depth: 0,
-            root_execution_id: None,
-            root_execution_type: None,
-            ancestors: None,
-            fork_path: None,
-        });
+        snapshot.hierarchy = Some(ExecutionHierarchy::new(
+            "wf-1".to_string(),
+            "exec-1".to_string(),
+            Vec::new(),
+            None,
+            None,
+            None,
+        ));
         let ctx = coord
             .prepare("exec-1", CheckpointTiming::BeforeExecute)
             .await
@@ -1614,17 +1592,14 @@ mod tests {
         let mut child_snapshot = make_snapshot();
         child_snapshot.execution_id = "child-exec-1".to_string();
         child_snapshot.status = "completed".to_string();
-        child_snapshot.hierarchy = Some(ExecutionHierarchy {
-            workflow_id: "wf-1".to_string(),
-            execution_id: "child-exec-1".to_string(),
-            parent_execution_id: Some("exec-1".to_string()),
-            parent_execution_type: Some(ExecutionType::Workflow),
-            depth: 1,
-            root_execution_id: Some("exec-1".to_string()),
-            root_execution_type: Some(ExecutionType::Workflow),
-            ancestors: Some(vec!["exec-1".to_string()]),
-            fork_path: None,
-        });
+        child_snapshot.hierarchy = Some(ExecutionHierarchy::new(
+            "wf-1".to_string(),
+            "child-exec-1".to_string(),
+            vec!["exec-1".to_string()],
+            Some(ExecutionType::Workflow),
+            Some(ExecutionType::Workflow),
+            None,
+        ));
         let ctx = coord
             .prepare("child-exec-1", CheckpointTiming::AfterExecute)
             .await

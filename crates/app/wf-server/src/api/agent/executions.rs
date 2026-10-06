@@ -96,7 +96,6 @@ pub(crate) async fn handle_agent_executions(
             .as_deref()
             .and_then(|s| serde_json::from_value(serde_json::json!(s)).ok()),
         agent_id: query.agent_id,
-        parent_execution_id: None,
     };
     match wf_api::agent::agent_execution_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(summaries) => {

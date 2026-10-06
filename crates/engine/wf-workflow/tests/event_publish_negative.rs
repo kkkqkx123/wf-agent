@@ -45,8 +45,6 @@ fn graph(
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some(start.to_string()),
         end_node_ids: ends.into_iter().map(String::from).collect(),
         error_default: None,

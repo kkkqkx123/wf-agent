@@ -565,7 +565,7 @@ impl Runtime {
                 .with_max_sub_agent_depth(
                     agent_limits
                         .max_sub_agent_depth
-                        .unwrap_or(wf_agent::registry::DEFAULT_MAX_SUB_AGENT_DEPTH),
+                        .unwrap_or(wf_types::execution::MAX_EXECUTION_DEPTH),
                 )
                 .with_max_concurrent({
                     let max = agent_limits.max_concurrent.unwrap_or(0);

@@ -2,8 +2,6 @@
 //! Exercises `GraphValidator` end to end: a valid graph passes while
 //! structural defects are reported with field paths.
 
-use std::collections::HashMap;
-
 use wf_types::workflow::EdgeType;
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
 use wf_workflow::{format_validation_report, GraphValidator};
@@ -34,8 +32,6 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,

@@ -164,12 +164,19 @@ pub async fn init_checkpoint_store(
     config: &StorageConfig,
 ) -> Arc<wf_storage::backend::StorageBackend> {
     use wf_storage::backend::StorageBackend;
+    use wf_storage::context::EntityStoreId;
 
     let backend = match config.storage_type {
         StorageType::Memory => StorageBackend::new_memory(),
         StorageType::Sqlite => {
             let path = storage_db_path(config);
-            match StorageBackend::new_sqlite(&path.to_string_lossy(), "checkpoint").await {
+            match StorageBackend::new_sqlite(
+                &path.to_string_lossy(),
+                "checkpoint",
+                EntityStoreId::Checkpoint.indexes(),
+            )
+            .await
+            {
                 Ok(store) => store,
                 Err(err) => {
                     warn!(error = %err, path = %path.display(), "failed to open checkpoint store backend; checkpoints stay in memory");
@@ -183,7 +190,13 @@ pub async fn init_checkpoint_store(
                 .as_ref()
                 .map(postgres_connection_string)
                 .unwrap_or_default();
-            match StorageBackend::new_postgres(&conn, "checkpoint").await {
+            match StorageBackend::new_postgres(
+                &conn,
+                "checkpoint",
+                EntityStoreId::Checkpoint.indexes(),
+            )
+            .await
+            {
                 Ok(store) => store,
                 Err(err) => {
                     warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");

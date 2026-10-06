@@ -627,18 +627,10 @@ fn print_hierarchy(view: &ExecutionHierarchyView) {
             view.ancestors.join(" -> ")
         }
     );
-    if view.children.is_empty() {
-        println!("  children: -");
-        return;
-    }
-    println!("  children:");
-    for child in &view.children {
-        println!(
-            "    {} ({})",
-            child.execution_id,
-            execution_type_label(&child.execution_type)
-        );
-    }
+    println!(
+        "  children: see `wf execution subtree {}`",
+        view.execution_id
+    );
 }
 
 /// A subtree, one execution per line, indented by depth.

@@ -23,6 +23,11 @@ pub enum CoreError {
     /// overflow from other state misuse without parsing message text.
     #[error("maximum hierarchy depth exceeded: {depth} > {max_depth}")]
     HierarchyDepthExceeded { depth: u32, max_depth: u32 },
+    /// An id that cannot be part of a materialised path was offered to the
+    /// hierarchy. Rejected where the id is accepted so no record carrying it
+    /// is ever written.
+    #[error("execution id {id:?} cannot take part in an execution hierarchy")]
+    HierarchyInvalidId { id: String },
     #[error("internal: {0}")]
     Internal(String),
     #[error("task conflict: {0}")]

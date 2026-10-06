@@ -38,9 +38,13 @@ fn make_envelope(id: &str, timestamp: i64, payload: &str) -> Envelope {
 }
 
 async fn sqlite_backend(path: &str) -> StorageBackend {
-    StorageBackend::new_sqlite(path, "checkpoints")
-        .await
-        .expect("sqlite store opens")
+    StorageBackend::new_sqlite(
+        path,
+        "checkpoints",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .expect("sqlite store opens")
 }
 
 async fn open_manager(path: &str) -> StorageBackedStateManager<Envelope> {
@@ -50,9 +54,13 @@ async fn open_manager(path: &str) -> StorageBackedStateManager<Envelope> {
 /// Flip one byte at `offset` of the persisted payload of `id` without
 /// touching the stored hash (simulates on-disk corruption).
 async fn flip_payload_byte(path: &str, id: &str, offset: usize) {
-    let store = SqliteStorage::new(path, "checkpoints")
-        .await
-        .expect("sqlite store opens");
+    let store = SqliteStorage::new(
+        path,
+        "checkpoints",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .expect("sqlite store opens");
     let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
@@ -72,9 +80,13 @@ async fn flip_payload_byte(path: &str, id: &str, offset: usize) {
 /// Truncate the persisted payload of `id` to half its length, keeping the
 /// stored hash (simulates a half-written blob after a crash).
 async fn truncate_payload(path: &str, id: &str) {
-    let store = SqliteStorage::new(path, "checkpoints")
-        .await
-        .expect("sqlite store opens");
+    let store = SqliteStorage::new(
+        path,
+        "checkpoints",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .expect("sqlite store opens");
     let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
@@ -104,9 +116,13 @@ fn random_ascii(len: usize) -> String {
 }
 
 async fn metadata_status(path: &str, id: &str) -> String {
-    let store = SqliteStorage::new(path, "checkpoints")
-        .await
-        .expect("sqlite store opens");
+    let store = SqliteStorage::new(
+        path,
+        "checkpoints",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .expect("sqlite store opens");
     let (meta,): (String,) = sqlx::query_as("SELECT metadata FROM checkpoints WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
@@ -137,7 +153,13 @@ async fn bit_flip_in_payload_is_detected_and_marked_corrupted() {
 
     // Corrupt the middle byte on disk (stored length, not input length:
     // the blob is gzip-compressed by the Auto strategy).
-    let store = SqliteStorage::new(db, "checkpoints").await.unwrap();
+    let store = SqliteStorage::new(
+        db,
+        "checkpoints",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .unwrap();
     let (stored,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
         .bind("cp-1")
         .fetch_one(store.pool())

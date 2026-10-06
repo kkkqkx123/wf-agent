@@ -5,15 +5,12 @@ use dashmap::DashMap;
 use wf_common::gate::GateStats;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_tools::callback::AgentLoopOutput;
+use wf_types::execution::MAX_EXECUTION_DEPTH;
 use wf_types::Id;
 
 use crate::capacity::AgentCapacityGate;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-
-/// Default sub-agent recursion depth limit (root = depth 0; a chain of up to
-/// 8 nested child loops is allowed). Aligned with Codex's spawn depth default.
-pub const DEFAULT_MAX_SUB_AGENT_DEPTH: u32 = 8;
 
 /// Query filter for agent loop registry lookups.
 #[derive(Debug, Clone, Default)]
@@ -92,7 +89,7 @@ impl AgentLoopRegistry {
             results: DashMap::new(),
             tasks: DashMap::new(),
             gate: Arc::new(AgentCapacityGate::new(max_concurrent)),
-            max_sub_agent_depth: AtomicU32::new(DEFAULT_MAX_SUB_AGENT_DEPTH),
+            max_sub_agent_depth: AtomicU32::new(MAX_EXECUTION_DEPTH),
         }
     }
 
@@ -103,7 +100,8 @@ impl AgentLoopRegistry {
         self
     }
 
-    /// Builder-style sub-agent depth limit.
+    /// Builder-style sub-agent depth limit; see
+    /// [`Self::set_max_sub_agent_depth`].
     pub fn with_max_sub_agent_depth(self, max: u32) -> Self {
         self.set_max_sub_agent_depth(max);
         self
@@ -115,7 +113,10 @@ impl AgentLoopRegistry {
         self.gate.set_max_concurrent(max);
     }
 
-    /// Reconfigure the sub-agent depth limit in place.
+    /// Reconfigure the sub-agent depth limit in place. This is a policy bound
+    /// that may only tighten the structural one: a child deeper than
+    /// [`MAX_EXECUTION_DEPTH`] is refused by the hierarchy itself, so raising
+    /// this value cannot admit one.
     pub fn set_max_sub_agent_depth(&self, max: u32) {
         self.max_sub_agent_depth.store(max, Ordering::Relaxed);
     }
@@ -188,9 +189,10 @@ impl AgentLoopRegistry {
     }
 
     /// Whether a child execution at `parent_depth` (0 for a root run) fits
-    /// within the sub-agent depth limit.
+    /// within both the sub-agent policy bound and the structural depth limit.
     pub fn depth_allowed(&self, parent_depth: u32) -> bool {
-        parent_depth.saturating_add(1) <= self.max_sub_agent_depth()
+        let depth = parent_depth.saturating_add(1);
+        depth <= self.max_sub_agent_depth() && depth <= MAX_EXECUTION_DEPTH
     }
 
     pub fn unregister(&self, id: &Id) -> bool {

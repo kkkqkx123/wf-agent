@@ -102,8 +102,6 @@ pub fn template_to_graph(template: &WorkflowTemplate) -> WorkflowGraphStructure 
             .unwrap_or_default(),
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         error_default: None,
     }
 }

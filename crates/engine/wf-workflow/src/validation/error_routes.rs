@@ -85,8 +85,6 @@ fn warn_error_routes_in_fork_subtrees(graph: &WorkflowGraphStructure) {
             .filter(|e| e.r#type != EdgeType::Error)
             .cloned()
             .collect(),
-        adjacency_list: Default::default(),
-        reverse_adjacency_list: Default::default(),
         start_node_id: graph.start_node_id.clone(),
         end_node_ids: graph.end_node_ids.clone(),
         error_default: None,

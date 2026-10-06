@@ -92,6 +92,9 @@ impl ExecutionHistorySections {
 pub struct ExecutionHistoryView {
     pub execution_id: String,
     pub execution_type: ExecutionType,
+    /// Cap on `timeline`: one read never carries more lifecycle events than
+    /// this, and a run past the cap has its later events left out.
+    pub timeline_limit: usize,
     /// Lifecycle events oldest first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub timeline: Vec<BaseEvent>,
@@ -122,6 +125,7 @@ pub async fn history(
     let mut view = ExecutionHistoryView {
         execution_id: id.to_string(),
         execution_type: execution_type.clone(),
+        timeline_limit: crate::infra::events::TIMELINE_LIMIT,
         timeline: Vec::new(),
         node_executions: Vec::new(),
         iterations: Vec::new(),

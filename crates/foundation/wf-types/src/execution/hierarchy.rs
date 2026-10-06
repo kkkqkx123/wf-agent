@@ -17,21 +17,20 @@ pub struct ExecutionIdentity {
 pub struct ExecutionHierarchy {
     pub workflow_id: super::super::Id,
     pub execution_id: super::super::Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_execution_id: Option<super::super::Id>,
+    /// Which engine owns the direct parent. Absent at a root, as is
+    /// [`Self::parent_execution_id`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_execution_type: Option<ExecutionType>,
-    pub depth: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_execution_id: Option<super::super::Id>,
+    /// Which engine owns the root of this execution's tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_execution_type: Option<ExecutionType>,
-    /// Root-to-parent execution id chain (oldest first, excluding self).
-    /// Carried through checkpoints so deep hierarchies survive
-    /// cross-process restore; `None` when the chain is unknown (legacy
-    /// data or a root execution).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ancestors: Option<Vec<super::super::Id>>,
+    /// Materialised ancestor path: every id in the chain from the root down to
+    /// and including this execution, each wrapped in [`PATH_DELIMITER`].
+    ///
+    /// This is the one stored statement of where the execution sits. Depth,
+    /// root, parent and the ancestor chain are all read off it, so no pair of
+    /// fields on this record can describe a different tree.
+    pub path: String,
     /// How this execution came to exist, when it was produced by a FORK
     /// branch. Creation provenance is a forward fact about this execution,
     /// so it lives here rather than as a reverse entry on the parent.
@@ -42,37 +41,98 @@ pub struct ExecutionHierarchy {
 /// Delimiter wrapping every id in a materialised execution path.
 pub const PATH_DELIMITER: char = '/';
 
+/// Whether `id` can be part of a materialised execution path.
+///
+/// The path is the single statement of where an execution sits, and it is
+/// delimited by [`PATH_DELIMITER`], so an id carrying that delimiter would
+/// come back from the path as two different ids. An empty id is just as
+/// unusable: the path built from it decodes to nothing.
+pub fn is_valid_execution_id(id: &str) -> bool {
+    !id.is_empty() && !id.contains(PATH_DELIMITER)
+}
+
+/// How deep an execution tree may nest, a root sitting at `0`.
+///
+/// This is the one place the bound is stated: the structural check that rejects
+/// over-deep derivation, the actor id encoding that has to represent the same
+/// chain, and the sub-agent admission gate all read it.
+pub const MAX_EXECUTION_DEPTH: u32 = 10;
+
 impl ExecutionHierarchy {
-    /// The id chain of this execution from the root of its tree down to and
-    /// including itself.
+    /// Build the lineage of one execution.
     ///
-    /// A root is its own only ancestor. When the parent is known but the longer
-    /// chain is not, the chain is just that parent, which keeps chain, depth
-    /// and root mutually consistent rather than describing a different tree.
-    pub fn chain(&self) -> Vec<String> {
-        let ancestors = match self.parent_execution_id.as_ref() {
-            None => Vec::new(),
-            Some(parent) => match self.ancestors.as_ref() {
-                Some(chain) if !chain.is_empty() => {
-                    chain.iter().map(|id| id.to_string()).collect()
-                }
-                _ => vec![parent.to_string()],
+    /// `ancestors` is the chain from the root down to the direct parent, oldest
+    /// first, and is empty at a root. Everything this record can say about
+    /// position derives from it, so a caller cannot produce a record whose
+    /// fields disagree. A caller that knows only the direct parent passes a
+    /// single-element chain; a caller that knows nothing else passes an empty
+    /// one.
+    pub fn new(
+        workflow_id: super::super::Id,
+        execution_id: super::super::Id,
+        ancestors: Vec<super::super::Id>,
+        parent_execution_type: Option<ExecutionType>,
+        root_execution_type: Option<ExecutionType>,
+        fork_path: Option<ForkPath>,
+    ) -> Self {
+        let parent_execution_id = ancestors.last().cloned();
+        let path = encode_path(
+            &ancestors
+                .iter()
+                .map(|id| id.to_string())
+                .chain(std::iter::once(execution_id.to_string()))
+                .collect::<Vec<_>>(),
+        );
+        Self {
+            workflow_id,
+            execution_id,
+            // A root has no parent, so it cannot have a parent's engine either.
+            parent_execution_type: if parent_execution_id.is_some() {
+                parent_execution_type
+            } else {
+                None
             },
-        };
-        ancestors
-            .into_iter()
-            .chain(std::iter::once(self.execution_id.to_string()))
-            .collect()
+            root_execution_type,
+            path,
+            fork_path,
+        }
     }
 
-    /// The materialised form of [`Self::chain`]: every id wrapped in the path
-    /// delimiter. One prefix scan on it answers "everything under this root",
-    /// and cutting its last segment answers "who are my ancestors".
-    ///
-    /// The delimiter after the last id is what keeps a scan for `/r/` from
-    /// matching a different tree whose root id merely begins the same way.
-    pub fn path(&self) -> String {
-        encode_path(&self.chain())
+    /// The id chain from the root down to and including this execution,
+    /// oldest first. A root is its own only ancestor.
+    pub fn chain(&self) -> Vec<String> {
+        decode_path(&self.path)
+    }
+
+    /// The materialised form of [`Self::chain`], as stored. One prefix scan on
+    /// it answers "everything under this root", and cutting its last segment
+    /// answers "who are my ancestors". The delimiter after the last id is what
+    /// keeps a scan for `/r/` from matching a different tree whose root id
+    /// merely begins the same way.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Root-to-parent id chain, oldest first, excluding this execution.
+    pub fn ancestors(&self) -> Vec<super::super::Id> {
+        let mut chain = self.chain();
+        chain.pop();
+        chain
+    }
+
+    /// Nesting level below the root; a root execution is `0`.
+    pub fn depth(&self) -> u32 {
+        self.chain().len().saturating_sub(1) as u32
+    }
+
+    /// The execution this one descends from; [`Self::execution_id`] at a root.
+    pub fn parent_execution_id(&self) -> Option<super::super::Id> {
+        self.ancestors().last().cloned()
+    }
+
+    /// The root of this execution's tree, which a root execution is itself.
+    pub fn root_execution_id(&self) -> super::super::Id {
+        self.chain().into_iter().next().unwrap_or_default()
     }
 }
 
@@ -100,62 +160,96 @@ mod tests {
     use super::*;
     use crate::Id;
 
-    fn hierarchy(parent: Option<&str>, ancestors: Option<&[&str]>) -> ExecutionHierarchy {
-        let ids: Option<Vec<Id>> =
-            ancestors.map(|chain| chain.iter().map(|id| Id::from(*id)).collect());
-        let root = ancestors
-            .and_then(|chain| chain.first())
-            .copied()
-            .or(parent)
-            .unwrap_or("self");
-        ExecutionHierarchy {
-            workflow_id: "wf-1".into(),
-            execution_id: "self".into(),
-            parent_execution_id: parent.map(Id::from),
-            parent_execution_type: parent.map(|_| ExecutionType::AgentLoop),
-            depth: ancestors.map_or(u32::from(parent.is_some()), |a| a.len() as u32),
-            root_execution_id: Some(Id::from(root)),
-            root_execution_type: Some(ExecutionType::Workflow),
-            ancestors: ids,
-            fork_path: None,
-        }
+    fn hierarchy(ancestors: &[&str]) -> ExecutionHierarchy {
+        let parent_type = if ancestors.is_empty() {
+            None
+        } else {
+            Some(ExecutionType::AgentLoop)
+        };
+        ExecutionHierarchy::new(
+            "wf-1".into(),
+            "self".into(),
+            ancestors.iter().map(|id| Id::from(*id)).collect(),
+            parent_type,
+            Some(ExecutionType::Workflow),
+            None,
+        )
     }
 
     #[test]
     fn a_root_is_its_own_only_ancestor() {
-        let root = hierarchy(None, None);
+        let root = hierarchy(&[]);
         assert_eq!(root.chain(), vec!["self".to_string()]);
         assert_eq!(root.path(), "/self/");
-        assert_eq!(decode_path(&root.path()), vec!["self".to_string()]);
+        assert_eq!(decode_path(root.path()), vec!["self".to_string()]);
+        assert_eq!(root.depth(), 0);
+        assert_eq!(root.parent_execution_id(), None);
+        assert_eq!(root.parent_execution_type, None);
+        assert_eq!(root.root_execution_id(), "self");
     }
 
     #[test]
     fn a_child_path_extends_its_parents() {
-        let child = hierarchy(Some("root"), Some(&["root"]));
+        let child = hierarchy(&["root"]);
         assert_eq!(child.path(), "/root/self/");
-        assert_eq!(decode_path(&child.path()), child.chain());
+        assert_eq!(decode_path(child.path()), child.chain());
+        assert_eq!(child.depth(), 1);
+        assert_eq!(child.parent_execution_id(), Some(Id::from("root")));
+        assert_eq!(child.parent_execution_type, Some(ExecutionType::AgentLoop));
     }
 
     /// A record that knows its parent but not the longer chain still describes
     /// one consistent tree instead of a truncated one.
     #[test]
     fn a_known_parent_alone_yields_a_consistent_chain() {
-        let orphan = hierarchy(Some("known-parent"), None);
-        assert_eq!(orphan.chain(), vec!["known-parent", "self"]);
-        assert_eq!(decode_path(&orphan.path()).len() as u32, orphan.depth + 1);
+        let orphan = hierarchy(&["known-parent"]);
+        assert_eq!(orphan.chain(), vec!["known-parent".to_string()]);
+        assert_eq!(orphan.depth(), 1);
+        assert_eq!(orphan.root_execution_id(), "known-parent");
     }
 
     #[test]
     fn path_roundtrips_through_every_level() {
         for level in 0..4usize {
             let ancestors: Vec<String> = (0..level).map(|i| format!("a{i}")).collect();
-            let mut record = hierarchy(ancestors.last().map(String::as_str), None);
-            record.execution_id = "leaf".into();
-            record.ancestors = Some(ancestors.iter().map(Id::from).collect());
-            record.depth = level as u32;
-            assert_eq!(decode_path(&record.path()), record.chain());
-            assert_eq!(decode_path(&record.path()).len() as u32 - 1, record.depth);
+            let record = ExecutionHierarchy::new(
+                "wf-1".into(),
+                "leaf".into(),
+                ancestors.iter().map(Id::from).collect(),
+                Some(ExecutionType::Workflow),
+                Some(ExecutionType::Workflow),
+                None,
+            );
+            assert_eq!(decode_path(record.path()), record.chain());
+            assert_eq!(record.depth(), level as u32);
+            assert_eq!(
+                record.root_execution_id(),
+                ancestors.first().cloned().unwrap_or("leaf".into())
+            );
         }
+    }
+
+    #[test]
+    fn a_sibling_tree_reports_its_own_chain_only() {
+        let g = ExecutionHierarchy::new(
+            "wf-1".into(),
+            "g".into(),
+            ["r", "a"].iter().map(|id| Id::from(*id)).collect(),
+            Some(ExecutionType::Workflow),
+            Some(ExecutionType::Workflow),
+            None,
+        );
+        let b = ExecutionHierarchy::new(
+            "wf-1".into(),
+            "b".into(),
+            vec![Id::from("r")],
+            Some(ExecutionType::Workflow),
+            Some(ExecutionType::Workflow),
+            None,
+        );
+        assert_eq!(g.ancestors(), vec!["r".to_string(), "a".to_string()]);
+        assert_eq!(b.ancestors(), vec!["r".to_string()]);
+        assert_eq!(g.root_execution_id(), b.root_execution_id());
     }
 }
 

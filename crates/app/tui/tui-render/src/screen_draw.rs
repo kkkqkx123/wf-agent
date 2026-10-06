@@ -6,10 +6,12 @@
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use super::layout::split_management;
+use tui_components::transcript::HistoryLine;
 use tui_core::screen_data::{short_id, ScreenData};
 use tui_style::theme::{ColorRole, Theme};
 
@@ -57,11 +59,6 @@ fn render_rows(
     let mut state = ListState::default();
     state.select(Some(selected.min(rows.len() - 1)));
     frame.render_stateful_widget(List::new(items).block(block), area, &mut state);
-}
-
-/// Leading indentation for a row nested `depth` levels under its parent.
-fn depth_indent(depth: u32) -> String {
-    "  ".repeat(depth as usize)
 }
 
 pub fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
@@ -130,8 +127,7 @@ pub fn draw_executions(
             .iter()
             .map(|r| {
                 format!(
-                    "{}{} · {} · iter {} · {} tools · {}",
-                    depth_indent(r.depth),
+                    "{} · {} · iter {} · {} tools · {}",
                     short_id(&r.id),
                     r.status,
                     r.iteration,
@@ -145,7 +141,7 @@ pub fn draw_executions(
 
     let (header_area, body_area) = split_management(area, 3);
 
-    let header = Paragraph::new("f cycle status filter · Enter inspect · Esc back")
+    let header = Paragraph::new("f cycle status filter · Enter open session · Esc back")
         .block(titled_block("Filter", ColorRole::Warning, theme));
     frame.render_widget(header, header_area);
 
@@ -165,8 +161,7 @@ pub fn draw_agent_loops(
             .iter()
             .map(|r| {
                 format!(
-                    "{}{} · {} · iter {} · {} tools · {}",
-                    depth_indent(r.depth),
+                    "{} · {} · iter {} · {} tools · {}",
                     short_id(&r.id),
                     r.status,
                     r.iteration,
@@ -367,19 +362,105 @@ pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, selected: usize) {
 
 /// Transcript history overlay: full-screen history view. Moved here from the
 /// application shell for the same reason as above.
-pub fn draw_transcript_overlay(frame: &mut Frame, area: Rect) {
+/// Scrollback window and paging state the history overlay paints.
+///
+/// The overlay owns the data and the cursor; the renderer only reports back
+/// how the laid-out window clamped the viewport offset.
+pub struct HistoryOverlayView<'a> {
+    /// Session the scrollback belongs to, while one is open.
+    pub session_id: Option<&'a str>,
+    /// Loaded scrollback, oldest page first.
+    pub lines: &'a [HistoryLine],
+    /// Display rows the viewport sits above the tail. Clamped in place to the
+    /// laid-out window, so the flag the draw returns tells the key handler
+    /// whether the viewport has reached the oldest loaded row.
+    pub scroll: usize,
+    /// Older messages exist behind the loaded window.
+    pub has_more: bool,
+    /// A page fetch is in flight.
+    pub loading: bool,
+    /// Why loading stopped, when a fetch failed.
+    pub error: Option<&'a str>,
+}
+
+/// Draw the history overlay over `area`, tail anchored: the viewport reads
+/// from the bottom up and only the rows inside the window are painted.
+/// Returns whether the viewport rests on the oldest loaded row.
+pub fn draw_transcript_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    view: &mut HistoryOverlayView<'_>,
+    theme: &Theme,
+) -> bool {
     use ratatui::widgets::Clear;
+    frame.render_widget(Clear, area);
     let overlay_area = Rect {
         x: area.x,
         y: area.y,
         width: area.width,
         height: area.height.saturating_sub(1),
     };
-    frame.render_widget(Clear, overlay_area);
-    let block = Block::default()
-        .title(" History (Ctrl+T to close) ")
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::Magenta));
-    let paragraph = Paragraph::new("History view - Press Ctrl+T to close").block(block);
-    frame.render_widget(paragraph, overlay_area);
+    let block = titled_block("History", ColorRole::Accent, theme);
+    let inner = block.inner(overlay_area);
+    let width = inner.width.max(1);
+
+    // Reflow every loaded line to the window width and carry its role color
+    // into the spans, so the roles the loader assigns stay readable here.
+    let mut rows: Vec<Line<'static>> = Vec::with_capacity(view.lines.len());
+    for source in view.lines {
+        let role_style = theme.style_for_role(source.role.to_color_role());
+        for mut row in source.display_lines(width) {
+            for span in &mut row.spans {
+                span.style = role_style.patch(span.style);
+            }
+            rows.push(row);
+        }
+    }
+
+    let capacity = usize::from(inner.height.max(1));
+    let max_scroll = rows.len().saturating_sub(capacity);
+    view.scroll = view.scroll.min(max_scroll);
+    let at_top = view.scroll >= max_scroll;
+    let end = rows.len().saturating_sub(view.scroll);
+    let start = end.saturating_sub(capacity);
+    frame.render_widget(
+        Paragraph::new(rows[start..end].to_vec()).block(block),
+        overlay_area,
+    );
+
+    if area.height > 0 {
+        let status_area = Rect {
+            x: area.x,
+            y: area.y + area.height - 1,
+            width: area.width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(history_status(view, at_top))
+                .style(theme.style_for_role(ColorRole::Muted)),
+            status_area,
+        );
+    }
+    at_top
+}
+
+/// One line below the overlay: the session, where loading stopped and which
+/// keys move the viewport.
+fn history_status(view: &HistoryOverlayView<'_>, at_top: bool) -> String {
+    let session = match view.session_id {
+        Some(id) => format!("{id} · "),
+        None => String::new(),
+    };
+    let state = if view.loading {
+        "loading…".to_string()
+    } else if let Some(error) = view.error {
+        format!("error: {error}")
+    } else if view.has_more && at_top {
+        "PageUp loads earlier messages".to_string()
+    } else if view.has_more {
+        "earlier messages available".to_string()
+    } else {
+        "start of history".to_string()
+    };
+    format!("{session}{state} · PageUp/PageDown scroll · Ctrl+T close")
 }

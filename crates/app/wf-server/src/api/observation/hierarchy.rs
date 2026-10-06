@@ -7,8 +7,12 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use serde::Serialize;
+use utoipa::ToSchema;
 
 use wf_api::execution_hierarchy;
+use wf_types::execution::ExecutionType;
+use wf_types::ExecutionStatus;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -20,13 +24,144 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/executions/{id}/subtree", get(handle_subtree))
 }
 
+/// One execution as referenced from a hierarchy view: the id and the engine
+/// that owns it.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct ExecutionRefDoc {
+    execution_id: String,
+    #[schema(value_type = String)]
+    execution_type: ExecutionType,
+}
+
+impl From<execution_hierarchy::ExecutionRef> for ExecutionRefDoc {
+    fn from(r: execution_hierarchy::ExecutionRef) -> Self {
+        Self {
+            execution_id: r.execution_id,
+            execution_type: r.execution_type,
+        }
+    }
+}
+
+/// Where one execution sits in the parent/child tree of nested runs.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct HierarchyDoc {
+    execution_id: String,
+    #[schema(value_type = String)]
+    execution_type: ExecutionType,
+    #[schema(value_type = String)]
+    status: ExecutionStatus,
+    /// Nesting level below the root; a root execution is `0`.
+    depth: u32,
+    /// Absent for a root execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<ExecutionRefDoc>,
+    root: ExecutionRefDoc,
+    /// Root-to-parent id chain, oldest first, excluding this execution.
+    ancestors: Vec<String>,
+}
+
+impl From<execution_hierarchy::ExecutionHierarchyView> for HierarchyDoc {
+    fn from(view: execution_hierarchy::ExecutionHierarchyView) -> Self {
+        Self {
+            execution_id: view.execution_id,
+            execution_type: view.execution_type,
+            status: view.status,
+            depth: view.depth,
+            parent: view.parent.map(ExecutionRefDoc::from),
+            root: ExecutionRefDoc::from(view.root),
+            ancestors: view.ancestors,
+        }
+    }
+}
+
+/// One node of a subtree listing.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct SubtreeNodeDoc {
+    execution_id: String,
+    #[schema(value_type = String)]
+    execution_type: ExecutionType,
+    /// Absent only for a live execution whose record has not been written yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    status: Option<ExecutionStatus>,
+    /// Nesting level relative to the queried root, which is `0`.
+    depth: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_execution_id: Option<String>,
+}
+
+impl From<execution_hierarchy::ExecutionSubtreeNode> for SubtreeNodeDoc {
+    fn from(node: execution_hierarchy::ExecutionSubtreeNode) -> Self {
+        Self {
+            execution_id: node.execution_id,
+            execution_type: node.execution_type,
+            status: node.status,
+            depth: node.depth,
+            parent_execution_id: node.parent_execution_id,
+        }
+    }
+}
+
+/// One row a scan reached but could not read, reported beside the rows that
+/// could be read so a single broken record cannot hide the rest of a tree.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct RejectedRowDoc {
+    execution_id: String,
+    reason: String,
+}
+
+impl From<execution_hierarchy::RejectedRow> for RejectedRowDoc {
+    fn from(row: execution_hierarchy::RejectedRow) -> Self {
+        Self {
+            execution_id: row.execution_id,
+            reason: row.reason,
+        }
+    }
+}
+
+/// Every execution below a root, breadth-first.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct SubtreeDoc {
+    root_execution_id: String,
+    /// Set when the node cap dropped descendants, so a caller can tell a
+    /// complete tree from a clipped one.
+    truncated: bool,
+    /// How many descendants the node cap dropped. Query a descendant for the
+    /// part of the tree this response left out.
+    #[serde(skip_serializing_if = "is_zero")]
+    omitted: usize,
+    /// Root first, then each level in child order.
+    nodes: Vec<SubtreeNodeDoc>,
+    rejected: Vec<RejectedRowDoc>,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+impl From<execution_hierarchy::ExecutionSubtree> for SubtreeDoc {
+    fn from(tree: execution_hierarchy::ExecutionSubtree) -> Self {
+        Self {
+            root_execution_id: tree.root_execution_id,
+            truncated: tree.truncated,
+            omitted: tree.omitted,
+            nodes: tree.nodes.into_iter().map(SubtreeNodeDoc::from).collect(),
+            rejected: tree
+                .rejected
+                .into_iter()
+                .map(RejectedRowDoc::from)
+                .collect(),
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/executions/{id}/hierarchy",
     operation_id = "get_executions_id_hierarchy",
     tag = "observation",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::hierarchy::HierarchyDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_hierarchy(
@@ -34,7 +169,7 @@ pub(crate) async fn handle_hierarchy(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match execution_hierarchy::hierarchy(&state.ctx, &path.id).await {
-        Ok(view) => ok(view).into_response(),
+        Ok(view) => ok(HierarchyDoc::from(view)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -45,7 +180,7 @@ pub(crate) async fn handle_hierarchy(
     operation_id = "get_executions_id_subtree",
     tag = "observation",
     params(IdPath),
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::observation::hierarchy::SubtreeDoc>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_subtree(
@@ -53,7 +188,7 @@ pub(crate) async fn handle_subtree(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match execution_hierarchy::subtree(&state.ctx, &path.id).await {
-        Ok(tree) => ok(tree).into_response(),
+        Ok(tree) => ok(SubtreeDoc::from(tree)).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -126,7 +261,6 @@ mod tests {
         assert_eq!(tree_body["data"]["root_execution_id"], "loop-1");
         assert_eq!(tree_body["data"]["truncated"], false);
         assert_eq!(tree_body["data"]["nodes"].as_array().unwrap().len(), 1);
-
     }
 
     #[tokio::test]

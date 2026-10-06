@@ -50,7 +50,6 @@ export interface ExecutionHierarchy {
 	root: ExecutionRef;
 	/** Root-to-parent id chain, oldest first, excluding this execution. */
 	ancestors: string[];
-	children: ExecutionRef[];
 }
 
 /** One node of a subtree listing, breadth-first from the queried root. */
@@ -68,6 +67,8 @@ export interface ExecutionSubtree {
 	rootExecutionId: string;
 	/** Set when the backend node cap dropped descendants. */
 	truncated: boolean;
+	/** How many descendants the node cap dropped. */
+	omitted: number;
 	nodes: ExecutionSubtreeNode[];
 }
 
@@ -104,6 +105,11 @@ export interface ContextEvolutionStep {
 export interface ExecutionHistory {
 	executionId: string;
 	executionType: ExecutionKind;
+	/**
+	 * Cap on `timeline`: one read never carries more lifecycle events than
+	 * this, so a run past the cap has its later events left out.
+	 */
+	timelineLimit: number;
 	timeline: TimelineEntry[];
 	iterations: IterationRecord[];
 	variables: KeyValue[];

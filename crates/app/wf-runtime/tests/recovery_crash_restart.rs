@@ -22,9 +22,13 @@ use wf_types::workflow::WorkflowDefinition;
 use wf_types::{ExecutionStatus, WorkflowExecution};
 
 async fn sqlite_checkpoint_backend(db: &str) -> StorageBackend {
-    StorageBackend::new_sqlite(db, "checkpoint")
-        .await
-        .expect("checkpoint store opens")
+    StorageBackend::new_sqlite(
+        db,
+        "checkpoint",
+        wf_storage::context::EntityStoreId::Checkpoint.indexes(),
+    )
+    .await
+    .expect("checkpoint store opens")
 }
 
 /// start -> v1 -> v2 -> end; v1 and v2 write variables so a partial run
@@ -353,17 +357,14 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
             error: None,
             execution_type: None,
             fork_join_context: None,
-            hierarchy: Some(wf_types::execution::ExecutionHierarchy {
-                workflow_id: "wf-kill-child".into(),
-                execution_id: "child-1".into(),
-                parent_execution_id: Some(parent_id.clone()),
-                parent_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-                depth: 1,
-                root_execution_id: Some(parent_id.clone()),
-                root_execution_type: Some(wf_types::execution::ExecutionType::Workflow),
-                ancestors: Some(vec![parent_id.clone()]),
-                fork_path: None,
-            }),
+            hierarchy: Some(wf_types::execution::ExecutionHierarchy::new(
+                "wf-kill-child".into(),
+                "child-1".into(),
+                vec![parent_id.clone()],
+                Some(wf_types::execution::ExecutionType::Workflow),
+                Some(wf_types::execution::ExecutionType::Workflow),
+                None,
+            )),
         })
         .await
         .unwrap();

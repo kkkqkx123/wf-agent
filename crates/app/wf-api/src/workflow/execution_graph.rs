@@ -695,8 +695,6 @@ impl EmptyGraph for WorkflowGraphStructure {
         WorkflowGraphStructure {
             nodes: Vec::new(),
             edges: Vec::new(),
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: None,
             end_node_ids: Vec::new(),
             error_default: None,
@@ -750,8 +748,6 @@ mod tests {
                 edge("a", "end", None),
                 edge("b", "end", None),
             ],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
             error_default: None,

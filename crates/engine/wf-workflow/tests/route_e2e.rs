@@ -2,7 +2,6 @@
 //! Covers first-match selection and default fallback through the full
 //! executor path. Branch bodies are recording SCRIPT stand-ins.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -69,8 +68,6 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
     WorkflowGraphStructure {
         nodes,
         edges,
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,

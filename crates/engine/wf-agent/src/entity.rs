@@ -340,10 +340,7 @@ impl AgentLoopEntity {
             });
     }
 
-    pub async fn register_child_ref(
-        &self,
-        child_ref: wf_core::ChildExecutionReference,
-    ) {
+    pub async fn register_child_ref(&self, child_ref: wf_core::ChildExecutionReference) {
         self.hierarchy.register_child_ref(child_ref);
     }
 

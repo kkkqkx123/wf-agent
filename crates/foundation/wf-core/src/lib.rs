@@ -17,7 +17,7 @@ pub use failure_policy::{
     FailurePolicyManager,
 };
 pub use hierarchy::manager::{
-    ChildExecutionReference, ExecutionHierarchyManager, ParentExecutionContext, MAX_DEPTH,
+    ChildExecutionReference, ExecutionHierarchyManager, ParentExecutionContext,
 };
 pub use internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
 pub use interruption::{InterruptionSignal, InterruptionState};

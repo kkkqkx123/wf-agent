@@ -13,6 +13,11 @@ use crate::infra::subscription::{
 /// Default maximum number of events returned when no explicit limit is given.
 const DEFAULT_EVENT_LIMIT: usize = 100;
 
+/// The most lifecycle events one history timeline read returns. A run that
+/// recorded more has its later events left out, so the bound travels with the
+/// response instead of being something a caller has to already know.
+pub const TIMELINE_LIMIT: usize = DEFAULT_EVENT_LIMIT;
+
 /// Query options for the event history / timeline endpoints.
 #[derive(Debug, Clone, Default)]
 pub struct EventQueryOptions {

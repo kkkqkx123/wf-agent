@@ -3,7 +3,6 @@
 //! error/interruption records and timeout counts survives snapshot restore,
 //! the rebuilt record reflects it, and the rebuilt entity still drives.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
@@ -47,8 +46,6 @@ fn graph() -> WorkflowGraphStructure {
             node("end", "END"),
         ],
         edges: vec![edge("start", "n1"), edge("n1", "n2"), edge("n2", "end")],
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,

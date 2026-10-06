@@ -94,7 +94,7 @@
 				<span
 					class="rounded border border-warning/40 bg-warning/10 px-1.5 text-micro text-warning"
 				>
-					list truncated
+					list truncated · {formatNumber(subtree.omitted)} omitted
 				</span>
 			{/if}
 		</div>

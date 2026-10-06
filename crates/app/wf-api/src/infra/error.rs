@@ -77,7 +77,7 @@ impl std::fmt::Display for ApiErrorCategory {
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Storage error: {0}")]
-    Storage(#[from] StorageError),
+    Storage(StorageError),
     #[error("Not found: {entity_type} [{id}]")]
     NotFound { entity_type: String, id: String },
     #[error("Validation error: {0}")]
@@ -151,6 +151,25 @@ impl ApiError {
             message: message.into(),
             category,
             source: None,
+        }
+    }
+}
+
+/// A record whose indexed fields disagree with its own materialised path can
+/// never repair itself, and repeating the request cannot change it, so it
+/// reports as a conflict rather than an internal fault: the caller is told to
+/// look at the named record instead of retrying forever.
+impl From<StorageError> for ApiError {
+    fn from(err: StorageError) -> Self {
+        match err {
+            StorageError::Integrity {
+                id,
+                expected,
+                actual,
+            } => ApiError::Conflict(format!(
+                "record [{id}] is inconsistent: expected {expected}, actual {actual}"
+            )),
+            other => ApiError::Storage(other),
         }
     }
 }

@@ -8,7 +8,7 @@
 
 /// Pagination phase of a replay-history load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ReplayPhase {
+pub enum ReplayPhase {
     LoadingBeginning,
     Partial,
     Complete,
@@ -16,11 +16,11 @@ pub(super) enum ReplayPhase {
 
 /// Pure cursor/phase state machine for paged replay loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct ReplayPager {
+pub struct ReplayPager {
     phase: ReplayPhase,
     /// `before_timestamp` for the next (older) page; `None` once the
     /// beginning of the session was reached.
-    pub(super) cursor: Option<i64>,
+    pub cursor: Option<i64>,
     /// True while an earlier-page fetch is in flight (guards double loads).
     loading: bool,
 }
@@ -37,7 +37,7 @@ impl Default for ReplayPager {
 
 impl ReplayPager {
     /// A new replay starts from the tail page placeholder.
-    pub(super) fn begin(&mut self) {
+    pub fn begin(&mut self) {
         self.phase = ReplayPhase::LoadingBeginning;
         self.cursor = None;
         self.loading = false;
@@ -45,7 +45,7 @@ impl ReplayPager {
 
     /// The tail (first) page landed: `Partial` when older records remain,
     /// `Complete` otherwise.
-    pub(super) fn land_initial(&mut self, has_more: bool, next_before: Option<i64>) {
+    pub fn land_initial(&mut self, has_more: bool, next_before: Option<i64>) {
         self.phase = if has_more {
             ReplayPhase::Partial
         } else {
@@ -56,18 +56,18 @@ impl ReplayPager {
     }
 
     /// Whether an older page may be requested right now.
-    pub(super) fn can_load_earlier(&self) -> bool {
+    pub fn can_load_earlier(&self) -> bool {
         self.phase == ReplayPhase::Partial && !self.loading && self.cursor.is_some()
     }
 
     /// Mark an earlier-page fetch as in flight (guard against double loads).
-    pub(super) fn start_earlier(&mut self) {
+    pub fn start_earlier(&mut self) {
         self.loading = true;
     }
 
     /// An earlier page landed: prepend its rows and keep paging while more
     /// older records exist.
-    pub(super) fn land_earlier(&mut self, has_more: bool, next_before: Option<i64>) {
+    pub fn land_earlier(&mut self, has_more: bool, next_before: Option<i64>) {
         self.phase = if has_more {
             ReplayPhase::Partial
         } else {
@@ -78,7 +78,7 @@ impl ReplayPager {
     }
 
     /// A fetch failed: no further pages can be requested.
-    pub(super) fn fail(&mut self) {
+    pub fn fail(&mut self) {
         self.phase = ReplayPhase::Complete;
         self.cursor = None;
         self.loading = false;
@@ -86,7 +86,7 @@ impl ReplayPager {
 
     /// Whether the pager currently sits in the `Partial` phase (an earlier
     /// page is reachable behind the loaded window).
-    pub(super) fn is_partial(&self) -> bool {
+    pub fn is_partial(&self) -> bool {
         self.phase == ReplayPhase::Partial
     }
 }

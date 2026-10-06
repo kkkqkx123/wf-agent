@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::workflow::error_branch::{ErrorRouteConfig, WorkflowErrorDefault};
 use crate::workflow::EdgeType;
@@ -46,8 +45,6 @@ pub struct WorkflowEdge {
 pub struct WorkflowGraphStructure {
     pub nodes: Vec<WorkflowNode>,
     pub edges: Vec<WorkflowEdge>,
-    pub adjacency_list: HashMap<String, Vec<String>>,
-    pub reverse_adjacency_list: HashMap<String, Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_node_id: Option<String>,
     pub end_node_ids: Vec<String>,

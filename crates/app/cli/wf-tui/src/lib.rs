@@ -32,7 +32,9 @@ pub use tui_terminal::{capabilities, editor, liveness, probe, sigint, stderr, te
 
 // Facade-only modules (application shell) remain in this crate.
 pub mod fetch;
+pub mod history_overlay;
 pub mod interactive;
+pub mod pager;
 pub mod replay;
 pub mod screens;
 pub mod session_holder;

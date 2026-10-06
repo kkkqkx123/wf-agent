@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -35,6 +36,10 @@ impl InnerStore {
 pub struct MemoryStorage {
     name: String,
     inner: Arc<RwLock<InnerStore>>,
+    /// Metadata reads served so far. Test support only: lets a test pin that a
+    /// hierarchy query costs a fixed number of reads instead of one per node.
+    /// Kept beside the lock rather than inside it so a read stays a read.
+    read_count: Arc<AtomicUsize>,
 }
 
 impl MemoryStorage {
@@ -42,11 +47,25 @@ impl MemoryStorage {
         Self {
             name: name.to_string(),
             inner: Arc::new(RwLock::new(InnerStore::new())),
+            read_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Test support: how many metadata reads this store has served. Paired with
+    /// `reset_read_count` so a test can measure one query in isolation.
+    #[doc(hidden)]
+    pub fn read_count(&self) -> usize {
+        self.read_count.load(Ordering::Relaxed)
+    }
+
+    /// Test support: zero the metadata read counter.
+    #[doc(hidden)]
+    pub fn reset_read_count(&self) {
+        self.read_count.store(0, Ordering::Relaxed);
     }
 
     /// Test support: flip one byte of a stored record's payload without
@@ -344,6 +363,7 @@ impl Store for MemoryStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
+        self.read_count.fetch_add(1, Ordering::Relaxed);
         let store = self.inner.read().await;
         Ok(apply_filter(&store.records, filter))
     }

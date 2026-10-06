@@ -125,21 +125,14 @@ async fn build_agent_hierarchy(entity: &AgentLoopEntity) -> Option<ExecutionHier
     if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
         return None;
     }
-    Some(ExecutionHierarchy {
-        workflow_id: entity.definition_id().clone(),
-        execution_id: entity.id().clone(),
-        parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
-        parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
-        depth: entity.get_hierarchy_depth(),
-        root_execution_id: entity.get_root_execution_id(),
-        root_execution_type: Some(manager.root_execution_type()),
-        ancestors: if ancestors.is_empty() {
-            None
-        } else {
-            Some(ancestors)
-        },
-        fork_path: manager.fork_path(),
-    })
+    Some(ExecutionHierarchy::new(
+        entity.definition_id().clone(),
+        entity.id().clone(),
+        ancestors,
+        parent.as_ref().map(|p| p.parent_type.clone()),
+        Some(manager.root_execution_type()),
+        manager.fork_path(),
+    ))
 }
 
 #[cfg(test)]
@@ -207,9 +200,12 @@ mod tests {
         let entity = entity("loop-child").with_hierarchy_manager(child_manager.clone());
         let persisted = build_agent_execution(&entity).await;
         let hierarchy = persisted.hierarchy.expect("child must carry hierarchy");
-        assert_eq!(hierarchy.depth, 1);
-        assert_eq!(hierarchy.root_execution_id.as_deref(), Some("loop-root"));
-        assert_eq!(hierarchy.parent_execution_id.as_deref(), Some("loop-root"));
+        assert_eq!(hierarchy.depth(), 1);
+        assert_eq!(hierarchy.root_execution_id(), "loop-root");
+        assert_eq!(
+            hierarchy.parent_execution_id().as_deref(),
+            Some("loop-root")
+        );
         assert_eq!(
             hierarchy.parent_execution_type,
             Some(wf_types::execution::ExecutionType::AgentLoop)

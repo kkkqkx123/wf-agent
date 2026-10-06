@@ -543,8 +543,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges,
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
             error_default: None,

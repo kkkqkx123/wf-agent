@@ -2,7 +2,13 @@ use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreExt, StoreOp
 use wf_storage::store::sqlite::SqliteStorage;
 
 async fn make_store() -> SqliteStorage {
-    SqliteStorage::new(":memory:", "test_filter").await.unwrap()
+    SqliteStorage::new(
+        ":memory:",
+        "test_filter",
+        wf_storage::domain::EntityIndexes::NONE,
+    )
+    .await
+    .unwrap()
 }
 
 #[tokio::test]

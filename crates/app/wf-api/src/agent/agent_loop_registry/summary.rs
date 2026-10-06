@@ -229,8 +229,7 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
         parent_execution_id: record
             .hierarchy
             .as_ref()
-            .and_then(|h| h.parent_execution_id.as_ref())
-            .map(|p| p.to_string()),
+            .and_then(|h| h.parent_execution_id()),
     }
 }
 

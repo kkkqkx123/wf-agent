@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use wf_storage::domain::EntityIndexes;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -216,7 +217,12 @@ impl StorePersistenceLayer {
 
     /// Sqlite-backed layer sharing the configured database file.
     pub async fn sqlite(path: &str) -> ApiResult<Self> {
-        let store = wf_storage::backend::StorageBackend::new_sqlite(path, "persistence").await?;
+        let store = wf_storage::backend::StorageBackend::new_sqlite(
+            path,
+            "persistence",
+            EntityIndexes::NONE,
+        )
+        .await?;
         Ok(Self {
             store,
             name: "sqlite".into(),
@@ -225,9 +231,12 @@ impl StorePersistenceLayer {
 
     /// PostgreSQL-backed layer sharing the configured database.
     pub async fn postgres(connection_string: &str) -> ApiResult<Self> {
-        let store =
-            wf_storage::backend::StorageBackend::new_postgres(connection_string, "persistence")
-                .await?;
+        let store = wf_storage::backend::StorageBackend::new_postgres(
+            connection_string,
+            "persistence",
+            EntityIndexes::NONE,
+        )
+        .await?;
         Ok(Self {
             store,
             name: "postgres".into(),

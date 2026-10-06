@@ -13,6 +13,7 @@ use wf_tools::callback::{
 };
 use wf_tools::error::{ToolError, ToolResult};
 use wf_tools::registry::ToolRegistry;
+use wf_types::execution::MAX_EXECUTION_DEPTH;
 use wf_types::Id;
 
 use crate::constants::{AGENT_MAX_ITERATIONS_CAP, DEFAULT_MAX_ITERATIONS};
@@ -20,7 +21,7 @@ use crate::coordinator::lifecycle::AgentLoopCoordinator;
 use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::registry::{AgentLoopRegistry, DEFAULT_MAX_SUB_AGENT_DEPTH};
+use crate::registry::AgentLoopRegistry;
 
 /// Agent loop engine entry point: runs agent loops (sync), dispatches them
 /// asynchronously (`spawn_agent_loop`) and serves status queries and
@@ -50,7 +51,7 @@ impl AgentLoopExecutor {
             agent_registry: std::sync::Arc::new(AgentLoopRegistry::new()),
             max_iterations: DEFAULT_MAX_ITERATIONS,
             max_iterations_cap: AGENT_MAX_ITERATIONS_CAP,
-            max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
+            max_sub_agent_depth: MAX_EXECUTION_DEPTH,
             event_bus: None,
             signal_bus: None,
             hook_handler_registry: None,
@@ -71,7 +72,8 @@ impl AgentLoopExecutor {
 
     /// Maximum sub-agent recursion depth (root = depth 0). A nested spawn
     /// whose resolved depth would exceed the limit is rejected with
-    /// `AgentError::HierarchyLimitReached`.
+    /// `AgentError::HierarchyLimitReached`. This policy may only tighten the
+    /// structural limit, never exceed it.
     pub fn with_max_sub_agent_depth(mut self, max: u32) -> Self {
         self.max_sub_agent_depth = max;
         self.agent_registry.set_max_sub_agent_depth(max);

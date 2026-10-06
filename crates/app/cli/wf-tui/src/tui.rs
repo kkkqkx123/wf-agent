@@ -113,7 +113,17 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
 ];
 
 /// Payload sent back by a background fetch.
-type DataResult = (ScreenKind, CliResult<ScreenData>);
+enum DataResult {
+    /// One screen's cached model.
+    Screen(ScreenKind, CliResult<ScreenData>),
+    /// One page of the history overlay's scrollback, tagged with the session
+    /// it belongs to and whether it is the page behind the loaded window.
+    History {
+        session_id: String,
+        earlier: bool,
+        result: CliResult<crate::replay::ReplayPage>,
+    },
+}
 
 /// Dashboard entry order: index `i` is what `1..=8` / `j-k` selects.
 pub struct TuiApp {
@@ -125,6 +135,8 @@ pub struct TuiApp {
     modals: ModalStack,
     /// Current overlay mode
     overlay: OverlayMode,
+    /// Paged scrollback the history overlay paints.
+    history: crate::history_overlay::HistoryOverlay,
     data_tx: mpsc::UnboundedSender<DataResult>,
     data_rx: mpsc::UnboundedReceiver<DataResult>,
     feedback_tx: mpsc::UnboundedSender<Feedback>,
@@ -218,6 +230,7 @@ impl TuiApp {
             app: AppState::new(),
             modals: ModalStack::new(),
             overlay: OverlayMode::None,
+            history: crate::history_overlay::HistoryOverlay::default(),
             data_tx,
             data_rx,
             feedback_tx,
@@ -890,7 +903,14 @@ impl TuiApp {
                 );
             }
             OverlayMode::History => {
-                crate::screen_draw::draw_transcript_overlay(frame, area);
+                let mut view = self.history.view();
+                let at_top = crate::screen_draw::draw_transcript_overlay(
+                    frame,
+                    area,
+                    &mut view,
+                    &self.theme,
+                );
+                self.history.set_viewport(view.scroll, at_top);
             }
             OverlayMode::CommandPalette => {
                 // Command palette is handled by modals
@@ -959,7 +979,7 @@ impl TuiApp {
         let handle = tokio::spawn(async move {
             let ctx = adapter.api_context();
             let result = fetch_for(ctx, kind, &query, filter).await;
-            let _ = tx.send((kind, result));
+            let _ = tx.send(DataResult::Screen(kind, result));
         });
         self.tasks.push(handle);
     }
@@ -973,18 +993,38 @@ impl TuiApp {
     /// cache or a notice changed (so the caller can request a repaint).
     fn drain_data(&mut self) -> bool {
         let mut changed = false;
-        while let Ok((kind, result)) = self.data_rx.try_recv() {
-            self.app.screen.inflight.remove(&kind);
-            match result {
-                Ok(data) => {
-                    self.app
-                        .screen
-                        .data_cache
-                        .insert(kind, (data, Instant::now()));
-                    changed = true;
+        while let Ok(msg) = self.data_rx.try_recv() {
+            match msg {
+                DataResult::Screen(kind, result) => {
+                    self.app.screen.inflight.remove(&kind);
+                    match result {
+                        Ok(data) => {
+                            self.app
+                                .screen
+                                .data_cache
+                                .insert(kind, (data, Instant::now()));
+                            changed = true;
+                        }
+                        Err(err) => {
+                            self.app.notice.set(format!("{}: {err}", kind.title()));
+                            changed = true;
+                        }
+                    }
                 }
-                Err(err) => {
-                    self.app.notice.set(format!("{}: {err}", kind.title()));
+                DataResult::History {
+                    session_id,
+                    earlier,
+                    result,
+                } => {
+                    // A page for a session the overlay no longer shows belongs
+                    // to a window that was closed or reopened meanwhile.
+                    if self.history.session_id() != Some(session_id.as_str()) {
+                        continue;
+                    }
+                    match result {
+                        Ok(page) => self.history.land(page, earlier),
+                        Err(err) => self.history.fail(format!("{err}")),
+                    }
                     changed = true;
                 }
             }
@@ -1003,6 +1043,55 @@ impl TuiApp {
 
     fn current_data(&self) -> ScreenData {
         self.app.screen.current_data()
+    }
+
+    /// Session whose scrollback the history overlay opens: the live session
+    /// while one is attached, otherwise the row selected on a list screen.
+    fn history_session_id(&self) -> Option<String> {
+        if let Some(session) = &self.interactive {
+            if let Some(id) = session.session_id() {
+                return Some(id.to_owned());
+            }
+        }
+        let selected = self.app.screen.navigation.selected();
+        match self.current_data() {
+            ScreenData::Executions(rows) => rows
+                .get(selected.min(rows.len().saturating_sub(1)))
+                .map(|row| row.id.clone()),
+            ScreenData::AgentLoops(rows) => rows
+                .get(selected.min(rows.len().saturating_sub(1)))
+                .map(|row| row.id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Load one page of the overlay's scrollback on a background task and
+    /// send it back through the data channel. `before` is `None` for the tail
+    /// page and the previous page's cursor for the one behind it.
+    fn request_history_page(&mut self, before: Option<i64>) {
+        let Some(session_id) = self.history.session_id().map(str::to_owned) else {
+            return;
+        };
+        let adapter = Arc::clone(&self.adapter);
+        let tx = self.data_tx.clone();
+        let earlier = before.is_some();
+        let handle = tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let result = crate::replay::replay_scrollack_page(
+                ctx,
+                &session_id,
+                before,
+                crate::replay::REPLAY_PAGE_LIMIT,
+            )
+            .await
+            .map_err(Into::into);
+            let _ = tx.send(DataResult::History {
+                session_id,
+                earlier,
+                result,
+            });
+        });
+        self.tasks.push(handle);
     }
 
     // -----------------------------------------------------------------------
@@ -1039,8 +1128,15 @@ impl TuiApp {
 
         // Global shortcuts (work in any mode)
         match key.code {
-            // Ctrl+T: Toggle history overlay
+            // Ctrl+T: open the history overlay on the session under focus
             CKey::Char('t') if key.ctrl => {
+                let Some(session_id) = self.history_session_id() else {
+                    self.app.notice.set("No session selected for history");
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                };
+                self.history.begin(session_id);
+                self.request_history_page(None);
                 self.overlay = OverlayMode::History;
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
@@ -1227,6 +1323,23 @@ impl TuiApp {
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     return Ok(LoopAction::Continue);
                 }
+            }
+            // History overlay: a PageUp resting on the oldest loaded row asks
+            // for the page behind it; anywhere else it moves the viewport.
+            CKey::PageUp if self.overlay == OverlayMode::History => {
+                if let Some(before) = self.history.start_earlier() {
+                    self.request_history_page(Some(before));
+                } else {
+                    self.history.scroll_up();
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return Ok(LoopAction::Continue);
+            }
+            // History overlay: walk back down towards the tail.
+            CKey::PageDown if self.overlay == OverlayMode::History => {
+                self.history.scroll_down();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return Ok(LoopAction::Continue);
             }
             _ => {}
         }

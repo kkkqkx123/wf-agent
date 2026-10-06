@@ -367,7 +367,6 @@ mod tests {
     use crate::entity::WorkflowExecutionEntity;
     use crate::handler::HandlerRegistry;
     use crate::interaction::complete_interaction;
-    use std::collections::HashMap;
     use std::sync::Arc;
     use wf_execution_shared::context::ExecutorContext;
     use wf_tools::registry::ToolRegistry;
@@ -426,8 +425,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges,
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
             error_default: None,

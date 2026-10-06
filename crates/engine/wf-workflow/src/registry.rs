@@ -255,8 +255,6 @@ mod tests {
             r#"{{
                 "nodes": [{{ "id": "{start}", "node_type": "Script" }}],
                 "edges": [],
-                "adjacency_list": {{}},
-                "reverse_adjacency_list": {{}},
                 "end_node_ids": ["{start}"]
             }}"#
         ))

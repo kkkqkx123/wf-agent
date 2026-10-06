@@ -24,7 +24,6 @@ pub fn validate_node_configs(graph: &WorkflowGraphStructure) -> Vec<ValidationEr
 mod tests {
     use super::*;
     use serde_json::Value;
-    use std::collections::HashMap;
     use wf_types::workflow_execution::WorkflowNode;
 
     fn node(id: &str, node_type: &str, inner: Value) -> WorkflowNode {
@@ -40,8 +39,6 @@ mod tests {
         WorkflowGraphStructure {
             nodes,
             edges: vec![],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
             start_node_id: None,
             end_node_ids: vec![],
             error_default: None,

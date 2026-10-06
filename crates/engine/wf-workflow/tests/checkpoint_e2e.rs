@@ -120,8 +120,6 @@ fn linear_graph() -> WorkflowGraphStructure {
             edge("v2", "body"),
             edge("body", "end"),
         ],
-        adjacency_list: HashMap::new(),
-        reverse_adjacency_list: HashMap::new(),
         start_node_id: Some("start".to_string()),
         end_node_ids: vec!["end".to_string()],
         error_default: None,

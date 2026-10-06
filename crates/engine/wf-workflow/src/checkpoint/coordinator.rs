@@ -569,21 +569,14 @@ impl WorkflowCheckpointIntegration {
         if parent.is_none() && ancestors.is_empty() && manager.fork_path().is_none() {
             return None;
         }
-        Some(wf_types::execution::ExecutionHierarchy {
-            workflow_id: entity.workflow_id().clone(),
-            execution_id: entity.id().clone(),
-            parent_execution_id: parent.as_ref().map(|p| p.parent_id.clone()),
-            parent_execution_type: parent.as_ref().map(|p| p.parent_type.clone()),
-            depth: entity.get_hierarchy_depth(),
-            root_execution_id: entity.get_root_execution_id(),
-            root_execution_type: Some(manager.root_execution_type()),
-            ancestors: if ancestors.is_empty() {
-                None
-            } else {
-                Some(ancestors)
-            },
-            fork_path: manager.fork_path(),
-        })
+        Some(wf_types::execution::ExecutionHierarchy::new(
+            entity.workflow_id().clone(),
+            entity.id().clone(),
+            ancestors,
+            parent.as_ref().map(|p| p.parent_type.clone()),
+            Some(manager.root_execution_type()),
+            manager.fork_path(),
+        ))
     }
 
     fn fork_aggregation_state(

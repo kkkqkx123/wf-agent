@@ -59,9 +59,7 @@ pub(crate) async fn handle_loop_summaries(
         .transpose()
     {
         Ok(status) => status,
-        Err(message) => {
-            return err(ApiError::validation(message)).into_response()
-        }
+        Err(message) => return err(ApiError::validation(message)).into_response(),
     };
     let filter = wf_api::AgentLoopFilter {
         ids: None,

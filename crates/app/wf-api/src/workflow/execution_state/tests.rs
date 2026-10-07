@@ -264,14 +264,10 @@ async fn variable_snapshots_and_context_evolution() {
         .register("exec-evo".to_string(), entity.clone())
         .expect("register");
 
-    let snapshots = workflow_execution_get_variable_snapshots_by_time_range(
-        &ctx,
-        "exec-evo",
-        now,
-        now + 120,
-    )
-    .await
-    .unwrap();
+    let snapshots =
+        workflow_execution_get_variable_snapshots_by_time_range(&ctx, "exec-evo", now, now + 120)
+            .await
+            .unwrap();
     assert!(!snapshots.is_empty());
     assert!(snapshots
         .iter()

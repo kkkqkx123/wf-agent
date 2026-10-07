@@ -19,7 +19,10 @@ pub use actor::id::{ActorId, ActorIdError, ActorKind};
 pub use cache::CheckpointCache;
 pub use clock::{clock_valid, CheckpointClock, ManualClock};
 pub use common::{
-    content_hash, diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
+    content_hash, diff_stat_counts, diff_stats_for_text, diff_to_line_diff, diff_words,
+    format_unified_diff, inline_word_diff, is_binary, should_use_full_snapshot,
+    should_use_full_snapshot_content, unified_diff_text, AgentInstanceId, DiffOp, DiffStats, Hunk,
+    LineDiff, WordChange, WordDiff, DEFAULT_FULL_SNAPSHOT_THRESHOLD,
 };
 pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;

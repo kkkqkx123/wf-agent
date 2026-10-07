@@ -1,4 +1,4 @@
-//! Typed metadata key builders for the shared layertwine KV namespace.
+//! Typed metadata key builders for the shared checkpoint KV namespace.
 //!
 //! Only live keys are defined here. Graph checkpoint blobs live in the
 //! indexed `graph_blobs` table and execution branch heads in the native

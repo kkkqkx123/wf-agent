@@ -18,7 +18,10 @@ use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/unified-executions", get(handle_unified_executions))
-        .route("/unified-executions/count", get(handle_unified_executions_count))
+        .route(
+            "/unified-executions/count",
+            get(handle_unified_executions_count),
+        )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -149,13 +152,8 @@ pub(crate) async fn handle_unified_executions(
     // Ask for one extra item past the page: `from_window` turns the extra
     // item into `has_more` plus the following cursor and drops it.
     let fetch = (limit as usize).saturating_add(1);
-    match wf_api::execution_listing::list_unified(
-        &state.ctx,
-        Some(&filter),
-        fetch,
-        offset as usize,
-    )
-    .await
+    match wf_api::execution_listing::list_unified(&state.ctx, Some(&filter), fetch, offset as usize)
+        .await
     {
         Ok((summaries, _)) => {
             let window = summaries

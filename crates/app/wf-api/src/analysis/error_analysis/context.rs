@@ -9,8 +9,8 @@ use serde::Serialize;
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
 
-use super::records::workflow_error_records;
 use super::queries::workflow_error_stats;
+use super::records::workflow_error_records;
 use super::MAX_ERROR_CONTEXT_CHAIN;
 
 /// Error record enriched with the execution state captured around it: the

@@ -5,8 +5,8 @@ use wf_types::storage::CheckpointStorageMetadata;
 /// Dependency guard over an entity's execution-state checkpoint chain.
 /// Division of labor: this guard protects `wf-storage` rows only and tracks a
 /// linear previous-id chain keyed by opaque string ids. File-history ancestry
-/// is a separate multi-parent content-id graph in `layertwine`
-/// (`checkpoint::dag`) with its own mark-sweep; the two graphs never share
+/// is a separate multi-parent content-id graph in the Git object store
+/// with its own mark-sweep; the two graphs never share
 /// nodes and must not be merged into a generic graph.
 ///
 /// - `referenced_by` maps each checkpoint id to the ids of checkpoints that

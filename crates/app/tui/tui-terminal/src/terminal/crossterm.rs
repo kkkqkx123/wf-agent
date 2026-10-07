@@ -38,11 +38,13 @@ impl<W: Write + fmt::Debug> TerminalControl for CrosstermControl<W> {
         crossterm::terminal::disable_raw_mode()
     }
     fn enter_alt_screen(&mut self) -> io::Result<()> {
-        self.writer.execute(crossterm::terminal::EnterAlternateScreen)?;
+        self.writer
+            .execute(crossterm::terminal::EnterAlternateScreen)?;
         Ok(())
     }
     fn leave_alt_screen(&mut self) -> io::Result<()> {
-        self.writer.execute(crossterm::terminal::LeaveAlternateScreen)?;
+        self.writer
+            .execute(crossterm::terminal::LeaveAlternateScreen)?;
         Ok(())
     }
     fn enable_bracketed_paste(&mut self) -> io::Result<()> {
@@ -87,10 +89,7 @@ impl<W: Write + fmt::Debug> TerminalControl for CrosstermControl<W> {
         crossterm::execute!(self.writer, crossterm::event::PopKeyboardEnhancementFlags)
     }
     fn set_keyboard_enhancement(&mut self) -> io::Result<()> {
-        crossterm::execute!(
-            self.writer,
-            super::commands::SetKeyboardEnhancementFlags
-        )
+        crossterm::execute!(self.writer, super::commands::SetKeyboardEnhancementFlags)
     }
     fn reset_keyboard_enhancement(&mut self) -> io::Result<()> {
         crossterm::execute!(

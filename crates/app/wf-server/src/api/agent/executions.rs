@@ -20,7 +20,10 @@ pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         // ── agent executions ──
         .route("/agent-executions", get(handle_agent_executions))
-        .route("/agent-executions/count", get(handle_agent_executions_count))
+        .route(
+            "/agent-executions/count",
+            get(handle_agent_executions_count),
+        )
         .route(
             "/agent-executions/{id}",
             get(handle_get_agent_execution).delete(handle_delete_agent_execution),
@@ -195,8 +198,7 @@ pub(crate) async fn handle_agent_executions_count(
         started_from: query.started_from,
         started_to: query.started_to,
     };
-    match wf_api::agent::agent_execution_registry::count_filtered(&state.ctx, Some(&filter)).await
-    {
+    match wf_api::agent::agent_execution_registry::count_filtered(&state.ctx, Some(&filter)).await {
         Ok(count) => ok(AgentExecutionCountView { count }).into_response(),
         Err(e) => error_response(e),
     }

@@ -1624,15 +1624,18 @@ mod tests {
     #[tokio::test]
     async fn restore_restores_file_checkpoint() {
         use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
-        use layertwine::storage::repository::CheckpointPersist;
 
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
 
+        // Two handles share one SQLite index and one bare repository.
         let file_storage =
-            Arc::new(layertwine::storage::sqlite::SqliteStorage::new_full_in_memory().unwrap());
-        let file_manager = FileCheckpointManager::with_sqlite(file_storage.clone());
-        let file_manager2 = FileCheckpointManager::with_sqlite(file_storage.clone());
+            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
+        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
+        let file_manager =
+            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
+        let file_manager2 =
+            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
         file_manager
             .create_checkpoint(
                 "exec-1",
@@ -1652,23 +1655,27 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.execution_id, "exec-1");
-        assert_eq!(
-            file_storage.list_checkpoints().unwrap().len(),
-            1,
-            "layertwine checkpoint stored"
+        assert!(
+            git.read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
+                "agent:exec-1"
+            ))
+            .unwrap()
+            .is_some(),
+            "actor edit line stored in the object store"
         );
     }
 
     #[tokio::test]
     async fn async_persistence_defers_file_snapshot_until_wait() {
         use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
-        use layertwine::storage::repository::CheckpointPersist;
 
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
         let file_storage =
-            Arc::new(layertwine::storage::sqlite::SqliteStorage::new_full_in_memory().unwrap());
-        let file_manager = FileCheckpointManager::with_sqlite(file_storage.clone());
+            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
+        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
+        let file_manager =
+            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
         file_manager
             .create_checkpoint(
                 "exec-1",
@@ -1685,18 +1692,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(coord.pending_persistence_count().await, 1);
-        assert_eq!(
-            file_storage.list_checkpoints().unwrap().len(),
-            1,
-            "deferred file snapshot not yet written"
-        );
+        let head_before = git
+            .read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
+                "agent:exec-1",
+            ))
+            .unwrap()
+            .expect("first file commit written");
 
         coord.wait_for_persistence().await;
         assert_eq!(coord.pending_persistence_count().await, 0);
+        // Deferred file persistence is a read-only projection correlated
+        // with the state checkpoint: it resolves the same head instead of
+        // appending a duplicate commit.
+        let head_after = git
+            .read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
+                "agent:exec-1",
+            ))
+            .unwrap()
+            .expect("file head still present after wait");
         assert_eq!(
-            file_storage.list_checkpoints().unwrap().len(),
-            2,
-            "deferred file snapshot written after wait"
+            head_before, head_after,
+            "deferred projection must not duplicate the commit"
         );
 
         let loaded = coord.state_manager().load(&id).await.unwrap();

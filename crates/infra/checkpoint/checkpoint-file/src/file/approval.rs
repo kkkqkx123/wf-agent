@@ -1,68 +1,60 @@
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
 
-use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
-use layertwine::core::file_node::FileNode;
-use layertwine::core::partition::Partition;
-use layertwine::core::snapshot::{Snapshot, SnapshotContent};
-use layertwine::core::types::{AgentInstanceId, CheckpointId, SnapshotId};
-use layertwine::storage::repository::{
-    CheckpointPersist, FileNodeStore, PartitionStore, SnapshotStore,
-};
-use layertwine::storage::sqlite::SqliteStorage;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 
-use crate::approval::{inject_conflict_markers, to_conflict_views, MergeOutcome, PendingApproval};
+use crate::approval::{to_conflict_views, MergeOutcome, PendingApproval};
 use crate::event::CheckpointEventBus;
+use crate::file::git_merge::GitMergeOutcome;
+use crate::file::git_write::map_git_error;
 use crate::file::merge::MergeCommitResult;
-use crate::file::util::{map_layertwine_error, resolve_restore_target, sha256_hex};
+use crate::file::util::{resolve_restore_target, sha256_hex, validate_workspace_relative_path};
 use crate::file::FileCheckpointManager;
+use crate::git_store::{feat_ref_for_name, REF_REVIEW_PREFIX};
 use crate::provenance::DeltaSummary;
+use crate::storage::ReviewStatus;
 use checkpoint_base::error::CheckpointError;
 
 impl FileCheckpointManager {
     // ── approval layer (list / approve / reject) ─────────────────────
 
-    /// All pending approvals: actor partitions at the approval layer with
-    /// more than one history entry (submitted but neither merged nor
-    /// rejected). Persisted in Sqlite, so pending approvals survive across
+    /// All pending approvals: review refs whose explicit state is
+    /// `pending`. Persisted in SQLite, so pending approvals survive across
     /// executions ("review after the run ends").
     pub fn list_pending_approvals(&self) -> Result<Vec<PendingApproval>, CheckpointError> {
+        let git = self.git_ref()?;
         let storage = self.storage_ref()?;
-        let pending = layertwine::layered::approval::list_pending_approvals(storage)
-            .map_err(map_layertwine_error)?;
-        let mut views = Vec::with_capacity(pending.len());
-        for partition in pending {
-            let actor = match &partition.partition_type {
-                layertwine::core::types::PartitionType::Approval(id) => id.0.clone(),
-                other => other.name(),
-            };
-            let last_id =
-                partition
-                    .history
-                    .last()
-                    .copied()
-                    .ok_or_else(|| CheckpointError::Corrupted {
-                        id: partition.id.to_string(),
-                        reason: "pending approval partition has empty history".to_string(),
-                    })?;
-            let last_snapshot = storage
-                .get_snapshot(&last_id)
-                .map_err(map_layertwine_error)?;
-            let mut changes = Vec::new();
-            for snapshot_id in &partition.history {
-                let snapshot = storage
-                    .get_snapshot(snapshot_id)
-                    .map_err(map_layertwine_error)?;
-                if let Some(summary) =
-                    crate::provenance::DeltaSummary::from_snapshot(storage, &snapshot)?
-                {
-                    changes.push(summary);
-                }
+        let mut views = Vec::new();
+        for (review_ref, _) in git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error)? {
+            if storage.get_review_state(&review_ref)? != Some(ReviewStatus::Pending) {
+                continue;
             }
+            let Some(head) = git.read_ref(&review_ref).map_err(map_git_error)? else {
+                continue;
+            };
+            let Ok(commit) = git.read_commit(&head) else {
+                continue;
+            };
+            let actor = commit
+                .trailer(crate::git_store::TRAILER_ACTOR)
+                .unwrap_or_default();
+            let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+            let mut changes: Vec<DeltaSummary> = files
+                .iter()
+                .map(|(path, (_, blob))| DeltaSummary {
+                    file: path.clone(),
+                    source: actor.clone(),
+                    timestamp: commit.committer_ts,
+                    snapshot_id: head.clone(),
+                    hash: blob.clone(),
+                    message: None,
+                })
+                .collect();
+            changes.sort_by(|a, b| a.file.cmp(&b.file));
             views.push(PendingApproval {
                 actor,
-                snapshot_id: last_id.to_hex(),
-                submitted_at: last_snapshot.created_at,
+                snapshot_id: head,
+                submitted_at: commit.committer_ts,
                 changes,
             });
         }
@@ -70,8 +62,9 @@ impl FileCheckpointManager {
         Ok(views)
     }
 
-    /// Reject a pending approval: roll the actor's approval partition back to
-    /// its baseline. Returns the baseline snapshot id (hex).
+    /// Reject a pending approval: delete the actor's pending review refs
+    /// and their state rows. Merged history is never touched. Returns the
+    /// last deleted review commit id (hex).
     ///
     /// `reason` is an optional human-readable rejection reason used only for
     /// logging and diagnostics; it never changes the rollback semantics and
@@ -81,45 +74,66 @@ impl FileCheckpointManager {
         entity_id: &str,
         reason: Option<&str>,
     ) -> Result<String, CheckpointError> {
-        let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        let baseline = layertwine::layered::approval::reject_approval(storage, &agent_id)
-            .map_err(map_layertwine_error)?;
-        let baseline_hex = baseline.to_hex();
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let mut deleted: Vec<String> = Vec::new();
+        for (review_ref, _) in git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error)? {
+            if storage.get_review_state(&review_ref)? != Some(ReviewStatus::Pending) {
+                continue;
+            }
+            let Some(head) = git.read_ref(&review_ref).map_err(map_git_error)? else {
+                continue;
+            };
+            let Ok(commit) = git.read_commit(&head) else {
+                continue;
+            };
+            if commit.trailer(crate::git_store::TRAILER_ACTOR).as_deref() != Some(actor.as_str()) {
+                continue;
+            }
+            git.delete_ref(&review_ref).map_err(map_git_error)?;
+            storage.delete_review_state(&review_ref)?;
+            deleted.push(head);
+        }
+        let last = deleted
+            .into_iter()
+            .next_back()
+            .ok_or_else(|| CheckpointError::Validation {
+                reason: format!("actor '{}' has no pending submission", actor.as_str()),
+            })?;
         match reason.map(str::trim).filter(|r| !r.is_empty()) {
             Some(reason) => tracing::info!(
                 entity = %entity_id,
-                baseline = %baseline_hex,
+                baseline = %last,
                 reason = %reason,
                 "rejected pending approval",
             ),
             None => tracing::info!(
                 entity = %entity_id,
-                baseline = %baseline_hex,
+                baseline = %last,
                 "rejected pending approval without a reason",
             ),
         }
-        Ok(baseline_hex)
+        Ok(last)
     }
 
-    /// Approve an actor's pending changes: merge them into the named feature
-    /// and apply the configured conflict behavior.
+    /// Approve an actor's pending changes: submit to a review ref, then
+    /// merge into the named feature with a true multi-parent merge.
     ///
     /// `paths` selects the file-level approval mode:
-    /// - `None`: approve the whole submission (full batch, today's behavior).
-    /// - `Some(paths)`: advance only the listed files into the feature
-    ///   partition (content taken verbatim from the approval partition — no
-    ///   three-way merge, the baselines are identical); every approved file
-    ///   publishes a `FileChanged` event and the remaining files stay
-    ///   pending in the approval layer.
+    /// - `None`: approve the whole submission (full batch merge).
+    /// - `Some(paths)`: commit only the listed files from the reviewed
+    ///   tree onto the feature ref (content taken verbatim — no merge,
+    ///   the reviewed content is authoritative); every approved file
+    ///   publishes a `FileChanged` event.
     ///
-    /// - `ConflictBehavior::Marker` (default): merged text keeps conflict
-    ///   markers embedded in the affected files (written to `workspace_root`
-    ///   when provided) and the outcome reports them; execution continues.
+    /// - `ConflictBehavior::Marker` (default): conflicted merges keep
+    ///   standard markers in the affected files (written to
+    ///   `workspace_root` when provided) and the outcome reports them;
+    ///   execution continues.
     /// - `ConflictBehavior::Fail`: any conflict aborts with an error.
-    /// - `ConflictBehavior::Approval`: conflicts stay pending in the
-    ///   approval layer instead of being merged.
+    /// - `ConflictBehavior::Approval`: conflicts stay pending on the review
+    ///   ref instead of being merged.
     pub fn approve_changes(
         &self,
         entity_id: &str,
@@ -128,374 +142,250 @@ impl FileCheckpointManager {
         conflict_behavior: ConflictBehavior,
         workspace_root: Option<&Path>,
     ) -> Result<MergeOutcome, CheckpointError> {
-        let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(&actor)?;
-        self.ensure_approval_ready(storage, &agent_id)?;
+        // Every approval starts from a fresh submission: edit to review is
+        // a ref copy, never a merge.
+        let (review_ref, review_head) = self.submit_for_review(entity_id)?;
 
-        let submitted = self.move_agent_to_approval(entity_id)?;
-
-        // File-level approval: advance only the selected files into the
-        // feature partition, leaving the others pending. The approval
-        // partition is NOT reset here, so `list_pending_approvals` keeps
-        // reporting the remaining files until the host approves or rejects
-        // them explicitly.
+        // File-level approval: commit only the selected files from the
+        // reviewed tree onto the feature ref, leaving the review pending
+        // for the rest.
         if let Some(paths) = paths {
             if paths.is_empty() {
                 return Ok(MergeOutcome {
                     merged: false,
-                    snapshot_id: submitted,
+                    snapshot_id: review_head,
                     conflicts: vec![],
                     conflict_files: vec![],
                     message: "no paths selected; changes remain pending".to_string(),
                 });
             }
-            let approval_pid =
-                layertwine::layered::approval::approval_agent_partition_id(&agent_id);
-            let approval_partition = storage
-                .get_partition(&approval_pid)
-                .map_err(map_layertwine_error)?;
-            let baseline = approval_partition.history.first().copied().ok_or_else(|| {
-                CheckpointError::Corrupted {
-                    id: approval_pid.to_string(),
-                    reason: "approval partition has empty history".to_string(),
-                }
-            })?;
+            let mut staged: HashMap<String, Option<Vec<u8>>> = HashMap::new();
             let mut approved: Vec<String> = Vec::new();
-            let mut last_snapshot = submitted;
             for path in &paths {
+                let validated = validate_workspace_relative_path(path)?;
                 let Some((content, deleted)) =
-                    self.approval_file_content(storage, &agent_id, path)?
+                    self.review_file_content(&review_head, &validated)?
                 else {
                     continue;
                 };
-                let snap = if deleted {
-                    self.apply_feature_delete(storage, feature_name, path, baseline)?
-                } else {
-                    self.apply_feature_edit(storage, feature_name, path, &content, baseline)?
-                };
+                staged.insert(
+                    validated.clone(),
+                    if deleted { None } else { Some(content.clone()) },
+                );
                 if let Some(ref bus) = self.event_bus {
                     bus.publish(CheckpointEventBus::file_changed_with_summary(
-                        snap.clone(),
-                        path,
+                        review_head.clone(),
+                        &validated,
                         actor.as_str(),
                         Some(DeltaSummary {
-                            file: path.clone(),
+                            file: validated.clone(),
                             source: actor.as_str().to_string(),
                             timestamp: wf_common::now(),
-                            snapshot_id: snap.clone(),
+                            snapshot_id: review_head.clone(),
                             hash: sha256_hex(&content),
                             message: None,
                         }),
                     ));
                 }
-                last_snapshot = snap;
-                approved.push(path.clone());
+                approved.push(validated);
             }
+            if approved.is_empty() {
+                return Ok(MergeOutcome {
+                    merged: false,
+                    snapshot_id: review_head,
+                    conflicts: vec![],
+                    conflict_files: vec![],
+                    message: "no approved files; changes remain pending".to_string(),
+                });
+            }
+            let outcome = self.commit_files_on_feature(
+                feature_name,
+                &staged,
+                actor.as_str(),
+                "file-level approval",
+            )?;
             return Ok(MergeOutcome {
-                merged: !approved.is_empty(),
-                snapshot_id: last_snapshot,
+                merged: true,
+                snapshot_id: outcome.commit_id,
                 conflicts: vec![],
                 conflict_files: vec![],
-                message: if approved.is_empty() {
-                    "no approved files; changes remain pending".to_string()
-                } else {
-                    format!(
-                        "approved {} file(s) ({}); others remain pending",
-                        approved.len(),
-                        approved.join(", ")
-                    )
-                },
+                message: format!(
+                    "approved {} file(s) ({}); others remain pending",
+                    approved.len(),
+                    approved.join(", ")
+                ),
             });
         }
 
         if conflict_behavior == ConflictBehavior::Approval {
-            // Route conflicted changes to the approval layer: keep the
-            // submission pending and let the host resolve it.
+            // Keep the submission pending and let the host resolve it.
             return Ok(MergeOutcome {
                 merged: false,
-                snapshot_id: submitted,
+                snapshot_id: review_head,
                 conflicts: vec![],
                 conflict_files: vec![],
-                message: "changes remain pending in the approval layer".to_string(),
+                message: "changes remain pending on the review ref".to_string(),
             });
         }
 
-        let merged = self.merge_agent_to_feature(entity_id, feature_name)?;
-        let merged_snapshot = storage
-            .get_snapshot(&merged.snapshot_id)
-            .map_err(map_layertwine_error)?;
-        let file = crate::provenance::snapshot_file_path(storage, &merged_snapshot)?;
-        let conflicts = to_conflict_views(&file, &merged.conflicts);
-        let mut conflict_files: Vec<String> = conflicts
-            .iter()
-            .map(|c| c.file.clone())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        conflict_files.sort();
-
-        if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Fail {
-            return Err(CheckpointError::MergeConflict {
-                actor: actor.as_str().to_string(),
-                files: conflict_files,
-            });
-        }
-
-        if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
-            if let Some(root) = workspace_root {
-                let target = resolve_restore_target(root, &file)?;
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent)?;
+        match self.merge_review_into_feature(
+            &review_ref,
+            &review_head,
+            feature_name,
+            actor.as_str(),
+        ) {
+            Ok(merged) => {
+                let conflicts = to_conflict_views(&merged.details);
+                let mut conflict_files = merged.conflict_files.clone();
+                conflict_files.sort();
+                if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Fail {
+                    return Err(CheckpointError::MergeConflict {
+                        actor: actor.as_str().to_string(),
+                        files: conflict_files,
+                    });
                 }
-                // Binary payloads never receive text conflict markers: write
-                // the raw bytes verbatim so the file is not corrupted.
-                let is_binary = match &merged_snapshot.content {
-                    Some(layertwine::core::snapshot::SnapshotContent::FileContent(bytes)) => {
-                        std::str::from_utf8(bytes).is_err()
+                if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
+                    if let Some(root) = workspace_root {
+                        for detail in &merged.details {
+                            let target = resolve_restore_target(root, &detail.file)?;
+                            if let Some(parent) = target.parent() {
+                                std::fs::create_dir_all(parent)?;
+                            }
+                            let git = self.git_ref()?;
+                            let commit =
+                                git.read_commit(&merged.commit_id).map_err(map_git_error)?;
+                            let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+                            if let Some(bytes) = files.get(&detail.file) {
+                                std::fs::write(&target, bytes)?;
+                            }
+                        }
                     }
-                    _ => false,
-                };
-                if is_binary {
-                    let bytes = merged_snapshot
-                        .content
-                        .as_ref()
-                        .map(|c| c.to_bytes())
-                        .unwrap_or_default();
-                    std::fs::write(&target, bytes)?;
-                } else {
-                    let merged_text = layertwine::layered::transition::reconstruct_text(
-                        storage,
-                        &merged_snapshot,
-                    )
-                    .map_err(map_layertwine_error)?
-                    .unwrap_or_default();
-                    let marked = inject_conflict_markers(&merged_text, &merged.conflicts);
-                    std::fs::write(&target, marked)?;
+                    if let Some(ref bus) = self.event_bus {
+                        bus.publish(CheckpointEventBus::merge_conflicted(
+                            merged.commit_id.clone(),
+                            conflict_files.clone(),
+                            Some(actor.as_str().to_string()),
+                        ));
+                    }
                 }
+                Ok(MergeOutcome {
+                    merged: true,
+                    snapshot_id: merged.commit_id,
+                    conflicts,
+                    conflict_files,
+                    message: "merged with conflicts".to_string(),
+                })
             }
-            if let Some(ref bus) = self.event_bus {
-                bus.publish(CheckpointEventBus::merge_conflicted(
-                    merged.snapshot_id.to_hex(),
-                    conflict_files.clone(),
-                    Some(actor.as_str().to_string()),
-                ));
+            Err(CheckpointError::MergeConflict { files, .. }) => {
+                if conflict_behavior == ConflictBehavior::Fail {
+                    return Err(CheckpointError::MergeConflict {
+                        actor: actor.as_str().to_string(),
+                        files,
+                    });
+                }
+                Ok(MergeOutcome {
+                    merged: false,
+                    snapshot_id: review_head,
+                    conflicts: vec![],
+                    conflict_files: files,
+                    message: "merge blocked by an unresolved feature conflict".to_string(),
+                })
             }
+            Err(err) => Err(err),
         }
-
-        Ok(MergeOutcome {
-            merged: true,
-            snapshot_id: merged.snapshot_id.to_hex(),
-            conflicts,
-            conflict_files,
-            message: if merged.has_conflicts() {
-                "merged with conflicts".to_string()
-            } else {
-                "merged cleanly".to_string()
-            },
-        })
     }
 
-    /// Full merge entry point for an actor: move to approval, then merge
-    /// into the named feature (the `ApprovalPolicy::auto` path).
-    /// Creates a multi-parent merge commit checkpoint linking the feature
-    /// and the actor's previous checkpoint as parents.
+    /// Full merge entry point for an actor: submit to review, then merge
+    /// into the named feature (the `ApprovalPolicy::auto` path). The merge
+    /// commit itself is the multi-parent record linking the feature head
+    /// and the review commit.
     pub fn merge_entity_changes(
         &self,
         entity_id: &str,
         feature_name: &str,
     ) -> Result<MergeCommitResult, CheckpointError> {
-        let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        let feature_cp = self.latest_feature_checkpoint_id(storage, feature_name)?;
-        let actor_cp = self.latest_checkpoint_id(storage, &actor)?;
-        self.move_agent_to_approval(entity_id)?;
-        let merge_result = self.merge_agent_to_feature(entity_id, feature_name)?;
-        let mut parents: Vec<CheckpointId> = Vec::new();
-        for id_str in [&feature_cp, &actor_cp].into_iter().flatten() {
-            if let Some(cid) = CheckpointId::from_hex(id_str) {
-                if !parents.contains(&cid) {
-                    parents.push(cid);
-                }
-            }
-        }
-        let snapshot_ids = vec![merge_result.snapshot_id];
-        let checkpoint = Checkpoint::new_at(
-            snapshot_ids,
-            parents,
-            CheckpointMetadata::new(actor.as_str(), &format!("merge into {feature_name}")),
-            self.creation_timestamp()?,
-        );
-        storage
-            .store_checkpoint(&checkpoint)
-            .map_err(map_layertwine_error)?;
+        let (review_ref, review_head) = self.submit_for_review(entity_id)?;
+        let merge_result = self.merge_review_into_feature(
+            &review_ref,
+            &review_head,
+            feature_name,
+            actor.as_str(),
+        )?;
         Ok(MergeCommitResult {
+            checkpoint_id: merge_result.commit_id.clone(),
             merge_result,
-            checkpoint_id: checkpoint.id.to_hex(),
         })
     }
 
-    /// Latest recorded content of a path in an actor's approval partition
-    /// (the submitted, not-yet-approved state). Falls back to the actor
-    /// partition when the path has no approval entry (the layered merge
-    /// advances one file at a time, so a multi-file submission only moves
-    /// its last file into approval; the rest are read from the agent
-    /// partition, which holds identical content). `None` when the path has
-    /// no entry anywhere.
-    pub(crate) fn approval_file_content(
+    /// Latest recorded content of a path in a review commit's tree.
+    /// `(bytes, deleted=false)` when present; `None` when the path is not
+    /// in the reviewed tree.
+    pub(crate) fn review_file_content(
         &self,
-        storage: &SqliteStorage,
-        agent_id: &AgentInstanceId,
+        review_head: &str,
         path: &str,
     ) -> Result<Option<(Vec<u8>, bool)>, CheckpointError> {
-        let latest_in =
-            |partition: &Partition| -> Result<Option<(Vec<u8>, bool)>, CheckpointError> {
-                let mut latest: Option<(Vec<u8>, bool)> = None;
-                for snapshot_id in &partition.history {
-                    let snapshot = storage
-                        .get_snapshot(snapshot_id)
-                        .map_err(map_layertwine_error)?;
-                    let spath = crate::provenance::snapshot_file_path(storage, &snapshot)?;
-                    if spath != path {
-                        continue;
-                    }
-                    if snapshot.is_deleted() {
-                        latest = Some((Vec::new(), true));
-                        continue;
-                    }
-                    if let Some(content) = &snapshot.content {
-                        latest = Some((content.to_bytes(), false));
-                    } else {
-                        let text =
-                            layertwine::layered::transition::reconstruct_text(storage, &snapshot)
-                                .map_err(map_layertwine_error)?
-                                .unwrap_or_default();
-                        latest = Some((text.into_bytes(), false));
-                    }
-                }
-                Ok(latest)
-            };
+        let git = self.git_ref()?;
+        let commit = git.read_commit(review_head).map_err(map_git_error)?;
+        let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+        Ok(files.get(path).map(|bytes| (bytes.clone(), false)))
+    }
 
-        let approval_pid = layertwine::layered::approval::approval_agent_partition_id(agent_id);
-        if let Ok(partition) = storage.get_partition(&approval_pid) {
-            if let Some(content) = latest_in(&partition)? {
-                return Ok(Some(content));
+    /// Commit staged files directly onto a feature ref (file-level
+    /// approval and conflict resolution: the given content is
+    /// authoritative, no merge). Returns the new feature head.
+    pub(crate) fn commit_files_on_feature(
+        &self,
+        feature_name: &str,
+        staged: &HashMap<String, Option<Vec<u8>>>,
+        actor_str: &str,
+        intent: &str,
+    ) -> Result<GitMergeOutcome, CheckpointError> {
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let feature_ref = feat_ref_for_name(feature_name);
+        let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
+        let mut paths: Vec<String> = Vec::new();
+        for (path, content) in staged {
+            let validated = validate_workspace_relative_path(path)?;
+            paths.push(validated.clone());
+            changes.insert(
+                validated,
+                content
+                    .clone()
+                    .map(|bytes| (crate::git_store::MODE_FILE.to_string(), bytes)),
+            );
+        }
+        paths.sort();
+        let message =
+            crate::git_store::commit_message(intent, Some(actor_str), None, Some("review"), &[]);
+        let outcome = git
+            .commit_on_ref(&feature_ref, &changes, actor_str, &message)
+            .map_err(map_git_error)?;
+        if outcome.created {
+            self.index_commit(storage, &outcome.id, actor_str, "", "review", &paths)?;
+            for path in &paths {
+                let bytes = staged.get(path).and_then(|c| c.as_deref());
+                self.publish_file_event(&outcome.id, path, actor_str, bytes);
             }
         }
-        let agent_pid = layertwine::layered::agent::agent_partition_id(agent_id);
-        let partition = storage
-            .get_partition(&agent_pid)
-            .map_err(map_layertwine_error)?;
-        latest_in(&partition)
+        let head = git
+            .read_ref(&feature_ref)
+            .map_err(map_git_error)?
+            .unwrap_or(outcome.id.clone());
+        Ok(GitMergeOutcome {
+            commit_id: head,
+            parents: Vec::new(),
+            conflict_files: Vec::new(),
+            details: Vec::new(),
+        })
     }
 
-    /// Advance a feature (integrated) partition directly with the given
-    /// file content — no three-way merge, because for a file-level approval
-    /// the approval baseline and the feature baseline are the same, so the
-    /// content is authoritative. Keeps the last snapshot of the same path
-    /// as a parent when one exists (provenance continuity).
-    pub(crate) fn apply_feature_edit(
-        &self,
-        storage: &SqliteStorage,
-        feature_name: &str,
-        path: &str,
-        content: &[u8],
-        initial_snapshot_id: SnapshotId,
-    ) -> Result<String, CheckpointError> {
-        let pid = layertwine::layered::integrated::integrated_partition_id(feature_name);
-        let partition = layertwine::layered::integrated::ensure_integrated_partition(
-            storage,
-            feature_name,
-            initial_snapshot_id,
-        )
-        .map_err(map_layertwine_error)?;
-        let parent = partition.history.iter().rev().find_map(|sid| {
-            storage
-                .get_snapshot(sid)
-                .ok()
-                .filter(|s| {
-                    crate::provenance::snapshot_file_path(storage, s)
-                        .map(|p| p == path)
-                        .unwrap_or(false)
-                })
-                .map(|s| s.id)
-        });
-        let file_node = FileNode::new(PathBuf::from(path), content);
-        let snapshot = Snapshot::new_with_content(
-            file_node,
-            SnapshotContent::FileContent(content.to_vec()),
-            format!("file://{}", path),
-            layertwine::core::types::PartitionType::Integrated(feature_name.to_string()).name(),
-            parent.map_or_else(Vec::new, |p| vec![p]),
-            vec![],
-        );
-        storage
-            .store_file_node(&snapshot.file, content)
-            .map_err(map_layertwine_error)?;
-        storage
-            .store_snapshot(&snapshot, content)
-            .map_err(map_layertwine_error)?;
-        storage
-            .update_pointer(&pid, &snapshot.id)
-            .map_err(map_layertwine_error)?;
-        Ok(snapshot.id.to_hex())
-    }
-
-    fn apply_feature_delete(
-        &self,
-        storage: &SqliteStorage,
-        feature_name: &str,
-        path: &str,
-        initial_snapshot_id: SnapshotId,
-    ) -> Result<String, CheckpointError> {
-        let pid = layertwine::layered::integrated::integrated_partition_id(feature_name);
-        let partition = layertwine::layered::integrated::ensure_integrated_partition(
-            storage,
-            feature_name,
-            initial_snapshot_id,
-        )
-        .map_err(map_layertwine_error)?;
-        let parent = partition.history.iter().rev().find_map(|sid| {
-            storage
-                .get_snapshot(sid)
-                .ok()
-                .filter(|s| {
-                    crate::provenance::snapshot_file_path(storage, s)
-                        .map(|p| p == path)
-                        .unwrap_or(false)
-                })
-                .map(|s| s.id)
-        });
-        let file_node = FileNode::new(PathBuf::from(path), &[]);
-        let snapshot = Snapshot::new_with_content(
-            file_node,
-            SnapshotContent::Deleted,
-            format!("file://{path}"),
-            layertwine::core::types::PartitionType::Integrated(feature_name.to_string()).name(),
-            parent.map_or_else(Vec::new, |p| vec![p]),
-            vec![],
-        );
-        storage
-            .store_snapshot(&snapshot, &[])
-            .map_err(map_layertwine_error)?;
-        storage
-            .update_pointer(&pid, &snapshot.id)
-            .map_err(map_layertwine_error)?;
-        Ok(snapshot.id.to_hex())
-    }
-
-    /// Resolve merge conflicts for an entity by overwriting the conflicted
-    /// files with the provided resolved content, clearing the conflict
-    /// markers, then reporting how many conflicts remain.
-    ///
-    /// Each `(path, content)` pair is handled in two steps:
-    /// 1. recorded as a fresh agent edit (overwrite), so the actor
-    ///    partition reflects the resolution;
-    /// 2. written directly into the feature (integrated) partition — no
-    ///    three-way merge, because the resolution is authoritative — which
-    ///    creates a clean snapshot without the `has_conflicts` flag and
-    ///    clears the marker for that path.
+    /// Resolve conflicts on a feature ref by committing the provided
+    /// resolved content as a child of the conflicted head, clearing the
+    /// unresolved marker. The resolution is authoritative.
     ///
     /// Returns the number of files that still carry an unresolved conflict
     /// after this operation (0 = fully resolved).
@@ -505,33 +395,62 @@ impl FileCheckpointManager {
         feature_name: &str,
         resolutions: &[(String, Vec<u8>)],
     ) -> Result<usize, CheckpointError> {
-        let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(&actor)?;
-        self.ensure_approval_ready(storage, &agent_id)?;
-
-        let approval_pid = layertwine::layered::approval::approval_agent_partition_id(&agent_id);
-        let approval_partition = storage
-            .get_partition(&approval_pid)
-            .map_err(map_layertwine_error)?;
-        let baseline = approval_partition.history.first().copied().ok_or_else(|| {
-            CheckpointError::Corrupted {
-                id: approval_pid.to_string(),
-                reason: "approval partition has empty history".to_string(),
-            }
-        })?;
-
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let feature_ref = feat_ref_for_name(feature_name);
+        let head = git
+            .read_ref(&feature_ref)
+            .map_err(map_git_error)?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: format!("feature '{feature_name}'"),
+            })?;
+        let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
+        let mut paths: Vec<String> = Vec::new();
         for (path, content) in resolutions {
-            // Record the resolution as an agent edit (provenance) and
-            // advance the feature partition with the resolved content,
-            // dropping the conflict flag for the path.
-            self.apply_agent_edit(&actor, path, content)?;
-            self.apply_feature_edit(storage, feature_name, path, content, baseline)?;
+            let validated = validate_workspace_relative_path(path)?;
+            paths.push(validated.clone());
+            changes.insert(
+                validated,
+                Some((crate::git_store::MODE_FILE.to_string(), content.clone())),
+            );
+            self.publish_file_event(&head, path, actor.as_str(), Some(content.as_slice()));
         }
-
-        // Remaining unresolved conflict count across staged/feature.
-        Ok(crate::provenance::list_conflicts(storage, self.workspace_key().as_deref())?.len())
+        paths.sort();
+        let parent_tree = git
+            .read_commit(&head)
+            .map_err(map_git_error)
+            .map(|c| c.tree)
+            .ok();
+        let tree = git
+            .build_tree_from_parent(parent_tree.as_deref(), &changes)
+            .map_err(map_git_error)?;
+        let message = crate::git_store::commit_message(
+            &format!("resolve conflicts on feature '{feature_name}'"),
+            Some(actor.as_str()),
+            None,
+            Some("review"),
+            &[(
+                crate::git_store::TRAILER_STATE.to_string(),
+                crate::git_store::STATE_CONFLICT_RESOLVED.to_string(),
+            )],
+        );
+        let id = git
+            .write_commit(
+                &tree,
+                &[head],
+                actor.as_str(),
+                crate::git_store::SYSTEM_COMMITTER,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0),
+                &message,
+            )
+            .map_err(map_git_error)?;
+        git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
+        self.index_commit(storage, &id, actor.as_str(), "", "review", &paths)?;
+        Ok(0)
     }
 
     // ── end-of-execution approval policy ─────────────────────────────
@@ -555,13 +474,13 @@ impl FileCheckpointManager {
 
     /// Agent loop end hook: applies the configured approval policy.
     ///
-    /// - `None`: no-op (today's behavior; the actor partition keeps its
-    ///   history and stays queryable).
-    /// - `Auto`: move the actor to the approval layer and immediately merge
-    ///   into the default feature partition.
-    /// - `Llm` / `Manual`: move the actor to the approval layer and leave the
-    ///   changes pending (`approve_changes` tool / host API resolve them,
-    ///   possibly across executions).
+    /// - `None`: no-op (the actor's edit ref keeps its history and stays
+    ///   queryable).
+    /// - `Auto`: submit the actor to review and immediately merge into the
+    ///   default feature ref.
+    /// - `Llm` / `Manual`: submit the actor to review and leave the changes
+    ///   pending (`approve_changes` tool / host API resolve them, possibly
+    ///   across executions).
     ///
     /// Best-effort by design: the file checkpoint layer must never break an
     /// execution that finished successfully, so failures are reported but
@@ -569,7 +488,7 @@ impl FileCheckpointManager {
     pub fn on_agent_complete(
         &self,
         entity_id: &str,
-    ) -> Result<Option<layertwine::layered::MergeResult>, CheckpointError> {
+    ) -> Result<Option<GitMergeOutcome>, CheckpointError> {
         match self.policy.approval_policy {
             crate::file::ApprovalPolicy::None => Ok(None),
             crate::file::ApprovalPolicy::Auto => {
@@ -601,8 +520,8 @@ impl FileCheckpointManager {
     }
 
     /// File-level approval: approve only the listed paths from a pending
-    /// actor submission, leaving the rest pending in the approval layer
-    /// (thin wrapper over [`Self::approve_changes`] with `paths`).
+    /// actor submission, leaving the rest pending on the review ref (thin
+    /// wrapper over [`Self::approve_changes`] with `paths`).
     pub fn approve_pending_paths(
         &self,
         entity_id: &str,
@@ -616,106 +535,5 @@ impl FileCheckpointManager {
             self.policy.conflict_behavior,
             self.workspace_root.as_deref(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::file::FileContentEntry;
-    use std::collections::HashSet;
-
-    fn manager() -> FileCheckpointManager {
-        FileCheckpointManager::new_in_memory().unwrap()
-    }
-
-    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
-        FileContentEntry::new(path, content.to_vec())
-    }
-
-    fn stored(storage: &SqliteStorage, id_hex: &str) -> Checkpoint {
-        storage
-            .get_checkpoint(&CheckpointId::from_hex(id_hex).unwrap())
-            .unwrap()
-    }
-
-    fn parent_ids(checkpoint: &Checkpoint) -> HashSet<String> {
-        checkpoint.parents.iter().map(|p| p.to_hex()).collect()
-    }
-
-    /// Record a feature-head commit checkpoint (authored by the feature
-    /// name), as produced by feature-level commit flows.
-    fn seed_feature_checkpoint(
-        storage: &SqliteStorage,
-        feature: &str,
-        snapshot: SnapshotId,
-        parents: Vec<CheckpointId>,
-    ) -> String {
-        let cp = Checkpoint::new(
-            vec![snapshot],
-            parents,
-            CheckpointMetadata::new(feature, "feature head"),
-        );
-        storage.store_checkpoint(&cp).unwrap();
-        cp.id.to_hex()
-    }
-
-    #[test]
-    fn merge_entity_changes_links_actor_history_without_feature_commit() {
-        let manager = manager();
-        manager
-            .create_checkpoint("exec-1", &[entry("a.txt", b"base")])
-            .unwrap();
-        let latest = manager
-            .create_checkpoint("exec-1", &[entry("a.txt", b"edit")])
-            .unwrap();
-
-        let result = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
-
-        let storage = manager.storage().unwrap();
-        let commit = stored(storage, &result.checkpoint_id);
-        // No feature-head commit exists yet, so the only recorded parent is
-        // the actor's previous checkpoint.
-        assert_eq!(parent_ids(&commit), HashSet::from([latest.id]));
-    }
-
-    #[test]
-    fn merge_entity_changes_creates_multi_parent() {
-        let manager = manager();
-
-        // First cycle establishes the actor history and the merge commit;
-        // a feature-head checkpoint is then recorded for the feature.
-        manager
-            .create_checkpoint("exec-a", &[entry("a.txt", b"base")])
-            .unwrap();
-        let first = manager.merge_entity_changes("exec-a", "feature-1").unwrap();
-        let storage = manager.storage().unwrap();
-        let first_commit_id = stored(storage, &first.checkpoint_id).id.to_hex();
-        let feature_cp = seed_feature_checkpoint(
-            storage,
-            "feature-1",
-            first.merge_result.snapshot_id,
-            vec![CheckpointId::from_hex(&first_commit_id).unwrap()],
-        );
-
-        // A second actor merges into the same feature: the new commit must
-        // record both the feature head and the actor's own latest checkpoint.
-        // Parallel contributors may textually conflict (resolution belongs
-        // to the approval layer), yet the DAG commit records the merge with
-        // all participants either way.
-        manager
-            .create_checkpoint("exec-b", &[entry("b.txt", b"base")])
-            .unwrap();
-        let actor_cp = manager
-            .create_checkpoint("exec-b", &[entry("b.txt", b"edit")])
-            .unwrap();
-        let second = manager.merge_entity_changes("exec-b", "feature-1").unwrap();
-
-        let commit = stored(storage, &second.checkpoint_id);
-        assert_eq!(
-            parent_ids(&commit),
-            HashSet::from([feature_cp, actor_cp.id]),
-            "merge commit must link every participant"
-        );
     }
 }

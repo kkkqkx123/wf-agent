@@ -60,11 +60,11 @@ pub struct PreciseApplyStats {
 }
 
 impl FileCheckpointManager {
-    /// Apply a set of collected workspace changes (script capture) as agent
-    /// edits on the actor partition. Add/Modify changes read the file
-    /// content from disk; Delete changes record the explicit deletion
-    /// (marker + projection). Per-file failures follow `behavior`.
-    /// Returns the number of successfully applied changes.
+    /// Apply a set of collected workspace changes (script capture) as one
+    /// atomic commit on the actor's edit ref. Add/Modify changes read the
+    /// file content from disk; Delete changes record the explicit removal.
+    /// Per-file failures follow `behavior`. Returns the number of
+    /// successfully applied changes.
     pub fn apply_workspace_changes(
         &self,
         actor: &ActorId,
@@ -72,7 +72,8 @@ impl FileCheckpointManager {
         changes: &[CollectedChange],
         behavior: FailureBehavior,
     ) -> Result<usize, CheckpointError> {
-        let mut applied = 0;
+        use std::collections::HashMap;
+        let mut staged: HashMap<String, Option<Vec<u8>>> = HashMap::new();
         let base_norm = crate::watcher::normalize_absolute_path(base_dir);
         for change in changes {
             let change_norm = crate::watcher::normalize_absolute_path(&change.path);
@@ -85,16 +86,9 @@ impl FileCheckpointManager {
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
             match change.kind {
-                CollectedChangeKind::Delete => match self.apply_agent_delete(actor, &relative) {
-                    Ok(_) => applied += 1,
-                    Err(err) => match behavior {
-                        FailureBehavior::Error => return Err(err),
-                        FailureBehavior::Warn => {
-                            tracing::warn!("failed to apply delete of '{relative}': {err}")
-                        }
-                        FailureBehavior::Ignore => {}
-                    },
-                },
+                CollectedChangeKind::Delete => {
+                    staged.insert(relative, None);
+                }
                 CollectedChangeKind::Add | CollectedChangeKind::Modify => {
                     let content = match std::fs::read(&change.path) {
                         Ok(content) => content,
@@ -111,29 +105,37 @@ impl FileCheckpointManager {
                             FailureBehavior::Ignore => continue,
                         },
                     };
-                    match self.apply_agent_edit(actor, &relative, &content) {
-                        Ok(_) => applied += 1,
-                        Err(err) => match behavior {
-                            FailureBehavior::Error => return Err(err),
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to apply edit of '{relative}': {err}")
-                            }
-                            FailureBehavior::Ignore => {}
-                        },
-                    }
+                    staged.insert(relative, Some(content));
                 }
             }
         }
-        Ok(applied)
+        if staged.is_empty() {
+            return Ok(0);
+        }
+        let applied = staged.len();
+        // One script run is exactly one atomic commit.
+        match self.commit_tool_files(actor, &staged, None, Some("script"), "script run") {
+            Ok(_) => Ok(applied),
+            Err(err) => match behavior {
+                FailureBehavior::Error => Err(err),
+                FailureBehavior::Warn => {
+                    tracing::warn!("failed to commit script changes: {err}");
+                    Ok(0)
+                }
+                FailureBehavior::Ignore => Ok(0),
+            },
+        }
     }
 
     /// Batch entry for precise tool events (the file-tool main path).
-    /// Validates every path against `workspace_root` first, then records
-    /// add/modify via agent edit, delete via agent delete, and rename via
-    /// move linkage plus both sides. Each successful write registers the
-    /// recent-agent entry; failed items never register success. Returns the
-    /// applied count plus explicit failed and out-of-scope items so callers
-    /// log them with execution context instead of silently skipping.
+    /// Validates every path against `workspace_root` first, then commits
+    /// the whole batch atomically: one tool call is one commit, with the
+    /// in-memory tool-captured bytes preferred over disk re-reads. Rename
+    /// is delete-old plus write-new inside the same commit. Each successful
+    /// write registers the recent-agent entry; failed items never register
+    /// success. Returns the applied count plus explicit failed and
+    /// out-of-scope items so callers log them with execution context
+    /// instead of silently skipping.
     pub fn apply_precise_file_events(
         &self,
         actor: &ActorId,
@@ -141,8 +143,10 @@ impl FileCheckpointManager {
         events: &[PreciseFileEvent],
         behavior: FailureBehavior,
     ) -> Result<PreciseApplyStats, CheckpointError> {
+        use std::collections::HashMap;
         let root_norm = crate::watcher::normalize_absolute_path(workspace_root);
         let mut stats = PreciseApplyStats::default();
+        let mut staged: HashMap<String, Option<Vec<u8>>> = HashMap::new();
         for event in events {
             let abs_norm = crate::watcher::normalize_absolute_path(&event.path);
             let Ok(relative) = abs_norm.strip_prefix(&root_norm) else {
@@ -169,7 +173,7 @@ impl FileCheckpointManager {
                     }
                 },
             };
-            let result: Result<(), CheckpointError> = match &event.kind {
+            let staged_result: Result<(), CheckpointError> = match &event.kind {
                 PreciseFileEventKind::Created | PreciseFileEventKind::Modified => {
                     // Prefer the tool-captured bytes: avoids a second disk
                     // read and closes the TOCTOU window between the tool
@@ -183,16 +187,12 @@ impl FileCheckpointManager {
                             )))
                         }),
                     }?;
-                    self.apply_agent_edit_with_hash(
-                        actor,
-                        &validated,
-                        &content,
-                        event.expected_hash.as_deref(),
-                    )
-                    .map(|_| ())
+                    staged.insert(validated, Some(content));
+                    Ok(())
                 }
                 PreciseFileEventKind::Deleted => {
-                    self.apply_agent_delete(actor, &validated).map(|_| ())
+                    staged.insert(validated, None);
+                    Ok(())
                 }
                 PreciseFileEventKind::Renamed { from } => {
                     let from_norm = crate::watcher::normalize_absolute_path(from);
@@ -219,19 +219,13 @@ impl FileCheckpointManager {
                         }),
                     }?;
                     if let Some(from_valid) = from_valid {
-                        self.track_file_move(&from_valid, &validated, actor.as_str())?;
-                        let _ = self.apply_agent_delete(actor, &from_valid);
+                        staged.insert(from_valid, None);
                     }
-                    self.apply_agent_edit_with_hash(
-                        actor,
-                        &validated,
-                        &content,
-                        event.expected_hash.as_deref(),
-                    )
-                    .map(|_| ())
+                    staged.insert(validated, Some(content));
+                    Ok(())
                 }
             };
-            match result {
+            match staged_result {
                 Ok(()) => stats.applied += 1,
                 Err(err) => match behavior {
                     FailureBehavior::Error => return Err(err),
@@ -247,6 +241,25 @@ impl FileCheckpointManager {
                         stats.failed.push(abs_norm.display().to_string());
                     }
                 },
+            }
+        }
+        if staged.is_empty() {
+            return Ok(stats);
+        }
+        // One tool call is exactly one commit. The expected hashes stay a
+        // caller-side concern; content identity is the object id.
+        if let Err(err) = self.commit_tool_files(actor, &staged, None, Some("tool"), "tool edit") {
+            match behavior {
+                FailureBehavior::Error => return Err(err),
+                FailureBehavior::Warn => {
+                    tracing::warn!("precise batch commit failed: {err}");
+                    stats.failed.extend(staged.keys().cloned());
+                    stats.applied = 0;
+                }
+                FailureBehavior::Ignore => {
+                    stats.failed.extend(staged.keys().cloned());
+                    stats.applied = 0;
+                }
             }
         }
         Ok(stats)

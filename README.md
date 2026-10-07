@@ -97,7 +97,7 @@ The workspace is organized into four layers. Each layer depends only on layers b
 |-------|--------|----------------|
 | **Foundation** | `wf-types`, `wf-common`, `wf-core`, `wf-plugin-sdk` | Shared data types, common utilities, core contracts (events, state, hierarchy, interruption, conditions), plugin SDK contracts |
 | **Infra** | `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` | Cross-cutting services: metrics, configuration, persistence, LLM clients, script engine, sandbox, shell/PTY, plugin runtime |
-| **Checkpoint** | `checkpoint-base`, `checkpoint-state`, `checkpoint-file`, `wf-checkpoint`, `layertwine` | Execution snapshots, file-edit history, storage engine, and the integrated facade |
+| **Checkpoint** | `checkpoint-base`, `checkpoint-state`, `checkpoint-file`, `wf-checkpoint` | Execution snapshots, file-edit history, SQLite storage, and the integrated facade |
 | **Engine** | `wf-tools`, `wf-resource`, `wf-execution-shared`, `wf-agent`, `wf-workflow` | Tool execution and MCP, resource registries and rendering, shared execution infrastructure, agent loop engine, workflow engine |
 | **App** | `wf-api`, `wf-server`, `wf-runtime`, `debugger`, CLI crates, TUI crates | Application facade, HTTP transport, runtime bootstrap, debugging, and user interfaces |
 
@@ -111,10 +111,9 @@ foundation:  wf-types ← wf-common ← wf-core
 
 infra:       wf-metrics  wf-config  wf-storage  wf-llm
              wf-script   wf-sandbox wf-shell    wf-plugin
-             checkpoint: checkpoint-base ← checkpoint-state
-                         checkpoint-base ← checkpoint-file
-                         wf-checkpoint   → checkpoint-base / checkpoint-state / checkpoint-file
-                         layertwine      (storage engine)
+              checkpoint: checkpoint-base ← checkpoint-state
+                          checkpoint-base ← checkpoint-file (with SQLite storage)
+                          wf-checkpoint   → checkpoint-base / checkpoint-state / checkpoint-file
 
 engine:      wf-tools ← wf-resource ← wf-execution-shared ← wf-agent ← wf-workflow
 
@@ -133,10 +132,9 @@ tui:         tui-clock ← tui-style ← tui-markdown
 
 The checkpoint subsystem separates three concerns:
 
-- **`checkpoint-base`** — errors, actors, policies, and deltas.
+- **`checkpoint-base`** — errors, actors, policies, deltas, and text diff.
 - **`checkpoint-state`** — execution snapshots and restoration.
-- **`checkpoint-file`** — file history, observation, and branches.
-- **`layertwine`** — an embedded, content-addressed storage engine built on SQLite with zstd compression, snapshots, deltas, checkpoints, and branching.
+- **`checkpoint-file`** — file history, observation, branches, and SQLite companion storage (execution state, review state, source index).
 
 `wf-checkpoint` is the only facade exposed to upper layers and owns attribution, sampling, merge policy, and garbage collection. Only mutable state is serialized; immutable configuration is re-supplied on restore.
 

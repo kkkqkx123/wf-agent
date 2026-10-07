@@ -168,10 +168,7 @@ pub fn get_field_value(record: &ExecutionRecord, field: &str) -> Option<Value> {
 /// Check a record against the basic in-memory criteria (time range / tags /
 /// custom fields). `workflow_id` / `status` are already pushed down to the
 /// storage layer.
-pub(super) fn filter_criteria_matches(
-    record: &ExecutionRecord,
-    criteria: &FilterCriteria,
-) -> bool {
+pub(super) fn filter_criteria_matches(record: &ExecutionRecord, criteria: &FilterCriteria) -> bool {
     if let Some(from) = criteria.start_time_from {
         if record.start_time < from {
             return false;

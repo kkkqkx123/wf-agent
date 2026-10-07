@@ -44,17 +44,18 @@ pub struct LogFilter {
     pub message_contains: Option<String>,
 }
 
-fn metadata_text(metadata: Option<&std::collections::HashMap<String, serde_json::Value>>, key: &str) -> Option<String> {
+fn metadata_text(
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+    key: &str,
+) -> Option<String> {
     metadata?.get(key).and_then(|v| {
-        v.as_str()
-            .map(|s| s.to_string())
-            .or_else(|| {
-                if v.is_string() {
-                    None
-                } else {
-                    Some(v.to_string())
-                }
-            })
+        v.as_str().map(|s| s.to_string()).or_else(|| {
+            if v.is_string() {
+                None
+            } else {
+                Some(v.to_string())
+            }
+        })
     })
 }
 
@@ -105,7 +106,11 @@ fn matches(entry: &LogEntry, filter: &LogFilter) -> bool {
         }
     }
     if let Some(needle) = filter.message_contains.as_deref() {
-        if !entry.message.to_lowercase().contains(&needle.to_lowercase()) {
+        if !entry
+            .message
+            .to_lowercase()
+            .contains(&needle.to_lowercase())
+        {
             return false;
         }
     }
@@ -230,11 +235,15 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let (page, has_more) = logs_for_execution(&ctx, "exec-1", None, 2, 0).await.unwrap();
+        let (page, has_more) = logs_for_execution(&ctx, "exec-1", None, 2, 0)
+            .await
+            .unwrap();
         assert!(has_more);
         assert_eq!(page.len(), 2);
         assert_eq!(page[0].timestamp, 10);
-        let (rest, has_more) = logs_for_execution(&ctx, "exec-1", None, 2, 2).await.unwrap();
+        let (rest, has_more) = logs_for_execution(&ctx, "exec-1", None, 2, 2)
+            .await
+            .unwrap();
         assert!(!has_more);
         assert_eq!(rest.len(), 1);
         assert_eq!(rest[0].timestamp, 30);

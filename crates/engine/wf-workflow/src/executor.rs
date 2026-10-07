@@ -119,7 +119,7 @@ impl WorkflowExecutor {
         crate::registry::register_graph(&workflow_id.to_string(), graph.clone());
 
         let params = WorkflowExecutionParams {
-            execution_id: wf_types::Id::new(),
+            execution_id: wf_common::generate_id(),
             workflow_id,
             graph,
             options,

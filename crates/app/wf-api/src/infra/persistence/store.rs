@@ -1,7 +1,7 @@
 use serde_json::Value;
 use wf_storage::backend::StorageBackend;
-use wf_storage::domain::EntityIndexes;
 use wf_storage::domain::store::{Maintainable, QueryFilter, Store, StoreExt};
+use wf_storage::domain::EntityIndexes;
 
 use super::core::{PersistenceHealth, PersistenceLayer};
 use crate::infra::error::ApiResult;

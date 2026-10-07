@@ -15,7 +15,11 @@ use checkpoint_base::error::CheckpointError;
 /// Hardcoded ignore names.
 /// Any directory (or file) with these names is excluded from scanning at any
 /// depth, and restore never deletes them.
-pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules"];
+/// Ignore stacking order: these repository-local excludes come first, then
+/// the workspace's own `.gitignore` files, then custom patterns.
+/// `.wf-checkpoint-git` is the independent bare object store: it is never
+/// scanned, committed or deleted by restore.
+pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git"];
 
 /// Configuration for workspace scanning.
 #[derive(Debug, Clone, Default)]

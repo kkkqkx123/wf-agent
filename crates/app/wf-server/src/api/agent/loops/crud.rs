@@ -223,9 +223,7 @@ pub(crate) async fn handle_loop_status_transition(
 ) -> impl IntoResponse {
     let status = match parse_execution_status(&body.status) {
         Ok(status) => status,
-        Err(message) => {
-            return err(crate::envelope::ApiError::validation(message)).into_response()
-        }
+        Err(message) => return err(crate::envelope::ApiError::validation(message)).into_response(),
     };
     match wf_api::agent::agent_loop_registry::update_status(&state.ctx, &path.id, status).await {
         Ok(()) => ok(()).into_response(),

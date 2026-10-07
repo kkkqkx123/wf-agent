@@ -848,21 +848,23 @@ fn custom_fields_of(payload: &Value) -> Option<wf_types::Metadata> {
         .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
 }
 
-/// The parent execution id carried by the payload's snapshot hierarchy.
+/// The parent execution id derived from the snapshot's materialised path.
 /// Recorded on the storage metadata so child checkpoints are discoverable by
 /// querying their parent, rather than by reading a child list the parent must
 /// keep current. A delta has no snapshot, so it carries no link of its own and
 /// `list_latest_by_parent` resolves the newest row per child entity instead.
 fn parent_entity_id_of(payload: &Value) -> Option<String> {
-    payload
+    let path = payload
         .get("snapshot")
         .and_then(|s| s.get("hierarchy"))
-        .and_then(|h| {
-            h.get("parent_execution_id")
-                .or_else(|| h.get("parentExecutionId"))
-        })
-        .and_then(|v| v.as_str())
-        .map(String::from)
+        .and_then(|h| h.get("path"))
+        .and_then(|v| v.as_str())?;
+
+    let chain = wf_types::execution::decode_path(path);
+    if chain.len() < 2 {
+        return None;
+    }
+    chain.get(chain.len() - 2).cloned()
 }
 
 pub fn parse_storage_metadata(
@@ -1629,7 +1631,7 @@ mod tests {
     async fn list_latest_by_parent_returns_a_child_whose_newest_row_is_a_delta() {
         let storage = make_storage();
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
-        let parent = json!({"hierarchy": {"parent_execution_id": "parent-1"}});
+        let parent = json!({"hierarchy": {"path": "/parent-1/child-/"}});
 
         mgr.save(
             &make_envelope("child-full", None, None, 1000, None, Some(parent.clone())),
@@ -1690,7 +1692,7 @@ mod tests {
                 None,
                 1000,
                 None,
-                Some(json!({"hierarchy": {"parent_execution_id": "parent-1"}})),
+                Some(json!({"hierarchy": {"path": "/parent-1/child-1/"}})),
             ),
             "workflow_execution",
             "child-1",
@@ -1704,7 +1706,7 @@ mod tests {
                 None,
                 2000,
                 None,
-                Some(json!({"hierarchy": {"parent_execution_id": "parent-2"}})),
+                Some(json!({"hierarchy": {"path": "/parent-2/child-2/"}})),
             ),
             "workflow_execution",
             "child-2",

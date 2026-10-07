@@ -97,7 +97,7 @@ Agent 循环是对话式、迭代式的。引擎初始化消息历史、调用�
 |-------|--------|----------------|
 | **Foundation** | `wf-types`、`wf-common`、`wf-core`、`wf-plugin-sdk` | 共享数据类型、通用工具、核心契约（事件、状态、层级、中断、条件）、插件 SDK 契约 |
 | **Infra** | `wf-metrics`、`wf-config`、`wf-storage`、`wf-llm`、`wf-script`、`wf-sandbox`、`wf-shell`、`wf-plugin` | 横切服务：指标、配置、持久化、LLM 客户端、脚本引擎、沙箱、Shell/PTY、插件运行时 |
-| **Checkpoint** | `checkpoint-base`、`checkpoint-state`、`checkpoint-file`、`wf-checkpoint`、`layertwine` | 执行快照、文件编辑历史、存储引擎，以及集成门面 |
+| **Checkpoint** | `checkpoint-base`、`checkpoint-state`、`checkpoint-file`、`wf-checkpoint` | 执行快照、文件编辑历史、SQLite 存储，以及集成门面 |
 | **Engine** | `wf-tools`、`wf-resource`、`wf-execution-shared`、`wf-agent`、`wf-workflow` | 工具执行与 MCP、资源注册表与渲染、共享执行基础设施、Agent 循环引擎、工作流引擎 |
 | **App** | `wf-api`、`wf-server`、`wf-runtime`、`debugger`、CLI crate、TUI crate | 应用门面、HTTP 传输、运行时引导、调试与用户界面 |
 
@@ -111,10 +111,9 @@ foundation:  wf-types ← wf-common ← wf-core
 
 infra:       wf-metrics  wf-config  wf-storage  wf-llm
              wf-script   wf-sandbox wf-shell    wf-plugin
-             checkpoint: checkpoint-base ← checkpoint-state
-                         checkpoint-base ← checkpoint-file
-                         wf-checkpoint   → checkpoint-base / checkpoint-state / checkpoint-file
-                         layertwine      （存储引擎）
+              checkpoint: checkpoint-base ← checkpoint-state
+                          checkpoint-base ← checkpoint-file（含 SQLite 存储）
+                          wf-checkpoint   → checkpoint-base / checkpoint-state / checkpoint-file
 
 engine:      wf-tools ← wf-resource ← wf-execution-shared ← wf-agent ← wf-workflow
 
@@ -133,10 +132,9 @@ tui:         tui-clock ← tui-style ← tui-markdown
 
 检查点子系统分离三项关注点：
 
-- **`checkpoint-base`**——错误、actor、策略与增量。
+- **`checkpoint-base`**——错误、actor、策略、增量与文本 diff。
 - **`checkpoint-state`**——执行快照与恢复。
-- **`checkpoint-file`**——文件历史、观测与分支。
-- **`layertwine`**——基于 SQLite 的内嵌内容寻址存储引擎，包含 zstd 压缩、快照、增量、检查点与分支。
+- **`checkpoint-file`**——文件历史、观测、分支与 SQLite 伴随存储（执行状态、评审状态、来源索引）。
 
 `wf-checkpoint` 是唯一向上层暴露的门面，负责归属、采样、合并策略与垃圾回收。只有可变状态会被序列化；不可变配置在恢复时重新提供。
 

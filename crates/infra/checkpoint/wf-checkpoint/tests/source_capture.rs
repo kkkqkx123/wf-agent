@@ -1,15 +1,17 @@
-//! Integration tests: modification-source capture.
+//! Integration tests: modification-source capture on the Git model.
 //!
 //! Scenarios covered:
 //!
-//! - script-change capture: a workspace diff (add/modify/delete + binary
-//!   content) collected over the `PathPolicy.allowed_write` scope is
-//!   attributed to the executing actor partition;
-//! - manual capture: watcher records are hashed and compared against the
-//!   recent-agent-writes registry — agent self-writes are skipped, human
-//!   edits land in the manual partition, unlinks use delete semantics;
-//! - the end-to-end `ManualChangeService`: external file edits are routed
-//!   into the manual partition by the real file watcher.
+//! - script-change capture: a workspace diff collected over the
+//!   `PathPolicy.allowed_write` scope produces exactly one atomic commit
+//!   on the executing actor's edit ref;
+//! - tool-report capture: in-memory bytes commit without a disk re-read
+//!   (one tool call is one commit, multi-file batches stay atomic);
+//! - manual capture: worktree-dirty files that do not match agent-owned
+//!   content land on the human ref and are never auto-merged; agent
+//!   self-writes are skipped by content comparison;
+//! - the `ManualChangeService` poll routes external edits onto the human
+//!   ref; the source index rebuilds fully from the commit graph.
 
 use std::path::Path;
 use std::time::Duration;
@@ -39,10 +41,22 @@ fn actor(kind: ActorKind, id: &str) -> ActorId {
     ActorId::new(kind, &[Id::from(id.to_string())]).expect("actor id valid")
 }
 
-/// Script-change capture: a workspace diff (add/modify/delete + binary) is
-/// attributed to the executing actor partition.
+fn stores_of(
+    manager: &FileCheckpointManager,
+) -> (
+    std::sync::Arc<wf_checkpoint::git_store::GitStore>,
+    std::sync::Arc<wf_checkpoint::storage::SqliteStorage>,
+) {
+    (
+        manager.git_store().unwrap().clone(),
+        manager.storage().unwrap().clone(),
+    )
+}
+
+/// Script-change capture: one run is exactly one atomic commit on the
+/// actor's edit ref (add/modify/delete + binary).
 #[test]
-fn script_capture_attributes_changes_to_actor_partition() {
+fn script_capture_produces_single_atomic_commit() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::write(root.join("a.txt"), b"v1\n").unwrap();
@@ -66,32 +80,43 @@ fn script_capture_attributes_changes_to_actor_partition() {
     let changes = WorkspaceChangeCollector::diff(&before, &after);
     assert_eq!(changes.len(), 3);
 
+    let (git, storage) = stores_of(&manager);
+    let head_before = git
+        .read_ref(&wf_checkpoint::git_store::edit_ref_for_actor(
+            script.as_str(),
+        ))
+        .unwrap();
     let applied = manager
         .apply_workspace_changes(&script, root, &changes, manager.failure_behavior())
         .expect("changes applied");
     assert_eq!(applied, 3);
+    let head_after = git
+        .read_ref(&wf_checkpoint::git_store::edit_ref_for_actor(
+            script.as_str(),
+        ))
+        .unwrap()
+        .expect("script run commits");
+    assert_ne!(head_before, Some(head_after.clone()));
 
-    let workspace = get_actor_workspace(manager.storage().unwrap(), script.as_str()).unwrap();
+    // Exactly one new commit, carrying all three files.
+    let commit = git.read_commit(&head_after).unwrap();
+    assert_eq!(commit.parents.len(), head_before.map(|_| 1).unwrap_or(0));
+    let files = git.tree_to_bytes(&commit.tree).unwrap();
+    assert_eq!(files["a.txt"], b"v1\nv2\n");
+    assert_eq!(files["b.bin"], [0x00, 0x01, 0x02, 0x03]);
+    assert!(!files.contains_key("gone.txt"));
+
+    let workspace = get_actor_workspace(&git, script.as_str()).unwrap();
     let by_path: std::collections::HashMap<_, _> = workspace
         .iter()
         .map(|f| (f.path.as_str(), &f.content))
         .collect();
     assert_eq!(by_path.get("a.txt").unwrap().as_slice(), b"v1\nv2\n");
-    assert_eq!(
-        by_path.get("b.bin").unwrap().as_slice(),
-        [0x00, 0x01, 0x02, 0x03]
-    );
-    // Deletion semantics: the deleted path is missing from the workspace
-    // (explicit delete marker, not a cleared/empty file) and the deletion
-    // projection marker still reports it.
     assert!(
         !by_path.contains_key("gone.txt"),
         "deleted file must be absent from the actor workspace"
     );
-    assert!(
-        manager.deleted_files(script.as_str()).contains("gone.txt"),
-        "deleted file must be in the deletion projection marker"
-    );
+    let _ = storage;
 }
 
 /// Out-of-workspace prefixes are excluded from the capture scope (scripts
@@ -111,49 +136,96 @@ fn script_capture_scope_excludes_outside_prefixes() {
     );
 }
 
-/// Manual capture: agent self-writes are skipped (hash comparison), human
-/// edits land in the manual partition, unlinks use delete semantics.
+/// Tool-report capture: in-memory bytes commit without touching the disk
+/// (one tool call is one commit even for multi-file batches).
 #[test]
-fn manual_changes_skip_agent_writes_and_record_human_edits() {
+fn tool_report_commits_memory_bytes_without_disk_reread() {
+    use wf_checkpoint::file::actor::{PreciseFileEvent, PreciseFileEventKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let manager = manager_for(root);
+    let agent = actor(ActorKind::Agent, "tool-1");
+
+    // The worktree files do not exist on disk: the tool-captured bytes are
+    // authoritative and no disk re-read happens.
+    let events = vec![
+        PreciseFileEvent::new(root.join("a.txt"), PreciseFileEventKind::Created)
+            .with_content(b"from-tool-a".to_vec(), "hash-a".to_string()),
+        PreciseFileEvent::new(root.join("sub/b.txt"), PreciseFileEventKind::Created)
+            .with_content(b"from-tool-b".to_vec(), "hash-b".to_string()),
+    ];
+    let stats = manager
+        .apply_precise_file_events(&agent, root, &events, FailureBehavior::Error)
+        .unwrap();
+    assert_eq!(stats.applied, 2);
+
+    let (git, _) = stores_of(&manager);
+    let head = git
+        .read_ref(&wf_checkpoint::git_store::edit_ref_for_actor(
+            agent.as_str(),
+        ))
+        .unwrap()
+        .expect("tool call commits");
+    let commit = git.read_commit(&head).unwrap();
+    // One tool call is one commit.
+    assert_eq!(commit.parents.len(), 0);
+    let files = git.tree_to_bytes(&commit.tree).unwrap();
+    assert_eq!(files["a.txt"], b"from-tool-a");
+    assert_eq!(files["sub/b.txt"], b"from-tool-b");
+}
+
+/// Manual capture: agent-owned content is skipped, human edits land on the
+/// human ref (never auto-merged), unlinks use delete semantics.
+#[test]
+fn manual_changes_skip_agent_content_and_record_human_edits() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let manager = manager_for(root);
     let agent = actor(ActorKind::Agent, "loop-1");
+    let (git, storage) = stores_of(&manager);
 
-    // Agent writes a.txt; the watcher event for the same content must be
-    // skipped (deterministic hash comparison, outside the grace window).
+    // Agent writes a.txt; the same bytes arriving as a watcher event are
+    // agent-owned and skipped.
     manager
         .apply_agent_edit(&agent, "a.txt", b"agent-v1")
         .unwrap();
     std::fs::write(root.join("a.txt"), b"agent-v1").unwrap();
-    std::thread::sleep(Duration::from_millis(120));
 
     let self_write =
         FileChangeRecord::new(root.join("a.txt"), FileChangeKind::Add, wf_common::now());
     let applied = manager
         .process_manual_changes(&[self_write])
         .expect("no error on skipped self-write");
-    assert_eq!(applied, 0, "agent self-write must be skipped");
-    let manual_for_a = list_changes_by_path(manager.storage().unwrap(), "a.txt", None).unwrap();
+    assert_eq!(applied, 0, "agent-owned content must be skipped");
     assert!(
-        !manual_for_a.iter().any(|c| c.source == "manual"),
-        "agent write must not be recorded as manual"
+        git.read_ref(wf_checkpoint::git_store::REF_HUMAN)
+            .unwrap()
+            .is_none(),
+        "no human commit may exist yet"
     );
 
-    // Human edits b.txt: recorded into the manual partition.
+    // Human edits b.txt: recorded on the human ref.
     std::fs::write(root.join("b.txt"), b"human-edit").unwrap();
     let human = FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Change, wf_common::now());
     let applied = manager
         .process_manual_changes(&[human])
         .expect("human edit applied");
     assert_eq!(applied, 1);
-    let manual_for_b = list_changes_by_path(manager.storage().unwrap(), "b.txt", None).unwrap();
+    let human_head = git
+        .read_ref(wf_checkpoint::git_store::REF_HUMAN)
+        .unwrap()
+        .expect("human commit exists");
+    let manual_for_b = list_changes_by_path(&git, &storage, "b.txt", None).unwrap();
     assert!(
-        manual_for_b.iter().any(|c| c.source == "manual"),
-        "human edit must be recorded as manual"
+        manual_for_b.iter().any(|c| c.snapshot_id == human_head),
+        "human edit must be recorded on the human ref"
     );
+    // The human line never leaks into the actor line.
+    let actor_files = get_actor_workspace(&git, agent.as_str()).unwrap();
+    assert!(!actor_files.iter().any(|f| f.path == "b.txt"));
 
-    // Unlink: manual delete semantics (empty content in the manual partition).
+    // Unlink: human delete semantics (absent from the human tree).
     std::fs::remove_file(root.join("b.txt")).unwrap();
     let unlink =
         FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Unlink, wf_common::now());
@@ -161,15 +233,24 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
         .process_manual_changes(&[unlink])
         .expect("unlink applied");
     assert_eq!(applied, 1);
+    let human_head = git
+        .read_ref(wf_checkpoint::git_store::REF_HUMAN)
+        .unwrap()
+        .unwrap();
+    let files = git
+        .tree_to_bytes(&git.read_commit(&human_head).unwrap().tree)
+        .unwrap();
+    assert!(!files.contains_key("b.txt"));
 }
 
-/// End-to-end: the real watcher routes external edits into the manual
-/// partition, and agent self-writes are not double-recorded.
+/// End-to-end: the poll routes external edits onto the human ref, and
+/// agent-owned content is not double-recorded.
 #[tokio::test]
 async fn manual_change_service_routes_external_edits() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let manager = manager_for(root);
+    let (git, storage) = stores_of(&manager);
 
     let mut service =
         ManualChangeService::start(manager.clone(), root, ScanConfig::default(), 50, 50)
@@ -178,17 +259,15 @@ async fn manual_change_service_routes_external_edits() {
     std::fs::write(root.join("human.txt"), b"hello watcher").unwrap();
     wait_until(
         || {
-            let changes =
-                list_changes_by_path(manager.storage().unwrap(), "human.txt", None).unwrap();
-            changes.iter().any(|c| c.source == "manual")
+            let changes = list_changes_by_path(&git, &storage, "human.txt", None).unwrap();
+            changes.iter().any(|c| c.source == "human")
         },
         10_000,
     )
     .await;
 
-    // An agent self-write arriving through the watcher is skipped: the
-    // manager registered the absolute path + hash, so the pump's hash
-    // comparison recognizes it as the agent's own write.
+    // Agent-owned content arriving on disk is skipped: the poll compares
+    // against tracked ref content, so it never lands on the human ref.
     manager
         .apply_agent_edit(
             &actor(ActorKind::Agent, "loop-watch"),
@@ -197,16 +276,58 @@ async fn manual_change_service_routes_external_edits() {
         )
         .unwrap();
     std::fs::write(root.join("agent-write.txt"), b"agent").unwrap();
-    // Wait for the watcher to see the event and the pump to skip it.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let agent_changes =
-        list_changes_by_path(manager.storage().unwrap(), "agent-write.txt", None).unwrap();
+    let agent_changes = list_changes_by_path(&git, &storage, "agent-write.txt", None).unwrap();
     assert!(
-        !agent_changes.iter().any(|c| c.source == "manual"),
-        "agent self-write must not be double-recorded as manual"
+        agent_changes.iter().all(|c| c.source != "human"),
+        "agent-owned content must not be recorded as human"
     );
 
     service.stop().await;
+}
+
+/// The source index rebuilds fully from the commit graph after total loss.
+#[test]
+fn source_index_rebuilds_from_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager_for(dir.path());
+    let agent = actor(ActorKind::Agent, "loop-9");
+    let (git, storage) = stores_of(&manager);
+
+    manager.apply_agent_edit(&agent, "a.txt", b"one").unwrap();
+    manager.apply_agent_edit(&agent, "b.txt", b"two").unwrap();
+    assert!(!storage
+        .find_commits_by_actor(agent.as_str(), 0)
+        .unwrap()
+        .is_empty());
+
+    storage.clear_source_index().unwrap();
+    assert!(storage
+        .find_commits_by_actor(agent.as_str(), 0)
+        .unwrap()
+        .is_empty());
+
+    // Queries fall back to the graph while the index is empty. The second
+    // commit's tree still carries a.txt, so per-file summaries total three.
+    let via_graph = wf_checkpoint::provenance::list_changes_by_actor(
+        &git,
+        &storage,
+        agent.as_str(),
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(via_graph.len(), 3);
+
+    let rebuilt = manager.rebuild_source_index().unwrap();
+    assert_eq!(rebuilt, 2);
+    assert_eq!(
+        storage
+            .find_commits_by_actor(agent.as_str(), 0)
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 async fn wait_until(mut cond: impl FnMut() -> bool, timeout_ms: u64) {

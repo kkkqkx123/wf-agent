@@ -20,6 +20,7 @@ pub use checkpoint_file::approval;
 pub use checkpoint_file::branch;
 pub use checkpoint_file::event;
 pub use checkpoint_file::file;
+pub use checkpoint_file::git_store;
 pub use checkpoint_file::manager_store;
 pub use checkpoint_file::precise;
 pub use checkpoint_file::provenance;
@@ -31,12 +32,13 @@ pub use checkpoint_file::watcher;
 pub use checkpoint_state::restore;
 pub use checkpoint_state::state;
 
-pub use ::layertwine::checkpoint::{GcRetention, GcStats};
-pub use ::layertwine::core::edit_session::EditSession;
 pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
 pub use checkpoint_base::cache::CheckpointCache;
 pub use checkpoint_base::common::{
-    content_hash, diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
+    content_hash, diff_stat_counts, diff_stats_for_text, diff_to_line_diff, diff_words,
+    format_unified_diff, inline_word_diff, is_binary, should_use_full_snapshot,
+    should_use_full_snapshot_content, unified_diff_text, AgentInstanceId, DiffOp, DiffStats, Hunk,
+    LineDiff, WordChange, WordDiff, DEFAULT_FULL_SNAPSHOT_THRESHOLD,
 };
 pub use checkpoint_base::config_resolver::CheckpointConfigResolver;
 pub use checkpoint_base::error::CheckpointError;
@@ -47,11 +49,13 @@ pub use checkpoint_file::approval::{ConflictView, MergeOutcome, PendingApproval}
 pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus};
 pub use checkpoint_file::file::actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use checkpoint_file::file::merge::MergeCommitResult;
+pub use checkpoint_file::file::session::{EditSession, EditSessionId};
 pub use checkpoint_file::file::util::sha256_hex;
 pub use checkpoint_file::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
+pub use checkpoint_file::gc::{GcRetention, GcStats};
 pub use checkpoint_file::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
 };
@@ -60,6 +64,7 @@ pub use checkpoint_file::script_capture::{
     CollectedChange, CollectedChangeKind, WorkspaceChangeCollector,
 };
 pub use checkpoint_file::session::CheckpointSession;
+pub use checkpoint_file::storage;
 pub use checkpoint_file::watcher::{
     normalize_absolute_path, FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
 };

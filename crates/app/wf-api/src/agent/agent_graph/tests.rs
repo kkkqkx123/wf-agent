@@ -6,6 +6,7 @@ use wf_agent::entity::AgentLoopEntity;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::context::StorageContext;
 
+use super::graph::analyze;
 use crate::agent::agent_graph::path_analysis::{
     all_alternatives, all_paths, alternative_decisions, analyze_decision_patterns,
     analyze_path_efficiency, critical_path, decision_edges, decision_graph, decision_nodes,
@@ -13,7 +14,6 @@ use crate::agent::agent_graph::path_analysis::{
     execution_path_steps, incoming_edges, most_promising_unexplored, outgoing_edges,
     path_probability_analysis, path_statistics, unexplored_alternatives,
 };
-use super::graph::analyze;
 use crate::infra::context::ApiContext;
 
 fn make_ctx() -> Arc<ApiContext> {

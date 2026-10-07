@@ -20,7 +20,6 @@ wf-common = { path = "../../../foundation/wf-common" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-metrics = { path = "../../wf-metrics" }
 wf-storage = { path = "../../wf-storage" }
-layertwine = { path = "../layertwine" }
 checkpoint-base = { path = "../checkpoint-base" }
 
 [dev-dependencies]

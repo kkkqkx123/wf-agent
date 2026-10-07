@@ -28,11 +28,11 @@ mod signal;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use pipeline::CompressionPipeline;
 pub use pipeline::COMPRESSION_HANDLED_CAPACITY;
 pub use policy::CompressionPolicy;
-pub use registry::BUILTIN_COMPRESSION_TEMPLATE_NAME;
-pub use service::{CompressionService, COMPRESSION_SERVICE_HANDLER_NAME};
-pub(crate) use pipeline::CompressionPipeline;
-pub(crate) use registry::CompressionRoutedRegistry;
 #[cfg(test)]
 pub(crate) use registry::builtin_compression_template;
+pub(crate) use registry::CompressionRoutedRegistry;
+pub use registry::BUILTIN_COMPRESSION_TEMPLATE_NAME;
+pub use service::{CompressionService, COMPRESSION_SERVICE_HANDLER_NAME};

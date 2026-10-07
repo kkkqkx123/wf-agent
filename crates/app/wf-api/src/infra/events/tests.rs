@@ -11,7 +11,10 @@ use super::agent_queries::{
     get_agent_events, get_agent_loop_statistics, get_agent_tool_execution_events,
     get_agent_turn_events, get_event_stats, search_events,
 };
-use super::health::{clear_event_history, event_history_size, event_system_health, event_time_range, execution_listener_stats};
+use super::health::{
+    clear_event_history, event_history_size, event_system_health, event_time_range,
+    execution_listener_stats,
+};
 use super::timeline::{execution_timeline_summary, get_execution_timeline};
 use super::timeline_events::{history, subscribe, timeline, wait_for_event};
 use super::{dispatch, EventQueryOptions};

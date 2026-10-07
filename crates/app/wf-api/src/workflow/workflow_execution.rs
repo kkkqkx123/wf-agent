@@ -10,11 +10,13 @@
 mod checkpoint;
 mod graph;
 mod lifecycle;
+mod summary;
 #[cfg(test)]
 mod tests;
-mod summary;
 
-pub use checkpoint::{create_checkpoint, restore_and_resume, restore_checkpoint, RestoredCheckpoint};
+pub use checkpoint::{
+    create_checkpoint, restore_and_resume, restore_checkpoint, RestoredCheckpoint,
+};
 pub use graph::{definition_to_graph, resolve_graph};
 pub use lifecycle::{
     cancel, execute, pause, resume, status, stream, ExecuteWorkflowParams,

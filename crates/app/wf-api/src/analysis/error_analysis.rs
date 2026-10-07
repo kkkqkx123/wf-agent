@@ -5,15 +5,18 @@
 
 mod advanced;
 mod context;
-mod recovery;
 mod records;
+mod recovery;
 mod subscription;
 mod views;
 
-pub use context::{analyze_root_cause, error_context, error_context_chain, ErrorContextView, WorkflowRootCauseAnalysis};
+pub use context::{
+    analyze_root_cause, error_context, error_context_chain, ErrorContextView,
+    WorkflowRootCauseAnalysis,
+};
 pub use queries::{
-    get_advanced_error_analysis, get_error_chain, get_recovery_proposal,
-    recovery_recommendations, similar_errors, stream_error_chain, workflow_error_stats,
+    get_advanced_error_analysis, get_error_chain, get_recovery_proposal, recovery_recommendations,
+    similar_errors, stream_error_chain, workflow_error_stats,
 };
 pub use subscription::{subscribe_to_errors, ErrorSubscription};
 pub use views::{

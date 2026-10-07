@@ -214,7 +214,11 @@ fn matches(entry: &ArtifactEntry, filter: &ArtifactFilter) -> bool {
         }
     }
     if let Some(needle) = filter.preview_contains.as_deref() {
-        if !entry.preview.to_lowercase().contains(&needle.to_lowercase()) {
+        if !entry
+            .preview
+            .to_lowercase()
+            .contains(&needle.to_lowercase())
+        {
             return false;
         }
     }
@@ -316,15 +320,16 @@ mod tests {
 
         let entries = artifacts_for_execution(&ctx, "wf-run-1").await.unwrap();
         assert_eq!(entries.len(), 4);
-        assert!(entries.iter().any(|e| e.kind == ArtifactKind::WorkflowOutput));
+        assert!(entries
+            .iter()
+            .any(|e| e.kind == ArtifactKind::WorkflowOutput));
         assert!(entries.iter().any(|e| e.kind == ArtifactKind::NodeResult));
         assert!(entries.iter().any(|e| e.kind == ArtifactKind::Variable));
     }
 
     #[tokio::test]
     async fn truncates_long_previews() {
-        let (preview, truncated, size) =
-            preview_value(&serde_json::Value::String("x".repeat(600)));
+        let (preview, truncated, size) = preview_value(&serde_json::Value::String("x".repeat(600)));
         assert!(truncated);
         assert!(size > ARTIFACT_PREVIEW_MAX);
         assert!(preview.len() <= ARTIFACT_PREVIEW_MAX + 3);

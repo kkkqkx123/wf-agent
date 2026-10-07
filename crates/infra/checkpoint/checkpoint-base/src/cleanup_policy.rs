@@ -10,7 +10,7 @@ const DAY_MS: i64 = 86_400_000;
 
 // Division of labor: this policy decides *which* execution-state checkpoints
 // may go by age, count, size, or tier, then applies chain protection. File
-// history reclamation lives in `layertwine` (`checkpoint::gc`) and only
+// history reclamation lives in `checkpoint-file` (`gc`) and only
 // reclaims commit rows outside the branch-head ancestor closure. The two
 // collectors share result shapes but must not share implementation.
 /// Age tier for the tiered cleanup strategy

@@ -4,11 +4,11 @@ use serde_json::Value;
 
 use super::aggregation::{aggregate, AggregationOp, AggregationType};
 use super::export::{export_to_csv, export_to_xml};
-use super::group_by_field;
 use super::filter::{
-    apply_filter_expressions, get_field_value, sort_records, FilterExpression,
-    FilterOperator, SortOptions,
+    apply_filter_expressions, get_field_value, sort_records, FilterExpression, FilterOperator,
+    SortOptions,
 };
+use super::group_by_field;
 use super::ExecutionRecord;
 
 fn sample_records() -> Vec<ExecutionRecord> {

@@ -17,9 +17,7 @@ use wf_api::EventSubscriptionOptions;
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
-use crate::paged::{
-    fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page,
-};
+use crate::paged::{fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 

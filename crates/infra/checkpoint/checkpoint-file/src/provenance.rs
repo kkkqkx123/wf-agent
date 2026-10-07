@@ -1,55 +1,36 @@
-//! Provenance queries over layertwine partitions.
+//! Provenance queries over the commit DAG.
 //!
-//! Queries are actor-partition centered and only use the layertwine
-//! `Repository` traits (`PartitionStore` / `SnapshotStore` / `DeltaStore` /
-//! `FileNodeStore`) — no direct SQL. Three query dimensions are supported:
-//!
-//! - by actor: `list_changes_by_actor` walks the actor partition history.
-//! - by path: `list_changes_by_path` scans every partition's history.
-//! - by time: window filters over `Delta.timestamp` / `Snapshot.created_at`.
-//!
-//! Plus workspace state (`get_actor_workspace`) and difference queries
-//! (`diff_actors` /.
+//! Reads expand trees and walk the commit graph; the source index only
+//! accelerates hot queries (actor / path) and every query falls back to a
+//! graph scan when the index is empty or damaged. Diffs render with the
+//! retained line-diff display capability (presentation only, never used
+//! for storage addressing).
 
 use std::collections::{HashMap, HashSet};
 
-use layertwine::core::delta::Delta;
-use layertwine::core::partition::Partition;
-use layertwine::core::snapshot::Snapshot;
-use layertwine::core::types::{AgentInstanceId, DeltaId, PartitionType, SnapshotId, SourceType};
-use layertwine::engine::merge::merge_texts;
-use layertwine::storage::repository::{DeltaStore, PartitionStore, SnapshotStore};
-use layertwine::storage::sqlite::SqliteStorage;
+use crate::storage::SqliteStorage;
 
-use crate::approval::{to_conflict_views, ConflictView};
-use crate::file::util::{map_layertwine_error, sha256_hex};
+use crate::approval::ConflictView;
+use crate::file::git_write::map_git_error;
+use crate::file::util::sha256_hex;
 use crate::file::FileContentEntry;
-use checkpoint_base::actor::id::ActorId;
+use crate::git_store::{
+    edit_ref_for_actor, feat_ref_for_name, GitCommit, GitStore, REF_EDIT_PREFIX, REF_FEAT_PREFIX,
+    REF_HUMAN, REF_MAIN, REF_REVIEW_PREFIX, TRAILER_ACTOR,
+};
 use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
 use checkpoint_base::error::CheckpointError;
 
-/// Seed path of the synthetic initial snapshot; excluded from provenance.
-const SEED_PATH: &str = ".wf-checkpoint-seed";
-
-/// Resolve the staged partition id for a workspace key (`None` = legacy
-/// single-workspace fixed id).
-pub(crate) fn staged_pid(workspace_key: Option<&str>) -> layertwine::core::types::PartitionId {
-    match workspace_key {
-        Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
-        None => layertwine::layered::staged::staged_partition_id(),
-    }
-}
-
-/// One recorded change of a partition history entry.
+/// One recorded change of a commit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeltaSummary {
     /// Relative file path.
     pub file: String,
-    /// Origin: `agent:{actor}` / `manual` / `backup` (layertwine `SourceType`).
+    /// Origin: actor id / `human` / `merge` / `review`.
     pub source: String,
     /// Change time (Unix milliseconds).
     pub timestamp: i64,
-    /// Snapshot id (hex).
+    /// Commit id (hex).
     pub snapshot_id: String,
     /// Content hash (SHA-256 hex) of the resulting file bytes.
     pub hash: String,
@@ -58,27 +39,27 @@ pub struct DeltaSummary {
     pub message: Option<String>,
 }
 
-/// Read view of a partition.
+/// Read view of a ref line (the branch-pointer replacement).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PartitionView {
     pub partition_id: String,
     pub name: String,
-    /// `manual` | `agent` | `approval` | `integrated` | `unified` | `staged`.
+    /// `manual` | `agent` | `approval` | `integrated` | `staged`.
     pub kind: String,
-    /// Actor id for per-actor partitions (agent/approval), `None` otherwise.
+    /// Actor id for per-actor lines (agent/approval), `None` otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actor: Option<String>,
-    /// Snapshot id (hex) of the partition pointer.
+    /// Commit id (hex) of the ref head.
     pub current_snapshot: String,
-    /// Number of history entries (INSERT-ONLY retention).
+    /// Number of commits reachable from the head.
     pub history_len: usize,
-    /// Creation time of the first history snapshot.
+    /// Creation time of the oldest reachable commit.
     pub created_at: i64,
-    /// Time of the last history snapshot.
+    /// Time of the head commit.
     pub updated_at: i64,
 }
 
-/// File content of an actor workspace at its current partition state
+/// File content of a workspace view at its current ref state
 /// (`get_actor_workspace`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct WorkspaceFile {
@@ -120,446 +101,351 @@ fn path_matches(path: &str, filter: Option<&str>) -> bool {
     }
 }
 
-/// The file path a snapshot applies to (chain head delta or own file node).
-pub fn snapshot_file_path(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<String, CheckpointError> {
-    if let Some(delta_id) = snapshot.deltas.last() {
-        let delta = storage.get_delta(delta_id).map_err(map_layertwine_error)?;
-        Ok(delta.file.path_str().to_string())
-    } else {
-        Ok(snapshot.file.path_str().to_string())
-    }
+fn intent_line(message: &str) -> Option<String> {
+    message
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
 }
 
-/// The delta of a snapshot chain (the last entry carries the edit that
-/// produced the snapshot).
-fn snapshot_last_delta(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<Option<Delta>, CheckpointError> {
-    let Some(delta_id) = snapshot.deltas.last() else {
-        return Ok(None);
-    };
-    storage
-        .get_delta(delta_id)
-        .map(Some)
-        .map_err(map_layertwine_error)
-}
-
-/// The byte content of a snapshot (verbatim content for binary, otherwise
-/// line-diff reconstruction). Single implementation lives in `file_util`;
-/// this wrapper keeps provenance call sites local.
-fn snapshot_content_bytes(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<Vec<u8>, CheckpointError> {
-    crate::file::util::snapshot_content_bytes(storage, snapshot)
-}
-
-/// Batch-load the chain-head delta of many snapshots with a single SQL
-/// query instead of N+1 round trips. Callers build the map once and reuse
-/// it for both path resolution (`batch_snapshot_paths_from_map`) and
-/// source/message lookup.
-fn chain_head_delta_map(
-    storage: &SqliteStorage,
-    snapshots: &HashMap<SnapshotId, Snapshot>,
-) -> HashMap<DeltaId, Delta> {
-    let delta_ids: Vec<DeltaId> = snapshots
-        .values()
-        .filter_map(|s| s.deltas.last().copied())
-        .collect();
-    storage
-        .get_deltas(&delta_ids)
-        .map(|deltas| deltas.into_iter().map(|d| (d.id, d)).collect())
-        .unwrap_or_default()
-}
-
-/// Resolve the file path of many snapshots from a preloaded chain-head
-/// delta map (pure, no I/O). Snapshots without a resolvable path are
-/// skipped by the caller.
-fn batch_snapshot_paths_from_map(
-    snapshots: &HashMap<SnapshotId, Snapshot>,
-    delta_map: &HashMap<DeltaId, Delta>,
-) -> HashMap<SnapshotId, String> {
-    snapshots
+/// Expand one commit into per-file change summaries.
+fn summaries_for_commit(
+    git: &GitStore,
+    commit: &GitCommit,
+) -> Result<Vec<DeltaSummary>, CheckpointError> {
+    let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+    let source = commit
+        .trailer(TRAILER_ACTOR)
+        .unwrap_or_else(|| "agent".to_string());
+    let message = intent_line(&commit.message);
+    let mut out: Vec<DeltaSummary> = files
         .iter()
-        .map(|(id, snapshot)| {
-            let path = snapshot
-                .deltas
-                .last()
-                .and_then(|delta_id| delta_map.get(delta_id))
-                .map(|d| d.file.path_str().to_string())
-                .unwrap_or_else(|| snapshot.file.path_str().to_string());
-            (*id, path)
+        .map(|(path, bytes)| DeltaSummary {
+            file: path.clone(),
+            source: source.clone(),
+            timestamp: commit.committer_ts,
+            snapshot_id: commit.id.clone(),
+            hash: sha256_hex(bytes),
+            message: message.clone(),
         })
-        .collect()
-}
-
-/// Batch-resolve the file path of many snapshots with two SQL queries
-/// (one snapshot batch + one delta batch) instead of N+1 round trips.
-/// Snapshots without a resolvable path are skipped.
-fn batch_snapshot_paths(
-    storage: &SqliteStorage,
-    snapshots: &HashMap<SnapshotId, Snapshot>,
-) -> HashMap<SnapshotId, String> {
-    let delta_map = chain_head_delta_map(storage, snapshots);
-    batch_snapshot_paths_from_map(snapshots, &delta_map)
-}
-
-/// Resolve the last snapshot per file path from a partition history, in
-/// history order (last occurrence wins). Seed snapshots are excluded.
-/// Snapshots are loaded with a single batched SQL query.
-fn latest_snapshots_per_path(
-    storage: &SqliteStorage,
-    partition: &Partition,
-) -> Result<Vec<(String, Snapshot)>, CheckpointError> {
-    let snap_map = storage
-        .get_snapshots_map(&partition.history)
-        .map_err(map_layertwine_error)?;
-    let path_map = batch_snapshot_paths(storage, &snap_map);
-    let mut order: Vec<String> = Vec::new();
-    let mut last_per_path: HashMap<String, Snapshot> = HashMap::new();
-    for snapshot_id in &partition.history {
-        let Some(snapshot) = snap_map.get(snapshot_id) else {
-            continue;
-        };
-        let Some(path) = path_map.get(snapshot_id) else {
-            continue;
-        };
-        if *path == SEED_PATH {
-            continue;
-        }
-        if !last_per_path.contains_key(path) {
-            order.push(path.clone());
-        }
-        last_per_path.insert(path.clone(), snapshot.clone());
-    }
-    Ok(order
-        .into_iter()
-        .filter_map(|path| last_per_path.remove(&path).map(|snap| (path, snap)))
-        .collect())
-}
-
-/// All partitions ordered by name (stable for tests). Snapshot timestamps
-/// are loaded with a single batched SQL query across all partitions.
-pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, CheckpointError> {
-    let mut partitions = storage.list_partitions().map_err(map_layertwine_error)?;
-    partitions.sort_by(|a, b| a.name.cmp(&b.name));
-    let all_ids: Vec<SnapshotId> = partitions
-        .iter()
-        .flat_map(|p| p.history.iter().copied())
         .collect();
-    let snap_map = storage
-        .get_snapshots_map(&all_ids)
-        .map_err(map_layertwine_error)?;
-    let mut views = Vec::with_capacity(partitions.len());
-    for partition in partitions {
-        let (kind, actor) = match &partition.partition_type {
-            PartitionType::Manual => ("manual", None),
-            PartitionType::Agent(id) => ("agent", Some(id.0.clone())),
-            PartitionType::Approval(id) => ("approval", Some(id.0.clone())),
-            PartitionType::Integrated(name) => ("integrated", Some(name.clone())),
-            PartitionType::Staged => ("staged", None),
-        };
-        let mut created_at = 0;
-        let mut updated_at = 0;
-        for snapshot_id in &partition.history {
-            if let Some(snapshot) = snap_map.get(snapshot_id) {
-                if created_at == 0 {
-                    created_at = snapshot.created_at;
-                }
-                updated_at = snapshot.created_at;
+    out.sort_by(|a, b| a.file.cmp(&b.file));
+    Ok(out)
+}
+
+/// Commits touching one actor: index fast path, graph scan fallback.
+fn commits_for_actor(
+    git: &GitStore,
+    storage: &SqliteStorage,
+    actor: &str,
+) -> Result<Vec<GitCommit>, CheckpointError> {
+    let indexed = storage.find_commits_by_actor(actor, 0)?;
+    if !indexed.is_empty() {
+        let mut out = Vec::with_capacity(indexed.len());
+        for entry in indexed {
+            if let Ok(commit) = git.read_commit(&entry.commit_id) {
+                out.push(commit);
             }
         }
+        if !out.is_empty() {
+            return Ok(out);
+        }
+    }
+    // Fallback: scan the graph for the actor trailer.
+    let mut out = Vec::new();
+    for commit in git.all_commits().map_err(map_git_error)? {
+        if commit.trailer(TRAILER_ACTOR).as_deref() == Some(actor) {
+            out.push(commit);
+        }
+    }
+    Ok(out)
+}
+
+/// All refs in deterministic order.
+fn all_refs(git: &GitStore) -> Result<Vec<(String, String)>, CheckpointError> {
+    git.list_refs("refs/wf/").map_err(map_git_error)
+}
+
+/// Classify a ref into the stable partition-kind vocabulary.
+fn classify_ref(name: &str, head: &GitCommit) -> (String, Option<String>) {
+    if name == REF_MAIN {
+        ("staged".to_string(), None)
+    } else if name == REF_HUMAN {
+        ("manual".to_string(), None)
+    } else if name.strip_prefix(REF_REVIEW_PREFIX).is_some() {
+        ("approval".to_string(), head.trailer(TRAILER_ACTOR))
+    } else if let Some(name) = name.strip_prefix(REF_FEAT_PREFIX) {
+        ("integrated".to_string(), Some(name.to_string()))
+    } else if let Some(actor) = name.strip_prefix(REF_EDIT_PREFIX) {
+        ("agent".to_string(), Some(actor.to_string()))
+    } else {
+        ("agent".to_string(), None)
+    }
+}
+
+/// All ref lines ordered by name (stable for tests).
+pub fn list_partitions(
+    git: &GitStore,
+    _storage: &SqliteStorage,
+) -> Result<Vec<PartitionView>, CheckpointError> {
+    let mut refs = all_refs(git)?;
+    refs.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut views = Vec::with_capacity(refs.len());
+    for (name, head_id) in refs {
+        let Ok(head) = git.read_commit(&head_id) else {
+            continue;
+        };
+        let log = git.log(&head_id, 0).map_err(map_git_error)?;
+        let created_at = log
+            .iter()
+            .map(|c| c.committer_ts)
+            .min()
+            .unwrap_or(head.committer_ts);
+        let (kind, actor) = classify_ref(&name, &head);
         views.push(PartitionView {
-            partition_id: partition.id.to_string(),
-            name: partition.name.clone(),
-            kind: kind.to_string(),
+            partition_id: name.clone(),
+            name,
+            kind,
             actor,
-            current_snapshot: partition.current_snapshot.to_hex(),
-            history_len: partition.history.len(),
+            current_snapshot: head_id,
+            history_len: log.len(),
             created_at,
-            updated_at,
+            updated_at: head.committer_ts,
         });
     }
     Ok(views)
 }
 
-/// Changes recorded in an actor partition history, in chronological order
-///.
+/// Changes recorded on an actor's line, in chronological order.
 ///
 /// `path_filter` is a plain substring match; `time_range` is
 /// `[start, end]` milliseconds (inclusive), `None` = unbounded.
 pub fn list_changes_by_actor(
+    git: &GitStore,
     storage: &SqliteStorage,
     actor: &str,
     path_filter: Option<&str>,
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-    let partition = actor_partition(storage, actor)?;
-    // Single batched snapshot load; path/time filters apply before any
-    // per-snapshot content reconstruction, and single-sided ranges are
-    // normalized by the caller (HTTP layer maps missing ends to MIN/MAX).
-    let snap_map = storage
-        .get_snapshots_map(&partition.history)
-        .map_err(map_layertwine_error)?;
-    let delta_map = chain_head_delta_map(storage, &snap_map);
-    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
+    let mut commits = commits_for_actor(git, storage, actor)?;
+    commits.sort_by(|a, b| a.committer_ts.cmp(&b.committer_ts).then(a.id.cmp(&b.id)));
     let mut changes = Vec::new();
-    for snapshot_id in &partition.history {
-        let Some(snapshot) = snap_map.get(snapshot_id) else {
-            continue;
-        };
-        let Some(path) = path_map.get(snapshot_id) else {
-            continue;
-        };
-        if *path == SEED_PATH || !path_matches(path, path_filter) {
-            continue;
-        }
+    for commit in commits {
         if let Some((start, end)) = time_range {
-            if snapshot.created_at < start || snapshot.created_at > end {
+            if commit.committer_ts < start || commit.committer_ts > end {
                 continue;
             }
         }
-        let last_delta = snapshot
-            .deltas
-            .last()
-            .and_then(|delta_id| delta_map.get(delta_id));
-        let source = last_delta
-            .as_ref()
-            .map(|d| source_label(&d.source))
-            .unwrap_or_else(|| "agent".to_string());
-        let message = last_delta.and_then(|d| d.message.clone());
-        let content = snapshot_content_bytes(storage, snapshot)?;
-        changes.push(DeltaSummary {
-            file: path.clone(),
-            source,
-            timestamp: snapshot.created_at,
-            snapshot_id: snapshot.id.to_hex(),
-            hash: sha256_hex(&content),
-            message,
-        });
+        for summary in summaries_for_commit(git, &commit)? {
+            if path_matches(&summary.file, path_filter) {
+                changes.push(summary);
+            }
+        }
     }
     Ok(changes)
 }
 
-/// Candidate snapshot ids touching `path` that are referenced by some
-/// partition history, in deterministic order.
-///
-/// A delta-chain snapshot's own file node is its base (see layertwine
-/// `Snapshot::from_parent`), so the edited path is only visible through the
-/// chain-head delta. Candidates are therefore the union of:
-/// (a) history snapshots whose chain head is a delta recorded for `path`
-///     (SQL-indexed via `idx_deltas_file_timestamp`), and
-/// (b) history snapshots stored directly under `path` that carry no delta
-///     (full-content snapshots).
-/// Time filtering stays on `Snapshot.created_at` in memory: delta and
-/// snapshot timestamps are distinct clocks and must not be mixed.
-fn candidate_snapshot_ids_for_path(
-    storage: &SqliteStorage,
-    path: &str,
-) -> Result<Vec<SnapshotId>, CheckpointError> {
-    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
-    let history_ids: Vec<SnapshotId> = partitions
-        .iter()
-        .flat_map(|p| p.history.iter().copied())
-        .collect();
-    let head_by_snapshot: HashMap<SnapshotId, Option<DeltaId>> = storage
-        .snapshot_chain_heads(&history_ids)
-        .map_err(map_layertwine_error)?
-        .into_iter()
-        .collect();
-    let delta_hits: HashSet<DeltaId> = storage
-        .find_deltas_by_file_and_time(path, None)
-        .map_err(map_layertwine_error)?
-        .into_iter()
-        .map(|d| d.id)
-        .collect();
-    let mut seen: HashSet<SnapshotId> = HashSet::new();
-    let mut ordered: Vec<SnapshotId> = Vec::new();
-    for id in history_ids {
-        let matches_path =
-            matches!(head_by_snapshot.get(&id), Some(Some(head)) if delta_hits.contains(head));
-        if matches_path && seen.insert(id) {
-            ordered.push(id);
-        }
-    }
-    // Full-content snapshots (empty delta chain) are stored under the edited
-    // path directly; the chain-head join above cannot see them.
-    let direct = storage
-        .find_snapshots_by_file(path)
-        .map_err(map_layertwine_error)?;
-    for snapshot in direct {
-        if snapshot.deltas.is_empty() && seen.insert(snapshot.id) {
-            ordered.push(snapshot.id);
-        }
-    }
-    Ok(ordered)
-}
-
-/// Changes touching `path` across every partition (`list_changes_by_path`).
-/// `time_range` (inclusive `(start, end)` timestamps) narrows the window.
+/// Changes touching `path` across every line, following renames: an
+/// identical-content add paired with a same-commit delete counts as a
+/// rename, so the timeline spans both names. `time_range` (inclusive
+/// `(start, end)` timestamps) narrows the window.
 pub fn list_changes_by_path(
+    git: &GitStore,
     storage: &SqliteStorage,
     path: &str,
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-    // SQL-indexed candidate prefilter (delta path match + full-content
-    // match): only snapshots that can resolve to `path` are loaded, instead
-    // of every partition's full history.
-    let ordered_ids = candidate_snapshot_ids_for_path(storage, path)?;
-    let snap_map = storage
-        .get_snapshots_map(&ordered_ids)
-        .map_err(map_layertwine_error)?;
-    let delta_map = chain_head_delta_map(storage, &snap_map);
-    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
-    let mut changes = Vec::new();
-    for snapshot_id in &ordered_ids {
-        let Some(snapshot) = snap_map.get(snapshot_id) else {
-            continue;
-        };
-        let Some(snapshot_path) = path_map.get(snapshot_id) else {
-            continue;
-        };
-        // Path is re-resolved through the chain-head delta (a snapshot's own
-        // file node is its base, which may differ for merges); the SQL
-        // prefilter is only a candidate set.
-        if *snapshot_path == SEED_PATH || *snapshot_path != path {
-            continue;
+    let indexed = storage.find_commits_by_path(path, 0)?;
+    let commits: Vec<GitCommit> = if indexed.is_empty() {
+        // Fallback: scan every reachable commit's tree for the path.
+        let mut found = Vec::new();
+        for commit in git.all_commits().map_err(map_git_error)? {
+            let Ok(files) = git.tree_to_files(&commit.tree) else {
+                continue;
+            };
+            if files.contains_key(path) {
+                found.push(commit);
+            }
         }
+        found
+    } else {
+        indexed
+            .into_iter()
+            .filter_map(|entry| git.read_commit(&entry.commit_id).ok())
+            .collect()
+    };
+    // Rename follow: same-content blobs appearing under other names in the
+    // same commits extend the path set (similarity = identical bytes).
+    let mut names: HashSet<String> = HashSet::from([path.to_string()]);
+    for commit in &commits {
+        let Ok(files) = git.tree_to_bytes(&commit.tree) else {
+            continue;
+        };
+        let Some(want) = files.get(path) else {
+            continue;
+        };
+        for (other, bytes) in &files {
+            if bytes == want {
+                names.insert(other.clone());
+            }
+        }
+    }
+    let mut changes = Vec::new();
+    for commit in commits {
         if let Some((start, end)) = time_range {
-            if snapshot.created_at < start || snapshot.created_at > end {
+            if commit.committer_ts < start || commit.committer_ts > end {
                 continue;
             }
         }
-        let last_delta = snapshot
-            .deltas
-            .last()
-            .and_then(|delta_id| delta_map.get(delta_id));
-        let source = last_delta
-            .as_ref()
-            .map(|d| source_label(&d.source))
-            .unwrap_or_else(|| "agent".to_string());
-        let message = last_delta.and_then(|d| d.message.clone());
-        let content = snapshot_content_bytes(storage, snapshot)?;
-        changes.push(DeltaSummary {
-            file: snapshot_path.clone(),
-            source,
-            timestamp: snapshot.created_at,
-            snapshot_id: snapshot.id.to_hex(),
-            hash: sha256_hex(&content),
-            message,
-        });
+        for summary in summaries_for_commit(git, &commit)? {
+            if names.contains(&summary.file) {
+                changes.push(summary);
+            }
+        }
     }
-    changes.sort_by_key(|c| c.timestamp);
+    changes.sort_by(|a, b| {
+        a.timestamp
+            .cmp(&b.timestamp)
+            .then(a.snapshot_id.cmp(&b.snapshot_id))
+            .then(a.file.cmp(&b.file))
+    });
     Ok(changes)
 }
 
-/// Reconstructed file set of an actor partition
-/// `get_actor_workspace`).
+/// Read one ref line's tree into workspace files.
+fn workspace_files_for_tree(
+    git: &GitStore,
+    tree: &str,
+    timestamp: i64,
+) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+    let files = git.tree_to_bytes(tree).map_err(map_git_error)?;
+    let mut out: Vec<WorkspaceFile> = files
+        .into_iter()
+        .map(|(path, content)| {
+            let hash = sha256_hex(&content);
+            WorkspaceFile {
+                path,
+                content,
+                hash,
+                timestamp,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// Reconstructed file set of an actor's edit line
+/// (`get_actor_workspace`).
 pub fn get_actor_workspace(
-    storage: &SqliteStorage,
+    git: &GitStore,
     actor: &str,
 ) -> Result<Vec<WorkspaceFile>, CheckpointError> {
-    let partition = actor_partition(storage, actor)?;
-    let mut files = Vec::new();
-    for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
-        // Deleted snapshots carry the explicit deletion marker: the path is
-        // missing from the workspace rather than cleared.
-        if snapshot.is_deleted() {
-            continue;
-        }
-        let content = snapshot_content_bytes(storage, &snapshot)?;
-        let hash = sha256_hex(&content);
-        files.push(WorkspaceFile {
-            path,
-            content,
-            hash,
-            timestamp: snapshot.created_at,
-        });
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(files)
+    let head = git
+        .read_ref(&edit_ref_for_actor(actor))
+        .map_err(map_git_error)?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: format!("actor workspace for '{actor}'"),
+        })?;
+    let commit = git.read_commit(&head).map_err(map_git_error)?;
+    workspace_files_for_tree(git, &commit.tree, commit.committer_ts)
 }
 
-/// The staged partition's reconstructed file set (`diff_against_staged`
-/// base). `workspace_key` selects the workspace-scoped staged partition
-/// (`None` = legacy single-workspace fixed partition).
-pub fn get_staged_workspace(
-    storage: &SqliteStorage,
-    workspace_key: Option<&str>,
+/// The main line's reconstructed file set (`diff_against_staged` base).
+pub fn get_staged_workspace(git: &GitStore) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+    let head = git
+        .read_ref(REF_MAIN)
+        .map_err(map_git_error)?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: "main workspace".to_string(),
+        })?;
+    let commit = git.read_commit(&head).map_err(map_git_error)?;
+    workspace_files_for_tree(git, &commit.tree, commit.committer_ts)
+}
+
+/// The feature line's reconstructed file set.
+pub fn get_feature_workspace(
+    git: &GitStore,
+    feature: &str,
 ) -> Result<Vec<WorkspaceFile>, CheckpointError> {
-    let pid = staged_pid(workspace_key);
-    let partition = storage.get_partition(&pid).map_err(map_layertwine_error)?;
-    let mut files = Vec::new();
-    for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
-        // Deleted snapshots carry the explicit deletion marker: the path is
-        // missing from the staged workspace rather than cleared.
-        if snapshot.is_deleted() {
-            continue;
-        }
-        let content = snapshot_content_bytes(storage, &snapshot)?;
-        let hash = sha256_hex(&content);
-        files.push(WorkspaceFile {
-            path,
-            content,
-            hash,
-            timestamp: snapshot.created_at,
-        });
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(files)
+    let head = git
+        .read_ref(&feat_ref_for_name(feature))
+        .map_err(map_git_error)?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: format!("feature '{feature}'"),
+        })?;
+    let commit = git.read_commit(&head).map_err(map_git_error)?;
+    workspace_files_for_tree(git, &commit.tree, commit.committer_ts)
 }
 
-/// A file whose merge snapshot carries the unresolved-conflict flag.
+/// A file whose merge commit carries the unresolved-conflict flag.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ConflictFile {
     /// Relative file path.
     pub path: String,
-    /// Snapshot id (hex) of the conflicted merge snapshot.
+    /// Commit id (hex) of the conflicted merge commit.
     pub snapshot_id: String,
-    /// Partition the conflict lives in (`staged` / `integrated/<feature>`).
+    /// Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`).
     pub partition: String,
-    /// Re-derived conflict regions (best effort; empty when the merge
-    /// inputs cannot be reconstructed from storage).
+    /// Conflict regions re-derived from the standard markers on disk.
     pub conflicts: Vec<ConflictView>,
 }
 
-/// List files with unresolved merge conflicts across the staged and all
-/// feature (integrated) partitions. Only the latest snapshot of each path
-/// is considered (an older conflicted snapshot that was superseded by a
-/// resolution no longer counts); the `MergeConflict` regions are re-derived
-/// by replaying the merge over the snapshot's parents (best effort — old
-/// snapshots whose inputs are gone report the path with an empty conflict
-/// list).
-pub fn list_conflicts(
-    storage: &SqliteStorage,
-    workspace_key: Option<&str>,
-) -> Result<Vec<ConflictFile>, CheckpointError> {
-    let mut partitions: Vec<Partition> = Vec::new();
-    let staged_pid = staged_pid(workspace_key);
-    if let Ok(partition) = storage.get_partition(&staged_pid) {
-        partitions.push(partition);
-    }
-    for partition in storage.list_partitions().map_err(map_layertwine_error)? {
-        if matches!(partition.partition_type, PartitionType::Integrated(_)) {
-            partitions.push(partition);
+/// Parse standard conflict markers from stored bytes into read views.
+pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = Vec::new();
+    let mut ours: Vec<String> = Vec::new();
+    let mut theirs: Vec<String> = Vec::new();
+    let mut state = 0u8;
+    let mut start_line = 0usize;
+    for (idx, line) in text.lines().enumerate() {
+        match (state, line) {
+            (0, "<<<<<<< ours") => {
+                state = 1;
+                start_line = idx;
+                ours.clear();
+                theirs.clear();
+            }
+            (1, "=======") => state = 2,
+            (2, l) if l.starts_with(">>>>>>>") => {
+                state = 0;
+                out.push(ConflictView {
+                    file: path.to_string(),
+                    start_line,
+                    base: vec![],
+                    ours: std::mem::take(&mut ours),
+                    theirs: std::mem::take(&mut theirs),
+                });
+            }
+            (1, l) => ours.push(l.to_string()),
+            (2, l) => theirs.push(l.to_string()),
+            _ => {}
         }
     }
+    out
+}
 
+/// List files with unresolved merge conflicts across main and every
+/// feature ref, enumerated from unresolved merge commits (never by
+/// replaying history). Regions come from the standard markers stored in
+/// the conflicted files.
+pub fn list_conflicts(git: &GitStore) -> Result<Vec<ConflictFile>, CheckpointError> {
     let mut out = Vec::new();
-    for partition in partitions {
-        for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
-            if !snapshot.has_conflicts {
-                continue;
-            }
-            let conflicts = rederive_conflicts(storage, &snapshot)?;
+    for (refname, commit_id, files) in git.list_unresolved_conflicts().map_err(map_git_error)? {
+        let commit = git.read_commit(&commit_id).map_err(map_git_error)?;
+        let stored = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+        for file in files {
+            let conflicts = stored
+                .get(&file)
+                .map(|bytes| parse_marker_conflicts(&file, bytes))
+                .unwrap_or_default();
             out.push(ConflictFile {
-                path,
-                snapshot_id: snapshot.id.to_hex(),
-                partition: partition.name.clone(),
+                path: file,
+                snapshot_id: commit_id.clone(),
+                partition: refname.clone(),
                 conflicts,
             });
         }
@@ -568,101 +454,8 @@ pub fn list_conflicts(
     Ok(out)
 }
 
-/// Replay the three-way merge that produced a conflicted snapshot and
-/// return the conflict regions as read views. The role of each parent is
-/// derived from the snapshot's partition type and parent count, following
-/// the `Snapshot::merge` conventions in layertwine. Returns an empty list
-/// when the merge inputs cannot be reconstructed.
-fn rederive_conflicts(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<Vec<ConflictView>, CheckpointError> {
-    let pt = &snapshot.partition_type;
-    let parents = &snapshot.parents;
-
-    // (base, ours, theirs) snapshot ids, when the merge shape is known.
-    let roles: Option<(SnapshotId, SnapshotId, SnapshotId)> = if pt == "staged" {
-        // merge_feature_to_staged: parents = [staged, feature]; base is the
-        // feature partition's baseline (history[0]).
-        if parents.len() >= 2 {
-            let feature_snap = storage
-                .get_snapshot(&parents[1])
-                .map_err(map_layertwine_error)?;
-            let name = feature_snap.partition_type.strip_prefix("integrated/");
-            match name {
-                Some(name) => {
-                    let fpid = layertwine::layered::integrated::integrated_partition_id(name);
-                    let base = storage
-                        .get_partition(&fpid)
-                        .ok()
-                        .and_then(|p| p.history.first().copied());
-                    base.map(|base| (base, parents[0], parents[1]))
-                }
-                None => None,
-            }
-        } else {
-            None
-        }
-    } else if pt.starts_with("integrated/") {
-        // merge_agent_to_feature: parents = [integrated, approval, baseline];
-        // merge_texts(base=baseline, ours=approval, theirs=integrated).
-        if parents.len() >= 3 {
-            Some((parents[2], parents[1], parents[0]))
-        } else {
-            None
-        }
-    } else if pt.starts_with("approval/") {
-        // move_agent_to_approval: parents = [approval, agent]; base is the
-        // approval partition's baseline (history[0]).
-        if parents.len() >= 2 {
-            let agent = pt.strip_prefix("approval/");
-            match agent {
-                Some(agent) => {
-                    let agent_id = AgentInstanceId(agent.to_string());
-                    let pid = layertwine::layered::approval::approval_agent_partition_id(&agent_id);
-                    let base = storage
-                        .get_partition(&pid)
-                        .ok()
-                        .and_then(|p| p.history.first().copied());
-                    base.map(|base| (base, parents[0], parents[1]))
-                }
-                None => None,
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let Some((base_id, ours_id, theirs_id)) = roles else {
-        return Ok(vec![]);
-    };
-    let base = storage
-        .get_snapshot(&base_id)
-        .map_err(map_layertwine_error)?;
-    let ours = storage
-        .get_snapshot(&ours_id)
-        .map_err(map_layertwine_error)?;
-    let theirs = storage
-        .get_snapshot(&theirs_id)
-        .map_err(map_layertwine_error)?;
-    let base_text = layertwine::layered::transition::reconstruct_text(storage, &base)
-        .map_err(map_layertwine_error)?
-        .unwrap_or_default();
-    let ours_text = layertwine::layered::transition::reconstruct_text(storage, &ours)
-        .map_err(map_layertwine_error)?
-        .unwrap_or_default();
-    let theirs_text = layertwine::layered::transition::reconstruct_text(storage, &theirs)
-        .map_err(map_layertwine_error)?
-        .unwrap_or_default();
-    let (_, conflicts) = merge_texts(&base_text, &ours_text, &theirs_text);
-    let path = snapshot_file_path(storage, snapshot)?;
-    Ok(to_conflict_views(&path, &conflicts))
-}
-
-/// Per-file diff between two workspace states
-///. Binary files report `Modified` without a diff.
+/// Per-file diff between two workspace states. Binary files report
+/// `Modified` without a diff.
 pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiffView> {
     let a_map: HashMap<&str, &WorkspaceFile> = a.iter().map(|f| (f.path.as_str(), f)).collect();
     let b_map: HashMap<&str, &WorkspaceFile> = b.iter().map(|f| (f.path.as_str(), f)).collect();
@@ -720,7 +513,7 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
 }
 
 /// Build a unified diff when both contents are valid UTF-8 text, otherwise
-/// `(None, None, None)` (binary).
+/// `(None, None, None)` (binary: reported as changed, never expanded).
 fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Option<usize>) {
     let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
         return (None, None, None);
@@ -736,47 +529,42 @@ fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Opt
 
 /// Diff between two actor workspaces.
 pub fn diff_actors(
-    storage: &SqliteStorage,
+    git: &GitStore,
     actor_a: &str,
     actor_b: &str,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
-    let a = get_actor_workspace(storage, actor_a)?;
-    let b = get_actor_workspace(storage, actor_b)?;
+    let a = get_actor_workspace(git, actor_a)?;
+    let b = get_actor_workspace(git, actor_b)?;
     Ok(diff_workspaces(&a, &b))
 }
 
-/// Diff between an actor workspace and the staged partition
-///.
+/// Diff between an actor workspace and the main line.
 pub fn diff_against_staged(
-    storage: &SqliteStorage,
+    git: &GitStore,
     actor: &str,
-    workspace_key: Option<&str>,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
-    let actor_files = get_actor_workspace(storage, actor)?;
-    let staged_files = get_staged_workspace(storage, workspace_key)?;
+    let actor_files = get_actor_workspace(git, actor)?;
+    let staged_files = get_staged_workspace(git)?;
     Ok(diff_workspaces(&actor_files, &staged_files))
 }
 
-/// Read-only provenance service borrowing the store.
+/// Read-only provenance service borrowing the stores.
 ///
 /// Splits query ownership out of `FileCheckpointManager`: orchestration code
-/// builds a reader from the manager's storage + workspace key, while the
-/// manager's own query methods delegate here to keep one implementation.
+/// builds a reader from the manager's handles, while the manager's own
+/// query methods delegate here to keep one implementation.
 pub struct ProvenanceReader<'a> {
+    git: &'a GitStore,
     storage: &'a SqliteStorage,
-    workspace_key: Option<String>,
 }
 
 impl<'a> ProvenanceReader<'a> {
-    pub fn new(storage: &'a SqliteStorage, workspace_key: Option<String>) -> Self {
-        Self {
-            storage,
-            workspace_key,
-        }
+    pub fn new(git: &'a GitStore, storage: &'a SqliteStorage) -> Self {
+        Self { git, storage }
     }
 
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
-        list_partitions(self.storage)
+        list_partitions(self.git, self.storage)
     }
 
     pub fn list_changes_by_actor(
@@ -785,7 +573,7 @@ impl<'a> ProvenanceReader<'a> {
         path_filter: Option<&str>,
         time_range: Option<(i64, i64)>,
     ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-        list_changes_by_actor(self.storage, actor, path_filter, time_range)
+        list_changes_by_actor(self.git, self.storage, actor, path_filter, time_range)
     }
 
     pub fn list_changes_by_path(
@@ -793,11 +581,11 @@ impl<'a> ProvenanceReader<'a> {
         path: &str,
         time_range: Option<(i64, i64)>,
     ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-        list_changes_by_path(self.storage, path, time_range)
+        list_changes_by_path(self.git, self.storage, path, time_range)
     }
 
     pub fn get_actor_workspace(&self, actor: &str) -> Result<Vec<WorkspaceFile>, CheckpointError> {
-        get_actor_workspace(self.storage, actor)
+        get_actor_workspace(self.git, actor)
     }
 
     pub fn diff_actors(
@@ -805,15 +593,19 @@ impl<'a> ProvenanceReader<'a> {
         actor_a: &str,
         actor_b: &str,
     ) -> Result<Vec<FileDiffView>, CheckpointError> {
-        diff_actors(self.storage, actor_a, actor_b)
+        diff_actors(self.git, actor_a, actor_b)
     }
 
     pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
-        diff_against_staged(self.storage, actor, self.workspace_key.as_deref())
+        diff_against_staged(self.git, actor)
     }
 
     pub fn list_conflicts(&self) -> Result<Vec<ConflictFile>, CheckpointError> {
-        list_conflicts(self.storage, self.workspace_key.as_deref())
+        list_conflicts(self.git)
+    }
+
+    pub fn file_timeline(&self, path: &str) -> Result<FileTimeline, CheckpointError> {
+        file_timeline(self.git, self.storage, path)
     }
 }
 
@@ -826,71 +618,12 @@ pub fn workspace_entries(files: &[WorkspaceFile]) -> Vec<FileContentEntry> {
         .collect()
 }
 
-/// Resolve the actor partition of an actor id string (full `ActorId` or bare
-/// execution id, mirroring `FileCheckpointManager::actor_id_for`).
-fn actor_partition(storage: &SqliteStorage, actor: &str) -> Result<Partition, CheckpointError> {
-    let actor = match ActorId::parse(actor) {
-        Ok(parsed) => parsed,
-        Err(_) => ActorId::new(
-            checkpoint_base::actor::id::ActorKind::Agent,
-            &[wf_types::Id::from(actor.to_string())],
-        )
-        .map_err(|e| CheckpointError::Validation {
-            reason: format!("invalid actor id '{actor}': {e}"),
-        })?,
-    };
-    let agent_id = actor.to_agent_instance_id();
-    let pid = layertwine::layered::agent::agent_partition_id(&agent_id);
-    storage
-        .get_partition(&pid)
-        .map_err(|_| CheckpointError::NotFound {
-            id: format!("actor partition for '{actor}'"),
-        })
-}
-
-/// Actor id of a delta source (provenance display).
-fn source_label(source: &SourceType) -> String {
-    match source {
-        SourceType::Manual => "manual".to_string(),
-        SourceType::Agent(id) => id.0.clone(),
-        SourceType::Backup => "backup".to_string(),
-    }
-}
-
-impl DeltaSummary {
-    /// Map a snapshot chain to its change summary.
-    pub fn from_snapshot(
-        storage: &SqliteStorage,
-        snapshot: &Snapshot,
-    ) -> Result<Option<DeltaSummary>, CheckpointError> {
-        let path = snapshot_file_path(storage, snapshot)?;
-        if path == SEED_PATH {
-            return Ok(None);
-        }
-        let last_delta = snapshot_last_delta(storage, snapshot)?;
-        let source = last_delta
-            .as_ref()
-            .map(|d| source_label(&d.source))
-            .unwrap_or_else(|| "agent".to_string());
-        let message = last_delta.and_then(|d| d.message.clone());
-        let content = snapshot_content_bytes(storage, snapshot)?;
-        Ok(Some(DeltaSummary {
-            file: path,
-            source,
-            timestamp: snapshot.created_at,
-            snapshot_id: snapshot.id.to_hex(),
-            hash: sha256_hex(&content),
-            message,
-        }))
-    }
-}
-
 /// A single entry in a file's version timeline, including optional move context.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileTimelineEntry {
     /// File path at this point in time.
     pub path: String,
-    /// Snapshot id (hex).
+    /// Commit id (hex).
     pub snapshot_id: String,
     /// Content hash (SHA-256 hex) of the resulting file bytes.
     pub content_hash: String,
@@ -913,301 +646,126 @@ pub struct FileTimeline {
 }
 
 /// Build the complete version timeline for a file path, including
-/// rename/move tracing. The timeline walks backwards through file_moves to find
-/// the original path, then collects all snapshots that touched any path in
-/// the rename chain, and returns them in chronological order.
-pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline, CheckpointError> {
-    use layertwine::storage::repository::FileMoveStore;
-
-    // Trace the rename chain to find the original path
-    let rename_chain = storage
-        .trace_rename_chain(path)
-        .map_err(map_layertwine_error)?;
-
-    // Collect all paths in the rename chain (including the current path)
-    let mut all_paths: Vec<String> = Vec::new();
-    for m in &rename_chain {
-        if !all_paths.contains(&m.from_path) {
-            all_paths.push(m.from_path.clone());
+/// rename/move tracing via content-similarity detection (identical bytes
+/// appearing under a new name while the old name disappears in the same
+/// commit count as a rename). Walks the commit graph with rename
+/// following; no move table is consulted.
+pub fn file_timeline(
+    git: &GitStore,
+    _storage: &SqliteStorage,
+    path: &str,
+) -> Result<FileTimeline, CheckpointError> {
+    let mut commits = git.all_commits().map_err(map_git_error)?;
+    commits.sort_by(|a, b| a.committer_ts.cmp(&b.committer_ts).then(a.id.cmp(&b.id)));
+    // Current blob per path as we sweep chronologically, so renames link
+    // across consecutive commits touching the file.
+    let mut entries: Vec<FileTimelineEntry> = Vec::new();
+    let mut known_names: HashSet<String> = HashSet::from([path.to_string()]);
+    let mut moved_from: HashMap<String, String> = HashMap::new();
+    let mut previous_blobs: HashMap<String, String> = HashMap::new();
+    for commit in &commits {
+        let Ok(files) = git.tree_to_files(&commit.tree) else {
+            continue;
+        };
+        // Rename detection: a name disappearing while an identical blob
+        // appears under a new name in the same commit links the two.
+        let mut disappeared: Vec<(String, String)> = Vec::new();
+        let mut appeared: Vec<(String, String)> = Vec::new();
+        for parent_id in &commit.parents {
+            let Ok(parent) = git.read_commit(parent_id) else {
+                continue;
+            };
+            let Ok(parent_files) = git.tree_to_files(&parent.tree) else {
+                continue;
+            };
+            for (name, (_, blob)) in &parent_files {
+                if !files.contains_key(name) {
+                    disappeared.push((name.clone(), blob.clone()));
+                }
+            }
+            for (name, (_, blob)) in &files {
+                if !parent_files.contains_key(name) {
+                    appeared.push((name.clone(), blob.clone()));
+                }
+            }
         }
-    }
-    if !all_paths.contains(&path.to_string()) {
-        all_paths.push(path.to_string());
-    }
-
-    // Build a map of path -> moved_from for quick lookup
-    let mut moved_from_map: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    for m in &rename_chain {
-        moved_from_map.insert(m.to_path.clone(), m.from_path.clone());
-    }
-
-    // Collect snapshots touching any of these paths via SQL-indexed
-    // candidate lookup per path (delta path match + full-content match)
-    // instead of loading every partition's full history.
-    let mut seen: HashSet<SnapshotId> = HashSet::new();
-    let mut ordered_ids: Vec<SnapshotId> = Vec::new();
-    for candidate_path in &all_paths {
-        for id in candidate_snapshot_ids_for_path(storage, candidate_path)? {
-            if seen.insert(id) {
-                ordered_ids.push(id);
+        for (new_name, blob) in &appeared {
+            if let Some((old_name, _)) = disappeared.iter().find(|(_, b)| b == blob) {
+                moved_from
+                    .entry(new_name.clone())
+                    .or_insert_with(|| old_name.clone());
+                if known_names.contains(old_name) {
+                    known_names.insert(new_name.clone());
+                }
+            }
+        }
+        for name in known_names.clone() {
+            if let Some((_, blob)) = files.get(&name) {
+                if previous_blobs.get(&name) != Some(blob) {
+                    let bytes = git.read_blob(blob).map_err(map_git_error)?;
+                    let source = commit
+                        .trailer(TRAILER_ACTOR)
+                        .unwrap_or_else(|| "agent".to_string());
+                    entries.push(FileTimelineEntry {
+                        moved_from: moved_from.get(&name).cloned(),
+                        path: name.clone(),
+                        snapshot_id: commit.id.clone(),
+                        content_hash: sha256_hex(&bytes),
+                        timestamp: commit.committer_ts,
+                        source,
+                    });
+                    previous_blobs.insert(name, blob.clone());
+                }
+            } else {
+                previous_blobs.remove(&name);
             }
         }
     }
-    let snap_map = storage
-        .get_snapshots_map(&ordered_ids)
-        .map_err(map_layertwine_error)?;
-    let delta_map = chain_head_delta_map(storage, &snap_map);
-    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
-    let mut entries: Vec<FileTimelineEntry> = Vec::new();
-
-    for snapshot_id in &ordered_ids {
-        let Some(snapshot) = snap_map.get(snapshot_id) else {
-            continue;
-        };
-        let Some(snapshot_path) = path_map.get(snapshot_id) else {
-            continue;
-        };
-        if *snapshot_path == SEED_PATH || !all_paths.contains(snapshot_path) {
-            continue;
-        }
-        let source = snapshot
-            .deltas
-            .last()
-            .and_then(|delta_id| delta_map.get(delta_id))
-            .map(|d| source_label(&d.source))
-            .unwrap_or_else(|| "agent".to_string());
-        let content = snapshot_content_bytes(storage, snapshot)?;
-        let moved_from = moved_from_map.get(snapshot_path).cloned();
-        entries.push(FileTimelineEntry {
-            path: snapshot_path.clone(),
-            snapshot_id: snapshot.id.to_hex(),
-            content_hash: sha256_hex(&content),
-            timestamp: snapshot.created_at,
-            source,
-            moved_from,
-        });
-    }
-
-    entries.sort_by_key(|e| e.timestamp);
-
-    // The original path is the first path in the rename chain, or the given path
-    let original_path = rename_chain
-        .first()
-        .map(|m| m.from_path.clone())
+    let original_path = moved_from
+        .get(path)
+        .cloned()
         .unwrap_or_else(|| path.to_string());
-
     Ok(FileTimeline {
         original_path,
         entries,
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::file::FileCheckpointManager;
-    use checkpoint_base::actor::id::{ActorId, ActorKind};
-    use wf_types::Id;
-
-    fn actor(kind: ActorKind, id: &str) -> ActorId {
-        ActorId::new(kind, &[Id::from(id.to_string())]).unwrap()
+/// Rebuild the source index from the commit graph: drop every row, then
+/// re-record one entry per reachable commit. Used after index loss and
+/// after bulk ref deletions.
+pub fn rebuild_source_index(
+    git: &GitStore,
+    storage: &SqliteStorage,
+) -> Result<usize, CheckpointError> {
+    storage.clear_source_index()?;
+    let mut commits = git.all_commits().map_err(map_git_error)?;
+    commits.sort_by_key(|a| a.committer_ts);
+    let mut count = 0;
+    for commit in commits {
+        let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+        let mut paths: Vec<String> = files.into_keys().collect();
+        paths.sort();
+        storage.record_source_index(&crate::storage::SourceIndexEntry {
+            commit_id: commit.id.clone(),
+            actor: commit.trailer(TRAILER_ACTOR).unwrap_or_default(),
+            session: commit
+                .trailer(crate::git_store::TRAILER_SESSION)
+                .unwrap_or_default(),
+            tool: commit
+                .trailer(crate::git_store::TRAILER_TOOL)
+                .unwrap_or_default(),
+            paths,
+            timestamp: commit.committer_ts,
+        })?;
+        count += 1;
     }
+    Ok(count)
+}
 
-    #[test]
-    fn list_changes_by_actor_reports_edits_in_order() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        manager.apply_agent_edit(&a, "src/a.txt", b"one\n").unwrap();
-        manager
-            .apply_agent_edit(&a, "src/a.txt", b"one\ntwo\n")
-            .unwrap();
-        manager
-            .apply_agent_edit(&a, "bin.dat", b"\x00\x01\x02")
-            .unwrap();
-
-        let storage = manager.storage().unwrap();
-        let changes = list_changes_by_actor(storage, a.as_str(), None, None).unwrap();
-        assert_eq!(changes.len(), 3);
-        assert_eq!(changes[0].file, "src/a.txt");
-        assert_eq!(changes[0].source, a.as_str());
-        assert!(changes[1].timestamp >= changes[0].timestamp);
-        assert_eq!(changes[2].file, "bin.dat");
-    }
-
-    #[test]
-    fn list_changes_filters_by_path_and_time() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        manager.apply_agent_edit(&a, "src/a.txt", b"x\n").unwrap();
-        manager
-            .apply_agent_edit(&a, "docs/readme.md", b"y\n")
-            .unwrap();
-
-        let storage = manager.storage().unwrap();
-        let filtered = list_changes_by_actor(storage, a.as_str(), Some("docs"), None).unwrap();
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].file, "docs/readme.md");
-
-        let changes = list_changes_by_actor(storage, a.as_str(), None, None).unwrap();
-        let first_ts = changes[0].timestamp;
-        let empty = list_changes_by_actor(
-            storage,
-            a.as_str(),
-            None,
-            Some((first_ts - 1, first_ts - 1)),
-        )
-        .unwrap();
-        assert!(empty.is_empty());
-    }
-
-    #[test]
-    fn list_changes_by_path_scans_all_partitions() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        let b = actor(ActorKind::Agent, "loop-2");
-        manager.apply_agent_edit(&a, "shared.txt", b"a\n").unwrap();
-        manager.apply_agent_edit(&b, "shared.txt", b"b\n").unwrap();
-        manager.apply_agent_edit(&a, "other.txt", b"c\n").unwrap();
-
-        let storage = manager.storage().unwrap();
-        let changes = list_changes_by_path(storage, "shared.txt", None).unwrap();
-        assert_eq!(changes.len(), 2);
-        assert!(changes.iter().all(|c| c.file == "shared.txt"));
-    }
-
-    #[test]
-    fn get_actor_workspace_reconstructs_latest_state() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        manager.apply_agent_edit(&a, "a.txt", b"v1\n").unwrap();
-        manager.apply_agent_edit(&a, "a.txt", b"v1\nv2\n").unwrap();
-        manager.apply_agent_edit(&a, "b.txt", b"data").unwrap();
-
-        let storage = manager.storage().unwrap();
-        let workspace = get_actor_workspace(storage, a.as_str()).unwrap();
-        assert_eq!(workspace.len(), 2);
-        let a_txt = workspace.iter().find(|f| f.path == "a.txt").unwrap();
-        assert_eq!(a_txt.content, b"v1\nv2\n");
-    }
-
-    #[test]
-    fn diff_workspaces_reports_add_remove_modify() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        let b = actor(ActorKind::Agent, "loop-2");
-        manager.apply_agent_edit(&a, "same.txt", b"x\n").unwrap();
-        manager.apply_agent_edit(&a, "only-a.txt", b"a\n").unwrap();
-        manager
-            .apply_agent_edit(&a, "changed.txt", b"one\n")
-            .unwrap();
-        manager.apply_agent_edit(&b, "same.txt", b"x\n").unwrap();
-        manager.apply_agent_edit(&b, "only-b.txt", b"b\n").unwrap();
-        manager
-            .apply_agent_edit(&b, "changed.txt", b"one\ntwo\n")
-            .unwrap();
-
-        let storage = manager.storage().unwrap();
-        let diffs = diff_actors(storage, a.as_str(), b.as_str()).unwrap();
-        let kinds: HashMap<&str, FileDiffKind> =
-            diffs.iter().map(|d| (d.path.as_str(), d.kind)).collect();
-        assert_eq!(kinds.get("same.txt"), Some(&FileDiffKind::Unchanged));
-        assert_eq!(kinds.get("only-a.txt"), Some(&FileDiffKind::Deleted));
-        assert_eq!(kinds.get("only-b.txt"), Some(&FileDiffKind::Added));
-        assert_eq!(kinds.get("changed.txt"), Some(&FileDiffKind::Modified));
-        let changed = diffs.iter().find(|d| d.path == "changed.txt").unwrap();
-        assert!(changed.diff.as_ref().unwrap().contains("+two"));
-    }
-
-    #[test]
-    fn list_partitions_views_actor_and_kind() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-1");
-        manager.apply_agent_edit(&a, "a.txt", b"x\n").unwrap();
-
-        let storage = manager.storage().unwrap();
-        let views = list_partitions(storage).unwrap();
-        let agent_view = views.iter().find(|v| v.kind == "agent").unwrap();
-        assert_eq!(agent_view.actor.as_deref(), Some(a.as_str()));
-        assert!(agent_view.history_len >= 2);
-        assert!(agent_view.created_at > 0);
-        assert!(agent_view.updated_at >= agent_view.created_at);
-    }
-
-    #[test]
-    fn nested_actor_partitions_are_isolated() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let parent = actor(ActorKind::Wf, "wf-1");
-        let child1 = parent.child(&Id::from("sub-1".to_string())).unwrap();
-        let child2 = parent.child(&Id::from("sub-2".to_string())).unwrap();
-
-        manager
-            .apply_agent_edit(&child1, "a.txt", b"child1\n")
-            .unwrap();
-        manager
-            .apply_agent_edit(&child2, "a.txt", b"child2\n")
-            .unwrap();
-
-        let storage = manager.storage().unwrap();
-        let ws1 = get_actor_workspace(storage, child1.as_str()).unwrap();
-        let ws2 = get_actor_workspace(storage, child2.as_str()).unwrap();
-        assert_eq!(ws1[0].content, b"child1\n");
-        assert_eq!(ws2[0].content, b"child2\n");
-        assert_ne!(ws1[0].hash, ws2[0].hash);
-    }
-
-    #[test]
-    fn workspace_entries_convert_to_content_entries() {
-        let files = vec![WorkspaceFile {
-            path: "a.txt".to_string(),
-            content: b"x".to_vec(),
-            hash: "h".to_string(),
-            timestamp: 1,
-        }];
-        let entries = workspace_entries(&files);
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "a.txt");
-        assert_eq!(entries[0].content, b"x");
-    }
-
-    #[test]
-    fn missing_actor_partition_reports_not_found() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let storage = manager.storage().unwrap();
-        let err = get_actor_workspace(storage, "agent:ghost").unwrap_err();
-        assert!(matches!(err, CheckpointError::NotFound { .. }));
-    }
-
-    #[test]
-    fn binary_content_is_snapshotted_verbatim() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let a = actor(ActorKind::Agent, "loop-bin");
-        manager
-            .apply_agent_edit(&a, "img.bin", b"\x00\xFF\x10")
-            .unwrap();
-
-        let storage = manager.storage().unwrap();
-        let ws = get_actor_workspace(storage, a.as_str()).unwrap();
-        assert_eq!(ws[0].content, b"\x00\xFF\x10");
-    }
-
-    #[test]
-    fn no_map_storage_remnants() {
-        // Layertwine failures flow exclusively through
-        // `crate::file::util::map_layertwine_error`; the historical duplicate
-        // helpers must stay deleted. Needles are assembled from fragments so
-        // this test's own source cannot match them.
-        let provenance_needle = ["fn map_", "storage"].concat();
-        let adapter_needle = ["fn map_", "storage_", "result"].concat();
-        let provenance_src = include_str!("provenance.rs");
-        assert!(
-            !provenance_src.contains(&provenance_needle),
-            "duplicate error mapper must not be reintroduced in provenance.rs"
-        );
-        let adapter_src = include_str!("adapter.rs");
-        assert!(
-            !adapter_src.contains(&adapter_needle),
-            "duplicate error mapper must not be reintroduced in adapter.rs"
-        );
-    }
+/// Unresolved merge commits and their conflict files (conflict-list view).
+pub fn unresolved_merges(
+    git: &GitStore,
+) -> Result<Vec<(String, String, Vec<String>)>, CheckpointError> {
+    git.list_unresolved_conflicts().map_err(map_git_error)
 }

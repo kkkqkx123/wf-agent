@@ -1,7 +1,8 @@
 /// View-only presentation helpers over the single file-text diff algorithm.
-/// All line and word diffs delegate to `layertwine::engine`; this module adds
-/// headers, stats, and binary guards only and owns no diff algorithm.
-use layertwine::engine::diff as engine;
+/// All line and word diffs run through `super::line_diff` and
+/// `super::word_diff`; this module adds headers, stats, and binary guards
+/// only and owns no diff algorithm.
+use super::line_diff as engine;
 
 /// Threshold for deciding whether a content slice should be treated as binary
 /// when heuristically sampled (presence of NUL byte).
@@ -44,7 +45,7 @@ pub struct DiffStats {
 /// changes.
 ///
 /// The Myers diff itself runs exactly once inside
-/// `layertwine::engine::diff`; this wrapper only prepends optional path
+/// `super::line_diff`; this wrapper only prepends optional path
 /// headers so display call sites share a single algorithm.
 pub fn unified_diff_text(
     before: &str,
@@ -69,7 +70,7 @@ pub fn unified_diff_text(
 }
 
 /// Line statistics for a pair of text contents, derived from the same
-/// single layertwine diff pass as [`unified_diff_text`].
+/// single line-diff pass as [`unified_diff_text`].
 pub fn diff_stats_for_text(before: &str, after: &str) -> DiffStats {
     let (added, removed, equal) = engine::diff_stat_counts(before, after);
     let total = added + removed + equal;
@@ -89,10 +90,10 @@ pub fn diff_stats_for_text(before: &str, after: &str) -> DiffStats {
 /// Word-level inline diff for a single replaced line pair, formatted with
 /// `[-old-]` / `{+new+}` markers for frontend row highlighting.
 ///
-/// Delegates to `layertwine::engine::word_diff`; returns `None` when the
+/// Delegates to `super::word_diff`; returns `None` when the
 /// lines are identical so callers render the plain line.
 pub fn inline_word_diff(old_line: &str, new_line: &str) -> Option<String> {
-    layertwine::engine::word_diff::diff_words(old_line, new_line).map(|d| d.format())
+    super::word_diff::diff_words(old_line, new_line).map(|d| d.format())
 }
 
 #[cfg(test)]

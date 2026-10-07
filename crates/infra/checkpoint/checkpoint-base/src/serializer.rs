@@ -20,7 +20,7 @@ pub struct CheckpointSerializer;
 
 /// Single compression layer for execution-state envelopes: `Auto` gzip above
 /// `COMPRESSION_THRESHOLD`, transparent magic-byte detection on read.
-/// File-history snapshots compress inside `layertwine` (`SnapshotCompression`)
+/// File-history snapshots compress inside `checkpoint-file` storage
 /// and the storage backend stores the resulting bytes opaquely; no third
 /// compression layer is applied here.
 impl CheckpointSerializer {

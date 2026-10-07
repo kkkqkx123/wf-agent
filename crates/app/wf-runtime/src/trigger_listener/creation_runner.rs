@@ -18,8 +18,8 @@ use wf_types::trigger::{TriggerAction, TriggerTemplate};
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner};
 
-use super::scheduler::TRIGGER_INPUT_METADATA_KEY;
 use super::ledger::{record_trigger_execution, TriggerOutcome};
+use super::scheduler::TRIGGER_INPUT_METADATA_KEY;
 use super::{TriggerLedger, DEFAULT_TRIGGER_TIMEOUT_MS};
 use wf_types::TriggerExecutionOutcome;
 

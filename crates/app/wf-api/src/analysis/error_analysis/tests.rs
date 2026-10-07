@@ -9,14 +9,14 @@ use wf_types::errors::{ErrorCause, ErrorType, RecoveryAction};
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::ExecutionStatus;
 
+use super::context::analyze_root_cause;
 use super::context::{error_context, error_context_chain};
+use super::queries::{get_advanced_error_analysis, get_recovery_proposal};
+use super::subscription::subscribe_to_errors;
 use super::{
     get_error_chain, recovery_recommendations, similar_errors, stream_error_chain,
     workflow_error_stats,
 };
-use super::context::analyze_root_cause;
-use super::queries::{get_advanced_error_analysis, get_recovery_proposal};
-use super::subscription::subscribe_to_errors;
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 use wf_storage::adapter::base::BaseStorageAdapter as _;
@@ -203,11 +203,11 @@ async fn similar_errors_clusters_by_message() {
         wf_types::Id::from("exec-target".to_string()),
         wf_types::Id::from("wf-t".to_string()),
     ));
-    entity.state.write().await.add_error_record(make_record(
-        "exec-target",
-        "n1",
-        "tool timeout",
-    ));
+    entity
+        .state
+        .write()
+        .await
+        .add_error_record(make_record("exec-target", "n1", "tool timeout"));
     ctx.workflow_executions
         .register("exec-target".to_string(), entity.clone())
         .expect("register");

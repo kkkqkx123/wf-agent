@@ -226,20 +226,22 @@ fn snapshot_node_records(
     Some(
         history
             .iter()
-            .map(|record| wf_types::checkpoint::workflow::NodeExecutionRecord {
-                node_id: record.node_id.clone(),
-                node_type: record.node_type.clone(),
-                input: record.input.clone(),
-                result: record.result.clone(),
-                error: record.error.clone(),
-                started_at: record.start_time,
-                completed_at: record.end_time,
-                duration_ms: record
-                    .end_time
-                    .map(|end| end - record.start_time)
-                    .unwrap_or(0),
-                branch_id: record.branch_id.clone(),
-            })
+            .map(
+                |record| wf_types::checkpoint::workflow::NodeExecutionRecord {
+                    node_id: record.node_id.clone(),
+                    node_type: record.node_type.clone(),
+                    input: record.input.clone(),
+                    result: record.result.clone(),
+                    error: record.error.clone(),
+                    started_at: record.start_time,
+                    completed_at: record.end_time,
+                    duration_ms: record
+                        .end_time
+                        .map(|end| end - record.start_time)
+                        .unwrap_or(0),
+                    branch_id: record.branch_id.clone(),
+                },
+            )
             .collect(),
     )
 }
@@ -436,7 +438,9 @@ async fn build_checkpoint_snapshot(
 /// Forward links only — the child side of the tree is discovered by querying
 /// the child records, never from a list cached in this snapshot.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
+pub(crate) async fn build_hierarchy(
+    entity: &WorkflowExecutionEntity,
+) -> Option<ExecutionHierarchy> {
     use wf_execution_shared::types::execution_entity::ExecutionEntity;
     let manager = entity.hierarchy_manager();
     let parent = manager.parent();

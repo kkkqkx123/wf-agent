@@ -2,8 +2,8 @@
 //!
 //! An [`ActorId`] identifies an editing actor inside a workspace: which
 //! execution (agent loop / workflow / subgraph) produced a set of file
-//! changes. It maps 1:1 to layertwine's `AgentInstanceId` (the partition
-//! key), so actor identity must be stable, unique and reversibly parseable.
+//! changes. It is the partition key, so actor identity must be stable,
+//! unique and reversibly parseable.
 //!
 //! Encoding format (format A):
 //!
@@ -19,7 +19,7 @@
 //!
 //! Nested executions append `/child:{exec_id}` segments, so the hierarchy
 //! chain is the root-to-self path. Fork/join branches are expressed with
-//! layertwine `Branch` names instead, never through `ActorId`.
+//! file-checkpoint branch names instead, never through `ActorId`.
 //!
 //! Charset whitelist: `[A-Za-z0-9:_/-]` (no spaces, no CJK). UUIDv5
 //! partition ids are derived from the raw string, so any change to the
@@ -213,9 +213,9 @@ impl ActorId {
         )))
     }
 
-    /// Map to the layertwine partition key (`AgentInstanceId`).
-    pub fn to_agent_instance_id(&self) -> layertwine::core::types::AgentInstanceId {
-        layertwine::core::types::AgentInstanceId(self.0.clone())
+    /// Partition key for file-checkpoint storage.
+    pub fn to_partition_key(&self) -> String {
+        self.0.clone()
     }
 }
 
@@ -343,9 +343,9 @@ mod tests {
     }
 
     #[test]
-    fn maps_to_agent_instance_id() {
+    fn maps_to_partition_key() {
         let actor = ActorId::new(ActorKind::Agent, &[id("loop-1")]).unwrap();
-        assert_eq!(actor.to_agent_instance_id().0, "agent:loop-1");
+        assert_eq!(actor.to_partition_key(), "agent:loop-1");
     }
 
     #[test]

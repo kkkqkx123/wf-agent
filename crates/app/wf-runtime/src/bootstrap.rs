@@ -10,18 +10,16 @@ mod plugin;
 mod runtime;
 mod shutdown;
 mod storage;
-mod tool_registry;
-mod trigger;
 #[cfg(test)]
 mod tests;
+mod tool_registry;
+mod trigger;
 
+pub use code_context::resolve_code_context_transport;
 #[cfg(feature = "plugins")]
 pub use config::PluginConfig;
-pub use config::{InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig};
-#[cfg(feature = "plugins")]
-pub use plugin::init_plugins;
-pub use code_context::resolve_code_context_transport;
 pub use config::{adjust_log_config, resolve_infra_config};
+pub use config::{InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig};
 pub use file_checkpoint::{
     init_file_checkpoint_manager, init_file_checkpoint_stack, init_gc_timer,
     init_manual_change_service, FileCheckpointStack,
@@ -29,6 +27,8 @@ pub use file_checkpoint::{
 pub use llm::{create_llm_gateway, init_llm_gateway, register_llm_config};
 pub use mcp::init_mcp;
 pub use metrics::init_metrics_context;
+#[cfg(feature = "plugins")]
+pub use plugin::init_plugins;
 pub use plugin::init_plugins_and_resources;
 pub use runtime::Runtime;
 pub use storage::{

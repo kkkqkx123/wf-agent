@@ -1,184 +1,125 @@
-use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
-use layertwine::core::types::{AgentInstanceId, CheckpointId};
-use layertwine::layered::agent;
-use layertwine::storage::repository::CheckpointPersist;
-use layertwine::storage::sqlite::SqliteStorage;
+//! Merge entry points on the commit DAG.
+//!
+//! Edit to review is a ref copy; review to feature and feature to main are
+//! true multi-parent merges. There are no layered flow gates and no
+//! single-chain partition pointers: rollback appends revert commits.
 
 use crate::event::CheckpointEventBus;
-use crate::file::util::map_layertwine_error;
+use crate::file::git_merge::GitMergeOutcome;
+use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
+use crate::git_store::feat_ref_for_name;
 use checkpoint_base::error::CheckpointError;
 
-/// Result of a merge commit: the layertwine merge outcome plus the
-/// multi-parent checkpoint id created to record the merge in the DAG.
+/// Result of a merge commit: the Git merge outcome plus the multi-parent
+/// commit id recording the merge in the DAG.
 #[derive(Debug, Clone)]
 pub struct MergeCommitResult {
-    pub merge_result: layertwine::layered::MergeResult,
+    pub merge_result: GitMergeOutcome,
     pub checkpoint_id: String,
 }
 
 impl FileCheckpointManager {
-    // ── layered merge wrappers ────────────────────────────────────────
-
-    pub(crate) fn ensure_approval_ready(
-        &self,
-        storage: &SqliteStorage,
-        agent_id: &AgentInstanceId,
-    ) -> Result<(), CheckpointError> {
-        let _ = storage;
-        self.store.branch_adapter.ensure_approval_ready(agent_id)
-    }
-
-    pub(crate) fn ensure_staged_ready(
-        &self,
-        storage: &SqliteStorage,
-    ) -> Result<(), CheckpointError> {
-        let _ = storage;
-        let ws = self.workspace_key();
-        self.store.branch_adapter.ensure_staged_ready(ws.as_deref())
-    }
-
-    /// Move the actor's changes into the approval layer (three-way merge
-    /// against the approval baseline). Returns the approval snapshot id.
+    /// Submit the actor's edit line for review: copy the edit ref to a
+    /// fresh review ref (no merge) and mark it pending. Returns the
+    /// review commit id.
     pub fn move_agent_to_approval(&self, entity_id: &str) -> Result<String, CheckpointError> {
-        let storage = self.storage_ref()?;
-        let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(&actor)?;
-        self.ensure_approval_ready(storage, &agent_id)?;
-        let snapshot_id =
-            agent::move_agent_to_approval(storage, &agent_id).map_err(map_layertwine_error)?;
-        Ok(snapshot_id.to_hex())
+        let (_, head) = self.submit_for_review(entity_id)?;
+        Ok(head)
     }
 
-    /// Merge the actor's approved changes into a feature (integrated)
-    /// partition via three-way merge.
+    /// Merge the actor's submission into a feature ref via true three-way
+    /// merge. Submits first when the actor has no pending review.
     pub fn merge_agent_to_feature(
         &self,
         entity_id: &str,
         feature_name: &str,
-    ) -> Result<layertwine::layered::MergeResult, CheckpointError> {
-        let storage = self.storage_ref()?;
+    ) -> Result<GitMergeOutcome, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(&actor)?;
-        self.ensure_approval_ready(storage, &agent_id)?;
-        layertwine::layered::integrated::merge_agent_to_feature(storage, &agent_id, feature_name)
-            .map_err(map_layertwine_error)
+        let (review_ref, review_head) = match self.newest_pending_review(actor.as_str())? {
+            Some(found) => found,
+            None => self.submit_for_review(entity_id)?,
+        };
+        self.merge_review_into_feature(&review_ref, &review_head, feature_name, actor.as_str())
     }
 
-    /// Merge all given features into the staged partition (three-way merge
-    /// per feature, sequential accumulation), then create a multi-parent
-    /// merge commit checkpoint. The first parent is always the previous
-    /// staged head; feature heads follow in input order.
+    /// Merge each named feature into main in input order, one independent
+    /// multi-parent merge commit per feature. Overlapping lines resolve in
+    /// input order; a conflicted feature aborts the sequence with a
+    /// `MergeConflict` error (main already gained the earlier merges, each
+    /// individually revertable).
     pub fn merge_features_to_staged(
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
-        let storage = self.storage_ref()?;
-        self.ensure_staged_ready(storage)?;
-
         if feature_names.len() > 1 {
             tracing::warn!(
                 features = feature_names.len(),
                 "merging multiple features sequentially; overlapping lines resolve in input order"
             );
         }
-
-        let staged_cp = self.latest_staged_checkpoint_id(storage)?;
-        let feature_cps: Vec<Option<String>> = feature_names
-            .iter()
-            .map(|name| self.latest_feature_checkpoint_id(storage, name))
-            .collect::<Result<_, _>>()?;
-
-        let names: Vec<String> = feature_names.iter().map(|s| s.to_string()).collect();
-        let ws = self.workspace_key();
-        let merge_result =
-            layertwine::layered::staged::merge_features_to_staged(storage, &names, ws.as_deref())
-                .map_err(map_layertwine_error)?;
-
-        let mut parents: Vec<CheckpointId> = Vec::new();
-        for id_str in std::iter::once(&staged_cp)
-            .chain(feature_cps.iter())
-            .flatten()
-        {
-            if let Some(cid) = CheckpointId::from_hex(id_str) {
-                if !parents.contains(&cid) {
-                    parents.push(cid);
-                }
-            }
+        let mut last: Option<GitMergeOutcome> = None;
+        for feature in feature_names {
+            // Sequential merges use the caller's actor label when one is
+            // known; merges are content-addressed so the label only feeds
+            // the commit trailer.
+            let outcome = self.merge_feature_into_main(feature, "merge")?;
+            last = Some(outcome);
         }
-
-        let snapshot_ids = vec![merge_result.snapshot_id];
-        let ws = self.workspace_key();
-        let staged_author = match ws.as_deref() {
-            Some(key) => format!("staged:{key}"),
-            None => "staged".to_string(),
-        };
-        let checkpoint = Checkpoint::new_at(
-            snapshot_ids,
-            parents,
-            CheckpointMetadata::new(
-                &staged_author,
-                &format!("merge {} features into staged", feature_names.len()),
-            ),
-            self.creation_timestamp()?,
-        );
-        storage
-            .store_checkpoint(&checkpoint)
-            .map_err(map_layertwine_error)?;
-
+        let outcome = last.ok_or_else(|| CheckpointError::Validation {
+            reason: "no features given to merge".to_string(),
+        })?;
         Ok(MergeCommitResult {
-            merge_result,
-            checkpoint_id: checkpoint.id.to_hex(),
+            checkpoint_id: outcome.commit_id.clone(),
+            merge_result: outcome,
         })
     }
 
-    /// Fork-join join step: merge each parallel feature branch into staged
-    /// in order, then delete the branch head pointers.
-    ///
-    /// Each merge produces a multi-parent checkpoint (the DAG keeps the
-    /// ancestry), and after the join the branch names are no longer needed
-    /// as pointers — removing them does not affect provenance, which
-    /// resolves through the checkpoint graph, not the branch registry.
+    /// Fork-join join step: merge each feature into main in order, then
+    /// delete the feature ref pointers. Ancestry stays in the commit graph,
+    /// so removing the pointers never affects provenance.
     pub fn merge_branch_changes(
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
         let merged = self.merge_features_to_staged(feature_names)?;
-        let store =
-            crate::branch::FeatureBranchStore::new(self.storage().cloned().ok_or_else(|| {
-                CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
-            })?);
+        let git = self.git_ref()?;
         for name in feature_names {
-            store.delete(name)?;
+            git.delete_ref(&feat_ref_for_name(name))
+                .map_err(map_git_error)?;
         }
         Ok(merged)
     }
 
-    /// Run physical garbage collection over the checkpoint repository
-    /// (mark-sweep: branch heads + ancestors + the most
-    /// recent `retention.keep_recent_heads` checkpoints are kept).
-    ///
-    /// Thin wrapper over [`layertwine::checkpoint::gc::run_gc`]: loads the
-    /// `CheckpointRepo` from the attached Sqlite storage, runs the sweep,
-    /// and publishes a `GcCompleted` event with the statistics. Returns
-    /// the `GcStats` (removed checkpoint rows and dropped snapshot
-    /// references; snapshot rows are content-addressed and retained, freed
-    /// bytes are unavailable and reported as zero).
+    /// Roll back one merged feature from main by appending a revert commit.
+    /// Other merged features are untouched. Returns the revert commit id.
+    pub fn rollback_feature_from_main(
+        &self,
+        feature_head: &str,
+        actor_str: &str,
+    ) -> Result<String, CheckpointError> {
+        Ok(self
+            .revert_feature_on_main(feature_head, actor_str)?
+            .commit_id)
+    }
+
+    /// Run object-store cleanup: drop loose objects unreachable from any
+    /// ref. The source index rows for pruned commits are dropped with them.
+    /// Reports pruned object counts through the legacy stats shape.
     pub fn run_gc(
         &self,
-        retention: layertwine::checkpoint::GcRetention,
-    ) -> Result<layertwine::checkpoint::GcStats, CheckpointError> {
+        retention: crate::gc::GcRetention,
+    ) -> Result<crate::gc::GcStats, CheckpointError> {
+        let _ = retention;
         let start = std::time::Instant::now();
-        let storage = self.storage_ref()?;
-        let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
-            Box::new(storage.share());
-        let mut repo =
-            layertwine::checkpoint::repo::CheckpointRepo::load(persist, self.creation_timestamp()?)
-                .map_err(map_layertwine_error)?;
-        let stats = layertwine::checkpoint::gc::run_gc(&mut repo, retention)
-            .map_err(map_layertwine_error)?;
+        let pruned = self.prune_unreachable_objects()?;
+        let stats = crate::gc::GcStats {
+            removed_checkpoints: pruned as u64,
+            removed_snapshots: 0,
+            reclaimed_snapshots: 0,
+            reclaimed_deltas: 0,
+            reclaimed_file_nodes: 0,
+        };
         if let Some(ref metrics) = self.checkpoint_metrics() {
             metrics.record_cleanup(
                 stats.removed_checkpoints,
@@ -192,229 +133,72 @@ impl FileCheckpointManager {
         Ok(stats)
     }
 
-    /// Run the physical content-reclaim sweep over snapshot, delta, and
-    /// file-node rows unreachable from protected checkpoints, live
-    /// partitions, and live sessions. Opt-in slow-cadence companion to
-    /// [`Self::run_gc`] (which only sweeps checkpoint rows): callers run it
-    /// explicitly, never on every GC pass. The grace horizon comes from the
-    /// manager clock; an unavailable clock fails closed. Publishes a
-    /// `GcCompleted` event carrying the reclaim statistics.
+    /// Content-reclaim sweep: identical to [`Self::run_gc`] in the Git
+    /// model (unreachable objects are the only reclaimable content).
+    /// Kept as the explicit slow-cadence entry point; never runs per pass.
     pub fn run_snapshot_reclaim(
         &self,
-        retention: layertwine::checkpoint::GcRetention,
+        retention: crate::gc::GcRetention,
         grace_ms: u64,
-    ) -> Result<layertwine::checkpoint::GcStats, CheckpointError> {
-        let start = std::time::Instant::now();
-        let storage = self.storage_ref()?;
-        let now = self.creation_timestamp()?;
-        let stats = layertwine::checkpoint::gc::reclaim_unreferenced_content(
-            storage, retention, now, grace_ms,
-        )
-        .map_err(map_layertwine_error)?;
-        if let Some(ref metrics) = self.checkpoint_metrics() {
-            metrics.record_cleanup(
-                stats.reclaimed_snapshots + stats.reclaimed_deltas + stats.reclaimed_file_nodes,
-                0,
-                start.elapsed().as_millis() as f64,
-            );
+    ) -> Result<crate::gc::GcStats, CheckpointError> {
+        let _ = grace_ms;
+        self.run_gc(retention)
+    }
+
+    /// Drop loose objects unreachable from any ref. Returns the pruned
+    /// object count.
+    pub(crate) fn prune_unreachable_objects(&self) -> Result<usize, CheckpointError> {
+        use std::collections::HashSet;
+        let git = self.git_ref()?;
+        let mut reachable: HashSet<String> = HashSet::new();
+        for commit in git.all_commits().map_err(map_git_error)? {
+            reachable.insert(commit.id.clone());
+            reachable.insert(commit.tree.clone());
+            let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+            for (_, (_, blob)) in files {
+                reachable.insert(blob);
+            }
+            // Trees themselves (non-leaf) are covered by walking down.
+            let mut stack = vec![commit.tree.clone()];
+            while let Some(tree) = stack.pop() {
+                let Ok(entries) = git.read_tree(&tree) else {
+                    continue;
+                };
+                for entry in entries {
+                    if entry.mode == "40000" && reachable.insert(entry.id.clone()) {
+                        stack.push(entry.id);
+                    }
+                }
+            }
         }
-        if let Some(ref bus) = self.event_bus {
-            bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
-        }
-        Ok(stats)
-    }
-
-    // ── merge commit helpers ──────────────────────────────────────────
-
-    /// Shared wall-clock latest-commit selection for layered partitions.
-    /// Layered feature/staged partitions do not keep branch-head rows
-    /// (feature pointers reference snapshots, not commits), so head-first
-    /// anchoring does not apply here: their commits are authored and chained
-    /// by this process only, and the global scan order is deterministic via
-    /// the (created_at, id) tie-break. Execution-line selection goes through
-    /// `LayertwineBackend::latest_file_history_id_by_author`, which anchors
-    /// on live branch heads.
-    fn latest_id_by_author_scan(
-        storage: &SqliteStorage,
-        author: &str,
-    ) -> Result<Option<String>, CheckpointError> {
-        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
-        let latest = checkpoints
-            .iter()
-            .filter(|c| c.metadata.author == author)
-            .max_by(|a, b| (a.created_at, a.id.to_hex()).cmp(&(b.created_at, b.id.to_hex())));
-        Ok(latest.map(|c| c.id.to_hex()))
-    }
-
-    /// Find the latest checkpoint id for a feature (integrated) partition
-    /// by scanning stored checkpoints whose author matches the feature name.
-    /// See `latest_id_by_author_scan` for why this stays wall-clock based.
-    pub(crate) fn latest_feature_checkpoint_id(
-        &self,
-        storage: &SqliteStorage,
-        feature_name: &str,
-    ) -> Result<Option<String>, CheckpointError> {
-        Self::latest_id_by_author_scan(storage, feature_name)
-    }
-
-    /// Find the latest checkpoint id for the staged partition by scanning
-    /// stored checkpoints whose author matches the workspace-scoped staged
-    /// author (`staged:{workspace_key}` when a workspace root is configured,
-    /// otherwise legacy `staged`). Scoped workspaces never read each other's
-    /// staged checkpoints. See `latest_id_by_author_scan` for why this stays
-    /// wall-clock based.
-    pub(crate) fn latest_staged_checkpoint_id(
-        &self,
-        storage: &SqliteStorage,
-    ) -> Result<Option<String>, CheckpointError> {
-        let expected = match self.workspace_key() {
-            Some(key) => format!("staged:{key}"),
-            None => "staged".to_string(),
+        let objects_dir = git.git_dir().join("objects");
+        let mut pruned = 0usize;
+        let Ok(prefixes) = std::fs::read_dir(&objects_dir) else {
+            return Ok(0);
         };
-        Self::latest_id_by_author_scan(storage, &expected)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::file::FileContentEntry;
-    use checkpoint_base::clock::{CheckpointClock, ManualClock};
-    use std::collections::HashSet;
-
-    fn manager() -> (FileCheckpointManager, ManualClock) {
-        let clock = CheckpointClock::manual(1_000_000);
-        let handle = clock
-            .manual_handle()
-            .expect("manual clock always has a handle");
-        let manager = FileCheckpointManager::new_in_memory()
-            .unwrap()
-            .with_clock(clock);
-        (manager, handle)
-    }
-
-    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
-        FileContentEntry::new(path, content.to_vec())
-    }
-
-    fn stored(storage: &SqliteStorage, id_hex: &str) -> Checkpoint {
-        storage
-            .get_checkpoint(&CheckpointId::from_hex(id_hex).unwrap())
-            .unwrap()
-    }
-
-    fn parent_ids(checkpoint: &Checkpoint) -> HashSet<String> {
-        checkpoint.parents.iter().map(|p| p.to_hex()).collect()
-    }
-
-    /// Merge one actor's changes into a fresh feature and record the
-    /// feature-head checkpoint (authored by the feature name, chained onto
-    /// the merge commit).
-    fn make_feature(
-        manager: &FileCheckpointManager,
-        exec: &str,
-        path: &str,
-        feature: &str,
-    ) -> (String, String) {
-        manager
-            .create_checkpoint(exec, &[entry(path, b"base")])
-            .unwrap();
-        manager
-            .create_checkpoint(exec, &[entry(path, b"edit")])
-            .unwrap();
-        let merged = manager.merge_entity_changes(exec, feature).unwrap();
-        let commit_id = stored(manager.storage().unwrap(), &merged.checkpoint_id)
-            .id
-            .to_hex();
-        let storage = manager.storage().unwrap();
-        let cp = Checkpoint::new_at(
-            vec![merged.merge_result.snapshot_id],
-            vec![CheckpointId::from_hex(&commit_id).unwrap()],
-            CheckpointMetadata::new(feature, "feature head"),
-            manager.creation_timestamp().unwrap(),
-        );
-        storage.store_checkpoint(&cp).unwrap();
-        (cp.id.to_hex(), merged.checkpoint_id)
-    }
-
-    /// Distinct `created_at` stamps so "latest by author" lookups are
-    /// deterministic across same-millisecond writes. Time is a manual clock
-    /// advanced explicitly instead of sleeping.
-    fn tick(handle: &ManualClock) {
-        handle.advance(2);
-    }
-
-    #[test]
-    fn merge_features_to_staged_creates_multi_parent() {
-        let (manager, handle) = manager();
-        let (feature_a, _ma) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
-        tick(&handle);
-        let (feature_b, _mb) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
-        tick(&handle);
-        let (feature_c, _mc) = make_feature(&manager, "exec-c", "c.txt", "feature-c");
-
-        // Round 1 joins two features: no staged commit exists yet, so the
-        // parents are exactly the two feature heads.
-        let round1 = manager
-            .merge_features_to_staged(&["feature-a", "feature-b"])
-            .unwrap();
-        let storage = manager.storage().unwrap();
-        assert_eq!(
-            parent_ids(&stored(storage, &round1.checkpoint_id)),
-            HashSet::from([feature_a.clone(), feature_b.clone()]),
-            "staged join must link every participating feature head"
-        );
-
-        // Round 2 chains onto the previous staged commit and adds the new
-        // feature head. The first parent is always the staged head.
-        tick(&handle);
-        let round2 = manager.merge_features_to_staged(&["feature-c"]).unwrap();
-        let round2_parents = stored(storage, &round2.checkpoint_id).parents;
-        assert_eq!(
-            round2_parents
-                .iter()
-                .map(|p| p.to_hex())
-                .collect::<Vec<_>>(),
-            vec![round1.checkpoint_id.clone(), feature_c],
-        );
-    }
-
-    #[test]
-    fn checkpoint_dag_traversal_reaches_parents() {
-        let (manager, handle) = manager();
-        let (feature_a, merge_a) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
-        tick(&handle);
-        let (feature_b, merge_b) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
-
-        let joined = manager
-            .merge_features_to_staged(&["feature-a", "feature-b"])
-            .unwrap();
-
-        // Walk the DAG from the staged merge commit through `parents` edges.
-        let storage = manager.storage().unwrap();
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut queue = vec![joined.checkpoint_id.clone()];
-        while let Some(id) = queue.pop() {
-            if !seen.insert(id.clone()) {
+        for prefix in prefixes.flatten() {
+            let dir = prefix.path();
+            if !dir.is_dir() {
                 continue;
             }
-            for parent in &stored(storage, &id).parents {
-                queue.push(parent.to_hex());
+            let name = prefix.file_name().to_string_lossy().to_string();
+            if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                continue;
+            }
+            for object in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let file = object.file_name().to_string_lossy().to_string();
+                if file.ends_with(".tmp") || file.ends_with(".lock") {
+                    continue;
+                }
+                let id = format!("{name}{file}");
+                if id.len() != 40 || reachable.contains(&id) {
+                    continue;
+                }
+                if std::fs::remove_file(object.path()).is_ok() {
+                    pruned += 1;
+                }
             }
         }
-
-        // Every participant of the merges is reachable from the join commit.
-        for expected in [
-            joined.checkpoint_id.clone(),
-            feature_a,
-            feature_b,
-            merge_a,
-            merge_b,
-        ] {
-            assert!(
-                seen.contains(&expected),
-                "checkpoint {expected} must be reachable from the merge commit"
-            );
-        }
+        Ok(pruned)
     }
 }

@@ -72,10 +72,9 @@ pub fn file_timeline(
     ctx: &ApiContext,
     path: &str,
 ) -> ApiResult<wf_checkpoint::provenance::FileTimeline> {
-    let storage = manager(ctx)?
-        .storage()
-        .ok_or_else(|| ApiError::execution("file checkpoint storage is not configured"))?;
-    wf_checkpoint::provenance::file_timeline(storage, path).map_err(ApiError::execution_with_source)
+    manager(ctx)?
+        .file_timeline(path)
+        .map_err(ApiError::execution_with_source)
 }
 
 /// Maximum entries returned by a file timeline view.

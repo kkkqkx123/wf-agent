@@ -314,8 +314,7 @@ pub async fn workflow_execution_get_node_input_context(
         input_parameters: BTreeMap::new(),
         timestamp: transition.timestamp,
         available_variables,
-    })
-    )
+    }))
 }
 
 /// Build one key context snapshot at a point in time.

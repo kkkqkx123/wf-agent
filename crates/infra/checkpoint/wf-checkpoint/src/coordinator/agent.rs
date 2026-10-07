@@ -19,6 +19,7 @@ use checkpoint_base::strategy::StandardStrategy;
 use checkpoint_base::version_manager::VersionManager;
 use checkpoint_base::version_manager::MIN_COMPATIBLE_VERSION;
 use checkpoint_file::event::CheckpointEventBus;
+use checkpoint_file::file::git_merge::GitMergeOutcome;
 use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_state::restore::hierarchy::{
     HierarchyRestorer, RestoreSummary, StorageChildResolver,
@@ -27,7 +28,6 @@ use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::AgentCheckpoint;
 use checkpoint_state::state::AgentCheckpointStateManager;
 use checkpoint_state::state::CheckpointStateManager;
-use layertwine::layered::MergeResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use wf_common::gate::ConcurrencyGate;
@@ -525,7 +525,7 @@ impl AgentCheckpointCoordinator {
     pub fn on_agent_complete(
         &self,
         entity_id: &str,
-    ) -> Result<Option<MergeResult>, CheckpointError> {
+    ) -> Result<Option<GitMergeOutcome>, CheckpointError> {
         match &self.file_checkpoint_manager {
             Some(manager) => manager.on_agent_complete(entity_id),
             None => Ok(None),
@@ -1502,15 +1502,17 @@ mod tests {
     #[tokio::test]
     async fn restore_restores_file_checkpoint() {
         use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
-        use layertwine::storage::repository::CheckpointPersist;
 
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = AgentCheckpointStateManager::new(storage);
 
         let file_storage =
-            Arc::new(layertwine::storage::sqlite::SqliteStorage::new_full_in_memory().unwrap());
-        let file_manager = FileCheckpointManager::with_sqlite(file_storage.clone());
-        let file_manager2 = FileCheckpointManager::with_sqlite(file_storage.clone());
+            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
+        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
+        let file_manager =
+            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
+        let file_manager2 =
+            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
         file_manager
             .create_checkpoint(
                 "loop-1",
@@ -1529,10 +1531,13 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.agent_loop_id, "loop-1");
-        assert_eq!(
-            file_storage.list_checkpoints().unwrap().len(),
-            1,
-            "layertwine checkpoint stored"
+        assert!(
+            git.read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
+                "agent:loop-1"
+            ))
+            .unwrap()
+            .is_some(),
+            "actor edit line stored in the object store"
         );
     }
 

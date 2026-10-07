@@ -14,15 +14,19 @@ async-trait.workspace = true
 
 dashmap = { workspace = true }
 sha2 = { workspace = true }
+rusqlite.workspace = true
+parking_lot.workspace = true
 
 wf-types = { path = "../../../foundation/wf-types" }
 wf-common = { path = "../../../foundation/wf-common" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-metrics = { path = "../../wf-metrics" }
-layertwine = { path = "../layertwine" }
 checkpoint-base = { path = "../checkpoint-base" }
 notify = { workspace = true }
 globset = { workspace = true }
+sha1 = { workspace = true }
+flate2 = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

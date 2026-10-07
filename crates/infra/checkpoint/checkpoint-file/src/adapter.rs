@@ -2,11 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use layertwine::storage::repository::GraphBlobStore;
-use layertwine::storage::sqlite::SqliteStorage;
-
 use crate::branch::BranchStorageAdapter;
-use crate::file::util::map_layertwine_error;
+use crate::storage::{GraphBlobStore, SqliteStorage};
 use checkpoint_base::error::CheckpointError;
 use wf_common::gate::ConcurrencyGate;
 
@@ -39,35 +36,24 @@ pub trait CheckpointBackend: Send + Sync {
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
 }
 
-/// Real layertwine backend adapter over three separate tables.
-/// Responsibility split inside this file: graph blobs live in `graph_blobs`,
-/// file-history commits live in `checkpoints`, execution branch heads live
-/// in the native `branches` table. A branch created without a resolvable
-/// base head starts at the genesis sentinel (reported as `None` until its
-/// first checkpoint).
-pub struct LayertwineBackend {
+/// Storage adapter over two separate tables.
+/// Responsibility split inside this file: graph blobs live in `graph_blobs`
+/// (execution state), execution branch heads live in `meta_kv` under
+/// `exec_branch/`. File branches (review/feature/main) live as Git refs.
+/// A branch created without a resolvable base head starts headless
+/// (reported as `None` until its first checkpoint).
+pub struct SqliteBackend {
     storage: SqliteStorage,
 }
 
-/// Sentinel head for branches with no checkpoint yet. Chosen as a fixed
-/// content id so headless branches have a valid native row; readers map it
-/// back to `None`.
-fn genesis_head() -> layertwine::core::types::CheckpointId {
-    layertwine::core::types::CheckpointId::from_content(b"wf-execution-branch-genesis")
-}
-
-fn is_genesis(head: &layertwine::core::types::CheckpointId) -> bool {
-    *head == genesis_head()
-}
-
-impl LayertwineBackend {
+impl SqliteBackend {
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
-        let storage = SqliteStorage::new_full_in_memory().map_err(map_layertwine_error)?;
+        let storage = SqliteStorage::new_full_in_memory()?;
         Ok(Self { storage })
     }
 
     pub fn new(path: &Path) -> Result<Self, CheckpointError> {
-        let storage = SqliteStorage::new_full(path).map_err(map_layertwine_error)?;
+        let storage = SqliteStorage::new_full(path)?;
         Ok(Self { storage })
     }
 
@@ -83,225 +69,13 @@ impl LayertwineBackend {
     /// List checkpoint ids recorded on a branch (branch-scoped listing,
     /// indexed `graph_blobs` query only).
     pub fn list_branch_checkpoints(&self, branch: &str) -> Result<Vec<String>, CheckpointError> {
-        let mut ids = self
-            .storage
-            .list_graph_blob_ids_by_branch(branch)
-            .map_err(map_layertwine_error)?;
+        let mut ids = self.storage.list_graph_blob_ids_by_branch(branch)?;
         ids.sort();
         Ok(ids)
     }
-
-    /// File-history facade: persist a multi-file history commit. Callers go
-    /// through this method instead of touching the storage traits directly so
-    /// the checkpoint table stays behind one boundary.
-    pub fn store_file_history_checkpoint(
-        &self,
-        checkpoint: &layertwine::checkpoint::Checkpoint,
-    ) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        self.storage
-            .store_checkpoint(checkpoint)
-            .map_err(map_layertwine_error)
-    }
-
-    /// File-history facade: list all stored history commits.
-    pub fn list_file_history_checkpoints(
-        &self,
-    ) -> Result<Vec<layertwine::checkpoint::Checkpoint>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        self.storage
-            .list_checkpoints()
-            .map_err(map_layertwine_error)
-    }
-
-    /// File-history facade: latest commit id for an author (cross-process
-    /// fallback when the in-memory cache misses).
-    ///
-    /// Head-first selection: commits reachable from a live execution-branch
-    /// head (the head plus its ancestors) win over wall-clock-newer orphans
-    /// (abandoned lines, clock-skew rows not yet swept). Only when no
-    /// head-reachable commit by this author exists does the lookup fall back
-    /// to the global maximum, with a warning — that path covers branchless
-    /// root executions and legacy rows. Ties break by checkpoint id so
-    /// same-millisecond writes stay deterministic.
-    pub fn latest_file_history_id_by_author(
-        &self,
-        author: &str,
-    ) -> Result<Option<String>, CheckpointError> {
-        let checkpoints = self.list_file_history_checkpoints()?;
-        let authored: Vec<&layertwine::checkpoint::Checkpoint> = checkpoints
-            .iter()
-            .filter(|c| c.metadata.author == author)
-            .collect();
-        if authored.is_empty() {
-            return Ok(None);
-        }
-        let mut parents_of = std::collections::HashMap::new();
-        for cp in &checkpoints {
-            parents_of.insert(cp.id, cp.parents.clone());
-        }
-        let pick = |candidates: &[&layertwine::checkpoint::Checkpoint]| {
-            candidates
-                .iter()
-                .max_by(|a, b| (a.created_at, a.id.to_hex()).cmp(&(b.created_at, b.id.to_hex())))
-                .map(|cp| cp.id.to_hex())
-        };
-        // A live head authored by this author is the branch tip by
-        // definition and wins outright — even over wall-clock-newer commits
-        // on the same line (skewed writers must not displace the pointer
-        // that concurrent handles converge on).
-        let live_heads = self.live_head_ids();
-        let authored_heads: Vec<&layertwine::checkpoint::Checkpoint> = authored
-            .iter()
-            .filter(|c| live_heads.contains(&c.id))
-            .copied()
-            .collect();
-        if !authored_heads.is_empty() {
-            return Ok(pick(&authored_heads));
-        }
-        let reachable = layertwine::checkpoint::ancestor_closure(live_heads, &parents_of);
-        let anchored: Vec<&layertwine::checkpoint::Checkpoint> = authored
-            .iter()
-            .filter(|c| reachable.contains(&c.id))
-            .copied()
-            .collect();
-        if !anchored.is_empty() {
-            return Ok(pick(&anchored));
-        }
-        tracing::warn!(
-            author = author,
-            "no head-reachable commit for author; falling back to wall-clock maximum"
-        );
-        Ok(pick(&authored))
-    }
-
-    /// Live execution-branch head ids (native `branches` table). Heads that
-    /// fail to parse are skipped with a warning; a branch listing failure
-    /// degrades to an empty set (callers fall back to wall-clock selection)
-    /// instead of failing the lookup.
-    fn live_head_ids(&self) -> std::collections::HashSet<layertwine::core::types::CheckpointId> {
-        use layertwine::core::types::CheckpointId;
-
-        let mut heads = std::collections::HashSet::new();
-        let names = match self.list_execution_branch_names() {
-            Ok(names) => names,
-            Err(e) => {
-                tracing::warn!("branch listing failed during head-first selection: {e}");
-                return heads;
-            }
-        };
-        for name in names {
-            match self.get_branch_head(&name) {
-                Ok(Some(head)) => match CheckpointId::from_hex(&head) {
-                    Some(id) => {
-                        heads.insert(id);
-                    }
-                    None => tracing::warn!(
-                        branch = name.as_str(),
-                        "branch head is not a content id; ignoring"
-                    ),
-                },
-                Ok(None) => {}
-                Err(e) => tracing::warn!(
-                    branch = name.as_str(),
-                    "branch head lookup failed during head-first selection: {e}"
-                ),
-            }
-        }
-        heads
-    }
-
-    /// Advance an execution-branch head to a new commit when the commit
-    /// descends from the current head (monotonic advancement). Returns
-    /// `false` — leaving the head untouched with a warning — when the commit
-    /// is not a descendant (sideways or foreign line), so a skewed or
-    /// abandoned commit can never steal the branch pointer. A missing head
-    /// row accepts the commit as the first head.
-    pub fn advance_branch_head_if_descendant(
-        &self,
-        branch: &str,
-        checkpoint_id: &str,
-    ) -> Result<bool, CheckpointError> {
-        use layertwine::core::types::CheckpointId;
-        use layertwine::storage::repository::CheckpointPersist;
-
-        let Some(new_head) = CheckpointId::from_hex(checkpoint_id) else {
-            return Err(CheckpointError::Branch(format!(
-                "branch head must be a content id, got '{checkpoint_id}'"
-            )));
-        };
-        if !self
-            .storage
-            .checkpoint_exists(&new_head)
-            .map_err(map_layertwine_error)?
-        {
-            return Err(CheckpointError::Branch(format!(
-                "cannot advance branch '{branch}' to missing checkpoint '{checkpoint_id}'"
-            )));
-        }
-        let old_head = match self.get_branch_head(branch)? {
-            Some(head) => match CheckpointId::from_hex(&head) {
-                Some(id) => id,
-                None => {
-                    tracing::warn!(
-                        branch = branch,
-                        "branch head is not a content id; overwriting"
-                    );
-                    return self.set_branch_head(branch, checkpoint_id).map(|()| true);
-                }
-            },
-            None => return self.set_branch_head(branch, checkpoint_id).map(|()| true),
-        };
-        if old_head == new_head {
-            return Ok(true);
-        }
-        // Walk the new commit's ancestry for the old head (visited set keeps
-        // corrupted cycles terminating).
-        let mut seen = std::collections::HashSet::new();
-        let mut queue = std::collections::VecDeque::from([new_head]);
-        let mut descends = false;
-        let mut direct_child = false;
-        while let Some(id) = queue.pop_front() {
-            if !seen.insert(id) {
-                continue;
-            }
-            let Ok(cp) = self.storage.get_checkpoint(&id) else {
-                continue;
-            };
-            if cp.parents.contains(&old_head) {
-                descends = true;
-                if id == new_head {
-                    direct_child = true;
-                }
-                break;
-            }
-            for parent in &cp.parents {
-                if !seen.contains(parent) {
-                    queue.push_back(*parent);
-                }
-            }
-        }
-        if !descends {
-            tracing::warn!(
-                branch = branch,
-                "refusing to advance branch head to a non-descendant commit"
-            );
-            return Ok(false);
-        }
-        if !direct_child {
-            tracing::warn!(
-                branch = branch,
-                "branch head advances non-linearly (concurrent lines converged)"
-            );
-        }
-        self.set_branch_head(branch, checkpoint_id)?;
-        Ok(true)
-    }
 }
 
-impl CheckpointBackend for LayertwineBackend {
+impl CheckpointBackend for SqliteBackend {
     async fn save_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -312,8 +86,7 @@ impl CheckpointBackend for LayertwineBackend {
         let parent = metadata.get("parentId").map(String::as_str);
         let branch = metadata.get("branchId").map(String::as_str);
         self.storage
-            .store_graph_blob(checkpoint_id, data, parent, branch)
-            .map_err(map_layertwine_error)?;
+            .store_graph_blob(checkpoint_id, data, parent, branch)?;
         Ok(())
     }
 
@@ -321,10 +94,7 @@ impl CheckpointBackend for LayertwineBackend {
         &self,
         checkpoint_id: &str,
     ) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let blob = self
-            .storage
-            .load_graph_blob(checkpoint_id)
-            .map_err(map_layertwine_error)?;
+        let blob = self.storage.load_graph_blob(checkpoint_id)?;
         Ok(blob.map(|b| b.data))
     }
 
@@ -332,18 +102,13 @@ impl CheckpointBackend for LayertwineBackend {
         &self,
         parent_id: Option<&str>,
     ) -> Result<Vec<String>, CheckpointError> {
-        let mut ids = self
-            .storage
-            .list_graph_blob_ids(parent_id)
-            .map_err(map_layertwine_error)?;
+        let mut ids = self.storage.list_graph_blob_ids(parent_id)?;
         ids.sort();
         Ok(ids)
     }
 
     async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<bool, CheckpointError> {
-        self.storage
-            .delete_graph_blob(checkpoint_id)
-            .map_err(map_layertwine_error)
+        self.storage.delete_graph_blob(checkpoint_id)
     }
 
     async fn batch_save(
@@ -360,8 +125,10 @@ impl CheckpointBackend for LayertwineBackend {
     }
 }
 
-/// Execution branch heads: native `branches` table only.
-impl LayertwineBackend {
+/// Execution branch heads: `meta_kv` rows under `exec_branch/` only.
+/// File branches (review/feature/main) live as Git refs; execution branches
+/// (graph-blob history) keep a lightweight pointer here.
+impl SqliteBackend {
     /// Storage accessor for tests and diagnostics.
     pub fn storage(&self) -> &SqliteStorage {
         &self.storage
@@ -374,179 +141,86 @@ impl LayertwineBackend {
         }
     }
 
-    fn lookup_native_branch(
-        &self,
-        branch: &str,
-    ) -> Result<Option<layertwine::checkpoint::branch::Branch>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        match self.storage.get_branch(branch) {
-            Ok(native) => Ok(Some(native)),
-            Err(layertwine::StorageError::NotFound(_)) => Ok(None),
-            Err(e) => Err(map_layertwine_error(e)),
-        }
+    fn branch_key(branch: &str) -> String {
+        format!("exec_branch/{branch}")
     }
 
-    /// Update the branch head pointer (execution namespace, native
-    /// `branches` table only). The id must parse as a content id; otherwise
-    /// a `Branch` error is returned instead of splitting state across a KV
-    /// fallback.
+    /// Update the branch head pointer (execution namespace). Any non-empty
+    /// id is accepted; missing branches are created.
     pub fn set_branch_head(
         &self,
         branch: &str,
         checkpoint_id: &str,
     ) -> Result<(), CheckpointError> {
-        use layertwine::core::types::CheckpointId;
-        use layertwine::storage::repository::CheckpointPersist;
+        use crate::storage::MetadataStore;
 
-        let Some(head) = CheckpointId::from_hex(checkpoint_id) else {
+        if checkpoint_id.is_empty() {
             return Err(CheckpointError::Branch(format!(
-                "branch head must be a content id, got '{checkpoint_id}'"
+                "branch head must not be empty for '{branch}'"
             )));
-        };
-        match self.lookup_native_branch(branch)? {
-            Some(_) => self.storage.update_branch_head(branch, &head),
-            None => self
-                .storage
-                .store_branch(&layertwine::checkpoint::branch::Branch::new(branch, head)),
         }
-        .map_err(map_layertwine_error)?;
+        self.storage
+            .store_metadata(&Self::branch_key(branch), checkpoint_id)?;
         Ok(())
     }
 
-    /// Read the branch head pointer from the native table. Headless branches
-    /// (genesis sentinel) and missing branches both report `None`.
+    /// Read the branch head pointer. Missing branches and headless
+    /// branches (empty marker) both report `None`.
     pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
-        match self.lookup_native_branch(branch)? {
-            Some(native) if is_genesis(&native.head) => Ok(None),
-            Some(native) => Ok(Some(native.head.to_hex())),
-            None => Ok(None),
-        }
+        use crate::storage::MetadataStore;
+
+        Ok(self
+            .storage
+            .load_metadata(&Self::branch_key(branch))?
+            .filter(|head| !head.is_empty()))
     }
 
-    /// Synchronous branch existence check against the native table.
+    /// Synchronous branch existence check (headless branches exist).
     pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
-        Ok(self.lookup_native_branch(branch)?.is_some())
+        use crate::storage::MetadataStore;
+
+        Ok(self
+            .storage
+            .load_metadata(&Self::branch_key(branch))?
+            .is_some())
     }
 
-    /// Native head lookup shared by create-time base inheritance. Genesis
-    /// heads count as absent so new branches do not inherit the sentinel.
-    fn native_head(&self, branch: &str) -> Option<layertwine::core::types::CheckpointId> {
-        self.lookup_native_branch(branch)
-            .ok()
-            .flatten()
-            .map(|b| b.head)
-            .filter(|head| !is_genesis(head))
+    /// Head lookup shared by create-time base inheritance.
+    fn native_head(&self, branch: &str) -> Option<String> {
+        self.get_branch_head(branch).ok().flatten()
+    }
+
+    /// Delete an execution branch pointer. Missing branches are a no-op.
+    pub fn delete_branch_head(&self, branch: &str) -> Result<(), CheckpointError> {
+        use crate::storage::MetadataStore;
+
+        self.storage.delete_metadata(&Self::branch_key(branch))?;
+        Ok(())
     }
 
     /// Execution-namespace branch names only. The namespace rule lives here
-    /// alongside the native table so callers never reimplement the filter.
+    /// alongside the pointer rows so callers never reimplement the filter.
     pub fn list_execution_branch_names(&self) -> Result<Vec<String>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        let native = self
+        let rows = self
             .storage
-            .list_branches()
-            .map_err(map_layertwine_error)
+            .list_metadata_by_prefix("exec_branch/")
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        let mut names: Vec<String> = native
+        let mut names: Vec<String> = rows
             .into_iter()
-            .map(|branch| branch.name)
+            .map(|(key, _)| key.trim_start_matches("exec_branch/").to_string())
             .filter(|name| crate::branch::is_execution_branch_name(name))
             .collect();
         names.sort();
         Ok(names)
     }
-
-    /// Feature-namespace branch names only. Counterpart to the execution
-    /// listing above; the predicate itself lives in the naming module.
-    pub fn list_feature_branch_names(&self) -> Result<Vec<String>, CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        let native = self
-            .storage
-            .list_branches()
-            .map_err(map_layertwine_error)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        let mut names: Vec<String> = native
-            .into_iter()
-            .map(|branch| branch.name)
-            .filter(|name| crate::branch::is_feature_branch_name(name))
-            .collect();
-        names.sort();
-        Ok(names)
-    }
 }
 
-/// Layered partition readiness: ensures the approval and staged partitions
-/// exist before merges run. The workspace-to-partition mapping stays with the
-/// caller; partition ids and seed handling stay here so file orchestration
-/// code never touches partition stores directly.
-impl LayertwineBackend {
-    /// Ensure the approval partition exists for the given agent, seeded from
-    /// the agent partition baseline.
-    pub(crate) fn ensure_approval_ready(
-        &self,
-        agent_id: &layertwine::core::types::AgentInstanceId,
-    ) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::PartitionStore;
-
-        let pid = layertwine::layered::agent::agent_partition_id(agent_id);
-        let partition = self
-            .storage
-            .get_partition(&pid)
-            .map_err(map_layertwine_error)?;
-        let baseline =
-            partition
-                .history
-                .first()
-                .copied()
-                .ok_or_else(|| CheckpointError::Corrupted {
-                    id: pid.to_string(),
-                    reason: "agent partition has empty history".to_string(),
-                })?;
-        layertwine::layered::approval::ensure_approval_agent_partition(
-            &self.storage,
-            agent_id,
-            baseline,
-        )
-        .map_err(map_layertwine_error)?;
-        Ok(())
-    }
-
-    /// Ensure the staged partition exists for the workspace, seeding it when
-    /// missing.
-    pub(crate) fn ensure_staged_ready(
-        &self,
-        workspace_key: Option<&str>,
-    ) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::PartitionStore;
-
-        let staged_pid = match workspace_key {
-            Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
-            None => layertwine::layered::staged::staged_partition_id(),
-        };
-        if self.storage.get_partition(&staged_pid).is_ok() {
-            return Ok(());
-        }
-        let seed = crate::file::util::seed_initial_snapshot(
-            &self.storage,
-            &layertwine::core::types::AgentInstanceId("staged".into()),
-        )?;
-        layertwine::layered::staged::ensure_staged_partition(&self.storage, seed, workspace_key)
-            .map_err(map_layertwine_error)?;
-        Ok(())
-    }
-}
-
-/// Production `BranchStorageAdapter` over the layertwine backend: branches
-/// live only in the native `branches` table. A new branch inherits the base
-/// branch's real head when available, otherwise starts at the genesis
-/// sentinel (reported as `None` until its first checkpoint).
-impl BranchStorageAdapter for LayertwineBackend {
+/// Production `BranchStorageAdapter` over the sqlite backend: execution
+/// branch pointers live in `meta_kv`. A new branch inherits the base
+/// branch's head when available, otherwise starts headless (reported as
+/// `None` until its first checkpoint).
+impl BranchStorageAdapter for SqliteBackend {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
         if self
             .branch_exists_now(name)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?
@@ -556,29 +230,26 @@ impl BranchStorageAdapter for LayertwineBackend {
             )));
         }
         // Inherit the base branch head when it names an existing branch with
-        // a real head. Raw checkpoint ids are not inherited: forked execution
+        // a head. Raw checkpoint ids are not inherited: forked execution
         // branches stay headless until their own first checkpoint (see
         // `checkpoint_updates_branch_head`).
-        let head = base
-            .and_then(|b| self.native_head(b))
-            .unwrap_or_else(genesis_head);
-        self.storage
-            .store_branch(&layertwine::checkpoint::branch::Branch::new(name, head))
-            .map_err(map_layertwine_error)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        if let Some(head) = base.and_then(|b| self.native_head(b)) {
+            self.set_branch_head(name, &head)
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        } else {
+            // Headless branch row: exists, but reports no head.
+            use crate::storage::MetadataStore;
+            self.storage
+                .store_metadata(&Self::branch_key(name), "")
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        }
         Ok(())
     }
 
     async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::CheckpointPersist;
-
-        match self.storage.delete_branch(name) {
-            Ok(()) => Ok(()),
-            Err(layertwine::StorageError::NotFound(_)) => Ok(()),
-            Err(e) => {
-                Err(map_layertwine_error(e)).map_err(|e| CheckpointError::Branch(e.to_string()))
-            }
-        }
+        self.delete_branch_head(name)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        Ok(())
     }
 
     async fn list_branches(&self) -> Result<Vec<String>, CheckpointError> {
@@ -591,20 +262,18 @@ impl BranchStorageAdapter for LayertwineBackend {
     }
 
     async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError> {
-        use layertwine::storage::repository::GraphBlobStore;
+        use crate::storage::GraphBlobStore;
 
         // Storage-level merge: re-point the source's blobs at the target
         // (indexed columns), then move the head.
         let source_ids = self
             .storage
             .list_graph_blob_ids_by_branch(source)
-            .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         for id in &source_ids {
             if let Some(mut blob) = self
                 .storage
                 .load_graph_blob(id)
-                .map_err(map_layertwine_error)
                 .map_err(|e| CheckpointError::Branch(e.to_string()))?
             {
                 blob.branch_id = Some(target.to_string());
@@ -615,7 +284,6 @@ impl BranchStorageAdapter for LayertwineBackend {
                         blob.parent_id.as_deref(),
                         blob.branch_id.as_deref(),
                     )
-                    .map_err(map_layertwine_error)
                     .map_err(|e| CheckpointError::Branch(e.to_string()))?;
             }
         }
@@ -631,15 +299,15 @@ impl BranchStorageAdapter for LayertwineBackend {
     }
 }
 
-/// Validation/serialization facade over the real layertwine backend.
+/// Validation/serialization facade over the sqlite backend.
 /// The former generic parameter only ever materialized as the in-memory
 /// test double, which now lives in the test module.
-pub struct LayertwineCheckpointBridge {
-    adapter: Arc<LayertwineBackend>,
+pub struct CheckpointBridge {
+    adapter: Arc<SqliteBackend>,
 }
 
-impl LayertwineCheckpointBridge {
-    pub fn new(adapter: Arc<LayertwineBackend>) -> Self {
+impl CheckpointBridge {
+    pub fn new(adapter: Arc<SqliteBackend>) -> Self {
         Self { adapter }
     }
 
@@ -840,7 +508,7 @@ mod tests {
     #[tokio::test]
     async fn save_and_load_checkpoint() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         bridge
             .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
@@ -854,7 +522,7 @@ mod tests {
     #[tokio::test]
     async fn save_rejects_invalid_checkpoint_structure() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         let err = bridge
             .save("cp-1", b"not-json", "workflow", "exec-1")
@@ -872,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn load_missing_checkpoint() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         let data = bridge.load("nonexistent").await.unwrap();
         assert!(data.is_none());
@@ -881,7 +549,7 @@ mod tests {
     #[tokio::test]
     async fn list_checkpoints() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         bridge
             .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
@@ -899,7 +567,7 @@ mod tests {
     #[tokio::test]
     async fn list_by_parent_filters() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         bridge
             .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
@@ -917,7 +585,7 @@ mod tests {
     #[tokio::test]
     async fn delete_removes_checkpoint() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         bridge
             .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
@@ -932,7 +600,7 @@ mod tests {
     #[tokio::test]
     async fn bridge_batch_save_and_load() {
         let adapter = Arc::new(make_real_adapter());
-        let bridge = LayertwineCheckpointBridge::new(adapter);
+        let bridge = CheckpointBridge::new(adapter);
 
         let items = vec![
             (
@@ -976,7 +644,7 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        let warnings = LayertwineCheckpointBridge::validate_checkpoint_structure_soft(&delta);
+        let warnings = CheckpointBridge::validate_checkpoint_structure_soft(&delta);
         assert!(
             warnings.iter().any(|w| w.contains("baseCheckpointId")),
             "delta without baseCheckpointId reported"
@@ -987,7 +655,7 @@ mod tests {
         );
 
         let full = make_blob("cp-2", "FULL");
-        let warnings = LayertwineCheckpointBridge::validate_checkpoint_structure_soft(&full);
+        let warnings = CheckpointBridge::validate_checkpoint_structure_soft(&full);
         assert!(warnings.is_empty());
     }
 
@@ -1014,10 +682,10 @@ mod tests {
         assert!(adapter.get_checkpoint("cp-2").await.unwrap().is_some());
     }
 
-    // ---- Real layertwine backend integration tests ----
+    // ---- Real sqlite backend integration tests ----
 
-    fn make_real_adapter() -> LayertwineBackend {
-        LayertwineBackend::new_in_memory().unwrap()
+    fn make_real_adapter() -> SqliteBackend {
+        SqliteBackend::new_in_memory().unwrap()
     }
 
     #[tokio::test]
@@ -1129,7 +797,7 @@ mod tests {
         let path = dir.path().join("checkpoints.db");
 
         {
-            let adapter = LayertwineBackend::new(&path).unwrap();
+            let adapter = SqliteBackend::new(&path).unwrap();
             let meta = HashMap::new();
             adapter
                 .save_checkpoint("cp-1", b"persisted", &meta)
@@ -1137,7 +805,7 @@ mod tests {
                 .unwrap();
         }
 
-        let adapter = LayertwineBackend::new(&path).unwrap();
+        let adapter = SqliteBackend::new(&path).unwrap();
         let data = adapter.get_checkpoint("cp-1").await.unwrap();
         assert_eq!(data, Some(b"persisted".to_vec()));
     }

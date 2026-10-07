@@ -69,14 +69,12 @@ pub async fn list_unified(
         .and_then(|f| f.execution_type.clone())
         .is_none_or(|t| t == ExecutionType::Workflow);
     if wants_workflow {
-        let options = filter.map(|f| {
-            crate::WorkflowExecutionListOptions {
-                status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
-                started_from: f.started_from,
-                started_to: f.started_to,
-                order_desc: Some(true),
-                ..crate::WorkflowExecutionListOptions::default()
-            }
+        let options = filter.map(|f| crate::WorkflowExecutionListOptions {
+            status_filter: f.status.as_ref().map(|s| s.as_str().to_string()),
+            started_from: f.started_from,
+            started_to: f.started_to,
+            order_desc: Some(true),
+            ..crate::WorkflowExecutionListOptions::default()
         });
         let records = crate::workflow::execution::list_executions(ctx, options).await?;
         for record in records {
@@ -107,8 +105,7 @@ pub async fn list_unified(
             started_to: f.started_to,
             ..agent_execution_registry::AgentExecutionFilter::default()
         });
-        let summaries =
-            agent_execution_registry::summaries(ctx, agent_filter.as_ref()).await?;
+        let summaries = agent_execution_registry::summaries(ctx, agent_filter.as_ref()).await?;
         for summary in summaries {
             merged.push(UnifiedExecutionSummary {
                 execution_id: summary.execution_id,

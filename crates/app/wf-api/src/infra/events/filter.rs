@@ -7,10 +7,7 @@ use crate::infra::subscription::EventSubscriptionOptions;
 use super::EventQueryOptions;
 
 /// Apply `options` to a set of events, honoring the limit.
-pub(crate) fn filter_events(
-    events: Vec<BaseEvent>,
-    options: &EventQueryOptions,
-) -> Vec<BaseEvent> {
+pub(crate) fn filter_events(events: Vec<BaseEvent>, options: &EventQueryOptions) -> Vec<BaseEvent> {
     let limit = options.effective_limit();
     let filter = EventSubscriptionOptions {
         execution_id: options.execution_id.clone(),

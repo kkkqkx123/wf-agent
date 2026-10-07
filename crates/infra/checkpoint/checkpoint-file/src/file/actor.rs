@@ -1,22 +1,11 @@
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use layertwine::core::file_node::FileNode;
-use layertwine::core::snapshot::{Snapshot, SnapshotContent};
-use layertwine::layered::agent;
-use layertwine::storage::repository::{PartitionStore, SnapshotStore};
+use std::collections::HashMap;
 
 use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
-use crate::event::CheckpointEventBus;
-use crate::file::util::{map_layertwine_error, seed_initial_snapshot, sha256_hex};
+use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
 pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
-use crate::provenance::DeltaSummary;
 use checkpoint_base::actor::id::{ActorId, ActorKind};
 use checkpoint_base::error::CheckpointError;
-use checkpoint_base::recent_agent_writes::RecentAgentWrites;
-
-use std::collections::HashSet;
 
 /// Actor-partition facade for `FileCheckpointManager`.
 // Partition lifecycle and edit primitives live here; precise event types
@@ -174,8 +163,7 @@ impl FileCheckpointManager {
             return Ok(());
         }
         let parent_actor = self.actor_id_for(parent);
-        let storage = self.storage_ref()?;
-        let base = self.latest_checkpoint_id(storage, &parent_actor)?;
+        let base = self.latest_checkpoint_id(&parent_actor)?;
         self.store
             .branch_adapter
             .create_branch(&branch_name, base.as_deref())
@@ -194,26 +182,19 @@ impl FileCheckpointManager {
             .get_branch_head(&execution_branch_name("execution", entity_id))
     }
 
-    // ── actor partition primitives ──────────────────────────────────
+    // ── actor edit-line primitives ──────────────────────────────────
 
-    /// Ensure the actor's agent partition exists, seeding it with an empty
-    /// baseline snapshot on first use.
+    /// Ensure the actor's edit line exists. There are no partitions in the
+    /// Git model; the edit ref is created lazily by the first commit, so
+    /// this is always a no-op success kept for call-site stability.
     pub fn ensure_agent_partition(&self, actor: &ActorId) -> Result<(), CheckpointError> {
-        let storage = self.storage_ref()?;
-        let agent_id = actor.to_agent_instance_id();
-        let pid = agent::agent_partition_id(&agent_id);
-        if storage.get_partition(&pid).is_ok() {
-            return Ok(());
-        }
-        let initial = seed_initial_snapshot(storage, &agent_id)?;
-        agent::ensure_agent_partition(storage, &agent_id, initial).map_err(map_layertwine_error)?;
+        let _ = actor;
         Ok(())
     }
 
-    /// Record one file edit for an actor: text goes through layertwine's
-    /// line-diff `apply_agent_edit`; binary content is snapshotted verbatim
-    /// via `SnapshotContent::FileContent` (no line diff). Returns the new
-    /// snapshot id (hex).
+    /// Record one file edit for an actor: the in-memory bytes are committed
+    /// directly on the actor's edit ref (no disk re-read). Returns the new
+    /// commit id (hex).
     pub fn apply_agent_edit(
         &self,
         actor: &ActorId,
@@ -223,327 +204,129 @@ impl FileCheckpointManager {
         self.apply_agent_edit_with_hash(actor, path, content, None)
     }
 
-    /// Hash-aware edit entry: when the caller already hashed `content`
-    /// (e.g. the tool layer read the file to report the mutation), the hash
-    /// is reused for the write registry instead of hashing twice.
+    /// Hash-aware edit entry: `expected_hash` is accepted for call-site
+    /// stability and ignored — content identity is the object id, and
+    /// attribution no longer consults a hash registry.
     pub fn apply_agent_edit_with_hash(
         &self,
         actor: &ActorId,
         path: &str,
         content: &[u8],
-        expected_hash: Option<&str>,
+        _expected_hash: Option<&str>,
     ) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
-        let storage = self.storage_ref()?;
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(actor)?;
-        let threshold = self.policy.full_snapshot_threshold;
-        let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            agent::apply_agent_edit_full(storage, &agent_id, &path, text, None, threshold)
-                .map_err(map_layertwine_error)?
-        } else {
-            let file_node = FileNode::new(PathBuf::from(&path), content);
-            let snapshot = Snapshot::new_with_content(
-                file_node,
-                SnapshotContent::FileContent(content.to_vec()),
-                format!("file://{}", path),
-                format!("agent/{}", agent_id),
-                vec![
-                    storage
-                        .get_partition(&agent::agent_partition_id(&agent_id))
-                        .map_err(map_layertwine_error)?
-                        .current_snapshot,
-                ],
-                vec![],
-            );
-            storage
-                .store_snapshot(&snapshot, content)
-                .map_err(map_layertwine_error)?;
-            let pid = agent::agent_partition_id(&agent_id);
-            storage
-                .update_pointer(&pid, &snapshot.id)
-                .map_err(map_layertwine_error)?;
-            snapshot.id
-        };
-        // A fresh edit invalidates the redo branch: clear the persisted redo
-        // stack so undo → edit → redo cannot resurrect stale states.
-        {
-            let pid = agent::agent_partition_id(&agent_id);
-            let _ = storage.update_redo_stack(&pid, &[]);
-        }
-        // Clear any earlier deletion marker for this path (the file exists
-        // again); register the write for the manual watcher. The registry is
-        // keyed by both the (workspace-relative) edit path and the absolute
-        // path — watcher events always carry absolute paths.
-        if !content.is_empty() {
-            if let Some(mut deleted) = self.deleted_files.get_mut(actor.as_str()) {
-                deleted.remove(&path);
-            }
-        }
-        let write_hash = expected_hash
-            .map(str::to_string)
-            .unwrap_or_else(|| sha256_hex(content));
-        self.recent_agent_writes
-            .register(PathBuf::from(&path), write_hash.clone());
-        if let Some(root) = &self.workspace_root {
-            self.recent_agent_writes.register(
-                crate::watcher::normalize_absolute_path(&root.join(&path)),
-                write_hash.clone(),
-            );
-        }
-        if let Some(ref bus) = self.event_bus {
-            bus.publish(CheckpointEventBus::file_changed_with_summary(
-                snapshot_id.to_hex(),
-                &path,
-                actor.as_str(),
-                Some(DeltaSummary {
-                    file: path.to_string(),
-                    source: actor.as_str().to_string(),
-                    timestamp: wf_common::now(),
-                    snapshot_id: snapshot_id.to_hex(),
-                    hash: write_hash.clone(),
-                    message: None,
-                }),
-            ));
-        }
-        Ok(snapshot_id.to_hex())
+        let mut files = HashMap::new();
+        files.insert(path.clone(), Some(content.to_vec()));
+        let outcome = self.commit_tool_files(actor, &files, None, None, "tool edit")?;
+        Ok(outcome.id)
     }
 
-    /// Record one file deletion for an actor (explicit deletion semantics):
-    /// advance the layertwine agent partition with a
-    /// `SnapshotContent::Deleted`-marked snapshot, register the deletion
-    /// projection marker, and notify the manual watcher (the resulting
-    /// filesystem event is the agent's own write and must be skipped).
-    /// Returns the new snapshot id (hex).
+    /// Record one file deletion for an actor: commit the deletion on the
+    /// actor's edit ref. Returns the new commit id (hex).
     pub fn apply_agent_delete(
         &self,
         actor: &ActorId,
         path: &str,
     ) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
-        let storage = self.storage_ref()?;
-        let agent_id = actor.to_agent_instance_id();
-        self.ensure_agent_partition(actor)?;
-        let snapshot_id =
-            agent::apply_agent_delete(storage, &agent_id, &path).map_err(map_layertwine_error)?;
-        {
-            let pid = agent::agent_partition_id(&agent_id);
-            let _ = storage.update_redo_stack(&pid, &[]);
-        }
-        self.deleted_files
-            .entry(actor.as_str().to_string())
-            .or_default()
-            .insert(path.clone());
-        self.recent_agent_writes
-            .register_delete(PathBuf::from(&path));
-        if let Some(root) = &self.workspace_root {
-            self.recent_agent_writes
-                .register_delete(crate::watcher::normalize_absolute_path(&root.join(&path)));
-        }
-        let write_hash = sha256_hex(b"");
-        if let Some(ref bus) = self.event_bus {
-            bus.publish(CheckpointEventBus::file_changed_with_summary(
-                snapshot_id.to_hex(),
-                &path,
-                actor.as_str(),
-                Some(DeltaSummary {
-                    file: path.to_string(),
-                    source: actor.as_str().to_string(),
-                    timestamp: wf_common::now(),
-                    snapshot_id: snapshot_id.to_hex(),
-                    hash: write_hash.clone(),
-                    message: None,
-                }),
-            ));
-        }
-        Ok(snapshot_id.to_hex())
+        let mut files = HashMap::new();
+        files.insert(path.clone(), None);
+        let outcome = self.commit_tool_files(actor, &files, None, None, "tool delete")?;
+        Ok(outcome.id)
     }
 
-    /// Record a manual (human/IDE) edit into the global manual partition,
-    /// bypassing any actor. Text content goes through layertwine's line-diff
-    /// `apply_manual_edit`; binary content is snapshotted verbatim via
-    /// `SnapshotContent::FileContent`. Returns the new snapshot id (hex).
+    /// Record a manual (human/IDE) edit on the human ref, bypassing any
+    /// actor. Human commits are never auto-merged. Returns the new commit
+    /// id (hex).
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let git = self.git_ref()?;
         let storage = self.storage_ref()?;
-        let ws = self.workspace_key();
-        let manual_pid = match ws.as_deref() {
-            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
-            None => layertwine::layered::manual::manual_partition_id(),
-        };
-        if storage.get_partition(&manual_pid).is_err() {
-            let seed = seed_initial_snapshot(
+        let mut changes = HashMap::new();
+        changes.insert(
+            path.clone(),
+            Some((crate::git_store::MODE_FILE.to_string(), content.to_vec())),
+        );
+        let message =
+            crate::git_store::commit_message("manual edit", Some("human"), None, None, &[]);
+        let outcome = git
+            .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
+            .map_err(map_git_error)?;
+        if outcome.created {
+            self.index_commit(
                 storage,
-                &layertwine::core::types::AgentInstanceId("manual".into()),
-            )?;
-            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
-                .map_err(map_layertwine_error)?;
-        }
-        let threshold = self.policy.full_snapshot_threshold;
-        let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            layertwine::layered::manual::apply_manual_edit_full(
-                storage,
-                &path,
-                text,
-                ws.as_deref(),
-                None,
-                threshold,
-            )
-            .map_err(map_layertwine_error)?
-        } else {
-            let file_node = FileNode::new(PathBuf::from(&path), content);
-            let snapshot = Snapshot::new_with_content(
-                file_node,
-                SnapshotContent::FileContent(content.to_vec()),
-                format!("file://{}", path),
-                "manual".to_string(),
-                vec![
-                    storage
-                        .get_partition(&manual_pid)
-                        .map_err(map_layertwine_error)?
-                        .current_snapshot,
-                ],
-                vec![],
-            );
-            storage
-                .store_snapshot(&snapshot, content)
-                .map_err(map_layertwine_error)?;
-            storage
-                .update_pointer(&manual_pid, &snapshot.id)
-                .map_err(map_layertwine_error)?;
-            snapshot.id
-        };
-        {
-            let _ = storage.update_redo_stack(&manual_pid, &[]);
-        }
-        if let Some(ref bus) = self.event_bus {
-            let write_hash = sha256_hex(content);
-            bus.publish(CheckpointEventBus::file_changed_with_summary(
-                snapshot_id.to_hex(),
-                &path,
+                &outcome.id,
+                "human",
+                "",
                 "manual",
-                Some(DeltaSummary {
-                    file: path.to_string(),
-                    source: "manual".to_string(),
-                    timestamp: wf_common::now(),
-                    snapshot_id: snapshot_id.to_hex(),
-                    hash: write_hash,
-                    message: None,
-                }),
-            ));
+                std::slice::from_ref(&path),
+            )?;
         }
-        Ok(snapshot_id.to_hex())
+        self.publish_file_event(&outcome.id, &path, "manual", Some(content));
+        Ok(outcome.id)
     }
 
-    /// Record a manual (human/IDE) file deletion into the global manual
-    /// partition (explicit deletion semantics via
-    /// `SnapshotContent::Deleted`). Returns the new snapshot id (hex).
+    /// Record a manual (human/IDE) file deletion on the human ref.
+    /// Returns the new commit id (hex).
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let git = self.git_ref()?;
         let storage = self.storage_ref()?;
-        let ws = self.workspace_key();
-        let manual_pid = match ws.as_deref() {
-            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
-            None => layertwine::layered::manual::manual_partition_id(),
-        };
-        if storage.get_partition(&manual_pid).is_err() {
-            let seed = seed_initial_snapshot(
+        let mut changes = HashMap::new();
+        changes.insert(path.clone(), None);
+        let message =
+            crate::git_store::commit_message("manual delete", Some("human"), None, None, &[]);
+        let outcome = git
+            .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
+            .map_err(map_git_error)?;
+        if outcome.created {
+            self.index_commit(
                 storage,
-                &layertwine::core::types::AgentInstanceId("manual".into()),
-            )?;
-            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
-                .map_err(map_layertwine_error)?;
-        }
-        let snapshot_id =
-            layertwine::layered::manual::apply_manual_delete(storage, &path, ws.as_deref())
-                .map_err(map_layertwine_error)?;
-        {
-            let _ = storage.update_redo_stack(&manual_pid, &[]);
-        }
-        if let Some(ref bus) = self.event_bus {
-            let write_hash = sha256_hex(b"");
-            bus.publish(CheckpointEventBus::file_changed_with_summary(
-                snapshot_id.to_hex(),
-                &path,
+                &outcome.id,
+                "human",
+                "",
                 "manual",
-                Some(DeltaSummary {
-                    file: path.to_string(),
-                    source: "manual".to_string(),
-                    timestamp: wf_common::now(),
-                    snapshot_id: snapshot_id.to_hex(),
-                    hash: write_hash,
-                    message: None,
-                }),
-            ));
+                std::slice::from_ref(&path),
+            )?;
         }
-        Ok(snapshot_id.to_hex())
+        self.publish_file_event(&outcome.id, &path, "manual", None);
+        Ok(outcome.id)
     }
 
-    /// Discard an execution's file changes: revert the actor partition
-    /// pointer to its parent (best-effort), delete the actor partition
-    /// entirely (partition + history rows), and drop the in-memory
-    /// projection index. Snapshots/deltas remain as immutable history
-    /// (INSERT-ONLY, GC'd separately). No-op when the actor has no
-    /// partition.
+    /// Discard an execution's file changes: delete the actor's edit ref and
+    /// drop the in-memory projection mirrors. Commits stay reachable from
+    /// other refs (or become unreachable and age out via object-store
+    /// cleanup); merged history is never rewritten. No-op when the actor
+    /// has no edit ref.
     pub fn discard_execution(&self, entity_id: &str) -> Result<(), CheckpointError> {
-        let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        let agent_id = actor.to_agent_instance_id();
-        let pid = agent::agent_partition_id(&agent_id);
-        if storage.get_partition(&pid).is_err() {
-            return Ok(());
-        }
-        // Best-effort pointer revert; there is nothing to revert when the
-        // partition has no parent (the seed snapshot), and the partition is
-        // deleted right after anyway.
-        let _ = agent::discard_agent_edit(storage, &agent_id);
-        storage
-            .delete_partition(&pid)
-            .map_err(map_layertwine_error)?;
+        let git = self.git_ref()?;
+        git.delete_ref(&crate::git_store::edit_ref_for_actor(actor.as_str()))
+            .map_err(map_git_error)?;
         self.store.latest_checkpoints.remove(actor.as_str());
-        self.deleted_files.remove(actor.as_str());
+        self.redo_stacks.remove(actor.as_str());
         Ok(())
     }
 
-    /// Shared registry of recent agent writes (the manual watcher reads it).
-    pub fn recent_agent_writes(&self) -> &Arc<RecentAgentWrites> {
-        &self.recent_agent_writes
-    }
-
-    /// File paths currently marked deleted for the actor (keyed by the
-    /// actor id string, e.g. `checkpoint.metadata.author`).
-    pub fn deleted_files(&self, author: &str) -> HashSet<String> {
-        self.deleted_files
-            .get(author)
-            .map(|set| set.clone())
-            .unwrap_or_default()
-    }
-
-    /// Record a file move/rename operation in the file_moves table. This
-    /// enables `file_timeline` to trace the full history of a file across
-    /// renames. The `source` parameter identifies who performed the move
-    /// (e.g. "manual", "agent:loop-1").
+    /// Record a file move/rename linkage. Renames are detected on read via
+    /// content similarity, so this validates both sides and succeeds
+    /// without persisting anything. Kept for call-site stability.
     pub fn track_file_move(
         &self,
         from_path: &str,
         to_path: &str,
         source: &str,
     ) -> Result<(), checkpoint_base::error::CheckpointError> {
-        use layertwine::core::file_move::FileMove;
-        use layertwine::storage::repository::FileMoveStore;
-
-        let from = crate::file::util::validate_workspace_relative_path(from_path)?;
-        let to = crate::file::util::validate_workspace_relative_path(to_path)?;
-        let storage = self.storage_ref()?;
-        let file_move = FileMove::new(from, to, source.to_string());
-        storage
-            .store_file_move(&file_move)
-            .map_err(crate::file::util::map_layertwine_error)
+        let _ = source;
+        crate::file::util::validate_workspace_relative_path(from_path)?;
+        crate::file::util::validate_workspace_relative_path(to_path)?;
+        Ok(())
     }
 
-    /// Explicit rename entry point: validate both sides, record the move
-    /// linkage, delete the old path and write the new path content for an
-    /// actor. Returns the new snapshot id (hex) for the created path.
+    /// Explicit rename entry point: delete the old path and write the new
+    /// path content in a single atomic commit on the actor's edit ref.
+    /// Rename following happens on read via similarity detection. Returns
+    /// the new commit id (hex).
     pub fn rename_file(
         &self,
         actor: &ActorId,
@@ -553,9 +336,11 @@ impl FileCheckpointManager {
     ) -> Result<String, checkpoint_base::error::CheckpointError> {
         let from = crate::file::util::validate_workspace_relative_path(from_path)?;
         let to = crate::file::util::validate_workspace_relative_path(to_path)?;
-        self.track_file_move(&from, &to, actor.as_str())?;
-        let _ = self.apply_agent_delete(actor, &from);
-        self.apply_agent_edit(actor, &to, content)
+        let mut files = HashMap::new();
+        files.insert(from, None);
+        files.insert(to, Some(content.to_vec()));
+        self.commit_tool_files(actor, &files, None, None, "rename")
+            .map(|o| o.id)
     }
 }
 
@@ -682,14 +467,46 @@ mod tests {
             "forked branch stays headless until its own checkpoint"
         );
         let parent_actor = manager.actor_id_for("parent-1");
-        let storage = manager.storage().unwrap();
         assert_eq!(
             manager
-                .latest_checkpoint_id(storage, &parent_actor)
+                .latest_checkpoint_id(&parent_actor)
                 .unwrap()
                 .as_deref(),
             Some(parent_cp.id.as_str()),
             "parent base stays readable as the fork point"
+        );
+    }
+
+    #[test]
+    fn agent_edits_form_linear_commit_chain() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        let first = manager.apply_agent_edit(&actor, "a.txt", b"one").unwrap();
+        let second = manager.apply_agent_edit(&actor, "a.txt", b"two").unwrap();
+        assert_ne!(first, second);
+        let head = manager.latest_checkpoint_id(&actor).unwrap().unwrap();
+        assert_eq!(head, second);
+        let git = manager.git_ref().unwrap();
+        assert!(git.is_ancestor(&first, &second).unwrap());
+    }
+
+    #[test]
+    fn rename_commits_delete_plus_add_atomically() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let actor = manager.actor_id_for("entity-1");
+        manager
+            .apply_agent_edit(&actor, "old.txt", b"data")
+            .unwrap();
+        let renamed = manager
+            .rename_file(&actor, "old.txt", "new.txt", b"data")
+            .unwrap();
+        let workspace = manager.get_actor_workspace(actor.as_str()).unwrap();
+        let paths: Vec<&str> = workspace.iter().map(|f| f.path.as_str()).collect();
+        assert!(!paths.contains(&"old.txt"));
+        assert!(paths.contains(&"new.txt"));
+        assert_eq!(
+            manager.latest_checkpoint_id(&actor).unwrap().as_deref(),
+            Some(renamed.as_str())
         );
     }
 }

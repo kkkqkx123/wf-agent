@@ -14,11 +14,11 @@ use crate::agent::agent_error_analysis::ExecutionErrorRecord;
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
-use super::advanced::{
-    analyze_error_trend, analyze_temporal_pattern, severity_of, severity_rank,
-};
-use super::recovery::{estimate_likelihood, estimate_recovery_time, recovery_steps, suggest_action};
+use super::advanced::{analyze_error_trend, analyze_temporal_pattern, severity_of, severity_rank};
 use super::records::{node_name, workflow_error_records};
+use super::recovery::{
+    estimate_likelihood, estimate_recovery_time, recovery_steps, suggest_action,
+};
 use super::views::{
     AdvancedWorkflowErrorAnalysis, ErrorRecommendation, ProblematicNode, RecoveryProposal,
     SimilarErrorGroup, WorkflowErrorHotspot, WorkflowErrorStats, WorkflowNodeRef,
@@ -203,7 +203,12 @@ pub async fn get_advanced_error_analysis(
     let mut error_frequency: BTreeMap<String, u64> = BTreeMap::new();
     let mut node_problems: BTreeMap<
         String,
-        (u64, Vec<String>, Vec<String>, wf_types::enums::ErrorSeverity),
+        (
+            u64,
+            Vec<String>,
+            Vec<String>,
+            wf_types::enums::ErrorSeverity,
+        ),
     > = BTreeMap::new();
     let mut sorted = records.clone();
     sorted.sort_by_key(|r| r.timestamp);

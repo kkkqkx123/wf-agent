@@ -12,11 +12,11 @@ use super::lifecycle::{
 use super::summary::execution_summaries;
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
-use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_tools::callback::WorkflowOutput;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_resource::registry::ResourceRegistries;
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::context::StorageContext;
+use wf_tools::callback::WorkflowOutput;
 use wf_types::node::BaseStaticNode;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::edge::EdgeType;
@@ -351,8 +351,7 @@ async fn persisted_execution_readable_after_restart() {
         Arc::new(wf_tools::create_default_tool_registry()),
         Some(Arc::new(MetricsRegistry::new())),
     );
-    ctx1 =
-        ctx1.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
+    ctx1 = ctx1.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
 
     let ctx1 = Arc::new(ctx1);
     let output = execute(
@@ -646,16 +645,12 @@ async fn build_hierarchy_carries_depth_root_and_fork_path() {
             Some(wf_types::execution::ForkPath::new("fork-1", "path-a")),
         )
         .expect("derive");
-    let entity = wf_workflow::entity::WorkflowExecutionEntity::new(
-        "child".to_string(),
-        "wf-1".to_string(),
-    )
-    .with_hierarchy_manager(child_manager);
-    let fork_entity = wf_workflow::entity::WorkflowExecutionEntity::new(
-        "branch".to_string(),
-        "wf-1".to_string(),
-    )
-    .with_hierarchy_manager(fork_manager);
+    let entity =
+        wf_workflow::entity::WorkflowExecutionEntity::new("child".to_string(), "wf-1".to_string())
+            .with_hierarchy_manager(child_manager);
+    let fork_entity =
+        wf_workflow::entity::WorkflowExecutionEntity::new("branch".to_string(), "wf-1".to_string())
+            .with_hierarchy_manager(fork_manager);
     let hierarchy = super::checkpoint::build_hierarchy(&entity)
         .await
         .expect("hierarchy built");

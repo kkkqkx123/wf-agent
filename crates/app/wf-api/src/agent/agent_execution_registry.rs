@@ -71,7 +71,11 @@ pub async fn summaries(
             .map(|p| p.to_string());
         let definition_id = {
             let raw = record.definition_id.to_string();
-            if raw.is_empty() { None } else { Some(raw) }
+            if raw.is_empty() {
+                None
+            } else {
+                Some(raw)
+            }
         };
         records.push(AgentExecutionSummary {
             execution_id: record.id.to_string(),

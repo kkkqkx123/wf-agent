@@ -30,9 +30,7 @@ use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
 use super::ledger::{record_trigger_execution, TriggerOutcome};
 use super::write_back::{handle_subworkflow_output, CompressionWriteBackError};
-use super::{
-    ExecutionContextRegistry, TriggerLedger, DEFAULT_TRIGGER_TIMEOUT_MS,
-};
+use super::{ExecutionContextRegistry, TriggerLedger, DEFAULT_TRIGGER_TIMEOUT_MS};
 
 /// Trigger template registry backed by the wf-resource registrar.
 pub struct ResourceTriggerRegistry {

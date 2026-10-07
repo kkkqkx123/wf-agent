@@ -360,16 +360,13 @@ async fn nested_agent_uses_anchor_snapshot_and_publishes_conversation_writeback(
     // anchor version.
     let writeback_event = loop {
         match sub.recv().await {
-            Ok(event) if event.r#type == EventType::ConversationWritebackCompleted => {
-                break event
-            }
+            Ok(event) if event.r#type == EventType::ConversationWritebackCompleted => break event,
             Ok(_) => continue,
             Err(_) => panic!("event bus closed"),
         }
     };
-    let meta =
-        wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event)
-            .unwrap();
+    let meta = wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event)
+        .unwrap();
     assert_eq!(meta.array_version, array_version);
     assert_eq!(
         meta.operation,
@@ -506,10 +503,8 @@ async fn context_compression_chain_end_to_end() {
     let mut exec_ctx = exec_ctx;
     exec_ctx.variables = variables.clone();
     exec_ctx = exec_ctx.with_hook_handler_registry(hook_handler_registry.clone());
-    let entity = WorkflowExecutionEntity::new(
-        exec_ctx.execution_id.clone(),
-        exec_ctx.workflow_id.clone(),
-    );
+    let entity =
+        WorkflowExecutionEntity::new(exec_ctx.execution_id.clone(), exec_ctx.workflow_id.clone());
     let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, handlers)
         .unwrap()
         .with_entity(entity);
@@ -1040,10 +1035,8 @@ async fn no_compression_event_when_named_array_within_limit() {
     let mut exec_ctx = exec_ctx;
     exec_ctx.variables = variables.clone();
     exec_ctx = exec_ctx.with_hook_handler_registry(hook_handler_registry.clone());
-    let entity = WorkflowExecutionEntity::new(
-        exec_ctx.execution_id.clone(),
-        exec_ctx.workflow_id.clone(),
-    );
+    let entity =
+        WorkflowExecutionEntity::new(exec_ctx.execution_id.clone(), exec_ctx.workflow_id.clone());
     let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, handlers)
         .unwrap()
         .with_entity(entity);
@@ -1053,9 +1046,7 @@ async fn no_compression_event_when_named_array_within_limit() {
     let compression_observed = tokio::time::timeout(Duration::from_millis(300), async {
         loop {
             match sub.recv().await {
-                Ok(event) if event.r#type == EventType::ContextCompressionRequested => {
-                    return true
-                }
+                Ok(event) if event.r#type == EventType::ContextCompressionRequested => return true,
                 Ok(_) => continue,
                 Err(_) => return false,
             }
@@ -1077,8 +1068,8 @@ async fn compression_fire_takes_over_immediately() {
     use std::sync::atomic::{AtomicBool, Ordering};
     use wf_execution_shared::hooks::fire;
     use wf_execution_shared::token_events::{
-        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
-        KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
+        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
+        KEY_TOKEN_LIMIT,
     };
 
     let bus = Arc::new(EventBus::new(64));
@@ -1205,8 +1196,8 @@ impl SubworkflowRunner for HangingFirstRunner {
 /// One agent-target compression signal (version 7, non-empty snapshot).
 fn agent_compression_signal(messages: &[Message]) -> HookContext {
     use wf_execution_shared::token_events::{
-        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
-        KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
+        KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
+        KEY_TOKEN_LIMIT,
     };
     let mut data = HashMap::new();
     data.insert(KEY_TARGET_CONTEXT_ID.to_string(), Value::from("chat"));
@@ -1257,10 +1248,7 @@ async fn fire_compression_signal(
 
 /// Drain events until one of the given types arrives; a FAILED event
 /// arriving where success is expected (or vice versa) fails the test.
-async fn next_compression_event(
-    sub: &mut wf_core::Subscription,
-    wanted: EventType,
-) -> BaseEvent {
+async fn next_compression_event(sub: &mut wf_core::Subscription, wanted: EventType) -> BaseEvent {
     loop {
         match sub.recv().await {
             Ok(event) if event.r#type == wanted => return event,
@@ -1601,10 +1589,8 @@ async fn compression_terminal_failure_partial_summary_lands_visible_window() {
     ];
     fire_compression_signal(&registry, &bus, &agent_compression_signal(&messages)).await;
 
-    let completed =
-        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
-    let meta =
-        wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+    let completed = next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+    let meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
     assert!(meta.degraded, "fallback completion must be marked degraded");
     // The trimmed window is non-empty (newest messages retained).
     assert!(!meta.messages.is_empty());
@@ -1830,9 +1816,7 @@ async fn versioned_write_back_discards_stale_compression() {
                 vec![Message {
                     id: wf_common::generate_id(),
                     role: wf_types::message::MessageRole::Assistant,
-                    content: wf_types::message::MessageContentValue::Text(
-                        "summary".to_string()
-                    ),
+                    content: wf_types::message::MessageContentValue::Text("summary".to_string()),
                     timestamp: wf_common::now(),
                     tool_call_id: None,
                     tool_name: None,

@@ -56,7 +56,7 @@ pub enum ConflictBehavior {
 }
 
 /// GC retention policy for file-checkpoint physical garbage collection.
-/// Mirrors `layertwine::checkpoint::gc::GcRetention` at the config layer.
+/// Mirrors `checkpoint_file::gc::GcRetention` at the config layer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct FileCheckpointGcRetention {
     /// Keep the N most recently created checkpoints

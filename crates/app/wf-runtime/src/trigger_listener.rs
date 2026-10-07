@@ -45,7 +45,9 @@ mod write_back;
 pub use agent_runner::AgentTriggerRunner;
 pub use context_runner::{ContextTriggerRunner, ContextTriggerRunnerConfig};
 pub use creation_runner::CreationRunner;
-pub use handler::{CompressionHandlerDeps, register_compression_handler, register_routed_compression_handler};
+pub use handler::{
+    register_compression_handler, register_routed_compression_handler, CompressionHandlerDeps,
+};
 pub use ledger::TriggerLedger;
 pub use router::TriggerActionRouter;
 pub use scheduler::{

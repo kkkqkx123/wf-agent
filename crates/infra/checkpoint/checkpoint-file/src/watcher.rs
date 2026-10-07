@@ -430,14 +430,16 @@ fn filter_event(
     }
 }
 
-/// Drives a [`FileWatcher`] and routes non-agent file changes into the
-/// manual partition through [`FileCheckpointManager::process_manual_changes`].
+/// Drives periodic human-edit polling into the human ref.
 ///
 /// Started when `FileCheckpointConfig.enabled && workspace_root` with
 /// `manual_watch` set; lives for the whole runtime and is stopped at
-/// shutdown. Agent self-writes are skipped by the manager's
-/// recent-agent-writes registry, so the watcher only records genuine
-/// human/external edits.
+/// shutdown. The background `notify` service is gone: each interval runs
+/// one bounded status poll (`poll_human_edits`), which is the only human
+/// attribution path. Tool-reported content is attributed to its caller on
+/// the write path and never passes through here. A failed poll only
+/// delays the next human commit — batches are never requeued, because
+/// the next poll re-derives the same final state.
 pub struct ManualChangeService {
     root: PathBuf,
     manager: FileCheckpointManager,
@@ -446,9 +448,10 @@ pub struct ManualChangeService {
 }
 
 impl ManualChangeService {
-    /// Start watching `root` and feed non-agent changes into the manager.
-    /// `debounce_ms` is the watcher debounce window, `poll_ms` the polling
-    /// interval of the change pump.
+    /// Start polling `root` and feed human edits into the manager.
+    /// `poll_ms` is the single polling interval (no debounce layer).
+    /// `scan_config` and `debounce_ms` are accepted for call-site
+    /// stability and otherwise ignored.
     pub fn start(
         manager: FileCheckpointManager,
         root: impl Into<PathBuf>,
@@ -456,13 +459,12 @@ impl ManualChangeService {
         debounce_ms: u64,
         poll_ms: u64,
     ) -> Result<Self, CheckpointError> {
+        let _ = (scan_config, debounce_ms);
         let root = root.into();
-        let mut watcher = FileWatcher::new(&root, scan_config, debounce_ms);
-        watcher.start()?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let task = tokio::spawn(run_manual_change_pump(
-            watcher,
             manager.clone(),
+            root.clone(),
             stop_rx,
             Duration::from_millis(poll_ms),
         ));
@@ -499,8 +501,8 @@ impl ManualChangeService {
 }
 
 async fn run_manual_change_pump(
-    watcher: FileWatcher,
     manager: FileCheckpointManager,
+    root: PathBuf,
     mut stop: watch::Receiver<bool>,
     poll: Duration,
 ) {
@@ -512,39 +514,13 @@ async fn run_manual_change_pump(
                 }
             }
             _ = tokio::time::sleep(poll) => {
-                // Atomic batch consumption: take owns the current batch;
-                // events arriving during processing stay buffered for the
-                // next round instead of being cleared. This pump is the
-                // sole consumer of its watcher: a taken batch has exactly
-                // one owner, so no other driver may take from the same
-                // queue while the pump runs.
-                let batch = watcher.take_batch();
-                if batch.is_empty() {
-                    continue;
-                }
                 let manager = manager.clone();
-                let batch_for_retry = batch.clone();
-                let handled = tokio::task::spawn_blocking(move || {
-                    manager.process_manual_changes(&batch_for_retry)
-                })
-                .await;
-                match handled {
-                    Ok(Ok(applied)) => {
-                        if applied > 0 {
-                            tracing::debug!(applied, "manual changes routed into the manual partition");
-                        }
-                    }
-                    Ok(Err(err)) => {
-                        // Failed batches are requeued so no event is lost;
-                        // repeated content-hash application keeps retries
-                        // idempotent at the manager layer.
-                        tracing::warn!(error = %err, "failed to process manual file changes; requeueing batch");
-                        watcher.requeue_batch(batch);
-                    }
-                    Err(join_err) => {
-                        tracing::warn!(error = %join_err, "manual change pump task panicked; requeueing batch");
-                        watcher.requeue_batch(batch);
-                    }
+                let root = root.clone();
+                // One bounded status poll per interval. Failures only
+                // affect this round's timeliness: the next poll derives
+                // the same final state, so nothing is requeued.
+                if let Err(err) = tokio::task::spawn_blocking(move || manager.poll_human_edits(&root)).await {
+                    tracing::warn!(error = %err, "human edit poll task failed");
                 }
             }
         }

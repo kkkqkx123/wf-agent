@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::file::util::sha256_hex;
 use crate::file::FileCheckpointManager;
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use crate::script_capture::WorkspaceChangeCollector;
@@ -24,11 +23,7 @@ impl FileCheckpointManager {
         self.workspace_root = root;
     }
 
-    /// The normalized workspace key used to derive workspace-scoped
-    /// manual/staged partition ids (see
-    /// `layertwine::layered::{manual,staged}::*_partition_id_for`).
-    /// `None` when no workspace root is configured — the legacy
-    /// single-workspace fixed partition ids are used then.
+    /// The normalized workspace key (trailing separators stripped).
     pub fn workspace_key(&self) -> Option<String> {
         self.workspace_root
             .as_deref()
@@ -62,20 +57,17 @@ impl FileCheckpointManager {
         }
     }
 
-    /// Route watcher events into the manual partition, skipping agent
-    /// self-writes.
+    /// Route watcher events into the human ref.
     ///
     /// Final-state semantics (not event-audit semantics): only the current
-    /// on-disk state is recorded. Add/Change records use the content-hash
-    /// registry as the deterministic primary criterion plus a short
-    /// post-write grace window for the disk-write-vs-registration race.
-    /// Delete attribution uses the explicit agent-delete marker only; the
-    /// grace window never proves a delete source. Events under an in-flight
-    /// scoped-execution lease are deferred to the scoped sampler (skipped
-    /// here, captured by the scope diff) rather than permanently dropped or
-    /// misattributed. A delete event whose path has already been recreated
-    /// is handled by current state (add/modify), never as a delete.
-    /// Returns the number of applied manual edits.
+    /// on-disk state is recorded, under exactly two deterministic rules —
+    /// tool-reported content is attributed to its caller (handled on the
+    /// write path, never here), and every other worktree-dirty file counts
+    /// as a human edit unless its bytes match agent-owned content. There
+    /// is no hash registry, no grace window, no delete marker, no lease
+    /// and no failure requeue: a failed poll only delays the next human
+    /// commit, it never misattributes. Returns the number of applied
+    /// manual edits.
     pub fn process_manual_changes(
         &self,
         records: &[FileChangeRecord],
@@ -84,121 +76,130 @@ impl FileCheckpointManager {
             return Ok(0);
         };
         let base_norm = crate::watcher::normalize_absolute_path(base);
-        let mut applied = 0;
+        let owned = self.agent_owned_files()?;
+        let mut staged: std::collections::HashMap<String, Option<Vec<u8>>> =
+            std::collections::HashMap::new();
         for record in records {
             let record_path = crate::watcher::normalize_absolute_path(&record.path);
             let Ok(relative) = record_path.strip_prefix(&base_norm) else {
                 continue;
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
-            // In-flight scoped executions (shell diff lease): the scoped
-            // sampler owns the final state, so the watcher defers instead of
-            // recording a possibly intermediate state into manual.
-            if self.recent_agent_writes.is_inflight(&record_path) {
-                tracing::debug!(
-                    path = %relative,
-                    "watcher event under in-flight scope lease; deferred to scoped sampler"
-                );
+            if crate::scan::is_hardcoded_ignored(&relative) {
                 continue;
             }
             match record.kind {
                 FileChangeKind::Unlink => {
-                    // Delete-vs-recreate race: confirm current state before
-                    // recording a deletion.
+                    // Delete-vs-recreate: current state wins. A missing path
+                    // that no agent line tracks is a human deletion;
+                    // agent-owned content is never attributed here.
                     if record_path.exists() {
-                        let Ok(content) = std::fs::read(&record_path) else {
-                            continue;
-                        };
-                        let hash = sha256_hex(&content);
-                        if self.recent_agent_writes.is_agent_write(&record_path, &hash) {
-                            continue;
-                        }
-                        if self.recent_agent_writes.is_recent_write(&record_path) {
-                            tracing::warn!(
-                                path = %relative,
-                                "agent write and external write collided in the same window; source uncertain, recording current state as manual"
-                            );
-                        }
-                        self.apply_manual_edit(&relative, &content)?;
-                        applied += 1;
                         continue;
                     }
-                    // Explicit agent-delete marker is the only delete
-                    // attribution signal; the grace window cannot prove a
-                    // delete source.
-                    if self.recent_agent_writes.is_agent_delete(&record_path) {
+                    if owned.contains_key(&relative) {
                         continue;
                     }
-                    self.apply_manual_delete(&relative)?;
-                    applied += 1;
+                    staged.insert(relative, None);
                 }
                 FileChangeKind::Rename => {
-                    let from_abs = record
-                        .from
-                        .as_ref()
-                        .map(|p| crate::watcher::normalize_absolute_path(p));
-                    // Verify the new side exists; an unconfirmed move is
-                    // reported as uncompleted rather than recorded as a
-                    // partial rename.
-                    let Ok(new_content) = std::fs::read(&record_path) else {
-                        tracing::debug!(
-                            path = %relative,
-                            "rename target missing at processing time; skipping as uncompleted"
-                        );
-                        continue;
-                    };
-                    let new_hash = sha256_hex(&new_content);
-                    if self
-                        .recent_agent_writes
-                        .is_agent_write(&record_path, &new_hash)
-                    {
-                        continue;
-                    }
-                    if let Some(from_abs) = from_abs.as_ref() {
-                        if let Ok(from_rel) = from_abs.strip_prefix(&base_norm) {
-                            let from_rel = from_rel.to_string_lossy().replace('\\', "/");
-                            if let (Ok(from_valid), Ok(to_valid)) = (
-                                crate::file::util::validate_workspace_relative_path(&from_rel),
-                                crate::file::util::validate_workspace_relative_path(&relative),
-                            ) {
-                                // Only record the move linkage when the old
-                                // side is actually gone; otherwise this was a
-                                // copy, not a move.
-                                if !from_abs.exists() {
-                                    let _ = self.track_file_move(&from_valid, &to_valid, "manual");
-                                    let _ = self.apply_manual_delete(&from_valid);
-                                    applied += 1;
-                                } else {
-                                    tracing::debug!(
-                                        from = %from_valid,
-                                        to = %to_valid,
-                                        "rename old path still exists; recording new side only"
-                                    );
+                    if let Some(from) = record.from.as_ref() {
+                        let from_abs = crate::watcher::normalize_absolute_path(from);
+                        if !from_abs.exists() {
+                            if let Ok(from_rel) = from_abs.strip_prefix(&base_norm) {
+                                let from_rel = from_rel.to_string_lossy().replace('\\', "/");
+                                if !owned.contains_key(&from_rel) {
+                                    staged.insert(from_rel, None);
                                 }
                             }
                         }
                     }
-                    self.apply_manual_edit(&relative, &new_content)?;
-                    applied += 1;
-                }
-                FileChangeKind::Add | FileChangeKind::Change => {
-                    if self.recent_agent_writes.is_recent_write(&record_path) {
-                        continue;
-                    }
-                    // File removed between the event and processing: confirm
-                    // current state instead of recording a stale add.
                     let Ok(content) = std::fs::read(&record_path) else {
                         continue;
                     };
-                    let hash = sha256_hex(&content);
-                    if self.recent_agent_writes.is_agent_write(&record_path, &hash) {
+                    if owned.get(&relative).is_some_and(|known| known == &content) {
                         continue;
                     }
-                    self.apply_manual_edit(&relative, &content)?;
-                    applied += 1;
+                    staged.insert(relative, Some(content));
+                }
+                FileChangeKind::Add | FileChangeKind::Change => {
+                    // File removed between the event and processing: there
+                    // is no current state to record.
+                    let Ok(content) = std::fs::read(&record_path) else {
+                        continue;
+                    };
+                    if owned.get(&relative).is_some_and(|known| known == &content) {
+                        continue;
+                    }
+                    staged.insert(relative, Some(content));
                 }
             }
         }
+        if staged.is_empty() {
+            return Ok(0);
+        }
+        let applied = staged.len();
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let mut changes: std::collections::HashMap<String, Option<(String, Vec<u8>)>> =
+            std::collections::HashMap::new();
+        for (path, content) in &staged {
+            changes.insert(
+                path.clone(),
+                content
+                    .clone()
+                    .map(|bytes| (crate::git_store::MODE_FILE.to_string(), bytes)),
+            );
+        }
+        let message = crate::git_store::commit_message(
+            "human edit",
+            Some("human"),
+            None,
+            Some("watcher"),
+            &[],
+        );
+        let outcome = git
+            .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
+            .map_err(crate::file::git_write::map_git_error)?;
+        if outcome.created {
+            let mut paths: Vec<String> = staged.keys().cloned().collect();
+            paths.sort();
+            self.index_commit(storage, &outcome.id, "human", "", "watcher", &paths)?;
+        }
         Ok(applied)
+    }
+
+    /// Agent-owned file content: union of main plus every edit-ref head
+    /// tree. Worktree bytes matching this map are agent writes, never
+    /// human edits.
+    fn agent_owned_files(
+        &self,
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>, CheckpointError> {
+        let git = self.git_ref()?;
+        let mut owned: std::collections::HashMap<String, Vec<u8>> =
+            std::collections::HashMap::new();
+        let mut ref_names = vec![crate::git_store::REF_MAIN.to_string()];
+        for (name, _) in git
+            .list_refs(crate::git_store::REF_EDIT_PREFIX)
+            .map_err(crate::file::git_write::map_git_error)?
+        {
+            ref_names.push(name);
+        }
+        for name in ref_names {
+            let Some(head) = git
+                .read_ref(&name)
+                .map_err(crate::file::git_write::map_git_error)?
+            else {
+                continue;
+            };
+            let Ok(commit) = git.read_commit(&head) else {
+                continue;
+            };
+            if let Ok(files) = git.tree_to_bytes(&commit.tree) {
+                for (path, bytes) in files {
+                    owned.entry(path).or_insert(bytes);
+                }
+            }
+        }
+        Ok(owned)
     }
 }

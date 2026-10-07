@@ -20,7 +20,10 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .route("/executions/{id}/artifacts", get(handle_execution_artifacts))
+        .route(
+            "/executions/{id}/artifacts",
+            get(handle_execution_artifacts),
+        )
         .route("/artifacts", get(handle_query_artifacts))
 }
 

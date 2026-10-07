@@ -18,12 +18,14 @@ moka = { workspace = true }
 flate2.workspace = true
 futures = { workspace = true }
 sha2 = { workspace = true }
+similar.workspace = true
+parking_lot.workspace = true
+lazy_static.workspace = true
 
 wf-types = { path = "../../../foundation/wf-types" }
 wf-common = { path = "../../../foundation/wf-common" }
 wf-metrics = { path = "../../wf-metrics" }
 wf-storage = { path = "../../wf-storage" }
-layertwine = { path = "../layertwine" }
 
 [dev-dependencies]
 tempfile.workspace = true

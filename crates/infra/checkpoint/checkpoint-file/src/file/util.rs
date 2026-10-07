@@ -1,18 +1,9 @@
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use layertwine::checkpoint::types::Checkpoint;
-use layertwine::core::delta::Delta;
-use layertwine::core::file_node::FileNode;
-use layertwine::core::partition::Partition;
-use layertwine::core::snapshot::Snapshot;
-use layertwine::core::types::{AgentInstanceId, LineDiff, SnapshotId, SourceType};
-use layertwine::storage::repository::{DeltaStore, FileNodeStore, SnapshotStore};
-use layertwine::storage::sqlite::SqliteStorage;
 use sha2::{Digest, Sha256};
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::file::{FileCheckpoint, FileState};
+use crate::file::FileState;
 use checkpoint_base::error::CheckpointError;
 
 /// SHA-256 hex digest of a byte slice.
@@ -25,9 +16,6 @@ pub fn sha256_hex(data: &[u8]) -> String {
         .map(|b| format!("{:02x}", b))
         .collect()
 }
-
-/// Path of the synthetic initial snapshot seeding an actor partition.
-pub(crate) const SEED_PATH: &str = ".wf-checkpoint-seed";
 
 /// Normalize a workspace root into the stable workspace key used to derive
 /// workspace-scoped manual/staged partition ids: trailing path separators
@@ -87,176 +75,6 @@ pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, Che
         });
     }
     Ok(normalized.to_string_lossy().replace('\\', "/"))
-}
-
-/// Map a layertwine error into the unified `CheckpointError`.
-pub(crate) fn map_layertwine_error<E: Into<layertwine::LayertwineError>>(e: E) -> CheckpointError {
-    map_layertwine_error_with("layertwine", e)
-}
-
-/// Map a layertwine error with the calling operation attached so internal
-/// errors keep their origin instead of collapsing to an opaque string.
-pub(crate) fn map_layertwine_error_with<E: Into<layertwine::LayertwineError>>(
-    operation: &str,
-    e: E,
-) -> CheckpointError {
-    match e.into() {
-        layertwine::LayertwineError::NotFound(id) => CheckpointError::NotFound { id },
-        layertwine::LayertwineError::Storage(err) => match err {
-            layertwine::StorageError::NotFound(id) => CheckpointError::NotFound { id },
-            other => {
-                CheckpointError::Internal(format!("{operation} failed (layertwine): {other:?}"))
-            }
-        },
-        other => CheckpointError::Internal(format!("{operation} failed (layertwine): {other:?}")),
-    }
-}
-
-/// The file path a snapshot applies to.
-///
-/// Single implementation shared with `crate::provenance::snapshot_file_path`;
-/// this wrapper exists for call sites that already import from `file_util`.
-pub(crate) fn snapshot_file_path(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<String, CheckpointError> {
-    crate::provenance::snapshot_file_path(storage, snapshot)
-}
-
-/// Reconstruct the byte content of a snapshot.
-///
-/// Delegates to the shared reconstruction path (verbatim content for
-/// snapshots carrying payloads, delta-chain reconstruction otherwise).
-pub(crate) fn snapshot_content_bytes(
-    storage: &SqliteStorage,
-    snapshot: &Snapshot,
-) -> Result<Vec<u8>, CheckpointError> {
-    if let Some(content) = &snapshot.content {
-        return Ok(content.to_bytes());
-    }
-    Ok(
-        layertwine::layered::transition::reconstruct_text(storage, snapshot)
-            .map_err(map_layertwine_error)?
-            .unwrap_or_default()
-            .into_bytes(),
-    )
-}
-
-pub(crate) fn checkpoint_states(
-    storage: &SqliteStorage,
-    checkpoint: &Checkpoint,
-) -> Result<Vec<(String, Vec<u8>, i64)>, CheckpointError> {
-    // Single batched snapshot load instead of N+1 point lookups.
-    let snap_map = storage
-        .get_snapshots_map(&checkpoint.baseline_snapshots)
-        .map_err(map_layertwine_error)?;
-    let mut states = Vec::with_capacity(checkpoint.baseline_snapshots.len());
-    for snapshot_id in &checkpoint.baseline_snapshots {
-        let Some(snapshot) = snap_map.get(snapshot_id) else {
-            continue;
-        };
-        let path = snapshot_file_path(storage, snapshot)?;
-        if path == SEED_PATH || checkpoint_base::metadata::keys::is_blob_path(&path) {
-            continue;
-        }
-        let bytes = snapshot_content_bytes(storage, snapshot)?;
-        states.push((path, bytes, snapshot.created_at));
-    }
-    Ok(states)
-}
-
-pub(crate) fn checkpoint_deleted_paths(
-    storage: &SqliteStorage,
-    checkpoint: &Checkpoint,
-) -> Result<HashSet<String>, CheckpointError> {
-    let mut deleted = HashSet::new();
-    for snapshot_id in &checkpoint.baseline_snapshots {
-        let snapshot = storage
-            .get_snapshot(snapshot_id)
-            .map_err(map_layertwine_error)?;
-        if snapshot.is_deleted() {
-            let path = snapshot_file_path(storage, &snapshot)?;
-            deleted.insert(path);
-        }
-    }
-    Ok(deleted)
-}
-
-/// Seed a fresh initial snapshot for a partition.
-pub(crate) fn seed_initial_snapshot(
-    storage: &SqliteStorage,
-    agent_id: &AgentInstanceId,
-) -> Result<SnapshotId, CheckpointError> {
-    let file_node = FileNode::new(PathBuf::from(SEED_PATH), b"");
-    storage
-        .store_file_node(&file_node, b"")
-        .map_err(map_layertwine_error)?;
-    let delta = Delta::new(
-        file_node.clone(),
-        LineDiff::new(vec![]),
-        SourceType::Agent(agent_id.clone()),
-    );
-    storage.store_delta(&delta).map_err(map_layertwine_error)?;
-    let snapshot = Snapshot::new_initial(file_node, delta.id);
-    storage
-        .store_snapshot(&snapshot, b"")
-        .map_err(map_layertwine_error)?;
-    Ok(snapshot.id)
-}
-
-/// Latest snapshot id per file path in the partition history.
-///
-/// Shares the batched loading strategy with
-/// `crate::provenance::latest_snapshots_per_path` (single snapshot batch +
-/// single delta batch); the two helpers differ only in their return shape
-/// (ids vs. full snapshots) and are kept side by side for their distinct
-/// call sites.
-pub(crate) fn partition_latest_snapshot_ids(
-    storage: &SqliteStorage,
-    partition: &Partition,
-) -> Result<Vec<SnapshotId>, CheckpointError> {
-    use layertwine::storage::repository::DeltaStore;
-    let snap_map = storage
-        .get_snapshots_map(&partition.history)
-        .map_err(map_layertwine_error)?;
-    let delta_ids: Vec<layertwine::core::types::DeltaId> = snap_map
-        .values()
-        .filter_map(|s| s.deltas.last().copied())
-        .collect();
-    let delta_map: HashMap<layertwine::core::types::DeltaId, layertwine::core::delta::Delta> =
-        storage
-            .get_deltas(&delta_ids)
-            .map(|deltas| deltas.into_iter().map(|d| (d.id, d)).collect())
-            .map_err(map_layertwine_error)?;
-    let path_of = |snapshot: &Snapshot| -> String {
-        snapshot
-            .deltas
-            .last()
-            .and_then(|id| delta_map.get(id))
-            .map(|d| d.file.path_str().to_string())
-            .unwrap_or_else(|| snapshot.file.path_str().to_string())
-    };
-    let mut last_per_path: HashMap<String, SnapshotId> = HashMap::new();
-    for snapshot_id in &partition.history {
-        if let Some(snapshot) = snap_map.get(snapshot_id) {
-            last_per_path.insert(path_of(snapshot), *snapshot_id);
-        }
-    }
-    let mut seen = std::collections::HashSet::new();
-    let mut ids = Vec::new();
-    for snapshot_id in &partition.history {
-        if let Some(snapshot) = snap_map.get(snapshot_id) {
-            let path = path_of(snapshot);
-            if last_per_path.get(&path) == Some(snapshot_id)
-                && path != SEED_PATH
-                && !checkpoint_base::metadata::keys::is_blob_path(&path)
-                && seen.insert(path)
-            {
-                ids.push(*snapshot_id);
-            }
-        }
-    }
-    Ok(ids)
 }
 
 /// SHA-256 of the sorted `path=hash;` pairs (stable workspace fingerprint).
@@ -343,35 +161,5 @@ pub(crate) fn root_actor(execution_id: wf_types::Id) -> checkpoint_base::actor::
             &[wf_types::Id::from("unknown")],
         )
         .expect("invariant: the 'unknown' fallback actor id is always valid")
-    })
-}
-
-/// Build the projection of a layertwine checkpoint.
-pub(crate) fn projection(
-    storage: &SqliteStorage,
-    checkpoint: &Checkpoint,
-    deleted: &HashSet<String>,
-) -> Result<FileCheckpoint, CheckpointError> {
-    let states = checkpoint_states(storage, checkpoint)?;
-    let mut files = Vec::with_capacity(states.len());
-    for (path, content, ts) in states {
-        files.push(FileState {
-            deleted: deleted.contains(&path),
-            path,
-            hash: sha256_hex(&content),
-            size: content.len() as u64,
-            last_modified: ts,
-        });
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    let full_hash = compute_full_hash(&files);
-    Ok(FileCheckpoint {
-        id: checkpoint.id.to_hex(),
-        timestamp: checkpoint.created_at,
-        full_hash,
-        files,
-        checkpoint_type: "full".to_string(),
-        base_checkpoint_id: None,
-        empty_dirs: None,
     })
 }

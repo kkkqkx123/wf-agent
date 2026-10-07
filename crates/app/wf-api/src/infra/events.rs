@@ -23,8 +23,8 @@ pub use health::{
     execution_listener_stats, EventSystemHealth, ExecutionListenerStats,
 };
 pub use timeline::{
-    execution_timeline_summary, get_execution_timeline, ExecutionTimeline,
-    ExecutionTimelinePhase, ExecutionTimelineSummary,
+    execution_timeline_summary, get_execution_timeline, ExecutionTimeline, ExecutionTimelinePhase,
+    ExecutionTimelineSummary,
 };
 pub use timeline_events::{agent_timeline, history, subscribe, timeline, wait_for_event};
 

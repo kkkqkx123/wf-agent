@@ -59,13 +59,13 @@ impl WorkspaceChangeCollector {
     /// relative paths resolved against `base_dir`; prefixes outside the
     /// workspace are excluded from the scope.
     pub fn new(base_dir: &Path, allowed_write: &[String], scanner: WorkspaceScanner) -> Self {
-        let normalized_base = normalize(base_dir);
+        let normalized_base = crate::watcher::normalize_absolute_path(base_dir);
         let mut scope = Vec::new();
         for prefix in allowed_write {
             let candidate = if Path::new(prefix).is_absolute() {
-                normalize(Path::new(prefix))
+                crate::watcher::normalize_absolute_path(Path::new(prefix))
             } else {
-                normalize(&base_dir.join(prefix))
+                crate::watcher::normalize_absolute_path(&base_dir.join(prefix))
             };
             if candidate.starts_with(&normalized_base) {
                 scope.push(candidate);
@@ -184,21 +184,6 @@ impl WorkspaceChangeCollector {
         changes.sort_by(|a, b| a.path.cmp(&b.path));
         changes
     }
-}
-
-/// Lexical path normalization (no filesystem access).
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

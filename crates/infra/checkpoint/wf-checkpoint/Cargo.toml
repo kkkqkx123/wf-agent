@@ -24,7 +24,6 @@ wf-common = { path = "../../../foundation/wf-common" }
 wf-metrics = { path = "../../wf-metrics" }
 wf-storage = { path = "../../wf-storage" }
 wf-core = { path = "../../../foundation/wf-core" }
-layertwine = { path = "../layertwine" }
 checkpoint-base = { path = "../checkpoint-base" }
 checkpoint-state = { path = "../checkpoint-state" }
 checkpoint-file = { path = "../checkpoint-file" }

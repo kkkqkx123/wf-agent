@@ -237,7 +237,7 @@ pub trait CheckpointCoordinator: Send + Sync {
 
     /// Best-effort file snapshot hook invoked by `create_checkpoint` after
     /// the checkpoint has been persisted. The default is a no-op; engine
-    /// integrations (layertwine / file-history adapters) override it. Errors
+    /// integrations (sqlite / file-history adapters) override it. Errors
     /// are logged with the state checkpoint id for correlation and never
     /// fail the create flow.
     fn save_file_snapshot(

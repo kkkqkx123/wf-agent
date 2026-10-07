@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use wf_types::events::{BaseEvent, EventType};
 
+use crate::gc::GcStats;
 use crate::provenance::DeltaSummary;
-use layertwine::checkpoint::gc::GcStats;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 

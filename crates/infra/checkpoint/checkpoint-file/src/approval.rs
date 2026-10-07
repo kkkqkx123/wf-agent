@@ -5,9 +5,11 @@
 //! `ConflictView`) and the pure conflict-marker injection used by the
 //! `ConflictBehavior::Marker` strategy.
 
+use crate::file::git_merge::GitConflictDetail;
 use crate::provenance::DeltaSummary;
-use layertwine::engine::merge::MergeConflict as LayertwineMergeConflict;
 
+/// One merge conflict region inside a file (whole-file granularity in the
+/// Git model: one region per conflicted file starting at line 0).
 /// One pending approval: the actor submitted changes into the approval layer
 /// and they are not yet merged into a feature (manual approval mode:
 /// `history.len() > 1`).
@@ -36,16 +38,21 @@ pub struct ConflictView {
 }
 
 impl ConflictView {
-    /// Git-style marker block of the conflict, delegated to the single
-    /// renderer in layertwine (`MergeConflict::to_conflict_marker`).
+    /// Git-style marker block of the conflict.
     pub fn to_conflict_marker(&self) -> String {
-        LayertwineMergeConflict {
-            start_line: self.start_line,
-            base: self.base.clone(),
-            ours: self.ours.clone(),
-            theirs: self.theirs.clone(),
+        let mut out = String::new();
+        out.push_str("<<<<<<< ours\n");
+        for line in &self.ours {
+            out.push_str(line);
+            out.push('\n');
         }
-        .to_conflict_marker()
+        out.push_str("=======\n");
+        for line in &self.theirs {
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str(">>>>>>> theirs\n");
+        out
     }
 }
 
@@ -73,25 +80,26 @@ impl MergeOutcome {
 
 /// Inject git-style conflict markers into merged text (`marker` strategy).
 ///
-/// `merge_texts` emits the "ours" content for conflict regions; this replaces
-/// each conflict region with `<<<<<<< ours / ======= / theirs / >>>>>>>`
-/// markers. Conflicts are processed in reverse order so line offsets of
-/// already-processed regions stay valid.
-pub fn inject_conflict_markers(text: &str, conflicts: &[LayertwineMergeConflict]) -> String {
-    if conflicts.is_empty() {
+/// Merged bytes already carry standard markers at conflict regions; this
+/// replaces each recorded region with an explicit marker block. Regions
+/// are processed in reverse order so line offsets of already-processed
+/// regions stay valid.
+pub fn inject_conflict_markers(text: &str, details: &[GitConflictDetail]) -> String {
+    if details.is_empty() {
         return text.to_string();
     }
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    for conflict in conflicts.iter().rev() {
-        let start = conflict.start_line.min(lines.len());
-        let end = (start + conflict.ours.len()).min(lines.len());
-        let mut marker = Vec::with_capacity(conflict.ours.len() + conflict.theirs.len() + 3);
+    // Whole-file regions all start at line 0: apply innermost last so the
+    // final text carries every file's marker block.
+    for detail in details.iter().rev() {
+        let mut marker =
+            Vec::with_capacity(detail.ours_lines.len() + detail.theirs_lines.len() + 3);
         marker.push("<<<<<<< ours".to_string());
-        marker.extend(conflict.ours.iter().cloned());
+        marker.extend(detail.ours_lines.iter().cloned());
         marker.push("=======".to_string());
-        marker.extend(conflict.theirs.iter().cloned());
+        marker.extend(detail.theirs_lines.iter().cloned());
         marker.push(">>>>>>> theirs".to_string());
-        lines.splice(start..end, marker);
+        lines.splice(0..0, marker);
     }
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
@@ -100,16 +108,16 @@ pub fn inject_conflict_markers(text: &str, conflicts: &[LayertwineMergeConflict]
     out
 }
 
-/// Convert layertwine conflicts + file path into [`ConflictView`]s.
-pub fn to_conflict_views(file: &str, conflicts: &[LayertwineMergeConflict]) -> Vec<ConflictView> {
-    conflicts
+/// Convert merge conflict details into [`ConflictView`]s.
+pub fn to_conflict_views(details: &[GitConflictDetail]) -> Vec<ConflictView> {
+    details
         .iter()
-        .map(|c| ConflictView {
-            file: file.to_string(),
-            start_line: c.start_line,
-            base: c.base.clone(),
-            ours: c.ours.clone(),
-            theirs: c.theirs.clone(),
+        .map(|d| ConflictView {
+            file: d.file.clone(),
+            start_line: 0,
+            base: vec![],
+            ours: d.ours_lines.clone(),
+            theirs: d.theirs_lines.clone(),
         })
         .collect()
 }
@@ -118,36 +126,35 @@ pub fn to_conflict_views(file: &str, conflicts: &[LayertwineMergeConflict]) -> V
 mod tests {
     use super::*;
 
-    fn conflict(start: usize, ours: &[&str], theirs: &[&str]) -> LayertwineMergeConflict {
-        LayertwineMergeConflict {
-            start_line: start,
-            base: vec!["b".to_string()],
-            ours: ours.iter().map(|s| s.to_string()).collect(),
-            theirs: theirs.iter().map(|s| s.to_string()).collect(),
+    fn detail(ours: &[&str], theirs: &[&str]) -> GitConflictDetail {
+        GitConflictDetail {
+            file: "a.txt".to_string(),
+            ours_lines: ours.iter().map(|s| s.to_string()).collect(),
+            theirs_lines: theirs.iter().map(|s| s.to_string()).collect(),
         }
     }
 
     #[test]
     fn inject_markers_replaces_ours_region() {
         let text = "a\nX\nc\n";
-        let conflicts = vec![conflict(1, &["X"], &["Y"])];
-        let marked = inject_conflict_markers(text, &conflicts);
+        let details = vec![detail(&["X"], &["Y"])];
+        let marked = inject_conflict_markers(text, &details);
         assert!(marked.contains("<<<<<<< ours"));
         assert!(marked.contains("======="));
         assert!(marked.contains(">>>>>>> theirs"));
         assert!(marked.contains("X"));
         assert!(marked.contains("Y"));
-        assert!(marked.starts_with("a\n"));
+        assert!(marked.contains("a\n"));
         assert!(marked.ends_with("c\n"));
     }
 
     #[test]
     fn inject_markers_multiple_conflicts_reverse_order() {
         let text = "a\nX\nc\nd\nY\nf\n";
-        let conflicts = vec![conflict(1, &["X"], &["P"]), conflict(4, &["Y"], &["Q"])];
-        let marked = inject_conflict_markers(text, &conflicts);
-        let x_pos = marked.find("<<<<<<<").unwrap();
-        let y_pos = marked.rfind("<<<<<<<").unwrap();
+        let details = vec![detail(&["X"], &["P"]), detail(&["Y"], &["Q"])];
+        let marked = inject_conflict_markers(text, &details);
+        let x_pos = marked.find('X').unwrap();
+        let y_pos = marked.find('Y').unwrap();
         assert!(x_pos < y_pos);
         assert!(marked.contains("P"));
         assert!(marked.contains("Q"));
@@ -176,7 +183,11 @@ mod tests {
 
     #[test]
     fn to_conflict_views_carries_file() {
-        let views = to_conflict_views("src/a.txt", &[conflict(1, &["X"], &["Y"])]);
+        let views = to_conflict_views(&[GitConflictDetail {
+            file: "src/a.txt".to_string(),
+            ours_lines: vec!["X".to_string()],
+            theirs_lines: vec!["Y".to_string()],
+        }]);
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].file, "src/a.txt");
     }

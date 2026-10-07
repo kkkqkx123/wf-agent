@@ -82,7 +82,9 @@ pub(crate) struct QueryLogsQuery {
     message: Option<String>,
 }
 
-fn parse_event_types(raw: Option<&str>) -> Result<Option<Vec<wf_types::events::EventType>>, String> {
+fn parse_event_types(
+    raw: Option<&str>,
+) -> Result<Option<Vec<wf_types::events::EventType>>, String> {
     match raw {
         None => Ok(None),
         Some(list) => list
@@ -90,9 +92,9 @@ fn parse_event_types(raw: Option<&str>) -> Result<Option<Vec<wf_types::events::E
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| {
-                serde_json::from_value::<wf_types::events::EventType>(
-                    serde_json::Value::String(s.to_string()),
-                )
+                serde_json::from_value::<wf_types::events::EventType>(serde_json::Value::String(
+                    s.to_string(),
+                ))
                 .map_err(|_| format!("unknown event type: {s}"))
             })
             .collect::<Result<Vec<_>, _>>()
@@ -172,7 +174,8 @@ pub(crate) async fn handle_query_logs(
         message_contains: query.message,
     };
     let fetch = (limit as usize).saturating_add(1);
-    match wf_api::execution_logs::query_logs(&state.ctx, Some(&filter), fetch, offset as usize).await
+    match wf_api::execution_logs::query_logs(&state.ctx, Some(&filter), fetch, offset as usize)
+        .await
     {
         Ok((entries, _)) => {
             let window = entries.into_iter().map(LogEntryDoc::from).collect();

@@ -1,29 +1,25 @@
-//! Feature/content branch facade over layertwine's native `branches` table.
+//! Feature/content branch facade over Git feature refs.
 //!
 //! Execution branches (`execution/{id}`) are owned by `BranchStorageAdapter`;
-//! feature branches (`{feature}`) are lightweight content-merge pointers.
-//! This facade is the only sanctioned entry point for feature pointers so raw
-//! `storage.store_branch / delete_branch / list_branches` calls disappear
-//! from checkpoint orchestration code.
+//! feature branches (`{feature}`) are lightweight content-merge pointers at
+//! `refs/wf/feat/*`. This facade is the only sanctioned entry point for
+//! feature pointers so raw ref writes disappear from checkpoint
+//! orchestration code.
 
 use std::sync::Arc;
 
-use layertwine::checkpoint::branch::Branch;
-use layertwine::core::types::SnapshotId;
-use layertwine::storage::repository::CheckpointPersist;
-use layertwine::storage::sqlite::SqliteStorage;
-
-use crate::file::util::map_layertwine_error;
+use crate::file::git_write::map_git_error;
+use crate::git_store::{feat_ref_for_name, GitStore};
 use checkpoint_base::error::CheckpointError;
 
 /// Feature branch pointers (bare names, no `/`).
 pub struct FeatureBranchStore {
-    storage: Arc<SqliteStorage>,
+    git: Arc<GitStore>,
 }
 
 impl FeatureBranchStore {
-    pub fn new(storage: Arc<SqliteStorage>) -> Self {
-        Self { storage }
+    pub fn new(git: Arc<GitStore>) -> Self {
+        Self { git }
     }
 
     fn ensure_feature(name: &str) -> Result<(), CheckpointError> {
@@ -35,43 +31,45 @@ impl FeatureBranchStore {
         Ok(())
     }
 
-    pub fn create(&self, name: &str, head: SnapshotId) -> Result<(), CheckpointError> {
+    pub fn create(&self, name: &str, head: &str) -> Result<(), CheckpointError> {
         Self::ensure_feature(name)?;
-        self.storage
-            .store_branch(&Branch::new(name, head))
-            .map_err(map_layertwine_error)
+        self.git
+            .write_ref(&feat_ref_for_name(name), head)
+            .map_err(map_git_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))
     }
 
     pub fn delete(&self, name: &str) -> Result<(), CheckpointError> {
         Self::ensure_feature(name)?;
-        self.storage
-            .delete_branch(name)
-            .map_err(map_layertwine_error)
+        self.git
+            .delete_ref(&feat_ref_for_name(name))
+            .map_err(map_git_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))
     }
 
     pub fn exists(&self, name: &str) -> Result<bool, CheckpointError> {
         Self::ensure_feature(name)?;
-        match self.storage.get_branch(name) {
-            Ok(_) => Ok(true),
-            Err(layertwine::StorageError::NotFound(_)) => Ok(false),
-            Err(e) => {
-                Err(map_layertwine_error(e)).map_err(|e| CheckpointError::Branch(e.to_string()))
-            }
-        }
+        Ok(self
+            .git
+            .read_ref(&feat_ref_for_name(name))
+            .map_err(map_git_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?
+            .is_some())
     }
 
     /// Bare (feature-namespace) branch names only.
     pub fn list(&self) -> Result<Vec<String>, CheckpointError> {
-        let branches = self
-            .storage
-            .list_branches()
-            .map_err(map_layertwine_error)
+        let refs = self
+            .git
+            .list_refs(crate::git_store::REF_FEAT_PREFIX)
+            .map_err(map_git_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        Ok(branches
+        Ok(refs
             .into_iter()
-            .map(|b| b.name)
+            .map(|(name, _)| {
+                name.trim_start_matches(crate::git_store::REF_FEAT_PREFIX)
+                    .to_string()
+            })
             .filter(|n| crate::branch::is_feature_branch_name(n))
             .collect())
     }
@@ -83,8 +81,8 @@ mod tests {
 
     #[test]
     fn feature_store_rejects_execution_names() {
-        let storage = Arc::new(SqliteStorage::new_full_in_memory().unwrap());
-        let store = FeatureBranchStore::new(storage);
+        let git = Arc::new(GitStore::init_temp().unwrap());
+        let store = FeatureBranchStore::new(git);
         let err = store.delete("execution/abc").unwrap_err();
         assert!(matches!(err, CheckpointError::Branch(_)));
     }

@@ -6,13 +6,11 @@
 //! for foreground scoped runs and background sessions. The second job is the
 //! scope of this module: both foreground `execute_command` and background
 //! `execute_in_session` need the same workspace-intersection resolution,
-//! before-snapshot capture, after-snapshot diffing, and `recent_agent_writes`
-//! lease bookkeeping.
+//! before-snapshot capture and after-snapshot diffing.
 //!
 //! `ScopeCapture` bundles those helpers behind a single struct so
 //! `CheckpointSession` (and any future non-session caller) can drive scope
-//! sampling without reaching into `script_capture`, `scan`, or
-//! `recent_agent_writes` individually.
+//! sampling without reaching into `script_capture` or `scan` individually.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,7 +18,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use crate::CollectedChangeKind;
 use crate::FileCheckpointManager;
 use crate::WorkspaceChangeCollector;
 use crate::WorkspaceScanner;
@@ -125,11 +122,6 @@ impl ScopeCapture {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
         if let Some(before) = self.capture_scope(&scope) {
-            for path in before.keys() {
-                self.manager
-                    .recent_agent_writes()
-                    .acquire_inflight(path.clone());
-            }
             self.scopes
                 .scoped_before
                 .insert(key(execution_id, &scope), before);
@@ -154,17 +146,6 @@ impl ScopeCapture {
             .remove(&scoped_key)
             .map(|(_, v)| v)?;
         self.apply_scoped_diff(&scope, &before, execution_id);
-        for path in before.keys() {
-            if self.manager.recent_agent_writes().is_inflight(path) {
-                if let Some(hash) = before.get(path) {
-                    self.manager.recent_agent_writes().resolve_inflight(
-                        path.clone(),
-                        hash.clone(),
-                        false,
-                    );
-                }
-            }
-        }
         Some(())
     }
 
@@ -176,11 +157,6 @@ impl ScopeCapture {
         if let Some(before) = self.capture_scope(&scope) {
             if self.scopes.session_before.contains_key(session_id) {
                 return Some(scope);
-            }
-            for path in before.keys() {
-                self.manager
-                    .recent_agent_writes()
-                    .acquire_inflight(path.clone());
             }
             self.scopes
                 .session_before
@@ -204,13 +180,6 @@ impl ScopeCapture {
         };
         self.apply_scoped_diff(&scope, &before, execution_id);
         if let Some(next) = self.capture_scope(&scope) {
-            for path in next.keys() {
-                if !before.contains_key(path) {
-                    self.manager
-                        .recent_agent_writes()
-                        .acquire_inflight(path.clone());
-                }
-            }
             self.scopes
                 .session_before
                 .insert(session_id.to_string(), next);
@@ -226,17 +195,6 @@ impl ScopeCapture {
         let scope = self.scopes.session_scope.remove(session_id).map(|(_, v)| v);
         if let (Some(before), Some(scope)) = (before, scope) {
             self.apply_scoped_diff(&scope, &before, execution_id);
-            for path in before.keys() {
-                if self.manager.recent_agent_writes().is_inflight(path) {
-                    if let Some(hash) = before.get(path) {
-                        self.manager.recent_agent_writes().resolve_inflight(
-                            path.clone(),
-                            hash.clone(),
-                            false,
-                        );
-                    }
-                }
-            }
         }
     }
 
@@ -357,37 +315,7 @@ impl ScopeCapture {
                 );
             }
         }
-        for change in &changes {
-            let path = &change.path;
-            match change.kind {
-                // Reuse the after-capture hash: the content was already
-                // hashed milliseconds ago, re-reading would hash identical
-                // bytes a second time with a TOCTOU window in between.
-                CollectedChangeKind::Add | CollectedChangeKind::Modify => match after.get(path) {
-                    Some(hash) => {
-                        self.manager.recent_agent_writes().resolve_inflight(
-                            path.clone(),
-                            hash.clone(),
-                            false,
-                        );
-                    }
-                    None => {
-                        self.manager.recent_agent_writes().resolve_inflight(
-                            path.clone(),
-                            String::new(),
-                            true,
-                        );
-                    }
-                },
-                CollectedChangeKind::Delete => {
-                    self.manager.recent_agent_writes().resolve_inflight(
-                        path.clone(),
-                        String::new(),
-                        true,
-                    );
-                }
-            }
-        }
+        let _ = after;
     }
 }
 

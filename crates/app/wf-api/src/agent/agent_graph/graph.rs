@@ -93,7 +93,10 @@ pub(crate) async fn unexplored_tools(
 }
 
 /// Tool-call frequency across the iterations (for the analysis views).
-pub fn tool_frequency(_ctx: &ApiContext, graph: &AgentDecisionGraph) -> std::collections::BTreeMap<String, u32> {
+pub fn tool_frequency(
+    _ctx: &ApiContext,
+    graph: &AgentDecisionGraph,
+) -> std::collections::BTreeMap<String, u32> {
     let mut frequency = std::collections::BTreeMap::new();
     for name in &graph.tool_sequence {
         *frequency.entry(name.clone()).or_insert(0) += 1;

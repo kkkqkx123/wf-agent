@@ -26,8 +26,8 @@ pub use cache::{
     theme_config_path, theme_overrides_path,
 };
 pub use data::{
-    to_bold_style, to_dim_style, to_ratatui_color, to_style, ColorDomain, ColorRole,
-    Rgb, Theme, ThemeKind, ThemeOverrides, ThemeSource,
+    to_bold_style, to_dim_style, to_ratatui_color, to_style, ColorDomain, ColorRole, Rgb, Theme,
+    ThemeKind, ThemeOverrides, ThemeSource,
 };
 pub use derive::{blend_rgb, derive_theme, is_light, luminance};
 pub use literal::{nearest_role, remap_literal};

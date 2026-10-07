@@ -26,8 +26,7 @@ pub use crate::sigint::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WI
 pub use crate::stderr::TerminalStderrGuard;
 
 pub use commands::{
-    keyboard_enhancement_env_disabled, keyboard_enhancement_flags,
-    DISABLE_KEYBOARD_ENHANCEMENT_ENV,
+    keyboard_enhancement_env_disabled, keyboard_enhancement_flags, DISABLE_KEYBOARD_ENHANCEMENT_ENV,
 };
 pub use control::{FakeControl, TerminalControl};
 pub use crossterm::CrosstermControl;

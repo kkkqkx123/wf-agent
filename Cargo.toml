@@ -22,8 +22,6 @@ members = [
     "crates/infra/checkpoint/checkpoint-state",
     "crates/infra/checkpoint/checkpoint-file",
     "crates/infra/checkpoint/wf-checkpoint",
-    # file-edit history storage engine (used only by checkpoint-file / wf-checkpoint)
-    "crates/infra/checkpoint/layertwine",
     # engine
     "crates/engine/wf-tools",
     "crates/engine/wf-resource",
@@ -137,6 +135,8 @@ wasmparser = "0.244"
 
 # File watching
 notify = "8"
+# Pure-Rust SHA-1 for the checkpoint Git object store (loose objects).
+sha1 = "0.10"
 
 # Process / terminal
 libc = "0.2"

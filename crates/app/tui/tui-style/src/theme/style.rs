@@ -30,26 +30,22 @@ pub fn assistant_message_style() -> ratatui::style::Style {
 
 /// Style for tool call indicators.
 pub fn tool_call_style() -> ratatui::style::Style {
-    super::data::Theme::dark_default()
-        .style_for_role(super::data::ColorRole::Accent)
+    super::data::Theme::dark_default().style_for_role(super::data::ColorRole::Accent)
 }
 
 /// Style for successful operations.
 pub fn success_style() -> ratatui::style::Style {
-    super::data::Theme::dark_default()
-        .style_for_role(super::data::ColorRole::Add)
+    super::data::Theme::dark_default().style_for_role(super::data::ColorRole::Add)
 }
 
 /// Style for failed operations.
 pub fn error_style() -> ratatui::style::Style {
-    super::data::Theme::dark_default()
-        .style_for_role(super::data::ColorRole::Error)
+    super::data::Theme::dark_default().style_for_role(super::data::ColorRole::Error)
 }
 
 /// Style for warnings.
 pub fn warning_style() -> ratatui::style::Style {
-    super::data::Theme::dark_default()
-        .style_for_role(super::data::ColorRole::Warning)
+    super::data::Theme::dark_default().style_for_role(super::data::ColorRole::Warning)
 }
 
 /// Style for muted/dimmed text.

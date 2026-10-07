@@ -200,12 +200,13 @@ pub(crate) async fn handle_subtree(
     Path(path): Path<IdPath>,
     Query(query): Query<SubtreeQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = match crate::paged::resolve_cursor_page(query.limit, query.cursor.as_deref())
+    let (limit, offset) =
+        match crate::paged::resolve_cursor_page(query.limit, query.cursor.as_deref()) {
+            Ok(page) => page,
+            Err(message) => return err(ApiError::validation(message)).into_response(),
+        };
+    match execution_hierarchy::subtree(&state.ctx, &path.id, limit as usize, offset as usize).await
     {
-        Ok(page) => page,
-        Err(message) => return err(ApiError::validation(message)).into_response(),
-    };
-    match execution_hierarchy::subtree(&state.ctx, &path.id, limit as usize, offset as usize).await {
         Ok(tree) => ok(SubtreeDoc::from(tree)).into_response(),
         Err(e) => error_response(e),
     }

@@ -10,7 +10,7 @@ pub fn execution_branch_name(entity_type: &str, entity_id: &str) -> String {
 /// Branch namespace distinguishing the two previously conflated models:
 /// execution branches (`execution/{id}`, graph-blob history owned by the
 /// `BranchStorageAdapter`) vs feature branches (`{feature}`, content-merge
-/// pointers in layertwine's native `branches` table).
+/// pointers in the Git refs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchKind {
     Execution,

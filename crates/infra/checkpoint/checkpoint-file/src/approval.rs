@@ -1,9 +1,8 @@
-//! Layered approval views and conflict handling.
+//! Approval read models and conflict views.
 //!
-//! The manager-level approval flow lives on `FileCheckpointManager`; this
-//! module provides the read models (`PendingApproval` / `MergeOutcome` /
-//! `ConflictView`) and the pure conflict-marker injection used by the
-//! `ConflictBehavior::Marker` strategy.
+//! Read domain only: pending items, merge outcomes and conflict views plus
+//! pure marker injection. Approval orchestration (submit, approve, reject,
+//! merge into features) lives on `FileCheckpointManager` in `file/approval`.
 
 use crate::file::git_merge::GitConflictDetail;
 use crate::provenance::DeltaSummary;

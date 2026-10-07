@@ -431,6 +431,27 @@ pub async fn drain_persistence_handles(
     }
 }
 
+/// Shared synchronous metadata loader over a pre-built checkpoint metadata
+/// index for hierarchy breadth-first restore, which traverses synchronously.
+pub struct MetadataIndexLoader {
+    index: HashMap<String, CheckpointStorageMetadata>,
+}
+
+impl MetadataIndexLoader {
+    pub fn new(index: HashMap<String, CheckpointStorageMetadata>) -> Self {
+        Self { index }
+    }
+}
+
+impl checkpoint_state::restore::HierarchyMetadataLoader for MetadataIndexLoader {
+    fn load_metadata(
+        &self,
+        id: &str,
+    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+        Ok(self.index.get(id).cloned())
+    }
+}
+
 /// Extract the checkpoint id for event/metadata correlation. Serialization
 /// fallback keeps generic (JSON-serializable) checkpoints working; the
 /// default is an empty id.

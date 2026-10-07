@@ -1,3 +1,7 @@
+//! Approval orchestration on the commit DAG.
+//!
+//! Write domain: submit, approve, reject and merge review refs into features.
+//! Read models live in the top-level approval module.
 use std::collections::HashMap;
 use std::path::Path;
 

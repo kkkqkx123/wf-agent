@@ -1,5 +1,6 @@
 use crate::coordinator::base::{
-    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed, publish_persisted,
+    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
+    publish_persisted, MetadataIndexLoader,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::CheckpointLoader;
@@ -997,27 +998,6 @@ impl WorkflowCheckpointCoordinator {
             description,
         )
         .await
-    }
-}
-
-/// Sync metadata loader over a pre-built checkpoint metadata index, used by
-/// the hierarchy BFS restore (which is a synchronous traversal).
-struct MetadataIndexLoader {
-    index: HashMap<String, CheckpointStorageMetadata>,
-}
-
-impl MetadataIndexLoader {
-    fn new(index: HashMap<String, CheckpointStorageMetadata>) -> Self {
-        Self { index }
-    }
-}
-
-impl crate::restore::hierarchy::CheckpointLoader for MetadataIndexLoader {
-    fn load_metadata(
-        &self,
-        id: &str,
-    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
-        Ok(self.index.get(id).cloned())
     }
 }
 

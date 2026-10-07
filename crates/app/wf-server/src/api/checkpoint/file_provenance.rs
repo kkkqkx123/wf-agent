@@ -312,10 +312,10 @@ pub(crate) async fn handle_list_sessions(
     State(state): State<ApiState>,
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::list_sessions(&state.ctx) {
-        Ok(sessions) => {
+    match wf_api::checkpoint::provenance::list_edit_groups(&state.ctx) {
+        Ok(groups) => {
             let (limit, offset) = resolve_page(&query);
-            let window = sessions
+            let window = groups
                 .into_iter()
                 .skip(offset as usize)
                 .take(fetch_size(limit) as usize)
@@ -345,7 +345,7 @@ pub(crate) async fn handle_rollback_session(
     State(state): State<ApiState>,
     Path(path): Path<SessionRollbackPath>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::rollback_session(&state.ctx, &path.actor, &path.id) {
+    match wf_api::checkpoint::provenance::rollback_edit_group(&state.ctx, &path.actor, &path.id) {
         Ok(snapshot) => ok(snapshot).into_response(),
         Err(err) => error_response(err),
     }

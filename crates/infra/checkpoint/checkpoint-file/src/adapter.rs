@@ -261,11 +261,16 @@ impl BranchStorageAdapter for SqliteBackend {
             .map_err(|e| CheckpointError::Branch(e.to_string()))
     }
 
-    async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError> {
+    async fn merge_execution_history(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Result<(), CheckpointError> {
         use crate::storage::GraphBlobStore;
 
-        // Storage-level merge: re-point the source's blobs at the target
-        // (indexed columns), then move the head.
+        // Storage-level execution merge: re-point the source's blobs at the
+        // target (indexed columns), then move the head. File content merges
+        // never go through this path.
         let source_ids = self
             .storage
             .list_graph_blob_ids_by_branch(source)
@@ -908,7 +913,10 @@ mod tests {
         );
 
         // Merge absorbs the source branch's checkpoints into the target.
-        manager.merge_branch("feature", "main").await.unwrap();
+        manager
+            .merge_execution_branch("feature", "main")
+            .await
+            .unwrap();
         let mut merged = probe.list_branch_checkpoints("main").unwrap();
         merged.sort();
         assert_eq!(merged.len(), 3);

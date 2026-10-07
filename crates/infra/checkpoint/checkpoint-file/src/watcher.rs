@@ -56,8 +56,9 @@ impl FileChangeRecord {
 
 /// Lexically normalize an absolute path without touching the filesystem:
 /// resolve `.`, collapse `..` without escaping the root prefix, and strip
-/// redundant separators. All watcher keys and recent-agent registry keys use
-/// this form so the same file cannot be missed due to path spelling.
+/// redundant separators. Absolute domain only for watcher keys.
+/// Workspace-relative inputs use file validation, ref names use ref
+/// sanitization.
 pub fn normalize_absolute_path(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {

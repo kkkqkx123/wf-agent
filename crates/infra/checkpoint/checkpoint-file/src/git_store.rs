@@ -273,6 +273,9 @@ pub fn feat_ref_for_name(name: &str) -> String {
     format!("{REF_FEAT_PREFIX}{}", sanitize_ref_component(name))
 }
 
+/// Ref domain only: maps arbitrary names into safe ref path segments.
+/// Never use for workspace paths, which need relative validation or
+/// absolute normalization instead.
 fn sanitize_ref_component(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {

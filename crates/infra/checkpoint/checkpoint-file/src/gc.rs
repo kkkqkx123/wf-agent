@@ -14,10 +14,6 @@ pub struct GcStats {
     pub removed_snapshots: u64,
     /// Unreachable blobs dropped by the reclaim sweep.
     pub reclaimed_snapshots: u64,
-    /// Reserved: row-level deltas no longer exist.
-    pub reclaimed_deltas: u64,
-    /// Reserved: file-node rows no longer exist.
-    pub reclaimed_file_nodes: u64,
 }
 
 impl GcStats {
@@ -26,8 +22,6 @@ impl GcStats {
             removed_checkpoints: 0,
             removed_snapshots: 0,
             reclaimed_snapshots: 0,
-            reclaimed_deltas: 0,
-            reclaimed_file_nodes: 0,
         }
     }
 }

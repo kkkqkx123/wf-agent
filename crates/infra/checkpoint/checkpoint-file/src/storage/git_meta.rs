@@ -241,6 +241,18 @@ impl SqliteStorage {
             .map_err(db_err)?;
         Ok(count)
     }
+
+    pub fn delete_source_index(&self, commit_id: &str) -> StorageResult<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM source_index_paths WHERE commit_id = ?1",
+            [commit_id],
+        )
+        .map_err(db_err)?;
+        conn.execute("DELETE FROM source_index WHERE commit_id = ?1", [commit_id])
+            .map_err(db_err)?;
+        Ok(())
+    }
 }
 
 fn decode_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceIndexEntry> {

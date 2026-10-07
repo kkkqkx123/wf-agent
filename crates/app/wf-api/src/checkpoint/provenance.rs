@@ -1,5 +1,5 @@
 use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
-use wf_checkpoint::{EditSession, GcRetention, GcStats};
+use wf_checkpoint::{EditGroup, GcRetention, GcStats};
 
 use crate::infra::context::ApiContext;
 use crate::ApiError;
@@ -129,20 +129,20 @@ pub fn begin_edit_group(ctx: &ApiContext, label: Option<String>) -> ApiResult<St
         .map_err(ApiError::execution_with_source)
 }
 
-/// List all persisted edit sessions (newest first).
-pub fn list_sessions(ctx: &ApiContext) -> ApiResult<Vec<EditSession>> {
+/// List all staged edit groups (newest first).
+pub fn list_edit_groups(ctx: &ApiContext) -> ApiResult<Vec<EditGroup>> {
     manager(ctx)?
-        .list_sessions()
+        .list_edit_groups()
         .map_err(ApiError::execution_with_source)
 }
 
-/// Roll back an entire edit session on an actor's partition.
-pub fn rollback_session(ctx: &ApiContext, actor: &str, session_id: &str) -> ApiResult<String> {
-    let session_id = session_id
+/// Roll back an entire edit group on an actor's partition.
+pub fn rollback_edit_group(ctx: &ApiContext, actor: &str, group_id: &str) -> ApiResult<String> {
+    let group_id = group_id
         .parse()
-        .map_err(|_| ApiError::execution(format!("invalid session id '{session_id}'")))?;
+        .map_err(|_| ApiError::execution(format!("invalid edit group id '{group_id}'")))?;
     manager(ctx)?
-        .rollback_session(actor, &session_id)
+        .rollback_edit_group(actor, &group_id)
         .map_err(ApiError::execution_with_source)
 }
 

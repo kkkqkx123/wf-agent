@@ -2,7 +2,7 @@ pub mod hierarchy;
 pub mod registry;
 
 pub use hierarchy::{
-    CachedChildResolver, CheckpointLoader, ChildCheckpointResolver, HierarchyRestorer,
+    CachedChildResolver, ChildCheckpointResolver, HierarchyMetadataLoader, HierarchyRestorer,
     RecoveryOperation, RecoveryOperationStatus, RecoveryOperationType, RecoveryTransaction,
     RecoveryTransactionResult, RecoveryTransactionStatus, RestoreResult, RestoreSummary,
     RollbackStrategy, StorageChildResolver,

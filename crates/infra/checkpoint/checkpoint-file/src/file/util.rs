@@ -32,6 +32,9 @@ pub(crate) fn normalize_workspace_key(root: &Path) -> String {
 }
 
 /// Validate and normalize a workspace-relative file path.
+/// Relative domain only: rejects absolute paths and escapes, collapses
+/// dot segments lexically. Absolute paths use watcher normalization,
+/// ref names use ref sanitization.
 pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, CheckpointError> {
     if path.trim().is_empty() {
         return Err(CheckpointError::Validation {

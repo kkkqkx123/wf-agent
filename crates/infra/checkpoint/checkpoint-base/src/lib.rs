@@ -10,7 +10,6 @@ pub mod error;
 pub mod error_handling;
 pub mod execution_events;
 pub mod metadata;
-pub mod recent_agent_writes;
 pub mod serializer;
 pub mod strategy;
 pub mod version_manager;

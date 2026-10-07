@@ -11,7 +11,6 @@ pub use checkpoint_base::error;
 pub use checkpoint_base::error_handling;
 pub use checkpoint_base::execution_events;
 pub use checkpoint_base::metadata;
-pub use checkpoint_base::recent_agent_writes;
 pub use checkpoint_base::serializer;
 pub use checkpoint_base::strategy;
 pub use checkpoint_base::version_manager;
@@ -49,7 +48,7 @@ pub use checkpoint_file::approval::{ConflictView, MergeOutcome, PendingApproval}
 pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus};
 pub use checkpoint_file::file::actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use checkpoint_file::file::merge::MergeCommitResult;
-pub use checkpoint_file::file::session::{EditSession, EditSessionId};
+pub use checkpoint_file::file::session::{EditGroup, EditGroupId};
 pub use checkpoint_file::file::util::sha256_hex;
 pub use checkpoint_file::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,

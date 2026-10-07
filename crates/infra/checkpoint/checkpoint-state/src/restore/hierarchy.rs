@@ -115,7 +115,7 @@ impl HierarchyRestorer {
     pub fn restore_children_bfs(
         &self,
         parent_id: &str,
-        loader: &dyn CheckpointLoader,
+        loader: &dyn HierarchyMetadataLoader,
         max_depth: usize,
         metrics: Option<&CheckpointMetricsCollector>,
     ) -> Result<Vec<RestoreResult>, CheckpointError> {
@@ -185,7 +185,7 @@ impl HierarchyRestorer {
     }
 }
 
-pub trait CheckpointLoader: Send + Sync {
+pub trait HierarchyMetadataLoader: Send + Sync {
     fn load_metadata(&self, id: &str)
         -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
 }
@@ -490,7 +490,7 @@ mod tests {
         let restorer = HierarchyRestorer::new(resolver);
 
         struct MockLoader;
-        impl CheckpointLoader for MockLoader {
+        impl HierarchyMetadataLoader for MockLoader {
             fn load_metadata(
                 &self,
                 _id: &str,
@@ -536,7 +536,7 @@ mod tests {
         let metrics = CheckpointMetricsCollector::new(wf_metrics::CollectorConfig::default());
 
         struct FailingLoader;
-        impl CheckpointLoader for FailingLoader {
+        impl HierarchyMetadataLoader for FailingLoader {
             fn load_metadata(
                 &self,
                 _id: &str,
@@ -548,7 +548,7 @@ mod tests {
         }
 
         struct MockLoader;
-        impl CheckpointLoader for MockLoader {
+        impl HierarchyMetadataLoader for MockLoader {
             fn load_metadata(
                 &self,
                 _id: &str,

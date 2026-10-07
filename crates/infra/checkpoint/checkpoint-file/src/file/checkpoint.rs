@@ -39,15 +39,15 @@ impl FileCheckpointManager {
         entries: &[FileContentEntry],
     ) -> Result<(FileCheckpoint, u64, bool), CheckpointError> {
         // One operation creates one edit group: every entry of this
-        // checkpoint is staged, then committed atomically with the session
+        // checkpoint is staged, then committed atomically with the group
         // trailer so the whole multi-file operation rolls back as a unit.
         let session_id = self.begin_edit_group(Some("file checkpoint".to_string()))?;
         let actor = self.actor_id_for(entity_id);
         for entry in entries {
             if entry.deleted {
-                self.apply_agent_delete_in_session(&actor, &entry.path, &session_id)?;
+                self.apply_agent_delete_in_group(&actor, &entry.path, &session_id)?;
             } else {
-                self.apply_agent_edit_in_session(&actor, &entry.path, &entry.content, &session_id)?;
+                self.apply_agent_edit_in_group(&actor, &entry.path, &entry.content, &session_id)?;
             }
         }
         let commit_id = self.commit_edit_group(entity_id, &session_id, Some("checkpoint"))?;

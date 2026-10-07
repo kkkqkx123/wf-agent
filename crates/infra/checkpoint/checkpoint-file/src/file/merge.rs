@@ -103,27 +103,24 @@ impl FileCheckpointManager {
             .commit_id)
     }
 
-    /// Run object-store cleanup: drop loose objects unreachable from any
-    /// ref. The source index rows for pruned commits are dropped with them.
-    /// Reports pruned object counts through the legacy stats shape.
+    /// Run object-store cleanup: drop loose objects unreachable from any ref,
+    /// except the newest retained commits. The source index rows for pruned
+    /// commits are dropped with them.
     pub fn run_gc(
         &self,
         retention: crate::gc::GcRetention,
     ) -> Result<crate::gc::GcStats, CheckpointError> {
-        let _ = retention;
         let start = std::time::Instant::now();
-        let pruned = self.prune_unreachable_objects()?;
+        let (commits, trees, blobs) = self.prune_unreachable_objects(&retention)?;
         let stats = crate::gc::GcStats {
-            removed_checkpoints: pruned as u64,
-            removed_snapshots: 0,
-            reclaimed_snapshots: 0,
-            reclaimed_deltas: 0,
-            reclaimed_file_nodes: 0,
+            removed_checkpoints: commits as u64,
+            removed_snapshots: trees as u64,
+            reclaimed_snapshots: blobs as u64,
         };
         if let Some(ref metrics) = self.checkpoint_metrics() {
             metrics.record_cleanup(
                 stats.removed_checkpoints,
-                0,
+                stats.reclaimed_snapshots,
                 start.elapsed().as_millis() as f64,
             );
         }
@@ -136,6 +133,8 @@ impl FileCheckpointManager {
     /// Content-reclaim sweep: identical to [`Self::run_gc`] in the Git
     /// model (unreachable objects are the only reclaimable content).
     /// Kept as the explicit slow-cadence entry point; never runs per pass.
+    /// The grace window has no meaning for content-addressed loose objects
+    /// without a creation-time index, so it is accepted and ignored.
     pub fn run_snapshot_reclaim(
         &self,
         retention: crate::gc::GcRetention,
@@ -145,36 +144,97 @@ impl FileCheckpointManager {
         self.run_gc(retention)
     }
 
-    /// Drop loose objects unreachable from any ref. Returns the pruned
-    /// object count.
-    pub(crate) fn prune_unreachable_objects(&self) -> Result<usize, CheckpointError> {
+    /// Drop loose objects unreachable from any ref, protecting the newest
+    /// retained commits. Returns pruned commit, tree and blob counts.
+    pub(crate) fn prune_unreachable_objects(
+        &self,
+        retention: &crate::gc::GcRetention,
+    ) -> Result<(usize, usize, usize), CheckpointError> {
         use std::collections::HashSet;
         let git = self.git_ref()?;
         let mut reachable: HashSet<String> = HashSet::new();
         for commit in git.all_commits().map_err(map_git_error)? {
-            reachable.insert(commit.id.clone());
-            reachable.insert(commit.tree.clone());
-            let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
-            for (_, (_, blob)) in files {
-                reachable.insert(blob);
-            }
-            // Trees themselves (non-leaf) are covered by walking down.
-            let mut stack = vec![commit.tree.clone()];
-            while let Some(tree) = stack.pop() {
-                let Ok(entries) = git.read_tree(&tree) else {
+            Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
+        }
+        if retention.keep_recent_heads > 0 {
+            let mut orphan_commits = Vec::new();
+            for id in Self::list_object_ids(git) {
+                if reachable.contains(&id) {
                     continue;
-                };
-                for entry in entries {
-                    if entry.mode == "40000" && reachable.insert(entry.id.clone()) {
-                        stack.push(entry.id);
-                    }
+                }
+                if let Ok(commit) = git.read_commit(&id) {
+                    orphan_commits.push((commit.committer_ts, commit.id.clone()));
+                }
+            }
+            orphan_commits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+            for (_, id) in orphan_commits.into_iter().take(retention.keep_recent_heads) {
+                if let Ok(commit) = git.read_commit(&id) {
+                    Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
                 }
             }
         }
-        let objects_dir = git.git_dir().join("objects");
-        let mut pruned = 0usize;
-        let Ok(prefixes) = std::fs::read_dir(&objects_dir) else {
-            return Ok(0);
+        let mut pruned_commits = 0usize;
+        let mut pruned_trees = 0usize;
+        let mut pruned_blobs = 0usize;
+        let mut pruned_commit_ids = Vec::new();
+        for id in Self::list_object_ids(git) {
+            if reachable.contains(&id) {
+                continue;
+            }
+            let is_commit = git.read_commit(&id).is_ok();
+            let is_tree = !is_commit && git.read_tree(&id).is_ok();
+            if Self::remove_object_file(git, &id) {
+                if is_commit {
+                    pruned_commits += 1;
+                    pruned_commit_ids.push(id);
+                } else if is_tree {
+                    pruned_trees += 1;
+                } else {
+                    pruned_blobs += 1;
+                }
+            }
+        }
+        if !pruned_commit_ids.is_empty() {
+            if let Ok(storage) = self.storage_ref() {
+                for id in &pruned_commit_ids {
+                    let _ = storage.delete_source_index(id);
+                }
+            }
+        }
+        Ok((pruned_commits, pruned_trees, pruned_blobs))
+    }
+
+    fn insert_commit_closure(
+        git: &crate::git_store::GitStore,
+        commit_id: &str,
+        tree_id: &str,
+        reachable: &mut std::collections::HashSet<String>,
+    ) {
+        reachable.insert(commit_id.to_string());
+        reachable.insert(tree_id.to_string());
+        let Ok(files) = git.tree_to_files(tree_id) else {
+            return;
+        };
+        for (_, (_, blob)) in files {
+            reachable.insert(blob);
+        }
+        let mut stack = vec![tree_id.to_string()];
+        while let Some(tree) = stack.pop() {
+            let Ok(entries) = git.read_tree(&tree) else {
+                continue;
+            };
+            for entry in entries {
+                if entry.mode == "40000" && reachable.insert(entry.id.clone()) {
+                    stack.push(entry.id);
+                }
+            }
+        }
+    }
+
+    fn list_object_ids(git: &crate::git_store::GitStore) -> Vec<String> {
+        let mut out = Vec::new();
+        let Ok(prefixes) = std::fs::read_dir(git.git_dir().join("objects")) else {
+            return out;
         };
         for prefix in prefixes.flatten() {
             let dir = prefix.path();
@@ -191,14 +251,16 @@ impl FileCheckpointManager {
                     continue;
                 }
                 let id = format!("{name}{file}");
-                if id.len() != 40 || reachable.contains(&id) {
-                    continue;
-                }
-                if std::fs::remove_file(object.path()).is_ok() {
-                    pruned += 1;
+                if id.len() == 40 {
+                    out.push(id);
                 }
             }
         }
-        Ok(pruned)
+        out
+    }
+
+    fn remove_object_file(git: &crate::git_store::GitStore, id: &str) -> bool {
+        let path = git.git_dir().join("objects").join(&id[..2]).join(&id[2..]);
+        std::fs::remove_file(path).is_ok()
     }
 }

@@ -19,11 +19,11 @@ pub trait BranchStorageAdapter: Send + Sync {
         name: &str,
     ) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
 
-    /// Merge the history of `source` into `target` at the storage level.
+    /// Reassign the history of `source` into `target` at the storage level.
     /// The default implementation is a no-op: generic adapters without merge
     /// semantics treat the manager-level bookkeeping (base relationship) as
     /// the merge result.
-    fn merge_branch(
+    fn merge_execution_history(
         &self,
         source: &str,
         target: &str,
@@ -45,7 +45,7 @@ pub trait BranchManager: Send + Sync {
         &self,
         branch_name: &str,
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn merge_branch(
+    fn merge_execution_branch(
         &self,
         source: &str,
         target: &str,
@@ -116,12 +116,18 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
         Ok(())
     }
 
-    /// Merge `source` into `target`.
+    /// Merge execution branch `source` into `target`.
     ///
     /// Validates that both branches exist and are distinct, then delegates the
-    /// storage-level merge to the adapter and records the merge relationship
-    /// in the cache (the target's base branch becomes `source`).
-    async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError> {
+    /// storage-level history reassignment to the adapter and records the merge
+    /// relationship in the cache (the target's base branch becomes `source`).
+    /// This never merges file contents; file content merges live on the
+    /// commit DAG entry points.
+    async fn merge_execution_branch(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Result<(), CheckpointError> {
         if source == target {
             return Err(CheckpointError::Branch(format!(
                 "cannot merge branch '{}' into itself",
@@ -141,7 +147,7 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
             )));
         }
 
-        self.storage.merge_branch(source, target).await?;
+        self.storage.merge_execution_history(source, target).await?;
 
         if let Some(mut info) = self.cache.get_mut(target) {
             info.base_branch = Some(source.to_string());
@@ -245,14 +251,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merge_branch_links_base_relationship() {
+    async fn merge_execution_branch_links_base_relationship() {
         let manager = make_manager();
         manager
             .create_branch("feature", Some("main"))
             .await
             .unwrap();
 
-        manager.merge_branch("feature", "main").await.unwrap();
+        manager
+            .merge_execution_branch("feature", "main")
+            .await
+            .unwrap();
 
         let cached = manager.cache.get("main").unwrap();
         assert_eq!(cached.base_branch.as_deref(), Some("feature"));
@@ -261,14 +270,20 @@ mod tests {
     #[tokio::test]
     async fn merge_self_rejected() {
         let manager = make_manager();
-        let err = manager.merge_branch("main", "main").await.unwrap_err();
+        let err = manager
+            .merge_execution_branch("main", "main")
+            .await
+            .unwrap_err();
         assert!(matches!(err, CheckpointError::Branch(_)));
     }
 
     #[tokio::test]
     async fn merge_missing_source_rejected() {
         let manager = make_manager();
-        let err = manager.merge_branch("nope", "main").await.unwrap_err();
+        let err = manager
+            .merge_execution_branch("nope", "main")
+            .await
+            .unwrap_err();
         assert!(matches!(err, CheckpointError::Branch(_)));
     }
 

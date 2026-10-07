@@ -1,9 +1,9 @@
 //! Edit groups and local undo on the Git model.
 //!
-//! A session is an in-memory staging batch: `begin_edit_group` allocates a
+//! An edit group is an in-memory staging batch: `begin_edit_group` allocates a
 //! token, `apply_*_in_session` validate and stage bytes without committing,
 //! and `commit_edit_group` produces the single atomic commit carrying the
-//! session trailer. No session association rows are written.
+//! group trailer. No group association rows are written.
 //!
 //! Local undo moves only the actor's own edit ref to its parent commit
 //! (redo is an in-memory stack of undone heads). Review, feature and main
@@ -22,31 +22,31 @@ use crate::git_store::edit_ref_for_actor;
 use checkpoint_base::actor::id::ActorId;
 use checkpoint_base::error::CheckpointError;
 
-/// Opaque edit-group token. Sessions are in-memory staging batches, never
-/// persistence rows; the committed group is identified by its session
+/// Opaque edit-group token. Edit groups are in-memory staging batches, never
+/// persistence rows; the committed group is identified by its group
 /// trailer instead.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct EditSessionId(pub String);
+pub struct EditGroupId(pub String);
 
-impl EditSessionId {
+impl EditGroupId {
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
     }
 }
 
-impl fmt::Display for EditSessionId {
+impl fmt::Display for EditGroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl FromStr for EditSessionId {
+impl FromStr for EditGroupId {
     type Err = CheckpointError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.trim().is_empty() {
             return Err(CheckpointError::Validation {
-                reason: "edit session id must not be empty".to_string(),
+                reason: "edit group id must not be empty".to_string(),
             });
         }
         Ok(Self(s.to_string()))
@@ -55,21 +55,21 @@ impl FromStr for EditSessionId {
 
 /// A staged (not yet committed) edit group.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EditSession {
-    /// Unique session identifier.
-    pub id: EditSessionId,
+pub struct EditGroup {
+    /// Unique edit group identifier.
+    pub id: EditGroupId,
     /// Human-readable label (e.g. "format file", "refactor module").
     #[serde(default)]
     pub label: Option<String>,
-    /// Timestamp when the session was created (millis since epoch).
+    /// Timestamp when the group was created (millis since epoch).
     pub created_at: i64,
 }
 
-static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+static GROUP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn next_session_id(timestamp: i64) -> EditSessionId {
-    let n = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
-    EditSessionId(format!("sess-{timestamp}-{n}"))
+fn next_edit_group_id(timestamp: i64) -> EditGroupId {
+    let n = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    EditGroupId(format!("sess-{timestamp}-{n}"))
 }
 
 impl FileCheckpointManager {
@@ -78,17 +78,14 @@ impl FileCheckpointManager {
     /// Begin a new edit group for grouping a multi-file operation.
     /// Returns the group id. The group lives in memory only; staged files
     /// commit atomically via [`Self::commit_edit_group`].
-    pub fn begin_edit_group(
-        &self,
-        label: Option<String>,
-    ) -> Result<EditSessionId, CheckpointError> {
+    pub fn begin_edit_group(&self, label: Option<String>) -> Result<EditGroupId, CheckpointError> {
         let timestamp = self.creation_timestamp().unwrap_or_else(|_| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as i64)
                 .unwrap_or(0)
         });
-        let id = next_session_id(timestamp);
+        let id = next_edit_group_id(timestamp);
         self.pending_batches.insert(
             id.to_string(),
             PendingEditBatch {
@@ -101,44 +98,44 @@ impl FileCheckpointManager {
         Ok(id)
     }
 
-    /// List staged (not yet committed) edit sessions, newest first.
-    pub fn list_sessions(&self) -> Result<Vec<EditSession>, CheckpointError> {
-        let mut sessions: Vec<EditSession> = self
+    /// List staged (not yet committed) edit groups, newest first.
+    pub fn list_edit_groups(&self) -> Result<Vec<EditGroup>, CheckpointError> {
+        let mut groups: Vec<EditGroup> = self
             .pending_batches
             .iter()
             .map(|entry| {
-                let id: EditSessionId = EditSessionId(entry.key().clone());
-                EditSession {
+                let id: EditGroupId = EditGroupId(entry.key().clone());
+                EditGroup {
                     id,
                     label: entry.value().label.clone(),
                     created_at: entry.value().created_at,
                 }
             })
             .collect();
-        sessions.sort_by_key(|s| std::cmp::Reverse(s.created_at));
-        Ok(sessions)
+        groups.sort_by_key(|s| std::cmp::Reverse(s.created_at));
+        Ok(groups)
     }
 
-    fn stage_in_session(
+    fn stage_in_group(
         &self,
         actor: &ActorId,
         path: &str,
         content: Option<Vec<u8>>,
-        session_id: &EditSessionId,
+        group_id: &EditGroupId,
     ) -> Result<(), CheckpointError> {
         let validated = crate::file::util::validate_workspace_relative_path(path)?;
         let mut batch = self
             .pending_batches
-            .get_mut(&session_id.to_string())
+            .get_mut(&group_id.to_string())
             .ok_or_else(|| CheckpointError::NotFound {
-                id: format!("edit session {session_id}"),
+                id: format!("edit group {group_id}"),
             })?;
         if batch.actor.is_empty() {
             batch.actor = actor.as_str().to_string();
         } else if batch.actor != actor.as_str() {
             return Err(CheckpointError::Validation {
                 reason: format!(
-                    "edit session {session_id} belongs to '{}', not '{}'",
+                    "edit group {group_id} belongs to '{}', not '{}'",
                     batch.actor,
                     actor.as_str()
                 ),
@@ -148,51 +145,51 @@ impl FileCheckpointManager {
         Ok(())
     }
 
-    /// Stage one file edit for an actor inside an existing session.
-    /// Nothing is committed yet; returns the session id string.
-    pub fn apply_agent_edit_in_session(
+    /// Stage one file edit for an actor inside an existing edit group.
+    /// Nothing is committed yet; returns the group id string.
+    pub fn apply_agent_edit_in_group(
         &self,
         actor: &ActorId,
         path: &str,
         content: &[u8],
-        session_id: &EditSessionId,
+        group_id: &EditGroupId,
     ) -> Result<String, CheckpointError> {
-        self.stage_in_session(actor, path, Some(content.to_vec()), session_id)?;
-        Ok(session_id.to_string())
+        self.stage_in_group(actor, path, Some(content.to_vec()), group_id)?;
+        Ok(group_id.to_string())
     }
 
-    /// Stage one file deletion for an actor inside an existing session.
-    /// Returns the session id string.
-    pub fn apply_agent_delete_in_session(
+    /// Stage one file deletion for an actor inside an existing edit group.
+    /// Returns the group id string.
+    pub fn apply_agent_delete_in_group(
         &self,
         actor: &ActorId,
         path: &str,
-        session_id: &EditSessionId,
+        group_id: &EditGroupId,
     ) -> Result<String, CheckpointError> {
-        self.stage_in_session(actor, path, None, session_id)?;
-        Ok(session_id.to_string())
+        self.stage_in_group(actor, path, None, group_id)?;
+        Ok(group_id.to_string())
     }
 
     /// Commit a staged edit group as one atomic commit on the actor's edit
-    /// ref, carrying the session trailer. Returns the commit id (hex).
+    /// ref, carrying the group trailer. Returns the commit id (hex).
     /// An empty group commits nothing and returns the current head, if any.
     pub fn commit_edit_group(
         &self,
         entity_id: &str,
-        session_id: &EditSessionId,
+        group_id: &EditGroupId,
         tool: Option<&str>,
     ) -> Result<String, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
         let (_, batch) = self
             .pending_batches
-            .remove(&session_id.to_string())
+            .remove(&group_id.to_string())
             .ok_or_else(|| CheckpointError::NotFound {
-                id: format!("edit session {session_id}"),
+                id: format!("edit group {group_id}"),
             })?;
         if !batch.actor.is_empty() && batch.actor != actor.as_str() {
             return Err(CheckpointError::Validation {
                 reason: format!(
-                    "edit session {session_id} belongs to '{}', not '{}'",
+                    "edit group {group_id} belongs to '{}', not '{}'",
                     batch.actor,
                     actor.as_str()
                 ),
@@ -207,27 +204,23 @@ impl FileCheckpointManager {
                 id: format!("no commits for actor '{}'", actor.as_str()),
             });
         }
-        let session = session_id.to_string();
+        let session = group_id.to_string();
         let outcome =
             self.commit_tool_files(&actor, &batch.files, Some(&session), tool, "grouped edit")?;
         Ok(outcome.id)
     }
 
-    /// Roll back an entire session on an actor's edit ref: drop the staged
+    /// Roll back an entire edit group on an actor's edit ref: drop the staged
     /// batch when it is still pending; otherwise move the actor's own ref
-    /// back past the contiguous run of head commits carrying the session
+    /// back past the contiguous run of head commits carrying the group
     /// trailer. Returns the ref head after rollback (hex).
-    pub fn rollback_session(
+    pub fn rollback_edit_group(
         &self,
         entity_id: &str,
-        session_id: &EditSessionId,
+        group_id: &EditGroupId,
     ) -> Result<String, CheckpointError> {
         // A still-pending batch simply evaporates.
-        if self
-            .pending_batches
-            .remove(&session_id.to_string())
-            .is_some()
-        {
+        if self.pending_batches.remove(&group_id.to_string()).is_some() {
             let actor = self.actor_id_for(entity_id);
             let git = self.git_ref()?;
             let head = git
@@ -246,7 +239,7 @@ impl FileCheckpointManager {
             .ok_or_else(|| CheckpointError::NotFound {
                 id: format!("no commits for actor '{}'", actor.as_str()),
             })?;
-        let target = session_id.to_string();
+        let target = group_id.to_string();
         let mut cursor = head.clone();
         let mut stepped = false;
         loop {
@@ -264,7 +257,7 @@ impl FileCheckpointManager {
         if !stepped {
             return Err(CheckpointError::Validation {
                 reason: format!(
-                    "session {session_id} is not at the head of '{}'",
+                    "edit group {group_id} is not at the head of '{}'",
                     actor.as_str()
                 ),
             });

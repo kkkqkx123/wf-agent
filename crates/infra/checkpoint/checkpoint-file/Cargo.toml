@@ -24,9 +24,18 @@ wf-metrics = { path = "../../wf-metrics" }
 checkpoint-base = { path = "../checkpoint-base" }
 notify = { workspace = true }
 globset = { workspace = true }
-sha1 = { workspace = true }
-flate2 = { workspace = true }
-hex = { workspace = true }
+gix-hash = { workspace = true }
+gix-object = { workspace = true }
+gix-odb = { workspace = true }
+gix-ref = { workspace = true }
+gix-revwalk = { workspace = true }
+gix-merge = { workspace = true }
+gix-diff = { workspace = true }
+gix-traverse = { workspace = true }
+gix-ignore = { workspace = true }
+gix-actor = { workspace = true }
+gix-date = { workspace = true }
+gix-lock = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

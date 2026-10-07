@@ -146,7 +146,8 @@ impl CheckpointConfigResolver {
 
     /// Whether a checkpoint should be created for the trigger under the
     /// resolved policy. `Never` short-circuits to false; disabled policies
-    /// never checkpoint.
+    /// never checkpoint. An empty trigger list denies every trigger so the
+    /// resolver agrees with the strategy layer.
     pub fn should_create_checkpoint(
         &self,
         resolved: &ResolvedCheckpointConfig,
@@ -158,7 +159,7 @@ impl CheckpointConfigResolver {
         if resolved.policy.triggers.contains(&CheckpointTiming::Never) {
             return false;
         }
-        resolved.policy.triggers.is_empty() || resolved.policy.triggers.contains(trigger)
+        !resolved.policy.triggers.is_empty() && resolved.policy.triggers.contains(trigger)
     }
 
     /// Build the checkpoint description: agent cadence descriptions use
@@ -321,6 +322,17 @@ mod tests {
         let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::global(policy(
             true,
             vec![CheckpointTiming::Never],
+        ))]);
+        assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::OnError));
+        assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::Manual));
+    }
+
+    #[test]
+    fn empty_triggers_deny_every_trigger() {
+        let resolver = CheckpointConfigResolver;
+        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::global(policy(
+            true,
+            Vec::new(),
         ))]);
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::OnError));
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::Manual));

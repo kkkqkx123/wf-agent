@@ -94,6 +94,10 @@ pub struct FileCheckpointMetadata {
 
 impl From<&FileCheckpoint> for FileCheckpointMetadata {
     fn from(checkpoint: &FileCheckpoint) -> Self {
+        debug_assert_eq!(
+            checkpoint.checkpoint_type, "full",
+            "file projection is always a full projection"
+        );
         Self {
             id: checkpoint.id.clone(),
             entity_id: String::new(),

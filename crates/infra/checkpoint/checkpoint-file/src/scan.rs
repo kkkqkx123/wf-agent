@@ -96,15 +96,7 @@ fn add_pattern(builder: &mut GlobSetBuilder, raw: &str) {
 /// `.git` / `node_modules` from deletion).
 pub fn hardcoded_ignore_matcher() -> &'static GlobSet {
     static MATCHER: OnceLock<GlobSet> = OnceLock::new();
-    MATCHER.get_or_init(|| {
-        let mut builder = GlobSetBuilder::new();
-        for dir in HARDCODED_IGNORE_DIRS {
-            add_pattern(&mut builder, dir);
-        }
-        builder
-            .build()
-            .unwrap_or_else(|_| GlobSetBuilder::new().build().expect("empty globset"))
-    })
+    MATCHER.get_or_init(|| build_matcher(HARDCODED_IGNORE_DIRS, &[], &[]))
 }
 
 /// Whether a workspace-relative path is protected by the hardcoded ignore
@@ -113,18 +105,33 @@ pub fn is_hardcoded_ignored(relative_path: &str) -> bool {
     hardcoded_ignore_matcher().is_match(relative_path)
 }
 
+/// Single stacking point for every ignore layer: repository-local excludes
+/// first, then workspace `.gitignore` entries, then custom patterns. Scan,
+/// status comparison and commit construction all build their matcher here
+/// so the order can never drift between call sites.
+fn build_matcher(
+    hardcoded: &[&str],
+    gitignore_patterns: &[String],
+    custom: &[String],
+) -> GlobSet {
+    let mut builder = GlobSetBuilder::new();
+    for dir in hardcoded {
+        add_pattern(&mut builder, dir);
+    }
+    for pattern in gitignore_patterns {
+        add_pattern(&mut builder, pattern);
+    }
+    for pattern in custom {
+        add_pattern(&mut builder, pattern);
+    }
+    builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().expect("empty globset"))
+}
+
 impl WorkspaceScanner {
     pub fn new(config: ScanConfig) -> Self {
-        let mut builder = GlobSetBuilder::new();
-        for dir in HARDCODED_IGNORE_DIRS {
-            add_pattern(&mut builder, dir);
-        }
-        for pattern in &config.custom_ignore_patterns {
-            add_pattern(&mut builder, pattern);
-        }
-        let matcher = builder
-            .build()
-            .unwrap_or_else(|_| GlobSetBuilder::new().build().expect("empty globset"));
+        let matcher = build_matcher(HARDCODED_IGNORE_DIRS, &[], &config.custom_ignore_patterns);
         Self { config, matcher }
     }
 
@@ -144,19 +151,11 @@ impl WorkspaceScanner {
     pub fn scan(&self, root: &Path) -> Result<WorkspaceScan, CheckpointError> {
         let mut gitignore_patterns = Vec::new();
         self.collect_gitignore(root, root, &mut gitignore_patterns)?;
-        let mut builder = GlobSetBuilder::new();
-        for dir in HARDCODED_IGNORE_DIRS {
-            add_pattern(&mut builder, dir);
-        }
-        for pattern in &gitignore_patterns {
-            add_pattern(&mut builder, pattern);
-        }
-        for pattern in &self.config.custom_ignore_patterns {
-            add_pattern(&mut builder, pattern);
-        }
-        let matcher = builder
-            .build()
-            .unwrap_or_else(|_| GlobSetBuilder::new().build().expect("empty globset"));
+        let matcher = build_matcher(
+            HARDCODED_IGNORE_DIRS,
+            &gitignore_patterns,
+            &self.config.custom_ignore_patterns,
+        );
 
         let mut files = Vec::new();
         let mut dirs = Vec::new();

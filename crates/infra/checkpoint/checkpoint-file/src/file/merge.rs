@@ -232,31 +232,15 @@ impl FileCheckpointManager {
     }
 
     fn list_object_ids(git: &crate::git_store::GitStore) -> Vec<String> {
-        let mut out = Vec::new();
-        let Ok(prefixes) = std::fs::read_dir(git.git_dir().join("objects")) else {
-            return out;
-        };
-        for prefix in prefixes.flatten() {
-            let dir = prefix.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            let name = prefix.file_name().to_string_lossy().to_string();
-            if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-                continue;
-            }
-            for object in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                let file = object.file_name().to_string_lossy().to_string();
-                if file.ends_with(".tmp") || file.ends_with(".lock") {
-                    continue;
-                }
-                let id = format!("{name}{file}");
-                if id.len() == 40 {
-                    out.push(id);
-                }
-            }
+        let objects = git.git_dir().join("objects");
+        if !objects.is_dir() {
+            return Vec::new();
         }
-        out
+        gix_odb::loose::Store::at(objects, gix_hash::Kind::Sha1)
+            .iter()
+            .filter_map(|id| id.ok())
+            .map(|id| id.to_hex().to_string())
+            .collect()
     }
 
     fn remove_object_file(git: &crate::git_store::GitStore, id: &str) -> bool {

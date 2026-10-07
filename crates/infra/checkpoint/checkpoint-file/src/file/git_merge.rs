@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use crate::event::CheckpointEventBus;
 use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
 use crate::git_store::{
@@ -264,6 +265,13 @@ impl FileCheckpointManager {
         git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
         storage.set_review_state(review_ref, ReviewStatus::Approved)?;
         self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::merge_conflicted(
+                id.clone(),
+                conflicts.clone(),
+                Some(actor_str.to_string()),
+            ));
+        }
         if let Some(root) = self.workspace_root.clone() {
             let _ = self.materialize_files_into(&merged, &conflicts, &root);
         }
@@ -390,6 +398,13 @@ impl FileCheckpointManager {
             let mut all_paths: Vec<String> = merged.keys().cloned().collect();
             all_paths.sort();
             self.index_commit(storage, &id, actor_str, "", "merge", &all_paths)?;
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::merge_conflicted(
+                    id.clone(),
+                    conflicts.clone(),
+                    Some(actor_str.to_string()),
+                ));
+            }
             if let Some(root) = self.workspace_root.clone() {
                 let _ = self.materialize_files_into(&merged, &conflicts, &root);
             }

@@ -16,7 +16,7 @@ impl ContentFilter {
     }
 
     pub fn should_include_statistics(&self, config: &CheckpointContentConfig) -> bool {
-        config.include_statistics.unwrap_or(true)
+        config.include_statistics.unwrap_or(false)
     }
 }
 
@@ -42,7 +42,7 @@ mod tests {
         };
         assert!(filter.should_include_state(&config));
         assert!(filter.should_include_history(&config));
-        assert!(filter.should_include_statistics(&config));
+        assert!(!filter.should_include_statistics(&config));
     }
 
     #[test]

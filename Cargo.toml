@@ -137,6 +137,23 @@ wasmparser = "0.244"
 notify = "8"
 # Pure-Rust SHA-1 for the checkpoint Git object store (loose objects).
 sha1 = "0.10"
+# Gitoxide object identity for the checkpoint Git object store.
+# Pinned at introduction on the 0.27 release line; do not update during development.
+gix-hash = { version = "0.27", features = ["sha1"] }
+# Gitoxide split crates for the checkpoint Git object store, merge and ignore handling.
+# Pinned at introduction; do not update during development.
+gix-object = "0.65"
+gix-odb = "0.85"
+gix-ref = "0.68"
+gix-revwalk = "0.36"
+gix-merge = "0.21"
+gix-diff = "0.68"
+gix-traverse = "0.62"
+gix-ignore = "0.23"
+gix-actor = "0.43"
+gix-date = "0.17"
+# Direct use: gix-ref transactions take a gix-lock failure mode.
+gix-lock = "25.0.0"
 
 # Process / terminal
 libc = "0.2"

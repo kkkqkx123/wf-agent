@@ -1,6 +1,6 @@
 //! Independent bare Git object store for file-content history.
 //!
-//! Frozen口径 (no behavior beyond this module may redefine them):
+//! Frozen rules (no behavior beyond this module may redefine them):
 //! - one bare repository per workspace, stored at
 //!   `<workspace>/.wf-checkpoint-git`, fully separated from the user's own
 //!   repository (the user's `.git` is never read or written);
@@ -17,21 +17,23 @@
 //! - conflicts land on disk with standard `<<<<<<<` / `=======` / `>>>>>>>`
 //!   markers and block the corresponding merge until resolved.
 //!
-//! Implementation notes: pure-Rust loose-object store (`sha1` + `flate2`,
-//! no native toolchain, offline deterministic). Writes are pipelined object
-//! operations that never switch a worktree: trees are built from the parent
-//! tree plus input bytes, merges run in memory, and the workspace files are
-//! only touched when materializing a target state (serialized by the caller).
-//! Ref updates are atomic file renames; every public mutating ref operation
-//! also offers a compare-and-swap form so concurrent agents on different
-//! refs never block each other.
+//! Implementation notes: object storage, encoding and ref naming follow the
+//! shared complexion via the Gitoxide split crates (no native toolchain,
+//! offline deterministic). Writes are pipelined object operations that never
+//! switch a worktree: trees are built from the parent tree plus input bytes,
+//! merges run in memory, and the workspace files are only touched when
+//! materializing a target state (serialized by the caller). Ref updates go
+//! through Gitoxide transactions: the expectation is checked while holding
+//! the ref lock, reflog writing is disabled (checkpoint refs never need
+//! history), and stale lock files from crashed writers are reclaimed, so a
+//! compare-and-swap failure always means the ref moved under us.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use sha1::{Digest, Sha1};
+use gix_object::{Find as _, Write as _};
 
 /// Directory name of the bare repository inside the workspace root.
 pub const CHECKPOINT_GIT_DIR_NAME: &str = ".wf-checkpoint-git";
@@ -158,7 +160,7 @@ pub fn trailers_of(message: &str) -> Vec<(String, String)> {
 
 /// Whether a string is a well-formed object id (40 hex chars).
 pub fn is_hex_id(id: &str) -> bool {
-    id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit())
+    id.len() == 40 && gix_hash::ObjectId::from_hex(id.as_bytes()).is_ok()
 }
 
 /// One merged file: bytes (`None` = deleted) plus conflict flag.
@@ -202,7 +204,8 @@ pub fn merge_file_contents(
             conflicted: false,
         };
     }
-    // Overlapping changes: standard markers (absent sides read as empty).
+    // Overlapping changes: line-based text merge with standard markers
+    // (absent sides read as empty).
     let ours_bytes = ours.unwrap_or(&[]);
     let theirs_bytes = theirs.unwrap_or(&[]);
     if is_binary_bytes(ours_bytes) || is_binary_bytes(theirs_bytes) {
@@ -211,21 +214,26 @@ pub fn merge_file_contents(
             conflicted: true,
         };
     }
+    let base_bytes = base.unwrap_or(&[]);
     let mut merged = Vec::new();
-    merged.extend_from_slice(b"<<<<<<< ours\n");
-    merged.extend_from_slice(ours_bytes);
-    if !ours_bytes.ends_with(b"\n") {
-        merged.push(b'\n');
-    }
-    merged.extend_from_slice(b"=======\n");
-    merged.extend_from_slice(theirs_bytes);
-    if !theirs_bytes.ends_with(b"\n") {
-        merged.push(b'\n');
-    }
-    merged.extend_from_slice(b">>>>>>> theirs\n");
+    let mut input = gix_diff::blob::InternedInput::new(&b""[..], &b""[..]);
+    let labels = gix_merge::blob::builtin_driver::text::Labels {
+        ancestor: None,
+        current: Some(gix_object::bstr::BStr::new("ours")),
+        other: Some(gix_object::bstr::BStr::new("theirs")),
+    };
+    let resolution = gix_merge::blob::builtin_driver::text(
+        &mut merged,
+        &mut input,
+        labels,
+        ours_bytes,
+        base_bytes,
+        theirs_bytes,
+        gix_merge::blob::builtin_driver::text::Options::default(),
+    );
     MergeFileOutcome {
         bytes: Some(merged),
-        conflicted: true,
+        conflicted: resolution == gix_merge::blob::Resolution::Conflict,
     }
 }
 
@@ -293,11 +301,50 @@ fn sanitize_ref_component(raw: &str) -> String {
     }
 }
 
-fn hash_object(header: &[u8], body: &[u8]) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(header);
-    hasher.update(body);
-    hex::encode(hasher.finalize())
+fn parse_object_id(id: &str) -> Result<gix_hash::ObjectId, GitStoreError> {
+    if id.len() != 40 {
+        return Err(GitStoreError::InvalidInput(format!("bad object id '{id}'")));
+    }
+    gix_hash::ObjectId::from_hex(id.as_bytes())
+        .map_err(|e| GitStoreError::InvalidInput(format!("bad object id '{id}': {e}")))
+}
+
+/// Split a free-form actor string into a valid name/email pair. Inputs that
+/// already carry an email keep it, bare names get a local placeholder.
+fn split_actor(raw: &str) -> (String, String) {
+    let trimmed = raw.trim();
+    if let Some(start) = trimmed.find('<') {
+        if let Some(end) = trimmed.find('>') {
+            if start < end {
+                let name = trimmed[..start].trim();
+                let email = trimmed[start + 1..end].trim();
+                if !email.is_empty() {
+                    return (
+                        if name.is_empty() {
+                            "checkpoint".to_string()
+                        } else {
+                            name.to_string()
+                        },
+                        email.to_string(),
+                    );
+                }
+            }
+        }
+    }
+    if trimmed.is_empty() {
+        ("checkpoint".to_string(), "local".to_string())
+    } else {
+        (trimmed.to_string(), "local".to_string())
+    }
+}
+
+fn signature_for(raw: &str, secs: i64) -> gix_actor::Signature {
+    let (name, email) = split_actor(raw);
+    gix_actor::Signature {
+        name: name.as_bytes().to_vec().into(),
+        email: email.as_bytes().to_vec().into(),
+        time: gix_date::Time::new(secs, 0),
+    }
 }
 
 fn now_millis() -> i64 {
@@ -381,7 +428,7 @@ impl GitStore {
         &self.workspace_root
     }
 
-    // ── refs ──
+    // ── refs (Gitoxide transactions, reflog disabled) ──
 
     fn ref_path(&self, name: &str) -> Result<PathBuf, GitStoreError> {
         if name.is_empty()
@@ -394,6 +441,62 @@ impl GitStore {
             )));
         }
         Ok(self.git_dir.join(name))
+    }
+
+    fn ref_full_name(&self, name: &str) -> Result<gix_ref::FullName, GitStoreError> {
+        self.ref_path(name)?;
+        gix_ref::FullName::try_from(name)
+            .map_err(|e| GitStoreError::InvalidInput(format!("invalid ref name '{name}': {e}")))
+    }
+
+    fn ref_target(id: &str) -> Result<gix_ref::Target, GitStoreError> {
+        parse_object_id(id).map(gix_ref::Target::Object)
+    }
+
+    fn ref_store(&self) -> gix_ref::file::Store {
+        gix_ref::file::Store::at_opts(
+            self.git_dir.clone(),
+            gix_hash::Kind::Sha1,
+            gix_ref::store::init::Options {
+                write_reflog: gix_ref::store::WriteReflog::Disable,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Drop a lock file left behind by a crashed writer. Only locks older
+    /// than a minute are removed: live transactions finish in milliseconds,
+    /// so an old lock can only be stale. Best effort, never fails.
+    fn clear_stale_ref_lock(&self, name: &str) {
+        let Ok(path) = self.ref_path(name) else {
+            return;
+        };
+        let mut lock = path;
+        lock.as_mut_os_string().push(".lock");
+        let stale = fs::symlink_metadata(&lock)
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > Duration::from_secs(60));
+        if stale {
+            let _ = fs::remove_file(&lock);
+        }
+    }
+
+    fn commit_ref_edit(
+        &self,
+        name: &str,
+        edit: gix_ref::transaction::RefEdit,
+        fail: gix_lock::acquire::Fail,
+    ) -> Result<(), GitStoreError> {
+        self.clear_stale_ref_lock(name);
+        let committer: Option<gix_actor::SignatureRef<'_>> = None;
+        self.ref_store()
+            .transaction()
+            .prepare([edit], fail, fail)
+            .and_then(|transaction| transaction.commit(committer))
+            .map(|_| ())
+            .map_err(|e| GitStoreError::Io(e.to_string()))
     }
 
     /// Read a ref. `Ok(None)` means the ref does not exist yet.
@@ -413,43 +516,70 @@ impl GitStore {
         }
     }
 
-    /// Atomically point a ref at `id` (tmp file + rename, no checkout).
+    /// Atomically point a ref at `id`. Concurrent writers to the same ref
+    /// are serialized; writers to different refs never block each other.
     pub fn write_ref(&self, name: &str, id: &str) -> Result<(), GitStoreError> {
-        Self::check_hex(id)?;
-        let path = self.ref_path(name)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let tmp = path.with_extension("lock");
-        fs::write(&tmp, format!("{id}\n"))?;
-        fs::rename(&tmp, &path)?;
-        Ok(())
+        let full_name = self.ref_full_name(name)?;
+        let edit = gix_ref::transaction::RefEdit::update(
+            full_name,
+            Self::ref_target(id)?,
+            gix_ref::transaction::PreviousValue::Any,
+            "",
+        );
+        self.commit_ref_edit(
+            name,
+            edit,
+            gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_millis(500)),
+        )
     }
 
     /// Atomic compare-and-swap: only update when the current value equals
-    /// `expected` (`None` = must not exist). Concurrent agents on different
-    /// refs never block each other.
+    /// `expected` (`None` = must not exist). The expectation is checked
+    /// while holding the ref lock, so a concurrent writer cannot slip
+    /// between the check and the update.
     pub fn compare_and_swap(
         &self,
         name: &str,
         expected: Option<&str>,
         next: &str,
     ) -> Result<(), GitStoreError> {
-        let current = self.read_ref(name)?;
-        if current.as_deref() != expected {
-            return Err(GitStoreError::RefConflict(name.to_string()));
+        let full_name = self.ref_full_name(name)?;
+        let expected_value = match expected {
+            None => gix_ref::transaction::PreviousValue::MustNotExist,
+            Some(want) => gix_ref::transaction::PreviousValue::MustExistAndMatch(
+                Self::ref_target(want)?,
+            ),
+        };
+        let edit = gix_ref::transaction::RefEdit::update(
+            full_name,
+            Self::ref_target(next)?,
+            expected_value,
+            "",
+        );
+        if let Err(error) =
+            self.commit_ref_edit(name, edit, gix_lock::acquire::Fail::Immediately)
+        {
+            let current = self.read_ref(name)?;
+            if current.as_deref() != expected {
+                return Err(GitStoreError::RefConflict(name.to_string()));
+            }
+            return Err(GitStoreError::Io(error.to_string()));
         }
-        self.write_ref(name, next)
+        Ok(())
     }
 
     /// Delete a ref. Missing refs are a no-op success.
     pub fn delete_ref(&self, name: &str) -> Result<(), GitStoreError> {
-        let path = self.ref_path(name)?;
-        match fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(GitStoreError::from(e)),
-        }
+        let full_name = self.ref_full_name(name)?;
+        let edit = gix_ref::transaction::RefEdit::delete(
+            full_name,
+            gix_ref::transaction::PreviousValue::Any,
+        );
+        self.commit_ref_edit(
+            name,
+            edit,
+            gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_millis(500)),
+        )
     }
 
     /// Point `dst` at the same commit as `src` without merging.
@@ -461,126 +591,73 @@ impl GitStore {
         Ok(id)
     }
 
-    /// List `(refname, id)` pairs under a prefix, sorted by refname.
+    /// List `(refname, id)` pairs under a prefix, sorted by refname. A
+    /// prefix that names a ref exactly matches that single ref. Only
+    /// object targets are listed: a symbolic link under `refs/wf/` would
+    /// violate the store rules and is reported instead of being returned
+    /// as an id.
     pub fn list_refs(&self, prefix: &str) -> Result<Vec<(String, String)>, GitStoreError> {
         let mut out = Vec::new();
-        let base = self.git_dir.join(prefix);
-        if !base.exists() {
-            // The prefix itself may be a leaf ref.
-            if let Ok(Some(id)) = self.read_ref(prefix) {
-                out.push((prefix.to_string(), id));
-            }
-            return Ok(out);
-        }
-        self.collect_refs(&base, prefix, &mut out)?;
-        out.sort();
-        Ok(out)
-    }
-
-    fn collect_refs(
-        &self,
-        dir: &Path,
-        prefix: &str,
-        out: &mut Vec<(String, String)>,
-    ) -> Result<(), GitStoreError> {
-        let entries = fs::read_dir(dir)?;
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                self.collect_refs(&path, prefix, out)?;
-            } else if entry.file_name().to_string_lossy().ends_with(".lock") {
+        let store = self.ref_store();
+        let platform = store
+            .iter()
+            .map_err(|e| GitStoreError::Io(e.to_string()))?;
+        let refs = platform.all()?;
+        for reference in refs {
+            let reference = reference.map_err(|e| GitStoreError::Io(e.to_string()))?;
+            let name = reference.name.to_string();
+            if !name.starts_with(prefix) {
                 continue;
-            } else {
-                let rel = path
-                    .strip_prefix(&self.git_dir)
-                    .map_err(|e| GitStoreError::InvalidInput(e.to_string()))?
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                if rel.starts_with(prefix) {
-                    let content = fs::read_to_string(&path)?.trim().to_string();
-                    if !content.is_empty() {
-                        out.push((rel, content));
-                    }
+            }
+            match reference.target {
+                gix_ref::Target::Object(id) => out.push((name, id.to_hex().to_string())),
+                gix_ref::Target::Symbolic(_) => {
+                    return Err(GitStoreError::InvalidInput(format!(
+                        "ref '{name}' must point at an object id"
+                    )));
                 }
             }
         }
-        Ok(())
+        Ok(out)
     }
 
-    // ── objects ──
+    // ── objects (Gitoxide loose store: compression and identity handled there) ──
 
-    fn object_path(&self, id: &str) -> Result<PathBuf, GitStoreError> {
-        Self::check_hex(id)?;
-        Ok(self.git_dir.join("objects").join(&id[..2]).join(&id[2..]))
+    fn odb(&self) -> Result<gix_odb::Handle, GitStoreError> {
+        gix_odb::at(self.git_dir.join("objects"), gix_hash::Kind::Sha1)
+            .map_err(|e| GitStoreError::Io(e.to_string()))
     }
 
-    fn check_hex(id: &str) -> Result<(), GitStoreError> {
-        if id.len() != 40 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(GitStoreError::InvalidInput(format!("bad object id '{id}'")));
-        }
-        Ok(())
-    }
-
-    fn store_object(&self, kind: &str, body: &[u8]) -> Result<String, GitStoreError> {
-        let header = format!("{kind} {}\0", body.len());
-        let id = hash_object(header.as_bytes(), body);
-        let path = self.object_path(&id)?;
-        if path.exists() {
-            return Ok(id);
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut encoder =
-            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(header.as_bytes())?;
-        encoder.write_all(body)?;
-        let compressed = encoder.finish()?;
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, &compressed)?;
-        fs::rename(&tmp, &path)?;
-        Ok(id)
-    }
-
-    fn load_object(&self, id: &str) -> Result<(String, Vec<u8>), GitStoreError> {
-        let path = self.object_path(id)?;
-        let compressed = fs::read(&path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                GitStoreError::ObjectNotFound(id.to_string())
-            } else {
-                GitStoreError::from(e)
-            }
-        })?;
-        let mut decoder = flate2::read::ZlibDecoder::new(&compressed[..]);
-        let mut raw = Vec::new();
-        decoder
-            .read_to_end(&mut raw)
+    fn find_data(&self, id: &str) -> Result<(gix_object::Kind, Vec<u8>), GitStoreError> {
+        let oid = parse_object_id(id)?;
+        let odb = self.odb()?;
+        let mut buf = Vec::new();
+        let data = odb
+            .try_find(&oid, &mut buf)
             .map_err(|e| GitStoreError::Corrupt {
                 id: id.to_string(),
                 reason: e.to_string(),
-            })?;
-        let nul = raw
-            .iter()
-            .position(|b| *b == 0)
-            .ok_or(GitStoreError::Corrupt {
-                id: id.to_string(),
-                reason: "missing header terminator".to_string(),
-            })?;
-        let header = String::from_utf8_lossy(&raw[..nul]).to_string();
-        let kind = header.split(' ').next().unwrap_or("").to_string();
-        Ok((kind, raw[nul + 1..].to_vec()))
+            })?
+            .ok_or_else(|| GitStoreError::ObjectNotFound(id.to_string()))?;
+        Ok((data.kind, data.data.to_vec()))
     }
 
     /// Store bytes as a blob object. Returns the object id.
     pub fn write_blob(&self, bytes: &[u8]) -> Result<String, GitStoreError> {
-        self.store_object("blob", bytes)
+        let oid = self
+            .odb()?
+            .write_buf(gix_object::Kind::Blob, bytes)
+            .map_err(|e| GitStoreError::Corrupt {
+                id: "<new-blob>".to_string(),
+                reason: e.to_string(),
+            })?;
+        Ok(oid.to_hex().to_string())
     }
 
     /// Load a blob's bytes.
     pub fn read_blob(&self, id: &str) -> Result<Vec<u8>, GitStoreError> {
-        let (kind, body) = self.load_object(id)?;
-        if kind != "blob" {
+        let (kind, body) = self.find_data(id)?;
+        if kind != gix_object::Kind::Blob {
             return Err(GitStoreError::Corrupt {
                 id: id.to_string(),
                 reason: format!("expected blob, found {kind}"),
@@ -593,64 +670,59 @@ impl GitStore {
     pub fn write_tree(&self, entries: &[TreeEntry]) -> Result<String, GitStoreError> {
         let mut sorted = entries.to_vec();
         sorted.sort_by(|a, b| a.name.cmp(&b.name));
-        let mut body = Vec::new();
+        let mut tree_entries = Vec::with_capacity(sorted.len());
         for entry in &sorted {
-            body.extend_from_slice(entry.mode.as_bytes());
-            body.push(b' ');
-            body.extend_from_slice(entry.name.as_bytes());
-            body.push(0);
-            body.extend_from_slice(
-                &hex::decode(&entry.id)
-                    .map_err(|e| GitStoreError::InvalidInput(format!("bad tree entry id: {e}")))?,
-            );
+            let kind = match entry.mode.as_str() {
+                "40000" => gix_object::tree::EntryKind::Tree,
+                MODE_EXEC => gix_object::tree::EntryKind::BlobExecutable,
+                MODE_FILE => gix_object::tree::EntryKind::Blob,
+                other => {
+                    return Err(GitStoreError::InvalidInput(format!(
+                        "unsupported tree entry mode '{other}'"
+                    )));
+                }
+            };
+            let oid = parse_object_id(&entry.id)?;
+            tree_entries.push(gix_object::tree::Entry {
+                mode: kind.into(),
+                filename: entry.name.as_bytes().to_vec().into(),
+                oid,
+            });
         }
-        self.store_object("tree", &body)
+        let tree = gix_object::Tree {
+            entries: tree_entries,
+        };
+        let oid = self.odb()?.write(&tree).map_err(|e| GitStoreError::Corrupt {
+            id: "<new-tree>".to_string(),
+            reason: e.to_string(),
+        })?;
+        Ok(oid.to_hex().to_string())
     }
 
     /// Parse a tree object into entries.
     pub fn read_tree(&self, id: &str) -> Result<Vec<TreeEntry>, GitStoreError> {
-        let (kind, body) = self.load_object(id)?;
-        if kind != "tree" {
+        let (kind, body) = self.find_data(id)?;
+        if kind != gix_object::Kind::Tree {
             return Err(GitStoreError::Corrupt {
                 id: id.to_string(),
                 reason: format!("expected tree, found {kind}"),
             });
         }
-        let mut entries = Vec::new();
-        let mut rest = body.as_slice();
-        while !rest.is_empty() {
-            let space = rest
-                .iter()
-                .position(|b| *b == b' ')
-                .ok_or(GitStoreError::Corrupt {
-                    id: id.to_string(),
-                    reason: "bad tree entry".to_string(),
-                })?;
-            let mode = String::from_utf8_lossy(&rest[..space]).to_string();
-            rest = &rest[space + 1..];
-            let nul = rest
-                .iter()
-                .position(|b| *b == 0)
-                .ok_or(GitStoreError::Corrupt {
-                    id: id.to_string(),
-                    reason: "bad tree entry".to_string(),
-                })?;
-            let name = String::from_utf8_lossy(&rest[..nul]).to_string();
-            rest = &rest[nul + 1..];
-            if rest.len() < 20 {
-                return Err(GitStoreError::Corrupt {
-                    id: id.to_string(),
-                    reason: "truncated tree entry".to_string(),
-                });
+        let tree = gix_object::TreeRef::from_bytes(&body, gix_hash::Kind::Sha1).map_err(|e| {
+            GitStoreError::Corrupt {
+                id: id.to_string(),
+                reason: e.to_string(),
             }
-            entries.push(TreeEntry {
-                mode,
-                name,
-                id: hex::encode(&rest[..20]),
-            });
-            rest = &rest[20..];
-        }
-        Ok(entries)
+        })?;
+        Ok(tree
+            .entries
+            .iter()
+            .map(|e| TreeEntry {
+                mode: format!("{:o}", e.mode),
+                name: e.filename.to_string(),
+                id: e.oid.to_hex().to_string(),
+            })
+            .collect())
     }
 
     /// Expand a tree recursively into `path -> (mode, blob id)`.
@@ -791,77 +863,66 @@ impl GitStore {
         timestamp_millis: i64,
         message: &str,
     ) -> Result<String, GitStoreError> {
-        Self::check_hex(tree)?;
+        let tree_id = parse_object_id(tree)?;
+        let mut parent_ids = Vec::with_capacity(parents.len());
         for parent in parents {
-            Self::check_hex(parent)?;
+            parent_ids.push(parse_object_id(parent)?);
         }
         let secs = timestamp_millis.div_euclid(1000);
-        let mut body = format!("tree {tree}\n");
-        for parent in parents {
-            body.push_str(&format!("parent {parent}\n"));
-        }
-        body.push_str(&format!("author {author} {secs} +0000\n"));
-        body.push_str(&format!("committer {committer} {secs} +0000\n"));
-        body.push_str(&format!("\n{message}"));
-        if !message.ends_with('\n') {
-            body.push('\n');
-        }
-        self.store_object("commit", body.as_bytes())
+        let mut text = message.trim_end_matches('\n').to_string();
+        text.push('\n');
+        let commit = gix_object::Commit {
+            tree: tree_id,
+            parents: parent_ids.into_iter().collect(),
+            author: signature_for(author, secs),
+            committer: signature_for(committer, secs),
+            encoding: None,
+            message: text.as_bytes().to_vec().into(),
+            extra_headers: Vec::new(),
+        };
+        let oid = self.odb()?.write(&commit).map_err(|e| GitStoreError::Corrupt {
+            id: "<new-commit>".to_string(),
+            reason: e.to_string(),
+        })?;
+        Ok(oid.to_hex().to_string())
     }
 
     /// Parse a commit object.
     pub fn read_commit(&self, id: &str) -> Result<GitCommit, GitStoreError> {
-        let (kind, body) = self.load_object(id)?;
-        if kind != "commit" {
+        let (kind, body) = self.find_data(id)?;
+        if kind != gix_object::Kind::Commit {
             return Err(GitStoreError::Corrupt {
                 id: id.to_string(),
                 reason: format!("expected commit, found {kind}"),
             });
         }
-        let text = String::from_utf8_lossy(&body).to_string();
-        let mut tree = String::new();
-        let mut parents = Vec::new();
-        let mut author = String::new();
-        let mut committer = String::new();
-        let mut author_ts = 0i64;
-        let mut committer_ts = 0i64;
-        let mut message_start = 0usize;
-        for line in text.split_inclusive('\n') {
-            message_start += line.len();
-            let trimmed = line.strip_suffix('\n').unwrap_or(line);
-            if trimmed.is_empty() {
-                break;
-            }
-            if let Some(v) = trimmed.strip_prefix("tree ") {
-                tree = v.to_string();
-            } else if let Some(v) = trimmed.strip_prefix("parent ") {
-                parents.push(v.to_string());
-            } else if let Some(v) = trimmed.strip_prefix("author ") {
-                let (ident, ts) = split_ident(v);
-                author = ident;
-                author_ts = ts;
-            } else if let Some(v) = trimmed.strip_prefix("committer ") {
-                let (ident, ts) = split_ident(v);
-                committer = ident;
-                committer_ts = ts;
-            }
-        }
-        if tree.is_empty() {
-            return Err(GitStoreError::Corrupt {
-                id: id.to_string(),
-                reason: "commit has no tree".to_string(),
-            });
-        }
-        let message = text[message_start..].trim_end_matches('\n').to_string();
+        let commit =
+            gix_object::CommitRef::from_bytes(&body, gix_hash::Kind::Sha1).map_err(|e| {
+                GitStoreError::Corrupt {
+                    id: id.to_string(),
+                    reason: e.to_string(),
+                }
+            })?;
+        let author_sig = commit.author().map_err(|e| GitStoreError::Corrupt {
+            id: id.to_string(),
+            reason: e.to_string(),
+        })?;
+        let committer_sig = commit.committer().map_err(|e| GitStoreError::Corrupt {
+            id: id.to_string(),
+            reason: e.to_string(),
+        })?;
         Ok(GitCommit {
             id: id.to_string(),
-            tree,
-            parents,
-            author,
-            committer,
-            author_ts,
-            committer_ts,
-            message,
+            tree: commit.tree().to_hex().to_string(),
+            parents: commit
+                .parents()
+                .map(|o| o.to_hex().to_string())
+                .collect(),
+            author: author_sig.name.to_string(),
+            committer: committer_sig.name.to_string(),
+            author_ts: author_sig.seconds().saturating_mul(1000),
+            committer_ts: committer_sig.seconds().saturating_mul(1000),
+            message: commit.message.to_string().trim_end_matches('\n').to_string(),
         })
     }
 
@@ -907,21 +968,19 @@ impl GitStore {
     /// Walk the commit graph from `start`, newest first, up to `limit`
     /// commits (0 = unlimited).
     pub fn log(&self, start: &str, limit: usize) -> Result<Vec<GitCommit>, GitStoreError> {
+        let tip = parse_object_id(start)?;
+        let odb = self.odb()?;
         let mut out = Vec::new();
-        let mut queue = VecDeque::from([start.to_string()]);
-        let mut seen = HashSet::from([start.to_string()]);
-        while let Some(id) = queue.pop_front() {
+        let walk = gix_traverse::commit::Simple::new([tip], odb);
+        for next in walk {
             if limit > 0 && out.len() >= limit {
                 break;
             }
+            let Ok(info) = next else { continue };
+            let id = info.id.to_hex().to_string();
             let Ok(commit) = self.read_commit(&id) else {
                 continue;
             };
-            for parent in &commit.parents {
-                if seen.insert(parent.clone()) {
-                    queue.push_back(parent.clone());
-                }
-            }
             out.push(commit);
         }
         out.sort_by(|a, b| b.committer_ts.cmp(&a.committer_ts).then(b.id.cmp(&a.id)));
@@ -930,20 +989,29 @@ impl GitStore {
 
     /// All commits reachable from any ref (used for cold index rebuilds).
     pub fn all_commits(&self) -> Result<Vec<GitCommit>, GitStoreError> {
+        let refs = self.list_refs("refs/wf/")?;
+        let mut tips = Vec::with_capacity(refs.len());
+        for (_, id) in &refs {
+            if let Ok(oid) = parse_object_id(id) {
+                tips.push(oid);
+            }
+        }
         let mut out = Vec::new();
         let mut seen = HashSet::new();
-        let refs = self.list_refs("refs/wf/")?;
-        let mut queue: VecDeque<String> = refs.into_iter().map(|(_, id)| id).collect();
-        while let Some(id) = queue.pop_front() {
+        if tips.is_empty() {
+            return Ok(out);
+        }
+        let odb = self.odb()?;
+        let walk = gix_traverse::commit::Simple::new(tips, odb);
+        for next in walk {
+            let Ok(info) = next else { continue };
+            let id = info.id.to_hex().to_string();
             if !seen.insert(id.clone()) {
                 continue;
             }
             let Ok(commit) = self.read_commit(&id) else {
                 continue;
             };
-            for parent in &commit.parents {
-                queue.push_back(parent.clone());
-            }
             out.push(commit);
         }
         Ok(out)
@@ -951,22 +1019,17 @@ impl GitStore {
 
     /// Whether `ancestor` is reachable from `descendant`.
     pub fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, GitStoreError> {
-        if ancestor == descendant {
+        let ancestor_oid = parse_object_id(ancestor)?;
+        let descendant_oid = parse_object_id(descendant)?;
+        if ancestor_oid == descendant_oid {
             return Ok(true);
         }
-        let mut queue = VecDeque::from([descendant.to_string()]);
-        let mut seen = HashSet::from([descendant.to_string()]);
-        while let Some(id) = queue.pop_front() {
-            let Ok(commit) = self.read_commit(&id) else {
-                continue;
-            };
-            for parent in &commit.parents {
-                if parent == ancestor {
-                    return Ok(true);
-                }
-                if seen.insert(parent.clone()) {
-                    queue.push_back(parent.clone());
-                }
+        let odb = self.odb()?;
+        let walk = gix_traverse::commit::Simple::new([descendant_oid], odb);
+        for next in walk {
+            let Ok(info) = next else { continue };
+            if info.id == ancestor_oid {
+                return Ok(true);
             }
         }
         Ok(false)
@@ -974,37 +1037,27 @@ impl GitStore {
 
     /// Best common ancestor of two commits, if any.
     pub fn merge_base(&self, a: &str, b: &str) -> Result<Option<String>, GitStoreError> {
-        if a == b {
+        let a_oid = parse_object_id(a)?;
+        let b_oid = parse_object_id(b)?;
+        if a_oid == b_oid {
             return Ok(Some(a.to_string()));
         }
-        let ancestors_of = |start: &str| -> Result<HashSet<String>, GitStoreError> {
-            let mut seen = HashSet::from([start.to_string()]);
-            let mut queue = VecDeque::from([start.to_string()]);
-            while let Some(id) = queue.pop_front() {
-                let Ok(commit) = self.read_commit(&id) else {
-                    continue;
-                };
-                for parent in &commit.parents {
-                    if seen.insert(parent.clone()) {
-                        queue.push_back(parent.clone());
-                    }
-                }
+        let mut ancestors = HashSet::new();
+        {
+            let odb = self.odb()?;
+            let walk = gix_traverse::commit::Simple::new([a_oid], odb);
+            for next in walk {
+                let Ok(info) = next else { continue };
+                ancestors.insert(info.id);
             }
-            Ok(seen)
-        };
-        let a_set = ancestors_of(a)?;
-        let mut queue = VecDeque::from([b.to_string()]);
-        let mut seen = HashSet::from([b.to_string()]);
-        while let Some(id) = queue.pop_front() {
-            if a_set.contains(&id) {
-                return Ok(Some(id));
-            }
-            let Ok(commit) = self.read_commit(&id) else {
-                continue;
-            };
-            for parent in &commit.parents {
-                if seen.insert(parent.clone()) {
-                    queue.push_back(parent.clone());
+        }
+        {
+            let odb = self.odb()?;
+            let walk = gix_traverse::commit::Simple::new([b_oid], odb);
+            for next in walk {
+                let Ok(info) = next else { continue };
+                if ancestors.contains(&info.id) {
+                    return Ok(Some(info.id.to_hex().to_string()));
                 }
             }
         }
@@ -1038,17 +1091,6 @@ impl GitStore {
 pub struct CommitOnRefOutcome {
     pub id: String,
     pub created: bool,
-}
-
-fn split_ident(value: &str) -> (String, i64) {
-    // `Name <mail> <secs> +0000`
-    let mut parts = value.rsplitn(2, ' ');
-    let _zone = parts.next().unwrap_or("");
-    let rest = parts.next().unwrap_or(value);
-    let mut rev = rest.rsplitn(2, ' ');
-    let secs = rev.next().unwrap_or("0").parse::<i64>().unwrap_or(0);
-    let ident = rev.next().unwrap_or(rest).to_string();
-    (ident, secs.saturating_mul(1000))
 }
 
 /// Build a commit message from an intent line plus trailers.
@@ -1109,6 +1151,38 @@ mod tests {
         assert!(store.compare_and_swap(REF_MAIN, Some("nope"), &id).is_err());
         store.compare_and_swap(REF_MAIN, Some(&id), &id).unwrap();
         assert_eq!(store.copy_ref(REF_MAIN, REF_HUMAN).unwrap(), id);
+        // Ref transactions write no reflog sidecar files.
+        assert!(!store.git_dir().join("logs").exists());
+        // Prefix and exact-name listings agree.
+        let refs = store.list_refs("refs/wf/").unwrap();
+        assert!(refs.contains(&(REF_MAIN.to_string(), id.clone())));
+        assert!(refs.contains(&(REF_HUMAN.to_string(), id.clone())));
+        assert_eq!(
+            store.list_refs(REF_MAIN).unwrap(),
+            vec![(REF_MAIN.to_string(), id.clone())]
+        );
+        // Deleting a missing ref is a no-op success.
+        store.delete_ref("refs/wf/review/missing").unwrap();
+    }
+
+    #[test]
+    fn concurrent_compare_and_swap_keeps_one_winner() {
+        let store = store();
+        let tree = store.write_tree(&[]).unwrap();
+        let first = store
+            .write_commit(&tree, &[], "a", SYSTEM_COMMITTER, 1_000, "one")
+            .unwrap();
+        let second = store
+            .write_commit(&tree, &[], "a", SYSTEM_COMMITTER, 2_000, "two")
+            .unwrap();
+        store.write_ref(REF_MAIN, &first).unwrap();
+        std::thread::scope(|scope| {
+            let a = scope.spawn(|| store.compare_and_swap(REF_MAIN, Some(&first), &second));
+            let b = scope.spawn(|| store.compare_and_swap(REF_MAIN, Some(&first), &second));
+            let results = [a.join().unwrap(), b.join().unwrap()];
+            assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
+        });
+        assert_eq!(store.read_ref(REF_MAIN).unwrap().as_deref(), Some(second.as_str()));
     }
 
     #[test]

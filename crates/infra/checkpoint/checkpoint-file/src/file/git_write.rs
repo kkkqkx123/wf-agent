@@ -299,6 +299,10 @@ impl FileCheckpointManager {
         let mut paths: Vec<String> = changes.keys().cloned().collect();
         paths.sort();
         self.index_commit(storage, &outcome.id, "human", "", "watcher", &paths)?;
+        for (path, change) in &changes {
+            let bytes = change.as_ref().map(|(_, content)| content.as_slice());
+            self.publish_file_event(&outcome.id, path, "human", bytes);
+        }
         Ok(Some(outcome.id))
     }
 }

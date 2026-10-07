@@ -154,6 +154,10 @@ fn commits_for_actor(
         }
     }
     // Fallback: scan the graph for the actor trailer.
+    tracing::warn!(
+        actor = %actor,
+        "source index empty for actor; falling back to graph scan"
+    );
     let mut out = Vec::new();
     for commit in git.all_commits().map_err(map_git_error)? {
         if commit.trailer(TRAILER_ACTOR).as_deref() == Some(actor) {
@@ -260,6 +264,10 @@ pub fn list_changes_by_path(
     let indexed = storage.find_commits_by_path(path, 0)?;
     let commits: Vec<GitCommit> = if indexed.is_empty() {
         // Fallback: scan every reachable commit's tree for the path.
+        tracing::warn!(
+            path = %path,
+            "source index empty for path; falling back to graph scan"
+        );
         let mut found = Vec::new();
         for commit in git.all_commits().map_err(map_git_error)? {
             let Ok(files) = git.tree_to_files(&commit.tree) else {

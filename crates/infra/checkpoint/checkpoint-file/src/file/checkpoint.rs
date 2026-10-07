@@ -65,10 +65,17 @@ impl FileCheckpointManager {
         entity_id: &str,
     ) -> Result<Option<FileCheckpoint>, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
-        match self.latest_checkpoint_id(&actor)? {
-            Some(id) => Ok(Some(self.project_commit(&id)?)),
-            None => Ok(None),
+        let result = match self.latest_checkpoint_id(&actor) {
+            Ok(Some(id)) => self.project_commit(&id).map(Some),
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        };
+        if result.is_err() {
+            if let Some(metrics) = self.checkpoint_metrics() {
+                metrics.record_async_projection_failure(entity_id);
+            }
         }
+        result
     }
 
     /// Latest commit id on an actor's edit ref. The in-memory mirror is

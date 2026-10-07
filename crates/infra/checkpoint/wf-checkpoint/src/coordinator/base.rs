@@ -66,6 +66,25 @@ pub fn publish_persist_failed(
     }
 }
 
+/// Shared best-effort failure publishing reusing the Failed shape so
+/// async projection, persistence queue and cleanup races stay queryable.
+pub fn publish_best_effort_failed(
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: Option<String>,
+    entity_id: &str,
+    operation: &str,
+    err: &str,
+) {
+    if let Some(bus) = bus {
+        bus.publish(CheckpointEventBus::failed_with(
+            checkpoint_id,
+            operation,
+            err,
+            Some(entity_id.to_string()),
+        ));
+    }
+}
+
 /// Read-modify-write description merge shared by the agent-loop and
 /// workflow coordinators: rewrites the caller-supplied text under
 /// `customFields.description` on the stored blob without allocating a new
@@ -80,6 +99,7 @@ pub async fn merge_description_back<M>(
     entity_type: &str,
     entity_id: &str,
     description: &str,
+    bus: Option<&CheckpointEventBus>,
 ) -> Result<CheckpointStorageMetadata, CheckpointError>
 where
     M: CheckpointStateManager,
@@ -90,6 +110,13 @@ where
             checkpoint_id = %checkpoint_id,
             entity_id = %entity_id,
             "merge target already cleaned up; returning current latest"
+        );
+        publish_best_effort_failed(
+            bus,
+            Some(checkpoint_id.to_string()),
+            entity_id,
+            "cleanup_skip",
+            "merge target already cleaned up; returning current latest",
         );
         return manager
             .get_latest(entity_id)
@@ -122,6 +149,13 @@ where
         entity_id = %entity_id,
         "merged row cleaned up before re-read; returning current latest"
     );
+    publish_best_effort_failed(
+        bus,
+        Some(checkpoint_id.to_string()),
+        entity_id,
+        "cleanup_skip",
+        "merged row cleaned up before re-read; returning current latest",
+    );
     manager
         .get_latest(entity_id)
         .await?
@@ -141,6 +175,7 @@ pub async fn reuse_duplicate_checkpoint<M>(
     entity_type: &str,
     entity_id: &str,
     description: Option<&str>,
+    bus: Option<&CheckpointEventBus>,
 ) -> String
 where
     M: CheckpointStateManager,
@@ -154,7 +189,7 @@ where
             .and_then(|v| v.as_str());
         if current != Some(text) {
             if let Ok(merged) =
-                merge_description_back(manager, &latest.id, entity_type, entity_id, text).await
+                merge_description_back(manager, &latest.id, entity_type, entity_id, text, bus).await
             {
                 return merged.id;
             }
@@ -235,6 +270,13 @@ pub trait CheckpointCoordinator: Send + Sync {
     /// every request is accepted.
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy>;
 
+    /// Attached event bus for best-effort failure reporting. Best-effort
+    /// branches (async projection, persistence queue, cleanup races) publish
+    /// Failed events through it while staying non-fatal.
+    fn event_bus(&self) -> Option<&CheckpointEventBus> {
+        None
+    }
+
     /// Best-effort file snapshot hook invoked by `create_checkpoint` after
     /// the checkpoint has been persisted. The default is a no-op; engine
     /// integrations (sqlite / file-history adapters) override it. Errors
@@ -282,6 +324,13 @@ pub trait CheckpointCoordinator: Send + Sync {
                     error = %err,
                     "deferred file checkpoint creation failed (best-effort)"
                 );
+                publish_best_effort_failed(
+                    self.event_bus(),
+                    Some(checkpoint_id.to_string()),
+                    entity_id,
+                    "async_projection",
+                    &format!("deferred file checkpoint creation failed: {err}"),
+                );
             }
         }
     }
@@ -321,6 +370,13 @@ pub trait CheckpointCoordinator: Send + Sync {
                         "file checkpoint creation failed (best-effort)"
                     );
                 }
+                publish_best_effort_failed(
+                    self.event_bus(),
+                    Some(checkpoint_id.clone()),
+                    entity_id,
+                    "async_projection",
+                    &format!("file projection failed: {err}"),
+                );
             }
             Ok(checkpoint_id)
         }
@@ -401,14 +457,38 @@ pub const MAX_PERSISTENCE_QUEUE: usize = 128;
 pub async fn push_persistence_handle(
     queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     handle: tokio::task::JoinHandle<()>,
+    bus: Option<&CheckpointEventBus>,
+    entity_id: &str,
+    checkpoint_id: &str,
+    metrics: Option<&wf_metrics::CheckpointMetricsCollector>,
 ) {
     let mut guard = queue.lock().await;
     if guard.len() >= MAX_PERSISTENCE_QUEUE {
+        publish_best_effort_failed(
+            bus,
+            Some(checkpoint_id.to_string()),
+            entity_id,
+            "persistence_backlog",
+            "persistence queue full; awaiting backlog",
+        );
+        if let Some(metrics) = metrics {
+            metrics.record_persistence_backlog(entity_id);
+        }
         let backlog: Vec<_> = std::mem::take(&mut *guard);
         drop(guard);
         for task in backlog {
             if let Err(join_err) = task.await {
                 tracing::warn!(error = %join_err, "persistence task panicked");
+                publish_best_effort_failed(
+                    bus,
+                    Some(checkpoint_id.to_string()),
+                    entity_id,
+                    "persistence_failure",
+                    &format!("persistence task panicked: {join_err}"),
+                );
+                if let Some(metrics) = metrics {
+                    metrics.record_persistence_failure(entity_id);
+                }
             }
         }
         guard = queue.lock().await;
@@ -419,6 +499,9 @@ pub async fn push_persistence_handle(
 /// Drain all deferred persistence handles. Shared by both coordinators.
 pub async fn drain_persistence_handles(
     queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    bus: Option<&CheckpointEventBus>,
+    entity_id: &str,
+    metrics: Option<&wf_metrics::CheckpointMetricsCollector>,
 ) {
     let handles: Vec<_> = {
         let mut guard = queue.lock().await;
@@ -427,6 +510,16 @@ pub async fn drain_persistence_handles(
     for handle in handles {
         if let Err(join_err) = handle.await {
             tracing::warn!(error = %join_err, "persistence task panicked");
+            publish_best_effort_failed(
+                bus,
+                None,
+                entity_id,
+                "persistence_failure",
+                &format!("persistence task panicked: {join_err}"),
+            );
+            if let Some(metrics) = metrics {
+                metrics.record_persistence_failure(entity_id);
+            }
         }
     }
 }

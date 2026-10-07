@@ -958,6 +958,10 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy)
     }
 
+    fn event_bus(&self) -> Option<&CheckpointEventBus> {
+        self.event_bus.as_ref()
+    }
+
     fn async_persistence_enabled(&self) -> bool {
         self.async_persistence
     }
@@ -998,41 +1002,80 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         let checkpoint_id = checkpoint_id.to_string();
         let entity_id = entity_id.to_string();
         let file_manager = self.file_checkpoint_manager.clone();
+        let bus = self.event_bus.clone();
+        let checkpoint_id_for_task = checkpoint_id.clone();
+        let entity_id_for_task = entity_id.clone();
+        let metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
         let handle = tokio::task::spawn_blocking(move || {
             if let Some(manager) = file_manager {
-                match manager.create_latest_file_checkpoint(&entity_id) {
+                match manager.create_latest_file_checkpoint(&entity_id_for_task) {
                     Ok(Some(file_checkpoint)) => {
                         tracing::debug!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             file_checkpoint_id = %file_checkpoint.id,
                             "deferred file projection correlated with state checkpoint"
                         );
                     }
                     Ok(None) => {
                         tracing::debug!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             "deferred file projection found no history"
                         );
                     }
                     Err(err) => {
                         tracing::warn!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             error = %err,
                             "deferred file checkpoint creation failed (best-effort)"
                         );
+                        crate::coordinator::base::publish_best_effort_failed(
+                            bus.as_ref(),
+                            Some(checkpoint_id_for_task.clone()),
+                            &entity_id_for_task,
+                            "async_projection",
+                            &format!("deferred file checkpoint creation failed: {err}"),
+                        );
+                        if let Some(metrics) = metrics.as_ref() {
+                            metrics.record_persistence_failure(&entity_id_for_task);
+                        }
                     }
                 }
             }
         });
-        crate::coordinator::base::push_persistence_handle(&self.persistence_queue, handle).await;
+        let queue_metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
+        crate::coordinator::base::push_persistence_handle(
+            &self.persistence_queue,
+            handle,
+            self.event_bus.as_ref(),
+            &entity_id,
+            &checkpoint_id,
+            queue_metrics.as_deref(),
+        )
+        .await;
     }
 
     /// Drain the persistence queue and wait for all deferred operations.
     async fn wait_for_persistence(&self) {
-        crate::coordinator::base::drain_persistence_handles(&self.persistence_queue).await;
+        let queue_metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
+        crate::coordinator::base::drain_persistence_handles(
+            &self.persistence_queue,
+            self.event_bus.as_ref(),
+            "",
+            queue_metrics.as_deref(),
+        )
+        .await;
     }
 }
 
@@ -1048,14 +1091,23 @@ impl AgentCheckpointCoordinator {
         entity_id: &str,
         description: &str,
     ) -> Result<CheckpointStorageMetadata, CheckpointError> {
-        crate::coordinator::base::merge_description_back(
+        let merged = crate::coordinator::base::merge_description_back(
             &self.state_manager,
             checkpoint_id,
             "agent_loop",
             entity_id,
             description,
+            self.event_bus.as_ref(),
         )
-        .await
+        .await?;
+        if merged.id != checkpoint_id {
+            if let Some(manager) = self.file_checkpoint_manager.as_ref() {
+                if let Some(metrics) = manager.checkpoint_metrics_for_observability() {
+                    metrics.record_cleanup_skip(entity_id);
+                }
+            }
+        }
+        Ok(merged)
     }
 
     pub async fn reuse_duplicate(
@@ -1070,6 +1122,7 @@ impl AgentCheckpointCoordinator {
             "agent_loop",
             entity_id,
             description,
+            self.event_bus.as_ref(),
         )
         .await
     }
@@ -1486,13 +1539,8 @@ mod tests {
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = AgentCheckpointStateManager::new(storage);
 
-        let file_storage =
-            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
-        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
-        let file_manager =
-            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
-        let file_manager2 =
-            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
+        let file_manager = FileCheckpointManager::new_in_memory().unwrap();
+        let file_manager2 = file_manager.clone();
         file_manager
             .create_checkpoint(
                 "loop-1",
@@ -1511,13 +1559,12 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.agent_loop_id, "loop-1");
+        let workspace = file_manager
+            .get_actor_workspace("agent:loop-1")
+            .unwrap();
         assert!(
-            git.read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
-                "agent:loop-1"
-            ))
-            .unwrap()
-            .is_some(),
-            "actor edit line stored in the object store"
+            workspace.iter().any(|f| f.path == "a.txt"),
+            "actor edit line stored via coordinator query view"
         );
     }
 
@@ -1758,5 +1805,125 @@ mod tests {
         assert_eq!(rows[0].1, Some(7));
         assert_eq!(rows[0].2, Some(9));
         assert_eq!(rows[0].3.as_deref(), Some("Manual checkpoint"));
+    }
+
+    #[tokio::test]
+    async fn best_effort_cleanup_skip_emits_queryable_failed_event() {
+        let storage = Arc::new(StorageBackend::new_memory());
+        let sm = AgentCheckpointStateManager::new(storage);
+        let bus = CheckpointEventBus::new();
+        let mut rx = bus.subscribe();
+        let coord =
+            AgentCheckpointCoordinator::new(sm).with_event_bus(bus);
+
+        let first = build_and_persist(&coord, "running", 1).await;
+        let second = build_and_persist(&coord, "running", 2).await;
+        coord.state_manager().delete(&first.id).await.unwrap();
+        let merged = coord
+            .merge_description_back(&first.id, "loop-1", "late note")
+            .await
+            .unwrap();
+        assert_eq!(merged.id, second.id);
+        let mut found = None;
+        while let Ok(event) = rx.try_recv() {
+            if let CheckpointEvent::Failed { data, .. } = &event {
+                if data.operation.as_deref() == Some("cleanup_skip") {
+                    found = Some(event);
+                    break;
+                }
+            }
+        }
+        let event = found.expect("cleanup skip emits Failed event");
+        match event {
+            CheckpointEvent::Failed { data, .. } => {
+                assert_eq!(data.operation.as_deref(), Some("cleanup_skip"));
+                assert_eq!(data.execution_id.as_deref(), Some("loop-1"));
+            }
+            other => panic!("expected Failed event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn best_effort_failure_factory_reuses_failed_shape_for_all_operations() {
+        for operation in ["async_projection", "persistence_backlog", "persistence_failure", "cleanup_skip"] {
+            let event = CheckpointEventBus::failed_with(
+                Some("cp-1".to_string()),
+                operation,
+                format!("{operation} failed"),
+                Some("loop-1".to_string()),
+            );
+            match event {
+                CheckpointEvent::Failed { data, .. } => {
+                    assert_eq!(data.operation.as_deref(), Some(operation));
+                    assert_eq!(data.checkpoint_id.as_deref(), Some("cp-1"));
+                }
+                other => panic!("expected Failed event, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn alert_counters_increment_in_original_collector() {
+        use wf_metrics::collector::CollectorConfig;
+        use wf_metrics::CheckpointMetricsCollector;
+        let collector = CheckpointMetricsCollector::new(CollectorConfig::default());
+        collector.record_async_projection_failure("loop-1");
+        collector.record_persistence_backlog("loop-1");
+        collector.record_persistence_failure("loop-1");
+        collector.record_cleanup_skip("loop-1");
+        let stats = collector.usage_stats();
+        assert_eq!(stats.async_projection_failures, 1);
+        assert_eq!(stats.persistence_backlog, 1);
+        assert_eq!(stats.persistence_failures, 1);
+        assert_eq!(stats.cleanup_skips, 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_reuses_same_actor_identity_as_workflow_path() {
+        let coord = make_coordinator();
+        let ctx = coord
+            .prepare("loop-1", CheckpointTiming::BeforeExecute)
+            .await
+            .unwrap();
+        assert_eq!(ctx.entity_type, "agent_loop");
+        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&cp, "loop-1").await.unwrap();
+        let entity = coord.restore(&cp.id).await.unwrap();
+        assert_eq!(entity.agent_loop_id, "loop-1");
+        let latest = coord
+            .state_manager()
+            .get_latest("loop-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.entity_id, "loop-1");
+    }
+
+    #[test]
+    fn empty_trigger_set_and_content_default_unified() {
+        use checkpoint_base::strategy::{CheckpointStrategy, StandardStrategy};
+        use wf_types::checkpoint::UnifiedCheckpointPolicy;
+        let empty = UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: vec![],
+            content: None,
+            retention: None,
+            error_handling: None,
+        };
+        let strategy = StandardStrategy::from_policy(&empty);
+        let ctx = wf_types::checkpoint::CheckpointContext {
+            entity_type: "agent_loop".to_string(),
+            entity_id: "loop-1".to_string(),
+            trigger: Some(CheckpointTiming::AfterExecute),
+            actor_id: None,
+            attempt: None,
+            retry_count: None,
+            error: None,
+            fallback_used: None,
+            metadata: None,
+        };
+        assert!(!strategy.should_checkpoint(&CheckpointTiming::AfterExecute, &ctx));
+        assert_eq!(strategy.content_config().include_state, Some(true));
+        assert_eq!(strategy.content_config().include_history, Some(true));
     }
 }

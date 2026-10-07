@@ -109,4 +109,25 @@ mod tests {
         assert!(is_execution_branch_name("execution/abc"));
         assert!(!is_execution_branch_name("other/abc"));
     }
+
+    #[test]
+    fn branch_classification_cross_layer_consistent() {
+        for name in ["execution/abc", "execution/a/b", "feature-1", "other/abc", "execution", ""] {
+            let kind = classify_branch(name);
+            let is_exec = is_execution_branch_name(name);
+            assert_eq!(
+                kind == BranchKind::Execution,
+                is_exec,
+                "classify_branch must agree with prefix check for '{name}'"
+            );
+            if kind == BranchKind::Execution {
+                assert!(branch_entity_id(name).is_some() || name == "execution/a/b" || is_exec);
+                assert!(!is_feature_branch_name(name));
+            } else {
+                assert!(!is_exec);
+            }
+        }
+        assert_eq!(classify_branch("execution/abc"), BranchKind::Execution);
+        assert_eq!(classify_branch("feature-1"), BranchKind::Feature);
+    }
 }

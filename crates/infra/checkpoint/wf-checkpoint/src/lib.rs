@@ -14,17 +14,11 @@ pub use checkpoint_base::metadata;
 pub use checkpoint_base::serializer;
 pub use checkpoint_base::strategy;
 pub use checkpoint_base::version_manager;
-pub use checkpoint_file::adapter;
 pub use checkpoint_file::approval;
-pub use checkpoint_file::branch;
 pub use checkpoint_file::event;
 pub use checkpoint_file::file;
-pub use checkpoint_file::git_store;
-pub use checkpoint_file::manager_store;
-pub use checkpoint_file::precise;
 pub use checkpoint_file::provenance;
 pub use checkpoint_file::scan;
-pub use checkpoint_file::scope;
 pub use checkpoint_file::script_capture;
 pub use checkpoint_file::session;
 pub use checkpoint_file::watcher;
@@ -63,7 +57,6 @@ pub use checkpoint_file::script_capture::{
     CollectedChange, CollectedChangeKind, WorkspaceChangeCollector,
 };
 pub use checkpoint_file::session::CheckpointSession;
-pub use checkpoint_file::storage;
 pub use checkpoint_file::watcher::{
     normalize_absolute_path, FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
 };

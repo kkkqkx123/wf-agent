@@ -28,7 +28,6 @@ checkpoint-base = { path = "../checkpoint-base" }
 checkpoint-state = { path = "../checkpoint-state" }
 checkpoint-file = { path = "../checkpoint-file" }
 notify = { workspace = true }
-globset = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -238,29 +238,14 @@ impl FileWatcher {
     /// Records arriving after the take (new `pending` flushes or direct
     /// `notify_*` inserts) stay buffered for the next batch and are never
     /// dropped by this call. The caller owns the batch: on success it is
-    /// consumed, on failure the unprocessed records must be returned via
-    /// [`Self::requeue_batch`].
+    /// consumed, on failure it is dropped and the next poll re-derives the
+    /// same final state, so nothing is ever requeued.
     pub fn take_batch(&self) -> Vec<FileChangeRecord> {
         let mut state = lock_ok(self.state.lock());
         let taken = std::mem::take(&mut state.changed);
         let mut out: Vec<FileChangeRecord> = taken.into_values().collect();
         out.sort_by(|a, b| a.path.cmp(&b.path));
         out
-    }
-
-    /// Return unprocessed records to the front of the queue after a batch
-    /// failure. Records are merged by path; a record that already has a
-    /// newer buffered entry keeps the newer entry, otherwise the unprocessed
-    /// record is restored. The batch boundary is preserved by sorting on
-    /// path before reinsertion.
-    pub fn requeue_batch(&self, records: Vec<FileChangeRecord>) {
-        if records.is_empty() {
-            return;
-        }
-        let mut state = lock_ok(self.state.lock());
-        for record in records {
-            state.changed.entry(record.path.clone()).or_insert(record);
-        }
     }
 
     /// Number of buffered (not yet taken) change records.
@@ -641,7 +626,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_batch_can_be_requeued() {
+    async fn failed_batch_is_dropped_and_next_poll_rederives() {
         let dir = tempfile::tempdir().unwrap();
         let watcher = test_watcher(dir.path());
         watcher.notify_file_change("a.txt", FileChangeKind::Add);
@@ -650,24 +635,13 @@ mod tests {
         assert_eq!(batch.len(), 2);
         assert!(watcher.take_batch().is_empty());
 
-        watcher.requeue_batch(batch);
-        let retaken = watcher.take_batch();
-        assert_eq!(retaken.len(), 2);
-
-        // Requeue never overwrites a newer buffered entry for the same path.
+        // Failed batches are never requeued: the next poll re-derives the
+        // same final state from disk, so dropping is lossless.
+        drop(batch);
         watcher.notify_file_change("a.txt", FileChangeKind::Change);
-        let _ = watcher.take_batch();
-        watcher.notify_file_change("a.txt", FileChangeKind::Add);
-        let newer = watcher.take_batch();
-        assert_eq!(newer.len(), 1);
-        assert_eq!(newer[0].kind, FileChangeKind::Add);
-        watcher.requeue_batch(vec![FileChangeRecord::new(
-            newer[0].path.clone(),
-            FileChangeKind::Change,
-            0,
-        )]);
-        // No buffered entry exists, so the requeued record is restored.
-        assert_eq!(watcher.take_batch().len(), 1);
+        let next = watcher.take_batch();
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].kind, FileChangeKind::Change);
     }
 
     #[tokio::test]

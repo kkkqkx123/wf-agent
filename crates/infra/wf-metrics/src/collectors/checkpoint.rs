@@ -12,6 +12,10 @@ pub struct CheckpointUsageStats {
     pub cleanup_count: u64,
     pub load_count: u64,
     pub load_failures: u64,
+    pub async_projection_failures: u64,
+    pub persistence_backlog: u64,
+    pub persistence_failures: u64,
+    pub cleanup_skips: u64,
     pub avg_creation_duration_ms: f64,
     pub avg_load_duration_ms: f64,
     pub avg_cleanup_duration_ms: f64,
@@ -123,6 +127,38 @@ impl CheckpointMetricsCollector {
         );
     }
 
+    /// Record an async projection failure (best-effort file projection).
+    pub fn record_async_projection_failure(&self, entity_id: &str) {
+        self.inner.increment_counter(
+            checkpoint_metrics::ASYNC_PROJECTION_FAILURE_COUNT,
+            labels(&[("entity_id", entity_id)]),
+        );
+    }
+
+    /// Record a persistence queue backlog drain (queue full, awaiting backlog).
+    pub fn record_persistence_backlog(&self, entity_id: &str) {
+        self.inner.increment_counter(
+            checkpoint_metrics::PERSISTENCE_BACKLOG_COUNT,
+            labels(&[("entity_id", entity_id)]),
+        );
+    }
+
+    /// Record a persistence task failure (panicked or failed projection).
+    pub fn record_persistence_failure(&self, entity_id: &str) {
+        self.inner.increment_counter(
+            checkpoint_metrics::PERSISTENCE_FAILURE_COUNT,
+            labels(&[("entity_id", entity_id)]),
+        );
+    }
+
+    /// Record a cleanup race skip (target cleaned up before write-back).
+    pub fn record_cleanup_skip(&self, entity_id: &str) {
+        self.inner.increment_counter(
+            checkpoint_metrics::CLEANUP_SKIP_COUNT,
+            labels(&[("entity_id", entity_id)]),
+        );
+    }
+
     pub fn usage_stats(&self) -> CheckpointUsageStats {
         let creation =
             crate::collectors::latest(&self.inner, checkpoint_metrics::CREATION_DURATION);
@@ -160,6 +196,22 @@ impl CheckpointMetricsCollector {
             load_failures: crate::collectors::counter_total(
                 &self.inner,
                 checkpoint_metrics::LOAD_FAILURE_COUNT,
+            ) as u64,
+            async_projection_failures: crate::collectors::counter_total(
+                &self.inner,
+                checkpoint_metrics::ASYNC_PROJECTION_FAILURE_COUNT,
+            ) as u64,
+            persistence_backlog: crate::collectors::counter_total(
+                &self.inner,
+                checkpoint_metrics::PERSISTENCE_BACKLOG_COUNT,
+            ) as u64,
+            persistence_failures: crate::collectors::counter_total(
+                &self.inner,
+                checkpoint_metrics::PERSISTENCE_FAILURE_COUNT,
+            ) as u64,
+            cleanup_skips: crate::collectors::counter_total(
+                &self.inner,
+                checkpoint_metrics::CLEANUP_SKIP_COUNT,
             ) as u64,
             avg_creation_duration_ms: avg(&creation),
             avg_load_duration_ms: avg(&load),

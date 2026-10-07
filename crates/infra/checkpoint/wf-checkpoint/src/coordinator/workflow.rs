@@ -519,43 +519,80 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         let checkpoint_id = checkpoint_id.to_string();
         let entity_id = entity_id.to_string();
         let file_manager = self.file_checkpoint_manager.clone();
-        // File-snapshot creation is blocking file I/O; run it on the blocking
-        // pool so a slow filesystem never pins a tokio worker.
+        let bus = self.event_bus.clone();
+        let checkpoint_id_for_task = checkpoint_id.clone();
+        let entity_id_for_task = entity_id.clone();
+        let metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
         let handle = tokio::task::spawn_blocking(move || {
             if let Some(manager) = file_manager {
-                match manager.create_latest_file_checkpoint(&entity_id) {
+                match manager.create_latest_file_checkpoint(&entity_id_for_task) {
                     Ok(Some(file_checkpoint)) => {
                         tracing::debug!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             file_checkpoint_id = %file_checkpoint.id,
                             "deferred file projection correlated with state checkpoint"
                         );
                     }
                     Ok(None) => {
                         tracing::debug!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             "deferred file projection found no history"
                         );
                     }
                     Err(err) => {
                         tracing::warn!(
-                            entity_id = %entity_id,
-                            checkpoint_id = %checkpoint_id,
+                            entity_id = %entity_id_for_task,
+                            checkpoint_id = %checkpoint_id_for_task,
                             error = %err,
                             "deferred file checkpoint creation failed (best-effort)"
                         );
+                        crate::coordinator::base::publish_best_effort_failed(
+                            bus.as_ref(),
+                            Some(checkpoint_id_for_task.clone()),
+                            &entity_id_for_task,
+                            "async_projection",
+                            &format!("deferred file checkpoint creation failed: {err}"),
+                        );
+                        if let Some(metrics) = metrics.as_ref() {
+                            metrics.record_persistence_failure(&entity_id_for_task);
+                        }
                     }
                 }
             }
         });
-        crate::coordinator::base::push_persistence_handle(&self.persistence_queue, handle).await;
+        let queue_metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
+        crate::coordinator::base::push_persistence_handle(
+            &self.persistence_queue,
+            handle,
+            self.event_bus.as_ref(),
+            &entity_id,
+            &checkpoint_id,
+            queue_metrics.as_deref(),
+        )
+        .await;
     }
 
     /// Drain the persistence queue and wait for all deferred operations.
     async fn wait_for_persistence(&self) {
-        crate::coordinator::base::drain_persistence_handles(&self.persistence_queue).await;
+        let queue_metrics = self
+            .file_checkpoint_manager
+            .as_ref()
+            .and_then(|m| m.checkpoint_metrics_for_observability());
+        crate::coordinator::base::drain_persistence_handles(
+            &self.persistence_queue,
+            self.event_bus.as_ref(),
+            "",
+            queue_metrics.as_deref(),
+        )
+        .await;
     }
 
     async fn prepare(
@@ -871,6 +908,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy> {
         self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy)
     }
+
+    fn event_bus(&self) -> Option<&CheckpointEventBus> {
+        self.event_bus.as_ref()
+    }
 }
 
 impl WorkflowCheckpointCoordinator {
@@ -974,14 +1015,23 @@ impl WorkflowCheckpointCoordinator {
         entity_id: &str,
         description: &str,
     ) -> Result<CheckpointStorageMetadata, CheckpointError> {
-        crate::coordinator::base::merge_description_back(
+        let merged = crate::coordinator::base::merge_description_back(
             &self.state_manager,
             checkpoint_id,
             "workflow_execution",
             entity_id,
             description,
+            self.event_bus.as_ref(),
         )
-        .await
+        .await?;
+        if merged.id != checkpoint_id {
+            if let Some(manager) = self.file_checkpoint_manager.as_ref() {
+                if let Some(metrics) = manager.checkpoint_metrics_for_observability() {
+                    metrics.record_cleanup_skip(entity_id);
+                }
+            }
+        }
+        Ok(merged)
     }
 
     pub async fn reuse_duplicate(
@@ -996,6 +1046,7 @@ impl WorkflowCheckpointCoordinator {
             "workflow_execution",
             entity_id,
             description,
+            self.event_bus.as_ref(),
         )
         .await
     }
@@ -1608,14 +1659,8 @@ mod tests {
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
 
-        // Two handles share one SQLite index and one bare repository.
-        let file_storage =
-            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
-        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
-        let file_manager =
-            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
-        let file_manager2 =
-            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
+        let file_manager = FileCheckpointManager::new_in_memory().unwrap();
+        let file_manager2 = file_manager.clone();
         file_manager
             .create_checkpoint(
                 "exec-1",
@@ -1635,13 +1680,12 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.execution_id, "exec-1");
+        let workspace = file_manager
+            .get_actor_workspace("agent:exec-1")
+            .unwrap();
         assert!(
-            git.read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
-                "agent:exec-1"
-            ))
-            .unwrap()
-            .is_some(),
-            "actor edit line stored in the object store"
+            workspace.iter().any(|f| f.path == "a.txt"),
+            "actor edit line stored via coordinator query view"
         );
     }
 
@@ -1651,11 +1695,7 @@ mod tests {
 
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
-        let file_storage =
-            Arc::new(checkpoint_file::storage::SqliteStorage::new_full_in_memory().unwrap());
-        let git = Arc::new(checkpoint_file::git_store::GitStore::init_temp().unwrap());
-        let file_manager =
-            FileCheckpointManager::with_sqlite(file_storage.clone()).with_git_store(git.clone());
+        let file_manager = FileCheckpointManager::new_in_memory().unwrap();
         file_manager
             .create_checkpoint(
                 "exec-1",
@@ -1665,33 +1705,28 @@ mod tests {
 
         let coord = WorkflowCheckpointCoordinator::new(sm)
             .with_async_persistence(true)
-            .with_file_checkpoint_manager(file_manager);
+            .with_file_checkpoint_manager(file_manager.clone());
 
         let id = coord
             .create_checkpoint(CheckpointTiming::AfterExecute, "exec-1", make_snapshot())
             .await
             .unwrap();
         assert_eq!(coord.pending_persistence_count().await, 1);
-        let head_before = git
-            .read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
-                "agent:exec-1",
-            ))
-            .unwrap()
-            .expect("first file commit written");
+        let before = file_manager
+            .get_actor_workspace("agent:exec-1")
+            .unwrap();
+        assert!(before.iter().any(|f| f.path == "a.txt"));
 
         coord.wait_for_persistence().await;
         assert_eq!(coord.pending_persistence_count().await, 0);
         // Deferred file persistence is a read-only projection correlated
-        // with the state checkpoint: it resolves the same head instead of
-        // appending a duplicate commit.
-        let head_after = git
-            .read_ref(&checkpoint_file::git_store::edit_ref_for_actor(
-                "agent:exec-1",
-            ))
-            .unwrap()
-            .expect("file head still present after wait");
+        // with the state checkpoint: it resolves the same workspace instead
+        // of appending a duplicate commit.
+        let after = file_manager
+            .get_actor_workspace("agent:exec-1")
+            .unwrap();
         assert_eq!(
-            head_before, head_after,
+            before, after,
             "deferred projection must not duplicate the commit"
         );
 
@@ -1894,5 +1929,53 @@ mod tests {
             .await
             .unwrap();
         assert!(skipped.is_none(), "unconfigured trigger skipped");
+    }
+
+    #[tokio::test]
+    async fn both_coordinators_restore_reuse_same_identifier() {
+        let coord = make_coordinator();
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::BeforeExecute)
+            .await
+            .unwrap();
+        assert_eq!(ctx.entity_type, "workflow_execution");
+        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&cp, "exec-1").await.unwrap();
+        let entity = coord.restore(&cp.id).await.unwrap();
+        assert_eq!(entity.execution_id, "exec-1");
+        let latest = coord
+            .state_manager()
+            .get_latest("exec-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.entity_id, "exec-1");
+    }
+
+    #[test]
+    fn full_projection_type_and_empty_trigger_unified() {
+        use checkpoint_base::strategy::{CheckpointStrategy, StandardStrategy};
+        use wf_types::checkpoint::UnifiedCheckpointPolicy;
+        let empty = UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: vec![],
+            content: None,
+            retention: None,
+            error_handling: None,
+        };
+        let strategy = StandardStrategy::from_policy(&empty);
+        let ctx = CheckpointContext {
+            entity_type: "workflow_execution".to_string(),
+            entity_id: "exec-1".to_string(),
+            trigger: Some(CheckpointTiming::AfterExecute),
+            actor_id: None,
+            attempt: None,
+            retry_count: None,
+            error: None,
+            fallback_used: None,
+            metadata: None,
+        };
+        assert!(!strategy.should_checkpoint(&CheckpointTiming::AfterExecute, &ctx));
+        assert_eq!(strategy.content_config().include_state, Some(true));
     }
 }

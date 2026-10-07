@@ -251,6 +251,27 @@ pub fn list_changes_by_actor(
     Ok(changes)
 }
 
+/// Rename similarity threshold aligned with standard rename detection
+/// defaults: contents with at least half their lines in common count as
+/// the same file moved, so timelines span renames with small edits.
+pub const RENAME_SIMILARITY_THRESHOLD: f64 = 0.5;
+
+/// Content similarity for rename following: identical bytes score `1.0`,
+/// binary content requires identical bytes, text content uses the retained
+/// line-diff similarity. Display still renders via unified diffs.
+fn content_similarity(a: &[u8], b: &[u8]) -> f64 {
+    if a == b {
+        return 1.0;
+    }
+    if checkpoint_base::common::is_binary(a) || checkpoint_base::common::is_binary(b) {
+        return 0.0;
+    }
+    let (Ok(before), Ok(after)) = (std::str::from_utf8(a), std::str::from_utf8(b)) else {
+        return 0.0;
+    };
+    checkpoint_base::common::diff::diff_stats_for_text(before, after).similarity
+}
+
 /// Changes touching `path` across every line, following renames: an
 /// identical-content add paired with a same-commit delete counts as a
 /// rename, so the timeline spans both names. `time_range` (inclusive
@@ -285,7 +306,7 @@ pub fn list_changes_by_path(
             .collect()
     };
     // Rename follow: same-content blobs appearing under other names in the
-    // same commits extend the path set (similarity = identical bytes).
+    // same commits extend the path set (similarity via line-diff threshold).
     let mut names: HashSet<String> = HashSet::from([path.to_string()]);
     for commit in &commits {
         let Ok(files) = git.tree_to_bytes(&commit.tree) else {
@@ -295,7 +316,10 @@ pub fn list_changes_by_path(
             continue;
         };
         for (other, bytes) in &files {
-            if bytes == want {
+            if other == path {
+                continue;
+            }
+            if content_similarity(want, bytes) >= RENAME_SIMILARITY_THRESHOLD {
                 names.insert(other.clone());
             }
         }
@@ -654,7 +678,7 @@ pub struct FileTimeline {
 }
 
 /// Build the complete version timeline for a file path, including
-/// rename/move tracing via content-similarity detection (identical bytes
+/// rename/move tracing via content-similarity detection (similar contents
 /// appearing under a new name while the old name disappears in the same
 /// commit count as a rename). Walks the commit graph with rename
 /// following; no move table is consulted.
@@ -675,7 +699,7 @@ pub fn file_timeline(
         let Ok(files) = git.tree_to_files(&commit.tree) else {
             continue;
         };
-        // Rename detection: a name disappearing while an identical blob
+        // Rename detection: a name disappearing while similar content
         // appears under a new name in the same commit links the two.
         let mut disappeared: Vec<(String, String)> = Vec::new();
         let mut appeared: Vec<(String, String)> = Vec::new();
@@ -697,12 +721,31 @@ pub fn file_timeline(
                 }
             }
         }
-        for (new_name, blob) in &appeared {
-            if let Some((old_name, _)) = disappeared.iter().find(|(_, b)| b == blob) {
+        for (new_name, new_blob) in &appeared {
+            let Ok(new_bytes) = git.read_blob(new_blob) else {
+                continue;
+            };
+            let mut best: Option<(String, f64)> = None;
+            for (old_name, old_blob) in &disappeared {
+                if old_blob == new_blob {
+                    best = Some((old_name.clone(), 1.0));
+                    break;
+                }
+                let Ok(old_bytes) = git.read_blob(old_blob) else {
+                    continue;
+                };
+                let score = content_similarity(&old_bytes, &new_bytes);
+                if score >= RENAME_SIMILARITY_THRESHOLD
+                    && best.as_ref().is_none_or(|(_, s)| score > *s)
+                {
+                    best = Some((old_name.clone(), score));
+                }
+            }
+            if let Some((old_name, _)) = best {
                 moved_from
                     .entry(new_name.clone())
                     .or_insert_with(|| old_name.clone());
-                if known_names.contains(old_name) {
+                if known_names.contains(&old_name) {
                     known_names.insert(new_name.clone());
                 }
             }
@@ -776,4 +819,28 @@ pub fn unresolved_merges(
     git: &GitStore,
 ) -> Result<Vec<(String, String, Vec<String>)>, CheckpointError> {
     git.list_unresolved_conflicts().map_err(map_git_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_similarity_threshold_matches_standard_default() {
+        assert_eq!(RENAME_SIMILARITY_THRESHOLD, 0.5);
+        assert_eq!(content_similarity(b"same", b"same"), 1.0);
+        assert_eq!(content_similarity(b"a\0b", b"a\0c"), 0.0);
+        let before = "l1\nl2\nl3\nl4\nl5\n";
+        let after = "l1\nl2\nCHANGED\nl4\nl5\n";
+        let score = content_similarity(before.as_bytes(), after.as_bytes());
+        assert!(
+            score >= RENAME_SIMILARITY_THRESHOLD,
+            "small edit must still count as rename, got {score}"
+        );
+        let distant = content_similarity(b"aaa\nbbb\n", b"xxx\nyyy\nzzz\n");
+        assert!(
+            distant < RENAME_SIMILARITY_THRESHOLD,
+            "unrelated content must not count as rename, got {distant}"
+        );
+    }
 }

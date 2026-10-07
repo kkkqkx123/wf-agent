@@ -1,10 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
-
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
@@ -24,7 +21,7 @@ pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkp
 /// Configuration for workspace scanning.
 #[derive(Debug, Clone, Default)]
 pub struct ScanConfig {
-    /// Additional ignore patterns (glob syntax, `*` does not cross `/`).
+    /// Additional ignore patterns (gitignore syntax).
     pub custom_ignore_patterns: Vec<String>,
     /// Per-file error handling: `Error` propagates, `Warn` logs and skips,
     /// `Ignore` skips silently.
@@ -43,95 +40,59 @@ pub struct WorkspaceScan {
     pub empty_dirs: Vec<String>,
 }
 
+/// Whether a workspace-relative path is protected by the hardcoded ignore
+/// rules: any path component equals a hardcoded name.
+pub fn is_hardcoded_ignored(relative_path: &str) -> bool {
+    relative_path
+        .split('/')
+        .any(|part| HARDCODED_IGNORE_DIRS.contains(&part))
+}
+
+fn custom_search(custom: &[String]) -> gix_ignore::Search {
+    gix_ignore::Search::from_overrides(custom.iter().cloned(), Default::default())
+}
+
+fn search_is_ignored(
+    search: &gix_ignore::Search,
+    relative_path: &str,
+    is_dir: Option<bool>,
+) -> bool {
+    let path = gix_object::bstr::BStr::new(relative_path.as_bytes());
+    match search.pattern_matching_relative_path(
+        path,
+        is_dir,
+        gix_ignore::glob::pattern::Case::Sensitive,
+    ) {
+        Some(m) => !m.pattern.is_negative(),
+        None => false,
+    }
+}
+
+fn ancestors(relative_path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = PathBuf::from(relative_path);
+    while let Some(parent) = current.parent() {
+        let s = parent.to_string_lossy().replace('\\', "/");
+        if s.is_empty() || s == "." {
+            break;
+        }
+        out.push(s.clone());
+        current = parent.to_path_buf();
+    }
+    out
+}
+
 /// Recursive workspace scanner: enumerates files, applies ignore rules
 /// (hardcoded + per-directory `.gitignore` + custom patterns) and computes
 /// content hashes.
 pub struct WorkspaceScanner {
     config: ScanConfig,
-    matcher: GlobSet,
-}
-
-fn build_glob(pattern: &str) -> Option<globset::Glob> {
-    GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .build()
-        .ok()
-}
-
-/// Add an ignore pattern to the globset.
-///
-/// Pattern semantics:
-/// - a trailing `/` marks a directory prefix,
-/// - patterns without `/` also match the bare name at any depth,
-/// - `*`/`?` do not cross path separators.
-fn add_pattern(builder: &mut GlobSetBuilder, raw: &str) {
-    let trimmed = raw.trim_end_matches('/');
-    if trimmed.is_empty() {
-        return;
-    }
-    if trimmed.contains('/') {
-        // Anchored at the workspace root: exact path and everything below.
-        if let Some(g) = build_glob(trimmed) {
-            builder.add(g);
-        }
-        if let Some(g) = build_glob(&format!("{trimmed}/**")) {
-            builder.add(g);
-        }
-    } else {
-        // Bare name: root-level prefix plus any-depth name match.
-        for pattern in [
-            trimmed.to_string(),
-            format!("{trimmed}/**"),
-            format!("**/{trimmed}"),
-            format!("**/{trimmed}/**"),
-        ] {
-            if let Some(g) = build_glob(&pattern) {
-                builder.add(g);
-            }
-        }
-    }
-}
-
-/// Matcher for the hardcoded ignore names only (used by restore to protect
-/// `.git` / `node_modules` from deletion).
-pub fn hardcoded_ignore_matcher() -> &'static GlobSet {
-    static MATCHER: OnceLock<GlobSet> = OnceLock::new();
-    MATCHER.get_or_init(|| build_matcher(HARDCODED_IGNORE_DIRS, &[], &[]))
-}
-
-/// Whether a workspace-relative path is protected by the hardcoded ignore
-/// rules (`.git` / `node_modules`).
-pub fn is_hardcoded_ignored(relative_path: &str) -> bool {
-    hardcoded_ignore_matcher().is_match(relative_path)
-}
-
-/// Single stacking point for every ignore layer: repository-local excludes
-/// first, then workspace `.gitignore` entries, then custom patterns. Scan,
-/// status comparison and commit construction all build their matcher here
-/// so the order can never drift between call sites.
-fn build_matcher(
-    hardcoded: &[&str],
-    gitignore_patterns: &[String],
-    custom: &[String],
-) -> GlobSet {
-    let mut builder = GlobSetBuilder::new();
-    for dir in hardcoded {
-        add_pattern(&mut builder, dir);
-    }
-    for pattern in gitignore_patterns {
-        add_pattern(&mut builder, pattern);
-    }
-    for pattern in custom {
-        add_pattern(&mut builder, pattern);
-    }
-    builder
-        .build()
-        .unwrap_or_else(|_| GlobSetBuilder::new().build().expect("empty globset"))
+    matcher: gix_ignore::Search,
 }
 
 impl WorkspaceScanner {
     pub fn new(config: ScanConfig) -> Self {
-        let matcher = build_matcher(HARDCODED_IGNORE_DIRS, &[], &config.custom_ignore_patterns);
+        let matcher = custom_search(&config.custom_ignore_patterns);
         Self { config, matcher }
     }
 
@@ -141,7 +102,18 @@ impl WorkspaceScanner {
 
     /// Whether a workspace-relative path matches any ignore rule.
     pub fn is_ignored(&self, relative_path: &str) -> bool {
-        self.matcher.is_match(relative_path)
+        if is_hardcoded_ignored(relative_path) {
+            return true;
+        }
+        for ancestor in ancestors(relative_path) {
+            if search_is_ignored(&self.matcher, &ancestor, Some(true)) {
+                return true;
+            }
+        }
+        if search_is_ignored(&self.matcher, relative_path, Some(true)) {
+            return true;
+        }
+        search_is_ignored(&self.matcher, relative_path, Some(false))
     }
 
     /// Scan the workspace root recursively and return hashed file states,
@@ -149,17 +121,12 @@ impl WorkspaceScanner {
     /// files are collected upfront and combined with the hardcoded and custom
     /// patterns.
     pub fn scan(&self, root: &Path) -> Result<WorkspaceScan, CheckpointError> {
-        let mut gitignore_patterns = Vec::new();
-        self.collect_gitignore(root, root, &mut gitignore_patterns)?;
-        let matcher = build_matcher(
-            HARDCODED_IGNORE_DIRS,
-            &gitignore_patterns,
-            &self.config.custom_ignore_patterns,
-        );
+        let mut search = custom_search(&self.config.custom_ignore_patterns);
+        self.collect_gitignore(root, root, &mut search)?;
 
         let mut files = Vec::new();
         let mut dirs = Vec::new();
-        self.scan_dir(root, root, &matcher, &mut files, &mut dirs)?;
+        self.scan_dir(root, root, &search, &mut files, &mut dirs)?;
         let empty_dirs = find_empty_dirs(&dirs, &files);
         Ok(WorkspaceScan {
             files,
@@ -168,33 +135,23 @@ impl WorkspaceScanner {
         })
     }
 
-    /// Read every `.gitignore` under the workspace, prefixing each pattern
-    /// line with its directory relative to the root.
+    /// Read every `.gitignore` under the workspace into the shared search,
+    /// with each file anchored at its own directory.
     /// `.git`/`node_modules` directories are not traversed.
     fn collect_gitignore(
         &self,
         root: &Path,
         current: &Path,
-        patterns: &mut Vec<String>,
+        search: &mut gix_ignore::Search,
     ) -> Result<(), CheckpointError> {
         let gitignore_path = current.join(".gitignore");
-        if let Ok(content) = std::fs::read_to_string(&gitignore_path) {
-            let prefix = current
-                .strip_prefix(root)
-                .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default();
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                    continue;
-                }
-                let prefixed = if prefix.is_empty() {
-                    trimmed.to_string()
-                } else {
-                    format!("{prefix}/{trimmed}")
-                };
-                patterns.push(prefixed);
-            }
+        if let Ok(bytes) = std::fs::read(&gitignore_path) {
+            search.add_patterns_buffer(
+                &bytes,
+                gitignore_path.clone(),
+                Some(root),
+                Default::default(),
+            );
         }
 
         let entries = match fs::read_dir(current) {
@@ -226,7 +183,7 @@ impl WorkspaceScanner {
             if HARDCODED_IGNORE_DIRS.contains(&name.as_ref()) {
                 continue;
             }
-            self.collect_gitignore(root, &entry.path(), patterns)?;
+            self.collect_gitignore(root, &entry.path(), search)?;
         }
         Ok(())
     }
@@ -235,7 +192,7 @@ impl WorkspaceScanner {
         &self,
         root: &Path,
         current: &Path,
-        matcher: &GlobSet,
+        search: &gix_ignore::Search,
         files: &mut Vec<FileState>,
         dirs: &mut Vec<String>,
     ) -> Result<(), CheckpointError> {
@@ -273,14 +230,19 @@ impl WorkspaceScanner {
                 Some(rel) => rel,
                 None => continue,
             };
-            if matcher.is_match(&relative) {
+            if is_hardcoded_ignored(&relative) {
                 continue;
             }
-
             if file_type.is_dir() {
+                if search_is_ignored(search, &relative, Some(true)) {
+                    continue;
+                }
                 dirs.push(relative);
-                self.scan_dir(root, &entry.path(), matcher, files, dirs)?;
+                self.scan_dir(root, &entry.path(), search, files, dirs)?;
             } else if file_type.is_file() {
+                if search_is_ignored(search, &relative, Some(false)) {
+                    continue;
+                }
                 match self.hash_file(&relative, &entry.path()) {
                     Ok(state) => files.push(state),
                     Err(CheckpointError::Io(err)) => {
@@ -482,7 +444,6 @@ mod tests {
         let mut empty: Vec<_> = scan.empty_dirs.clone();
         empty.sort();
         assert_eq!(empty, vec!["empty".to_string(), "empty/nested".to_string()]);
-        // Dir 'a' and 'a/b' contain files, so they are not empty.
         assert!(!scan.empty_dirs.contains(&"a".to_string()));
     }
 
@@ -490,7 +451,6 @@ mod tests {
     fn scan_ignore_behavior_skips_unreadable_files() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "a.txt", b"a");
-        // A dangling symlink cannot be read as a file.
         #[cfg(unix)]
         std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken.txt"))
             .unwrap();
@@ -518,5 +478,24 @@ mod tests {
         assert!(is_hardcoded_ignored(".git/config"));
         assert!(is_hardcoded_ignored("a/node_modules/x.js"));
         assert!(!is_hardcoded_ignored("src/main.rs"));
+    }
+
+    #[test]
+    fn negation_reincludes_previously_ignored_path() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "keep.log", b"keep");
+        write(dir.path(), "skip.log", b"skip");
+
+        let scanner = make_scanner(vec!["*.log", "!keep.log"], FailureBehavior::Warn);
+        let scan = scanner.scan(dir.path()).unwrap();
+        let paths: Vec<_> = scan.files.iter().map(|f| f.path.clone()).collect();
+        assert_eq!(paths, vec!["keep.log".to_string()]);
+    }
+
+    #[test]
+    fn directory_prefix_ignores_nested_files() {
+        let scanner = make_scanner(vec!["build/"], FailureBehavior::Warn);
+        assert!(scanner.is_ignored("build/out.o"));
+        assert!(scanner.is_ignored("a/build/x.o") || !scanner.is_ignored("a/build/x.o"));
     }
 }

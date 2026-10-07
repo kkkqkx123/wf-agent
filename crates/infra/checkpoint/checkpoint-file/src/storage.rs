@@ -1,10 +1,10 @@
-pub mod connection;
-pub mod git_meta;
-pub mod graph_blob;
-pub mod meta;
-pub mod migrations;
-pub mod repository;
+pub(crate) mod connection;
+pub(crate) mod git_meta;
+pub(crate) mod graph_blob;
+pub(crate) mod meta;
+pub(crate) mod migrations;
+pub(crate) mod repository;
 
-pub use connection::{CompactOptions, CompactReport, SqliteStorage};
-pub use git_meta::{ReviewStatus, SourceIndexEntry};
-pub use repository::{AtomicOps, GraphBlob, GraphBlobStore, MetadataStore, Repository};
+pub(crate) use connection::SqliteStorage;
+pub(crate) use git_meta::{ReviewStatus, SourceIndexEntry};
+pub(crate) use repository::{GraphBlobStore, MetadataStore};

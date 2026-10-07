@@ -23,7 +23,6 @@ wf-core = { path = "../../../foundation/wf-core" }
 wf-metrics = { path = "../../wf-metrics" }
 checkpoint-base = { path = "../checkpoint-base" }
 notify = { workspace = true }
-globset = { workspace = true }
 gix-hash = { workspace = true }
 gix-object = { workspace = true }
 gix-odb = { workspace = true }

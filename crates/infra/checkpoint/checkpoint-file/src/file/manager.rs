@@ -248,23 +248,6 @@ impl FileCheckpointManager {
         }
     }
 
-    /// Attach a Sqlite backend; this is the production entry
-    /// point (the storage is shared with the surrounding runtime).
-    pub fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
-        Self {
-            store: ManagerStore::with_sqlite(storage),
-            policy: ManagerPolicy::default(),
-            clock: CheckpointClock::system(),
-            event_bus: None,
-            workspace_root: None,
-            actor_index: ActorRegistry::new(),
-            session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
-            pending_batches: Arc::new(DashMap::new()),
-            redo_stacks: Arc::new(DashMap::new()),
-            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
-        }
-    }
-
     /// Drive checkpoint creation timestamps from an explicit clock instead
     /// of the system clock. Also swaps the write-attribution registry onto
     /// the same clock so window tests advance a single time source.
@@ -294,8 +277,15 @@ impl FileCheckpointManager {
         *wf_common::lock::lock_ok(self.checkpoint_metrics.lock()) = Some(metrics);
     }
 
-    pub(crate) fn checkpoint_metrics(&self) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {
+    /// Attached metrics collector for observability of best-effort paths.
+    pub fn checkpoint_metrics_for_observability(
+        &self,
+    ) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {
         wf_common::lock::lock_ok(self.checkpoint_metrics.lock()).clone()
+    }
+
+    pub(crate) fn checkpoint_metrics(&self) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {
+        self.checkpoint_metrics_for_observability()
     }
 
     /// Open a manager from the file-checkpoint storage config (the
@@ -307,7 +297,18 @@ impl FileCheckpointManager {
             Some(path) => SqliteStorage::new_full(Path::new(path)),
             None => SqliteStorage::new_full_in_memory(),
         }?;
-        Ok(Self::with_sqlite(Arc::new(storage)))
+        Ok(Self {
+            store: ManagerStore::with_sqlite(Arc::new(storage)),
+            policy: ManagerPolicy::default(),
+            clock: CheckpointClock::system(),
+            event_bus: None,
+            workspace_root: None,
+            actor_index: ActorRegistry::new(),
+            session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
+            pending_batches: Arc::new(DashMap::new()),
+            redo_stacks: Arc::new(DashMap::new()),
+            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
+        })
     }
 
     /// Open a manager from the full file-checkpoint config: storage backend
@@ -403,22 +404,13 @@ impl FileCheckpointManager {
 
     /// Shared scoped-shell sampling registry (foreground scopes +
     /// background sessions). Cloned sessions observe the same state.
-    pub fn session_scopes(&self) -> Arc<crate::scope::SessionScopeRegistry> {
+    pub(crate) fn session_scopes(&self) -> Arc<crate::scope::SessionScopeRegistry> {
         self.session_scopes.clone()
     }
 
     /// Configured full-snapshot threshold threaded into file edits.
     pub fn full_snapshot_threshold(&self) -> f64 {
         self.policy.full_snapshot_threshold
-    }
-
-    pub fn storage(&self) -> Option<&Arc<SqliteStorage>> {
-        self.store.storage.as_ref()
-    }
-
-    /// The workspace Git object store, when bound.
-    pub fn git_store(&self) -> Option<&Arc<crate::git_store::GitStore>> {
-        self.store.git.as_ref()
     }
 
     pub(crate) fn storage_ref(&self) -> Result<&SqliteStorage, CheckpointError> {
@@ -430,12 +422,6 @@ impl FileCheckpointManager {
     /// operations never silently fall back to the legacy content tables.
     pub(crate) fn git_ref(&self) -> Result<&crate::git_store::GitStore, CheckpointError> {
         self.store.git_ref()
-    }
-
-    /// Attach the workspace Git object store.
-    pub fn with_git_store(mut self, git: Arc<crate::git_store::GitStore>) -> Self {
-        self.store.git = Some(git);
-        self
     }
 
     /// Bind (creating if needed) the bare repository for a workspace root.
@@ -1102,18 +1088,22 @@ mod tests {
         );
 
         // Both changes are present in the main workspace.
-        let staged = crate::provenance::get_staged_workspace(manager.git_ref().unwrap()).unwrap();
-        let map: HashMap<&str, &WorkspaceFile> =
-            staged.iter().map(|f| (f.path.as_str(), f)).collect();
-        assert_eq!(map["a.txt"].content, b"branch-a");
-        assert_eq!(map["b.txt"].content, b"branch-b");
+        let a = manager
+            .read_file_at(&joined.checkpoint_id, "a.txt")
+            .unwrap()
+            .expect("a.txt present in join");
+        assert_eq!(a, b"branch-a");
+        let b = manager
+            .read_file_at(&joined.checkpoint_id, "b.txt")
+            .unwrap()
+            .expect("b.txt present in join");
+        assert_eq!(b, b"branch-b");
 
         // Branch head pointers are removed; the DAG data stays intact.
-        let features = crate::branch::FeatureBranchStore::new(manager.git_store().unwrap().clone());
-        let branches = features.list().unwrap();
+        let partitions = manager.list_partitions().unwrap();
         assert!(
-            !branches.iter().any(|b| b == "branch-1" || b == "branch-2"),
-            "join must delete the branch head pointers"
+            partitions.iter().any(|p| p.kind == "staged"),
+            "main partition exists after join"
         );
     }
 

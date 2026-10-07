@@ -1,10 +1,8 @@
-pub mod feature;
-pub mod manager;
+pub(crate) mod feature;
+pub(crate) mod manager;
 pub mod naming;
 
-pub use feature::FeatureBranchStore;
-pub use manager::{BranchInfo, BranchManager, BranchStorageAdapter, ExecutionBranchManager};
-pub use naming::{
-    branch_entity_id, branch_entity_type, classify_branch, execution_branch_name,
-    is_execution_branch_name, is_feature_branch_name, BranchKind, EXECUTION_BRANCH_PREFIX,
+pub(crate) use manager::{BranchManager, BranchStorageAdapter, ExecutionBranchManager};
+pub(crate) use naming::{
+    execution_branch_name, is_execution_branch_name, is_feature_branch_name,
 };

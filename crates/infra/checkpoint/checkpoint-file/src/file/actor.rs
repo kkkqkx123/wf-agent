@@ -172,14 +172,12 @@ impl FileCheckpointManager {
     }
 
     /// The branch head checkpoint id recorded for an execution entity, if
-    /// any. The head is written by checkpoint creation for explicitly
-    /// prepared execution branches and read by consumers that need the
-    /// entity's latest commit without scanning partitions. Root executions
-    /// have no branch, so this reports `None` for them.
-    pub fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
-        self.store
-            .branch_adapter
-            .get_branch_head(&execution_branch_name("execution", entity_id))
+    /// any. Execution isolation lives on edit refs in the Git model, so
+    /// this always reports `None` and exists only for call-site stability
+    /// until the remaining test is migrated to partition queries.
+    pub(crate) fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
+        let _ = entity_id;
+        Ok(None)
     }
 
     // ── actor edit-line primitives ──────────────────────────────────

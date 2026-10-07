@@ -168,6 +168,10 @@ pub mod checkpoint_metrics {
     pub const LOAD_DURATION: &str = "checkpoint.load.duration";
     pub const LOAD_FAILURE_COUNT: &str = "checkpoint.load.failure.count";
     pub const CHAIN_LENGTH: &str = "checkpoint.chain.length";
+    pub const ASYNC_PROJECTION_FAILURE_COUNT: &str = "checkpoint.async_projection.failure.count";
+    pub const PERSISTENCE_BACKLOG_COUNT: &str = "checkpoint.persistence.backlog.count";
+    pub const PERSISTENCE_FAILURE_COUNT: &str = "checkpoint.persistence.failure.count";
+    pub const CLEANUP_SKIP_COUNT: &str = "checkpoint.cleanup.skip.count";
 }
 
 pub mod http_metrics {
@@ -311,6 +315,10 @@ mod tests {
             checkpoint_metrics::LOAD_DURATION,
             checkpoint_metrics::LOAD_FAILURE_COUNT,
             checkpoint_metrics::CHAIN_LENGTH,
+            checkpoint_metrics::ASYNC_PROJECTION_FAILURE_COUNT,
+            checkpoint_metrics::PERSISTENCE_BACKLOG_COUNT,
+            checkpoint_metrics::PERSISTENCE_FAILURE_COUNT,
+            checkpoint_metrics::CLEANUP_SKIP_COUNT,
             http_metrics::REQUEST_COUNT,
             http_metrics::REQUEST_DURATION,
             http_metrics::ERROR_COUNT,

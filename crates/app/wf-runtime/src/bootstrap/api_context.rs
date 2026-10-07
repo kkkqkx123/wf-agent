@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::runtime::Runtime;
 
 impl Runtime {
@@ -27,7 +25,7 @@ impl Runtime {
             // fallback) when the plugin engine is enabled.
             #[cfg(feature = "plugins")]
             if let Some(engine) = &self.plugin_engine {
-                ctx = ctx.with_plugin_source(Arc::new(
+                ctx = ctx.with_plugin_source(std::sync::Arc::new(
                     crate::plugin_bridge::WfPluginHandlerSource::new(
                         engine.contribution_manager().clone(),
                     ),

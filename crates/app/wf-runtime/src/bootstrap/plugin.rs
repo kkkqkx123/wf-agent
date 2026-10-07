@@ -1,8 +1,9 @@
-use std::sync::Arc;
-
 use tracing::info;
 
 use crate::error::RuntimeResult;
+
+#[cfg(feature = "plugins")]
+use std::sync::Arc;
 
 #[cfg(feature = "plugins")]
 use wf_llm::LlmGateway;

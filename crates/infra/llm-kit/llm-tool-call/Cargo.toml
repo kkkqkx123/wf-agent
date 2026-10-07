@@ -1,0 +1,20 @@
+[package]
+name = "llm-tool-call"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Streaming partial-JSON argument parsing.
+json-partial = []
+# XML text-protocol tool-call parsing and prompt rendering.
+xml = ["dep:wf-types", "dep:wf-common"]
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# Shared foundation types used by the XML protocol parser/renderer.
+# Decoupled when the crate moves to the standalone shared repository.
+wf-types = { workspace = true, optional = true }
+wf-common = { workspace = true, optional = true }

@@ -351,7 +351,7 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
     for msg in messages {
         match msg.role {
             wf_types::message::MessageRole::System => {
-                let text = crate::messaging::helper::extract_text_content(msg);
+                let text = msg.text_content();
                 if !text.trim().is_empty() {
                     parts.push(text);
                 }

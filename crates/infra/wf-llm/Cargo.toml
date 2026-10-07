@@ -11,6 +11,10 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-metrics = { path = "../wf-metrics" }
 wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
+# Shared tool-call protocol: partial-JSON recovery plus XML text-protocol
+# parsing/rendering. wf-llm re-exports these modules so the agent engine
+# layer stays on a single canonical implementation.
+llm-tool-call = { path = "../llm-kit/llm-tool-call", features = ["json-partial", "xml"] }
 
 async-trait.workspace = true
 serde.workspace = true

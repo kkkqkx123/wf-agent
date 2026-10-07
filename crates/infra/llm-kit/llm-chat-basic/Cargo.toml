@@ -1,0 +1,25 @@
+[package]
+name = "llm-chat-basic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Server-sent-events streaming of chat deltas.
+streaming = ["dep:tokio", "dep:eventsource-stream", "dep:futures"]
+# Exponential-backoff retry around chat calls.
+retry = ["dep:tokio"]
+# Token-bucket rate limiting for chat calls.
+ratelimit = ["dep:tokio"]
+
+[dependencies]
+llm-types = { path = "../llm-types" }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, optional = true }
+eventsource-stream = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }

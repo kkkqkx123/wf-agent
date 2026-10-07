@@ -16,6 +16,13 @@ members = [
     "crates/infra/wf-sandbox",
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
+    # llm-kit subgroup (crates/infra/llm-kit/): internal crates carry no wf-
+    # prefix; moved to a standalone shared repository in phase three.
+    "crates/infra/llm-kit/llm-types",
+    "crates/infra/llm-kit/llm-embedding",
+    "crates/infra/llm-kit/llm-chat-basic",
+    "crates/infra/llm-kit/llm-rerank",
+    "crates/infra/llm-kit/llm-tool-call",
     # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry
     # no wf- prefix (tui-style); only the facade keeps wf- prefix.
     "crates/infra/checkpoint/checkpoint-base",

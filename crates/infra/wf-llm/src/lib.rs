@@ -22,9 +22,10 @@ pub mod token;
 // (history conversion, text extraction). Session state
 // and message-array operations live in the execution-shared crate.
 pub mod messaging;
-// Shared utilities: partial-JSON recovery and stream loop guard.
+// Shared utilities: stream loop guard (local) plus partial-JSON recovery
+// re-exported from the shared llm-kit crate (single canonical implementation).
 pub mod dead_loop_detector;
-pub mod partial_json_parser;
+pub use llm_tool_call::partial_json_parser;
 // Test doubles (feature-gated).
 #[cfg(feature = "mock")]
 pub mod http_mock;

@@ -93,15 +93,26 @@ impl StandardStrategy {
         Self {
             enabled: policy.enabled,
             triggers: policy.triggers.clone(),
-            // Defaults: include_state true, include_history true,
-            // include_statistics false.
-            content: policy.content.clone().unwrap_or(CheckpointContentConfig {
-                include_state: Some(true),
-                include_history: Some(true),
-                include_statistics: Some(false),
-                metadata: None,
-                asynchronous: None,
-            }),
+            // Single definition point of the content defaults:
+            // include_state true, include_history true, include_statistics
+            // false. Every field is materialized so downstream consumers
+            // (e.g. ContentFilter) never apply their own defaults.
+            content: {
+                let base = policy.content.clone().unwrap_or(CheckpointContentConfig {
+                    include_state: None,
+                    include_history: None,
+                    include_statistics: None,
+                    metadata: None,
+                    asynchronous: None,
+                });
+                CheckpointContentConfig {
+                    include_state: Some(base.include_state.unwrap_or(true)),
+                    include_history: Some(base.include_history.unwrap_or(true)),
+                    include_statistics: Some(base.include_statistics.unwrap_or(false)),
+                    metadata: base.metadata,
+                    asynchronous: base.asynchronous,
+                }
+            },
             retention: policy.retention.clone(),
             error_handling: policy.error_handling.clone(),
         }
@@ -356,6 +367,25 @@ mod tests {
         let ctx = make_context();
 
         assert!(!strategy.should_checkpoint(&CheckpointTiming::BeforeExecute, &ctx));
+        // The resolver layer must agree with the strategy layer: an empty
+        // trigger set stays empty (no default triggers are materialized).
+        let resolved = crate::config_resolver::CheckpointConfigResolver::resolve_from_user_config(
+            &make_policy(vec![]),
+        );
+        assert!(
+            resolved.triggers.is_empty(),
+            "resolver must not fill default triggers for an empty set"
+        );
+        let resolver = crate::config_resolver::CheckpointConfigResolver;
+        assert!(!resolver.should_create_checkpoint(
+            &crate::config_resolver::ResolvedCheckpointConfig {
+                should_create: true,
+                description: String::new(),
+                policy: resolved.clone(),
+                effective_source: crate::config_resolver::CheckpointConfigSource::Default,
+            },
+            &CheckpointTiming::AfterExecute,
+        ));
     }
 
     #[test]

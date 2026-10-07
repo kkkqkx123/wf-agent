@@ -156,8 +156,8 @@ async fn interrupted_run(
 /// settle snapshot recorded after the loop settled. `resume` continues only
 /// the former, so tests select by trigger tag instead of list position.
 async fn resume_sources(store: &Arc<StorageBackend>, entity_id: &str) -> (String, String) {
-    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::state::agent::AgentCheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
 
     let sm = AgentCheckpointStateManager::new(store.clone());
     let rows = sm.list_by_entity(entity_id).await.expect("checkpoint list");
@@ -213,8 +213,8 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
 
 #[tokio::test]
 async fn checkpoint_message_interval_produces_interval_checkpoints() {
-    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::state::agent::AgentCheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
 
     let store = Arc::new(StorageBackend::new_memory());
     let mock = Arc::new(MockLlmClient::new());
@@ -285,8 +285,8 @@ async fn in_place_resume_continues_under_source_execution_id() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use wf_agent::AgentCheckpointStrategy;
-    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::state::agent::AgentCheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
     use wf_types::Id;
 
     let echo_runs = Arc::new(AtomicUsize::new(0));

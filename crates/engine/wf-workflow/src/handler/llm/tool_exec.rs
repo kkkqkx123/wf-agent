@@ -128,7 +128,7 @@ pub fn pending_queue_for(
 pub async fn execute_tool_call(
     ctx: &NodeExecutionContext,
     call: &wf_types::message::LlmToolCall,
-    file_checkpoint: Option<&wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint: Option<&checkpoint_file::file::FileCheckpointManager>,
     batch: Option<&LlmToolCallBatch>,
 ) -> Message {
     let tool_name = call.function.name.clone();
@@ -185,7 +185,7 @@ pub async fn execute_tool_call(
         // A write-capable tool must not run untracked: when the session
         // cannot be built the call fails visibly instead of executing
         // without file-checkpoint attribution.
-        match wf_checkpoint::CheckpointSession::new(
+        match checkpoint_file::session::CheckpointSession::new(
             manager.clone(),
             &ctx.execution_id.to_string(),
             parent.as_deref(),

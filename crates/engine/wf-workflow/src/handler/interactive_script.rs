@@ -21,7 +21,7 @@ pub struct InteractiveScriptHandler {
     router: Option<Arc<ScriptRouter>>,
     gateway: Option<Arc<wf_llm::LlmGateway>>,
     llm_profile_id: Option<String>,
-    file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint: Option<checkpoint_file::file::FileCheckpointManager>,
     sessions: Arc<SessionRegistry>,
 }
 
@@ -81,7 +81,7 @@ impl InteractiveScriptHandler {
 
     pub fn with_file_checkpoint_opt(
         mut self,
-        manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+        manager: Option<checkpoint_file::file::FileCheckpointManager>,
     ) -> Self {
         self.file_checkpoint = manager;
         self

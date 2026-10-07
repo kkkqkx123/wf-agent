@@ -8,18 +8,11 @@ use wf_types::checkpoint::base::{
 pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
     UnifiedCheckpointPolicy {
         enabled: user.enabled,
-        triggers: if user.triggers.is_empty() {
-            vec![CheckpointTiming::AfterExecute, CheckpointTiming::OnError]
-        } else {
-            user.triggers.clone()
-        },
-        content: user.content.clone().or(Some(CheckpointContentConfig {
-            include_state: Some(true),
-            include_history: Some(true),
-            include_statistics: Some(false),
-            metadata: None,
-            asynchronous: None,
-        })),
+        // Empty trigger set means checkpointing is disabled; no default fill.
+        triggers: user.triggers.clone(),
+        // Content defaults are materialized solely in
+        // StandardStrategy::from_policy; this layer must not duplicate them.
+        content: user.content.clone(),
         retention: user.retention.clone().or(Some(CheckpointRetentionConfig {
             max_checkpoints: Some(10),
             max_age: None,
@@ -54,8 +47,11 @@ mod tests {
         };
         let merged = merge_checkpoint_with_defaults(&user);
         assert!(merged.enabled);
-        assert_eq!(merged.triggers.len(), 2);
-        assert!(merged.content.is_some());
+        // Empty trigger set stays empty: it means checkpointing is disabled.
+        assert!(merged.triggers.is_empty());
+        // Content defaults are no longer materialized here: they live only
+        // in the strategy layer (`from_policy`).
+        assert!(merged.content.is_none());
         assert!(merged.retention.is_some());
         // unconfigured error handling stays absent: the handler default
         // (swallow with a warning) applies.

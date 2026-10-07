@@ -6,12 +6,12 @@ use serde_json::Value;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
 use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::execution_events::ExecutionEventBus;
-use wf_checkpoint::metadata::builder::{
+use checkpoint_base::execution_events::ExecutionEventBus;
+use checkpoint_base::metadata::builder::{
     custom_fields_equal, fingerprint_entries, fingerprint_option, WF_PROGRESS_COORD_KEYS,
 };
-use wf_checkpoint::state::CheckpointStateManager;
-use wf_checkpoint::state::WorkflowCheckpointStateManager;
+use checkpoint_state::CheckpointStateManager;
+use checkpoint_state::WorkflowCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_core::EventBus;
 use wf_storage::backend::StorageBackend;
@@ -136,7 +136,7 @@ impl WorkflowCheckpointIntegration {
     /// restored after a workflow restore (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.inner = self.inner.with_file_checkpoint_manager(manager);
         self

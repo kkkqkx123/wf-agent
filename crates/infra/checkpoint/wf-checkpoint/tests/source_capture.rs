@@ -16,11 +16,11 @@
 use std::path::Path;
 use std::time::Duration;
 
-use wf_checkpoint::actor::id::{ActorId, ActorKind};
-use wf_checkpoint::file::FileCheckpointManager;
-use wf_checkpoint::scan::ScanConfig;
-use wf_checkpoint::script_capture::WorkspaceChangeCollector;
-use wf_checkpoint::watcher::ManualChangeService;
+use checkpoint_base::actor::id::{ActorId, ActorKind};
+use checkpoint_file::file::FileCheckpointManager;
+use checkpoint_file::scan::ScanConfig;
+use checkpoint_file::script_capture::WorkspaceChangeCollector;
+use checkpoint_file::watcher::ManualChangeService;
 use wf_types::config::file_checkpoint::{FailureBehavior, FileCheckpointConfig};
 use wf_types::Id;
 
@@ -120,7 +120,7 @@ fn script_capture_scope_excludes_outside_prefixes() {
 /// (one tool call is one commit even for multi-file batches).
 #[test]
 fn tool_report_commits_memory_bytes_without_disk_reread() {
-    use wf_checkpoint::file::actor::{PreciseFileEvent, PreciseFileEventKind};
+    use checkpoint_file::file::actor::{PreciseFileEvent, PreciseFileEventKind};
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

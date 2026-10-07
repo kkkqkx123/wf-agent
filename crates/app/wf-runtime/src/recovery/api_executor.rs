@@ -41,7 +41,7 @@ impl ApiRecoveryExecutor {
         execution: &wf_types::WorkflowExecution,
     ) -> RuntimeResult<RecoveryItem> {
         let state_manager =
-            wf_checkpoint::state::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
+            checkpoint_state::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
         let latest = state_manager
             .list_latest_by_entities(std::slice::from_ref(&execution.id))
             .await

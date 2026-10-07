@@ -8,7 +8,7 @@
 //! the final commit reaches every participant. Rolling back one feature
 //! leaves the other feature's content intact.
 
-use wf_checkpoint::file::{FileCheckpointManager, FileContentEntry};
+use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
 
 fn entry(path: &str, content: &[u8]) -> FileContentEntry {
     FileContentEntry::new(path, content.to_vec())

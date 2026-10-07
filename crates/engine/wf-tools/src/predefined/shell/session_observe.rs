@@ -11,7 +11,8 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use wf_checkpoint::{CheckpointSession, SessionBoundary};
+use checkpoint_file::session::CheckpointSession;
+use wf_types::effect::SessionBoundary;
 use wf_shell::lifecycle::{SessionLifecycleEvent, SessionLifecycleKind, SessionLifecycleSink};
 
 /// Routes store monitor-thread lifecycle events to the checkpoint session

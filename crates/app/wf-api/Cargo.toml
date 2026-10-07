@@ -24,6 +24,9 @@ wf-config = { path = "../../infra/wf-config" }
 wf-resource = { path = "../../engine/wf-resource" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
+checkpoint-base = { path = "../../infra/checkpoint/checkpoint-base" }
+checkpoint-state = { path = "../../infra/checkpoint/checkpoint-state" }
+checkpoint-file = { path = "../../infra/checkpoint/checkpoint-file" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../../engine/wf-tools" }
 wf-agent = { path = "../../engine/wf-agent" }

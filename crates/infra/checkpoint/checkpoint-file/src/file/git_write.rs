@@ -193,8 +193,6 @@ impl FileCheckpointManager {
             timestamp: commit.committer_ts,
             full_hash,
             files,
-            checkpoint_type: "full".to_string(),
-            base_checkpoint_id: None,
             empty_dirs: if empty_dirs.is_empty() {
                 None
             } else {

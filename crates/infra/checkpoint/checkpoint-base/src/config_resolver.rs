@@ -129,9 +129,7 @@ impl CheckpointConfigResolver {
     ) -> UnifiedCheckpointPolicy {
         let mut policy = user_policy.clone();
 
-        if policy.triggers.is_empty() {
-            policy.triggers = vec![CheckpointTiming::AfterExecute, CheckpointTiming::OnError];
-        }
+        // Empty trigger set means checkpointing is disabled; no default fill.
 
         if policy.retention.is_none() {
             policy.retention = Some(CheckpointRetentionConfig {
@@ -259,7 +257,8 @@ mod tests {
             error_handling: None,
         };
         let resolved = CheckpointConfigResolver::resolve_from_user_config(&user);
-        assert_eq!(resolved.triggers.len(), 2);
+        // Empty trigger set stays empty: it means checkpointing is disabled.
+        assert!(resolved.triggers.is_empty());
         assert!(resolved.retention.is_some());
     }
 

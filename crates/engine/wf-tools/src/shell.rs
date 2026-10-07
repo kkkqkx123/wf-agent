@@ -32,7 +32,7 @@ fn resolve_scope_dir(
     } else {
         std::env::current_dir().ok()?.join(candidate)
     };
-    Some(wf_checkpoint::normalize_effect_path(&absolute))
+    Some(wf_types::effect::normalize_effect_path(&absolute))
 }
 
 /// Create the async handler for the execute_command tool.
@@ -126,7 +126,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                             _sess
                                 .end_scope_async(
                                     scope.clone(),
-                                    wf_checkpoint::ScopeOutcome {
+                                    wf_types::effect::ScopeOutcome {
                                         execution_id: execution_id.clone(),
                                         success: false,
                                         terminated: true,
@@ -173,7 +173,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                     _sess
                         .end_scope_async(
                             scope.clone(),
-                            wf_checkpoint::ScopeOutcome {
+                            wf_types::effect::ScopeOutcome {
                                 execution_id: execution_id.clone(),
                                 success,
                                 terminated: true,

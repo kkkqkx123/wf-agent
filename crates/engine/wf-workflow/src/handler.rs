@@ -99,7 +99,7 @@ impl HandlerRegistry {
         &mut self,
         gateway: Arc<LlmGateway>,
         sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-        file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
+        file_checkpoint: Option<checkpoint_file::file::FileCheckpointManager>,
     ) {
         self.register_defaults_with_capture(gateway, sandbox, file_checkpoint)
     }
@@ -108,7 +108,7 @@ impl HandlerRegistry {
         &mut self,
         gateway: Arc<LlmGateway>,
         sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-        file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
+        file_checkpoint: Option<checkpoint_file::file::FileCheckpointManager>,
     ) {
         self.register(Box::new(start_end::StartHandler));
         self.register(Box::new(start_end::EndHandler));

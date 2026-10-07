@@ -53,7 +53,7 @@ pub async fn execute_with_checkpoint_session(
     parameters: &serde_json::Value,
     options: Option<ToolExecutionOptions>,
     execution_id: &str,
-    checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    checkpoint_session: Option<checkpoint_file::session::CheckpointSession>,
 ) -> ApiResult<ToolExecutionResult> {
     let options = options.unwrap_or(ToolExecutionOptions {
         timeout: Some(30000),

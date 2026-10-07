@@ -1,4 +1,4 @@
-use wf_checkpoint::approval::{MergeOutcome, PendingApproval};
+use checkpoint_file::approval::{MergeOutcome, PendingApproval};
 use wf_types::llm::LlmRequest;
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 
@@ -11,7 +11,7 @@ pub const REVIEW_VERDICT_TOOL: &str = "approve_changes";
 
 /// The attached file checkpoint manager, or an error when file
 /// checkpointing is disabled.
-fn manager(ctx: &ApiContext) -> ApiResult<&wf_checkpoint::file::FileCheckpointManager> {
+fn manager(ctx: &ApiContext) -> ApiResult<&checkpoint_file::file::FileCheckpointManager> {
     ctx.file_checkpoint_manager().ok_or_else(|| {
         ApiError::execution("file checkpointing is not enabled; set file_checkpoint.enabled=true")
     })
@@ -40,7 +40,7 @@ pub fn approve_changes(
 ) -> ApiResult<MergeOutcome> {
     let manager = manager(ctx)?;
     let feature = if feature_name.is_empty() {
-        wf_checkpoint::file::FileCheckpointManager::default_feature_name(agent_instance_id)
+        checkpoint_file::file::FileCheckpointManager::default_feature_name(agent_instance_id)
     } else {
         feature_name.to_string()
     };
@@ -196,7 +196,7 @@ pub async fn review_pending_approval(
         )));
     };
     let feature = if feature_name.is_empty() {
-        wf_checkpoint::file::FileCheckpointManager::default_feature_name(agent_instance_id)
+        checkpoint_file::file::FileCheckpointManager::default_feature_name(agent_instance_id)
     } else {
         feature_name.to_string()
     };
@@ -260,7 +260,7 @@ pub async fn review_pending_approval(
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wf_checkpoint::file::{FileCheckpointManager, FileContentEntry};
+    use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
     use wf_llm::{LlmResponseSpec, MockLlmClient};
     use wf_resource::registry::ResourceRegistries;
     use wf_storage::context::StorageContext;

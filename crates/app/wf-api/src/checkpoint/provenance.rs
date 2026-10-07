@@ -1,5 +1,6 @@
-use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
-use wf_checkpoint::{EditGroup, GcRetention, GcStats};
+use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use checkpoint_file::file::session::EditGroup;
+use checkpoint_file::gc::{GcRetention, GcStats};
 
 use crate::infra::context::ApiContext;
 use crate::ApiError;
@@ -7,7 +8,7 @@ use crate::ApiResult;
 
 /// The attached file checkpoint manager, or an error when file
 /// checkpointing is disabled.
-fn manager(ctx: &ApiContext) -> ApiResult<&wf_checkpoint::file::FileCheckpointManager> {
+fn manager(ctx: &ApiContext) -> ApiResult<&checkpoint_file::file::FileCheckpointManager> {
     ctx.file_checkpoint_manager().ok_or_else(|| {
         ApiError::execution("file checkpointing is not enabled; set file_checkpoint.enabled=true")
     })
@@ -71,7 +72,7 @@ pub fn diff_against_staged(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileD
 pub fn file_timeline(
     ctx: &ApiContext,
     path: &str,
-) -> ApiResult<wf_checkpoint::provenance::FileTimeline> {
+) -> ApiResult<checkpoint_file::provenance::FileTimeline> {
     manager(ctx)?
         .file_timeline(path)
         .map_err(ApiError::execution_with_source)
@@ -84,7 +85,7 @@ pub const MAX_FILE_TIMELINE_ENTRIES: usize = 5000;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FileTimelineView {
     pub original_path: String,
-    pub entries: Vec<wf_checkpoint::provenance::FileTimelineEntry>,
+    pub entries: Vec<checkpoint_file::provenance::FileTimelineEntry>,
     pub truncated: bool,
     pub total: usize,
 }

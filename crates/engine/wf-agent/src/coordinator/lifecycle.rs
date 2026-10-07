@@ -12,7 +12,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::execution_events::ExecutionEventBus;
+use checkpoint_base::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
@@ -73,7 +73,7 @@ pub struct AgentLoopCoordinator {
     hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Optional file checkpoint manager: file snapshots of the agent loop are
     /// restored together with the execution checkpoint (best-effort).
-    file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
     /// Default `max_iterations` used when the agent config omits it.
     default_max_iterations: u32,
     /// Hard cap on `max_iterations`; configs above it are rejected at
@@ -145,7 +145,7 @@ impl AgentLoopCoordinator {
     /// (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager);
         self

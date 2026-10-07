@@ -210,9 +210,9 @@ impl FsToolHandlers {
         })?;
 
         let op = if existed {
-            wf_checkpoint::FileOperation::Modified
+            wf_types::effect::FileOperation::Modified
         } else {
-            wf_checkpoint::FileOperation::Created
+            wf_types::effect::FileOperation::Created
         };
         notify_precise(ctx, &path, op);
 
@@ -272,7 +272,7 @@ impl FsToolHandlers {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
 
-        notify_precise(ctx, &path, wf_checkpoint::FileOperation::Modified);
+        notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified);
 
         Ok(Value::String(format!(
             "Edited {}: replaced 1 occurrence(s)",
@@ -510,9 +510,9 @@ impl FsToolHandlers {
                 // association (adapter expands it to delete + edit + move).
                 let operation = result["operation"].as_str().unwrap_or("");
                 match operation {
-                    "add" => notify_precise(ctx, &path, wf_checkpoint::FileOperation::Created),
-                    "delete" => notify_precise(ctx, &path, wf_checkpoint::FileOperation::Deleted),
-                    "update" => notify_precise(ctx, &path, wf_checkpoint::FileOperation::Modified),
+                    "add" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Created),
+                    "delete" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Deleted),
+                    "update" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified),
                     "rename" => {
                         let new_path = result["new_path"]
                             .as_str()
@@ -521,8 +521,8 @@ impl FsToolHandlers {
                         notify_precise(
                             ctx,
                             &new_path,
-                            wf_checkpoint::FileOperation::Renamed {
-                                from: wf_checkpoint::normalize_effect_path(&path),
+                            wf_types::effect::FileOperation::Renamed {
+                                from: wf_types::effect::normalize_effect_path(&path),
                             },
                         );
                     }
@@ -753,7 +753,7 @@ impl FsToolHandlers {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
 
-        notify_precise(ctx, &path, wf_checkpoint::FileOperation::Modified);
+        notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified);
 
         let partial_hint = if failures.is_empty() {
             String::new()
@@ -833,15 +833,15 @@ impl Clone for FsToolHandlers {
 }
 
 /// Report a precise file change through the CheckpointSession.
-fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_checkpoint::FileOperation) {
+fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_types::effect::FileOperation) {
     if let Some(cp) = ctx.checkpoint_session.as_ref() {
-        let mut mutation = wf_checkpoint::FileMutation::new(path.to_path_buf(), op)
+        let mut mutation = wf_types::effect::FileMutation::new(path.to_path_buf(), op)
             .with_execution(ctx.execution_id.clone());
         // Single disk read: capture bytes once and forward them so checkpoint
         // does not re-read the same file. Deleted files have no content.
-        if !matches!(mutation.operation, wf_checkpoint::FileOperation::Deleted) {
+        if !matches!(mutation.operation, wf_types::effect::FileOperation::Deleted) {
             if let Ok(bytes) = std::fs::read(path) {
-                let hash = wf_checkpoint::sha256_hex(&bytes);
+                let hash = checkpoint_file::file::util::sha256_hex(&bytes);
                 mutation = mutation.with_content(bytes, hash);
             }
         }

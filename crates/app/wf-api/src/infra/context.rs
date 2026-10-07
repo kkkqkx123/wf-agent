@@ -98,7 +98,7 @@ pub struct ApiContext {
     /// of executions are created/restored through it, and the script handlers
     /// capture workspace changes when it is attached. `None` keeps file
     /// checkpointing disabled.
-    file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
     /// Host-default tool approval configuration (infrastructure config).
     /// When enabled with no caller-supplied handler, executions launched
     /// through this context route every tool call through the persisted
@@ -280,7 +280,7 @@ impl ApiContext {
     ///   workspace changes onto the executing actor partition.
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager.clone());
         let handlers = wf_workflow::create_default_handlers_with_file_checkpoint(
@@ -293,7 +293,7 @@ impl ApiContext {
     }
 
     /// The attached file checkpoint manager, if any.
-    pub fn file_checkpoint_manager(&self) -> Option<&wf_checkpoint::file::FileCheckpointManager> {
+    pub fn file_checkpoint_manager(&self) -> Option<&checkpoint_file::file::FileCheckpointManager> {
         self.file_checkpoint_manager.as_ref()
     }
 

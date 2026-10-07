@@ -11,6 +11,9 @@ wf-core = { path = "../../foundation/wf-core" }
 wf-tools = { path = "../wf-tools" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
+checkpoint-base = { path = "../../infra/checkpoint/checkpoint-base" }
+checkpoint-state = { path = "../../infra/checkpoint/checkpoint-state" }
+checkpoint-file = { path = "../../infra/checkpoint/checkpoint-file" }
 wf-execution-shared = { path = "../wf-execution-shared" }
 wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }

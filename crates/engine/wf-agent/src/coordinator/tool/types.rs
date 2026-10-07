@@ -93,7 +93,7 @@ pub(crate) struct ToolRunCtx {
     /// File-content observation (agent actor partition). Injected separately
     /// from `checkpoint_handler` so callers cannot confuse execution-state
     /// snapshots with file-content checkpoints.
-    pub(crate) checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    pub(crate) checkpoint_session: Option<checkpoint_file::session::CheckpointSession>,
     /// Live parent link of the owning execution, forwarded into the tool
     /// context so dispatch tools (`call_agent` / `execute_workflow`) link
     /// their children under this execution. Set per execution before

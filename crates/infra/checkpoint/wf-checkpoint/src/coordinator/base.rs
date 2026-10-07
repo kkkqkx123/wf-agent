@@ -350,7 +350,7 @@ pub trait CheckpointCoordinator: Send + Sync {
             let ctx = self.prepare(entity_id, trigger).await?;
             let checkpoint = self.build(ctx, state).await?;
             self.validate_checkpoint(&checkpoint).await?;
-            let checkpoint_id = checkpoint_id_of(&checkpoint);
+            let checkpoint_id = checkpoint_id_of(&checkpoint)?;
             self.persist(&checkpoint, entity_id).await?;
             if self.async_persistence_enabled() {
                 self.enqueue_persistence(&checkpoint_id, entity_id).await;
@@ -546,11 +546,16 @@ impl checkpoint_state::restore::HierarchyMetadataLoader for MetadataIndexLoader 
 }
 
 /// Extract the checkpoint id for event/metadata correlation. Serialization
-/// fallback keeps generic (JSON-serializable) checkpoints working; the
-/// default is an empty id.
-fn checkpoint_id_of<C: serde::Serialize>(checkpoint: &C) -> String {
-    serde_json::to_value(checkpoint)
-        .ok()
-        .and_then(|json| json.get("id").and_then(|v| v.as_str()).map(String::from))
-        .unwrap_or_default()
+/// is mandatory: a checkpoint whose id cannot be extracted is a hard error,
+/// not a silently empty correlation key.
+fn checkpoint_id_of<C: serde::Serialize>(checkpoint: &C) -> Result<String, CheckpointError> {
+    let json = serde_json::to_value(checkpoint).map_err(|err| {
+        CheckpointError::Internal(format!("checkpoint serialization failed: {err}"))
+    })?;
+    json.get("id")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| CheckpointError::Internal(
+            "checkpoint has no string `id` field".to_string(),
+        ))
 }

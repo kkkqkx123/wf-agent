@@ -83,8 +83,8 @@ async fn fire_hook_with_opt_in(
     use wf_agent::entity::AgentLoopEntity;
     use wf_agent::hook::AgentHookEmitter;
     use wf_agent::AgentCheckpointStrategy;
-    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::state::agent::AgentCheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
     use wf_execution_shared::hooks::types::HookDefinition;
     use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
 
@@ -171,8 +171,8 @@ async fn hook_create_checkpoint_persists_after_iteration() {
     assert_eq!(output.agent_loop_id, "hook-loop");
     assert!(
         {
-            use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-            use wf_checkpoint::state::CheckpointStateManager;
+            use checkpoint_state::state::agent::AgentCheckpointStateManager;
+            use checkpoint_state::CheckpointStateManager;
             AgentCheckpointStateManager::new(e2e_store)
                 .count_by_entity("hook-loop")
                 .await
@@ -214,8 +214,8 @@ async fn hook_create_checkpoint_covers_all_wired_points() {
         use wf_agent::entity::AgentLoopEntity;
         use wf_agent::hook::AgentHookEmitter;
         use wf_agent::AgentCheckpointStrategy;
-        use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-        use wf_checkpoint::state::CheckpointStateManager;
+        use checkpoint_state::state::agent::AgentCheckpointStateManager;
+        use checkpoint_state::CheckpointStateManager;
         use wf_execution_shared::hooks::types::HookDefinition;
 
         let store = Arc::new(StorageBackend::new_memory());

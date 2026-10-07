@@ -69,7 +69,7 @@ pub struct Runtime {
     /// File checkpoint manager (layertwine-backed): execution file snapshots
     /// are created/restored through it and script handlers capture workspace
     /// changes when it is attached. `None` keeps file checkpointing disabled.
-    pub(super) file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    pub(super) file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
     /// Host default tool approval configuration, applied to the API context
     /// so executions launched through it route tool calls through the
     /// persisted interaction flow when enabled.
@@ -86,7 +86,7 @@ pub struct Runtime {
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
     /// file checkpointing is enabled with a workspace root and `manual_watch`.
-    pub(super) manual_change_service: Option<wf_checkpoint::watcher::ManualChangeService>,
+    pub(super) manual_change_service: Option<checkpoint_file::watcher::ManualChangeService>,
     /// Forwarder task from the file-checkpoint event bus onto the shared
     /// event bus (CheckpointFileChanged / CheckpointMergeConflicted with the
     /// `DeltaSummary` payload). Kept alive for the runtime lifetime.
@@ -107,7 +107,7 @@ impl Runtime {
 
     /// The attached file checkpoint manager (layertwine-backed), when file
     /// checkpointing is enabled with a storage backend.
-    pub fn file_checkpoint_manager(&self) -> Option<&wf_checkpoint::file::FileCheckpointManager> {
+    pub fn file_checkpoint_manager(&self) -> Option<&checkpoint_file::file::FileCheckpointManager> {
         self.file_checkpoint_manager.as_ref()
     }
 

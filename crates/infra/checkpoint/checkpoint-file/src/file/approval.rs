@@ -421,11 +421,18 @@ impl FileCheckpointManager {
             self.publish_file_event(&head, path, actor.as_str(), Some(content.as_slice()));
         }
         paths.sort();
-        let parent_tree = git
-            .read_commit(&head)
-            .map_err(map_git_error)
-            .map(|c| c.tree)
-            .ok();
+        let parent_tree = match git.read_commit(&head).map_err(map_git_error) {
+            Ok(commit) => Some(commit.tree),
+            Err(err) => {
+                tracing::warn!(
+                    entity_id = %entity_id,
+                    feature = %feature_name,
+                    error = %err,
+                    "reading feature head commit failed; building tree without a parent"
+                );
+                None
+            }
+        };
         let tree = git
             .build_tree_from_parent(parent_tree.as_deref(), &changes)
             .map_err(map_git_error)?;

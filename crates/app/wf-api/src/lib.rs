@@ -363,28 +363,27 @@ pub use wf_workflow::variable::{
     VariableResolver, VariableStore,
 };
 
-// -- wf-checkpoint --
-pub use wf_checkpoint::actor::id::{ActorId, ActorIdError, ActorKind};
-pub use wf_checkpoint::approval::{ConflictView, MergeOutcome, PendingApproval};
-pub use wf_checkpoint::cache::CheckpointCache;
-pub use wf_checkpoint::common::{
+// -- checkpoint facade + subsystems --
+pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
+pub use checkpoint_base::cache::CheckpointCache;
+pub use checkpoint_base::common::{
     diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
 };
-pub use wf_checkpoint::error::CheckpointError;
-pub use wf_checkpoint::event::{CheckpointEvent, CheckpointEventBus};
-pub use wf_checkpoint::file::merge::MergeCommitResult;
-pub use wf_checkpoint::file::util::sha256_hex;
-pub use wf_checkpoint::file::{
+pub use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
+pub use checkpoint_file::approval::{ConflictView, MergeOutcome, PendingApproval};
+pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus};
+pub use checkpoint_file::file::merge::MergeCommitResult;
+pub use checkpoint_file::file::util::sha256_hex;
+pub use checkpoint_file::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
-pub use wf_checkpoint::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
-pub use wf_checkpoint::provenance::{
+pub use checkpoint_base::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
+pub use checkpoint_file::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
 };
-pub use wf_checkpoint::scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
-pub use wf_checkpoint::serializer::{CheckpointCodec, CheckpointSerializer};
-pub use wf_checkpoint::watcher::{
+pub use checkpoint_file::scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
+pub use checkpoint_file::watcher::{
     FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
 };
 

@@ -35,10 +35,6 @@ pub struct FileState {
     pub deleted: bool,
 }
 
-fn default_checkpoint_type() -> String {
-    "full".to_string()
-}
-
 /// Lightweight projection of a file checkpoint.
 ///
 /// The authoritative model lives in the Git object store; this struct is
@@ -48,8 +44,7 @@ fn default_checkpoint_type() -> String {
 /// per-file state.
 ///
 /// Naming: `FileProjection` is the preferred alias at new call sites; the
-/// `FileCheckpoint` name is retained for the wire shape. `checkpoint_type` is
-/// always `"full"` and `base_checkpoint_id` is always `None` by construction.
+/// `FileCheckpoint` name is retained for the wire shape.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct FileCheckpoint {
     /// File checkpoint id.
@@ -58,12 +53,6 @@ pub struct FileCheckpoint {
     pub timestamp: i64,
     pub full_hash: String,
     pub files: Vec<FileState>,
-    /// Always `"full"` in the projection.
-    #[serde(default = "default_checkpoint_type")]
-    pub checkpoint_type: String,
-    /// Always `None` in the projection (no hand-written delta chains).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_checkpoint_id: Option<String>,
     /// Directories that contained no files at snapshot time; recreated on
     /// workspace restore. Kept in the projection index.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,16 +83,12 @@ pub struct FileCheckpointMetadata {
 
 impl From<&FileCheckpoint> for FileCheckpointMetadata {
     fn from(checkpoint: &FileCheckpoint) -> Self {
-        debug_assert_eq!(
-            checkpoint.checkpoint_type, "full",
-            "file projection is always a full projection"
-        );
         Self {
             id: checkpoint.id.clone(),
             entity_id: String::new(),
             timestamp: checkpoint.timestamp,
-            checkpoint_type: checkpoint.checkpoint_type.clone(),
-            base_checkpoint_id: checkpoint.base_checkpoint_id.clone(),
+            checkpoint_type: "full".to_string(),
+            base_checkpoint_id: None,
             file_count: checkpoint.files.len() as u64,
             full_hash: checkpoint.full_hash.clone(),
             total_size: checkpoint.files.iter().map(|f| f.size).sum(),
@@ -233,21 +218,6 @@ impl Clone for FileCheckpointManager {
 }
 
 impl FileCheckpointManager {
-    pub fn new() -> Self {
-        Self {
-            store: ManagerStore::without_storage(),
-            policy: ManagerPolicy::default(),
-            clock: CheckpointClock::system(),
-            event_bus: None,
-            workspace_root: None,
-            actor_index: ActorRegistry::new(),
-            session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
-            pending_batches: Arc::new(DashMap::new()),
-            redo_stacks: Arc::new(DashMap::new()),
-            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
-        }
-    }
-
     /// Drive checkpoint creation timestamps from an explicit clock instead
     /// of the system clock. Also swaps the write-attribution registry onto
     /// the same clock so window tests advance a single time source.
@@ -375,10 +345,11 @@ impl FileCheckpointManager {
         }
     }
 
-    /// In-memory backend for tests and tooling.
+    /// In-memory backend for tests and tooling. Storage is created here (the
+    /// coordinator entry point) and injected downward into the store.
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
         Ok(Self {
-            store: ManagerStore::new_in_memory_backend()?,
+            store: ManagerStore::new_in_memory_backend(Arc::new(SqliteStorage::new_full_in_memory()?))?,
             policy: ManagerPolicy::default(),
             clock: CheckpointClock::system(),
             event_bus: None,
@@ -577,12 +548,6 @@ impl FileCheckpointManager {
     }
 }
 
-impl Default for FileCheckpointManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,8 +599,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(cp.files.len(), 2);
-        assert_eq!(cp.checkpoint_type, "full");
-        assert!(cp.base_checkpoint_id.is_none());
 
         let restored = manager.restore_checkpoint("exec-1", &cp.id).unwrap();
         let map = state_map(&restored);

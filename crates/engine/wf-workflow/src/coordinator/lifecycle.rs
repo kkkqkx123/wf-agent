@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::execution_events::ExecutionEventBus;
+use checkpoint_base::execution_events::ExecutionEventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;
@@ -38,7 +38,7 @@ pub struct WorkflowLifecycleCoordinator {
     /// Optional file checkpoint manager: file snapshots are created on
     /// checkpoint persistence and restored after workflow restore
     /// (best-effort).
-    file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
 }
 
 impl WorkflowLifecycleCoordinator {
@@ -65,7 +65,7 @@ impl WorkflowLifecycleCoordinator {
     /// created/restored through it (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager);
         self

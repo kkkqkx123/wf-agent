@@ -28,8 +28,8 @@ impl WorkflowLifecycleCoordinator {
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         hooks: Vec<HookDefinition>,
     ) -> WorkflowResult<(WorkflowCoordinator, String)> {
-        use wf_checkpoint::state::CheckpointStateManager;
-        use wf_checkpoint::state::WorkflowCheckpointStateManager;
+        use checkpoint_state::CheckpointStateManager;
+        use checkpoint_state::WorkflowCheckpointStateManager;
 
         let state_manager = WorkflowCheckpointStateManager::new(self.store.clone());
         let metadata = state_manager
@@ -75,7 +75,7 @@ impl WorkflowLifecycleCoordinator {
         use wf_checkpoint::coordinator::CheckpointCoordinator;
 
         let mut cp_coordinator = WorkflowCheckpointCoordinator::new(
-            wf_checkpoint::state::WorkflowCheckpointStateManager::new(self.store.clone()),
+            checkpoint_state::WorkflowCheckpointStateManager::new(self.store.clone()),
         );
         if let Some(ref manager) = self.file_checkpoint_manager {
             cp_coordinator = cp_coordinator.with_file_checkpoint_manager(manager.clone());

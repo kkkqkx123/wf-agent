@@ -10,13 +10,13 @@ pub fn init_file_checkpoint_manager(
     config: &FileCheckpointConfig,
     event_bus: Arc<wf_core::event::EventBus>,
 ) -> RuntimeResult<(
-    Option<wf_checkpoint::file::FileCheckpointManager>,
+    Option<checkpoint_file::file::FileCheckpointManager>,
     Option<tokio::task::JoinHandle<()>>,
 )> {
     if !config.enabled {
         return Ok((None, None));
     }
-    match wf_checkpoint::file::FileCheckpointManager::open_from_config(config) {
+    match checkpoint_file::file::FileCheckpointManager::open_from_config(config) {
         Ok(manager) => {
             info!("File checkpoint manager initialized (layertwine Sqlite)");
             let bus = wf_checkpoint::event::CheckpointEventBus::new();
@@ -32,8 +32,8 @@ pub fn init_file_checkpoint_manager(
 
 pub fn init_manual_change_service(
     config: &FileCheckpointConfig,
-    manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
-) -> RuntimeResult<Option<wf_checkpoint::watcher::ManualChangeService>> {
+    manager: Option<&checkpoint_file::file::FileCheckpointManager>,
+) -> RuntimeResult<Option<checkpoint_file::watcher::ManualChangeService>> {
     let Some(manager) = manager else {
         return Ok(None);
     };
@@ -43,11 +43,11 @@ pub fn init_manual_change_service(
     if !config.enabled || !config.manual_watch {
         return Ok(None);
     }
-    let scan_config = wf_checkpoint::scan::ScanConfig {
+    let scan_config = checkpoint_file::scan::ScanConfig {
         custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
         failure_behavior: config.failure_behavior,
     };
-    match wf_checkpoint::watcher::ManualChangeService::start(
+    match checkpoint_file::watcher::ManualChangeService::start(
         manager.clone(),
         root,
         scan_config,
@@ -66,7 +66,7 @@ pub fn init_manual_change_service(
 
 pub fn init_gc_timer(
     config: &FileCheckpointConfig,
-    manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
+    manager: Option<&checkpoint_file::file::FileCheckpointManager>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let interval_secs = config.gc_interval_secs?;
     if interval_secs == 0 {
@@ -75,7 +75,7 @@ pub fn init_gc_timer(
     let manager = manager?.clone();
     let retention = config
         .gc_retention
-        .map(|r| wf_checkpoint::GcRetention {
+        .map(|r| checkpoint_file::gc::GcRetention {
             keep_recent_heads: r.keep_recent_heads,
         })
         .unwrap_or_default();
@@ -108,9 +108,9 @@ pub fn init_gc_timer(
 /// the layertwine-backed manager plus its background tasks, kept alive for
 /// the runtime lifetime.
 pub struct FileCheckpointStack {
-    pub manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    pub manager: Option<checkpoint_file::file::FileCheckpointManager>,
     pub event_bridge_handle: Option<tokio::task::JoinHandle<()>>,
-    pub manual_change_service: Option<wf_checkpoint::watcher::ManualChangeService>,
+    pub manual_change_service: Option<checkpoint_file::watcher::ManualChangeService>,
     pub gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
 }
 

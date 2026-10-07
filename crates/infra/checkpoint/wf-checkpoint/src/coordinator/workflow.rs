@@ -166,7 +166,7 @@ pub struct WorkflowCheckpointCoordinator {
     delta_config: DeltaStorageConfig,
     version_manager: VersionManager,
     strategy: Option<StandardStrategy>,
-    error_handler: crate::error_handling::CheckpointErrorHandler,
+    error_handler: checkpoint_base::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
     /// `contentConfig.async`: defer post-persist side effects to the
@@ -186,7 +186,7 @@ impl WorkflowCheckpointCoordinator {
             delta_config: DeltaStorageConfig::default(),
             version_manager: VersionManager::new(),
             strategy: None,
-            error_handler: crate::error_handling::CheckpointErrorHandler::default(),
+            error_handler: checkpoint_base::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
             file_checkpoint_manager: None,
             async_persistence: false,
@@ -213,7 +213,7 @@ impl WorkflowCheckpointCoordinator {
     /// A disabled policy yields a strategy that never checkpoints. The
     /// policy's `content.async` flag also enables async persistence mode.
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.strategy = Some(crate::strategy::create_checkpoint_strategy(policy));
+        self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(policy));
         self.async_persistence = policy
             .content
             .as_ref()
@@ -239,7 +239,7 @@ impl WorkflowCheckpointCoordinator {
     /// Configure the checkpoint error handler (default: `warn`, non-fatal).
     pub fn with_error_handler(
         mut self,
-        handler: crate::error_handling::CheckpointErrorHandler,
+        handler: checkpoint_base::error_handling::CheckpointErrorHandler,
     ) -> Self {
         self.error_handler = handler;
         self
@@ -247,7 +247,7 @@ impl WorkflowCheckpointCoordinator {
 
     /// Configure the error handler from a unified policy.
     pub fn with_error_policy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.error_handler = crate::error_handling::CheckpointErrorHandler::from_policy(policy);
+        self.error_handler = checkpoint_base::error_handling::CheckpointErrorHandler::from_policy(policy);
         self
     }
 
@@ -275,7 +275,7 @@ impl WorkflowCheckpointCoordinator {
 
     fn apply_content_policy(&self, state: &mut WorkflowExecutionStateSnapshot) {
         if let Some(strategy) = &self.strategy {
-            let filter = crate::common::content::ContentFilter::new();
+            let filter = checkpoint_base::common::content::ContentFilter::new();
             let config = strategy.content_config();
             if !filter.should_include_state(config) {
                 state.input = None;

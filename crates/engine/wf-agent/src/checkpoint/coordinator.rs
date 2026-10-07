@@ -4,10 +4,10 @@ use std::sync::Arc;
 use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::execution_events::ExecutionEventBus;
-use wf_checkpoint::metadata::builder::{custom_fields_equal, PROGRESS_COORD_KEYS};
-use wf_checkpoint::state::AgentCheckpointStateManager;
-use wf_checkpoint::state::CheckpointStateManager;
+use checkpoint_base::execution_events::ExecutionEventBus;
+use checkpoint_base::metadata::builder::{custom_fields_equal, PROGRESS_COORD_KEYS};
+use checkpoint_state::AgentCheckpointStateManager;
+use checkpoint_state::CheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::backend::StorageBackend;
@@ -116,7 +116,7 @@ impl AgentCheckpointIntegration {
     /// entity is restored after a checkpoint restore (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.inner = self.inner.with_file_checkpoint_manager(manager);
         self

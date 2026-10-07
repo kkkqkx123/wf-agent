@@ -257,7 +257,7 @@ impl AgentIterationCoordinator {
     /// snapshot the execution record.
     pub fn with_checkpoint_session(
         mut self,
-        session: Option<wf_checkpoint::CheckpointSession>,
+        session: Option<checkpoint_file::session::CheckpointSession>,
     ) -> Self {
         self.tool_coordinator = self.tool_coordinator.with_checkpoint_session(session);
         self

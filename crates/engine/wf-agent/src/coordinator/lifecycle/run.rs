@@ -211,7 +211,7 @@ impl AgentLoopCoordinator {
         // contract through the tool context.
         if let Some(ref manager) = self.file_checkpoint_manager {
             let parent = entity.parent_execution_id().map(|id| id.to_string());
-            let session = wf_checkpoint::CheckpointSession::new(
+            let session = checkpoint_file::session::CheckpointSession::new(
                 manager.clone(),
                 &entity.id().to_string(),
                 parent.as_deref(),

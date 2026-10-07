@@ -58,7 +58,7 @@ pub struct ToolExecutionCoordinator {
     retry_budget: Option<Arc<wf_common::retry::RetryBudget>>,
     /// File-content observer (agent actor partition). Independent from the
     /// execution-state `checkpoint_handler` above.
-    checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    checkpoint_session: Option<checkpoint_file::session::CheckpointSession>,
     /// Strategy-gated checkpoint handle for hook `create_checkpoint` opt-ins
     /// (`BEFORE_TOOL_CALL` / `AFTER_TOOL_CALL`). Shared (Arc) so coordinator
     /// rebuilds stay cheap; `None` keeps hook fires checkpoint-free.
@@ -164,7 +164,7 @@ impl ToolExecutionCoordinator {
     /// snapshots for file-content checkpoints.
     pub fn with_checkpoint_session(
         mut self,
-        session: Option<wf_checkpoint::CheckpointSession>,
+        session: Option<checkpoint_file::session::CheckpointSession>,
     ) -> Self {
         self.checkpoint_session = session;
         self
@@ -221,7 +221,7 @@ impl ToolExecutionCoordinator {
 
     /// Current file observer wiring; lets coordinator rebuilds preserve the
     /// file-content observation contract.
-    pub fn checkpoint_session_config(&self) -> Option<wf_checkpoint::CheckpointSession> {
+    pub fn checkpoint_session_config(&self) -> Option<checkpoint_file::session::CheckpointSession> {
         self.checkpoint_session.clone()
     }
 

@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use wf_checkpoint::state::WorkflowCheckpointStateManager;
+use checkpoint_state::WorkflowCheckpointStateManager;
 use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;

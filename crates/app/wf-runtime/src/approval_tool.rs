@@ -4,7 +4,7 @@ use wf_tools::executor::stateless::StatelessAsyncHandler;
 use wf_tools::registry::ToolRegistry;
 use wf_types::tool::{Tool, ToolPropertySchema, ToolType};
 
-use wf_checkpoint::file::FileCheckpointManager;
+use checkpoint_file::file::FileCheckpointManager;
 
 const APPROVE_CHANGES_TOOL_ID: &str = "approve_changes";
 const DEFAULT_FEATURE: &str = "default";
@@ -121,7 +121,7 @@ pub fn register_approval_tools(registry: &ToolRegistry, manager: FileCheckpointM
                 };
                 manager
                     .reject_changes(agent_instance_id, Some(&reason))
-                    .map(|baseline| wf_checkpoint::approval::MergeOutcome {
+                    .map(|baseline| checkpoint_file::approval::MergeOutcome {
                         merged: false,
                         snapshot_id: baseline,
                         conflicts: vec![],
@@ -156,7 +156,7 @@ pub fn register_approval_tools(registry: &ToolRegistry, manager: FileCheckpointM
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_checkpoint::file::FileContentEntry;
+    use checkpoint_file::file::FileContentEntry;
     use wf_tools::executor::trait_def::ToolExecutionContext;
     use wf_types::tool::ToolExecutionOptions;
 

@@ -33,7 +33,7 @@ use tool_exec::{call_llm, execute_tool_call, pending_queue_for, resolve_tools, L
 
 pub struct LlmHandler {
     gateway: Arc<LlmGateway>,
-    file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint: Option<checkpoint_file::file::FileCheckpointManager>,
 }
 
 impl LlmHandler {
@@ -46,7 +46,7 @@ impl LlmHandler {
 
     pub fn with_file_checkpoint(
         mut self,
-        manager: wf_checkpoint::file::FileCheckpointManager,
+        manager: checkpoint_file::file::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint = Some(manager);
         self
@@ -54,7 +54,7 @@ impl LlmHandler {
 
     pub fn with_file_checkpoint_opt(
         mut self,
-        manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+        manager: Option<checkpoint_file::file::FileCheckpointManager>,
     ) -> Self {
         self.file_checkpoint = manager;
         self

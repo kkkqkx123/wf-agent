@@ -139,7 +139,15 @@ impl
         }
 
         if let Some(ref node_results) = delta.added_node_results {
-            result.node_results = serde_json::from_value(node_results.clone()).ok();
+            match serde_json::from_value(node_results.clone()) {
+                Ok(parsed) => result.node_results = Some(parsed),
+                Err(err) => {
+                    tracing::warn!(
+                        error = %err,
+                        "node results deserialization failed while applying delta; field dropped"
+                    );
+                }
+            }
         }
 
         if let Some(ref modified) = delta.modified_node_results {

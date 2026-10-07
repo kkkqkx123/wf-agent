@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use wf_checkpoint::error::CheckpointError;
-use wf_checkpoint::state::CheckpointStateManager;
-use wf_checkpoint::state::StorageBackedStateManager;
+use checkpoint_state::CheckpointStateManager;
+use checkpoint_state::StorageBackedStateManager;
 use wf_storage::backend::StorageBackend;
 use wf_storage::store::sqlite::SqliteStorage;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -166,7 +166,7 @@ async fn bit_flip_in_payload_is_detected_and_marked_corrupted() {
         .await
         .expect("payload row exists");
     assert!(
-        wf_checkpoint::CheckpointSerializer::is_compressed(&stored),
+        checkpoint_base::serializer::CheckpointSerializer::is_compressed(&stored),
         "large checkpoint payload must be compressed on the save path"
     );
     flip_payload_byte(db, "cp-1", stored.len() / 2).await;

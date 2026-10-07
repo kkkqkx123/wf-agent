@@ -13,8 +13,8 @@ use serde::Serialize;
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
 use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use wf_checkpoint::state::agent::AgentCheckpointStateManager;
-use wf_checkpoint::state::CheckpointStateManager;
+use checkpoint_state::state::agent::AgentCheckpointStateManager;
+use checkpoint_state::CheckpointStateManager;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 use wf_types::checkpoint::CheckpointTiming;
@@ -412,7 +412,7 @@ async fn global_checkpoints(ctx: &ApiContext) -> ApiResult<Vec<Checkpoint>> {
                 .get("entityId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            wf_checkpoint::state::parse_storage_metadata(id, entity_id, meta)
+            checkpoint_state::parse_storage_metadata(id, entity_id, meta)
         })
         .filter(|checkpoint| checkpoint.entity_type == "agent_loop")
         .collect();

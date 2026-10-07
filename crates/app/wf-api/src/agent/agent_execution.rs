@@ -203,11 +203,11 @@ pub async fn resume_from_checkpoint(
     params: RunAgentLoopParams,
     in_place: bool,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
 
     gate_agent_config(ctx, &params.config)?;
     let state_manager =
-        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+        checkpoint_state::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let owned = state_manager
         .list_by_entity(agent_loop_id)
         .await
@@ -255,10 +255,10 @@ pub async fn auto_resume(
     ctx: &ApiContext,
     agent_loop_id: &str,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    use wf_checkpoint::state::CheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
 
     let state_manager =
-        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+        checkpoint_state::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let latest = state_manager
         .get_latest(agent_loop_id)
         .await
@@ -778,7 +778,7 @@ mod tests {
     /// the deepest stack user in this crate, so they stay split instead of
     /// chaining several runs inside one test.
     async fn run_loop_with_checkpoint(ctx: &Arc<ApiContext>, message: &str) -> (String, String) {
-        use wf_checkpoint::state::CheckpointStateManager;
+        use checkpoint_state::CheckpointStateManager;
 
         let output = run(
             ctx,
@@ -788,7 +788,7 @@ mod tests {
         .expect("run completes");
         let loop_id = output.agent_loop_id.to_string();
 
-        let state_manager = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
+        let state_manager = checkpoint_state::state::agent::AgentCheckpointStateManager::new(
             ctx.checkpoint_store.clone(),
         );
         let checkpoints = state_manager

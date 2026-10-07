@@ -31,8 +31,9 @@ pub(crate) struct ManagerStore {
 }
 
 impl ManagerStore {
-    pub(crate) fn new_in_memory_backend() -> Result<Self, CheckpointError> {
-        let storage = Arc::new(SqliteStorage::new_full_in_memory()?);
+    /// Assemble the in-memory backend from coordinator-injected storage; the
+    /// store never constructs a storage engine itself.
+    pub(crate) fn new_in_memory_backend(storage: Arc<SqliteStorage>) -> Result<Self, CheckpointError> {
         let mut store = Self::with_sqlite(storage);
         let git = GitStore::init_temp().map_err(|e| {
             CheckpointError::Internal(format!("failed to init checkpoint git store: {e}"))
@@ -45,17 +46,6 @@ impl ManagerStore {
         let branch_adapter = Arc::new(SqliteBackend::from_shared(storage.clone()));
         Self {
             storage: Some(storage),
-            branch_adapter,
-            git: None,
-            latest_checkpoints: Arc::new(DashMap::new()),
-        }
-    }
-
-    pub(crate) fn without_storage() -> Self {
-        let branch_adapter =
-            Arc::new(SqliteBackend::new_in_memory().expect("in-memory adapter should not fail"));
-        Self {
-            storage: None,
             branch_adapter,
             git: None,
             latest_checkpoints: Arc::new(DashMap::new()),
@@ -117,13 +107,6 @@ impl ManagerPolicy {}
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn store_without_storage_errors() {
-        let store = ManagerStore::without_storage();
-        assert!(store.storage.is_none());
-        assert!(store.storage_ref().is_err());
-    }
 
     #[test]
     fn policy_default_threshold() {

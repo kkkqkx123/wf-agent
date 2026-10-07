@@ -114,7 +114,7 @@ async fn skip_agent_item_with_lookup(
     ctx: &wf_api::ApiContext,
     execution: &wf_types::AgentExecution,
 ) -> RecoveryItem {
-    use wf_checkpoint::state::{AgentCheckpointStateManager, CheckpointStateManager};
+    use checkpoint_state::{AgentCheckpointStateManager, CheckpointStateManager};
     let manager = AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     match manager.get_latest(execution.id.as_str()).await {
         Ok(Some(latest)) => RecoveryItem {

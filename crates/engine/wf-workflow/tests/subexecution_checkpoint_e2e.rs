@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use wf_checkpoint::state::{CheckpointStateManager, WorkflowCheckpointStateManager};
+use checkpoint_state::{CheckpointStateManager, WorkflowCheckpointStateManager};
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_storage::backend::StorageBackend;
 use wf_tools::registry::ToolRegistry;

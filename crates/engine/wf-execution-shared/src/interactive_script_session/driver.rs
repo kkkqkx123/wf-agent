@@ -144,7 +144,7 @@ impl SuggestionProvider for LlmSuggestionProvider {
 /// Best-effort throughout: capture failures never fail the session itself.
 #[derive(Clone)]
 pub struct RoundCapture {
-    pub manager: wf_checkpoint::file::FileCheckpointManager,
+    pub manager: checkpoint_file::file::FileCheckpointManager,
     pub entity_id: String,
     pub parent_execution_id: Option<String>,
     pub scope: Vec<String>,
@@ -169,7 +169,7 @@ impl RoundCapture {
                 return;
             }
         };
-        let changes = wf_checkpoint::script_capture::WorkspaceChangeCollector::diff(before, &after);
+        let changes = checkpoint_file::script_capture::WorkspaceChangeCollector::diff(before, &after);
         if changes.is_empty() {
             *before = after;
             return;

@@ -14,7 +14,7 @@ use super::session_observe::SharedSessionForwarder;
 /// Per-execution checkpoint wiring for one stateful shell instance.
 pub struct ShellCheckpointHandle {
     execution_id: String,
-    session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
+    session: std::sync::Mutex<Option<checkpoint_file::session::CheckpointSession>>,
     forwarder: SharedSessionForwarder,
 }
 
@@ -37,13 +37,13 @@ impl ShellCheckpointHandle {
         }
     }
 
-    pub fn get(&self) -> Option<wf_checkpoint::CheckpointSession> {
+    pub fn get(&self) -> Option<checkpoint_file::session::CheckpointSession> {
         lock_ok(self.session.lock()).as_ref().cloned()
     }
 
     pub fn begin_session(&self, session_id: &str, scope_dir: Option<PathBuf>) {
         if let Some(cp) = self.get() {
-            cp.begin_session(wf_checkpoint::SessionBoundary {
+            cp.begin_session(wf_types::effect::SessionBoundary {
                 execution_id: self.execution_id.clone(),
                 session_id: session_id.to_string(),
                 scope_dir,
@@ -53,7 +53,7 @@ impl ShellCheckpointHandle {
 
     pub fn command_finished(&self, session_id: &str, scope_dir: Option<PathBuf>) {
         if let Some(cp) = self.get() {
-            cp.session_command_finished(wf_checkpoint::SessionBoundary {
+            cp.session_command_finished(wf_types::effect::SessionBoundary {
                 execution_id: self.execution_id.clone(),
                 session_id: session_id.to_string(),
                 scope_dir,
@@ -63,7 +63,7 @@ impl ShellCheckpointHandle {
 
     pub fn end_session(&self, session_id: String, scope_dir: Option<PathBuf>) {
         if let Some(cp) = self.get() {
-            cp.end_session(wf_checkpoint::SessionBoundary {
+            cp.end_session(wf_types::effect::SessionBoundary {
                 execution_id: self.execution_id.clone(),
                 session_id,
                 scope_dir,
@@ -77,7 +77,7 @@ impl ShellCheckpointHandle {
     pub fn end_all_and_release(&self, store: &BackgroundShellStore) {
         if let Some(cp) = self.get() {
             for (session_id, cwd) in store.sessions_for_task(&self.execution_id) {
-                cp.end_session(wf_checkpoint::SessionBoundary {
+                cp.end_session(wf_types::effect::SessionBoundary {
                     execution_id: self.execution_id.clone(),
                     session_id,
                     scope_dir: cwd,

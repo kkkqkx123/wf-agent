@@ -205,7 +205,12 @@ impl FileWatcher {
         }
         self.watcher = None;
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            if let Err(err) = task.await {
+                tracing::warn!(
+                    error = %err,
+                    "file watcher background task panicked or was cancelled at stop"
+                );
+            }
         }
         lock_ok(self.state.lock()).pending.clear();
     }
@@ -466,7 +471,12 @@ impl ManualChangeService {
     pub async fn stop(&mut self) {
         let _ = self.stop_tx.send(true);
         if let Some(task) = self.task.take() {
-            let _ = task.await;
+            if let Err(err) = task.await {
+                tracing::warn!(
+                    error = %err,
+                    "manual change pump panicked or was cancelled at stop"
+                );
+            }
         }
     }
 

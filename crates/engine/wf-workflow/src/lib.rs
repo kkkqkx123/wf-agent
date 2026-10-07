@@ -135,7 +135,7 @@ pub fn create_default_handlers(
 pub fn create_default_handlers_with_file_checkpoint(
     gateway: Arc<LlmGateway>,
     sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-    file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
+    file_checkpoint: Option<checkpoint_file::file::FileCheckpointManager>,
 ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     let mut registry = HandlerRegistry::new();
     registry.register_defaults_with_file_checkpoint(gateway, sandbox, file_checkpoint);

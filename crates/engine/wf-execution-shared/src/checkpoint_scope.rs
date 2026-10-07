@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::execution_events::ExecutionEventBus;
+use checkpoint_base::execution_events::ExecutionEventBus;
 use wf_storage::backend::StorageBackend;
 
 /// The checkpoint wiring a child execution inherits from its parent.

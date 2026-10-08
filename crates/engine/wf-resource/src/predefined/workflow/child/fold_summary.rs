@@ -51,7 +51,7 @@ fn fold_node(
         "min_tokens": fold.min_tokens,
         "max_tokens": fold.max_tokens,
         "max_items": fold.max_items,
-        "max_batches": fold.max_batches,
+        "max_retries": fold.max_retries,
         "service_timeout_ms": service_timeout_ms,
     });
     if let Some(url) = service_base_url {

@@ -19,18 +19,18 @@ pub struct FoldPolicy {
     /// Maximum entries per batch request (local send intent; the service
     /// clamps to its own limit and rejects oversized batches).
     pub max_items: usize,
-    /// Maximum batch requests per snapshot; entries beyond this budget
-    /// keep their original text.
-    pub max_batches: u32,
+    /// Maximum retry rounds for failed batches; failed chunks are split
+    /// and retried up to this many times before being abandoned.
+    pub max_retries: u32,
 }
 
 impl Default for FoldPolicy {
     fn default() -> Self {
         Self {
-            min_tokens: 1000,
+            min_tokens: 800,
             max_tokens: 2000,
             max_items: 32,
-            max_batches: 2,
+            max_retries: 2,
         }
     }
 }

@@ -178,7 +178,7 @@ pub struct CodeContextConfigInput {
     pub fold_min_tokens: Option<usize>,
     pub fold_max_tokens: Option<usize>,
     pub fold_max_items: Option<usize>,
-    pub fold_max_batches: Option<u32>,
+    pub fold_max_retries: Option<u32>,
     pub default_project_id: Option<i64>,
     pub default_limit: Option<usize>,
     pub max_results: Option<usize>,
@@ -250,9 +250,9 @@ pub fn validate_code_context_config(input: &CodeContextConfigInput) -> ConfigRes
             "code-context foldMaxItems must be at least 1".into(),
         ));
     }
-    if input.fold_max_batches.is_some_and(|v| v < 1) {
+    if input.fold_max_retries.is_some_and(|v| v < 1) {
         return Err(ConfigError::Validation(
-            "code-context foldMaxBatches must be at least 1".into(),
+            "code-context foldMaxRetries must be at least 1".into(),
         ));
     }
     if input.default_limit.is_some_and(|v| v < 1) {
@@ -302,7 +302,7 @@ pub fn transform_code_context_config(
             min_tokens: input.fold_min_tokens.unwrap_or(defaults.fold.min_tokens),
             max_tokens: input.fold_max_tokens.unwrap_or(defaults.fold.max_tokens),
             max_items: input.fold_max_items.unwrap_or(defaults.fold.max_items),
-            max_batches: input.fold_max_batches.unwrap_or(defaults.fold.max_batches),
+            max_retries: input.fold_max_retries.unwrap_or(defaults.fold.max_retries),
         },
         retrieval: wf_integration::RetrievalPolicy {
             default_project_id: input.default_project_id,

@@ -20,9 +20,8 @@ pub struct FoldParams {
     pub max_tokens: usize,
     /// Maximum entries per batch request (local send intent).
     pub max_items: usize,
-    /// Maximum batch requests per snapshot; beyond this budget entries
-    /// keep their original text.
-    pub max_batches: u32,
+    /// Maximum retry rounds for failed batches.
+    pub max_retries: u32,
 }
 
 impl Default for FoldParams {
@@ -34,7 +33,7 @@ impl Default for FoldParams {
             min_tokens: policy.min_tokens,
             max_tokens: policy.max_tokens,
             max_items: policy.max_items,
-            max_batches: policy.max_batches,
+            max_retries: policy.max_retries,
         }
     }
 }
@@ -112,42 +111,47 @@ pub async fn execute_fold(messages: &[Message], params: &FoldParams) -> FoldOutc
     };
     let max_tokens = params.max_tokens.max(1);
     let max_items = params.max_items.max(1);
-    let max_batches = params.max_batches.max(1) as usize;
-    let processable = candidates.len().min(max_items * max_batches);
+    let max_retries = params.max_retries.max(1) as usize;
     let mut applied = locally_folded;
     let mut folded_count = local_count;
     let mut skipped: Option<String> = None;
-    for chunk in candidates[..processable].chunks(max_items) {
-        match call_fold(&client, chunk, max_tokens).await {
-            Ok(results) => {
-                applied = apply_fold_results(&applied, chunk, &results);
-                folded_count += chunk.len();
-            }
-            Err(reason) => {
-                // One bisect level: an oversized batch may still fold as
-                // halves; anything else skips the remainder.
-                if chunk.len() > 1 {
-                    let (left, right) = chunk.split_at(chunk.len() / 2);
-                    if let (Ok(left_results), Ok(right_results)) = (
-                        call_fold(&client, left, max_tokens).await,
-                        call_fold(&client, right, max_tokens).await,
-                    ) {
-                        applied = apply_fold_results(&applied, left, &left_results);
-                        applied = apply_fold_results(&applied, right, &right_results);
-                        folded_count += chunk.len();
-                        continue;
+
+    let mut pending: Vec<&[FoldCandidate]> = candidates.chunks(max_items).collect();
+    let mut retry_round = 0usize;
+
+    while !pending.is_empty() && retry_round <= max_retries {
+        let mut next_pending: Vec<&[FoldCandidate]> = Vec::new();
+
+        for chunk in &pending {
+            match call_fold(&client, chunk, max_tokens).await {
+                Ok(results) => {
+                    applied = apply_fold_results(&applied, chunk, &results);
+                    folded_count += chunk.len();
+                }
+                Err(reason) => {
+                    if chunk.len() > 1 {
+                        let (left, right) = chunk.split_at(chunk.len() / 2);
+                        next_pending.push(left);
+                        next_pending.push(right);
+                    } else {
+                        next_pending.push(chunk);
+                    }
+                    if skipped.is_none() {
+                        skipped = Some(reason);
                     }
                 }
-                skipped = Some(reason);
-                break;
             }
         }
+
+        pending = next_pending;
+        retry_round += 1;
     }
-    if candidates.len() > processable && skipped.is_none() {
+
+    if !pending.is_empty() && skipped.is_none() {
         skipped = Some(format!(
-            "batch budget exceeded: {} of {} candidates processed",
-            processable,
-            candidates.len()
+            "{} chunks failed after {} retries",
+            pending.len(),
+            retry_round
         ));
     }
     if folded_count == 0 && skipped.is_none() {

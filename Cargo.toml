@@ -51,7 +51,7 @@ members = [
     "crates/app/tui/tui-render",
     "crates/app/tui/tui-debug",
 ]
-exclude = ["crates/infra/llm-kit"]
+exclude = ["crates/infra/llm-suite"]
 
 [workspace.package]
 version = "0.1.0"

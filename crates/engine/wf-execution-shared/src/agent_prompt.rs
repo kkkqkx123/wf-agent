@@ -491,25 +491,8 @@ pub fn is_tool_visibility_message(msg: &wf_types::message::Message) -> bool {
         .unwrap_or(false)
 }
 
-/// True for boundary-injected context messages (`wf_llm` boundary helper).
-/// They arrive prepended per request and must never count as the cacheable
-/// header; the agent-loop paths never carry them, so this is purely
-/// defensive.
-pub fn is_boundary_context_message(msg: &wf_types::message::Message) -> bool {
-    msg.metadata
-        .as_ref()
-        .and_then(|meta| meta.get("type"))
-        .map(|t| {
-            t == &Value::String(
-                wf_llm::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string(),
-            )
-        })
-        .unwrap_or(false)
-}
-
 /// Stable header exists when a non-announcement system message is present.
-/// `tool_visibility`, `dynamic_context` and `boundary_context` marked
-/// messages never count.
+/// `tool_visibility` and `dynamic_context` marked messages never count.
 ///
 /// Locating is owned here; wire concatenation of the located header plus
 /// every announcement is owned by the gateway
@@ -523,7 +506,6 @@ fn stable_system_index(conversation: &[wf_types::message::Message]) -> Option<us
         m.role == wf_types::message::MessageRole::System
             && !is_tool_visibility_message(m)
             && !is_dynamic_context_message(m)
-            && !is_boundary_context_message(m)
     })
 }
 
@@ -916,17 +898,6 @@ mod tests {
         assert!(!has_stable_system_message(&[marked_system]));
         let plain = stable_system_message("header".into());
         assert!(has_stable_system_message(&[plain]));
-    }
-
-    #[test]
-    fn stable_check_ignores_boundary_context_messages() {
-        let mut boundary = stable_system_message("boundary".into());
-        boundary.metadata = Some(HashMap::from([(
-            "type".to_string(),
-            Value::String(wf_llm::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string()),
-        )]));
-        assert!(is_boundary_context_message(&boundary));
-        assert!(!has_stable_system_message(&[boundary]));
     }
 
     #[test]

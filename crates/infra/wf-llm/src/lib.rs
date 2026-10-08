@@ -25,7 +25,7 @@ pub use llm_config::catalog::{ModelCatalog, DEFAULT_MODELS_JSON_PATH, DEFAULT_MO
 pub use llm_config::profile::ProfileManager;
 pub use llm_config::provider::{apply_provider_defaults, ProviderDefinitionRegistry};
 pub use llm_gateway::LlmGateway;
-pub use llm_message::{boundary, helper, history_converter, history_text, message_builder};
+pub use llm_message::{helper, history_converter, history_text, message_builder};
 pub use llm_message::helper::extract_text_content;
 pub use llm_message::history_converter::{
     convert_assistant_message, convert_to_text_mode, convert_tool_result_message,

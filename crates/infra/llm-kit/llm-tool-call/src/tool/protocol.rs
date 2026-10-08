@@ -383,10 +383,8 @@ mod tests {
             }
         }
         Tool {
-            id: llm_types::Id::new(),
             name: name.to_string(),
             description: desc.to_string(),
-            tool_type: llm_types::tool::ToolType::BuiltIn,
             parameters: Some(ToolParameterSchema {
                 r#type: "object".to_string(),
                 properties: [
@@ -398,11 +396,6 @@ mod tests {
                 required: vec!["query".to_string()],
                 additional_properties: Some(false),
             }),
-            metadata: None,
-            config: None,
-            enabled: None,
-            strict: None,
-            default_timeout_ms: None,
         }
     }
 
@@ -549,16 +542,9 @@ mod tests {
     #[test]
     fn renders_tool_without_parameters() {
         let t = Tool {
-            id: llm_types::Id::new(),
             name: "noop".to_string(),
             description: "does nothing".to_string(),
-            tool_type: llm_types::tool::ToolType::BuiltIn,
             parameters: None,
-            metadata: None,
-            config: None,
-            enabled: None,
-            strict: None,
-            default_timeout_ms: None,
         };
         let decl = render_tool_declaration(&t, ToolCallProtocol::Xml, false);
         assert!(decl.contains("<tool name=\"noop\">"));

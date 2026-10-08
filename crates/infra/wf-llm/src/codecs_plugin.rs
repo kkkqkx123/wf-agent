@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use wf_plugin_sdk::{CodecHttpRequest, PluginLlmCodec};
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
-use wf_types::tool::Tool;
+
+use llm_types::tool::Tool;
 
 use llm_codec::LlmCodec;
 use llm_codec::error::{LlmError, LlmResult};

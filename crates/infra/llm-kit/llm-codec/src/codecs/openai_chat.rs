@@ -199,16 +199,13 @@ mod tests {
             parameters: None,
             generation: None,
             tools: Some(vec![serde_json::from_value(serde_json::json!({
-                "id": llm_types::Id::new(),
                 "name": "get_weather",
                 "description": "Get weather",
-                "tool_type": "built_in",
                 "parameters": {
                     "type": "object",
                     "properties": {"city": {"name": "city", "value": null, "type": "string"}},
                     "required": ["city"]
-                },
-                "enabled": true
+                }
             }))
             .unwrap()]),
             tool_call_protocol: Some(format),

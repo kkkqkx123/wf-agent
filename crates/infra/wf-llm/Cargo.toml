@@ -20,6 +20,8 @@ llm-token = { path = "../llm-kit/llm-token" }
 llm-message = { path = "../llm-kit/llm-message" }
 # Shared wire protocol layer re-exported by this facade.
 llm-codec = { path = "../llm-kit/llm-codec" }
+# Wire tool declaration named by the codec trait signature.
+llm-types = { path = "../llm-kit/llm-types" }
 # Shared transport, configuration and gateway layers re-exported by this facade.
 llm-client = { path = "../llm-kit/llm-client", features = ["mock"] }
 llm-config = { path = "../llm-kit/llm-config" }

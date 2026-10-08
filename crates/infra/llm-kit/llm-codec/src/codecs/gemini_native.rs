@@ -604,12 +604,9 @@ mod tests {
         );
         let mut req = req;
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
-            "tool_type": "built_in",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-            "enabled": true
+            "parameters": {"type": "object", "properties": {}, "required": []}
         }))
         .unwrap()]);
         let body = codec.build_body(&req, &profile()).expect("must build");

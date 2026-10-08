@@ -110,7 +110,13 @@ pub async fn build_agent_request(
     let tools = if router.visible.is_empty() {
         None
     } else {
-        Some(router.visible)
+        Some(
+            router
+                .visible
+                .into_iter()
+                .map(|tool| tool.wire_declaration())
+                .collect(),
+        )
     };
 
     Ok(LlmRequest {

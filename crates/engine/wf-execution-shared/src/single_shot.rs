@@ -255,7 +255,7 @@ mod tests {
             messages: vec![user_message("decide")],
             parameters: None,
             generation: None,
-            tools: with_tools.then(|| vec![echo_tool()]),
+            tools: with_tools.then(|| vec![echo_tool().wire_declaration()]),
             tool_call_protocol: None,
             locked_tool_call_protocol: None,
             violation_policy: None,

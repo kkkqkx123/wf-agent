@@ -185,7 +185,7 @@ async fn native_tool_mode_sends_native_tool_schemas() {
         .expect("register");
 
     let mut req = user_request("p1");
-    req.tools = Some(vec![search_tool()]);
+    req.tools = Some(vec![search_tool().wire_declaration()]);
     gateway.generate(&req, None).await.expect("generate");
 
     let body: serde_json::Value = serde_json::from_str(&server.requests()[0].body).unwrap();

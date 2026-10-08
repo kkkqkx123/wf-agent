@@ -799,12 +799,9 @@ mod tests {
         let mut req = count_request();
         req.tool_call_protocol = Some(llm_types::llm::ToolCallProtocol::Native);
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
-            "tool_type": "built_in",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-            "enabled": true
+            "parameters": {"type": "object", "properties": {}, "required": []}
         }))
         .unwrap()]);
         let body = codec
@@ -838,12 +835,9 @@ mod tests {
         );
         req.tool_call_protocol = Some(llm_types::llm::ToolCallProtocol::Xml);
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
-            "tool_type": "built_in",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-            "enabled": true
+            "parameters": {"type": "object", "properties": {}, "required": []}
         }))
         .unwrap()]);
         let body = codec

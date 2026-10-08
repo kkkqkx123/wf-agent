@@ -271,7 +271,7 @@ async fn text_mode_tools_are_declared_in_system_content() {
         .expect("register");
 
     let mut req = user_request("p1");
-    req.tools = Some(vec![search_tool()]);
+    req.tools = Some(vec![search_tool().wire_declaration()]);
     let result = gateway.generate(&req, None).await.expect("generate");
     assert_eq!(result.content.as_deref(), Some("gateway says hi"));
 

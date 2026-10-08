@@ -207,7 +207,7 @@ pub async fn review_pending_approval(
         messages,
         parameters: None,
         generation: None,
-        tools: Some(vec![tool]),
+        tools: Some(vec![tool.wire_declaration()]),
         tool_call_protocol: None,
         locked_tool_call_protocol: None,
         violation_policy: None,

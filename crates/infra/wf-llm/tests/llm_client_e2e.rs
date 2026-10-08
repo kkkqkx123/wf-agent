@@ -5,9 +5,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use wf_llm::client::{LlmClient, LlmClientImpl};
-use wf_llm::codecs::create_codec;
-use wf_llm::error::LlmError;
+use wf_llm::{LlmClient, LlmClientImpl};
+use wf_llm::create_codec;
+use wf_llm::LlmError;
 use wf_llm::http_mock::{MockRequest, MockResponse, MockServer};
 use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
 use wf_types::message::{Message, MessageContentValue, MessageRole};

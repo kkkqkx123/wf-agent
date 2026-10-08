@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use wf_llm::config::profile::validate_profile;
+use wf_llm::profile::validate_profile;
 use wf_types::llm::{LlmFormat, LlmProfile};
 
 use crate::infra::context::ApiContext;

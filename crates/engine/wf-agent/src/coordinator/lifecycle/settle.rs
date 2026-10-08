@@ -19,7 +19,7 @@ pub(super) fn settle_kind(err: &AgentError, active_shutdown: bool) -> SettleKind
         SettleKind::Timeout
     } else if matches!(
         err,
-        AgentError::Cancelled(_) | AgentError::LlmError(wf_llm::error::LlmError::Cancelled)
+        AgentError::Cancelled(_) | AgentError::LlmError(wf_llm::LlmError::Cancelled)
     ) {
         SettleKind::Cancel
     } else {

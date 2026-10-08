@@ -1,0 +1,30 @@
+[package]
+name = "llm-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# Scripted mock client and bare-TCP HTTP mock for tests.
+mock = []
+
+[dependencies]
+llm-codec = { path = "../llm-codec" }
+llm-token = { path = "../llm-token" }
+llm-message = { path = "../llm-message" }
+llm-tool-call = { path = "../llm-tool-call", features = ["json-partial"] }
+wf-types = { workspace = true }
+wf-common = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+eventsource-stream = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+regex = { workspace = true }

@@ -501,7 +501,7 @@ pub fn is_boundary_context_message(msg: &wf_types::message::Message) -> bool {
         .and_then(|meta| meta.get("type"))
         .map(|t| {
             t == &Value::String(
-                wf_llm::messaging::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string(),
+                wf_llm::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string(),
             )
         })
         .unwrap_or(false)
@@ -923,7 +923,7 @@ mod tests {
         let mut boundary = stable_system_message("boundary".into());
         boundary.metadata = Some(HashMap::from([(
             "type".to_string(),
-            Value::String(wf_llm::messaging::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string()),
+            Value::String(wf_llm::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string()),
         )]));
         assert!(is_boundary_context_message(&boundary));
         assert!(!has_stable_system_message(&[boundary]));

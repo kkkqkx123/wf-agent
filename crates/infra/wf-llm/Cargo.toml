@@ -15,6 +15,15 @@ wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 # parsing/rendering. wf-llm re-exports these modules so the agent engine
 # layer stays on a single canonical implementation.
 llm-tool-call = { path = "../llm-kit/llm-tool-call", features = ["json-partial", "xml"] }
+# Shared token sizing and message transforms re-exported by this facade.
+llm-token = { path = "../llm-kit/llm-token" }
+llm-message = { path = "../llm-kit/llm-message" }
+# Shared wire protocol layer re-exported by this facade.
+llm-codec = { path = "../llm-kit/llm-codec" }
+# Shared transport, configuration and gateway layers re-exported by this facade.
+llm-client = { path = "../llm-kit/llm-client", features = ["mock"] }
+llm-config = { path = "../llm-kit/llm-config" }
+llm-gateway = { path = "../llm-kit/llm-gateway", features = ["mock"] }
 
 async-trait.workspace = true
 serde.workspace = true

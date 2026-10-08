@@ -5,7 +5,7 @@
 //! keys follow a fixed schema (see constants below) so trigger conditions and
 //! external consumers can match on them.
 
-use wf_llm::error::LlmError;
+use wf_llm::LlmError;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::message::Message;
 

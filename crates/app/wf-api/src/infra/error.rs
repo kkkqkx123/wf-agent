@@ -325,8 +325,8 @@ impl From<wf_tools::error::ToolError> for ApiError {
     }
 }
 
-impl From<wf_llm::error::LlmError> for ApiError {
-    fn from(e: wf_llm::error::LlmError) -> Self {
+impl From<wf_llm::LlmError> for ApiError {
+    fn from(e: wf_llm::LlmError) -> Self {
         let message = e.to_string();
         let analysis = wf_agent::error_analysis::llm_error_analysis(&e);
         ApiError::Execution {

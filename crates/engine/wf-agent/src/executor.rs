@@ -733,7 +733,7 @@ mod tests {
         use wf_execution_shared::hooks::{
             HookContext, HookHandler, HookHandlerRegistry, HookOutcome,
         };
-        use wf_llm::error::LlmError;
+        use wf_llm::LlmError;
 
         // The LLM fails hard: the loop errors out and AFTER_AGENT must fire
         // on the failure path (success=false + error summary), not only on

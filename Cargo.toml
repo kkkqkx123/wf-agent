@@ -23,6 +23,12 @@ members = [
     "crates/infra/llm-kit/llm-chat-basic",
     "crates/infra/llm-kit/llm-rerank",
     "crates/infra/llm-kit/llm-tool-call",
+    "crates/infra/llm-kit/llm-token",
+    "crates/infra/llm-kit/llm-message",
+    "crates/infra/llm-kit/llm-codec",
+    "crates/infra/llm-kit/llm-client",
+    "crates/infra/llm-kit/llm-config",
+    "crates/infra/llm-kit/llm-gateway",
     # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry
     # no wf- prefix (tui-style); only the facade keeps wf- prefix.
     "crates/infra/checkpoint/checkpoint-base",

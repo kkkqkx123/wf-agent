@@ -1,0 +1,16 @@
+[package]
+name = "llm-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+llm-codec = { path = "../llm-codec" }
+wf-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+dashmap = { workspace = true }
+wf-common = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

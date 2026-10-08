@@ -1,0 +1,12 @@
+[package]
+name = "llm-message"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+wf-types = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+wf-common = { workspace = true }

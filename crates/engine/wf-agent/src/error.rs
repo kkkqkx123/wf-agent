@@ -47,7 +47,7 @@ pub enum AgentError {
     ContextBudgetExhausted(String),
 
     #[error("LLM error: {0}")]
-    LlmError(#[from] wf_llm::error::LlmError),
+    LlmError(#[from] wf_llm::LlmError),
 
     #[error("Checkpoint error: {0}")]
     CheckpointError(#[from] wf_checkpoint::error::CheckpointError),

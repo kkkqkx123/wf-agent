@@ -1,5 +1,5 @@
 use crate::token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
-use wf_llm::token::count::estimate_message_tokens;
+use wf_llm::count::estimate_message_tokens;
 use wf_types::llm::{MessageStreamUsage, TokenLedger, TokenUsageStats};
 use wf_types::message::{Message, MessageView};
 
@@ -46,7 +46,7 @@ pub struct ConversationState {
 /// materializing the projection.
 fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView) -> u64 {
     match view {
-        MessageView::Full => wf_llm::token::count::estimate_messages(history) as u64,
+        MessageView::Full => wf_llm::count::estimate_messages(history) as u64,
         MessageView::Compressed {
             summary,
             tail_begin,
@@ -61,9 +61,9 @@ fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView
         }
         MessageView::Tail { last_n } => {
             let start = history.len().saturating_sub(*last_n);
-            wf_llm::token::count::estimate_messages(&history[start..]) as u64
+            wf_llm::count::estimate_messages(&history[start..]) as u64
         }
-        MessageView::NoSystem => wf_llm::token::count::estimate_messages(
+        MessageView::NoSystem => wf_llm::count::estimate_messages(
             &history
                 .iter()
                 .filter(|m| m.role != wf_types::message::MessageRole::System)
@@ -71,7 +71,7 @@ fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView
                 .collect::<Vec<_>>(),
         ) as u64,
         MessageView::Range { .. } => {
-            wf_llm::token::count::estimate_messages(&view.project_with_seqs(history, seqs)) as u64
+            wf_llm::count::estimate_messages(&view.project_with_seqs(history, seqs)) as u64
         }
     }
 }
@@ -169,7 +169,7 @@ impl ConversationSession {
     pub fn restore_full_view(&mut self) {
         self.state.active_view = MessageView::Full;
         self.state.view_stable_estimate =
-            wf_llm::token::count::estimate_messages(&self.state.messages) as u64;
+            wf_llm::count::estimate_messages(&self.state.messages) as u64;
     }
 
     /// Restore an authoritative history with its view (checkpoint resume
@@ -274,7 +274,7 @@ impl ConversationSession {
     /// recomputed exactly once after a replacement (dirty ledger).
     pub fn estimated_conversation_tokens(&mut self) -> u64 {
         if self.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID) {
-            let estimated = wf_llm::token::count::estimate_messages(&self.state.messages) as u64;
+            let estimated = wf_llm::count::estimate_messages(&self.state.messages) as u64;
             let count = self.state.messages.len();
             self.state
                 .ledger
@@ -579,7 +579,7 @@ impl From<MessageStreamUsage> for RequestUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_llm::messaging::message_builder::{system_text, tool_result_message, user_text};
+    use wf_llm::message_builder::{system_text, tool_result_message, user_text};
     use wf_types::llm::TokenUsageStats;
 
     fn user(text: &str) -> Message {
@@ -862,17 +862,17 @@ mod tests {
         session.add_message(user("second message with more content here"));
         assert_eq!(
             session.estimated_view_tokens(),
-            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
+            wf_llm::count::estimate_messages(&session.view_messages()) as u64
         );
         session.compress_with_tail(vec![user("summary of both")], 1);
         assert_eq!(
             session.estimated_view_tokens(),
-            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
+            wf_llm::count::estimate_messages(&session.view_messages()) as u64
         );
         session.add_message(user("a follow-up after compression"));
         assert_eq!(
             session.estimated_view_tokens(),
-            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
+            wf_llm::count::estimate_messages(&session.view_messages()) as u64
         );
     }
 

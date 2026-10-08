@@ -33,13 +33,13 @@ pub async fn call_llm(
                 publish_forced_compression(ctx, request).await;
             }
             Err(match e {
-                wf_llm::error::LlmError::Timeout(ms) => WorkflowError::NodeFailure {
+                wf_llm::LlmError::Timeout(ms) => WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
                     category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
                     detail: format!("LLM call timed out after {ms}ms"),
                     failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
                 },
-                wf_llm::error::LlmError::Cancelled => WorkflowError::NodeFailure {
+                wf_llm::LlmError::Cancelled => WorkflowError::NodeFailure {
                     node_id: ctx.node_id.clone(),
                     category:
                         wf_types::workflow::error_branch::NodeErrorCategory::CancelledInterrupted,

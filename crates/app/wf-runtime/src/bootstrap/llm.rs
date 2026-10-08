@@ -15,7 +15,9 @@ use super::config::LlmConfig;
 pub fn create_llm_gateway(metrics: Option<&wf_metrics::MetricsRegistry>) -> Arc<LlmGateway> {
     let gateway = LlmGateway::new();
     let gateway = match metrics {
-        Some(registry) => gateway.with_token_metrics(registry.token()),
+        Some(registry) => gateway.with_token_metrics(Arc::new(
+            wf_llm::token_stream_adapter::MetricsSinkAdapter::new(registry.token()),
+        )),
         None => gateway,
     };
     Arc::new(gateway)

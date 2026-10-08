@@ -67,7 +67,7 @@ impl AgentIterationCoordinator {
                 }
             }) => settled,
             _ = abort.cancelled() => {
-                return Err(AgentError::LlmError(wf_llm::error::LlmError::Cancelled));
+                return Err(AgentError::LlmError(wf_llm::LlmError::Cancelled));
             }
         };
         if !settled {

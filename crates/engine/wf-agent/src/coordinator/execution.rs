@@ -429,7 +429,7 @@ mod tests {
 
     use wf_execution_shared::error::ExecutionSharedError;
     use wf_execution_shared::types::execution_entity::ExecutionStatus;
-    use wf_llm::error::LlmError;
+    use wf_llm::LlmError;
     use wf_tools::error::ToolError;
     use wf_types::errors::ErrorKind;
     use wf_types::execution::RetryPolicy;

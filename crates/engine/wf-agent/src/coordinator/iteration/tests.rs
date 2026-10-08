@@ -218,7 +218,7 @@ async fn test_stream_events_with_tool_call() {
 #[tokio::test]
 async fn test_stream_error_propagates() {
     let mock = Arc::new(MockLlmClient::new());
-    mock.script_error(wf_llm::error::LlmError::StreamError(
+    mock.script_error(wf_llm::LlmError::StreamError(
         "upstream exploded".to_string(),
     ));
     let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
@@ -464,7 +464,7 @@ async fn blocking_attempt_completion_ends_the_loop() {
 #[tokio::test]
 async fn blocking_llm_error_maps_to_agent_llm_error() {
     let mock = Arc::new(MockLlmClient::new());
-    mock.script_error(wf_llm::error::LlmError::ProviderError {
+    mock.script_error(wf_llm::LlmError::ProviderError {
         status: Some(500),
         message: "provider down".to_string(),
     });

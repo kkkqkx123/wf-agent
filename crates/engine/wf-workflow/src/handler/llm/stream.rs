@@ -19,11 +19,11 @@ pub struct StreamOutcome {
 /// the non-stream call path): a provider timeout routes as `TransportTimeout`
 /// and a cancellation as `CancelledInterrupted`; everything else stays a
 /// plain handler error and routes as a business failure.
-fn llm_stream_failure(node_id: &str, e: &wf_llm::error::LlmError, detail: String) -> WorkflowError {
+fn llm_stream_failure(node_id: &str, e: &wf_llm::LlmError, detail: String) -> WorkflowError {
     use wf_types::workflow::error_branch::NodeErrorCategory;
     let category = match e {
-        wf_llm::error::LlmError::Timeout(_) => Some(NodeErrorCategory::TransportTimeout),
-        wf_llm::error::LlmError::Cancelled => Some(NodeErrorCategory::CancelledInterrupted),
+        wf_llm::LlmError::Timeout(_) => Some(NodeErrorCategory::TransportTimeout),
+        wf_llm::LlmError::Cancelled => Some(NodeErrorCategory::CancelledInterrupted),
         _ => None,
     };
     match category {

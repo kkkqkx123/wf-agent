@@ -2,8 +2,8 @@
 //! tool call protocol violation policies and the full generate path against
 //! a local HTTP mock server.
 
-use wf_llm::error::LlmError;
-use wf_llm::gateway::LlmGateway;
+use wf_llm::LlmError;
+use wf_llm::LlmGateway;
 use wf_llm::http_mock::{MockRequest, MockResponse, MockServer};
 use wf_types::llm::{
     LlmFormat, LlmProfile, LlmRequest, ToolCallProtocol, ToolCallProtocolConfig,

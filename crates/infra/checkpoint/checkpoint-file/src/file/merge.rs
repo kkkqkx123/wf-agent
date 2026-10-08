@@ -35,6 +35,7 @@ impl FileCheckpointManager {
         entity_id: &str,
         feature_name: &str,
     ) -> Result<GitMergeOutcome, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
         let (review_ref, review_head) = match self.newest_pending_review(actor.as_str())? {
             Some(found) => found,
@@ -52,6 +53,9 @@ impl FileCheckpointManager {
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
+        for feature in feature_names {
+            crate::branch::ensure_feature_branch_name(feature)?;
+        }
         if feature_names.len() > 1 {
             tracing::warn!(
                 features = feature_names.len(),

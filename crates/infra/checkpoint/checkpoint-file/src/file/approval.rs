@@ -146,6 +146,7 @@ impl FileCheckpointManager {
         conflict_behavior: ConflictBehavior,
         workspace_root: Option<&Path>,
     ) -> Result<MergeOutcome, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
         // Every approval starts from a fresh submission: edit to review is
         // a ref copy, never a merge.
@@ -309,6 +310,7 @@ impl FileCheckpointManager {
         entity_id: &str,
         feature_name: &str,
     ) -> Result<MergeCommitResult, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
         let (review_ref, review_head) = self.submit_for_review(entity_id)?;
         let merge_result = self.merge_review_into_feature(
@@ -347,9 +349,22 @@ impl FileCheckpointManager {
         actor_str: &str,
         intent: &str,
     ) -> Result<GitMergeOutcome, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let feature_ref = feat_ref_for_name(feature_name);
+        if let Some(head) = git.read_ref(&feature_ref).map_err(map_git_error)? {
+            if let Ok(commit) = git.read_commit(&head) {
+                if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
+                    == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
+                {
+                    return Err(CheckpointError::MergeConflict {
+                        actor: actor_str.to_string(),
+                        files: commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE),
+                    });
+                }
+            }
+        }
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         let mut paths: Vec<String> = Vec::new();
         for (path, content) in staged {
@@ -399,6 +414,7 @@ impl FileCheckpointManager {
         feature_name: &str,
         resolutions: &[(String, Vec<u8>)],
     ) -> Result<usize, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
@@ -409,6 +425,18 @@ impl FileCheckpointManager {
             .ok_or_else(|| CheckpointError::NotFound {
                 id: format!("feature '{feature_name}'"),
             })?;
+        let conflicted = git
+            .read_commit(&head)
+            .map(|commit| {
+                if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
+                    == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
+                {
+                    commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE)
+                } else {
+                    Vec::new()
+                }
+            })
+            .unwrap_or_default();
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         let mut paths: Vec<String> = Vec::new();
         for (path, content) in resolutions {
@@ -461,7 +489,11 @@ impl FileCheckpointManager {
             .map_err(map_git_error)?;
         git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
         self.index_commit(storage, &id, actor.as_str(), "", "review", &paths)?;
-        Ok(0)
+        let resolved: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
+        Ok(conflicted
+            .iter()
+            .filter(|file| !resolved.contains(file.as_str()))
+            .count())
     }
 
     // ── end-of-execution approval policy ─────────────────────────────

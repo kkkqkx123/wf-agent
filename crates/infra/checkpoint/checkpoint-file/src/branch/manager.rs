@@ -75,6 +75,16 @@ pub struct ExecutionBranchManager<S: BranchStorageAdapter> {
     cache: DashMap<String, BranchInfo>,
 }
 
+fn ensure_execution_name(name: &str) -> Result<(), CheckpointError> {
+    if crate::branch::is_execution_branch_name(name) {
+        Ok(())
+    } else {
+        Err(CheckpointError::Branch(format!(
+            "execution branch name must start with 'execution/' and carry an id: '{name}'"
+        )))
+    }
+}
+
 impl<S: BranchStorageAdapter> ExecutionBranchManager<S> {
     pub fn new(storage: S, default_branch: impl Into<String>) -> Self {
         Self {
@@ -91,6 +101,10 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
         branch_name: &str,
         base_branch: Option<&str>,
     ) -> Result<(), CheckpointError> {
+        ensure_execution_name(branch_name)?;
+        if let Some(base) = base_branch {
+            ensure_execution_name(base)?;
+        }
         self.storage.create_branch(branch_name, base_branch).await?;
         self.cache.insert(
             branch_name.to_string(),
@@ -104,6 +118,7 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
     }
 
     async fn switch_branch(&self, branch_name: &str) -> Result<(), CheckpointError> {
+        ensure_execution_name(branch_name)?;
         let exists = self.storage.branch_exists(branch_name).await?;
         if !exists {
             return Err(CheckpointError::Branch(format!(
@@ -128,6 +143,8 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
         source: &str,
         target: &str,
     ) -> Result<(), CheckpointError> {
+        ensure_execution_name(source)?;
+        ensure_execution_name(target)?;
         if source == target {
             return Err(CheckpointError::Branch(format!(
                 "cannot merge branch '{}' into itself",
@@ -166,6 +183,7 @@ impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
     }
 
     async fn delete_branch(&self, branch_name: &str) -> Result<(), CheckpointError> {
+        ensure_execution_name(branch_name)?;
         self.storage.delete_branch(branch_name).await?;
         self.cache.remove(branch_name);
         Ok(())
@@ -222,12 +240,11 @@ mod tests {
     }
 
     fn make_manager() -> ExecutionBranchManager<MemoryBranchStorage> {
-        // The default branch ("main") is expected to pre-exist.
         ExecutionBranchManager::new(
             MemoryBranchStorage {
-                branches: tokio::sync::RwLock::new(vec!["main".to_string()]),
+                branches: tokio::sync::RwLock::new(vec!["execution/main".to_string()]),
             },
-            "main",
+            "execution/main",
         )
     }
 
@@ -235,43 +252,55 @@ mod tests {
     async fn create_and_list_branches() {
         let manager = make_manager();
         manager
-            .create_branch("feature", Some("main"))
+            .create_branch("execution/feature", Some("execution/main"))
             .await
             .unwrap();
 
         let mut branches = manager.list_branches().await.unwrap();
         branches.sort();
-        assert_eq!(branches, vec!["feature", "main"]);
+        assert_eq!(branches, vec!["execution/feature", "execution/main"]);
     }
 
     #[tokio::test]
     async fn switch_branch_requires_existence() {
         let manager = make_manager();
-        assert!(manager.switch_branch("missing").await.is_err());
+        assert!(manager.switch_branch("execution/missing").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn bare_names_rejected() {
+        let manager = make_manager();
+        assert!(manager.create_branch("main", None).await.is_err());
+        assert!(manager.switch_branch("main").await.is_err());
+        assert!(manager.delete_branch("main").await.is_err());
+        assert!(manager
+            .merge_execution_branch("execution/main", "main")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn merge_execution_branch_links_base_relationship() {
         let manager = make_manager();
         manager
-            .create_branch("feature", Some("main"))
+            .create_branch("execution/feature", Some("execution/main"))
             .await
             .unwrap();
 
         manager
-            .merge_execution_branch("feature", "main")
+            .merge_execution_branch("execution/feature", "execution/main")
             .await
             .unwrap();
 
-        let cached = manager.cache.get("main").unwrap();
-        assert_eq!(cached.base_branch.as_deref(), Some("feature"));
+        let cached = manager.cache.get("execution/main").unwrap();
+        assert_eq!(cached.base_branch.as_deref(), Some("execution/feature"));
     }
 
     #[tokio::test]
     async fn merge_self_rejected() {
         let manager = make_manager();
         let err = manager
-            .merge_execution_branch("main", "main")
+            .merge_execution_branch("execution/main", "execution/main")
             .await
             .unwrap_err();
         assert!(matches!(err, CheckpointError::Branch(_)));
@@ -281,7 +310,7 @@ mod tests {
     async fn merge_missing_source_rejected() {
         let manager = make_manager();
         let err = manager
-            .merge_execution_branch("nope", "main")
+            .merge_execution_branch("execution/nope", "execution/main")
             .await
             .unwrap_err();
         assert!(matches!(err, CheckpointError::Branch(_)));
@@ -290,12 +319,15 @@ mod tests {
     #[tokio::test]
     async fn delete_branch_removes() {
         let manager = make_manager();
-        manager.create_branch("temp", Some("main")).await.unwrap();
-        manager.delete_branch("temp").await.unwrap();
+        manager
+            .create_branch("execution/temp", Some("execution/main"))
+            .await
+            .unwrap();
+        manager.delete_branch("execution/temp").await.unwrap();
         assert!(!manager
             .list_branches()
             .await
             .unwrap()
-            .contains(&"temp".to_string()));
+            .contains(&"execution/temp".to_string()));
     }
 }

@@ -17,18 +17,22 @@ pub struct FeatureBranchStore {
     git: Arc<GitStore>,
 }
 
+pub(crate) fn ensure_feature_branch_name(name: &str) -> Result<(), CheckpointError> {
+    if !crate::branch::is_feature_branch_name(name) {
+        return Err(CheckpointError::Branch(format!(
+            "feature branch name must be a bare name without '/': '{name}'"
+        )));
+    }
+    Ok(())
+}
+
 impl FeatureBranchStore {
     pub fn new(git: Arc<GitStore>) -> Self {
         Self { git }
     }
 
     fn ensure_feature(name: &str) -> Result<(), CheckpointError> {
-        if !crate::branch::is_feature_branch_name(name) {
-            return Err(CheckpointError::Branch(format!(
-                "feature branch name must be a bare name without '/': '{name}'"
-            )));
-        }
-        Ok(())
+        ensure_feature_branch_name(name)
     }
 
     pub fn create(&self, name: &str, head: &str) -> Result<(), CheckpointError> {

@@ -130,7 +130,7 @@ mod tests {
             .await
             .unwrap();
 
-        let branch = execution_branch_name("execution", "child-1");
+        let branch = execution_branch_name("child-1");
         assert_eq!(
             manager
                 .store

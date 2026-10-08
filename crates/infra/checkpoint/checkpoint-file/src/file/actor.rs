@@ -153,7 +153,7 @@ impl FileCheckpointManager {
         if parent == entity_id {
             return Ok(());
         }
-        let branch_name = execution_branch_name("execution", entity_id);
+        let branch_name = execution_branch_name(entity_id);
         if self
             .store
             .branch_adapter
@@ -162,8 +162,17 @@ impl FileCheckpointManager {
         {
             return Ok(());
         }
-        let parent_actor = self.actor_id_for(parent);
-        let base = self.latest_checkpoint_id(&parent_actor)?;
+        let parent_branch = execution_branch_name(parent);
+        let base = if self
+            .store
+            .branch_adapter
+            .branch_exists(&parent_branch)
+            .await?
+        {
+            Some(parent_branch)
+        } else {
+            None
+        };
         self.store
             .branch_adapter
             .create_branch(&branch_name, base.as_deref())
@@ -358,7 +367,7 @@ mod tests {
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
             .unwrap();
 
-        let branch = execution_branch_name("execution", "child-1");
+        let branch = execution_branch_name("child-1");
         assert!(
             !manager
                 .store
@@ -445,7 +454,7 @@ mod tests {
         // The forked branch exists natively but stays headless until its own
         // first checkpoint; the parent base remains readable as the fork
         // point without a KV registry entry.
-        let branch = execution_branch_name("execution", "child-1");
+        let branch = execution_branch_name("child-1");
         assert!(
             manager
                 .store

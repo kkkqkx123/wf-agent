@@ -33,7 +33,9 @@ pub(crate) struct ManagerStore {
 impl ManagerStore {
     /// Assemble the in-memory backend from coordinator-injected storage; the
     /// store never constructs a storage engine itself.
-    pub(crate) fn new_in_memory_backend(storage: Arc<SqliteStorage>) -> Result<Self, CheckpointError> {
+    pub(crate) fn new_in_memory_backend(
+        storage: Arc<SqliteStorage>,
+    ) -> Result<Self, CheckpointError> {
         let mut store = Self::with_sqlite(storage);
         let git = GitStore::init_temp().map_err(|e| {
             CheckpointError::Internal(format!("failed to init checkpoint git store: {e}"))

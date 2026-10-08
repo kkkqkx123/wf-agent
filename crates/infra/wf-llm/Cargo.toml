@@ -14,18 +14,18 @@ wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 # Shared tool-call protocol: partial-JSON recovery plus XML text-protocol
 # parsing/rendering. wf-llm re-exports these modules so the agent engine
 # layer stays on a single canonical implementation.
-llm-tool-call = { path = "../llm-kit/llm-tool-call", features = ["json-partial", "xml"] }
+llm-tool-call = { path = "../llm-kit/crates/llm-tool-call", features = ["json-partial", "xml"] }
 # Shared token sizing and message transforms re-exported by this facade.
-llm-token = { path = "../llm-kit/llm-token" }
-llm-message = { path = "../llm-kit/llm-message" }
+llm-token = { path = "../llm-kit/crates/llm-token" }
+llm-message = { path = "../llm-kit/crates/llm-message" }
 # Shared wire protocol layer re-exported by this facade.
-llm-codec = { path = "../llm-kit/llm-codec" }
+llm-codec = { path = "../llm-kit/crates/llm-codec" }
 # Wire tool declaration named by the codec trait signature.
-llm-types = { path = "../llm-kit/llm-types" }
+llm-types = { path = "../llm-kit/crates/llm-types" }
 # Shared transport, configuration and gateway layers re-exported by this facade.
-llm-client = { path = "../llm-kit/llm-client", features = ["mock"] }
-llm-config = { path = "../llm-kit/llm-config" }
-llm-gateway = { path = "../llm-kit/llm-gateway", features = ["mock"] }
+llm-client = { path = "../llm-kit/crates/llm-client", features = ["mock"] }
+llm-config = { path = "../llm-kit/crates/llm-config" }
+llm-gateway = { path = "../llm-kit/crates/llm-gateway", features = ["mock"] }
 
 async-trait.workspace = true
 serde.workspace = true

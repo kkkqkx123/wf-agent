@@ -546,9 +546,9 @@ impl GitStore {
         let full_name = self.ref_full_name(name)?;
         let expected_value = match expected {
             None => gix_ref::transaction::PreviousValue::MustNotExist,
-            Some(want) => gix_ref::transaction::PreviousValue::MustExistAndMatch(
-                Self::ref_target(want)?,
-            ),
+            Some(want) => {
+                gix_ref::transaction::PreviousValue::MustExistAndMatch(Self::ref_target(want)?)
+            }
         };
         let edit = gix_ref::transaction::RefEdit::update(
             full_name,
@@ -556,9 +556,7 @@ impl GitStore {
             expected_value,
             "",
         );
-        if let Err(error) =
-            self.commit_ref_edit(name, edit, gix_lock::acquire::Fail::Immediately)
-        {
+        if let Err(error) = self.commit_ref_edit(name, edit, gix_lock::acquire::Fail::Immediately) {
             let current = self.read_ref(name)?;
             if current.as_deref() != expected {
                 return Err(GitStoreError::RefConflict(name.to_string()));
@@ -599,9 +597,7 @@ impl GitStore {
     pub fn list_refs(&self, prefix: &str) -> Result<Vec<(String, String)>, GitStoreError> {
         let mut out = Vec::new();
         let store = self.ref_store();
-        let platform = store
-            .iter()
-            .map_err(|e| GitStoreError::Io(e.to_string()))?;
+        let platform = store.iter().map_err(|e| GitStoreError::Io(e.to_string()))?;
         let refs = platform.all()?;
         for reference in refs {
             let reference = reference.map_err(|e| GitStoreError::Io(e.to_string()))?;
@@ -692,10 +688,13 @@ impl GitStore {
         let tree = gix_object::Tree {
             entries: tree_entries,
         };
-        let oid = self.odb()?.write(&tree).map_err(|e| GitStoreError::Corrupt {
-            id: "<new-tree>".to_string(),
-            reason: e.to_string(),
-        })?;
+        let oid = self
+            .odb()?
+            .write(&tree)
+            .map_err(|e| GitStoreError::Corrupt {
+                id: "<new-tree>".to_string(),
+                reason: e.to_string(),
+            })?;
         Ok(oid.to_hex().to_string())
     }
 
@@ -880,10 +879,13 @@ impl GitStore {
             message: text.as_bytes().to_vec().into(),
             extra_headers: Vec::new(),
         };
-        let oid = self.odb()?.write(&commit).map_err(|e| GitStoreError::Corrupt {
-            id: "<new-commit>".to_string(),
-            reason: e.to_string(),
-        })?;
+        let oid = self
+            .odb()?
+            .write(&commit)
+            .map_err(|e| GitStoreError::Corrupt {
+                id: "<new-commit>".to_string(),
+                reason: e.to_string(),
+            })?;
         Ok(oid.to_hex().to_string())
     }
 
@@ -914,15 +916,16 @@ impl GitStore {
         Ok(GitCommit {
             id: id.to_string(),
             tree: commit.tree().to_hex().to_string(),
-            parents: commit
-                .parents()
-                .map(|o| o.to_hex().to_string())
-                .collect(),
+            parents: commit.parents().map(|o| o.to_hex().to_string()).collect(),
             author: author_sig.name.to_string(),
             committer: committer_sig.name.to_string(),
             author_ts: author_sig.seconds().saturating_mul(1000),
             committer_ts: committer_sig.seconds().saturating_mul(1000),
-            message: commit.message.to_string().trim_end_matches('\n').to_string(),
+            message: commit
+                .message
+                .to_string()
+                .trim_end_matches('\n')
+                .to_string(),
         })
     }
 
@@ -1182,7 +1185,10 @@ mod tests {
             let results = [a.join().unwrap(), b.join().unwrap()];
             assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
         });
-        assert_eq!(store.read_ref(REF_MAIN).unwrap().as_deref(), Some(second.as_str()));
+        assert_eq!(
+            store.read_ref(REF_MAIN).unwrap().as_deref(),
+            Some(second.as_str())
+        );
     }
 
     #[test]

@@ -221,6 +221,18 @@ impl SqliteBackend {
 /// `None` until its first checkpoint).
 impl BranchStorageAdapter for SqliteBackend {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
+        if !crate::branch::is_execution_branch_name(name) {
+            return Err(CheckpointError::Branch(format!(
+                "execution branch name must start with 'execution/' and carry an id: '{name}'"
+            )));
+        }
+        if let Some(base_name) = base {
+            if !crate::branch::is_execution_branch_name(base_name) {
+                return Err(CheckpointError::Branch(format!(
+                    "base must be an execution branch name, got '{base_name}'"
+                )));
+            }
+        }
         if self
             .branch_exists_now(name)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?
@@ -229,15 +241,10 @@ impl BranchStorageAdapter for SqliteBackend {
                 "branch '{name}' already exists"
             )));
         }
-        // Inherit the base branch head when it names an existing branch with
-        // a head. Raw checkpoint ids are not inherited: forked execution
-        // branches stay headless until their own first checkpoint (see
-        // `checkpoint_updates_branch_head`).
         if let Some(head) = base.and_then(|b| self.native_head(b)) {
             self.set_branch_head(name, &head)
                 .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         } else {
-            // Headless branch row: exists, but reports no head.
             use crate::storage::MetadataStore;
             self.storage
                 .store_metadata(&Self::branch_key(name), "")
@@ -247,6 +254,11 @@ impl BranchStorageAdapter for SqliteBackend {
     }
 
     async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError> {
+        if !crate::branch::is_execution_branch_name(name) {
+            return Err(CheckpointError::Branch(format!(
+                "execution branch name must start with 'execution/' and carry an id: '{name}'"
+            )));
+        }
         self.delete_branch_head(name)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         Ok(())
@@ -266,40 +278,53 @@ impl BranchStorageAdapter for SqliteBackend {
         source: &str,
         target: &str,
     ) -> Result<(), CheckpointError> {
+        use crate::storage::repository::AtomicOps;
         use crate::storage::GraphBlobStore;
 
-        // Storage-level execution merge: re-point the source's blobs at the
-        // target (indexed columns), then move the head. File content merges
-        // never go through this path.
-        let source_ids = self
-            .storage
-            .list_graph_blob_ids_by_branch(source)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        for id in &source_ids {
-            if let Some(mut blob) = self
-                .storage
-                .load_graph_blob(id)
+        if !crate::branch::is_execution_branch_name(source) {
+            return Err(CheckpointError::Branch(format!(
+                "source must be an execution branch name, got '{source}'"
+            )));
+        }
+        if !crate::branch::is_execution_branch_name(target) {
+            return Err(CheckpointError::Branch(format!(
+                "target must be an execution branch name, got '{target}'"
+            )));
+        }
+        if source == target {
+            return Err(CheckpointError::Branch(format!(
+                "cannot merge branch '{source}' into itself"
+            )));
+        }
+        self.storage.with_atomic(|storage| {
+            let source_ids = storage
+                .list_graph_blob_ids_by_branch(source)
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+            for id in &source_ids {
+                if let Some(mut blob) = storage
+                    .load_graph_blob(id)
+                    .map_err(|e| CheckpointError::Branch(e.to_string()))?
+                {
+                    blob.branch_id = Some(target.to_string());
+                    storage
+                        .store_graph_blob(
+                            &blob.id,
+                            &blob.data,
+                            blob.parent_id.as_deref(),
+                            blob.branch_id.as_deref(),
+                        )
+                        .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+                }
+            }
+            if let Some(head) = self
+                .get_branch_head(source)
                 .map_err(|e| CheckpointError::Branch(e.to_string()))?
             {
-                blob.branch_id = Some(target.to_string());
-                self.storage
-                    .store_graph_blob(
-                        &blob.id,
-                        &blob.data,
-                        blob.parent_id.as_deref(),
-                        blob.branch_id.as_deref(),
-                    )
+                self.set_branch_head(target, &head)
                     .map_err(|e| CheckpointError::Branch(e.to_string()))?;
             }
-        }
-        // Move the head pointer when the source has a real head.
-        if let Some(head) = self
-            .get_branch_head(source)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?
-        {
-            self.set_branch_head(target, &head)
-                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        }
+            Ok(())
+        })?;
         Ok(())
     }
 }
@@ -880,44 +905,44 @@ mod tests {
 
         let adapter = make_real_adapter();
         let probe = adapter.share();
-        let manager = ExecutionBranchManager::new(adapter, "main");
-        manager.create_branch("main", None).await.unwrap();
+        let manager = ExecutionBranchManager::new(adapter, "execution/main");
+        manager.create_branch("execution/main", None).await.unwrap();
         manager
-            .create_branch("feature", Some("main"))
+            .create_branch("execution/feature", Some("execution/main"))
             .await
             .unwrap();
 
         // Checkpoints on two branches stay isolated.
         probe
-            .save_checkpoint("cp-main-1", b"m1", &make_branch_meta("main"))
+            .save_checkpoint("cp-main-1", b"m1", &make_branch_meta("execution/main"))
             .await
             .unwrap();
         probe
-            .save_checkpoint("cp-main-2", b"m2", &make_branch_meta("main"))
+            .save_checkpoint("cp-main-2", b"m2", &make_branch_meta("execution/main"))
             .await
             .unwrap();
         probe
-            .save_checkpoint("cp-feat-1", b"f1", &make_branch_meta("feature"))
+            .save_checkpoint("cp-feat-1", b"f1", &make_branch_meta("execution/feature"))
             .await
             .unwrap();
 
-        let mut main_cps = probe.list_branch_checkpoints("main").unwrap();
+        let mut main_cps = probe.list_branch_checkpoints("execution/main").unwrap();
         main_cps.sort();
         assert_eq!(
             main_cps,
             vec!["cp-main-1".to_string(), "cp-main-2".to_string()]
         );
         assert_eq!(
-            probe.list_branch_checkpoints("feature").unwrap(),
+            probe.list_branch_checkpoints("execution/feature").unwrap(),
             vec!["cp-feat-1".to_string()]
         );
 
         // Merge absorbs the source branch's checkpoints into the target.
         manager
-            .merge_execution_branch("feature", "main")
+            .merge_execution_branch("execution/feature", "execution/main")
             .await
             .unwrap();
-        let mut merged = probe.list_branch_checkpoints("main").unwrap();
+        let mut merged = probe.list_branch_checkpoints("execution/main").unwrap();
         merged.sort();
         assert_eq!(merged.len(), 3);
         assert!(merged.contains(&"cp-feat-1".to_string()));

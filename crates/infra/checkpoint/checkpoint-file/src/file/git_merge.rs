@@ -139,11 +139,7 @@ impl FileCheckpointManager {
         feature_name: &str,
         actor_str: &str,
     ) -> Result<GitMergeOutcome, CheckpointError> {
-        let validated_feature = crate::file::util::validate_workspace_relative_path(feature_name)
-            .map_err(|_| CheckpointError::Validation {
-            reason: format!("invalid feature name '{feature_name}'"),
-        })?;
-        let _ = validated_feature;
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let feature_ref = feat_ref_for_name(feature_name);
@@ -306,6 +302,7 @@ impl FileCheckpointManager {
         feature_name: &str,
         actor_str: &str,
     ) -> Result<GitMergeOutcome, CheckpointError> {
+        crate::branch::ensure_feature_branch_name(feature_name)?;
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let feature_ref = feat_ref_for_name(feature_name);

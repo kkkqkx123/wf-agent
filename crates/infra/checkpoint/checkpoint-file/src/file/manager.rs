@@ -349,7 +349,9 @@ impl FileCheckpointManager {
     /// coordinator entry point) and injected downward into the store.
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
         Ok(Self {
-            store: ManagerStore::new_in_memory_backend(Arc::new(SqliteStorage::new_full_in_memory()?))?,
+            store: ManagerStore::new_in_memory_backend(Arc::new(
+                SqliteStorage::new_full_in_memory()?,
+            ))?,
             policy: ManagerPolicy::default(),
             clock: CheckpointClock::system(),
             event_bus: None,

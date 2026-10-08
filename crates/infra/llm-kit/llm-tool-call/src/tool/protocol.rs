@@ -1,6 +1,6 @@
-use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
-use wf_types::message::Message;
-use wf_types::tool::Tool;
+use llm_types::llm::{ToolCallMarkers, ToolCallProtocol};
+use llm_types::message::Message;
+use llm_types::tool::Tool;
 
 use super::parser::{ParseFormat, ToolCallParseOptions};
 
@@ -350,7 +350,7 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
 
     for msg in messages {
         match msg.role {
-            wf_types::message::MessageRole::System => {
+            llm_types::message::MessageRole::System => {
                 let text = msg.text_content();
                 if !text.trim().is_empty() {
                     parts.push(text);
@@ -371,9 +371,9 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::ToolCallMarkers;
-    use wf_types::message::{Message, MessageContentValue, MessageRole};
-    use wf_types::tool::{Tool, ToolParameterSchema, ToolPropertySchema};
+    use llm_types::llm::ToolCallMarkers;
+    use llm_types::message::{Message, MessageContentValue, MessageRole};
+    use llm_types::tool::{Tool, ToolParameterSchema, ToolPropertySchema};
     fn tool(name: &str, desc: &str) -> Tool {
         fn property(property_type: &str, description: &str) -> ToolPropertySchema {
             ToolPropertySchema {
@@ -383,10 +383,10 @@ mod tests {
             }
         }
         Tool {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             name: name.to_string(),
             description: desc.to_string(),
-            tool_type: wf_types::tool::ToolType::BuiltIn,
+            tool_type: llm_types::tool::ToolType::BuiltIn,
             parameters: Some(ToolParameterSchema {
                 r#type: "object".to_string(),
                 properties: [
@@ -549,10 +549,10 @@ mod tests {
     #[test]
     fn renders_tool_without_parameters() {
         let t = Tool {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             name: "noop".to_string(),
             description: "does nothing".to_string(),
-            tool_type: wf_types::tool::ToolType::BuiltIn,
+            tool_type: llm_types::tool::ToolType::BuiltIn,
             parameters: None,
             metadata: None,
             config: None,
@@ -601,7 +601,7 @@ mod tests {
     #[test]
     fn extract_system_message_concatenates_all_systems_in_order() {
         let sys1 = Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::System,
             content: MessageContentValue::Text("sys one".to_string()),
             timestamp: 0,
@@ -612,7 +612,7 @@ mod tests {
             metadata: None,
         };
         let user = Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::User,
             content: MessageContentValue::Text("hi".to_string()),
             timestamp: 0,
@@ -623,7 +623,7 @@ mod tests {
             metadata: None,
         };
         let sys2 = Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::System,
             content: MessageContentValue::Text("sys two".to_string()),
             timestamp: 0,

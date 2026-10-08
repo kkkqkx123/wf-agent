@@ -7,11 +7,11 @@ use futures::StreamExt;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use wf_types::llm::{
+use llm_types::llm::{
     MessageStreamEvent, MessageStreamFinal, MessageStreamInputJson, MessageStreamReasoning,
     MessageStreamText, TokenUsageStats,
 };
-use wf_types::message::{
+use llm_types::message::{
     LlmFunctionCall, LlmToolCall, Message, MessageContent, MessageContentValue, MessageRole,
 };
 
@@ -36,7 +36,7 @@ impl<S> SseMessageStream<S> {
         stream: EventStream<S>,
         codec: Arc<dyn LlmCodec>,
         cancel: Option<CancellationToken>,
-        dead_loop_config: Option<&wf_types::llm::DeadLoopDetectionConfig>,
+        dead_loop_config: Option<&llm_types::llm::DeadLoopDetectionConfig>,
     ) -> Self {
         Self {
             stream,
@@ -67,7 +67,7 @@ where
             self.pending_end = false;
             self.done = true;
             return Some(Ok(MessageStreamEvent::End(
-                wf_types::llm::MessageStreamEnd {},
+                llm_types::llm::MessageStreamEnd {},
             )));
         }
 
@@ -147,7 +147,7 @@ struct PartialToolCall {
 }
 
 impl MessageAccumulator {
-    pub fn new(dead_loop_config: Option<&wf_types::llm::DeadLoopDetectionConfig>) -> Self {
+    pub fn new(dead_loop_config: Option<&llm_types::llm::DeadLoopDetectionConfig>) -> Self {
         let dead_loop_detector = dead_loop_config.map(|c| DeadLoopDetector::new(c.into()));
         Self {
             text_snapshot: String::new(),
@@ -178,7 +178,7 @@ impl MessageAccumulator {
                     let result = detector.detect(&self.reasoning_snapshot);
                     if result.detected {
                         return Some(MessageStreamEvent::Abort(
-                            wf_types::llm::MessageStreamAbort {
+                            llm_types::llm::MessageStreamAbort {
                                 reason: result
                                     .details
                                     .unwrap_or_else(|| "Dead loop detected".to_string()),
@@ -282,10 +282,10 @@ impl MessageAccumulator {
                 };
 
                 let message = Message {
-                    id: wf_types::Id::new(),
+                    id: llm_types::Id::new(),
                     role: MessageRole::Assistant,
                     content,
-                    timestamp: wf_common::time::now(),
+                    timestamp: llm_common::time::now(),
                     tool_call_id: None,
                     tool_name: None,
                     tool_calls: if tool_calls.is_empty() {
@@ -318,7 +318,7 @@ impl MessageAccumulator {
             .filter_map(|partial| {
                 let name = partial.name.clone()?;
                 let id = partial.id.clone().unwrap_or_else(|| {
-                    format!("call_{}_{}", wf_common::time::now(), partial.index)
+                    format!("call_{}_{}", llm_common::time::now(), partial.index)
                 });
                 let arguments = if partial.arguments.is_empty() {
                     "{}".to_string()
@@ -340,7 +340,7 @@ impl PartialToolCall {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{MessageStreamToolCallDelta, MessageStreamUsage};
+    use llm_types::llm::{MessageStreamToolCallDelta, MessageStreamUsage};
 
     /// Feed a real OpenAI-style SSE byte stream through `SseMessageStream` with
     /// the real `OpenaiChatCodec`, proving that the `FinalMessage` is
@@ -349,7 +349,7 @@ mod tests {
     #[tokio::test]
     async fn real_sse_path_emits_final_message_before_end() {
         use futures::stream;
-        use wf_types::llm::MessageStreamEvent;
+        use llm_types::llm::MessageStreamEvent;
 
         let sse = concat!(
             "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n\n",
@@ -445,7 +445,7 @@ mod tests {
             },
         ));
 
-        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let final_event = acc.push(MessageStreamEvent::End(llm_types::llm::MessageStreamEnd {}));
         let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
             panic!("expected FinalMessage");
         };
@@ -480,7 +480,7 @@ mod tests {
             },
         ));
 
-        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let final_event = acc.push(MessageStreamEvent::End(llm_types::llm::MessageStreamEnd {}));
         let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
             panic!("expected FinalMessage");
         };
@@ -516,7 +516,7 @@ mod tests {
             },
         }));
 
-        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let final_event = acc.push(MessageStreamEvent::End(llm_types::llm::MessageStreamEnd {}));
         let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
             panic!("expected FinalMessage");
         };

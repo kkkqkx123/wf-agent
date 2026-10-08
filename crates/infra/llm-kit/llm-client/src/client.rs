@@ -7,9 +7,9 @@ use llm_codec::error::{LlmError, LlmResult};
 use crate::stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
-use wf_common::exec::{execute_with_timeout, TimeoutError};
-use wf_common::retry::RetryPolicy;
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
+use llm_common::exec::{execute_with_timeout, TimeoutError};
+use llm_common::retry::RetryPolicy;
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
 
 pub trait LlmClient: Send + Sync {
     fn generate(
@@ -26,7 +26,7 @@ pub trait LlmClient: Send + Sync {
         &self,
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
-    ) -> impl Future<Output = LlmResult<wf_types::llm::TokenCountResult>> + Send;
+    ) -> impl Future<Output = LlmResult<llm_types::llm::TokenCountResult>> + Send;
 }
 
 pub struct LlmClientImpl {
@@ -201,7 +201,7 @@ impl LlmClientImpl {
         &self,
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
-    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+    ) -> LlmResult<llm_types::llm::TokenCountResult> {
         if let Some(http_request) = self
             .codec
             .build_count_tokens_request(request, &self.profile)?
@@ -243,14 +243,14 @@ impl LlmClientImpl {
             let body = response.text().await?;
             let json: serde_json::Value = serde_json::from_str(&body)?;
             let input_tokens = self.codec.parse_count_tokens_response(&json)?;
-            Ok(wf_types::llm::TokenCountResult {
+            Ok(llm_types::llm::TokenCountResult {
                 input_tokens,
                 raw: Some(json),
             })
         } else {
             // Fallback to local estimation
             let estimated = llm_token::count::estimate_request_tokens(request);
-            Ok(wf_types::llm::TokenCountResult {
+            Ok(llm_types::llm::TokenCountResult {
                 input_tokens: estimated,
                 raw: None,
             })
@@ -273,7 +273,7 @@ impl LlmClient for LlmClientImpl {
         // line keeps attempts visible even with zero subscribers.
         let policy = self.retry_policy();
         let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
-        wf_common::retry::execute_with_retry_observed(
+        llm_common::retry::execute_with_retry_observed(
             Some(&policy),
             |r| matches!(r, Err(e) if e.is_retryable()),
             |r| match r {
@@ -302,7 +302,7 @@ impl LlmClient for LlmClientImpl {
     ) -> LlmResult<Box<dyn MessageStream>> {
         let policy = self.retry_policy();
         let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
-        wf_common::retry::execute_with_retry_observed(
+        llm_common::retry::execute_with_retry_observed(
             Some(&policy),
             |r| matches!(r, Err(e) if e.is_retryable()),
             |r| match r {
@@ -328,7 +328,7 @@ impl LlmClient for LlmClientImpl {
         &self,
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
-    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+    ) -> LlmResult<llm_types::llm::TokenCountResult> {
         self.count_tokens_inner(request, cancel).await
     }
 }
@@ -336,7 +336,7 @@ impl LlmClient for LlmClientImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmFormat, LlmProfile};
+    use llm_types::llm::{LlmFormat, LlmProfile};
 
     fn profile(id: &str) -> LlmProfile {
         LlmProfile {

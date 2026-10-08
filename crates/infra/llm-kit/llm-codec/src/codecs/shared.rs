@@ -1,8 +1,8 @@
 use crate::error::LlmResult;
-use wf_types::llm::{
+use llm_types::llm::{
     LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, ToolCallProtocol,
 };
-use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
+use llm_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
 /// Whether the request runs in text-based tool mode (non-native tool protocol).
 pub fn is_text_mode(request: &LlmRequest) -> bool {
@@ -52,7 +52,7 @@ pub fn text_mode_system_content(request: &LlmRequest) -> String {
 pub fn parse_text_tool_calls(
     request: &LlmRequest,
     content: &str,
-) -> Vec<wf_types::message::LlmToolCall> {
+) -> Vec<llm_types::message::LlmToolCall> {
     use llm_tool_call::tool::parser::parse_from_text;
     use llm_tool_call::tool::protocol::get_tool_call_parser_options;
     let protocol = effective_tool_call_protocol(request);
@@ -177,12 +177,12 @@ pub fn merge_and_apply_params(
 pub fn resolve_generation(
     request: &LlmRequest,
     profile: &LlmProfile,
-) -> crate::error::LlmResult<wf_types::llm::generation::LlmGenerationParams> {
+) -> crate::error::LlmResult<llm_types::llm::generation::LlmGenerationParams> {
     crate::generation::resolve_generation(profile, request)
 }
 
 /// Parse an OpenAI-style usage object into token usage stats.
-pub fn parse_openai_usage(u: &serde_json::Value) -> wf_types::llm::TokenUsageStats {
+pub fn parse_openai_usage(u: &serde_json::Value) -> llm_types::llm::TokenUsageStats {
     let reasoning_tokens = u
         .get("completion_tokens_details")
         .and_then(|d| d.get("reasoning_tokens"))
@@ -193,7 +193,7 @@ pub fn parse_openai_usage(u: &serde_json::Value) -> wf_types::llm::TokenUsageSta
         .and_then(|d| d.get("cached_tokens"))
         .and_then(|r| r.as_u64())
         .map(|r| r as u32);
-    wf_types::llm::TokenUsageStats {
+    llm_types::llm::TokenUsageStats {
         prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         completion_tokens: u
             .get("completion_tokens")
@@ -252,10 +252,10 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
                     let function = tc.get("function")?;
                     let name = function.get("name")?.as_str()?.to_string();
                     let arguments = function.get("arguments")?.as_str()?.to_string();
-                    Some(wf_types::message::LlmToolCall {
+                    Some(llm_types::message::LlmToolCall {
                         id,
                         r#type: "function".to_string(),
-                        function: wf_types::message::LlmFunctionCall { name, arguments },
+                        function: llm_types::message::LlmFunctionCall { name, arguments },
                     })
                 })
                 .collect()
@@ -265,11 +265,11 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
 
     let reasoning_tokens = usage.as_ref().and_then(|u| u.reasoning_tokens);
 
-    let msg = wf_types::message::Message {
-        id: wf_types::Id::new(),
+    let msg = llm_types::message::Message {
+        id: llm_types::Id::new(),
         role: MessageRole::Assistant,
         content: MessageContentValue::Text(content.clone().unwrap_or_default()),
-        timestamp: wf_common::time::now(),
+        timestamp: llm_common::time::now(),
         tool_call_id: None,
         tool_name: None,
         tool_calls: tool_calls.clone(),
@@ -303,14 +303,13 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
         reasoning_tokens,
         metadata,
         stream_stats: None,
-        warnings: None,
     })
 }
 
 pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEvent>> {
     if data == "[DONE]" {
         return Ok(Some(MessageStreamEvent::End(
-            wf_types::llm::MessageStreamEnd {},
+            llm_types::llm::MessageStreamEnd {},
         )));
     }
 
@@ -326,7 +325,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
     if choices.is_empty() {
         if let Some(usage) = json.get("usage") {
             return Ok(Some(MessageStreamEvent::Usage(
-                wf_types::llm::MessageStreamUsage {
+                llm_types::llm::MessageStreamUsage {
                     usage: parse_openai_usage(usage),
                 },
             )));
@@ -338,7 +337,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
         if let Some(delta) = choice.get("delta") {
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                 return Ok(Some(MessageStreamEvent::Text(
-                    wf_types::llm::MessageStreamText {
+                    llm_types::llm::MessageStreamText {
                         snapshot: String::new(),
                         text: content.to_string(),
                     },
@@ -346,7 +345,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
             }
             if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                    wf_types::llm::MessageStreamReasoning {
+                    llm_types::llm::MessageStreamReasoning {
                         snapshot: String::new(),
                         reasoning: reasoning.to_string(),
                     },
@@ -366,7 +365,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
                         .and_then(|v| v.as_str())
                         .map(String::from);
                     return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                        wf_types::llm::MessageStreamToolCallDelta {
+                        llm_types::llm::MessageStreamToolCallDelta {
                             index,
                             id,
                             name,
@@ -384,7 +383,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
             );
             if is_done {
                 return Ok(Some(MessageStreamEvent::End(
-                    wf_types::llm::MessageStreamEnd {},
+                    llm_types::llm::MessageStreamEnd {},
                 )));
             }
         }
@@ -393,7 +392,7 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
     Ok(None)
 }
 
-pub fn convert_openai_tools(tools: &[wf_types::tool::Tool]) -> LlmResult<Vec<serde_json::Value>> {
+pub fn convert_openai_tools(tools: &[llm_types::tool::Tool]) -> LlmResult<Vec<serde_json::Value>> {
     let tool_defs: Vec<serde_json::Value> = tools
         .iter()
         .map(|t| {
@@ -427,10 +426,10 @@ pub fn apply_auth_and_headers(
         let auth_type = profile.auth_type.as_deref().unwrap_or(default_auth);
         match auth_type {
             "native" => match profile.format {
-                wf_types::llm::LlmFormat::Anthropic => {
+                llm_types::llm::LlmFormat::Anthropic => {
                     builder = builder.header("x-api-key", api_key);
                 }
-                wf_types::llm::LlmFormat::GeminiNative => {
+                llm_types::llm::LlmFormat::GeminiNative => {
                     builder = builder.header("x-goog-api-key", api_key);
                 }
                 _ => {
@@ -483,7 +482,7 @@ pub fn apply_custom_body(body: &mut serde_json::Value, profile: &LlmProfile) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::MessageStreamEvent;
+    use llm_types::llm::MessageStreamEvent;
 
     #[test]
     fn stream_usage_chunk_is_extracted() {
@@ -526,7 +525,7 @@ mod tests {
 #[cfg(test)]
 mod enhancement_tests {
     use super::*;
-    use wf_types::llm::LlmFormat;
+    use llm_types::llm::LlmFormat;
 
     fn profile_with(auth_type: Option<&str>) -> LlmProfile {
         LlmProfile {

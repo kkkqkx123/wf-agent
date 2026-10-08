@@ -14,7 +14,7 @@ llm-client = { path = "../llm-client" }
 llm-codec = { path = "../llm-codec" }
 llm-config = { path = "../llm-config" }
 llm-message = { path = "../llm-message" }
-wf-types = { workspace = true }
+llm-types = { path = "../llm-types" }
 dashmap = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }

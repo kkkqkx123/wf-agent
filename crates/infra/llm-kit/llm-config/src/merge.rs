@@ -1,4 +1,4 @@
-use wf_types::llm::{
+use llm_types::llm::{
     LlmProfile, LlmRequest, ToolCallProtocol, ToolCallProtocolViolationPolicy,
     DEFAULT_TOOL_CALL_PROTOCOL_POLICY,
 };

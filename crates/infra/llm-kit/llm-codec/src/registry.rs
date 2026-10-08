@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use wf_types::llm::LlmFormat;
+use llm_types::llm::LlmFormat;
 
 use crate::codecs::{create_codec, LlmCodec};
 use crate::error::{LlmError, LlmResult};

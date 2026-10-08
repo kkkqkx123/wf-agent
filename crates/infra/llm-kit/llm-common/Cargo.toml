@@ -1,12 +1,14 @@
 [package]
-name = "llm-message"
+name = "llm-common"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 llm-types = { path = "../llm-types" }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 serde_json = { workspace = true }
-
-[dev-dependencies]
-llm-common = { path = "../llm-common" }
+tracing = { workspace = true }

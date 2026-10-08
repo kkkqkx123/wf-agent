@@ -1,9 +1,9 @@
 use crate::error::LlmResult;
 use std::sync::Arc;
-use wf_types::llm::{
+use llm_types::llm::{
     LlmFormat, LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent,
 };
-use wf_types::tool::Tool;
+use llm_types::tool::Tool;
 
 pub mod anthropic;
 pub mod gemini_native;
@@ -37,7 +37,7 @@ pub trait LlmCodec: Send + Sync {
     fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType>;
     fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>>;
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>>;
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall>;
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<llm_types::message::LlmToolCall>;
 
     /// Build a count-tokens request. Returns `Ok(None)` when the format
     /// does not support a token counting API (the caller falls back to

@@ -1,4 +1,4 @@
-use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
+use llm_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
 fn message_text(message: &Message) -> String {
     match &message.content {
@@ -53,7 +53,7 @@ mod tests {
 
     fn text_message(role: MessageRole, text: &str) -> Message {
         Message {
-            id: wf_common::generate_id(),
+            id: llm_common::generate_id(),
             role,
             content: MessageContentValue::Text(text.to_string()),
             timestamp: 0,
@@ -79,10 +79,10 @@ mod tests {
     #[test]
     fn summary_counts_messages_and_tool_calls() {
         let mut assistant = text_message(MessageRole::Assistant, "checking");
-        assistant.tool_calls = Some(vec![wf_types::message::LlmToolCall {
+        assistant.tool_calls = Some(vec![llm_types::message::LlmToolCall {
             id: "c1".to_string(),
             r#type: "function".to_string(),
-            function: wf_types::message::LlmFunctionCall {
+            function: llm_types::message::LlmFunctionCall {
                 name: "search".to_string(),
                 arguments: "{}".to_string(),
             },

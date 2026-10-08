@@ -2,8 +2,8 @@ use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
-use wf_types::tool::Tool;
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use llm_types::tool::Tool;
 
 /// Globally unique tool call indices for Gemini streams (each `functionCall`
 /// part is a complete snapshot; unique indices keep separate calls apart in
@@ -31,19 +31,19 @@ impl GeminiNativeCodec {
         Self { base_url }
     }
 
-    fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
+    fn convert_messages(&self, messages: &[llm_types::message::Message]) -> Vec<serde_json::Value> {
         messages
             .iter()
             .filter_map(|msg| {
                 let role = match msg.role {
-                    wf_types::message::MessageRole::System => return None,
-                    wf_types::message::MessageRole::User => "user",
-                    wf_types::message::MessageRole::Assistant => "model",
-                    wf_types::message::MessageRole::Tool => "function",
+                    llm_types::message::MessageRole::System => return None,
+                    llm_types::message::MessageRole::User => "user",
+                    llm_types::message::MessageRole::Assistant => "model",
+                    llm_types::message::MessageRole::Tool => "function",
                 };
 
                 let parts = match &msg.content {
-                    wf_types::message::MessageContentValue::Text(text) => {
+                    llm_types::message::MessageContentValue::Text(text) => {
                         if text.is_empty() && msg.tool_calls.is_none() {
                             return None;
                         }
@@ -67,13 +67,13 @@ impl GeminiNativeCodec {
                         }
                         p
                     }
-                    wf_types::message::MessageContentValue::Rich(blocks) => blocks
+                    llm_types::message::MessageContentValue::Rich(blocks) => blocks
                         .iter()
                         .filter_map(|block| match block {
-                            wf_types::message::MessageContent::Text { text } => {
+                            llm_types::message::MessageContent::Text { text } => {
                                 Some(serde_json::json!({"text": text}))
                             }
-                            wf_types::message::MessageContent::ToolResult { tool_result } => {
+                            llm_types::message::MessageContent::ToolResult { tool_result } => {
                                 let content_val: serde_json::Value =
                                     serde_json::from_str(&tool_result.content).unwrap_or_else(
                                         |_| serde_json::Value::String(tool_result.content.clone()),
@@ -217,7 +217,7 @@ impl LlmCodec for GeminiNativeCodec {
                         for part in parts {
                             if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText {
+                                    llm_types::llm::MessageStreamText {
                                         snapshot: String::new(),
                                         text: text.to_string(),
                                     },
@@ -225,7 +225,7 @@ impl LlmCodec for GeminiNativeCodec {
                             }
                             if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning {
+                                    llm_types::llm::MessageStreamReasoning {
                                         snapshot: String::new(),
                                         reasoning: thought.to_string(),
                                     },
@@ -243,7 +243,7 @@ impl LlmCodec for GeminiNativeCodec {
                                     .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                                 let arguments = serde_json::to_string(&args).unwrap_or_default();
                                 return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                                    wf_types::llm::MessageStreamToolCallDelta {
+                                    llm_types::llm::MessageStreamToolCallDelta {
                                         index: GEMINI_CALL_INDEX.fetch_add(1, Ordering::Relaxed),
                                         id: None,
                                         name: Some(name),
@@ -257,7 +257,7 @@ impl LlmCodec for GeminiNativeCodec {
                 }
                 if candidate.get("finishReason").is_some() {
                     return Ok(Some(MessageStreamEvent::End(
-                        wf_types::llm::MessageStreamEnd {},
+                        llm_types::llm::MessageStreamEnd {},
                     )));
                 }
             }
@@ -280,7 +280,7 @@ impl LlmCodec for GeminiNativeCodec {
         Ok(function_declarations)
     }
 
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<llm_types::message::LlmToolCall> {
         result.tool_calls.clone().unwrap_or_default()
     }
 }
@@ -381,10 +381,10 @@ impl GeminiNativeCodec {
                                 .cloned()
                                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                             let arguments = serde_json::to_string(&args).unwrap_or_default();
-                            tool_calls.push(wf_types::message::LlmToolCall {
-                                id: format!("gemini_call_{}", wf_common::generate_id()),
+                            tool_calls.push(llm_types::message::LlmToolCall {
+                                id: format!("gemini_call_{}", llm_common::generate_id()),
                                 r#type: "function".to_string(),
-                                function: wf_types::message::LlmFunctionCall { name, arguments },
+                                function: llm_types::message::LlmFunctionCall { name, arguments },
                             });
                         }
                     }
@@ -394,7 +394,7 @@ impl GeminiNativeCodec {
 
         let usage = json
             .get("usageMetadata")
-            .map(|u| wf_types::llm::TokenUsageStats {
+            .map(|u| llm_types::llm::TokenUsageStats {
                 prompt_tokens: u
                     .get("promptTokenCount")
                     .and_then(|v| v.as_u64())
@@ -421,11 +421,11 @@ impl GeminiNativeCodec {
                 total_cost: None,
             });
 
-        let message = wf_types::message::Message {
-            id: wf_types::Id::new(),
-            role: wf_types::message::MessageRole::Assistant,
-            content: wf_types::message::MessageContentValue::Text(text_content.clone()),
-            timestamp: wf_common::time::now(),
+        let message = llm_types::message::Message {
+            id: llm_types::Id::new(),
+            role: llm_types::message::MessageRole::Assistant,
+            content: llm_types::message::MessageContentValue::Text(text_content.clone()),
+            timestamp: llm_common::time::now(),
             tool_call_id: None,
             tool_name: None,
             tool_calls: if tool_calls.is_empty() {
@@ -455,7 +455,7 @@ impl GeminiNativeCodec {
         let reasoning_tokens = usage.as_ref().and_then(|u| u.reasoning_tokens);
 
         Ok(LlmResponseType {
-            id: Some(wf_common::generate_id()),
+            id: Some(llm_common::generate_id()),
             model: json
                 .get("modelVersion")
                 .and_then(|v| v.as_str())
@@ -479,7 +479,6 @@ impl GeminiNativeCodec {
             reasoning_tokens,
             metadata,
             stream_stats: None,
-            warnings: None,
         })
     }
 }
@@ -510,7 +509,7 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            format: wf_types::llm::LlmFormat::GeminiNative,
+            format: llm_types::llm::LlmFormat::GeminiNative,
             provider_id: None,
             model: "gemini-1.5-pro".to_string(),
             api_key: Some("sk-test".to_string()),
@@ -533,11 +532,11 @@ mod tests {
         }
     }
 
-    fn msg(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
-        wf_types::message::Message {
-            id: wf_types::Id::new(),
+    fn msg(role: llm_types::message::MessageRole, text: &str) -> llm_types::message::Message {
+        llm_types::message::Message {
+            id: llm_types::Id::new(),
             role,
-            content: wf_types::message::MessageContentValue::Text(text.to_string()),
+            content: llm_types::message::MessageContentValue::Text(text.to_string()),
             timestamp: 0,
             tool_call_id: None,
             tool_name: None,
@@ -548,7 +547,7 @@ mod tests {
     }
 
     fn request(
-        messages: Vec<wf_types::message::Message>,
+        messages: Vec<llm_types::message::Message>,
         params: Option<serde_json::Value>,
     ) -> LlmRequest {
         LlmRequest {
@@ -573,8 +572,8 @@ mod tests {
         let codec = GeminiNativeCodec::new();
         let req = request(
             vec![
-                msg(wf_types::message::MessageRole::System, "You are a helper"),
-                msg(wf_types::message::MessageRole::User, "Hello"),
+                msg(llm_types::message::MessageRole::System, "You are a helper"),
+                msg(llm_types::message::MessageRole::User, "Hello"),
             ],
             None,
         );
@@ -598,14 +597,14 @@ mod tests {
         let codec = GeminiNativeCodec::new();
         let req = request(
             vec![
-                msg(wf_types::message::MessageRole::System, "You are a helper"),
-                msg(wf_types::message::MessageRole::User, "Hello"),
+                msg(llm_types::message::MessageRole::System, "You are a helper"),
+                msg(llm_types::message::MessageRole::User, "Hello"),
             ],
             None,
         );
         let mut req = req;
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": wf_types::Id::new(),
+            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
             "tool_type": "built_in",
@@ -661,8 +660,8 @@ mod tests {
     fn count_request() -> LlmRequest {
         request(
             vec![
-                msg(wf_types::message::MessageRole::System, "You are a helper"),
-                msg(wf_types::message::MessageRole::User, "Hello"),
+                msg(llm_types::message::MessageRole::System, "You are a helper"),
+                msg(llm_types::message::MessageRole::User, "Hello"),
             ],
             None,
         )

@@ -1,4 +1,4 @@
-use wf_types::llm::{LlmProviderDefinition, ModelDiscovery, ModelInfo};
+use llm_types::llm::{LlmProviderDefinition, ModelDiscovery, ModelInfo};
 
 use llm_codec::error::{LlmError, LlmResult};
 

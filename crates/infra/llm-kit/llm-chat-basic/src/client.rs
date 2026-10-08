@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use llm_types::{Message, MessageContent, MessageRole};
+use llm_types::{Message, MessageContent, MessageContentValue, MessageRole};
 
 use crate::config::ChatConfig;
 use crate::error::{ChatError, Result};
@@ -141,13 +141,14 @@ fn role_name(role: &MessageRole) -> &'static str {
 }
 
 /// Flattens message content into the plain-text body the endpoint expects.
-fn flatten_content(content: &MessageContent) -> String {
+fn flatten_content(content: &MessageContentValue) -> String {
     match content {
-        MessageContent::Text(text) => text.clone(),
-        MessageContent::Parts(parts) => parts
+        MessageContentValue::Text(text) => text.clone(),
+        MessageContentValue::Rich(blocks) => blocks
             .iter()
-            .map(|part| match part {
-                llm_types::ContentPart::Text { text } => text.as_str(),
+            .filter_map(|block| match block {
+                MessageContent::Text { text } => Some(text.as_str()),
+                _ => None,
             })
             .collect::<Vec<_>>()
             .join(""),

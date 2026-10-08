@@ -2,8 +2,8 @@ use super::shared;
 use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
-use wf_types::tool::Tool;
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use llm_types::tool::Tool;
 
 pub struct OpenaiChatCodec {
     base_url: String,
@@ -137,7 +137,7 @@ impl LlmCodec for OpenaiChatCodec {
         shared::convert_openai_tools(tools)
     }
 
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<llm_types::message::LlmToolCall> {
         result.tool_calls.clone().unwrap_or_default()
     }
 }
@@ -145,12 +145,12 @@ impl LlmCodec for OpenaiChatCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmStreamOptions, ToolCallProtocol};
-    use wf_types::message::{Message, MessageContentValue, MessageRole};
+    use llm_types::llm::{LlmStreamOptions, ToolCallProtocol};
+    use llm_types::message::{Message, MessageContentValue, MessageRole};
 
     fn text_msg(role: MessageRole, text: &str) -> Message {
         Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role,
             content: MessageContentValue::Text(text.to_string()),
             timestamp: 0,
@@ -166,7 +166,7 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            format: wf_types::llm::LlmFormat::OpenaiChat,
+            format: llm_types::llm::LlmFormat::OpenaiChat,
             provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: Some("sk-test".to_string()),
@@ -199,7 +199,7 @@ mod tests {
             parameters: None,
             generation: None,
             tools: Some(vec![serde_json::from_value(serde_json::json!({
-                "id": wf_types::Id::new(),
+                "id": llm_types::Id::new(),
                 "name": "get_weather",
                 "description": "Get weather",
                 "tool_type": "built_in",
@@ -299,10 +299,10 @@ mod tests {
     fn text_mode_converts_tool_call_history_to_blocks() {
         let mut req = request_with_format(ToolCallProtocol::Xml);
         let mut assistant = text_msg(MessageRole::Assistant, "checking weather");
-        assistant.tool_calls = Some(vec![wf_types::message::LlmToolCall {
+        assistant.tool_calls = Some(vec![llm_types::message::LlmToolCall {
             id: "call_1".to_string(),
             r#type: "function".to_string(),
-            function: wf_types::message::LlmFunctionCall {
+            function: llm_types::message::LlmFunctionCall {
                 name: "get_weather".to_string(),
                 arguments: r#"{"city":"Beijing"}"#.to_string(),
             },

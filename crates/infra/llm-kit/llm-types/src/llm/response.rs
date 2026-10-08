@@ -1,14 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LlmWarning {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<super::super::Metadata>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StreamStats {
     pub chunk_count: u32,
     pub time_to_first_chunk: i64,
@@ -36,21 +28,4 @@ pub struct LlmResult {
     pub metadata: Option<super::super::Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_stats: Option<StreamStats>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warnings: Option<Vec<LlmWarning>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChatResponse {
-    pub id: Option<String>,
-    pub model: String,
-    pub choices: Vec<ChatChoice>,
-    pub usage: Option<super::TokenUsageStats>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChatChoice {
-    pub index: u32,
-    pub message: serde_json::Value,
-    pub finish_reason: Option<String>,
 }

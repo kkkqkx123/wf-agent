@@ -1,5 +1,5 @@
-use wf_types::llm::ToolCallMarkers;
-use wf_types::message::{LlmFunctionCall, LlmToolCall};
+use llm_types::llm::ToolCallMarkers;
+use llm_types::message::{LlmFunctionCall, LlmToolCall};
 
 /// Options for parsing tool calls from text.
 #[derive(Debug, Clone)]
@@ -376,8 +376,8 @@ pub fn has_raw_json_tool_calls(text: &str) -> bool {
 fn generate_tool_call_id() -> String {
     format!(
         "call_{}_{}",
-        wf_common::time::now(),
-        wf_common::generate_id()
+        llm_common::time::now(),
+        llm_common::generate_id()
     )
 }
 

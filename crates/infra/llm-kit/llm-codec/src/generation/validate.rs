@@ -1,6 +1,6 @@
 use crate::error::{LlmError, LlmResult};
-use wf_types::llm::generation::LlmGenerationParams;
-use wf_types::llm::LlmFormat;
+use llm_types::llm::generation::LlmGenerationParams;
+use llm_types::llm::LlmFormat;
 
 pub const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 4096;
 pub const GEMINI_DEFAULT_MAX_OUTPUT_TOKENS: u32 = 4096;

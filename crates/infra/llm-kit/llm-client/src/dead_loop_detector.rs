@@ -1,4 +1,4 @@
-use wf_types::llm::DeadLoopDetectionConfig;
+use llm_types::llm::DeadLoopDetectionConfig;
 
 /// Result of dead loop detection.
 #[derive(Debug, Clone)]

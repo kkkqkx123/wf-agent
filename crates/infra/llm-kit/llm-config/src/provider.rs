@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use wf_types::llm::{LlmFormat, LlmProfile, LlmProviderDefinition};
+use llm_types::llm::{LlmFormat, LlmProfile, LlmProviderDefinition};
 
 use llm_codec::error::{LlmError, LlmResult};
 
@@ -121,7 +121,7 @@ fn formats_match(profile: &LlmFormat, provider: &LlmFormat) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmFormat;
+    use llm_types::llm::LlmFormat;
 
     fn profile(id: &str) -> LlmProfile {
         LlmProfile {

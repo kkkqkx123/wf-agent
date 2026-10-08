@@ -1,6 +1,6 @@
 use super::validate::ANTHROPIC_DEFAULT_MAX_TOKENS;
 use crate::error::{LlmError, LlmResult};
-use wf_types::llm::generation::{
+use llm_types::llm::generation::{
     LlmGenerationParams, LlmServiceTier, LlmThinkingConfig, LlmToolChoice, ResponseFormatKind,
     ThinkingLevel, ToolChoiceMode,
 };

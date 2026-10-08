@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use wf_types::llm::{MessageStreamEvent, StreamStats, TokenUsageStats};
+use llm_types::llm::{MessageStreamEvent, StreamStats, TokenUsageStats};
 
 use llm_codec::error::LlmError;
 use crate::stream::MessageStream;
@@ -69,7 +69,7 @@ impl TokenRecordingStream {
             model,
             last_usage: None,
             recorded: false,
-            start_time: wf_common::time::now(),
+            start_time: llm_common::time::now(),
             first_chunk_time: None,
             last_chunk_time: None,
             chunk_count: 0,
@@ -106,7 +106,7 @@ impl MessageStream for TokenRecordingStream {
     async fn next(&mut self) -> Option<Result<MessageStreamEvent, LlmError>> {
         let mut event = self.inner.next().await;
 
-        let now = wf_common::time::now();
+        let now = llm_common::time::now();
         if event.is_some() {
             if self.first_chunk_time.is_none() {
                 self.first_chunk_time = Some(now);
@@ -142,7 +142,7 @@ impl MessageStream for TokenRecordingStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::message::{Message, MessageContentValue, MessageRole};
+    use llm_types::message::{Message, MessageContentValue, MessageRole};
 
     struct FakeStream {
         events: Vec<MessageStreamEvent>,
@@ -159,7 +159,7 @@ mod tests {
     }
 
     fn text_event(text: &str) -> MessageStreamEvent {
-        MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
+        MessageStreamEvent::Text(llm_types::llm::MessageStreamText {
             text: text.to_string(),
             snapshot: text.to_string(),
         })
@@ -168,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn final_message_carries_stream_stats() {
         let message = Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::Assistant,
             content: MessageContentValue::Text("hello world".to_string()),
             timestamp: 0,
@@ -182,7 +182,7 @@ mod tests {
             events: vec![
                 text_event("hello"),
                 text_event(" world"),
-                MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
+                MessageStreamEvent::FinalMessage(llm_types::llm::MessageStreamFinal {
                     message,
                     usage: None,
                     stream_stats: None,

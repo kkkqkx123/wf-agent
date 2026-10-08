@@ -90,12 +90,3 @@ pub struct ToolParametersSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolMetadataSchema {
-    pub name: String,
-    pub description: Option<String>,
-    pub version: Option<String>,
-    pub author: Option<String>,
-    pub tags: Option<Vec<String>>,
-}

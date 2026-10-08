@@ -16,19 +16,9 @@ members = [
     "crates/infra/wf-sandbox",
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
-    # llm-kit subgroup (crates/infra/llm-kit/): internal crates carry no wf-
-    # prefix; moved to a standalone shared repository in phase three.
-    "crates/infra/llm-kit/llm-types",
-    "crates/infra/llm-kit/llm-embedding",
-    "crates/infra/llm-kit/llm-chat-basic",
-    "crates/infra/llm-kit/llm-rerank",
-    "crates/infra/llm-kit/llm-tool-call",
-    "crates/infra/llm-kit/llm-token",
-    "crates/infra/llm-kit/llm-message",
-    "crates/infra/llm-kit/llm-codec",
-    "crates/infra/llm-kit/llm-client",
-    "crates/infra/llm-kit/llm-config",
-    "crates/infra/llm-kit/llm-gateway",
+    # llm-kit (crates/infra/llm-kit/) is an independent workspace and git
+    # repository, consumed here by path; excluded so the two workspaces do
+    # not claim the same packages.
     # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry
     # no wf- prefix (tui-style); only the facade keeps wf- prefix.
     "crates/infra/checkpoint/checkpoint-base",
@@ -61,6 +51,7 @@ members = [
     "crates/app/tui/tui-render",
     "crates/app/tui/tui-debug",
 ]
+exclude = ["crates/infra/llm-kit"]
 
 [workspace.package]
 version = "0.1.0"

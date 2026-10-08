@@ -1,8 +1,8 @@
 use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
-use wf_types::tool::Tool;
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use llm_types::tool::Tool;
 
 pub struct AnthropicCodec {
     base_url: String,
@@ -129,33 +129,33 @@ impl AnthropicCodec {
         Ok(body)
     }
 
-    fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
+    fn convert_messages(&self, messages: &[llm_types::message::Message]) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         let mut current_text: Option<String> = None;
 
         for msg in messages {
             let role = match msg.role {
-                wf_types::message::MessageRole::System => continue,
-                wf_types::message::MessageRole::User => "user",
-                wf_types::message::MessageRole::Assistant => "assistant",
-                wf_types::message::MessageRole::Tool => "user",
+                llm_types::message::MessageRole::System => continue,
+                llm_types::message::MessageRole::User => "user",
+                llm_types::message::MessageRole::Assistant => "assistant",
+                llm_types::message::MessageRole::Tool => "user",
             };
 
             let content = match &msg.content {
-                wf_types::message::MessageContentValue::Text(text) => {
+                llm_types::message::MessageContentValue::Text(text) => {
                     if text.is_empty() {
                         continue;
                     }
                     serde_json::json!([{"type": "text", "text": text}])
                 }
-                wf_types::message::MessageContentValue::Rich(blocks) => {
+                llm_types::message::MessageContentValue::Rich(blocks) => {
                     let converted: Vec<serde_json::Value> = blocks
                         .iter()
                         .map(|block| match block {
-                            wf_types::message::MessageContent::Text { text } => {
+                            llm_types::message::MessageContent::Text { text } => {
                                 serde_json::json!({"type": "text", "text": text})
                             }
-                            wf_types::message::MessageContent::ToolUse { tool_use } => {
+                            llm_types::message::MessageContent::ToolUse { tool_use } => {
                                 serde_json::json!({
                                     "type": "tool_use",
                                     "id": tool_use.id,
@@ -163,7 +163,7 @@ impl AnthropicCodec {
                                     "input": tool_use.input,
                                 })
                             }
-                            wf_types::message::MessageContent::ToolResult { tool_result } => {
+                            llm_types::message::MessageContent::ToolResult { tool_result } => {
                                 serde_json::json!({
                                     "type": "tool_result",
                                     "tool_use_id": tool_result.tool_use_id,
@@ -171,7 +171,7 @@ impl AnthropicCodec {
                                     "is_error": tool_result.is_error.unwrap_or(false),
                                 })
                             }
-                            wf_types::message::MessageContent::ImageUrl { image_url } => {
+                            llm_types::message::MessageContent::ImageUrl { image_url } => {
                                 let url = &image_url.url;
                                 let (media_type, data) =
                                     if let Some(rest) = url.strip_prefix("data:") {
@@ -212,7 +212,7 @@ impl AnthropicCodec {
                             "type": "tool_result",
                             "tool_use_id": tool_id,
                             "content": match &msg.content {
-                                wf_types::message::MessageContentValue::Text(t) => t.clone(),
+                                llm_types::message::MessageContentValue::Text(t) => t.clone(),
                                 _ => "".to_string(),
                             }
                         }]
@@ -239,7 +239,7 @@ impl AnthropicCodec {
                 }
                 if let Some(ref tool_calls) = msg.tool_calls {
                     let mut blocks = Vec::new();
-                    if let wf_types::message::MessageContentValue::Text(text) = &msg.content {
+                    if let llm_types::message::MessageContentValue::Text(text) = &msg.content {
                         if !text.is_empty() {
                             blocks.push(serde_json::json!({"type": "text", "text": text}));
                         }
@@ -363,7 +363,7 @@ impl LlmCodec for AnthropicCodec {
                         let id = b.get("id").and_then(|v| v.as_str()).map(String::from);
                         let name = b.get("name").and_then(|v| v.as_str()).map(String::from);
                         return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                            wf_types::llm::MessageStreamToolCallDelta {
+                            llm_types::llm::MessageStreamToolCallDelta {
                                 index,
                                 id,
                                 name,
@@ -382,7 +382,7 @@ impl LlmCodec for AnthropicCodec {
                         Some("text_delta") => {
                             if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText {
+                                    llm_types::llm::MessageStreamText {
                                         text: text.to_string(),
                                         snapshot: text.to_string(),
                                     },
@@ -392,7 +392,7 @@ impl LlmCodec for AnthropicCodec {
                         Some("thinking_delta") => {
                             if let Some(reasoning) = d.get("thinking").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning {
+                                    llm_types::llm::MessageStreamReasoning {
                                         reasoning: reasoning.to_string(),
                                         snapshot: reasoning.to_string(),
                                     },
@@ -404,7 +404,7 @@ impl LlmCodec for AnthropicCodec {
                                 let index = json.get("index").and_then(|v| v.as_u64()).unwrap_or(0)
                                     as usize;
                                 return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                                    wf_types::llm::MessageStreamToolCallDelta {
+                                    llm_types::llm::MessageStreamToolCallDelta {
                                         index,
                                         id: None,
                                         name: None,
@@ -424,8 +424,8 @@ impl LlmCodec for AnthropicCodec {
                 // surface it as a stream event so the gateway records it.
                 if let Some(usage) = json.get("usage") {
                     return Ok(Some(MessageStreamEvent::Usage(
-                        wf_types::llm::MessageStreamUsage {
-                            usage: wf_types::llm::TokenUsageStats {
+                        llm_types::llm::MessageStreamUsage {
+                            usage: llm_types::llm::TokenUsageStats {
                                 prompt_tokens: usage
                                     .get("input_tokens")
                                     .and_then(|v| v.as_u64())
@@ -465,7 +465,7 @@ impl LlmCodec for AnthropicCodec {
                         );
                         if is_done {
                             return Ok(Some(MessageStreamEvent::End(
-                                wf_types::llm::MessageStreamEnd {},
+                                llm_types::llm::MessageStreamEnd {},
                             )));
                         }
                     }
@@ -473,7 +473,7 @@ impl LlmCodec for AnthropicCodec {
                 Ok(None)
             }
             Some("message_stop") => Ok(Some(MessageStreamEvent::End(
-                wf_types::llm::MessageStreamEnd {},
+                llm_types::llm::MessageStreamEnd {},
             ))),
             _ => Ok(None),
         }
@@ -493,7 +493,7 @@ impl LlmCodec for AnthropicCodec {
         Ok(tool_defs)
     }
 
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<llm_types::message::LlmToolCall> {
         result.tool_calls.clone().unwrap_or_default()
     }
 }
@@ -542,10 +542,10 @@ impl AnthropicCodec {
                             .cloned()
                             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                         let arguments = serde_json::to_string(&input).unwrap_or_default();
-                        tool_calls.push(wf_types::message::LlmToolCall {
+                        tool_calls.push(llm_types::message::LlmToolCall {
                             id: tc_id,
                             r#type: "function".to_string(),
-                            function: wf_types::message::LlmFunctionCall { name, arguments },
+                            function: llm_types::message::LlmFunctionCall { name, arguments },
                         });
                     }
                     _ => {}
@@ -556,7 +556,7 @@ impl AnthropicCodec {
         let usage = json.get("usage").map(|u| {
             let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            wf_types::llm::TokenUsageStats {
+            llm_types::llm::TokenUsageStats {
                 prompt_tokens: input,
                 completion_tokens: output,
                 total_tokens: input + output,
@@ -575,11 +575,11 @@ impl AnthropicCodec {
             }
         });
 
-        let message = wf_types::message::Message {
-            id: wf_types::Id::new(),
-            role: wf_types::message::MessageRole::Assistant,
-            content: wf_types::message::MessageContentValue::Text(text_content.clone()),
-            timestamp: wf_common::time::now(),
+        let message = llm_types::message::Message {
+            id: llm_types::Id::new(),
+            role: llm_types::message::MessageRole::Assistant,
+            content: llm_types::message::MessageContentValue::Text(text_content.clone()),
+            timestamp: llm_common::time::now(),
             tool_call_id: None,
             tool_name: None,
             tool_calls: if tool_calls.is_empty() {
@@ -631,7 +631,6 @@ impl AnthropicCodec {
             reasoning_tokens: reasoning_token_count.map(|r| r as u32),
             metadata,
             stream_stats: None,
-            warnings: None,
         })
     }
 }
@@ -677,7 +676,7 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            format: wf_types::llm::LlmFormat::Anthropic,
+            format: llm_types::llm::LlmFormat::Anthropic,
             provider_id: None,
             model: "claude-3-5-sonnet".to_string(),
             api_key: Some("sk-test".to_string()),
@@ -700,11 +699,11 @@ mod tests {
         }
     }
 
-    fn msg(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
-        wf_types::message::Message {
-            id: wf_types::Id::new(),
+    fn msg(role: llm_types::message::MessageRole, text: &str) -> llm_types::message::Message {
+        llm_types::message::Message {
+            id: llm_types::Id::new(),
             role,
-            content: wf_types::message::MessageContentValue::Text(text.to_string()),
+            content: llm_types::message::MessageContentValue::Text(text.to_string()),
             timestamp: 0,
             tool_call_id: None,
             tool_name: None,
@@ -715,7 +714,7 @@ mod tests {
     }
 
     fn request(
-        messages: Vec<wf_types::message::Message>,
+        messages: Vec<llm_types::message::Message>,
         params: Option<serde_json::Value>,
     ) -> LlmRequest {
         LlmRequest {
@@ -742,8 +741,8 @@ mod tests {
             .build_body(
                 &request(
                     vec![
-                        msg(wf_types::message::MessageRole::System, "You are a helper"),
-                        msg(wf_types::message::MessageRole::User, "Hello"),
+                        msg(llm_types::message::MessageRole::System, "You are a helper"),
+                        msg(llm_types::message::MessageRole::User, "Hello"),
                     ],
                     None,
                 ),
@@ -766,12 +765,12 @@ mod tests {
         let codec = AnthropicCodec::new();
         let mut req = request(
             vec![
-                msg(wf_types::message::MessageRole::System, "You are a helper"),
-                msg(wf_types::message::MessageRole::User, "Hello"),
+                msg(llm_types::message::MessageRole::System, "You are a helper"),
+                msg(llm_types::message::MessageRole::User, "Hello"),
             ],
             None,
         );
-        req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Xml);
+        req.tool_call_protocol = Some(llm_types::llm::ToolCallProtocol::Xml);
         let body = codec.build_body(&req, &profile()).expect("must build");
 
         let system = body["system"].as_str().unwrap();
@@ -783,7 +782,7 @@ mod tests {
     fn params_pass_through_except_stream_and_stop() {
         let codec = AnthropicCodec::new();
         let req = request(
-            vec![msg(wf_types::message::MessageRole::User, "Hello")],
+            vec![msg(llm_types::message::MessageRole::User, "Hello")],
             Some(serde_json::json!({
                 "temperature": 0.2,
                 "thinking": {"type": "enabled", "budget_tokens": 1024},
@@ -807,7 +806,7 @@ mod tests {
         let codec = AnthropicCodec::new();
         let req = request(
             vec![msg(
-                wf_types::message::MessageRole::System,
+                llm_types::message::MessageRole::System,
                 "You are a helper",
             )],
             None,

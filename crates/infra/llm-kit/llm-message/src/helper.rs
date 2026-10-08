@@ -1,4 +1,4 @@
-use wf_types::message::Message;
+use llm_types::message::Message;
 
 pub fn extract_text_content(message: &Message) -> String {
     message.text_content()
@@ -7,11 +7,11 @@ pub fn extract_text_content(message: &Message) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::message::{MessageContentValue, MessageRole};
+    use llm_types::message::{MessageContentValue, MessageRole};
 
     fn make_text_message(role: MessageRole, text: &str) -> Message {
         Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role,
             content: MessageContentValue::Text(text.to_string()),
             timestamp: 0,

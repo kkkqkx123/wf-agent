@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wf_types::llm::LlmProfile;
+use llm_types::llm::LlmProfile;
 
 /// Deep merge two JSON values:
 /// - Arrays are concatenated
@@ -70,7 +70,7 @@ pub fn build_bearer_header(api_key: &Option<String>) -> Option<(String, String)>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmFormat, LlmProfile};
+    use llm_types::llm::{LlmFormat, LlmProfile};
 
     fn profile_with_params(params: Option<serde_json::Value>) -> LlmProfile {
         LlmProfile {

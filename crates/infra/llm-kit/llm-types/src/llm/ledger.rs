@@ -10,7 +10,7 @@
 //! The ledger serves the decision track only. Cost-track data (real provider
 //! usage, history, costs) lives in `TokenUsageTracker` and never touches the
 //! ledger. It is pure serde data: estimation itself happens at the call sites
-//! (`wf_llm::estimate_message_tokens` / `estimate_messages`).
+//! in the token-counting crate.
 
 use std::collections::HashMap;
 

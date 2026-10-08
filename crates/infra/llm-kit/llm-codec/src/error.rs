@@ -32,7 +32,7 @@ pub enum LlmError {
     ProfileNotFound(String),
 
     #[error("Unsupported format: {0:?}")]
-    UnsupportedFormat(wf_types::llm::LlmFormat),
+    UnsupportedFormat(llm_types::llm::LlmFormat),
 
     #[error("Codec not registered for format: {0}")]
     CodecNotFound(String),
@@ -100,7 +100,7 @@ pub type LlmResult<T> = Result<T, LlmError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmFormat;
+    use llm_types::llm::LlmFormat;
 
     async fn http_err() -> reqwest::Error {
         // A real reqwest error from an impossible request (port 1, no HTTP).

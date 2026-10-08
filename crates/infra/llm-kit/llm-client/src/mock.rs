@@ -11,11 +11,11 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use wf_types::llm::{
+use llm_types::llm::{
     LlmRequest, LlmResult as LlmResponseType, MessageStreamEnd, MessageStreamEvent,
     MessageStreamFinal, MessageStreamText, TokenUsageStats,
 };
-use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
+use llm_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 
 use crate::client::LlmClient;
 use llm_codec::error::{LlmError, LlmResult};
@@ -106,10 +106,10 @@ impl LlmResponseSpec {
             .clone()
             .unwrap_or_else(|| request.profile_id.clone());
         let message = Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::Assistant,
             content: MessageContentValue::Text(self.content.clone().unwrap_or_default()),
-            timestamp: wf_common::now(),
+            timestamp: llm_common::now(),
             tool_call_id: None,
             tool_name: None,
             tool_calls: self.tool_calls.clone(),
@@ -129,7 +129,6 @@ impl LlmResponseSpec {
             reasoning_tokens: None,
             metadata: None,
             stream_stats: None,
-            warnings: None,
         }
     }
 
@@ -219,40 +218,40 @@ impl MockLlmClient {
 
     /// Fallback response used when the script queue is exhausted.
     pub fn default(&self, spec: LlmResponseSpec) {
-        *wf_common::lock::lock_ok(self.inner.default.lock()) = Some(spec);
+        *llm_common::lock::lock_ok(self.inner.default.lock()) = Some(spec);
     }
 
     /// Delay between stream events (0 disables).
     pub fn with_stream_delay(&self, ms: u64) {
-        *wf_common::lock::lock_ok(self.inner.stream_delay_ms.lock()) =
+        *llm_common::lock::lock_ok(self.inner.stream_delay_ms.lock()) =
             if ms == 0 { None } else { Some(ms) };
     }
 
     /// All recorded requests, including the full message history.
     pub fn recorded_requests(&self) -> Vec<LlmRequest> {
-        wf_common::lock::lock_ok(self.inner.recorded.lock()).clone()
+        llm_common::lock::lock_ok(self.inner.recorded.lock()).clone()
     }
 
     pub fn last_request(&self) -> Option<LlmRequest> {
-        wf_common::lock::lock_ok(self.inner.recorded.lock())
+        llm_common::lock::lock_ok(self.inner.recorded.lock())
             .last()
             .cloned()
     }
 
     pub fn recorded_count(&self) -> usize {
-        wf_common::lock::lock_ok(self.inner.recorded.lock()).len()
+        llm_common::lock::lock_ok(self.inner.recorded.lock()).len()
     }
 
     pub fn clear(&self) {
-        wf_common::lock::lock_ok(self.inner.recorded.lock()).clear();
+        llm_common::lock::lock_ok(self.inner.recorded.lock()).clear();
     }
 
     fn record(&self, request: &LlmRequest) {
-        wf_common::lock::lock_ok(self.inner.recorded.lock()).push(request.clone());
+        llm_common::lock::lock_ok(self.inner.recorded.lock()).push(request.clone());
     }
 
     fn pop(&self) -> Option<ScriptedResponse> {
-        wf_common::lock::lock_ok(self.inner.script.lock()).pop_front()
+        llm_common::lock::lock_ok(self.inner.script.lock()).pop_front()
     }
 
     fn fallback_spec(&self) -> LlmResponseSpec {
@@ -303,7 +302,6 @@ impl MockLlmClient {
                 reasoning_tokens: None,
                 metadata: None,
                 stream_stats: None,
-                warnings: None,
             };
         }
         LlmResponseSpec::text("").build(request)
@@ -369,10 +367,10 @@ impl LlmClient for MockLlmClient {
         &self,
         request: &LlmRequest,
         _cancel: Option<tokio_util::sync::CancellationToken>,
-    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+    ) -> LlmResult<llm_types::llm::TokenCountResult> {
         // Mock returns a simple estimation wrapped in TokenCountResult
         let estimated = llm_token::count::estimate_request_tokens(request);
-        Ok(wf_types::llm::TokenCountResult {
+        Ok(llm_types::llm::TokenCountResult {
             input_tokens: estimated,
             raw: None,
         })

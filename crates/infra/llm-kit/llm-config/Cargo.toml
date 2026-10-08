@@ -6,11 +6,11 @@ rust-version.workspace = true
 
 [dependencies]
 llm-codec = { path = "../llm-codec" }
-wf-types = { workspace = true }
+llm-types = { path = "../llm-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 dashmap = { workspace = true }
-wf-common = { workspace = true }
+llm-common = { path = "../llm-common" }
 thiserror = { workspace = true }
 tracing = { workspace = true }

@@ -1,6 +1,6 @@
 use crate::error::LlmResult;
-use wf_types::llm::generation::LlmGenerationParams;
-use wf_types::llm::{LlmProfile, LlmRequest};
+use llm_types::llm::generation::LlmGenerationParams;
+use llm_types::llm::{LlmProfile, LlmRequest};
 
 pub mod emit;
 pub mod parse;
@@ -38,8 +38,8 @@ pub fn resolve_generation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::generation::{LlmThinkingConfig, ThinkingLevel, Verbosity};
-    use wf_types::llm::LlmFormat;
+    use llm_types::llm::generation::{LlmThinkingConfig, ThinkingLevel, Verbosity};
+    use llm_types::llm::LlmFormat;
 
     fn profile_with(
         format: LlmFormat,

@@ -7,7 +7,7 @@
 //! execution-record persistence. The request template carries no tools
 //! field, so a tool-carrying chat request cannot be constructed.
 
-use wf_llm::{messaging::message_builder::user_text, LlmGateway};
+use wf_llm::{message_builder::user_text, LlmGateway};
 use wf_types::llm::{LlmGenerationParams, LlmRequest, LlmResult};
 use wf_types::message::Message;
 

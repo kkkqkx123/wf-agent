@@ -1,4 +1,4 @@
-use wf_types::llm::generation::{
+use llm_types::llm::generation::{
     LlmGenerationParams, LlmResponseFormat, LlmServiceTier, LlmThinkingConfig, LlmToolChoice,
     ResponseFormatKind, ThinkingDisplay, ThinkingLevel, ToolChoiceMode, Verbosity,
 };
@@ -388,9 +388,9 @@ pub fn parse_legacy_generation(value: &serde_json::Value) -> LlmGenerationParams
             if thinking.summary.is_none() {
                 if let Some(summary) = reasoning_map.get("summary").and_then(|v| v.as_str()) {
                     let summary = match summary.to_ascii_lowercase().as_str() {
-                        "auto" => Some(wf_types::llm::generation::ReasoningSummary::Auto),
-                        "concise" => Some(wf_types::llm::generation::ReasoningSummary::Concise),
-                        "detailed" => Some(wf_types::llm::generation::ReasoningSummary::Detailed),
+                        "auto" => Some(llm_types::llm::generation::ReasoningSummary::Auto),
+                        "concise" => Some(llm_types::llm::generation::ReasoningSummary::Concise),
+                        "detailed" => Some(llm_types::llm::generation::ReasoningSummary::Detailed),
                         _ => None,
                     };
                     if let Some(summary) = summary {

@@ -1,15 +1,15 @@
 use super::*;
-use wf_types::llm::MessageStreamChunk;
-use wf_types::message::{LlmFunctionCall, MessageRole};
+use llm_types::llm::MessageStreamChunk;
+use llm_types::message::{LlmFunctionCall, MessageRole};
 
 fn request(profile_id: &str, text: &str) -> LlmRequest {
     LlmRequest {
         profile_id: profile_id.to_string(),
         messages: vec![Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role: MessageRole::User,
             content: MessageContentValue::Text(text.to_string()),
-            timestamp: wf_common::now(),
+            timestamp: llm_common::now(),
             tool_call_id: None,
             tool_name: None,
             tool_calls: None,
@@ -110,10 +110,10 @@ async fn usage_and_reasoning_are_passed_through() {
 async fn stream_events_are_replayed_in_order() {
     let client = MockLlmClient::new();
     let assistant = Message {
-        id: wf_types::Id::new(),
+        id: llm_types::Id::new(),
         role: MessageRole::Assistant,
         content: MessageContentValue::Text("hello world".to_string()),
-        timestamp: wf_common::now(),
+        timestamp: llm_common::now(),
         tool_call_id: None,
         tool_name: None,
         tool_calls: None,
@@ -152,10 +152,10 @@ async fn stream_events_are_replayed_in_order() {
 async fn generate_on_stream_script_synthesizes_final_result() {
     let client = MockLlmClient::new();
     let assistant = Message {
-        id: wf_types::Id::new(),
+        id: llm_types::Id::new(),
         role: MessageRole::Assistant,
         content: MessageContentValue::Text("aggregated".to_string()),
-        timestamp: wf_common::now(),
+        timestamp: llm_common::now(),
         tool_call_id: None,
         tool_name: None,
         tool_calls: None,
@@ -315,10 +315,10 @@ async fn generate_stream_falls_back_to_default() {
 async fn generate_synthesizes_from_message_variant() {
     let client = MockLlmClient::new();
     let message = Message {
-        id: wf_types::Id::new(),
+        id: llm_types::Id::new(),
         role: MessageRole::Assistant,
         content: MessageContentValue::Text("from message variant".to_string()),
-        timestamp: wf_common::now(),
+        timestamp: llm_common::now(),
         tool_call_id: None,
         tool_name: None,
         tool_calls: None,
@@ -326,7 +326,7 @@ async fn generate_synthesizes_from_message_variant() {
         metadata: None,
     };
     client.script_stream(vec![
-        MessageStreamEvent::Message(wf_types::llm::MessageStreamMsg { message }),
+        MessageStreamEvent::Message(llm_types::llm::MessageStreamMsg { message }),
         MessageStreamEvent::End(MessageStreamEnd {}),
     ]);
     let result = client.generate(&request("mock", "hi"), None).await.unwrap();
@@ -350,10 +350,10 @@ async fn generate_with_chunks_only_falls_back_to_empty() {
 async fn synthesize_preserves_tool_calls_from_final_message() {
     let client = MockLlmClient::new();
     let message = Message {
-        id: wf_types::Id::new(),
+        id: llm_types::Id::new(),
         role: MessageRole::Assistant,
         content: MessageContentValue::Text(String::new()),
-        timestamp: wf_common::now(),
+        timestamp: llm_common::now(),
         tool_call_id: None,
         tool_name: None,
         tool_calls: Some(vec![LlmToolCall {

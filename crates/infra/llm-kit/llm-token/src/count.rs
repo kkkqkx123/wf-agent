@@ -7,8 +7,8 @@
 //! HTTP clients or codecs.
 
 use super::estimation::{estimate_tokens, TokenEstimator, MESSAGE_OVERHEAD_TOKENS};
-use wf_types::llm::LlmRequest;
-use wf_types::message::{Message, MessageContent, MessageContentValue};
+use llm_types::llm::LlmRequest;
+use llm_types::message::{Message, MessageContent, MessageContentValue};
 
 /// Estimate tokens for a single message: content (text / rich blocks),
 /// thinking, tool calls, plus a fixed metadata overhead per message.
@@ -50,7 +50,7 @@ pub fn estimate_message_tokens(msg: &Message) -> u32 {
 
 /// Estimate tokens for tool declarations alone (the per-request dynamic
 /// overhead that never accumulates into a message-array ledger).
-pub fn estimate_tool_declarations(tools: Option<&[wf_types::tool::Tool]>) -> u32 {
+pub fn estimate_tool_declarations(tools: Option<&[llm_types::tool::Tool]>) -> u32 {
     let mut total = 0u32;
     for tool in tools.unwrap_or_default() {
         total += estimate_tokens(&tool.name) as u32;
@@ -113,7 +113,7 @@ pub fn default_estimator() -> TokenEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::message::{
+    use llm_types::message::{
         ImageUrlContent, Message, MessageContent, MessageContentValue, MessageRole,
         ToolResultContent,
     };
@@ -157,10 +157,10 @@ mod tests {
     #[test]
     fn test_estimate_message_with_tool_calls() {
         let mut msg = text_message(MessageRole::Assistant, "");
-        msg.tool_calls = Some(vec![wf_types::message::LlmToolCall {
+        msg.tool_calls = Some(vec![llm_types::message::LlmToolCall {
             id: "call_1".to_string(),
             r#type: "function".to_string(),
-            function: wf_types::message::LlmFunctionCall {
+            function: llm_types::message::LlmFunctionCall {
                 name: "get_weather".to_string(),
                 arguments: r#"{"city":"Beijing"}"#.to_string(),
             },

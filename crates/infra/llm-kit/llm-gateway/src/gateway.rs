@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use llm_client::SharedLlmMetricsSink;
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
 
 use llm_client::client::{LlmClient, LlmClientImpl};
 use llm_client::MessageStream;
@@ -101,7 +101,7 @@ impl LlmGateway {
     /// profiles referencing the definition pick up the new defaults.
     pub fn register_provider_definition(
         &self,
-        definition: wf_types::llm::LlmProviderDefinition,
+        definition: llm_types::llm::LlmProviderDefinition,
     ) -> LlmResult<()> {
         self.providers.register(definition)?;
         self.clients.clear();
@@ -113,7 +113,7 @@ impl LlmGateway {
     pub fn remove_provider_definition(
         &self,
         id: &str,
-    ) -> Option<wf_types::llm::LlmProviderDefinition> {
+    ) -> Option<llm_types::llm::LlmProviderDefinition> {
         let removed = self.providers.remove(id);
         if removed.is_some() {
             self.clients.clear();
@@ -255,7 +255,7 @@ impl LlmGateway {
         &self,
         request: &LlmRequest,
         cancel: Option<tokio_util::sync::CancellationToken>,
-    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+    ) -> LlmResult<llm_types::llm::TokenCountResult> {
         #[cfg(feature = "mock")]
         if let Some(client) = self.mock_client(&request.profile_id) {
             return client.count_tokens(request, cancel).await;
@@ -382,8 +382,8 @@ mod tests {
     use llm_codec::LlmCodec;
     use llm_codec::error::LlmError;
     use llm_codec::CodecRegistry;
-    use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
-    use wf_types::tool::Tool;
+    use llm_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
+    use llm_types::tool::Tool;
 
     /// A codec whose `build_request` fails with a distinctive error, used
     /// to prove the gateway resolved the *custom* codec from the registry.
@@ -413,7 +413,7 @@ mod tests {
         fn parse_tool_calls(
             &self,
             _result: &LlmResponseType,
-        ) -> Vec<wf_types::message::LlmToolCall> {
+        ) -> Vec<llm_types::message::LlmToolCall> {
             Vec::new()
         }
     }
@@ -570,8 +570,8 @@ mod tests {
         );
     }
 
-    fn provider_definition() -> wf_types::llm::LlmProviderDefinition {
-        wf_types::llm::LlmProviderDefinition {
+    fn provider_definition() -> llm_types::llm::LlmProviderDefinition {
+        llm_types::llm::LlmProviderDefinition {
             id: "acme".to_string(),
             name: None,
             description: None,

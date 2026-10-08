@@ -1,5 +1,5 @@
-use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
-use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
+use llm_types::llm::{ToolCallMarkers, ToolCallProtocol};
+use llm_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 
 /// Default XML tags used for text-mode tool call/result rendering.
 const XML_TOOL_CALL: &str = "tool_use";
@@ -170,7 +170,7 @@ mod tests {
 
     fn make_msg(role: MessageRole, text: &str) -> Message {
         Message {
-            id: wf_types::Id::new(),
+            id: llm_types::Id::new(),
             role,
             content: MessageContentValue::Text(text.to_string()),
             timestamp: 0,
@@ -186,7 +186,7 @@ mod tests {
         LlmToolCall {
             id: id.to_string(),
             r#type: "function".to_string(),
-            function: wf_types::message::LlmFunctionCall {
+            function: llm_types::message::LlmFunctionCall {
                 name: name.to_string(),
                 arguments: args.to_string(),
             },

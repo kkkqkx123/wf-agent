@@ -14,8 +14,8 @@ llm-codec = { path = "../llm-codec" }
 llm-token = { path = "../llm-token" }
 llm-message = { path = "../llm-message" }
 llm-tool-call = { path = "../llm-tool-call", features = ["json-partial"] }
-wf-types = { workspace = true }
-wf-common = { workspace = true }
+llm-types = { path = "../llm-types" }
+llm-common = { path = "../llm-common" }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

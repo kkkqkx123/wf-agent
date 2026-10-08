@@ -1,4 +1,4 @@
-use wf_types::message::Message;
+use llm_types::message::Message;
 
 pub fn user_text(text: impl Into<String>) -> Message {
     Message::user_text(text.into())
@@ -15,7 +15,7 @@ pub fn tool_result_message(tool_call_id: impl Into<String>, content: impl Into<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::message::{MessageContentValue, MessageRole};
+    use llm_types::message::{MessageContentValue, MessageRole};
 
     #[test]
     fn user_text_builds_user_role_message() {

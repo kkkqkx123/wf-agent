@@ -1,29 +1,11 @@
-pub mod execution_config;
-pub mod generation;
-pub mod ledger;
-pub mod message_stream_events;
-pub mod model_discovery;
-pub mod model_info;
-pub mod profile;
-pub mod protocol_config;
-pub mod provider_definition;
-pub mod request;
-pub mod response;
-pub mod state;
-pub mod tool_call_protocol;
-pub mod usage;
+//! LLM request/response data models, re-exported from `llm-types`.
+//!
+//! The canonical definitions live in the shared `llm-types` crate so provider
+//! crates can reuse them without depending on this workspace.
 
-pub use execution_config::*;
-pub use generation::*;
-pub use ledger::*;
-pub use message_stream_events::*;
-pub use model_discovery::*;
-pub use model_info::*;
-pub use profile::*;
-pub use protocol_config::*;
-pub use provider_definition::*;
-pub use request::*;
-pub use response::*;
-pub use state::*;
-pub use tool_call_protocol::*;
-pub use usage::*;
+pub use llm_types::llm::{
+    execution_config, generation, ledger, message_stream_events, model_discovery, model_info,
+    profile, protocol_config, provider_definition, request, response, state, tool_call_protocol,
+    usage,
+};
+pub use llm_types::llm::*;

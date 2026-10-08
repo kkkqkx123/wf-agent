@@ -60,15 +60,3 @@ pub struct TokenCountResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<serde_json::Value>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TokenUsageStatistics {
-    pub total_requests: u64,
-    pub average_tokens: f64,
-    pub max_tokens: u32,
-    pub min_tokens: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_cost: Option<f64>,
-    pub total_prompt_tokens: u64,
-    pub total_completion_tokens: u64,
-}

@@ -3,8 +3,8 @@ use crate::error::LlmResult;
 use reqwest::Method;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
-use wf_types::tool::Tool;
+use llm_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use llm_types::tool::Tool;
 
 pub struct OpenaiResponseCodec {
     base_url: String,
@@ -39,26 +39,26 @@ impl OpenaiResponseCodec {
     }
 
     fn call_index_for(&self, item_id: &str) -> usize {
-        let mut indices = wf_common::lock::lock_ok(self.call_indices.lock());
+        let mut indices = llm_common::lock::lock_ok(self.call_indices.lock());
         if let Some(idx) = indices.get(item_id) {
             return *idx;
         }
-        let mut next = wf_common::lock::lock_ok(self.next_index.lock());
+        let mut next = llm_common::lock::lock_ok(self.next_index.lock());
         let idx = *next;
         *next += 1;
         indices.insert(item_id.to_string(), idx);
         idx
     }
 
-    fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
+    fn convert_messages(&self, messages: &[llm_types::message::Message]) -> Vec<serde_json::Value> {
         messages
             .iter()
             .map(|msg| {
                 let role = match msg.role {
-                    wf_types::message::MessageRole::System => "system",
-                    wf_types::message::MessageRole::User => "user",
-                    wf_types::message::MessageRole::Assistant => "assistant",
-                    wf_types::message::MessageRole::Tool => "tool",
+                    llm_types::message::MessageRole::System => "system",
+                    llm_types::message::MessageRole::User => "user",
+                    llm_types::message::MessageRole::Assistant => "assistant",
+                    llm_types::message::MessageRole::Tool => "tool",
                 };
 
                 let mut entry = serde_json::json!({
@@ -144,7 +144,7 @@ impl OpenaiResponseCodec {
     fn parse_tool_calls_from_output(
         &self,
         output: &[serde_json::Value],
-    ) -> Vec<wf_types::message::LlmToolCall> {
+    ) -> Vec<llm_types::message::LlmToolCall> {
         output
             .iter()
             .filter_map(|item| {
@@ -162,10 +162,10 @@ impl OpenaiResponseCodec {
                     .and_then(|v| v.as_str())
                     .unwrap_or("{}")
                     .to_string();
-                Some(wf_types::message::LlmToolCall {
+                Some(llm_types::message::LlmToolCall {
                     id,
                     r#type: "function".to_string(),
-                    function: wf_types::message::LlmFunctionCall {
+                    function: llm_types::message::LlmFunctionCall {
                         name: String::new(),
                         arguments,
                     },
@@ -285,7 +285,7 @@ impl LlmCodec for OpenaiResponseCodec {
             Some("response.output_text.delta") => {
                 if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
                     return Ok(Some(MessageStreamEvent::Text(
-                        wf_types::llm::MessageStreamText {
+                        llm_types::llm::MessageStreamText {
                             snapshot: String::new(),
                             text: delta.to_string(),
                         },
@@ -303,7 +303,7 @@ impl LlmCodec for OpenaiResponseCodec {
                 if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
                     let index = self.call_index_for(&item_id);
                     return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                        wf_types::llm::MessageStreamToolCallDelta {
+                        llm_types::llm::MessageStreamToolCallDelta {
                             index,
                             id: None,
                             name: None,
@@ -332,7 +332,7 @@ impl LlmCodec for OpenaiResponseCodec {
                     .and_then(|v| v.as_str())
                     .map(String::from);
                 return Ok(Some(MessageStreamEvent::ToolCallDelta(
-                    wf_types::llm::MessageStreamToolCallDelta {
+                    llm_types::llm::MessageStreamToolCallDelta {
                         index,
                         id: Some(item_id),
                         name,
@@ -345,8 +345,8 @@ impl LlmCodec for OpenaiResponseCodec {
                 // The completed event carries the final usage summary.
                 if let Some(usage) = json.get("usage") {
                     return Ok(Some(MessageStreamEvent::Usage(
-                        wf_types::llm::MessageStreamUsage {
-                            usage: wf_types::llm::TokenUsageStats {
+                        llm_types::llm::MessageStreamUsage {
+                            usage: llm_types::llm::TokenUsageStats {
                                 prompt_tokens: usage
                                     .get("input_tokens")
                                     .and_then(|v| v.as_u64())
@@ -381,7 +381,7 @@ impl LlmCodec for OpenaiResponseCodec {
                     )));
                 }
                 return Ok(Some(MessageStreamEvent::End(
-                    wf_types::llm::MessageStreamEnd {},
+                    llm_types::llm::MessageStreamEnd {},
                 )));
             }
             _ => {}
@@ -394,7 +394,7 @@ impl LlmCodec for OpenaiResponseCodec {
         Ok(Self::response_tool_defs(tools))
     }
 
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<llm_types::message::LlmToolCall> {
         result.tool_calls.clone().unwrap_or_default()
     }
 }
@@ -425,7 +425,7 @@ impl OpenaiResponseCodec {
             .and_then(|t| t.as_str())
             .map(String::from);
 
-        let mut tool_calls: Option<Vec<wf_types::message::LlmToolCall>> = None;
+        let mut tool_calls: Option<Vec<llm_types::message::LlmToolCall>> = None;
         if let Some(output_arr) = output {
             let calls = self.parse_tool_calls_from_output(output_arr);
             if !calls.is_empty() {
@@ -436,7 +436,7 @@ impl OpenaiResponseCodec {
         let usage = json.get("usage").map(|u| {
             let input_tokens = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let output_tokens = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            wf_types::llm::TokenUsageStats {
+            llm_types::llm::TokenUsageStats {
                 prompt_tokens: input_tokens,
                 completion_tokens: output_tokens,
                 total_tokens: input_tokens + output_tokens,
@@ -457,13 +457,13 @@ impl OpenaiResponseCodec {
             }
         });
 
-        let message = wf_types::message::Message {
-            id: wf_types::Id::new(),
-            role: wf_types::message::MessageRole::Assistant,
-            content: wf_types::message::MessageContentValue::Text(
+        let message = llm_types::message::Message {
+            id: llm_types::Id::new(),
+            role: llm_types::message::MessageRole::Assistant,
+            content: llm_types::message::MessageContentValue::Text(
                 content.clone().unwrap_or_default(),
             ),
-            timestamp: wf_common::time::now(),
+            timestamp: llm_common::time::now(),
             tool_call_id: None,
             tool_name: None,
             tool_calls: tool_calls.clone(),
@@ -489,7 +489,6 @@ impl OpenaiResponseCodec {
             reasoning_tokens: None,
             metadata: None,
             stream_stats: None,
-            warnings: None,
         })
     }
 }
@@ -711,7 +710,7 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            format: wf_types::llm::LlmFormat::OpenaiResponse,
+            format: llm_types::llm::LlmFormat::OpenaiResponse,
             provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: Some("sk-test".to_string()),
@@ -737,10 +736,10 @@ mod tests {
     fn count_request() -> LlmRequest {
         LlmRequest {
             profile_id: "p1".to_string(),
-            messages: vec![wf_types::message::Message {
-                id: wf_types::Id::new(),
-                role: wf_types::message::MessageRole::User,
-                content: wf_types::message::MessageContentValue::Text("hello".to_string()),
+            messages: vec![llm_types::message::Message {
+                id: llm_types::Id::new(),
+                role: llm_types::message::MessageRole::User,
+                content: llm_types::message::MessageContentValue::Text("hello".to_string()),
                 timestamp: 0,
                 tool_call_id: None,
                 tool_name: None,
@@ -798,9 +797,9 @@ mod tests {
     fn count_tokens_body_carries_native_tools() {
         let codec = OpenaiResponseCodec::new();
         let mut req = count_request();
-        req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Native);
+        req.tool_call_protocol = Some(llm_types::llm::ToolCallProtocol::Native);
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": wf_types::Id::new(),
+            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
             "tool_type": "built_in",
@@ -823,10 +822,10 @@ mod tests {
         let mut req = count_request();
         req.messages.insert(
             0,
-            wf_types::message::Message {
-                id: wf_types::Id::new(),
-                role: wf_types::message::MessageRole::System,
-                content: wf_types::message::MessageContentValue::Text(
+            llm_types::message::Message {
+                id: llm_types::Id::new(),
+                role: llm_types::message::MessageRole::System,
+                content: llm_types::message::MessageContentValue::Text(
                     "You are a helper".to_string(),
                 ),
                 timestamp: 0,
@@ -837,9 +836,9 @@ mod tests {
                 metadata: None,
             },
         );
-        req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Xml);
+        req.tool_call_protocol = Some(llm_types::llm::ToolCallProtocol::Xml);
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
-            "id": wf_types::Id::new(),
+            "id": llm_types::Id::new(),
             "name": "get_weather",
             "description": "Get weather",
             "tool_type": "built_in",

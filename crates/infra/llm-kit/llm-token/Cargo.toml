@@ -5,8 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-wf-types = { workspace = true }
+llm-types = { path = "../llm-types" }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-wf-common = { workspace = true }
+llm-common = { path = "../llm-common" }

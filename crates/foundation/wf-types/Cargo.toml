@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+llm-types = { path = "../../infra/llm-kit/llm-types" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

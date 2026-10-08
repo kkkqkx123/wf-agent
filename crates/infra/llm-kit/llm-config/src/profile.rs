@@ -1,7 +1,7 @@
 use llm_codec::error::{LlmError, LlmResult};
 use dashmap::DashMap;
 use std::sync::{Arc, Mutex};
-use wf_types::llm::LlmProfile;
+use llm_types::llm::LlmProfile;
 
 /// Manages LLM profiles with default-profile semantics (first registered
 /// profile becomes the default; an explicit default can be set; removing the
@@ -28,7 +28,7 @@ impl ProfileManager {
         let is_first = self.profiles.is_empty();
         self.profiles.insert(profile.id.clone(), profile);
         if is_first {
-            *wf_common::lock::lock_ok(self.default_id.lock()) = Some(
+            *llm_common::lock::lock_ok(self.default_id.lock()) = Some(
                 self.profiles
                     .iter()
                     .next()
@@ -49,7 +49,7 @@ impl ProfileManager {
 
     /// Get the default profile.
     pub fn get_default(&self) -> Option<LlmProfile> {
-        let id = wf_common::lock::lock_ok(self.default_id.lock()).clone()?;
+        let id = llm_common::lock::lock_ok(self.default_id.lock()).clone()?;
         self.profiles.get(&id).map(|r| r.clone())
     }
 
@@ -58,7 +58,7 @@ impl ProfileManager {
         if !self.profiles.contains_key(id) {
             return Err(LlmError::ProfileNotFound(id.to_string()));
         }
-        *wf_common::lock::lock_ok(self.default_id.lock()) = Some(id.to_string());
+        *llm_common::lock::lock_ok(self.default_id.lock()) = Some(id.to_string());
         Ok(())
     }
 
@@ -70,7 +70,7 @@ impl ProfileManager {
     /// remaining profile (or none).
     pub fn remove(&self, id: &str) -> Option<LlmProfile> {
         let removed = self.profiles.remove(id).map(|(_, v)| v)?;
-        let mut default_id = wf_common::lock::lock_ok(self.default_id.lock());
+        let mut default_id = llm_common::lock::lock_ok(self.default_id.lock());
         if default_id.as_deref() == Some(id) {
             *default_id = self.profiles.iter().next().map(|r| r.key().clone());
         }
@@ -79,7 +79,7 @@ impl ProfileManager {
 
     pub fn clear(&self) {
         self.profiles.clear();
-        *wf_common::lock::lock_ok(self.default_id.lock()) = None;
+        *llm_common::lock::lock_ok(self.default_id.lock()) = None;
     }
 
     pub fn has(&self, id: &str) -> bool {
@@ -91,7 +91,7 @@ impl ProfileManager {
     }
 
     pub fn default_id(&self) -> Option<String> {
-        wf_common::lock::lock_ok(self.default_id.lock()).clone()
+        llm_common::lock::lock_ok(self.default_id.lock()).clone()
     }
 }
 
@@ -126,12 +126,12 @@ pub fn validate_profile(profile: &LlmProfile) -> LlmResult<()> {
 /// registration time. Constraints that depend on per-request values (e.g.
 /// `budget_tokens < max_tokens`) are deferred to runtime validation.
 fn validate_generation_params(
-    gen: &wf_types::llm::generation::LlmGenerationParams,
-    format: &wf_types::llm::LlmFormat,
+    gen: &llm_types::llm::generation::LlmGenerationParams,
+    format: &llm_types::llm::LlmFormat,
     profile_id: &str,
 ) -> LlmResult<()> {
     if let Some(ref thinking) = gen.thinking {
-        if matches!(format, wf_types::llm::LlmFormat::GeminiNative)
+        if matches!(format, llm_types::llm::LlmFormat::GeminiNative)
             && thinking.level.is_some()
             && thinking.budget_tokens.is_some()
         {
@@ -140,7 +140,7 @@ fn validate_generation_params(
                 profile_id
             )));
         }
-        if matches!(format, wf_types::llm::LlmFormat::Anthropic) {
+        if matches!(format, llm_types::llm::LlmFormat::Anthropic) {
             if let Some(budget) = thinking.budget_tokens {
                 if budget < 1024 {
                     return Err(LlmError::ConfigError(format!(
@@ -163,7 +163,7 @@ impl Default for ProfileManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmFormat;
+    use llm_types::llm::LlmFormat;
 
     fn valid_profile() -> LlmProfile {
         LlmProfile {
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn gemini_thinking_level_and_budget_mutually_exclusive() {
-        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
+        use llm_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
 
         let mut profile = valid_profile();
         profile.format = LlmFormat::GeminiNative;
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn gemini_thinking_level_only_accepted() {
-        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
+        use llm_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
 
         let mut profile = valid_profile();
         profile.format = LlmFormat::GeminiNative;
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn anthropic_budget_tokens_below_minimum_rejected() {
-        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
+        use llm_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
 
         let mut profile = valid_profile();
         profile.format = LlmFormat::Anthropic;
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn anthropic_budget_tokens_above_minimum_accepted() {
-        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
+        use llm_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
 
         let mut profile = valid_profile();
         profile.format = LlmFormat::Anthropic;

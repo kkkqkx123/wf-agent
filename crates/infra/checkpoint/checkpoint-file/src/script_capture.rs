@@ -136,11 +136,12 @@ impl WorkspaceChangeCollector {
                 self.collect_dir(&path, out)?;
             } else if file_type.is_file() && !file_type.is_symlink() {
                 // Symlinks are intentionally skipped (documented policy).
-                let relative = path
-                    .strip_prefix(&self.base_dir)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
+                let relative = crate::file::util::normalize_posix_separators(
+                    &path
+                        .strip_prefix(&self.base_dir)
+                        .unwrap_or(&path)
+                        .to_string_lossy(),
+                );
                 if self.scanner.is_ignored(&relative) {
                     continue;
                 }

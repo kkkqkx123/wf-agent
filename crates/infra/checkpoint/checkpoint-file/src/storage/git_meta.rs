@@ -253,7 +253,55 @@ impl SqliteStorage {
             .map_err(db_err)?;
         Ok(())
     }
+
+    /// Record which file commit a state checkpoint was projected from, so
+    /// state restore can resolve the exact file set instead of "latest".
+    /// Stored in the metadata key-value area; the object store stays the
+    /// only source of file bytes.
+    pub fn record_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+        file_commit_id: &str,
+    ) -> StorageResult<()> {
+        let key = format!("{STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO meta_kv (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, file_commit_id.as_bytes(), now_millis()],
+            )
+            .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
+    /// Look up the file commit linked to a state checkpoint, if any.
+    /// Links predate nothing: checkpoints created before linking simply
+    /// have no entry.
+    pub fn lookup_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+    ) -> StorageResult<Option<String>> {
+        let key = format!("{STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT value FROM meta_kv WHERE key = ?1")
+                .map_err(db_err)?;
+            let result = stmt.query_row(rusqlite::params![key], |row| {
+                let value: Vec<u8> = row.get(0)?;
+                String::from_utf8(value)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+            });
+            match result {
+                Ok(value) => Ok(Some(value)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(db_err(e)),
+            }
+        })
+    }
 }
+
+/// Key prefix for state-checkpoint to file-commit links in `meta_kv`.
+const STATE_FILE_LINK_PREFIX: &str = "state_file_link:";
 
 fn decode_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceIndexEntry> {
     let payload: Vec<u8> = row.get(4)?;

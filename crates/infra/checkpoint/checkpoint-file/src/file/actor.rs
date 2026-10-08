@@ -259,8 +259,8 @@ impl FileCheckpointManager {
                 "manual",
                 std::slice::from_ref(&path),
             )?;
+            self.publish_file_event(&outcome.id, &path, "manual", Some(content));
         }
-        self.publish_file_event(&outcome.id, &path, "manual", Some(content));
         Ok(outcome.id)
     }
 
@@ -286,8 +286,8 @@ impl FileCheckpointManager {
                 "manual",
                 std::slice::from_ref(&path),
             )?;
+            self.publish_file_event(&outcome.id, &path, "manual", None);
         }
-        self.publish_file_event(&outcome.id, &path, "manual", None);
         Ok(outcome.id)
     }
 

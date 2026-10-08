@@ -259,7 +259,7 @@ impl FileCheckpointManager {
             )
             .map_err(map_git_error)?;
         git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
-        storage.set_review_state(review_ref, ReviewStatus::Approved)?;
+        storage.set_review_state(review_ref, ReviewStatus::Pending)?;
         self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::merge_conflicted(
@@ -583,7 +583,7 @@ impl FileCheckpointManager {
             .collect();
         Ok(GitMergeOutcome {
             commit_id: id.clone(),
-            parents: vec![id],
+            parents,
             conflict_files: conflicts,
             details,
         })
@@ -616,21 +616,10 @@ impl FileCheckpointManager {
     }
 }
 
+/// Submission-id shaping reuses the single ref sanitizer so generated
+/// review ids always survive ref construction unchanged.
 fn sanitize(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    let trimmed = out.trim_matches(|c| c == '.' || c == '-').to_string();
-    if trimmed.is_empty() {
-        "unnamed".to_string()
-    } else {
-        trimmed
-    }
+    crate::git_store::sanitize_ref_component(raw)
 }
 
 fn now_millis() -> i64 {

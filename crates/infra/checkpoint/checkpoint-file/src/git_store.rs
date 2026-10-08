@@ -67,6 +67,11 @@ pub const TRAILER_CONFLICT_FILE: &str = "Wf-Conflict-File";
 /// Author/committer identity used for system-created commits.
 pub const SYSTEM_COMMITTER: &str = "wf-checkpoint <system@local>";
 
+/// Bounded compare-and-swap retries for `commit_on_ref`: a conflicting
+/// concurrent writer forces a rebuild on the new head, and persistent
+/// contention surfaces as a ref conflict instead of spinning forever.
+pub const MAX_COMMIT_CAS_RETRIES: u32 = 8;
+
 /// Regular file mode used for every tracked blob.
 pub const MODE_FILE: &str = "100644";
 /// Executable file mode preserved from the worktree when present.
@@ -283,8 +288,9 @@ pub fn feat_ref_for_name(name: &str) -> String {
 
 /// Ref domain only: maps arbitrary names into safe ref path segments.
 /// Never use for workspace paths, which need relative validation or
-/// absolute normalization instead.
-fn sanitize_ref_component(raw: &str) -> String {
+/// absolute normalization instead. This is the single ref sanitizer;
+/// submission-id shaping reuses it so ref naming never diverges.
+pub(crate) fn sanitize_ref_component(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' || ch == '/' {
@@ -934,6 +940,11 @@ impl GitStore {
     /// the existing head id), otherwise write the commit and move the ref.
     /// One call = one commit; multi-file operations pass all files at once
     /// so they stay atomic.
+    ///
+    /// The read-build-write sequence runs as a bounded compare-and-swap
+    /// retry loop: a concurrent writer that moves the ref between our read
+    /// and our write surfaces as a ref conflict, and we rebuild on the new
+    /// head instead of silently orphaning the other writer's commit.
     pub fn commit_on_ref(
         &self,
         refname: &str,
@@ -941,31 +952,37 @@ impl GitStore {
         author: &str,
         message: &str,
     ) -> Result<CommitOnRefOutcome, GitStoreError> {
-        let head = self.read_ref(refname)?;
-        let parent_tree = match &head {
-            Some(id) => Some(self.read_commit(id)?.tree),
-            None => None,
-        };
-        let tree = self.build_tree_from_parent(parent_tree.as_deref(), changes)?;
-        if let Some(parent_tree) = parent_tree.as_deref() {
-            if parent_tree == tree {
-                return Ok(CommitOnRefOutcome {
-                    id: head.unwrap_or_default(),
-                    created: false,
-                });
+        for _ in 0..MAX_COMMIT_CAS_RETRIES {
+            let head = self.read_ref(refname)?;
+            let parent_tree = match &head {
+                Some(id) => Some(self.read_commit(id)?.tree),
+                None => None,
+            };
+            let tree = self.build_tree_from_parent(parent_tree.as_deref(), changes)?;
+            if let Some(parent_tree) = parent_tree.as_deref() {
+                if parent_tree == tree {
+                    return Ok(CommitOnRefOutcome {
+                        id: head.unwrap_or_default(),
+                        created: false,
+                    });
+                }
+            }
+            let parents = head.clone().into_iter().collect::<Vec<_>>();
+            let id = self.write_commit(
+                &tree,
+                &parents,
+                author,
+                SYSTEM_COMMITTER,
+                now_millis(),
+                message,
+            )?;
+            match self.compare_and_swap(refname, head.as_deref(), &id) {
+                Ok(()) => return Ok(CommitOnRefOutcome { id, created: true }),
+                Err(GitStoreError::RefConflict(_)) => continue,
+                Err(other) => return Err(other),
             }
         }
-        let parents = head.into_iter().collect::<Vec<_>>();
-        let id = self.write_commit(
-            &tree,
-            &parents,
-            author,
-            SYSTEM_COMMITTER,
-            now_millis(),
-            message,
-        )?;
-        self.write_ref(refname, &id)?;
-        Ok(CommitOnRefOutcome { id, created: true })
+        Err(GitStoreError::RefConflict(refname.to_string()))
     }
 
     /// Walk the commit graph from `start`, newest first, up to `limit`

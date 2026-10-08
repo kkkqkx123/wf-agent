@@ -5,7 +5,7 @@ use std::time::UNIX_EPOCH;
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::file::util::sha256_hex;
+use crate::file::util::{normalize_posix_separators, sha256_hex};
 use crate::file::FileState;
 use checkpoint_base::error::CheckpointError;
 
@@ -68,11 +68,30 @@ fn search_is_ignored(
     }
 }
 
+/// Single ignore predicate shared by full scans and one-off path checks:
+/// hardcoded excludes first, then every ancestor directory (so a bare
+/// directory name matches at any depth), then the path itself as a
+/// directory and as a file.
+fn path_is_ignored(search: &gix_ignore::Search, relative_path: &str) -> bool {
+    if is_hardcoded_ignored(relative_path) {
+        return true;
+    }
+    for ancestor in ancestors(relative_path) {
+        if search_is_ignored(search, &ancestor, Some(true)) {
+            return true;
+        }
+    }
+    if search_is_ignored(search, relative_path, Some(true)) {
+        return true;
+    }
+    search_is_ignored(search, relative_path, Some(false))
+}
+
 fn ancestors(relative_path: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = PathBuf::from(relative_path);
     while let Some(parent) = current.parent() {
-        let s = parent.to_string_lossy().replace('\\', "/");
+        let s = normalize_posix_separators(&parent.to_string_lossy());
         if s.is_empty() || s == "." {
             break;
         }
@@ -101,19 +120,11 @@ impl WorkspaceScanner {
     }
 
     /// Whether a workspace-relative path matches any ignore rule.
+    /// Same predicate as the full scan, evaluated against the scanner's
+    /// custom patterns. Paths covered only by workspace `.gitignore` files
+    /// additionally require a scan-built retrieval; use `scan` for those.
     pub fn is_ignored(&self, relative_path: &str) -> bool {
-        if is_hardcoded_ignored(relative_path) {
-            return true;
-        }
-        for ancestor in ancestors(relative_path) {
-            if search_is_ignored(&self.matcher, &ancestor, Some(true)) {
-                return true;
-            }
-        }
-        if search_is_ignored(&self.matcher, relative_path, Some(true)) {
-            return true;
-        }
-        search_is_ignored(&self.matcher, relative_path, Some(false))
+        path_is_ignored(&self.matcher, relative_path)
     }
 
     /// Scan the workspace root recursively and return hashed file states,
@@ -233,16 +244,13 @@ impl WorkspaceScanner {
             if is_hardcoded_ignored(&relative) {
                 continue;
             }
+            if path_is_ignored(search, &relative) {
+                continue;
+            }
             if file_type.is_dir() {
-                if search_is_ignored(search, &relative, Some(true)) {
-                    continue;
-                }
                 dirs.push(relative);
                 self.scan_dir(root, &entry.path(), search, files, dirs)?;
             } else if file_type.is_file() {
-                if search_is_ignored(search, &relative, Some(false)) {
-                    continue;
-                }
                 match self.hash_file(&relative, &entry.path()) {
                     Ok(state) => files.push(state),
                     Err(CheckpointError::Io(err)) => {
@@ -289,12 +297,9 @@ impl WorkspaceScanner {
 
 /// Compute the workspace-relative posix path of an entry.
 fn path_to_relative(root: &Path, path: &Path) -> Option<String> {
-    path.strip_prefix(root).ok().map(normalize_posix)
-}
-
-/// Convert a path to posix separators without touching the filesystem.
-fn normalize_posix(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    path.strip_prefix(root)
+        .ok()
+        .map(|p| normalize_posix_separators(&p.to_string_lossy()))
 }
 
 /// Directories without any file underneath: collect every ancestor directory
@@ -304,7 +309,7 @@ fn find_empty_dirs(dirs: &[String], files: &[FileState]) -> Vec<String> {
     for file in files {
         let mut dir = PathBuf::from(&file.path);
         while let Some(parent) = dir.parent() {
-            let s = normalize_posix(parent);
+            let s = normalize_posix_separators(&parent.to_string_lossy());
             if s.is_empty() || s == "." {
                 break;
             }
@@ -496,6 +501,6 @@ mod tests {
     fn directory_prefix_ignores_nested_files() {
         let scanner = make_scanner(vec!["build/"], FailureBehavior::Warn);
         assert!(scanner.is_ignored("build/out.o"));
-        assert!(scanner.is_ignored("a/build/x.o") || !scanner.is_ignored("a/build/x.o"));
+        assert!(scanner.is_ignored("a/build/x.o"));
     }
 }

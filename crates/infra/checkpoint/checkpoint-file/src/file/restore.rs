@@ -41,6 +41,48 @@ impl FileCheckpointManager {
         result
     }
 
+    /// Persist the association between a state checkpoint and the file
+    /// commit its projection was taken from. Link failures are reported,
+    /// never swallowed: without the link the two histories cannot be
+    /// aligned on restore.
+    pub fn record_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+        file_commit_id: &str,
+    ) -> Result<(), CheckpointError> {
+        self.storage_ref()?
+            .record_state_file_link(state_checkpoint_id, file_commit_id)?;
+        Ok(())
+    }
+
+    /// Resolve the file set belonging to a state checkpoint: the linked
+    /// file commit when one was recorded and still exists, otherwise the
+    /// entity's latest file checkpoint. Checkpoints created before linking
+    /// have no entry and take the latest path with a log line.
+    pub fn restore_state_files(
+        &self,
+        entity_id: &str,
+        state_checkpoint_id: &str,
+    ) -> Result<Option<Vec<FileState>>, CheckpointError> {
+        let linked = self
+            .storage_ref()?
+            .lookup_state_file_link(state_checkpoint_id)?;
+        if let Some(commit_id) = linked {
+            if crate::git_store::is_hex_id(&commit_id) {
+                let git = self.git_ref()?;
+                if git.read_commit(&commit_id).is_ok() {
+                    return Ok(Some(self.restore_checkpoint(entity_id, &commit_id)?));
+                }
+            }
+            tracing::warn!(
+                state_checkpoint_id = %state_checkpoint_id,
+                file_commit_id = %commit_id,
+                "linked file commit is unusable; falling back to latest file checkpoint"
+            );
+        }
+        self.restore_latest(entity_id)
+    }
+
     /// Content-level rollback: write the files of `checkpoint_id` back to
     /// disk. Relative paths are resolved under `base_dir`; paths escaping
     /// `base_dir` are rejected (rollback must never write outside the

@@ -459,7 +459,7 @@ impl FileCheckpointManager {
         let scanned_paths: HashSet<String> = scan
             .files
             .iter()
-            .map(|state| state.path.replace('\\', "/"))
+            .map(|state| crate::file::util::normalize_posix_separators(&state.path))
             .collect();
         for path in tracked {
             if !scanned_paths.contains(&path) {

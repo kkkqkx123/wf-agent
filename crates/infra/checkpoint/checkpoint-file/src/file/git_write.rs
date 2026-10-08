@@ -102,13 +102,18 @@ impl FileCheckpointManager {
         }
         for path in &paths {
             let bytes = files.get(path).and_then(|c| c.as_deref());
-            self.publish_file_event(&id, path, actor.as_str(), bytes);
+            if created {
+                self.publish_file_event(&id, path, actor.as_str(), bytes);
+            }
         }
         Ok(GitWriteOutcome { id, created })
     }
 
     /// Record the source-index entry plus the empty-dir manifest hook for a
-    /// new commit. The index is acceleration-only and rebuildable.
+    /// new commit. The index is acceleration-only and rebuildable. The
+    /// manifest is inherited from the commit's parents so linear history
+    /// keeps the last workspace-observed empty-directory set; worktree
+    /// scans overwrite it with a fresh measurement afterwards.
     pub(crate) fn index_commit(
         &self,
         storage: &crate::storage::SqliteStorage,
@@ -132,6 +137,30 @@ impl FileCheckpointManager {
             paths: paths.to_vec(),
             timestamp,
         })?;
+        self.inherit_empty_dirs_manifest(commit_id)?;
+        Ok(())
+    }
+
+    /// Carry the union of the parents' empty-dir manifests onto a new
+    /// commit. Only worktree scans observe the true empty-directory set,
+    /// so non-scan commits preserve rather than invent it.
+    fn inherit_empty_dirs_manifest(&self, commit_id: &str) -> Result<(), CheckpointError> {
+        let git = self.git_ref()?;
+        let commit = git.read_commit(commit_id).map_err(map_git_error)?;
+        if commit.parents.is_empty() {
+            return Ok(());
+        }
+        let storage = self.storage_ref()?;
+        let mut merged = std::collections::BTreeSet::new();
+        for parent in &commit.parents {
+            for dir in storage.load_empty_dirs(parent)? {
+                merged.insert(dir);
+            }
+        }
+        if !merged.is_empty() {
+            let dirs: Vec<String> = merged.into_iter().collect();
+            storage.store_empty_dirs(commit_id, &dirs)?;
+        }
         Ok(())
     }
 
@@ -297,6 +326,9 @@ impl FileCheckpointManager {
         let mut paths: Vec<String> = changes.keys().cloned().collect();
         paths.sort();
         self.index_commit(storage, &outcome.id, "human", "", "watcher", &paths)?;
+        // The poll just scanned the worktree: its empty-directory set is a
+        // fresh measurement and replaces the inherited manifest.
+        storage.store_empty_dirs(&outcome.id, &scan.empty_dirs)?;
         for (path, change) in &changes {
             let bytes = change.as_ref().map(|(_, content)| content.as_slice());
             self.publish_file_event(&outcome.id, path, "human", bytes);

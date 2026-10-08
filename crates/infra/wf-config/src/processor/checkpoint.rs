@@ -54,7 +54,7 @@ mod tests {
         assert!(merged.content.is_none());
         assert!(merged.retention.is_some());
         // unconfigured error handling stays absent: the handler default
-        // (swallow with a warning) applies.
+        // (surface the failure to the caller) applies.
         assert!(merged.error_handling.is_none());
         assert_eq!(merged.retention.as_ref().unwrap().max_checkpoints, Some(10));
     }

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
+use crate::file::util::normalize_posix_separators;
 use crate::file::FileCheckpointManager;
 use crate::script_capture::{CollectedChange, CollectedChangeKind};
 use checkpoint_base::actor::id::ActorId;
@@ -84,7 +85,7 @@ impl FileCheckpointManager {
                 );
                 continue;
             };
-            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = normalize_posix_separators(&relative.to_string_lossy());
             match change.kind {
                 CollectedChangeKind::Delete => {
                     staged.insert(relative, None);
@@ -153,7 +154,7 @@ impl FileCheckpointManager {
                 stats.out_of_scope.push(abs_norm.display().to_string());
                 continue;
             };
-            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = normalize_posix_separators(&relative.to_string_lossy());
             let validated = match crate::file::util::validate_workspace_relative_path(&relative) {
                 Ok(v) => v,
                 Err(err) => match behavior {
@@ -198,7 +199,7 @@ impl FileCheckpointManager {
                     let from_norm = crate::watcher::normalize_absolute_path(from);
                     let (from_valid, from_in_scope) = match from_norm.strip_prefix(&root_norm) {
                         Ok(rel) => {
-                            let rel = rel.to_string_lossy().replace('\\', "/");
+                            let rel = normalize_posix_separators(&rel.to_string_lossy());
                             match crate::file::util::validate_workspace_relative_path(&rel) {
                                 Ok(v) => (Some(v), true),
                                 Err(_) => (None, true),

@@ -365,7 +365,6 @@ pub use wf_workflow::variable::{
 
 // -- checkpoint facade + subsystems --
 pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
-pub use checkpoint_base::cache::CheckpointCache;
 pub use checkpoint_base::common::{
     diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
 };
@@ -383,9 +382,7 @@ pub use checkpoint_file::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
 };
 pub use checkpoint_file::scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
-pub use checkpoint_file::watcher::{
-    FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
-};
+pub use checkpoint_file::watcher::{FileChangeKind, FileChangeRecord, ManualChangeService};
 
 pub use agent::agent_config::{
     build_agent_loop_config, DEFAULT_AGENT, DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL,

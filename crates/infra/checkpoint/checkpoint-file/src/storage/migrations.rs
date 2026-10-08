@@ -49,21 +49,6 @@ CREATE TABLE IF NOT EXISTS source_index_paths (
 CREATE INDEX IF NOT EXISTS idx_source_index_paths_path ON source_index_paths(path);
 ";
 
-pub const GRAPH_BLOB_MIGRATION_SQL: &str = "
-CREATE TABLE IF NOT EXISTS graph_blobs (
-    id              TEXT PRIMARY KEY,
-    data            BLOB NOT NULL,
-    parent_id       TEXT,
-    branch_id       TEXT,
-    created_at      INTEGER NOT NULL,
-    updated_at      INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_graph_blobs_parent ON graph_blobs(parent_id);
-CREATE INDEX IF NOT EXISTS idx_graph_blobs_branch ON graph_blobs(branch_id);
-CREATE INDEX IF NOT EXISTS idx_graph_blobs_updated ON graph_blobs(updated_at);
-";
-
 pub const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode=WAL;";
 
 fn db_err(e: rusqlite::Error) -> CheckpointError {
@@ -71,8 +56,7 @@ fn db_err(e: rusqlite::Error) -> CheckpointError {
 }
 
 fn apply_light_migrations(conn: &rusqlite::Connection) -> StorageResult<()> {
-    let _ = conn.execute_batch(GRAPH_BLOB_MIGRATION_SQL);
-    let _ = conn.execute_batch(GIT_META_MIGRATION_SQL);
+    conn.execute_batch(GIT_META_MIGRATION_SQL).map_err(db_err)?;
     Ok(())
 }
 
@@ -88,15 +72,11 @@ pub fn initialize_database(conn: &rusqlite::Connection) -> StorageResult<()> {
     conn.execute_batch("PRAGMA wal_autocheckpoint = 1000;")
         .map_err(db_err)?;
     conn.execute_batch(MIGRATION_SQL).map_err(db_err)?;
-    conn.execute_batch(GIT_META_MIGRATION_SQL).map_err(db_err)?;
     apply_light_migrations(conn)?;
     Ok(())
 }
 
 pub fn initialize_full(conn: &rusqlite::Connection) -> StorageResult<()> {
     initialize_database(conn)?;
-    conn.execute_batch(GRAPH_BLOB_MIGRATION_SQL)
-        .map_err(db_err)?;
-    conn.execute_batch(GIT_META_MIGRATION_SQL).map_err(db_err)?;
     Ok(())
 }

@@ -17,6 +17,13 @@ pub fn sha256_hex(data: &[u8]) -> String {
         .collect()
 }
 
+/// Single posix-separator normalization for workspace-relative paths.
+/// Every scan, capture and restore path routes through this function so
+/// backslash handling never diverges between modules.
+pub(crate) fn normalize_posix_separators(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 /// Normalize a workspace root into the stable workspace key used to derive
 /// workspace-scoped manual/staged partition ids: trailing path separators
 /// are stripped, everything else is kept verbatim so the same root always
@@ -77,7 +84,7 @@ pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, Che
             reason: format!("file path must name a file: '{path}'"),
         });
     }
-    Ok(normalized.to_string_lossy().replace('\\', "/"))
+    Ok(normalize_posix_separators(&normalized.to_string_lossy()))
 }
 
 /// SHA-256 of the sorted `path=hash;` pairs (stable workspace fingerprint).

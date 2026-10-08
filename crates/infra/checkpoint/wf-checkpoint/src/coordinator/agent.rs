@@ -788,8 +788,9 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 &err,
             );
             // Route through the checkpoint error handler: the default
-            // handler warns and swallows the failure so the execution
-            // continues without a checkpoint.
+            // handler surfaces the failure to the caller so a failed write
+            // never masquerades as a saved checkpoint. Only an explicitly
+            // lenient handler lets the execution continue without one.
             let context = self
                 .error_handler
                 .context("create", Some(checkpoint.id.clone()), None);
@@ -908,9 +909,11 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             entity.restore_summary = Some(summary);
         }
 
-        // restore the latest file checkpoint for the entity (best-effort).
+        // restore the file set linked to this state checkpoint (falls back
+        // to the latest file checkpoint for pre-link history). Best-effort:
+        // state restore stands regardless of file history.
         if let Some(manager) = &self.file_checkpoint_manager {
-            if let Err(err) = manager.restore_latest(&entity.agent_loop_id) {
+            if let Err(err) = manager.restore_state_files(&entity.agent_loop_id, checkpoint_id) {
                 tracing::warn!(
                     checkpoint_id = %checkpoint_id,
                     entity_id = %entity.agent_loop_id,
@@ -969,6 +972,8 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
     /// Synchronous best-effort file projection for the entity. Missing file
     /// history yields `Ok` so the state checkpoint never fails. Success and
     /// failure are logged with the state checkpoint id for correlation.
+    /// A successful projection records the state-to-file link so restore
+    /// resolves the exact file set instead of "latest".
     async fn save_file_snapshot(
         &self,
         checkpoint_id: &str,
@@ -977,6 +982,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         if let Some(manager) = &self.file_checkpoint_manager {
             match manager.create_latest_file_checkpoint(entity_id)? {
                 Some(file_checkpoint) => {
+                    manager.record_state_file_link(checkpoint_id, &file_checkpoint.id)?;
                     tracing::debug!(
                         entity_id = %entity_id,
                         checkpoint_id = %checkpoint_id,
@@ -1013,6 +1019,16 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             if let Some(manager) = file_manager {
                 match manager.create_latest_file_checkpoint(&entity_id_for_task) {
                     Ok(Some(file_checkpoint)) => {
+                        if let Err(err) = manager
+                            .record_state_file_link(&checkpoint_id_for_task, &file_checkpoint.id)
+                        {
+                            tracing::warn!(
+                                entity_id = %entity_id_for_task,
+                                checkpoint_id = %checkpoint_id_for_task,
+                                error = %err,
+                                "deferred state-to-file link failed (best-effort)"
+                            );
+                        }
                         tracing::debug!(
                             entity_id = %entity_id_for_task,
                             checkpoint_id = %checkpoint_id_for_task,

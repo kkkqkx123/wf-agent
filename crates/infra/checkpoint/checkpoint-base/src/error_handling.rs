@@ -30,9 +30,11 @@ impl ErrorHandlingOutcome {
 
 /// Error handler for checkpoint operations.
 ///
-/// A checkpoint failure is either made visible (`fail_on_checkpoint_error`
-/// is set: error-log and rethrow to the caller) or warn-logged and swallowed
-/// so the execution continues without that checkpoint. Automatic retry is
+/// A checkpoint failure is made visible by default (`fail_on_checkpoint_error`
+/// is set): error-log and rethrow to the caller so a failed write never
+/// masquerades as a saved checkpoint. Warn-log-and-swallow is only available
+/// through an explicitly lenient handler and is reserved for branches marked
+/// best-effort (async projection, cleanup races). Automatic retry is
 /// deliberately not offered: a failed write is recorded, never replayed.
 pub struct CheckpointErrorHandler {
     fail_on_checkpoint_error: bool,
@@ -48,7 +50,7 @@ impl CheckpointErrorHandler {
     /// Build from a unified policy's error handling config.
     ///
     /// An absent config (or absent field) means checkpoint write failures
-    /// are warn-logged and swallowed, matching `default()`.
+    /// are surfaced to the caller, matching `default()`.
     pub fn from_policy(policy: &UnifiedCheckpointPolicy) -> Self {
         Self::from_config(policy.error_handling.as_ref())
     }
@@ -57,7 +59,7 @@ impl CheckpointErrorHandler {
         Self::new(
             config
                 .and_then(|c| c.fail_on_checkpoint_error)
-                .unwrap_or(false),
+                .unwrap_or(true),
         )
     }
 
@@ -125,7 +127,7 @@ impl CheckpointErrorHandler {
 
 impl Default for CheckpointErrorHandler {
     fn default() -> Self {
-        Self::new(false)
+        Self::new(true)
     }
 }
 
@@ -146,8 +148,17 @@ mod tests {
     }
 
     #[test]
-    fn default_swallows_with_warning() {
+    fn default_rethrows_loudly() {
         let handler = CheckpointErrorHandler::default();
+        let result = handler.handle(&context(), &error());
+        assert!(!result.recovered);
+        assert!(result.error.is_some());
+        assert!(handler.decide(&context(), &error()).should_rethrow);
+    }
+
+    #[test]
+    fn explicit_lenient_handler_swallows() {
+        let handler = CheckpointErrorHandler::new(false);
         let result = handler.handle(&context(), &error());
         assert!(result.recovered);
         assert!(result.error.is_none());
@@ -165,10 +176,10 @@ mod tests {
 
     #[test]
     fn absent_config_matches_default() {
-        // "not configured" must mean one behavior only: swallow.
+        // "not configured" must mean one behavior only: surface the failure.
         let from_none = CheckpointErrorHandler::from_config(None);
-        assert!(!from_none.fail_on_checkpoint_error());
-        assert!(!from_none.decide(&context(), &error()).should_rethrow);
+        assert!(from_none.fail_on_checkpoint_error());
+        assert!(from_none.decide(&context(), &error()).should_rethrow);
 
         let policy = UnifiedCheckpointPolicy {
             enabled: true,
@@ -178,7 +189,7 @@ mod tests {
             error_handling: None,
         };
         let from_policy = CheckpointErrorHandler::from_policy(&policy);
-        assert!(!from_policy.fail_on_checkpoint_error());
+        assert!(from_policy.fail_on_checkpoint_error());
     }
 
     #[test]

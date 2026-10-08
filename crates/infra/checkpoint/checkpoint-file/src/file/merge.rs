@@ -19,6 +19,11 @@ pub struct MergeCommitResult {
     pub checkpoint_id: String,
 }
 
+/// Default in-flight grace for object-store cleanup: unreachable loose
+/// objects younger than this are kept because they may belong to a commit
+/// whose ref update has not landed yet.
+pub const DEFAULT_GC_INFLIGHT_GRACE: std::time::Duration = std::time::Duration::from_secs(300);
+
 impl FileCheckpointManager {
     /// Submit the actor's edit line for review: copy the edit ref to a
     /// fresh review ref (no merge) and mark it pending. Returns the
@@ -114,8 +119,19 @@ impl FileCheckpointManager {
         &self,
         retention: crate::gc::GcRetention,
     ) -> Result<crate::gc::GcStats, CheckpointError> {
+        self.run_gc_with_grace(retention, DEFAULT_GC_INFLIGHT_GRACE)
+    }
+
+    /// Run object-store cleanup with an explicit in-flight grace window:
+    /// unreachable objects younger than `grace` are kept because they may
+    /// belong to a commit whose ref update has not landed yet.
+    pub fn run_gc_with_grace(
+        &self,
+        retention: crate::gc::GcRetention,
+        grace: std::time::Duration,
+    ) -> Result<crate::gc::GcStats, CheckpointError> {
         let start = std::time::Instant::now();
-        let (commits, trees, blobs) = self.prune_unreachable_objects(&retention)?;
+        let (commits, trees, blobs) = self.prune_unreachable_objects(&retention, grace)?;
         let stats = crate::gc::GcStats {
             removed_checkpoints: commits as u64,
             removed_snapshots: trees as u64,
@@ -137,22 +153,23 @@ impl FileCheckpointManager {
     /// Content-reclaim sweep: identical to [`Self::run_gc`] in the Git
     /// model (unreachable objects are the only reclaimable content).
     /// Kept as the explicit slow-cadence entry point; never runs per pass.
-    /// The grace window has no meaning for content-addressed loose objects
-    /// without a creation-time index, so it is accepted and ignored.
+    /// The grace window protects recently written in-flight objects.
     pub fn run_snapshot_reclaim(
         &self,
         retention: crate::gc::GcRetention,
         grace_ms: u64,
     ) -> Result<crate::gc::GcStats, CheckpointError> {
-        let _ = grace_ms;
-        self.run_gc(retention)
+        self.run_gc_with_grace(retention, std::time::Duration::from_millis(grace_ms))
     }
 
     /// Drop loose objects unreachable from any ref, protecting the newest
-    /// retained commits. Returns pruned commit, tree and blob counts.
+    /// retained commits. Unreachable objects younger than `grace` are kept:
+    /// they may belong to an in-flight commit whose ref update has not
+    /// landed yet. Returns pruned commit, tree and blob counts.
     pub(crate) fn prune_unreachable_objects(
         &self,
         retention: &crate::gc::GcRetention,
+        grace: std::time::Duration,
     ) -> Result<(usize, usize, usize), CheckpointError> {
         use std::collections::HashSet;
         let git = self.git_ref()?;
@@ -183,6 +200,9 @@ impl FileCheckpointManager {
         let mut pruned_commit_ids = Vec::new();
         for id in Self::list_object_ids(git) {
             if reachable.contains(&id) {
+                continue;
+            }
+            if Self::object_is_within_grace(git, &id, grace) {
                 continue;
             }
             let is_commit = git.read_commit(&id).is_ok();
@@ -250,5 +270,26 @@ impl FileCheckpointManager {
     fn remove_object_file(git: &crate::git_store::GitStore, id: &str) -> bool {
         let path = git.git_dir().join("objects").join(&id[..2]).join(&id[2..]);
         std::fs::remove_file(path).is_ok()
+    }
+
+    /// Whether a loose object was written recently enough to still be part
+    /// of an in-flight commit. Objects whose age cannot be determined are
+    /// treated as old so cleanup keeps making progress on readable stores.
+    fn object_is_within_grace(
+        git: &crate::git_store::GitStore,
+        id: &str,
+        grace: std::time::Duration,
+    ) -> bool {
+        if id.len() < 3 {
+            return false;
+        }
+        let path = git.git_dir().join("objects").join(&id[..2]).join(&id[2..]);
+        let Ok(metadata) = std::fs::metadata(&path) else {
+            return false;
+        };
+        let Ok(modified) = metadata.modified() else {
+            return false;
+        };
+        modified.elapsed().map(|age| age < grace).unwrap_or(false)
     }
 }

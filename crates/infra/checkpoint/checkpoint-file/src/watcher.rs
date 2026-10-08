@@ -387,7 +387,11 @@ fn filter_event(
         }
         let ignored = |p: &Path| {
             p.strip_prefix(root)
-                .map(|relative| scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/")))
+                .map(|relative| {
+                    scanner.is_ignored(&crate::file::util::normalize_posix_separators(
+                        &relative.to_string_lossy(),
+                    ))
+                })
                 .unwrap_or(false)
         };
         if ignored(&from) || ignored(&to) {
@@ -408,7 +412,9 @@ fn filter_event(
             continue;
         }
         if let Ok(relative) = normalized.strip_prefix(root) {
-            if scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/")) {
+            if scanner.is_ignored(&crate::file::util::normalize_posix_separators(
+                &relative.to_string_lossy(),
+            )) {
                 continue;
             }
         }

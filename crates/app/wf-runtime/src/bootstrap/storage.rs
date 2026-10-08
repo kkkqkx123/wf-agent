@@ -45,58 +45,6 @@ pub fn postgres_connection_string(
     format!("postgres://{}{}:{}{}", auth, config.host, config.port, db)
 }
 
-/// Standalone checkpoint backend used by engine coordinators. It shares the
-/// configured database file with the entity tables but owns a separate pool
-/// and table, so it never joins cross-entity atomic batches owned by
-/// `StorageContext`.
-pub async fn init_checkpoint_store(
-    config: &StorageConfig,
-) -> Arc<wf_storage::backend::StorageBackend> {
-    use wf_storage::backend::StorageBackend;
-    use wf_storage::context::EntityStoreId;
-
-    let backend = match config.storage_type {
-        StorageType::Memory => StorageBackend::new_memory(),
-        StorageType::Sqlite => {
-            let path = storage_db_path(config);
-            match StorageBackend::new_sqlite(
-                &path.to_string_lossy(),
-                "checkpoint",
-                EntityStoreId::Checkpoint.indexes(),
-            )
-            .await
-            {
-                Ok(store) => store,
-                Err(err) => {
-                    warn!(error = %err, path = %path.display(), "failed to open checkpoint store backend; checkpoints stay in memory");
-                    StorageBackend::new_memory()
-                }
-            }
-        }
-        StorageType::Postgres => {
-            let conn = config
-                .postgres
-                .as_ref()
-                .map(postgres_connection_string)
-                .unwrap_or_default();
-            match StorageBackend::new_postgres(
-                &conn,
-                "checkpoint",
-                EntityStoreId::Checkpoint.indexes(),
-            )
-            .await
-            {
-                Ok(store) => store,
-                Err(err) => {
-                    warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");
-                    StorageBackend::new_memory()
-                }
-            }
-        }
-    };
-    Arc::new(backend)
-}
-
 /// Event log persistence sharing the configured backend with entity and
 /// checkpoint tables. The table is disjoint from both, so event writes never
 /// contend with entity transactions; event loss never blocks execution.

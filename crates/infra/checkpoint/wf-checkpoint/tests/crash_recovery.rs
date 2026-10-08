@@ -40,7 +40,7 @@ fn make_envelope(id: &str, timestamp: i64, payload: &str) -> Envelope {
 async fn sqlite_backend(path: &str) -> StorageBackend {
     StorageBackend::new_sqlite(
         path,
-        "checkpoints",
+        "checkpoint",
         wf_storage::context::EntityStoreId::Checkpoint.indexes(),
     )
     .await
@@ -56,12 +56,12 @@ async fn open_manager(path: &str) -> StorageBackedStateManager<Envelope> {
 async fn flip_payload_byte(path: &str, id: &str, offset: usize) {
     let store = SqliteStorage::new(
         path,
-        "checkpoints",
+        "checkpoint",
         wf_storage::context::EntityStoreId::Checkpoint.indexes(),
     )
     .await
     .expect("sqlite store opens");
-    let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
+    let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoint WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
         .await
@@ -69,7 +69,7 @@ async fn flip_payload_byte(path: &str, id: &str, offset: usize) {
     assert!(offset < data.len(), "offset within payload");
     let mut corrupted = data.clone();
     corrupted[offset] ^= 0xFF;
-    sqlx::query("UPDATE checkpoints SET data = ?1 WHERE id = ?2")
+    sqlx::query("UPDATE checkpoint SET data = ?1 WHERE id = ?2")
         .bind(corrupted)
         .bind(id)
         .execute(store.pool())
@@ -82,18 +82,18 @@ async fn flip_payload_byte(path: &str, id: &str, offset: usize) {
 async fn truncate_payload(path: &str, id: &str) {
     let store = SqliteStorage::new(
         path,
-        "checkpoints",
+        "checkpoint",
         wf_storage::context::EntityStoreId::Checkpoint.indexes(),
     )
     .await
     .expect("sqlite store opens");
-    let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
+    let (data,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoint WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
         .await
         .expect("payload row exists");
     let half = data.len() / 2;
-    sqlx::query("UPDATE checkpoints SET data = ?1 WHERE id = ?2")
+    sqlx::query("UPDATE checkpoint SET data = ?1 WHERE id = ?2")
         .bind(&data[..half])
         .bind(id)
         .execute(store.pool())
@@ -118,12 +118,12 @@ fn random_ascii(len: usize) -> String {
 async fn metadata_status(path: &str, id: &str) -> String {
     let store = SqliteStorage::new(
         path,
-        "checkpoints",
+        "checkpoint",
         wf_storage::context::EntityStoreId::Checkpoint.indexes(),
     )
     .await
     .expect("sqlite store opens");
-    let (meta,): (String,) = sqlx::query_as("SELECT metadata FROM checkpoints WHERE id = ?1")
+    let (meta,): (String,) = sqlx::query_as("SELECT metadata FROM checkpoint WHERE id = ?1")
         .bind(id)
         .fetch_one(store.pool())
         .await
@@ -155,12 +155,12 @@ async fn bit_flip_in_payload_is_detected_and_marked_corrupted() {
     // the blob is gzip-compressed by the Auto strategy).
     let store = SqliteStorage::new(
         db,
-        "checkpoints",
+        "checkpoint",
         wf_storage::context::EntityStoreId::Checkpoint.indexes(),
     )
     .await
     .unwrap();
-    let (stored,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoints WHERE id = ?1")
+    let (stored,): (Vec<u8>,) = sqlx::query_as("SELECT data FROM checkpoint WHERE id = ?1")
         .bind("cp-1")
         .fetch_one(store.pool())
         .await

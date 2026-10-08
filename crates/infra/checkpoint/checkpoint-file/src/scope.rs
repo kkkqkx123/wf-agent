@@ -98,15 +98,12 @@ impl ScopeCapture {
     pub fn begin_scope(&self, execution_id: &str, scope_dir: &Path) -> Option<PathBuf> {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
-        if let Some(before) = self.capture_scope(&scope) {
-            self.scopes
-                .scoped_before
-                .insert(key(execution_id, &scope), before);
-        } else {
-            self.scopes
-                .scoped_before
-                .insert(key(execution_id, &scope), HashMap::new());
-        }
+        // A failed before-capture disables the scope: recording an empty
+        // baseline would misreport the whole scope as newly added content.
+        let before = self.capture_scope(&scope)?;
+        self.scopes
+            .scoped_before
+            .insert(key(execution_id, &scope), before);
         Some(scope)
     }
 

@@ -1,9 +1,8 @@
 #[cfg(feature = "plugins")]
 use crate::bootstrap::PluginConfig;
 use crate::bootstrap::{
-    adjust_log_config, init_checkpoint_store, init_llm_gateway, resolve_infra_config,
-    storage_db_path, InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, Runtime,
-    RuntimeConfig,
+    adjust_log_config, init_llm_gateway, resolve_infra_config, storage_db_path, InfraSourceConfig,
+    LlmConfig, McpRuntimeConfig, ResourceConfig, Runtime, RuntimeConfig,
 };
 use crate::logger::LogConfig;
 use crate::mode::{ExecutionMode, ModeInfo};
@@ -281,62 +280,6 @@ fn test_storage_db_path_resolution() {
         app_name: Some("myapp".into()),
     };
     assert_eq!(storage_db_path(&config), PathBuf::from("/data/custom.db"));
-}
-
-#[tokio::test]
-async fn test_init_checkpoint_store_memory() {
-    let config = memory_storage_config();
-    let store = init_checkpoint_store(&config).await;
-    assert!(matches!(
-        *store,
-        wf_storage::backend::StorageBackend::Memory(_)
-    ));
-}
-
-#[tokio::test]
-async fn test_init_checkpoint_store_sqlite_roundtrip() {
-    use wf_storage::domain::Store;
-
-    let config = StorageConfig {
-        storage_type: StorageType::Sqlite,
-        sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-            db_path: ":memory:".into(),
-            ..Default::default()
-        }),
-        postgres: None,
-        app_name: None,
-    };
-    let store = init_checkpoint_store(&config).await;
-    assert!(matches!(
-        *store,
-        wf_storage::backend::StorageBackend::Sqlite(_)
-    ));
-
-    let (data, meta) = (
-        b"checkpoint-data".to_vec(),
-        serde_json::json!({"entityType": "checkpoint"}),
-    );
-    store.save("cp-1", &data, &meta).await.unwrap();
-    let loaded = store.load("cp-1").await.unwrap().unwrap();
-    assert_eq!(loaded.0, data);
-}
-
-#[tokio::test]
-async fn test_init_checkpoint_store_sqlite_fallback_on_error() {
-    let config = StorageConfig {
-        storage_type: StorageType::Sqlite,
-        sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-            db_path: "/nonexistent-dir-xyz/foo.db".into(),
-            ..Default::default()
-        }),
-        postgres: None,
-        app_name: None,
-    };
-    let store = init_checkpoint_store(&config).await;
-    assert!(matches!(
-        *store,
-        wf_storage::backend::StorageBackend::Memory(_)
-    ));
 }
 
 #[tokio::test]

@@ -161,7 +161,11 @@ mod tests {
         );
         // The execution branch is untouched by file commits.
         assert_eq!(
-            manager.branch_head("child-1").unwrap(),
+            manager
+                .store
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap(),
             None,
             "file commits never move execution branch heads"
         );

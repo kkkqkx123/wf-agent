@@ -367,7 +367,7 @@ mod tests {
         assert!(!config.enabled);
         assert_eq!(config.transport.timeout_ms, 60_000);
         assert_eq!(config.fold.max_tokens, 2000);
-        assert_eq!(config.fold.min_tokens, 1000);
+        assert_eq!(config.fold.min_tokens, 800);
         assert!(!config.is_usable());
 
         let err = transform_code_context_config(CodeContextConfigInput {

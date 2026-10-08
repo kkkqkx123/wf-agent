@@ -180,15 +180,6 @@ impl FileCheckpointManager {
         Ok(())
     }
 
-    /// The branch head checkpoint id recorded for an execution entity, if
-    /// any. Execution isolation lives on edit refs in the Git model, so
-    /// this always reports `None` and exists only for call-site stability
-    /// until the remaining test is migrated to partition queries.
-    pub(crate) fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
-        let _ = entity_id;
-        Ok(None)
-    }
-
     // ── actor edit-line primitives ──────────────────────────────────
 
     /// Ensure the actor's edit line exists. There are no partitions in the
@@ -397,8 +388,46 @@ mod tests {
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
-        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
-        assert_eq!(branches, vec![branch,]);
+        assert!(
+            manager
+                .store
+                .branch_adapter
+                .branch_exists(&branch)
+                .await
+                .unwrap(),
+            "re-preparing keeps the child branch"
+        );
+        assert!(
+            !manager
+                .store
+                .branch_adapter
+                .branch_exists(&execution_branch_name("parent-1"))
+                .await
+                .unwrap(),
+            "the parent stays branchless"
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_branch_rejected() {
+        use crate::branch::BranchStorageAdapter;
+
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        let branch = execution_branch_name("child-1");
+        let err = manager
+            .store
+            .branch_adapter
+            .create_branch(&branch, None)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            checkpoint_base::error::CheckpointError::Branch(_)
+        ));
     }
 
     #[tokio::test]
@@ -432,11 +461,17 @@ mod tests {
             .await
             .unwrap();
 
-        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
-        assert!(
-            branches.is_empty(),
-            "no branch may be created: {branches:?}"
-        );
+        for entity in ["solo", "same"] {
+            assert!(
+                !manager
+                    .store
+                    .branch_adapter
+                    .branch_exists(&execution_branch_name(entity))
+                    .await
+                    .unwrap(),
+                "no branch may be created for '{entity}'"
+            );
+        }
     }
 
     #[tokio::test]

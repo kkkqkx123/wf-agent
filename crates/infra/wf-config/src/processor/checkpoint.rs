@@ -1,8 +1,7 @@
 use crate::error::ConfigResult;
 use crate::validator::validate_min;
 use wf_types::checkpoint::base::{
-    CheckpointContentConfig, CheckpointRetentionConfig, CheckpointTiming, CompressionStrategy,
-    UnifiedCheckpointPolicy,
+    CheckpointRetentionConfig, CompressionStrategy, UnifiedCheckpointPolicy,
 };
 
 pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
@@ -35,6 +34,7 @@ pub fn validate_checkpoint_config(config: &UnifiedCheckpointPolicy) -> ConfigRes
 mod tests {
     use super::*;
     use wf_types::checkpoint::base::CheckpointErrorHandlingConfig;
+    use wf_types::checkpoint::base::CheckpointTiming;
 
     #[test]
     fn test_merge_checkpoint_with_defaults() {

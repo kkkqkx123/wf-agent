@@ -34,12 +34,4 @@ impl MetadataStore for SqliteStorage {
             Err(e) => Err(db_err(e)),
         }
     }
-
-    fn delete_metadata(&self, key: &str) -> StorageResult<bool> {
-        let conn = self.conn.lock();
-        let deleted = conn
-            .execute("DELETE FROM meta_kv WHERE key = ?1", rusqlite::params![key])
-            .map_err(db_err)?;
-        Ok(deleted > 0)
-    }
 }

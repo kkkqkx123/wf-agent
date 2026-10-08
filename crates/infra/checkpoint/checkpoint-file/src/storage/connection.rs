@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::repository::{AtomicOps, Repository, StorageResult};
+use super::repository::StorageResult;
 use checkpoint_base::error::CheckpointError;
 
 fn db_err(e: rusqlite::Error) -> CheckpointError {
@@ -49,33 +49,6 @@ impl Clone for SqliteStorage {
     }
 }
 
-impl AtomicOps for SqliteStorage {
-    fn with_atomic<F, T>(&self, f: F) -> StorageResult<T>
-    where
-        F: FnOnce(&Self) -> StorageResult<T>,
-    {
-        let conn = self.conn.lock();
-        conn.execute_batch("SAVEPOINT atomic_savepoint;")
-            .map_err(db_err)?;
-        match f(self) {
-            Ok(value) => {
-                conn.execute_batch("RELEASE SAVEPOINT atomic_savepoint;")
-                    .map_err(db_err)?;
-                drop(conn);
-                Ok(value)
-            }
-            Err(e) => {
-                conn.execute_batch("ROLLBACK TO SAVEPOINT atomic_savepoint;")
-                    .map_err(db_err)?;
-                drop(conn);
-                Err(e)
-            }
-        }
-    }
-}
-
-impl<T: AtomicOps> Repository for T {}
-
 impl SqliteStorage {
     pub fn new_in_memory() -> StorageResult<Self> {
         let conn = Connection::open_in_memory().map_err(db_err)?;
@@ -111,26 +84,6 @@ impl SqliteStorage {
 
     pub fn new_with_connection_arc(conn: &Arc<ReentrantMutex<Connection>>) -> Self {
         SqliteStorage { conn: conn.clone() }
-    }
-
-    pub fn list_metadata_by_prefix(&self, prefix: &str) -> StorageResult<Vec<(String, String)>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn
-                .prepare("SELECT key, value FROM meta_kv WHERE key LIKE ?1 ORDER BY key")
-                .map_err(db_err)?;
-            let rows = stmt
-                .query_map([format!("{}%", prefix)], |row| {
-                    let key: String = row.get(0)?;
-                    let value: Vec<u8> = row.get(1)?;
-                    let value = String::from_utf8(value)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    Ok((key, value))
-                })
-                .map_err(db_err)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(db_err)?;
-            Ok(rows)
-        })
     }
 
     pub fn share(&self) -> Self {

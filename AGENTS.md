@@ -61,25 +61,7 @@ tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-cloc
 
 `infra/checkpoint/` groups the checkpoint subsystem split out of the former monolithic `wf-checkpoint` crate, mirroring `app/cli/` + `app/tui/`. Internal crates carry no `wf-` prefix (`checkpoint-base`, `checkpoint-state`, `checkpoint-file`); only the externally integrated facade keeps the `wf-` prefix (`wf-checkpoint`). Upper layers (`wf-tools` / `wf-execution-shared` / `wf-agent` / `wf-workflow` / `wf-api` / `wf-runtime`) depend only on the `wf-checkpoint` facade, never on the internal crates directly. The `checkpoint/*` crates form their own strict DAG (leaf: `checkpoint-base`; `checkpoint-state` → `checkpoint-base`; `checkpoint-file` → `checkpoint-base`; `wf-checkpoint` → `checkpoint-base` / `checkpoint-state` / `checkpoint-file`).
 
-## Rust Development Conventions
-
-### Module Structure
-
-Each crate's `lib.rs` directly declares `pub mod` for sub-modules and `pub use` for public exports. Sub-files use flat naming — no nested module directories, no `mod.rs`.
-
-### File Layout Pattern
-
-```
-crates/<name>/src/
-├── lib.rs              ← all pub mod declarations and pub use re-exports
-├── <module_name>.rs    ← sub-module implementation
-├── <other_module>.rs   ← sub-module implementation
-└── ...
-```
-
 ## Building and Running
-
-Prerequisites: latest stable Rust (see `rust-toolchain.toml`)
 
 ```shell
 cargo clippy --all-targets --all-features            # full compile check

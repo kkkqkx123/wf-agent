@@ -49,7 +49,7 @@ pub fn resolve_shell_scope(workspace_root: &Path, scope_dir: &Path) -> Option<Pa
 /// it, so any session handle routes to the same per-execution state.
 /// Entries are keyed by `execution_id|scope` / `session_id` and removed on
 /// scope/session end; handles dropped mid-scope leak one entry until the
-/// matching end call (or `evict_execution`).
+/// matching end call.
 #[derive(Debug, Default)]
 pub struct SessionScopeRegistry {
     /// `execution_id|scope` -> before hashes for foreground scoped runs.
@@ -58,17 +58,6 @@ pub struct SessionScopeRegistry {
     session_before: DashMap<String, HashMap<PathBuf, String>>,
     /// session_id -> resolved scope dir.
     session_scope: DashMap<String, PathBuf>,
-}
-
-impl SessionScopeRegistry {
-    /// Drop all state for executions/sessions with the given id prefix
-    /// (cleanup for handles dropped mid-scope).
-    pub fn evict_execution(&self, execution_or_session_id: &str) {
-        self.scoped_before
-            .retain(|k, _| !k.starts_with(execution_or_session_id));
-        self.session_before.remove(execution_or_session_id);
-        self.session_scope.remove(execution_or_session_id);
-    }
 }
 
 /// Per-execution view over the shared sampling registry.
@@ -102,18 +91,6 @@ impl ScopeCapture {
             entity_id: entity_id.to_string(),
             scopes,
         }
-    }
-
-    pub fn actor(&self) -> &ActorId {
-        &self.actor
-    }
-
-    pub fn entity_id(&self) -> &str {
-        &self.entity_id
-    }
-
-    pub fn manager(&self) -> &FileCheckpointManager {
-        &self.manager
     }
 
     // ---- foreground scope helpers ----

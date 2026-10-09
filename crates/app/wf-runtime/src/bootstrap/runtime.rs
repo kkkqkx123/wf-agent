@@ -130,11 +130,11 @@ impl Runtime {
         &self.storage_manager
     }
 
-    /// Recover incomplete (running/paused/created) workflow executions left
-    /// by a previous process: scans the execution store and restores the
-    /// latest checkpoint of each one through the API resume path.
-    /// Incomplete agent executions are reported as skipped: resuming them
-    /// needs the loop config, which checkpoints alone cannot rebuild.
+    /// Recover incomplete (running/paused/created) workflow and agent
+    /// executions left by a previous process: scans the execution stores and
+    /// restores the latest checkpoint of each one through the API resume
+    /// path. Targets without a usable checkpoint are reported as skipped,
+    /// never as spuriously recovered.
     ///
     /// Without a persistent checkpoint store executions are reported as
     /// skipped, never as spuriously recovered.

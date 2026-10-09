@@ -342,6 +342,8 @@ mod tests {
                 query_params: None,
                 stream_options: None,
                 context_window_size: None,
+                proxy: None,
+                circuit_breaker: None,
             })
             .expect("mock profile registers");
         (ctx, mock)

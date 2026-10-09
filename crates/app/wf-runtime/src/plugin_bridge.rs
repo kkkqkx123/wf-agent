@@ -570,6 +570,8 @@ mod tests {
                 model_discovery: None,
                 api_version: None,
                 metadata: None,
+                proxy: None,
+                rate_limit: None,
             })
             .unwrap();
 

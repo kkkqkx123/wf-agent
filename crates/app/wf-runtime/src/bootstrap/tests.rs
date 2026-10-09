@@ -879,6 +879,8 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
         query_params: None,
         stream_options: None,
         context_window_size: None,
+        proxy: None,
+        circuit_breaker: None,
     }];
     let gateway = init_llm_gateway(
         &LlmConfig {
@@ -915,6 +917,8 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
                 query_params: None,
                 stream_options: None,
                 context_window_size: None,
+                proxy: None,
+                circuit_breaker: None,
             }],
             provider_definitions: Vec::new(),
         },

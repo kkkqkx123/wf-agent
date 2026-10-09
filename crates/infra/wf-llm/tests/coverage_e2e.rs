@@ -71,6 +71,8 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         query_params: None,
         stream_options: None,
         context_window_size: None,
+        proxy: None,
+        circuit_breaker: None,
     }
 }
 
@@ -271,6 +273,8 @@ async fn provider_definition_supplies_base_url() {
             model_discovery: None,
             api_version: None,
             metadata: None,
+            proxy: None,
+            rate_limit: None,
         })
         .expect("provider");
 

@@ -52,6 +52,8 @@ fn profile(base_url: String, id: &str) -> LlmProfile {
         query_params: None,
         stream_options: None,
         context_window_size: None,
+        proxy: None,
+        circuit_breaker: None,
     }
 }
 

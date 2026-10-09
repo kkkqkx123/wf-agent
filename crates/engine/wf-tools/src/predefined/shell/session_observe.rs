@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use checkpoint_file::session::CheckpointSession;
+use wf_checkpoint::CheckpointSession;
 use wf_types::effect::SessionBoundary;
 use wf_shell::lifecycle::{SessionLifecycleEvent, SessionLifecycleKind, SessionLifecycleSink};
 

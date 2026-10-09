@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use wf_checkpoint::CheckpointSession;
 use wf_common::lock::lock_ok;
 use wf_shell::engine::BackgroundShellStore;
 
@@ -14,7 +15,7 @@ use super::session_observe::SharedSessionForwarder;
 /// Per-execution checkpoint wiring for one stateful shell instance.
 pub struct ShellCheckpointHandle {
     execution_id: String,
-    session: std::sync::Mutex<Option<checkpoint_file::session::CheckpointSession>>,
+    session: std::sync::Mutex<Option<CheckpointSession>>,
     forwarder: SharedSessionForwarder,
 }
 
@@ -37,7 +38,7 @@ impl ShellCheckpointHandle {
         }
     }
 
-    pub fn get(&self) -> Option<checkpoint_file::session::CheckpointSession> {
+    pub fn get(&self) -> Option<CheckpointSession> {
         lock_ok(self.session.lock()).as_ref().cloned()
     }
 

@@ -15,9 +15,6 @@ wf-script = { path = "../../infra/wf-script" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
-checkpoint-base = { path = "../../infra/checkpoint/checkpoint-base" }
-checkpoint-state = { path = "../../infra/checkpoint/checkpoint-state" }
-checkpoint-file = { path = "../../infra/checkpoint/checkpoint-file" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-storage = { path = "../../infra/wf-storage" }
 

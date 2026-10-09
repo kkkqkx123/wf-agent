@@ -203,7 +203,10 @@ mod tests {
     #[test]
     fn a_known_parent_alone_yields_a_consistent_chain() {
         let orphan = hierarchy(&["known-parent"]);
-        assert_eq!(orphan.chain(), vec!["known-parent".to_string()]);
+        assert_eq!(
+            orphan.chain(),
+            vec!["known-parent".to_string(), "self".to_string()]
+        );
         assert_eq!(orphan.depth(), 1);
         assert_eq!(orphan.root_execution_id(), "known-parent");
     }

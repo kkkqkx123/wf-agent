@@ -218,6 +218,8 @@ mod tests {
             query_params: None,
             stream_options: None,
             context_window_size: None,
+            proxy: None,
+            circuit_breaker: None,
         };
         let http = adapter.build_request(&request, &profile).unwrap();
         assert_eq!(http.method(), reqwest::Method::POST);

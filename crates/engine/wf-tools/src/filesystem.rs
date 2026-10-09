@@ -841,7 +841,7 @@ fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_types::effect:
         // does not re-read the same file. Deleted files have no content.
         if !matches!(mutation.operation, wf_types::effect::FileOperation::Deleted) {
             if let Ok(bytes) = std::fs::read(path) {
-                let hash = checkpoint_file::file::util::sha256_hex(&bytes);
+                let hash = wf_checkpoint::sha256_hex(&bytes);
                 mutation = mutation.with_content(bytes, hash);
             }
         }

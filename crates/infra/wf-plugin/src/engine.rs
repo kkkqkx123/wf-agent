@@ -170,6 +170,8 @@ pub(crate) fn convert_provider_definition(
         model_discovery: provider.model_discovery.as_ref().map(convert_discovery),
         api_version: provider.api_version.clone(),
         metadata: provider.metadata.clone(),
+        proxy: None,
+        rate_limit: None,
     }
 }
 

@@ -16,7 +16,7 @@ members = [
     "crates/infra/wf-sandbox",
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
-    # llm-kit (crates/infra/llm-kit/) is an independent workspace and git
+    # llm-suite (crates/infra/llm-suite/) is an independent workspace and git
     # repository, consumed here by path; excluded so the two workspaces do
     # not claim the same packages.
     # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry

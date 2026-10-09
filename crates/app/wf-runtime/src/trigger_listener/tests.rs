@@ -427,6 +427,8 @@ async fn context_compression_chain_end_to_end() {
                 query_params: None,
                 stream_options: None,
                 context_window_size: Some(window),
+                proxy: None,
+                circuit_breaker: None,
             })
             .expect("test profile registers");
     }
@@ -966,6 +968,8 @@ async fn no_compression_event_when_named_array_within_limit() {
                 query_params: None,
                 stream_options: None,
                 context_window_size: Some(window),
+                proxy: None,
+                circuit_breaker: None,
             })
             .expect("test profile registers");
     }

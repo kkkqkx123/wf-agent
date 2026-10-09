@@ -10,6 +10,7 @@ use crate::general::GeneralToolInvoker;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 use wf_types::Id;
+use wf_checkpoint::CheckpointSession;
 
 #[derive(Clone)]
 pub struct ToolExecutionContext {
@@ -29,7 +30,7 @@ pub struct ToolExecutionContext {
     pub general_invoker: Option<Arc<dyn GeneralToolInvoker>>,
     /// Per-execution checkpoint session injected by an upper layer.
     /// `None` keeps plain tool behavior with no file/shell effect recording.
-    pub checkpoint_session: Option<checkpoint_file::session::CheckpointSession>,
+    pub checkpoint_session: Option<CheckpointSession>,
     /// Abort signal of the owning execution; `None` keeps plain tool
     /// behavior. Engines race tool execution against it so a stop lands
     /// promptly instead of waiting out the tool.
@@ -85,10 +86,7 @@ impl ToolExecutionContext {
     }
 
     /// Inject the checkpoint session. `None` keeps plain tool behavior.
-    pub fn with_checkpoint_session(
-        mut self,
-        session: Option<checkpoint_file::session::CheckpointSession>,
-    ) -> Self {
+    pub fn with_checkpoint_session(mut self, session: Option<CheckpointSession>) -> Self {
         self.checkpoint_session = session;
         self
     }

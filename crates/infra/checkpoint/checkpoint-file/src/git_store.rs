@@ -4,7 +4,7 @@
 //! - one bare repository per workspace, stored at
 //!   `<workspace>/.wf-checkpoint-git`, fully separated from the user's own
 //!   repository (the user's `.git` is never read or written);
-//! - refs live only under `refs/wf/`: `refs/wf/main` is the integration
+//! - refs live only under `refs/wf/`: `refs/wf/main` is the mainline
 //!   truth, `refs/wf/edit/<actor>` is one actor's edit line,
 //!   `refs/wf/review/<id>` is one submission awaiting review,
 //!   `refs/wf/feat/<name>` is one collaboration target,
@@ -209,8 +209,10 @@ pub fn merge_file_contents(
             conflicted: false,
         };
     }
-    // Overlapping changes: line-based text merge with standard markers
-    // (absent sides read as empty).
+    // Overlapping changes: line-based text merge with diff3-style markers
+    // (absent sides read as empty). The ancestor label is set so conflict
+    // regions embed their base section and read views can recover the true
+    // base, ours and theirs intervals instead of whole-file sides.
     let ours_bytes = ours.unwrap_or(&[]);
     let theirs_bytes = theirs.unwrap_or(&[]);
     if is_binary_bytes(ours_bytes) || is_binary_bytes(theirs_bytes) {
@@ -223,7 +225,7 @@ pub fn merge_file_contents(
     let mut merged = Vec::new();
     let mut input = gix_diff::blob::InternedInput::new(&b""[..], &b""[..]);
     let labels = gix_merge::blob::builtin_driver::text::Labels {
-        ancestor: None,
+        ancestor: Some(gix_object::bstr::BStr::new("base")),
         current: Some(gix_object::bstr::BStr::new("ours")),
         other: Some(gix_object::bstr::BStr::new("theirs")),
     };
@@ -985,8 +987,9 @@ impl GitStore {
         Err(GitStoreError::RefConflict(refname.to_string()))
     }
 
-    /// Walk the commit graph from `start`, newest first, up to `limit`
-    /// commits (0 = unlimited).
+    /// Walk the commit graph from `start` in topological order, up to `limit`
+    /// commits (0 = unlimited). Traversal order is preserved so clock skew
+    /// never reorders history; timestamps are only payload data.
     pub fn log(&self, start: &str, limit: usize) -> Result<Vec<GitCommit>, GitStoreError> {
         let tip = parse_object_id(start)?;
         let odb = self.odb()?;
@@ -1003,7 +1006,6 @@ impl GitStore {
             };
             out.push(commit);
         }
-        out.sort_by(|a, b| b.committer_ts.cmp(&a.committer_ts).then(b.id.cmp(&a.id)));
         Ok(out)
     }
 

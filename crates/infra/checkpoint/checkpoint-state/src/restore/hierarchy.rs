@@ -65,6 +65,7 @@ impl ChildCheckpointResolver for InMemoryChildResolver {
 pub struct CachedChildResolver {
     inner: Arc<dyn ChildCheckpointResolver>,
     cache: DashMap<String, Vec<String>>,
+    parent_cache: DashMap<String, Option<String>>,
 }
 
 impl CachedChildResolver {
@@ -72,6 +73,7 @@ impl CachedChildResolver {
         Self {
             inner,
             cache: DashMap::new(),
+            parent_cache: DashMap::new(),
         }
     }
 
@@ -79,8 +81,13 @@ impl CachedChildResolver {
         cache_remove(&self.cache, parent_id);
     }
 
+    pub fn invalidate_parent(&self, child_id: &str) {
+        self.parent_cache.remove(child_id);
+    }
+
     pub fn clear_cache(&self) {
         self.cache.clear();
+        self.parent_cache.clear();
     }
 }
 
@@ -99,7 +106,13 @@ impl ChildCheckpointResolver for CachedChildResolver {
     }
 
     fn resolve_parent(&self, child_id: &str) -> Option<String> {
-        self.inner.resolve_parent(child_id)
+        if let Some(cached) = self.parent_cache.get(child_id) {
+            return cached.clone();
+        }
+        let parent = self.inner.resolve_parent(child_id);
+        self.parent_cache
+            .insert(child_id.to_string(), parent.clone());
+        parent
     }
 }
 
@@ -123,7 +136,7 @@ impl ChildDiscovery {
     pub fn discover_children_bfs(
         &self,
         parent_id: &str,
-        loader: &dyn ChildMetadataLoader,
+        loader: &dyn ChildDiscoveryLoader,
         max_depth: usize,
         metrics: Option<&CheckpointMetricsCollector>,
     ) -> Result<Vec<ChildDiscoveryResult>, CheckpointError> {
@@ -148,7 +161,7 @@ impl ChildDiscovery {
                 visited.insert(child_id.clone());
 
                 let start = Instant::now();
-                let result = match loader.load_metadata(child_id) {
+                let result = match loader.load_child_metadata(child_id) {
                     Ok(_) => ChildDiscoveryResult::Success {
                         checkpoint_id: child_id.clone(),
                         depth: depth + 1,
@@ -193,9 +206,11 @@ impl ChildDiscovery {
     }
 }
 
-pub trait ChildMetadataLoader: Send + Sync {
-    fn load_metadata(&self, id: &str)
-        -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
+pub trait ChildDiscoveryLoader: Send + Sync {
+    fn load_child_metadata(
+        &self,
+        id: &str,
+    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
 }
 
 #[derive(Debug, Clone)]
@@ -230,6 +245,7 @@ pub struct RecoveryTransaction {
     /// (`addCompensatingAction`).
     compensating_actions: Vec<Box<dyn Fn() -> Result<(), String> + Send + Sync>>,
     status: RecoveryTransactionStatus,
+    rolled_back: bool,
 }
 
 impl RecoveryTransaction {
@@ -239,6 +255,7 @@ impl RecoveryTransaction {
             rollback_strategy: RollbackStrategy::AllOrNothing,
             compensating_actions: Vec::new(),
             status: RecoveryTransactionStatus::Pending,
+            rolled_back: false,
         }
     }
 
@@ -248,6 +265,7 @@ impl RecoveryTransaction {
             rollback_strategy: strategy,
             compensating_actions: Vec::new(),
             status: RecoveryTransactionStatus::Pending,
+            rolled_back: false,
         }
     }
 
@@ -338,13 +356,25 @@ impl RecoveryTransaction {
         }
     }
 
-    /// Rollback the transaction: every operation is marked `Failed("rolled
-    /// back")` — including previously completed ones — and the registered
-    /// compensating actions run LIFO. Errors from the compensating actions
-    /// are collected and reported.
+    /// Rollback the transaction: only executed operations are marked failed,
+    /// pending operations stay pending, and the registered compensating
+    /// actions run LIFO once. Repeat rollbacks report an explicit error
+    /// instead of running compensations twice.
     pub fn rollback(&mut self) -> RecoveryTransactionResult {
+        if self.rolled_back {
+            return RecoveryTransactionResult {
+                status: self.status.clone(),
+                errors: vec!["transaction already rolled back".to_string()],
+            };
+        }
+        self.rolled_back = true;
         for operation in self.operations.iter_mut() {
-            operation.status = RecoveryOperationStatus::Failed("rolled back".to_string());
+            match operation.status {
+                RecoveryOperationStatus::Pending => {}
+                RecoveryOperationStatus::Completed | RecoveryOperationStatus::Failed(_) => {
+                    operation.status = RecoveryOperationStatus::Failed("rolled back".to_string());
+                }
+            }
         }
         let mut errors = Vec::new();
         for action in self.compensating_actions.drain(..).rev() {
@@ -498,8 +528,8 @@ mod tests {
         let restorer = ChildDiscovery::new(resolver);
 
         struct MockLoader;
-        impl ChildMetadataLoader for MockLoader {
-            fn load_metadata(
+        impl ChildDiscoveryLoader for MockLoader {
+            fn load_child_metadata(
                 &self,
                 _id: &str,
             ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
@@ -544,8 +574,8 @@ mod tests {
         let metrics = CheckpointMetricsCollector::new(wf_metrics::CollectorConfig::default());
 
         struct FailingLoader;
-        impl ChildMetadataLoader for FailingLoader {
-            fn load_metadata(
+        impl ChildDiscoveryLoader for FailingLoader {
+            fn load_child_metadata(
                 &self,
                 _id: &str,
             ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
@@ -556,8 +586,8 @@ mod tests {
         }
 
         struct MockLoader;
-        impl ChildMetadataLoader for MockLoader {
-            fn load_metadata(
+        impl ChildDiscoveryLoader for MockLoader {
+            fn load_child_metadata(
                 &self,
                 _id: &str,
             ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
@@ -817,6 +847,38 @@ mod tests {
             RecoveryTransactionStatus::RolledBackWithErrors
         );
         assert_eq!(result.errors, vec!["undo failed".to_string()]);
+    }
+
+    #[test]
+    fn rollback_keeps_pending_and_rejects_second_rollback() {
+        let mut tx = RecoveryTransaction::new();
+        tx.register(RecoveryOperation {
+            checkpoint_id: "done".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Completed,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "waiting".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+
+        let first = tx.rollback();
+        assert_eq!(first.status, RecoveryTransactionStatus::RolledBack);
+        assert!(first.errors.is_empty());
+        assert_eq!(tx.completed_count(), 0);
+        assert_eq!(tx.failed_count(), 1);
+        assert!(matches!(
+            tx.operations()[1].status,
+            RecoveryOperationStatus::Pending
+        ));
+
+        let second = tx.rollback();
+        assert_eq!(
+            second.errors,
+            vec!["transaction already rolled back".to_string()]
+        );
+        assert_eq!(tx.failed_count(), 1);
     }
 
     thread_local! {

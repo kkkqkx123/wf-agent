@@ -135,7 +135,7 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .get_branch_head(&branch)
+                .get_pointer_head(&branch)
                 .unwrap(),
             None,
             "execution pointers stay headless until execution state advances them"
@@ -164,7 +164,7 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .get_branch_head(&branch)
+                .get_pointer_head(&branch)
                 .unwrap(),
             None,
             "file commits never move execution pointer heads"
@@ -240,20 +240,20 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .get_branch_head("execution-pointer/child-1")
+                .get_pointer_head("execution-pointer/child-1")
                 .unwrap(),
             None
         );
         manager
             .store
             .pointer_adapter
-            .set_branch_head("execution-pointer/child-1", &head_cp.id)
+            .set_pointer_head("execution-pointer/child-1", &head_cp.id)
             .unwrap();
         assert_eq!(
             manager
                 .store
                 .pointer_adapter
-                .get_branch_head("execution-pointer/child-1")
+                .get_pointer_head("execution-pointer/child-1")
                 .unwrap()
                 .as_deref(),
             Some(head_cp.id.as_str())

@@ -258,7 +258,7 @@ impl AgentCheckpointIntegration {
                 let reused = self
                     .inner
                     .reuse_duplicate(&latest, entity.id().as_str(), description.as_deref())
-                    .await;
+                    .await?;
                 tracing::debug!(
                     entity_id = %entity.id(),
                     checkpoint_id = %reused,

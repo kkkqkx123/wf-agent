@@ -23,6 +23,12 @@ impl WorkflowCheckpointStateManager {
         }
     }
 
+    pub fn with_clock(self, clock: checkpoint_base::clock::CheckpointClock) -> Self {
+        Self {
+            inner: self.inner.with_clock(clock),
+        }
+    }
+
     /// The underlying storage backend (used to rebuild state managers in
     /// spawned restore tasks).
     pub fn storage(&self) -> &Arc<StorageBackend> {
@@ -63,7 +69,10 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
         self.inner.load(id).await
     }
 
-    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Option<Self::Checkpoint>>, CheckpointError> {
         self.inner.load_batch(ids).await
     }
 
@@ -173,7 +182,7 @@ mod tests {
             previous_checkpoint_id: None,
             delta: None,
             snapshot: Some(make_snapshot()),
-            timestamp: Some(chrono::Utc::now().timestamp_millis()),
+            timestamp: Some(1_700_000_000_000),
             metadata: None,
             format_version: None,
         }

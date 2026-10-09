@@ -162,14 +162,17 @@ impl CheckpointSession {
         self.capture.begin_scope(execution_id, scope_dir)
     }
 
-    /// Replace `notify_scope_end`. Returns true when the scope diff was
-    /// applied, false when sampling was incomplete (unterminated process)
-    /// or the scope fell outside the workspace.
+    /// Replace `notify_scope_end`. Returns true only when the scope diff was
+    /// applied with at least one change. No-change, skipped and failed
+    /// outcomes all report false so callers never mistake an empty diff for
+    /// a successful write.
     pub fn end_scope(&self, scope_dir: &std::path::Path, outcome: ScopeOutcome) -> bool {
         if outcome.terminated {
-            self.capture
-                .end_scope(&outcome.execution_id, scope_dir, true)
-                .is_some()
+            matches!(
+                self.capture
+                    .end_scope(&outcome.execution_id, scope_dir, true),
+                crate::scope::ScopeEndOutcome::Applied { .. }
+            )
         } else {
             tracing::warn!(
                 entity = %self.entity_id,
@@ -194,13 +197,15 @@ impl CheckpointSession {
             .await
     }
 
-    /// Async scope end for async tool handlers. Returns true when applied.
+    /// Async scope end for async tool handlers. Returns true only when applied.
     pub async fn end_scope_async(&self, scope_dir: PathBuf, outcome: ScopeOutcome) -> bool {
         if outcome.terminated {
-            self.capture
-                .end_scope_async(outcome.execution_id.clone(), scope_dir, true)
-                .await
-                .is_some()
+            matches!(
+                self.capture
+                    .end_scope_async(outcome.execution_id.clone(), scope_dir, true)
+                    .await,
+                crate::scope::ScopeEndOutcome::Applied { .. }
+            )
         } else {
             tracing::warn!(
                 entity = %self.entity_id,

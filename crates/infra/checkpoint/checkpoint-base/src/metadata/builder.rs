@@ -238,16 +238,51 @@ fn trigger_wire_name(trigger: &CheckpointTiming) -> &'static str {
     }
 }
 
+/// Reverse of [`trigger_wire_name`]: parse a wire name back into its
+/// trigger. This is the single wire table: coordinators must resolve labels
+/// through here instead of keeping a second match, so adding a trigger can
+/// never silently drift the timeline. Unknown names stay `None` and callers
+/// must mark them explicitly missing rather than rendering empty.
+pub fn trigger_from_wire_name(name: &str) -> Option<CheckpointTiming> {
+    Some(match name {
+        "BEFORE_EXECUTE" => CheckpointTiming::BeforeExecute,
+        "AFTER_EXECUTE" => CheckpointTiming::AfterExecute,
+        "ON_ERROR" => CheckpointTiming::OnError,
+        "BEFORE_RETRY" => CheckpointTiming::BeforeRetry,
+        "AFTER_RETRY_SUCCESS" => CheckpointTiming::AfterRetrySuccess,
+        "ON_FALLBACK" => CheckpointTiming::OnFallback,
+        "ITERATION_END" => CheckpointTiming::IterationEnd,
+        "ITERATION_FAILED" => CheckpointTiming::IterationFailed,
+        "TOOL_BEFORE" => CheckpointTiming::ToolBefore,
+        "TOOL_AFTER" => CheckpointTiming::ToolAfter,
+        "BEFORE_COMPRESSION" => CheckpointTiming::BeforeCompression,
+        "AFTER_COMPRESSION" => CheckpointTiming::AfterCompression,
+        "ON_PAUSE" => CheckpointTiming::OnPause,
+        "ON_CANCEL" => CheckpointTiming::OnCancel,
+        "ON_TIMEOUT" => CheckpointTiming::OnTimeout,
+        "ON_FAILURE" => CheckpointTiming::OnFailure,
+        "ON_STOPPED" => CheckpointTiming::OnStopped,
+        "ON_COMPLETE" => CheckpointTiming::OnComplete,
+        "INTERVAL" => CheckpointTiming::Interval,
+        "MANUAL" => CheckpointTiming::Manual,
+        "NEVER" => CheckpointTiming::Never,
+        _ => return None,
+    })
+}
+
 /// Build the checkpoint metadata object: the wire format is a flat map with
 /// the keys `description` / `tags` / `customFields` (`CheckpointMetadata`
 /// shape). Caller custom fields are merged with the injected `formatVersion`
 /// and `createdAt` fields (injected values win).
+/// The creation timestamp is an explicit parameter so stamping stays on the
+/// injectable clock.
 /// Returns `None` only when there is no content at all.
 pub fn build_checkpoint_metadata(
     description: Option<String>,
     tags: Vec<String>,
     custom_fields: HashMap<String, serde_json::Value>,
     format_version: &str,
+    created_at_ms: i64,
 ) -> Option<HashMap<String, serde_json::Value>> {
     let has_content = description.is_some() || !tags.is_empty() || !custom_fields.is_empty();
     if !has_content {
@@ -261,7 +296,7 @@ pub fn build_checkpoint_metadata(
     );
     merged.insert(
         CREATED_AT_FIELD.to_string(),
-        serde_json::json!(chrono::Utc::now().timestamp_millis()),
+        serde_json::json!(created_at_ms),
     );
 
     let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
@@ -282,13 +317,15 @@ pub fn build_checkpoint_state(
     id: Id,
     workflow_id: Option<Id>,
     execution_id: Option<Id>,
+    timestamp_ms: i64,
+    format_version: &str,
 ) -> CheckpointStateBase {
     CheckpointStateBase {
         id,
         workflow_id,
         execution_id,
-        timestamp: wf_common::time::now(),
-        format_version: crate::version_manager::CURRENT_FORMAT_VERSION.to_string(),
+        timestamp: timestamp_ms,
+        format_version: format_version.to_string(),
         status: Some("active".to_string()),
         start_time: None,
         end_time: None,
@@ -323,7 +360,13 @@ mod tests {
 
     #[test]
     fn test_build_checkpoint_state() {
-        let state = build_checkpoint_state(Id::new(), None, None);
+        let state = build_checkpoint_state(
+            Id::new(),
+            None,
+            None,
+            1_700_000_000_000,
+            crate::version_manager::CURRENT_FORMAT_VERSION,
+        );
         assert_eq!(
             state.format_version,
             crate::version_manager::CURRENT_FORMAT_VERSION
@@ -365,6 +408,44 @@ mod tests {
     }
 
     #[test]
+    fn trigger_wire_names_round_trip() {
+        use CheckpointTiming::*;
+        let all = vec![
+            BeforeExecute,
+            AfterExecute,
+            OnError,
+            BeforeRetry,
+            AfterRetrySuccess,
+            OnFallback,
+            IterationEnd,
+            IterationFailed,
+            ToolBefore,
+            ToolAfter,
+            BeforeCompression,
+            AfterCompression,
+            OnPause,
+            OnCancel,
+            OnTimeout,
+            OnFailure,
+            OnStopped,
+            OnComplete,
+            Interval,
+            Manual,
+            Never,
+        ];
+        for trigger in &all {
+            let tag = trigger_tag(trigger);
+            let wire = tag.strip_prefix("trigger:").expect("tag carries prefix");
+            assert_eq!(
+                trigger_from_wire_name(wire),
+                Some(trigger.clone()),
+                "wire table must resolve every trigger it emits"
+            );
+        }
+        assert_eq!(trigger_from_wire_name("NO_SUCH_TRIGGER"), None);
+    }
+
+    #[test]
     fn terminal_triggers_stay_distinguishable() {
         // A failed run must not read as an in-flight error checkpoint, and a
         // stopped run must not read as a cancel: both pairs used to share one
@@ -397,6 +478,7 @@ mod tests {
             vec!["trigger:MANUAL".to_string()],
             fields,
             "1.1.0",
+            1_700_000_000_000,
         )
         .unwrap();
         assert_eq!(
@@ -418,7 +500,14 @@ mod tests {
 
     #[test]
     fn build_checkpoint_metadata_none_without_content() {
-        assert!(build_checkpoint_metadata(None, vec![], HashMap::new(), "1.1.0").is_none());
+        assert!(build_checkpoint_metadata(
+            None,
+            vec![],
+            HashMap::new(),
+            "1.1.0",
+            1_700_000_000_000
+        )
+        .is_none());
     }
 
     #[test]

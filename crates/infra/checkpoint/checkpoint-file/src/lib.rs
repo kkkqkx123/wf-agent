@@ -9,7 +9,7 @@ pub(crate) mod manager_store;
 pub(crate) mod precise;
 pub mod provenance;
 pub mod scan;
-pub(crate) mod scope;
+pub mod scope;
 pub mod script_capture;
 pub mod session;
 pub(crate) mod storage;
@@ -26,6 +26,7 @@ pub use file::{
 };
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
+pub use scope::ScopeEndOutcome;
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use session::CheckpointSession;
 pub use watcher::{

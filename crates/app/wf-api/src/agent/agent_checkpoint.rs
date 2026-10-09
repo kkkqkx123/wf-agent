@@ -407,16 +407,22 @@ async fn global_checkpoints(ctx: &ApiContext) -> ApiResult<Vec<Checkpoint>> {
         .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
     let mut checkpoints: Vec<Checkpoint> = entries
         .iter()
-        .map(|(id, meta)| {
+        .filter_map(|(id, meta)| {
             let entity_id = meta
                 .get("entityId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            checkpoint_state::parse_storage_metadata(id, entity_id, meta)
+            match checkpoint_state::parse_storage_metadata(id, entity_id, meta) {
+                Ok(parsed) => Some(parsed),
+                Err(e) => {
+                    tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata");
+                    None
+                }
+            }
         })
         .filter(|checkpoint| checkpoint.entity_type == "agent_loop")
         .collect();
-    checkpoints.sort_by_key(|c| c.timestamp);
+    checkpoints.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
     Ok(checkpoints)
 }
 

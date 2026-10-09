@@ -43,17 +43,7 @@ pub fn init_manual_change_service(
     if !config.enabled || !config.manual_watch {
         return Ok(None);
     }
-    let scan_config = checkpoint_file::scan::ScanConfig {
-        custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
-        failure_behavior: config.failure_behavior,
-    };
-    match checkpoint_file::watcher::ManualChangeService::start(
-        manager.clone(),
-        root,
-        scan_config,
-        100,
-        200,
-    ) {
+    match checkpoint_file::watcher::ManualChangeService::start(manager.clone(), root, 200) {
         Ok(service) => {
             info!(root = %root, "Manual file watcher started");
             Ok(Some(service))

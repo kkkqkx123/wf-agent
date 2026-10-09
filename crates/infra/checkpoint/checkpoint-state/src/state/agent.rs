@@ -22,10 +22,25 @@ impl AgentCheckpointStateManager {
         }
     }
 
+    pub fn with_clock(self, clock: checkpoint_base::clock::CheckpointClock) -> Self {
+        Self {
+            inner: self.inner.with_clock(clock),
+        }
+    }
+
     /// The underlying storage backend (used to rebuild state managers in
     /// spawned restore tasks).
     pub fn storage(&self) -> &Arc<StorageBackend> {
         self.inner.storage()
+    }
+
+    /// Resolve the latest checkpoint metadata for many entities in a single
+    /// storage query (eliminates the N+1 pattern in hierarchy restore).
+    pub async fn list_latest_by_entities(
+        &self,
+        entity_ids: &[String],
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        self.inner.list_latest_by_entities(entity_ids).await
     }
 
     /// Latest checkpoint of every entity spawned from `parent_entity_id`.
@@ -53,7 +68,10 @@ impl CheckpointStateManager for AgentCheckpointStateManager {
         self.inner.load(id).await
     }
 
-    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Option<Self::Checkpoint>>, CheckpointError> {
         self.inner.load_batch(ids).await
     }
 
@@ -169,7 +187,7 @@ mod tests {
             previous_checkpoint_id: None,
             delta: None,
             snapshot: Some(make_snapshot()),
-            timestamp: Some(chrono::Utc::now().timestamp_millis()),
+            timestamp: Some(1_700_000_000_000),
             metadata: None,
             format_version: None,
         }

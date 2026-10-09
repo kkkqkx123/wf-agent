@@ -122,6 +122,20 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
             }
             (EventType::CheckpointFailed, metadata)
         }
+        CheckpointEvent::Skipped { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(id) = &data.checkpoint_id {
+                metadata.insert("checkpoint_id".to_string(), serde_json::json!(id));
+            }
+            if let Some(operation) = &data.operation {
+                metadata.insert("operation".to_string(), serde_json::json!(operation));
+            }
+            if let Some(reason) = &data.reason {
+                metadata.insert("reason".to_string(), serde_json::json!(reason));
+            }
+            metadata.insert("skipped".to_string(), serde_json::json!(true));
+            (EventType::CheckpointFailed, metadata)
+        }
         CheckpointEvent::GcCompleted { data, stats, .. } => {
             let mut metadata = HashMap::new();
             if let Some(description) = &data.description {

@@ -12,7 +12,7 @@ use crate::manager_store::{ManagerPolicy, ManagerStore};
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use crate::storage::{MetadataStore, SqliteStorage};
-use checkpoint_base::actor::registry::ActorCache;
+use checkpoint_base::actor::cache::ActorCache;
 use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::common::diff::unified_diff_text;
 use checkpoint_base::error::CheckpointError;
@@ -500,7 +500,7 @@ impl FileCheckpointManager {
     }
 
     /// All partitions of the file-checkpoint store (actor partitions,
-    /// approval, integrated features, main).
+    /// approval, mainline features, main).
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
         self.reader()?.list_partitions()
     }

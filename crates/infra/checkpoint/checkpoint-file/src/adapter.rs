@@ -28,13 +28,13 @@ impl SqliteBackend {
 /// File branches (review/feature/main) live as Git refs; execution pointers
 /// keep a lightweight pointer here.
 impl SqliteBackend {
-    fn branch_key(branch: &str) -> String {
+    fn pointer_key(branch: &str) -> String {
         format!("exec_pointer/{branch}")
     }
 
     /// Update the pointer head (execution namespace). Any non-empty
     /// id is accepted; missing pointers are created.
-    pub fn set_branch_head(
+    pub fn set_pointer_head(
         &self,
         branch: &str,
         checkpoint_id: &str,
@@ -47,34 +47,34 @@ impl SqliteBackend {
             )));
         }
         self.storage
-            .store_metadata(&Self::branch_key(branch), checkpoint_id)?;
+            .store_metadata(&Self::pointer_key(branch), checkpoint_id)?;
         Ok(())
     }
 
     /// Read the pointer head. Missing pointers and headless
     /// pointers (empty marker) both report `None`.
-    pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
+    pub fn get_pointer_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
         use crate::storage::MetadataStore;
 
         Ok(self
             .storage
-            .load_metadata(&Self::branch_key(branch))?
+            .load_metadata(&Self::pointer_key(branch))?
             .filter(|head| !head.is_empty()))
     }
 
     /// Synchronous pointer existence check (headless pointers exist).
-    pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
+    pub fn pointer_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
         use crate::storage::MetadataStore;
 
         Ok(self
             .storage
-            .load_metadata(&Self::branch_key(branch))?
+            .load_metadata(&Self::pointer_key(branch))?
             .is_some())
     }
 
     /// Head lookup shared by create-time base inheritance.
-    fn native_head(&self, branch: &str) -> Option<String> {
-        self.get_branch_head(branch).ok().flatten()
+    fn native_pointer_head(&self, branch: &str) -> Option<String> {
+        self.get_pointer_head(branch).ok().flatten()
     }
 }
 
@@ -83,7 +83,7 @@ impl SqliteBackend {
 /// pointer's head when available, otherwise starts headless (reported as
 /// `None` until its first checkpoint).
 impl ExecutionPointerAdapter for SqliteBackend {
-    async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
+    async fn create_pointer(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
         if !crate::branch::is_execution_pointer_name(name) {
             return Err(CheckpointError::Branch(format!(
                 "execution pointer name must start with 'execution-pointer/' and carry an id: '{name}'"
@@ -97,27 +97,27 @@ impl ExecutionPointerAdapter for SqliteBackend {
             }
         }
         if self
-            .branch_exists_now(name)
+            .pointer_exists_now(name)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?
         {
             return Err(CheckpointError::Branch(format!(
                 "branch '{name}' already exists"
             )));
         }
-        if let Some(head) = base.and_then(|b| self.native_head(b)) {
-            self.set_branch_head(name, &head)
+        if let Some(head) = base.and_then(|b| self.native_pointer_head(b)) {
+            self.set_pointer_head(name, &head)
                 .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         } else {
             use crate::storage::MetadataStore;
             self.storage
-                .store_metadata(&Self::branch_key(name), "")
+                .store_metadata(&Self::pointer_key(name), "")
                 .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         }
         Ok(())
     }
 
-    async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError> {
-        self.branch_exists_now(name)
+    async fn pointer_exists(&self, name: &str) -> Result<bool, CheckpointError> {
+        self.pointer_exists_now(name)
             .map_err(|e| CheckpointError::Branch(e.to_string()))
     }
 }

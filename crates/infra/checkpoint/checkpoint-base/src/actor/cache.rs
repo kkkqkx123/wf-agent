@@ -1,7 +1,8 @@
-//! Actor resolution cache extracted from `FileCheckpointManager`.
+//! Single-recovery actor resolution cache.
 //!
-//! Entity id -> `ActorId` caching lives here so actor hierarchy rules can
-//! evolve without touching storage, scan or merge code.
+//! Entity id to `ActorId` entries live only for the duration of one recovery
+//! pass for de-duplication. Durable parent relationships live in storage
+//! indexes, never in this cache.
 
 use std::sync::Arc;
 

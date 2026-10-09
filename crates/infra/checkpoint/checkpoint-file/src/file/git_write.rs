@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use crate::event::CheckpointEventBus;
 use crate::file::util::{compute_full_hash, sha256_hex, validate_workspace_relative_path};
 use crate::file::{FileCheckpoint, FileState};
 use crate::git_store::{
@@ -123,12 +124,7 @@ impl FileCheckpointManager {
         tool: &str,
         paths: &[String],
     ) -> Result<(), CheckpointError> {
-        let timestamp = self.creation_timestamp().unwrap_or_else(|_| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0)
-        });
+        let timestamp = self.creation_timestamp()?;
         storage.record_source_index(&crate::storage::SourceIndexEntry {
             commit_id: commit_id.to_string(),
             actor: actor.to_string(),
@@ -141,37 +137,11 @@ impl FileCheckpointManager {
         Ok(())
     }
 
-    /// Carry the parents' empty-dir manifests onto a new commit, filtered
-    /// to dirs still empty in the new tree. Only worktree scans observe the
-    /// true set, so non-scan commits preserve it without resurrecting dirs
-    /// that now contain files.
-    fn inherit_empty_dirs_manifest(&self, commit_id: &str) -> Result<(), CheckpointError> {
-        let git = self.git_ref()?;
-        let commit = git.read_commit(commit_id).map_err(map_git_error)?;
-        if commit.parents.is_empty() {
-            return Ok(());
-        }
-        let storage = self.storage_ref()?;
-        let mut merged = std::collections::BTreeSet::new();
-        for parent in &commit.parents {
-            for dir in storage.load_empty_dirs(parent)? {
-                merged.insert(dir);
-            }
-        }
-        if merged.is_empty() {
-            return Ok(());
-        }
-        let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
-        let prefix_free: Vec<String> = merged
-            .into_iter()
-            .filter(|dir| {
-                let prefix = format!("{dir}/");
-                !files.keys().any(|path| path.starts_with(&prefix))
-            })
-            .collect();
-        if !prefix_free.is_empty() {
-            storage.store_empty_dirs(commit_id, &prefix_free)?;
-        }
+    /// Non-scan commits do not inherit empty-dir manifests. Only worktree
+    /// scans observe the true empty set, so inheriting parent manifests here
+    /// would resurrect dirs deleted on disk. Scan paths store the observed
+    /// set explicitly.
+    fn inherit_empty_dirs_manifest(&self, _commit_id: &str) -> Result<(), CheckpointError> {
         Ok(())
     }
 
@@ -243,8 +213,17 @@ impl FileCheckpointManager {
 
     /// Periodic human-edit poll: diff the worktree against every tracked
     /// ref and commit the remainder on the human ref. Files matching any
-    /// agent content are agent-owned and skipped; the human ref is never
-    /// merged automatically. Returns the new commit id, if any.
+    /// agent content are agent-owned and skipped, with one exception: a
+    /// revert to main content syncs the human ref back to main so it never
+    /// goes stale. The human ref is never merged automatically. Returns the
+    /// new commit id, if any.
+    ///
+    /// Deletion attribution is three-state: gone from the worktree, present
+    /// in the human view and unknown to every agent ref commits a human
+    /// delete; gone but still carried by an agent ref is ambiguous (a human
+    /// delete of agent content cannot be told apart from agent ownership)
+    /// and is skipped loudly with a warning plus a skip event, never
+    /// committed; record those through an explicit delete instead.
     pub fn poll_human_edits(
         &self,
         base_dir: &std::path::Path,
@@ -308,9 +287,28 @@ impl FileCheckpointManager {
                 .unwrap_or_default(),
             None => HashMap::new(),
         };
+        let main_tree: HashMap<String, Vec<u8>> = match git
+            .read_ref(crate::git_store::REF_MAIN)
+            .map_err(map_git_error)?
+        {
+            Some(id) => git
+                .read_commit(&id)
+                .map_err(map_git_error)
+                .and_then(|c| git.tree_to_bytes(&c.tree).map_err(map_git_error))
+                .unwrap_or_default(),
+            None => HashMap::new(),
+        };
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         for (path, bytes) in &worktree {
             if owned.get(path).is_some_and(|known| known.contains(bytes)) {
+                // Revert sync: the worktree matches main exactly while the
+                // human ref still carries an older edit. Record the sync so
+                // the human ref follows the revert instead of going stale.
+                let matches_main = main_tree.get(path).is_some_and(|m| m == bytes);
+                let human_differs = human_tree.get(path).is_some_and(|h| h != bytes);
+                if matches_main && human_differs {
+                    changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes.clone())));
+                }
                 continue;
             }
             if human_tree.get(path).is_some_and(|known| known == bytes) {
@@ -319,14 +317,40 @@ impl FileCheckpointManager {
             changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes.clone())));
         }
         // Human deletions: present in the human-tracked view but gone from
-        // the worktree, and not explained by any agent content.
+        // the worktree, and not explained by any agent content. Paths the
+        // agents still carry are ambiguous and stay uncommitted (see the
+        // method docs): they are reported loudly so the gap stays
+        // observable instead of silently diverging.
         let mut tracked: HashMap<String, Vec<u8>> = human_tree.clone();
         for path in owned.keys() {
             tracked.entry(path.clone()).or_default();
         }
+        let mut ambiguous_deletes: Vec<String> = Vec::new();
         for path in tracked.keys() {
-            if !worktree.contains_key(path) && !owned.contains_key(path) {
+            if worktree.contains_key(path) {
+                continue;
+            }
+            if !owned.contains_key(path) {
                 changes.insert(path.clone(), None);
+            } else if human_tree.contains_key(path) {
+                ambiguous_deletes.push(path.clone());
+            }
+        }
+        if !ambiguous_deletes.is_empty() {
+            ambiguous_deletes.sort();
+            tracing::warn!(
+                paths = ?ambiguous_deletes,
+                "human poll skipped ambiguous deletes of agent-owned paths; use an explicit delete to record them"
+            );
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::skipped(
+                    "human-attribution",
+                    format!(
+                        "skipped ambiguous deletes of agent-owned paths: {}",
+                        ambiguous_deletes.join(", ")
+                    ),
+                    None,
+                ));
             }
         }
         if changes.is_empty() {

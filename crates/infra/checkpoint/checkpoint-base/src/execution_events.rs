@@ -91,18 +91,20 @@ impl ExecutionEventBus {
         }
     }
 
-    /// Publish a state-changed event (convenience constructor).
+    /// Publish a state-changed event (convenience constructor). The timestamp
+    /// is an explicit parameter so event time stays on the injectable clock.
     pub fn publish_state_changed(
         &self,
         execution_id: &str,
         previous_status: Option<&str>,
         new_status: &str,
         changes: Option<serde_json::Map<String, serde_json::Value>>,
+        timestamp_ms: i64,
     ) {
         self.publish(&ExecutionEvent::StateChanged(
             wf_types::execution::ExecutionStateChangedEvent {
                 execution_id: execution_id.to_string(),
-                timestamp: chrono::Utc::now().timestamp_millis(),
+                timestamp: timestamp_ms,
                 previous_status: previous_status.map(String::from),
                 new_status: new_status.to_string(),
                 changes,
@@ -110,10 +112,14 @@ impl ExecutionEventBus {
         ));
     }
 
-    /// Total number of registered handlers (all types + wildcard).
+    /// Total number of registered handlers (all types + wildcard + error
+    /// handlers). Error handlers are included so observability counts every
+    /// subscriber.
     pub fn handler_count(&self) -> usize {
         let typed: usize = self.handlers.iter().map(|entry| entry.value().len()).sum();
-        typed + wf_common::lock::read_ok(self.wildcard.read()).len()
+        typed
+            + wf_common::lock::read_ok(self.wildcard.read()).len()
+            + wf_common::lock::read_ok(self.error_handlers.read()).len()
     }
 
     /// Number of handlers for a specific event type (or wildcard count when
@@ -123,6 +129,11 @@ impl ExecutionEventBus {
             .get(&event_type)
             .map(|list| list.len())
             .unwrap_or(0)
+    }
+
+    /// Number of registered error handlers.
+    pub fn error_handler_count(&self) -> usize {
+        wf_common::lock::read_ok(self.error_handlers.read()).len()
     }
 
     /// Remove all subscribers (testing / reset).
@@ -231,9 +242,9 @@ mod tests {
             count2.fetch_add(1, Ordering::SeqCst);
         });
 
-        bus.publish_state_changed("e", None, "running", None);
+        bus.publish_state_changed("e", None, "running", None, 1_700_000_000_000);
         unsub();
-        bus.publish_state_changed("e", None, "completed", None);
+        bus.publish_state_changed("e", None, "completed", None, 1_700_000_000_001);
 
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
@@ -248,8 +259,8 @@ mod tests {
             panic!("boom");
         });
 
-        bus.publish_state_changed("e", None, "running", None);
-        bus.publish_state_changed("e", None, "completed", None);
+        bus.publish_state_changed("e", None, "running", None, 1_700_000_000_000);
+        bus.publish_state_changed("e", None, "completed", None, 1_700_000_000_001);
 
         assert_eq!(
             count.load(Ordering::SeqCst),
@@ -270,7 +281,19 @@ mod tests {
 
         bus.clear();
         assert_eq!(bus.handler_count(), 0);
-        bus.publish_state_changed("e", None, "running", None);
+        bus.publish_state_changed("e", None, "running", None, 1_700_000_000_000);
         assert_eq!(count.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn handler_count_includes_error_handlers() {
+        let bus = ExecutionEventBus::new();
+        assert_eq!(bus.handler_count(), 0);
+        assert_eq!(bus.error_handler_count(), 0);
+        let _unsub = bus.on(ExecutionEventType::StateChanged, move |_| {});
+        let _unsub_err = bus.on_error(move |_| {});
+        assert_eq!(bus.error_handler_count(), 1);
+        assert_eq!(bus.handler_count(), 2);
+        assert_eq!(bus.handler_count_for(ExecutionEventType::StateChanged), 1);
     }
 }

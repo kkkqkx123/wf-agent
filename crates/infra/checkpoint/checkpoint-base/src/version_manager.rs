@@ -255,8 +255,13 @@ impl VersionManager {
     }
 
     /// Write the current format version and creation timestamp into the
-    /// checkpoint metadata custom fields.
-    pub fn add_version_metadata(&self, metadata: &mut serde_json::Map<String, serde_json::Value>) {
+    /// checkpoint metadata custom fields. The timestamp comes from the caller
+    /// so version stamping stays on the injectable clock.
+    pub fn add_version_metadata(
+        &self,
+        metadata: &mut serde_json::Map<String, serde_json::Value>,
+        now_ms: i64,
+    ) {
         let custom = metadata
             .entry("customFields".to_string())
             .or_insert_with(|| serde_json::Value::Object(Default::default()));
@@ -265,10 +270,7 @@ impl VersionManager {
                 "formatVersion".to_string(),
                 serde_json::json!(self.current_version()),
             );
-            custom.insert(
-                "createdAt".to_string(),
-                serde_json::json!(chrono::Utc::now().timestamp_millis()),
-            );
+            custom.insert("createdAt".to_string(), serde_json::json!(now_ms));
         }
     }
 
@@ -614,7 +616,7 @@ mod tests {
     fn add_version_metadata_writes_format_and_created_at() {
         let vm = VersionManager::new();
         let mut metadata = serde_json::Map::new();
-        vm.add_version_metadata(&mut metadata);
+        vm.add_version_metadata(&mut metadata, 1_700_000_000_000);
         let custom = metadata.get("customFields").unwrap().as_object().unwrap();
         assert_eq!(
             custom.get("formatVersion").and_then(|v| v.as_str()),

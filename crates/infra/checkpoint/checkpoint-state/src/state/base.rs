@@ -18,7 +18,7 @@ pub trait CheckpointStateManager: Send + Sync {
     fn load_batch(
         &self,
         ids: &[String],
-    ) -> impl std::future::Future<Output = Result<Vec<Self::Checkpoint>, CheckpointError>> + Send;
+    ) -> impl std::future::Future<Output = Result<Vec<Option<Self::Checkpoint>>, CheckpointError>> + Send;
     fn delete(
         &self,
         id: &str,
@@ -52,9 +52,10 @@ pub trait CheckpointStateManager: Send + Sync {
         async move { Ok(self.list_by_entity(entity_id).await?.len() as u64) }
     }
 
-    /// Paged listing of an entity's checkpoints (newest first). The default
-    /// implementation pages the full listing in memory; storage-backed
-    /// managers push offset/limit down to the backend.
+    /// Paged listing of an entity's checkpoints in the same ascending timestamp
+    /// order as the full listing. The default implementation pages the full
+    /// listing in memory; storage-backed managers push offset/limit down to
+    /// the backend.
     fn list_by_entity_paged(
         &self,
         entity_id: &str,
@@ -63,8 +64,7 @@ pub trait CheckpointStateManager: Send + Sync {
     ) -> impl std::future::Future<Output = Result<Vec<CheckpointStorageMetadata>, CheckpointError>> + Send
     {
         async move {
-            let mut all = self.list_by_entity(entity_id).await?;
-            all.reverse();
+            let all = self.list_by_entity(entity_id).await?;
             let start = (offset as usize).min(all.len());
             let end = (start + limit as usize).min(all.len());
             Ok(all[start..end].to_vec())
@@ -77,9 +77,10 @@ pub trait CheckpointStateManager: Send + Sync {
     ) -> impl std::future::Future<Output = Result<u64, CheckpointError>> + Send;
 
     /// Clean up checkpoints of an entity with an explicit `CleanupStrategy`.
-    /// The default implementation maps count-based strategies onto `cleanup`
-    /// and keeps everything for other strategies; storage-backed managers
-    /// override this with the full `CleanupExecutor` routing.
+    /// The default implementation only supports count-based strategies. Other
+    /// strategies report an explicit error so callers notice the gap instead
+    /// of silently keeping everything; storage-backed managers override this
+    /// with full routing.
     fn cleanup_with_strategy(
         &self,
         entity_id: &str,
@@ -91,7 +92,9 @@ pub trait CheckpointStateManager: Send + Sync {
                     max_checkpoints,
                     min_retention: _,
                 } => self.cleanup(entity_id, Some(*max_checkpoints as u32)).await,
-                _ => self.cleanup(entity_id, None).await,
+                _ => Err(CheckpointError::Validation {
+                    reason: "default cleanup only supports count-based strategies".to_string(),
+                }),
             }
         }
     }

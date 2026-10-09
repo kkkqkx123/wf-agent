@@ -17,16 +17,16 @@ pub enum CheckpointConfigSource {
 
 impl CheckpointConfigSource {
     /// Layered-resolution precedence: lower value means higher precedence and
-    /// wins on first match (runtime wins over workflow, etc.). Trigger lists
-    /// use first non-empty wins; content, retention and error handling fill
-    /// gaps from lower layers. Named `precedence`, not `priority`, so the
-    /// match-order rank is not confused with numeric `priority` fields.
+    /// wins on first match. Node and agent layers are more specific than the
+    /// enclosing workflow layer, so they outrank it. Trigger lists use first
+    /// non-empty wins; content, retention and error handling fill gaps from
+    /// lower layers.
     pub fn precedence(&self) -> u8 {
         match self {
             Self::Runtime => 0,
-            Self::Workflow => 1,
-            Self::Node => 2,
-            Self::Agent => 3,
+            Self::Node => 1,
+            Self::Agent => 2,
+            Self::Workflow => 3,
             Self::Global => 4,
             Self::Default => 5,
         }
@@ -57,11 +57,16 @@ impl CheckpointConfigLayer {
     }
 }
 
-/// The resolved checkpoint configuration with the effective source tracked.
+/// The resolved checkpoint configuration with the effective source tracked
+/// per field so callers can tell which layer provided each part.
 #[derive(Debug, Clone)]
 pub struct ResolvedCheckpointConfig {
     pub policy: UnifiedCheckpointPolicy,
     pub effective_source: CheckpointConfigSource,
+    pub trigger_source: CheckpointConfigSource,
+    pub content_source: CheckpointConfigSource,
+    pub retention_source: CheckpointConfigSource,
+    pub error_source: CheckpointConfigSource,
     pub should_create: bool,
     pub description: String,
 }
@@ -76,10 +81,9 @@ pub struct CheckpointConfigResolver;
 /// whitelist question; it owns no counting state.
 impl CheckpointConfigResolver {
     /// Resolve a list of layers with first-wins semantics: the highest
-    /// precedence layer (runtime > workflow > node > agent > global > default)
-    /// that defines a field wins for that field. `enabled` must be explicit
-    /// to take effect; otherwise the default (`false`) is used (first layer
-    /// with explicit `enabled`, else default).
+    /// precedence layer that defines a field wins for that field. `enabled`
+    /// must be explicit to take effect; otherwise the default (`false`) is
+    /// used. Each field records its own source.
     pub fn resolve(layers: &[CheckpointConfigLayer]) -> ResolvedCheckpointConfig {
         let mut ordered: Vec<&CheckpointConfigLayer> = layers.iter().collect();
         ordered.sort_by_key(|l| l.source.precedence());
@@ -92,6 +96,10 @@ impl CheckpointConfigResolver {
             error_handling: None,
         };
         let mut effective_source = CheckpointConfigSource::Default;
+        let mut trigger_source = CheckpointConfigSource::Default;
+        let mut content_source = CheckpointConfigSource::Default;
+        let mut retention_source = CheckpointConfigSource::Default;
+        let mut error_source = CheckpointConfigSource::Default;
 
         for layer in ordered {
             if layer.policy.enabled {
@@ -102,15 +110,25 @@ impl CheckpointConfigResolver {
             }
             if !layer.policy.triggers.is_empty() && policy.triggers.is_empty() {
                 policy.triggers = layer.policy.triggers.clone();
+                trigger_source = layer.source;
             }
             if policy.content.is_none() {
-                policy.content = layer.policy.content.clone();
+                if let Some(content) = layer.policy.content.clone() {
+                    policy.content = Some(content);
+                    content_source = layer.source;
+                }
             }
             if policy.retention.is_none() {
-                policy.retention = layer.policy.retention.clone();
+                if let Some(retention) = layer.policy.retention.clone() {
+                    policy.retention = Some(retention);
+                    retention_source = layer.source;
+                }
             }
             if policy.error_handling.is_none() {
-                policy.error_handling = layer.policy.error_handling.clone();
+                if let Some(error_handling) = layer.policy.error_handling.clone() {
+                    policy.error_handling = Some(error_handling);
+                    error_source = layer.source;
+                }
             }
         }
 
@@ -119,6 +137,10 @@ impl CheckpointConfigResolver {
             description: Self::build_description(&policy, None, None),
             policy,
             effective_source,
+            trigger_source,
+            content_source,
+            retention_source,
+            error_source,
         }
     }
 
@@ -290,6 +312,24 @@ mod tests {
             resolved.policy.triggers,
             vec![CheckpointTiming::AfterExecute]
         );
+        assert_eq!(resolved.trigger_source, CheckpointConfigSource::Runtime);
+    }
+
+    #[test]
+    fn resolve_node_outranks_workflow() {
+        let layers = vec![
+            CheckpointConfigLayer::new(
+                CheckpointConfigSource::Workflow,
+                policy(true, vec![CheckpointTiming::OnError]),
+            ),
+            CheckpointConfigLayer::node(policy(true, vec![CheckpointTiming::BeforeExecute])),
+        ];
+        let resolved = CheckpointConfigResolver::resolve(&layers);
+        assert_eq!(
+            resolved.policy.triggers,
+            vec![CheckpointTiming::BeforeExecute]
+        );
+        assert_eq!(resolved.trigger_source, CheckpointConfigSource::Node);
     }
 
     #[test]

@@ -79,12 +79,7 @@ impl FileCheckpointManager {
     /// Returns the group id. The group lives in memory only; staged files
     /// commit atomically via [`Self::commit_edit_group`].
     pub fn begin_edit_group(&self, label: Option<String>) -> Result<EditGroupId, CheckpointError> {
-        let timestamp = self.creation_timestamp().unwrap_or_else(|_| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0)
-        });
+        let timestamp = self.creation_timestamp()?;
         let id = next_edit_group_id(timestamp);
         self.pending_batches.insert(
             id.to_string(),

@@ -144,6 +144,9 @@ impl ActorId {
                 "actor id '{value}' has an empty hierarchy segment"
             )));
         }
+        for segment in &segments {
+            validate_execution_id(segment)?;
+        }
         let depth = segments.len();
         if depth > MAX_ACTOR_CHAIN {
             return Err(ActorIdError::Validation(format!(
@@ -158,11 +161,11 @@ impl ActorId {
         &self.0
     }
 
-    /// The actor kind (partition semantics).
-    /// Falls back to `Sub` for malformed ids; prefer `try_kind` when the
-    /// caller must distinguish corruption from a real `sub` partition.
-    pub fn kind(&self) -> ActorKind {
-        self.try_kind().unwrap_or(ActorKind::Sub)
+    /// The actor kind (partition semantics). Strict: malformed ids return an
+    /// error through `try_kind` instead of silently mapping to a default.
+    /// Callers must handle corruption explicitly.
+    pub fn kind(&self) -> Result<ActorKind, ActorIdError> {
+        self.try_kind()
     }
 
     /// Strict kind parsing: returns an error instead of silently mapping
@@ -234,14 +237,21 @@ impl fmt::Display for ActorId {
 }
 
 /// Validate a single hierarchy segment against the charset whitelist.
+/// Segments must not contain hierarchy separators so encoded ids always
+/// round-trip without splitting a segment into several levels.
 fn validate_execution_id(id: &str) -> Result<(), ActorIdError> {
     if id.is_empty() {
         return Err(ActorIdError::Validation(
             "execution id must not be empty".into(),
         ));
     }
+    if id.contains("/child:") || id.contains(':') || id.contains('/') {
+        return Err(ActorIdError::Validation(format!(
+            "execution id '{id}' must not contain hierarchy separators"
+        )));
+    }
     for ch in id.chars() {
-        if !ch.is_ascii_alphanumeric() && !matches!(ch, ':' | '_' | '/' | '-') {
+        if !ch.is_ascii_alphanumeric() && !matches!(ch, '_' | '-') {
             return Err(ActorIdError::Validation(format!(
                 "execution id '{id}' contains invalid character '{ch}'"
             )));
@@ -268,7 +278,7 @@ mod tests {
     fn encodes_root_workflow_actor() {
         let actor = ActorId::new(ActorKind::Wf, &[id("wf-exec-1")]).unwrap();
         assert_eq!(actor.as_str(), "wf:wf-exec-1");
-        assert_eq!(actor.kind(), ActorKind::Wf);
+        assert_eq!(actor.kind().unwrap(), ActorKind::Wf);
         assert_eq!(actor.hierarchy(), vec!["wf-exec-1"]);
         assert_eq!(actor.parent(), None);
     }
@@ -277,7 +287,7 @@ mod tests {
     fn encodes_root_agent_actor() {
         let actor = ActorId::new(ActorKind::Agent, &[id("loop-exec-1")]).unwrap();
         assert_eq!(actor.as_str(), "agent:loop-exec-1");
-        assert_eq!(actor.kind(), ActorKind::Agent);
+        assert_eq!(actor.kind().unwrap(), ActorKind::Agent);
         assert_eq!(actor.parent(), None);
     }
 
@@ -292,7 +302,7 @@ mod tests {
             actor.as_str(),
             "wf:wf-exec-1/child:subgraph-2/child:subgraph-3"
         );
-        assert_eq!(actor.kind(), ActorKind::Wf);
+        assert_eq!(actor.kind().unwrap(), ActorKind::Wf);
         assert_eq!(
             actor.hierarchy(),
             vec!["wf-exec-1", "subgraph-2", "subgraph-3"]
@@ -313,7 +323,7 @@ mod tests {
         .unwrap();
         let parsed = ActorId::parse(original.as_str()).unwrap();
         assert_eq!(parsed, original);
-        assert_eq!(parsed.kind(), ActorKind::Agent);
+        assert_eq!(parsed.kind().unwrap(), ActorKind::Agent);
         assert_eq!(parsed.hierarchy(), vec!["loop-1", "child-2", "child-3"]);
     }
 
@@ -354,6 +364,6 @@ mod tests {
         assert_eq!(actor.try_kind().unwrap(), ActorKind::Agent);
         let raw = ActorId("bogus:loop-1".to_string());
         assert!(raw.try_kind().is_err());
-        assert_eq!(raw.kind(), ActorKind::Sub);
+        assert!(raw.kind().is_err());
     }
 }

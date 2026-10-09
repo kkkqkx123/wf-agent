@@ -26,12 +26,93 @@ use crate::git_store::{
 use crate::storage::ReviewStatus;
 use checkpoint_base::error::CheckpointError;
 
-/// One file-level conflict captured during a merge.
+/// One conflict region inside a merged file, parsed back from the diff3
+/// markers the merge driver embeds. Line numbers are 0-indexed into the
+/// merged output; `end_line` is exclusive.
+#[derive(Debug, Clone)]
+pub struct GitConflictRegion {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub base_lines: Vec<String>,
+    pub ours_lines: Vec<String>,
+    pub theirs_lines: Vec<String>,
+}
+
+/// One conflicted file captured during a merge: the true marker regions
+/// plus a binary flag. Binary conflicts carry no regions (their bytes hold
+/// no markers) and stay file-level only.
 #[derive(Debug, Clone)]
 pub struct GitConflictDetail {
     pub file: String,
-    pub ours_lines: Vec<String>,
-    pub theirs_lines: Vec<String>,
+    pub binary: bool,
+    pub regions: Vec<GitConflictRegion>,
+}
+
+/// Parse diff3 (`<<<<<<< ours` / `||||||| base` / `=======` /
+/// `>>>>>>> theirs`) and legacy two-way markers from merged bytes into
+/// regions with their merged-output spans.
+pub fn parse_conflict_regions(bytes: &[u8]) -> Vec<GitConflictRegion> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = Vec::new();
+    let mut ours: Vec<String> = Vec::new();
+    let mut base: Vec<String> = Vec::new();
+    let mut theirs: Vec<String> = Vec::new();
+    let mut state = 0u8;
+    let mut start_line = 0usize;
+    for (idx, line) in text.lines().enumerate() {
+        match (state, line) {
+            (0, "<<<<<<< ours") => {
+                state = 1;
+                start_line = idx;
+                ours.clear();
+                base.clear();
+                theirs.clear();
+            }
+            (1, l) if l.starts_with("|||||||") => state = 3,
+            (1, "=======") => state = 2,
+            (3, "=======") => state = 2,
+            (2, l) if l.starts_with(">>>>>>>") => {
+                state = 0;
+                out.push(GitConflictRegion {
+                    start_line,
+                    end_line: idx + 1,
+                    base_lines: std::mem::take(&mut base),
+                    ours_lines: std::mem::take(&mut ours),
+                    theirs_lines: std::mem::take(&mut theirs),
+                });
+            }
+            (1, l) => ours.push(l.to_string()),
+            (3, l) => base.push(l.to_string()),
+            (2, l) => theirs.push(l.to_string()),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Build per-file conflict details from a merge outcome: regions come from
+/// the merged bytes themselves, so views carry true intervals. Files whose
+/// merged bytes hold no markers (binary conflicts) are flagged binary and
+/// stay file-level only.
+pub fn conflict_details(
+    merged: &HashMap<String, Option<Vec<u8>>>,
+    conflicts: &[String],
+) -> Vec<GitConflictDetail> {
+    conflicts
+        .iter()
+        .map(|file| {
+            let regions = merged
+                .get(file)
+                .and_then(|content| content.as_deref())
+                .map(parse_conflict_regions)
+                .unwrap_or_default();
+            GitConflictDetail {
+                file: file.clone(),
+                binary: regions.is_empty(),
+                regions,
+            }
+        })
+        .collect()
 }
 
 /// Outcome of a Git merge: the merge commit plus per-file conflicts.
@@ -53,13 +134,6 @@ impl GitMergeOutcome {
     }
 }
 
-fn split_lines(bytes: &[u8]) -> Vec<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(str::to_string)
-        .collect()
-}
-
 impl FileCheckpointManager {
     /// Submit an actor's edit line for review: copy the edit ref to a fresh
     /// review ref (no merge) and mark it pending. Returns
@@ -78,12 +152,7 @@ impl FileCheckpointManager {
             .ok_or_else(|| CheckpointError::Validation {
                 reason: format!("actor '{}' has no commits to submit", actor.as_str()),
             })?;
-        let timestamp = self.creation_timestamp().unwrap_or_else(|_| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0)
-        });
+        let timestamp = self.creation_timestamp()?;
         let taken = git
             .list_refs(&format!("{REF_REVIEW_PREFIX}{}", sanitize(actor.as_str())))
             .map_err(map_git_error)?
@@ -218,7 +287,7 @@ impl FileCheckpointManager {
                     &parents,
                     actor_str,
                     crate::git_store::SYSTEM_COMMITTER,
-                    now_millis(),
+                    self.creation_timestamp()?,
                     &message,
                 )
                 .map_err(map_git_error)?;
@@ -254,7 +323,7 @@ impl FileCheckpointManager {
                 &parents,
                 actor_str,
                 crate::git_store::SYSTEM_COMMITTER,
-                now_millis(),
+                self.creation_timestamp()?,
                 &message,
             )
             .map_err(map_git_error)?;
@@ -271,20 +340,7 @@ impl FileCheckpointManager {
         if let Some(root) = self.workspace_root.clone() {
             let _ = self.materialize_files_into(&merged, &conflicts, &root);
         }
-        let details = conflicts
-            .iter()
-            .map(|file| GitConflictDetail {
-                file: file.clone(),
-                ours_lines: feature_tree
-                    .get(file)
-                    .map(|b| split_lines(b))
-                    .unwrap_or_default(),
-                theirs_lines: review_tree
-                    .get(file)
-                    .map(|b| split_lines(b))
-                    .unwrap_or_default(),
-            })
-            .collect();
+        let details = conflict_details(&merged, &conflicts);
         Ok(GitMergeOutcome {
             commit_id: id,
             parents,
@@ -387,7 +443,7 @@ impl FileCheckpointManager {
                     &parents,
                     actor_str,
                     crate::git_store::SYSTEM_COMMITTER,
-                    now_millis(),
+                    self.creation_timestamp()?,
                     &message,
                 )
                 .map_err(map_git_error)?;
@@ -447,7 +503,7 @@ impl FileCheckpointManager {
                 &parents,
                 actor_str,
                 crate::git_store::SYSTEM_COMMITTER,
-                now_millis(),
+                self.creation_timestamp()?,
                 &message,
             )
             .map_err(map_git_error)?;
@@ -561,26 +617,13 @@ impl FileCheckpointManager {
                 &parents,
                 actor_str,
                 crate::git_store::SYSTEM_COMMITTER,
-                now_millis(),
+                self.creation_timestamp()?,
                 &message,
             )
             .map_err(map_git_error)?;
         git.write_ref(REF_MAIN, &id).map_err(map_git_error)?;
         self.index_commit(storage, &id, actor_str, "", "rollback", &all_paths)?;
-        let details = conflicts
-            .iter()
-            .map(|file| GitConflictDetail {
-                file: file.clone(),
-                ours_lines: main_tree
-                    .get(file)
-                    .map(|b| split_lines(b))
-                    .unwrap_or_default(),
-                theirs_lines: pre_merge_tree
-                    .get(file)
-                    .map(|b| split_lines(b))
-                    .unwrap_or_default(),
-            })
-            .collect();
+        let details = conflict_details(&merged, &conflicts);
         Ok(GitMergeOutcome {
             commit_id: id.clone(),
             parents,
@@ -620,11 +663,4 @@ impl FileCheckpointManager {
 /// review ids always survive ref construction unchanged.
 fn sanitize(raw: &str) -> String {
     crate::git_store::sanitize_ref_component(raw)
-}
-
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }

@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
@@ -17,29 +14,7 @@ pub const DEFAULT_FULL_SNAPSHOT_THRESHOLD: f64 = 0.5;
 const DIFF_CACHE_MAX_ENTRIES: usize = 100;
 
 lazy_static! {
-    static ref DIFF_CACHE: Mutex<HashMap<u64, String>> = Mutex::new(HashMap::new());
-}
-
-/// Agent Instance ID Type
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct AgentInstanceId(pub String);
-
-impl fmt::Display for AgentInstanceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for AgentInstanceId {
-    fn from(s: &str) -> Self {
-        AgentInstanceId(s.to_string())
-    }
-}
-
-impl From<String> for AgentInstanceId {
-    fn from(s: String) -> Self {
-        AgentInstanceId(s)
-    }
+    static ref DIFF_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
 
 /// Diff operation type
@@ -95,12 +70,20 @@ impl LineDiff {
     }
 }
 
-fn compute_hash(old: &str, new: &str, context: usize) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    old.hash(&mut hasher);
-    new.hash(&mut hasher);
-    context.hash(&mut hasher);
-    hasher.finish()
+fn compute_hash(old: &str, new: &str, context: usize) -> String {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut hash = OFFSET;
+    for byte in old
+        .as_bytes()
+        .iter()
+        .chain(new.as_bytes())
+        .chain(&context.to_le_bytes())
+    {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 fn strip_newline(s: &str) -> String {
@@ -288,9 +271,10 @@ pub fn format_unified_diff(old: &str, new: &str, context: usize) -> String {
         let hash = compute_hash(old, new, context);
         let mut cache = lock_ok(DIFF_CACHE.lock());
         if cache.len() >= DIFF_CACHE_MAX_ENTRIES {
+            let mut keys: Vec<String> = cache.keys().cloned().collect();
+            keys.sort_unstable();
             let to_remove = cache.len() / 2;
-            let keys: Vec<_> = cache.keys().take(to_remove).copied().collect();
-            for k in keys {
+            for k in keys.into_iter().take(to_remove) {
                 cache.remove(&k);
             }
         }

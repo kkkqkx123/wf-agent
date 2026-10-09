@@ -60,6 +60,16 @@ pub struct SessionScopeRegistry {
     session_scope: DashMap<String, PathBuf>,
 }
 
+/// Outcome of ending a scope: distinguishes applied changes from no-change
+/// and failures so callers never confuse an empty diff with a failed commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScopeEndOutcome {
+    Applied { applied: usize },
+    NoChange,
+    Skipped,
+    Failed { reason: String },
+}
+
 /// Per-execution view over the shared sampling registry.
 #[derive(Clone)]
 pub struct ScopeCapture {
@@ -107,20 +117,37 @@ impl ScopeCapture {
         Some(scope)
     }
 
-    pub fn end_scope(&self, execution_id: &str, scope_dir: &Path, terminated: bool) -> Option<()> {
-        let root = self.manager.workspace_root()?;
-        let scope = resolve_shell_scope(root, scope_dir)?;
+    pub fn end_scope(
+        &self,
+        execution_id: &str,
+        scope_dir: &Path,
+        terminated: bool,
+    ) -> ScopeEndOutcome {
+        let Some(root) = self.manager.workspace_root() else {
+            return ScopeEndOutcome::Skipped;
+        };
+        let Some(scope) = resolve_shell_scope(root, scope_dir) else {
+            return ScopeEndOutcome::Skipped;
+        };
         if !terminated {
-            return None;
+            return ScopeEndOutcome::Skipped;
         }
         let scoped_key = key(execution_id, &scope);
-        let before = self
+        let Some(before) = self
             .scopes
             .scoped_before
             .remove(&scoped_key)
-            .map(|(_, v)| v)?;
-        self.apply_scoped_diff(&scope, &before, execution_id);
-        Some(())
+            .map(|(_, v)| v)
+        else {
+            return ScopeEndOutcome::Skipped;
+        };
+        match self.apply_scoped_diff(&scope, &before, execution_id) {
+            Ok(0) => ScopeEndOutcome::NoChange,
+            Ok(applied) => ScopeEndOutcome::Applied { applied },
+            Err(e) => ScopeEndOutcome::Failed {
+                reason: e.to_string(),
+            },
+        }
     }
 
     // ---- background session helpers ----
@@ -152,7 +179,7 @@ impl ScopeCapture {
         ) else {
             return;
         };
-        self.apply_scoped_diff(&scope, &before, execution_id);
+        let _ = self.apply_scoped_diff(&scope, &before, execution_id);
         if let Some(next) = self.capture_scope(&scope) {
             self.scopes
                 .session_before
@@ -168,7 +195,7 @@ impl ScopeCapture {
             .map(|(_, v)| v);
         let scope = self.scopes.session_scope.remove(session_id).map(|(_, v)| v);
         if let (Some(before), Some(scope)) = (before, scope) {
-            self.apply_scoped_diff(&scope, &before, execution_id);
+            let _ = self.apply_scoped_diff(&scope, &before, execution_id);
         }
     }
 
@@ -194,12 +221,13 @@ impl ScopeCapture {
         execution_id: String,
         scope_dir: PathBuf,
         terminated: bool,
-    ) -> Option<()> {
+    ) -> ScopeEndOutcome {
         let this = self.clone();
         tokio::task::spawn_blocking(move || this.end_scope(&execution_id, &scope_dir, terminated))
             .await
-            .ok()
-            .flatten()
+            .unwrap_or(ScopeEndOutcome::Failed {
+                reason: "scope end task failed".to_string(),
+            })
     }
 
     // ---- internals ----
@@ -237,13 +265,19 @@ impl ScopeCapture {
         scope: &Path,
         before: &HashMap<PathBuf, String>,
         execution_id: &str,
-    ) {
+    ) -> Result<usize, checkpoint_base::error::CheckpointError> {
         let Some(root) = self.manager.workspace_root() else {
-            return;
+            return Err(checkpoint_base::error::CheckpointError::Validation {
+                reason: "no workspace root for scoped diff".to_string(),
+            });
         };
         let collector = match self.collector_for(scope) {
             Some(c) => c,
-            None => return,
+            None => {
+                return Err(checkpoint_base::error::CheckpointError::Validation {
+                    reason: "no scope collector".to_string(),
+                });
+            }
         };
         let after = match collector.capture() {
             Ok(map) => map,
@@ -256,12 +290,14 @@ impl ScopeCapture {
                     error = %err,
                     "scoped after-capture failed"
                 );
-                return;
+                return Err(checkpoint_base::error::CheckpointError::Internal(format!(
+                    "scoped after-capture failed: {err}"
+                )));
             }
         };
         let changes = WorkspaceChangeCollector::diff(before, &after);
         if changes.is_empty() {
-            return;
+            return Ok(0);
         }
         match self.manager.apply_workspace_changes(
             &self.actor,
@@ -278,6 +314,7 @@ impl ScopeCapture {
                     total = changes.len(),
                     "scoped shell diff applied into agent partition"
                 );
+                Ok(applied)
             }
             Err(err) => {
                 tracing::warn!(
@@ -287,9 +324,9 @@ impl ScopeCapture {
                     error = %err,
                     "scoped shell diff apply failed"
                 );
+                Err(err)
             }
         }
-        let _ = after;
     }
 }
 

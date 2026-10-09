@@ -1,8 +1,9 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, ChildMetadataIndex,
+    publish_persisted, ChildDiscoveryIndex,
 };
 use crate::coordinator::CheckpointCoordinator;
+use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::delta::AgentDiffCalculator;
 use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::delta::DeltaRestorer;
@@ -65,37 +66,19 @@ fn timeline_from_metadata(
     Some((start, end, trigger_label_from_tags(meta.tags.as_ref())))
 }
 
-/// Trigger label derived from the stored trigger tag, mirroring the
-/// description `build` injects into the blob metadata.
+/// Trigger label resolved through the single wire table in
+/// `checkpoint_base::metadata::builder`: the stored `trigger:<name>` tag
+/// maps back to its trigger and renders the same description `build`
+/// injects into the blob metadata. A present-but-unknown wire name renders
+/// an explicit unknown marker instead of empty, so a timeline row never
+/// silently loses its trigger to table drift.
 fn trigger_label_from_tags(tags: Option<&Vec<String>>) -> Option<String> {
+    use checkpoint_base::metadata::builder::{trigger_description, trigger_from_wire_name};
     let wire = tags?.iter().find_map(|tag| tag.strip_prefix("trigger:"))?;
-    Some(
-        match wire {
-            "BEFORE_EXECUTE" => "Before execute",
-            "AFTER_EXECUTE" => "After execute",
-            "ON_ERROR" => "Error checkpoint",
-            "BEFORE_RETRY" => "Before retry",
-            "AFTER_RETRY_SUCCESS" => "After retry success",
-            "ON_FALLBACK" => "Fallback checkpoint",
-            "ITERATION_END" => "Iteration end",
-            "ITERATION_FAILED" => "Iteration failed",
-            "TOOL_BEFORE" => "Before tool",
-            "TOOL_AFTER" => "After tool",
-            "BEFORE_COMPRESSION" => "Before compression",
-            "AFTER_COMPRESSION" => "After compression",
-            "ON_PAUSE" => "Pause checkpoint",
-            "ON_CANCEL" => "Cancel checkpoint",
-            "ON_TIMEOUT" => "Timeout checkpoint",
-            "ON_FAILURE" => "Failure checkpoint",
-            "ON_STOPPED" => "Stopped checkpoint",
-            "ON_COMPLETE" => "Complete checkpoint",
-            "INTERVAL" => "Interval checkpoint",
-            "MANUAL" => "Manual checkpoint",
-            "NEVER" => "Never",
-            _ => return None,
-        }
-        .to_string(),
-    )
+    match trigger_from_wire_name(wire) {
+        Some(trigger) => Some(trigger_description(&trigger)),
+        None => Some(format!("Unknown trigger ({wire})")),
+    }
 }
 
 /// Sequence bound read from a blob metadata map via its `customFields`
@@ -134,41 +117,40 @@ impl ProgressCoords {
     /// Render coordinates as stored custom fields for the shared gate
     /// comparison over
     /// [`checkpoint_base::metadata::builder::PROGRESS_COORD_KEYS`].
-    /// Mirrors exactly what `build` injects: sequence bounds only when
-    /// present, counters and status unconditionally — so a fresh build
-    /// compares equal to its own persisted row, while pre-coordinate rows
-    /// (keys missing on one side) never match.
+    /// Absent values render as JSON null, mirroring what `build` injects, so
+    /// a fresh build compares equal to its own persisted row while
+    /// pre-coordinate rows never match.
     pub fn as_fields(&self) -> HashMap<String, serde_json::Value> {
-        let mut fields = HashMap::new();
-        if let Some(seq_start) = self.seq_start {
-            fields.insert(
+        HashMap::from([
+            (
                 MSG_SEQ_START_FIELD.to_string(),
-                serde_json::json!(seq_start),
-            );
-        }
-        if let Some(seq_end) = self.seq_end {
-            fields.insert(MSG_SEQ_END_FIELD.to_string(), serde_json::json!(seq_end));
-        }
-        if let Some(seq_next) = self.seq_next {
-            fields.insert(MSG_SEQ_NEXT_FIELD.to_string(), serde_json::json!(seq_next));
-        }
-        fields.insert(
-            ITERATION_FIELD.to_string(),
-            serde_json::json!(self.iteration),
-        );
-        fields.insert(
-            TOOL_CALL_COUNT_FIELD.to_string(),
-            serde_json::json!(self.tool_call_count),
-        );
-        fields.insert(
-            LOOP_STATUS_FIELD.to_string(),
-            serde_json::json!(self.loop_status),
-        );
-        fields.insert(
-            PENDING_COUNT_FIELD.to_string(),
-            serde_json::json!(self.pending_count),
-        );
-        fields
+                serde_json::json!(self.seq_start),
+            ),
+            (
+                MSG_SEQ_END_FIELD.to_string(),
+                serde_json::json!(self.seq_end),
+            ),
+            (
+                MSG_SEQ_NEXT_FIELD.to_string(),
+                serde_json::json!(self.seq_next),
+            ),
+            (
+                ITERATION_FIELD.to_string(),
+                serde_json::json!(self.iteration),
+            ),
+            (
+                TOOL_CALL_COUNT_FIELD.to_string(),
+                serde_json::json!(self.tool_call_count),
+            ),
+            (
+                LOOP_STATUS_FIELD.to_string(),
+                serde_json::json!(self.loop_status),
+            ),
+            (
+                PENDING_COUNT_FIELD.to_string(),
+                serde_json::json!(self.pending_count),
+            ),
+        ])
     }
 }
 
@@ -223,6 +205,7 @@ pub struct AgentCheckpointCoordinator {
     event_bus: Option<CheckpointEventBus>,
     delta_config: DeltaStorageConfig,
     version_manager: VersionManager,
+    clock: CheckpointClock,
     strategy: Option<StandardStrategy>,
     error_handler: checkpoint_base::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
@@ -242,6 +225,7 @@ impl AgentCheckpointCoordinator {
             event_bus: None,
             delta_config: DeltaStorageConfig::default(),
             version_manager: VersionManager::new(),
+            clock: CheckpointClock::system(),
             strategy: None,
             error_handler: checkpoint_base::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
@@ -264,6 +248,15 @@ impl AgentCheckpointCoordinator {
     pub fn with_version_manager(mut self, manager: VersionManager) -> Self {
         self.version_manager = manager;
         self
+    }
+
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    pub fn clock(&self) -> &CheckpointClock {
+        &self.clock
     }
 
     /// Configure the default checkpoint strategy from a unified policy.
@@ -363,7 +356,9 @@ impl AgentCheckpointCoordinator {
     /// Timeline anchors for one execution, ordered by sequence end.
     /// Sequence bounds prefer checkpoint metadata so no blob is loaded for
     /// new rows; rows predating the coordinate fields fall back to the
-    /// snapshot body.
+    /// snapshot body. Rows still missing a bound sort last by an explicit
+    /// maximum fallback: the order stays deterministic, but a trailing row
+    /// signals missing coordinates rather than a late sequence.
     pub async fn timeline(&self, entity_id: &str) -> Result<Vec<TimelineRow>, CheckpointError> {
         let metas = self.state_manager.list_by_entity(entity_id).await?;
         let mut entries: Vec<TimelineRow> = Vec::new();
@@ -513,7 +508,7 @@ impl AgentCheckpointCoordinator {
             }
         }
 
-        let loader = ChildMetadataIndex::new(index);
+        let loader = ChildDiscoveryIndex::new(index);
         let discovery = ChildDiscovery::new(Arc::new(resolver));
         let results = discovery.discover_children_bfs(checkpoint_id, &loader, 8, None)?;
         let mut summary = ChildDiscovery::summarize_results(&results);
@@ -718,11 +713,17 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             PENDING_COUNT_FIELD.to_string(),
             serde_json::json!(coords.pending_count),
         );
+        let now_ms = self.clock.now_ms().ok_or_else(|| {
+            CheckpointError::Internal(
+                "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
+            )
+        })?;
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
             ctx.trigger.as_ref().map(trigger_tag).into_iter().collect(),
             custom_fields,
             self.version_manager.current_version(),
+            now_ms,
         );
 
         match checkpoint_type {
@@ -733,7 +734,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 previous_checkpoint_id: previous.map(|p| p.id),
                 delta: None,
                 snapshot: Some(state),
-                timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                timestamp: Some(now_ms),
                 metadata,
                 format_version: Some(self.version_manager.current_version().to_string()),
             }),
@@ -759,7 +760,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                             previous_checkpoint_id: previous.map(|p| p.id),
                             delta: Some(delta),
                             snapshot: None,
-                            timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                            timestamp: Some(now_ms),
                             metadata,
                             format_version: Some(
                                 self.version_manager.current_version().to_string(),
@@ -773,7 +774,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                         previous_checkpoint_id: previous.map(|p| p.id),
                         delta: None,
                         snapshot: Some(state),
-                        timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                        timestamp: Some(now_ms),
                         metadata,
                         format_version: Some(self.version_manager.current_version().to_string()),
                     }),
@@ -950,7 +951,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             if let Some(ref bus) = self.event_bus {
                 bus.publish(CheckpointEventBus::deleted_with(
                     checkpoint_id.to_string(),
-                    Some("manual".to_string()),
+                    Some("delete".to_string()),
                 ));
             }
         }
@@ -991,7 +992,16 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
         if let Some(manager) = &self.file_checkpoint_manager {
-            match manager.create_latest_file_checkpoint(entity_id)? {
+            let manager_for_task = manager.clone();
+            let entity_id_owned = entity_id.to_string();
+            let outcome = tokio::task::spawn_blocking(move || {
+                manager_for_task.create_latest_file_checkpoint(&entity_id_owned)
+            })
+            .await
+            .map_err(|e| {
+                CheckpointError::Internal(format!("file projection task failed: {e}"))
+            })??;
+            match outcome {
                 Some(file_checkpoint) => {
                     manager.record_state_file_link(checkpoint_id, &file_checkpoint.id)?;
                     tracing::debug!(
@@ -1099,7 +1109,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         crate::coordinator::base::drain_persistence_handles(
             &self.persistence_queue,
             self.event_bus.as_ref(),
-            "",
+            "all",
             queue_metrics.as_deref(),
         )
         .await;
@@ -1110,8 +1120,8 @@ impl AgentCheckpointCoordinator {
     /// Merge a caller-supplied description into an existing checkpoint row
     /// without allocating a new row. Shared implementation lives in
     /// [`crate::coordinator::base::merge_description_back`]; the contract
-    /// (trigger label untouched, timestamp preserved, missing target falls
-    /// back to current latest) is identical for both coordinators.
+    /// (trigger label untouched, timestamp preserved, missing target reports
+    /// not-found) is identical for both coordinators.
     pub async fn merge_description_back(
         &self,
         checkpoint_id: &str,
@@ -1127,13 +1137,6 @@ impl AgentCheckpointCoordinator {
             self.event_bus.as_ref(),
         )
         .await?;
-        if merged.id != checkpoint_id {
-            if let Some(manager) = self.file_checkpoint_manager.as_ref() {
-                if let Some(metrics) = manager.checkpoint_metrics_for_observability() {
-                    metrics.record_cleanup_skip(entity_id);
-                }
-            }
-        }
         Ok(merged)
     }
 
@@ -1142,7 +1145,7 @@ impl AgentCheckpointCoordinator {
         latest: &CheckpointStorageMetadata,
         entity_id: &str,
         description: Option<&str>,
-    ) -> String {
+    ) -> Result<String, CheckpointError> {
         crate::coordinator::base::reuse_duplicate_checkpoint(
             &self.state_manager,
             latest,
@@ -1764,7 +1767,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merge_missing_target_returns_current_latest() {
+    async fn merge_missing_target_reports_not_found() {
         let coord = make_coordinator();
         let first = build_and_persist(&coord, "running", 1).await;
         let mut second_snapshot = make_snapshot();
@@ -1773,15 +1776,17 @@ mod tests {
             .prepare("loop-1", CheckpointTiming::AfterExecute)
             .await
             .unwrap();
-        let second = coord.build(ctx, second_snapshot).await.unwrap();
-        coord.persist(&second, "loop-1").await.unwrap();
+        let _second = coord.build(ctx, second_snapshot).await.unwrap();
+        coord.persist(&_second, "loop-1").await.unwrap();
 
         coord.state_manager().delete(&first.id).await.unwrap();
-        let merged = coord
-            .merge_description_back(&first.id, "loop-1", "late note")
-            .await
-            .unwrap();
-        assert_eq!(merged.id, second.id);
+        let err = coord
+            .merge_description_back(&first.id, "loop-1", "late note")            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, CheckpointError::NotFound { .. }),
+            "a cleaned-up merge target must report not-found, never silently merge into latest"
+        );
     }
 
     #[tokio::test]
@@ -1833,7 +1838,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn best_effort_cleanup_skip_emits_queryable_failed_event() {
+    async fn best_effort_cleanup_skip_emits_queryable_skipped_event() {
         let storage = Arc::new(StorageBackend::new_memory());
         let sm = AgentCheckpointStateManager::new(storage);
         let bus = CheckpointEventBus::new();
@@ -1841,40 +1846,34 @@ mod tests {
         let coord = AgentCheckpointCoordinator::new(sm).with_event_bus(bus);
 
         let first = build_and_persist(&coord, "running", 1).await;
-        let second = build_and_persist(&coord, "running", 2).await;
+        let _second = build_and_persist(&coord, "running", 2).await;
         coord.state_manager().delete(&first.id).await.unwrap();
-        let merged = coord
+        let err = coord
             .merge_description_back(&first.id, "loop-1", "late note")
             .await
-            .unwrap();
-        assert_eq!(merged.id, second.id);
+            .unwrap_err();
+        assert!(matches!(err, CheckpointError::NotFound { .. }));
         let mut found = None;
         while let Ok(event) = rx.try_recv() {
-            if let CheckpointEvent::Failed { data, .. } = &event {
+            if let CheckpointEvent::Skipped { data, .. } = &event {
                 if data.operation.as_deref() == Some("cleanup_skip") {
                     found = Some(event);
                     break;
                 }
             }
         }
-        let event = found.expect("cleanup skip emits Failed event");
+        let event = found.expect("cleanup skip emits Skipped event");
         match event {
-            CheckpointEvent::Failed { data, .. } => {
+            CheckpointEvent::Skipped { data, .. } => {
                 assert_eq!(data.operation.as_deref(), Some("cleanup_skip"));
-                assert_eq!(data.execution_id.as_deref(), Some("loop-1"));
             }
-            other => panic!("expected Failed event, got {:?}", other),
+            other => panic!("expected Skipped event, got {:?}", other),
         }
     }
 
     #[test]
     fn best_effort_failure_factory_reuses_failed_shape_for_all_operations() {
-        for operation in [
-            "async_projection",
-            "persistence_backlog",
-            "persistence_failure",
-            "cleanup_skip",
-        ] {
+        for operation in ["async_projection", "persistence_failure"] {
             let event = CheckpointEventBus::failed_with(
                 Some("cp-1".to_string()),
                 operation,
@@ -1887,6 +1886,20 @@ mod tests {
                     assert_eq!(data.checkpoint_id.as_deref(), Some("cp-1"));
                 }
                 other => panic!("expected Failed event, got {:?}", other),
+            }
+        }
+        for operation in ["persistence_backlog", "cleanup_skip"] {
+            let event = CheckpointEventBus::skipped(
+                operation,
+                format!("{operation} skipped"),
+                Some("cp-1".to_string()),
+            );
+            match event {
+                CheckpointEvent::Skipped { data, .. } => {
+                    assert_eq!(data.operation.as_deref(), Some(operation));
+                    assert_eq!(data.checkpoint_id.as_deref(), Some("cp-1"));
+                }
+                other => panic!("expected Skipped event, got {:?}", other),
             }
         }
     }

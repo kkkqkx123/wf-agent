@@ -274,7 +274,7 @@ impl FileCheckpointManager {
 
     /// Whether a loose object was written recently enough to still be part
     /// of an in-flight commit. Objects whose age cannot be determined are
-    /// treated as old so cleanup keeps making progress on readable stores.
+    /// treated as new so cleanup favors safety over progress.
     fn object_is_within_grace(
         git: &crate::git_store::GitStore,
         id: &str,
@@ -285,11 +285,11 @@ impl FileCheckpointManager {
         }
         let path = git.git_dir().join("objects").join(&id[..2]).join(&id[2..]);
         let Ok(metadata) = std::fs::metadata(&path) else {
-            return false;
+            return true;
         };
         let Ok(modified) = metadata.modified() else {
-            return false;
+            return true;
         };
-        modified.elapsed().map(|age| age < grace).unwrap_or(false)
+        modified.elapsed().map(|age| age < grace).unwrap_or(true)
     }
 }

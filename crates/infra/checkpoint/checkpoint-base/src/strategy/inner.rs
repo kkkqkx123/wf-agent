@@ -383,6 +383,10 @@ mod tests {
                 description: String::new(),
                 policy: resolved.clone(),
                 effective_source: crate::config_resolver::CheckpointConfigSource::Default,
+                trigger_source: crate::config_resolver::CheckpointConfigSource::Default,
+                content_source: crate::config_resolver::CheckpointConfigSource::Default,
+                retention_source: crate::config_resolver::CheckpointConfigSource::Default,
+                error_source: crate::config_resolver::CheckpointConfigSource::Default,
             },
             &CheckpointTiming::AfterExecute,
         ));

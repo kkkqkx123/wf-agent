@@ -36,6 +36,13 @@ pub enum CheckpointEvent {
         base: BaseEvent,
         data: CheckpointData,
     },
+    /// An expected race was skipped (cleanup lost to a concurrent write,
+    /// duplicate creation merged back). Skipped outcomes are not failures and
+    /// must not pollute failure dashboards.
+    Skipped {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
     /// A file change was recorded into a file-checkpoint partition.
     /// `data.checkpoint_id` carries the resulting snapshot
     /// id, `data.description` the file path, and `data.reason` the source
@@ -93,8 +100,10 @@ impl CheckpointEventBus {
     }
 
     /// Publish a checkpoint event. Returns the number of receivers that got
-    /// it. When the bus has subscribers but the slowest one lags, the event is
-    /// dropped and a warning is emitted so the publisher is not blind to it.
+    /// it. The channel is bounded and non-blocking: when the bus has
+    /// subscribers but the slowest one lags, the event is dropped and a
+    /// warning is emitted. High fanout per-file bursts should publish one
+    /// summary event instead of one event per file.
     pub fn publish(&self, event: CheckpointEvent) -> usize {
         match self.sender.send(event) {
             Ok(received) => received,
@@ -115,10 +124,14 @@ impl CheckpointEventBus {
     }
 
     fn make_base(event_type: EventType) -> BaseEvent {
+        Self::make_base_at(event_type, chrono::Utc::now().timestamp_millis())
+    }
+
+    fn make_base_at(event_type: EventType, timestamp_ms: i64) -> BaseEvent {
         BaseEvent {
             id: wf_common::generate_id(),
             r#type: event_type,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: timestamp_ms,
             workflow_id: None,
             execution_id: None,
             agent_loop_id: None,
@@ -290,6 +303,47 @@ impl CheckpointEventBus {
                 reason: None,
             },
             stats,
+        }
+    }
+
+    /// Create a `Skipped` event for expected races (cleanup contention,
+    /// duplicate merge-back). Callers must use this instead of `Failed` so
+    /// failure dashboards stay clean.
+    pub fn skipped(
+        operation: impl Into<String>,
+        reason: impl Into<String>,
+        checkpoint_id: Option<String>,
+    ) -> CheckpointEvent {
+        CheckpointEvent::Skipped {
+            base: Self::make_base(EventType::CheckpointFailed),
+            data: CheckpointData {
+                checkpoint_id,
+                execution_id: None,
+                operation: Some(operation.into()),
+                error: None,
+                description: None,
+                reason: Some(reason.into()),
+            },
+        }
+    }
+
+    /// Timestamped variant of `skipped` for clock-injected paths.
+    pub fn skipped_at(
+        operation: impl Into<String>,
+        reason: impl Into<String>,
+        checkpoint_id: Option<String>,
+        timestamp_ms: i64,
+    ) -> CheckpointEvent {
+        CheckpointEvent::Skipped {
+            base: Self::make_base_at(EventType::CheckpointFailed, timestamp_ms),
+            data: CheckpointData {
+                checkpoint_id,
+                execution_id: None,
+                operation: Some(operation.into()),
+                error: None,
+                description: None,
+                reason: Some(reason.into()),
+            },
         }
     }
 }

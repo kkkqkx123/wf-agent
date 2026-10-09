@@ -21,6 +21,10 @@ use crate::git_store::{
 use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
 use checkpoint_base::error::CheckpointError;
 
+/// Maximum commits a fallback graph scan may walk when the source index is
+/// empty. Larger stores must rebuild the index; cold full scans stay bounded.
+const MAX_FALLBACK_SCAN_COMMITS: usize = 5000;
+
 /// One recorded change of a commit.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeltaSummary {
@@ -44,7 +48,7 @@ pub struct DeltaSummary {
 pub struct PartitionView {
     pub partition_id: String,
     pub name: String,
-    /// `manual` | `agent` | `approval` | `integrated` | `main`.
+    /// `manual` | `agent` | `approval` | `mainline` | `main`.
     pub kind: String,
     /// Actor id for per-actor lines (agent/approval), `None` otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,7 +139,9 @@ fn summaries_for_commit(
     Ok(out)
 }
 
-/// Commits touching one actor: index fast path, graph scan fallback.
+/// Commits touching one actor: index fast path, bounded graph scan fallback.
+/// The fallback scans at most `MAX_FALLBACK_SCAN_COMMITS` commits; larger
+/// stores must rebuild the source index instead of cold scanning.
 fn commits_for_actor(
     git: &GitStore,
     storage: &SqliteStorage,
@@ -158,8 +164,17 @@ fn commits_for_actor(
         actor = %actor,
         "source index empty for actor; falling back to graph scan"
     );
+    let all = git.all_commits().map_err(map_git_error)?;
+    if all.len() > MAX_FALLBACK_SCAN_COMMITS {
+        return Err(CheckpointError::Validation {
+            reason: format!(
+                "source index empty and graph holds {} commits, exceeding fallback cap {MAX_FALLBACK_SCAN_COMMITS}; rebuild the index",
+                all.len()
+            ),
+        });
+    }
     let mut out = Vec::new();
-    for commit in git.all_commits().map_err(map_git_error)? {
+    for commit in all {
         if commit.trailer(TRAILER_ACTOR).as_deref() == Some(actor) {
             out.push(commit);
         }
@@ -181,7 +196,7 @@ fn classify_ref(name: &str, head: &GitCommit) -> (String, Option<String>) {
     } else if name.strip_prefix(REF_REVIEW_PREFIX).is_some() {
         ("approval".to_string(), head.trailer(TRAILER_ACTOR))
     } else if let Some(name) = name.strip_prefix(REF_FEAT_PREFIX) {
-        ("integrated".to_string(), Some(name.to_string()))
+        ("mainline".to_string(), Some(name.to_string()))
     } else if let Some(actor) = name.strip_prefix(REF_EDIT_PREFIX) {
         ("agent".to_string(), Some(actor.to_string()))
     } else {
@@ -256,6 +271,15 @@ pub fn list_changes_by_actor(
 /// the same file moved, so timelines span renames with small edits.
 pub const RENAME_SIMILARITY_THRESHOLD: f64 = 0.5;
 
+/// Files shorter than this (line count on either side) only count as a
+/// rename on identical bytes: similarity scores on boilerplate headers and
+/// tiny files misfire too easily to trust.
+pub const RENAME_EXACT_MATCH_MAX_LINES: usize = 8;
+
+fn line_count(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|&&b| b == b'\n').count()
+}
+
 /// Content similarity for rename following: identical bytes score `1.0`,
 /// binary content requires identical bytes, text content uses the retained
 /// line-diff similarity. Display still renders via unified diffs.
@@ -272,10 +296,10 @@ fn content_similarity(a: &[u8], b: &[u8]) -> f64 {
     checkpoint_base::common::diff::diff_stats_for_text(before, after).similarity
 }
 
-/// Changes touching `path` across every line, following renames: an
-/// identical-content add paired with a same-commit delete counts as a
-/// rename, so the timeline spans both names. `time_range` (inclusive
-/// `(start, end)` timestamps) narrows the window.
+/// Changes touching `path` across every line: only commits whose tree
+/// contains `path` are listed. Similarly-named or similarly-contented files
+/// are never folded in: rename following lives in `file_timeline`, and a
+/// path history must not silently absorb unrelated files.
 pub fn list_changes_by_path(
     git: &GitStore,
     storage: &SqliteStorage,
@@ -284,13 +308,22 @@ pub fn list_changes_by_path(
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
     let indexed = storage.find_commits_by_path(path, 0)?;
     let commits: Vec<GitCommit> = if indexed.is_empty() {
-        // Fallback: scan every reachable commit's tree for the path.
+        // Fallback: scan every reachable commit's tree for the path, bounded.
         tracing::warn!(
             path = %path,
             "source index empty for path; falling back to graph scan"
         );
+        let all = git.all_commits().map_err(map_git_error)?;
+        if all.len() > MAX_FALLBACK_SCAN_COMMITS {
+            return Err(CheckpointError::Validation {
+                reason: format!(
+                    "source index empty and graph holds {} commits, exceeding fallback cap {MAX_FALLBACK_SCAN_COMMITS}; rebuild the index",
+                    all.len()
+                ),
+            });
+        }
         let mut found = Vec::new();
-        for commit in git.all_commits().map_err(map_git_error)? {
+        for commit in all {
             let Ok(files) = git.tree_to_files(&commit.tree) else {
                 continue;
             };
@@ -305,25 +338,8 @@ pub fn list_changes_by_path(
             .filter_map(|entry| git.read_commit(&entry.commit_id).ok())
             .collect()
     };
-    // Rename follow: same-content blobs appearing under other names in the
-    // same commits extend the path set (similarity via line-diff threshold).
-    let mut names: HashSet<String> = HashSet::from([path.to_string()]);
-    for commit in &commits {
-        let Ok(files) = git.tree_to_bytes(&commit.tree) else {
-            continue;
-        };
-        let Some(want) = files.get(path) else {
-            continue;
-        };
-        for (other, bytes) in &files {
-            if other == path {
-                continue;
-            }
-            if content_similarity(want, bytes) >= RENAME_SIMILARITY_THRESHOLD {
-                names.insert(other.clone());
-            }
-        }
-    }
+    // Path history is exact: no similarity expansion. A caller that wants
+    // rename-spanning history uses `file_timeline`.
     let mut changes = Vec::new();
     for commit in commits {
         if let Some((start, end)) = time_range {
@@ -332,7 +348,7 @@ pub fn list_changes_by_path(
             }
         }
         for summary in summaries_for_commit(git, &commit)? {
-            if names.contains(&summary.file) {
+            if summary.file == path {
                 changes.push(summary);
             }
         }
@@ -426,10 +442,13 @@ pub struct ConflictFile {
 }
 
 /// Parse standard conflict markers from stored bytes into read views.
+/// Handles both diff3 markers (with an `||||||| base` section) and legacy
+/// two-way markers (no base section).
 pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
     let text = String::from_utf8_lossy(bytes);
     let mut out = Vec::new();
     let mut ours: Vec<String> = Vec::new();
+    let mut base: Vec<String> = Vec::new();
     let mut theirs: Vec<String> = Vec::new();
     let mut state = 0u8;
     let mut start_line = 0usize;
@@ -439,20 +458,24 @@ pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
                 state = 1;
                 start_line = idx;
                 ours.clear();
+                base.clear();
                 theirs.clear();
             }
+            (1, l) if l.starts_with("|||||||") => state = 3,
             (1, "=======") => state = 2,
+            (3, "=======") => state = 2,
             (2, l) if l.starts_with(">>>>>>>") => {
                 state = 0;
                 out.push(ConflictView {
                     file: path.to_string(),
                     start_line,
-                    base: vec![],
+                    base: std::mem::take(&mut base),
                     ours: std::mem::take(&mut ours),
                     theirs: std::mem::take(&mut theirs),
                 });
             }
             (1, l) => ours.push(l.to_string()),
+            (3, l) => base.push(l.to_string()),
             (2, l) => theirs.push(l.to_string()),
             _ => {}
         }
@@ -734,6 +757,13 @@ pub fn file_timeline(
                 let Ok(old_bytes) = git.read_blob(old_blob) else {
                     continue;
                 };
+                // Small files require identical bytes (checked above):
+                // similarity on a handful of lines is boilerplate noise.
+                if line_count(&old_bytes) < RENAME_EXACT_MATCH_MAX_LINES
+                    || line_count(&new_bytes) < RENAME_EXACT_MATCH_MAX_LINES
+                {
+                    continue;
+                }
                 let score = content_similarity(&old_bytes, &new_bytes);
                 if score >= RENAME_SIMILARITY_THRESHOLD
                     && best.as_ref().is_none_or(|(_, s)| score > *s)

@@ -213,6 +213,7 @@ where
             .map_err(CheckpointError::Storage)?;
 
         // Keep only the newest record per entity (list is timestamp-descending).
+        // Corrupt rows are skipped loudly so one bad row never fails the batch.
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut latest: Vec<CheckpointStorageMetadata> = Vec::new();
         for (id, meta) in entries {
@@ -222,7 +223,12 @@ where
                 .unwrap_or_default()
                 .to_string();
             if seen.insert(entity_id.clone()) {
-                latest.push(parse_storage_metadata(&id, &entity_id, &meta));
+                match parse_storage_metadata(&id, &entity_id, &meta) {
+                    Ok(parsed) => latest.push(parsed),
+                    Err(e) => {
+                        tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata")
+                    }
+                }
             }
         }
         Ok(latest)
@@ -279,10 +285,14 @@ where
     pub async fn execute_cleanup_for_entity(
         &self,
         entity_id: &str,
-        _entity_type: &str,
+        entity_type: &str,
         exclude_checkpoint_id: Option<&str>,
         strategy: &CleanupStrategy,
     ) -> Result<CleanupResult, CheckpointError> {
+        // Entity type is kept for observability and future per-type policy
+        // routing. Candidate selection filters by entity id; stored rows carry
+        // their own type and mismatches are tolerated here.
+        let _ = entity_type;
         // Serialize cleanup runs per entity.
         let lock = self
             .cleanup_locks
@@ -307,7 +317,8 @@ where
         };
 
         let executor = CleanupExecutor::new();
-        let mut result = executor.evaluate_protected_with_result(&candidates, strategy);
+        let mut result =
+            executor.evaluate_protected_with_result(&candidates, strategy, &self.clock);
 
         if let Some(exclude) = exclude_checkpoint_id {
             result.deleted_checkpoint_ids.retain(|id| id != exclude);
@@ -515,7 +526,44 @@ where
                 entry.chain_root_id = Some(anchor_id.to_string());
                 entry.chain_position = Some(1);
             }
+            let prev_ids: Vec<String> = chain.iter().map(|e| e.id.clone()).collect();
+            for (index, entry) in chain.iter_mut().enumerate() {
+                entry.chain_position = Some((index + 1) as u32);
+                if index > 0 {
+                    entry.previous_checkpoint_id = Some(prev_ids[index - 1].clone());
+                    entry.chain_root_id = Some(anchor_id.to_string());
+                }
+            }
             merged_count += 1;
+        }
+
+        if merged_count > 0 {
+            for index in 1..chain.len() {
+                let current_id = chain[index].id.clone();
+                let expected_previous = chain[index - 1].id.clone();
+                let anchor = anchor_id
+                    .as_deref()
+                    .expect("anchor checked inside compaction loop");
+                let needs_fix = chain[index].previous_checkpoint_id.as_deref()
+                    != Some(expected_previous.as_str())
+                    || chain[index].chain_root_id.as_deref() != Some(anchor)
+                    || chain[index].chain_position != Some((index + 1) as u32);
+                if !needs_fix {
+                    continue;
+                }
+                let Some(value) = self.load(&current_id).await? else {
+                    continue;
+                };
+                let mut patched = serde_json::to_value(&value)?;
+                patched["previousCheckpointId"] = serde_json::json!(expected_previous);
+                patched["chainRootId"] = serde_json::json!(anchor);
+                patched["chainPosition"] = serde_json::json!((index + 1) as u32);
+                let updated: T = serde_json::from_value(patched)?;
+                self.save(&updated, entity_type, entity_id).await?;
+                chain[index].previous_checkpoint_id = Some(expected_previous);
+                chain[index].chain_root_id = Some(anchor.to_string());
+                chain[index].chain_position = Some((index + 1) as u32);
+            }
         }
 
         Ok(merged_count)
@@ -649,12 +697,13 @@ where
         }
     }
 
-    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Option<Self::Checkpoint>>, CheckpointError> {
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
-            if let Some(checkpoint) = self.load(id).await? {
-                result.push(checkpoint);
-            }
+            result.push(self.load(id).await?);
         }
         Ok(result)
     }
@@ -688,17 +737,23 @@ where
             .await
             .map_err(CheckpointError::Storage)?;
 
-        let mut results: Vec<CheckpointStorageMetadata> = entries
-            .into_iter()
-            .map(|(id, meta)| parse_storage_metadata(&id, entity_id, &meta))
-            .collect();
+        let mut results: Vec<CheckpointStorageMetadata> = Vec::new();
+        for (id, meta) in entries {
+            match parse_storage_metadata(&id, entity_id, &meta) {
+                Ok(parsed) => results.push(parsed),
+                Err(e) => {
+                    tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata")
+                }
+            }
+        }
 
-        results.sort_by_key(|m| m.timestamp);
+        results.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
         Ok(results)
     }
 
-    /// Paged listing (newest first): offset/limit are pushed down to the
-    /// storage backend so only the requested window is scanned.
+    /// Paged listing in the same ascending timestamp order as the full
+    /// listing: offset/limit are pushed down to the storage backend so only
+    /// the requested window is scanned.
     async fn list_by_entity_paged(
         &self,
         entity_id: &str,
@@ -710,7 +765,7 @@ where
         }
         let filter = QueryFilter::new()
             .with_field("entityId", entity_id)
-            .with_order_by("timestamp", true)
+            .with_order_by("timestamp", false)
             .with_offset(offset)
             .with_limit(limit);
 
@@ -720,10 +775,17 @@ where
             .await
             .map_err(CheckpointError::Storage)?;
 
-        Ok(entries
-            .into_iter()
-            .map(|(id, meta)| parse_storage_metadata(&id, entity_id, &meta))
-            .collect())
+        let mut results: Vec<CheckpointStorageMetadata> = Vec::new();
+        for (id, meta) in entries {
+            match parse_storage_metadata(&id, entity_id, &meta) {
+                Ok(parsed) => results.push(parsed),
+                Err(e) => {
+                    tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata")
+                }
+            }
+        }
+        results.sort_by(|a, b| (a.timestamp, &a.id).cmp(&(b.timestamp, &b.id)));
+        Ok(results)
     }
 
     /// Aggregate count for an entity, pushed down to a `COUNT(*)` query
@@ -754,10 +816,11 @@ where
             .await
             .map_err(CheckpointError::Storage)?;
 
-        Ok(entries
-            .into_iter()
-            .next()
-            .map(|(id, meta)| parse_storage_metadata(&id, entity_id, &meta)))
+        let mut iter = entries.into_iter();
+        let Some((id, meta)) = iter.next() else {
+            return Ok(None);
+        };
+        Ok(Some(parse_storage_metadata(&id, entity_id, &meta)?))
     }
 
     async fn load_metadata(
@@ -793,8 +856,13 @@ where
         entity_id: &str,
         strategy: &CleanupStrategy,
     ) -> Result<u64, CheckpointError> {
+        let entity_type = self
+            .get_latest(entity_id)
+            .await?
+            .map(|m| m.entity_type)
+            .unwrap_or_else(|| "unknown".to_string());
         let result = self
-            .execute_cleanup_for_entity(entity_id, "unknown", None, strategy)
+            .execute_cleanup_for_entity(entity_id, &entity_type, None, strategy)
             .await?;
         Ok(result.deleted_count)
     }
@@ -879,7 +947,7 @@ pub fn parse_storage_metadata(
     id: &str,
     entity_id: &str,
     meta: &Value,
-) -> CheckpointStorageMetadata {
+) -> Result<CheckpointStorageMetadata, CheckpointError> {
     let entity_type = meta
         .get("entityType")
         .and_then(|v| v.as_str())
@@ -895,27 +963,28 @@ pub fn parse_storage_metadata(
         })
         .unwrap_or(CheckpointType::Full);
 
-    let timestamp = meta.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-    let status = meta
-        .get("status")
-        .and_then(|v| v.as_str())
-        .map(|s| {
+    let Some(timestamp) = meta.get("timestamp").and_then(|v| v.as_i64()) else {
+        return Err(CheckpointError::Corrupted {
+            id: id.to_string(),
+            reason: "checkpoint metadata missing timestamp".to_string(),
+        });
+    };
+    let status = match meta.get("status").and_then(|v| v.as_str()) {
+        None => wf_types::checkpoint::CheckpointStatus::Completed,
+        Some(s) => {
             let normalized = s.to_ascii_lowercase();
             serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(&format!(
                 "\"{}\"",
                 normalized
             ))
-            .unwrap_or_else(|_| {
-                tracing::warn!(
-                    status = s,
-                    "unknown checkpoint status, falling back to active"
-                );
-                wf_types::checkpoint::CheckpointStatus::Active
-            })
-        })
-        .unwrap_or(wf_types::checkpoint::CheckpointStatus::Active);
+            .map_err(|_| CheckpointError::Corrupted {
+                id: id.to_string(),
+                reason: format!("unknown checkpoint status '{s}'"),
+            })?
+        }
+    };
 
-    CheckpointStorageMetadata {
+    Ok(CheckpointStorageMetadata {
         id: id.to_string(),
         entity_type,
         entity_id: entity_id.to_string(),
@@ -949,7 +1018,7 @@ pub fn parse_storage_metadata(
         custom_fields: meta
             .get("customFields")
             .and_then(|v| serde_json::from_value(v.clone()).ok()),
-    }
+    })
 }
 
 #[async_trait::async_trait]
@@ -978,7 +1047,7 @@ impl<T: Send + Sync> CheckpointLoader for StorageBackedStateManager<T> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                Ok(Some(parse_storage_metadata(id, &entity_id, &meta)))
+                Ok(Some(parse_storage_metadata(id, &entity_id, &meta)?))
             }
             None => Ok(None),
         }
@@ -1776,7 +1845,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_batch_skips_missing() {
+    async fn load_batch_reports_missing() {
         let storage = make_storage();
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
 
@@ -1792,8 +1861,9 @@ mod tests {
             .load_batch(&["cp-1".to_string(), "missing".to_string()])
             .await
             .unwrap();
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].id, "cp-1");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].as_ref().expect("cp-1 present").id, "cp-1");
+        assert!(loaded[1].is_none());
     }
 
     #[tokio::test]
@@ -1965,7 +2035,7 @@ mod tests {
             "timestamp": 1000,
             "status": "CORRUPTED",
         });
-        let parsed = parse_storage_metadata("cp-1", "exec-1", &meta);
+        let parsed = parse_storage_metadata("cp-1", "exec-1", &meta).unwrap();
         assert_eq!(
             parsed.status,
             wf_types::checkpoint::CheckpointStatus::Corrupted
@@ -1978,7 +2048,37 @@ mod tests {
             "timestamp": 1000,
             "status": "Completed",
         });
-        let parsed = parse_storage_metadata("cp-2", "exec-1", &mixed);
+        let parsed = parse_storage_metadata("cp-2", "exec-1", &mixed).unwrap();
+        assert_eq!(
+            parsed.status,
+            wf_types::checkpoint::CheckpointStatus::Completed
+        );
+    }
+
+    #[test]
+    fn parse_storage_metadata_rejects_missing_timestamp_and_unknown_status() {
+        let missing = json!({
+            "entityType": "test",
+            "checkpointType": "full",
+            "status": "completed",
+        });
+        assert!(parse_storage_metadata("cp-x", "exec-1", &missing).is_err());
+
+        let unknown = json!({
+            "entityType": "test",
+            "checkpointType": "full",
+            "timestamp": 1000,
+            "status": "bogus-status",
+        });
+        assert!(parse_storage_metadata("cp-y", "exec-1", &unknown).is_err());
+
+        let absent_status_defaults_to_completed = json!({
+            "entityType": "test",
+            "checkpointType": "full",
+            "timestamp": 1000,
+        });
+        let parsed =
+            parse_storage_metadata("cp-z", "exec-1", &absent_status_defaults_to_completed).unwrap();
         assert_eq!(
             parsed.status,
             wf_types::checkpoint::CheckpointStatus::Completed

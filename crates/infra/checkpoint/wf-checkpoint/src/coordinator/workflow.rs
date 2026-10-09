@@ -1,8 +1,9 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, ChildMetadataIndex,
+    publish_persisted, ChildDiscoveryIndex,
 };
 use crate::coordinator::CheckpointCoordinator;
+use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::delta::DeltaRestorer;
 use checkpoint_base::delta::DiffCalculator;
@@ -165,6 +166,7 @@ pub struct WorkflowCheckpointCoordinator {
     event_bus: Option<CheckpointEventBus>,
     delta_config: DeltaStorageConfig,
     version_manager: VersionManager,
+    clock: CheckpointClock,
     strategy: Option<StandardStrategy>,
     error_handler: checkpoint_base::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
@@ -185,6 +187,7 @@ impl WorkflowCheckpointCoordinator {
             event_bus: None,
             delta_config: DeltaStorageConfig::default(),
             version_manager: VersionManager::new(),
+            clock: CheckpointClock::system(),
             strategy: None,
             error_handler: checkpoint_base::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
@@ -207,6 +210,15 @@ impl WorkflowCheckpointCoordinator {
     pub fn with_version_manager(mut self, manager: VersionManager) -> Self {
         self.version_manager = manager;
         self
+    }
+
+    pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    pub fn clock(&self) -> &CheckpointClock {
+        &self.clock
     }
 
     /// Configure the default checkpoint strategy from a unified policy.
@@ -431,7 +443,7 @@ impl WorkflowCheckpointCoordinator {
             }
         }
 
-        let loader = ChildMetadataIndex::new(index);
+        let loader = ChildDiscoveryIndex::new(index);
         let discovery = ChildDiscovery::new(Arc::new(resolver));
         let results = discovery.discover_children_bfs(checkpoint_id, &loader, 8, None)?;
         let mut summary = ChildDiscovery::summarize_results(&results);
@@ -500,7 +512,16 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
         if let Some(manager) = &self.file_checkpoint_manager {
-            match manager.create_latest_file_checkpoint(entity_id)? {
+            let manager_for_task = manager.clone();
+            let entity_id_owned = entity_id.to_string();
+            let outcome = tokio::task::spawn_blocking(move || {
+                manager_for_task.create_latest_file_checkpoint(&entity_id_owned)
+            })
+            .await
+            .map_err(|e| {
+                CheckpointError::Internal(format!("file projection task failed: {e}"))
+            })??;
+            match outcome {
                 Some(file_checkpoint) => {
                     manager.record_state_file_link(checkpoint_id, &file_checkpoint.id)?;
                     tracing::debug!(
@@ -609,7 +630,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         crate::coordinator::base::drain_persistence_handles(
             &self.persistence_queue,
             self.event_bus.as_ref(),
-            "",
+            "all",
             queue_metrics.as_deref(),
         )
         .await;
@@ -679,11 +700,17 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             WF_TRIGGER_STATES_HASH_FIELD.to_string(),
             serde_json::json!(coords.trigger_states_hash),
         );
+        let now_ms = self.clock.now_ms().ok_or_else(|| {
+            CheckpointError::Internal(
+                "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
+            )
+        })?;
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
             ctx.trigger.as_ref().map(trigger_tag).into_iter().collect(),
             custom_fields,
             self.version_manager.current_version(),
+            now_ms,
         );
 
         match checkpoint_type {
@@ -694,7 +721,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 previous_checkpoint_id: previous.map(|p| p.id),
                 delta: None,
                 snapshot: Some(state),
-                timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                timestamp: Some(now_ms),
                 metadata,
                 format_version: Some(self.version_manager.current_version().to_string()),
             }),
@@ -720,7 +747,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                             previous_checkpoint_id: previous.map(|p| p.id),
                             delta: Some(delta),
                             snapshot: None,
-                            timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                            timestamp: Some(now_ms),
                             metadata,
                             format_version: Some(
                                 self.version_manager.current_version().to_string(),
@@ -734,7 +761,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                         previous_checkpoint_id: previous.map(|p| p.id),
                         delta: None,
                         snapshot: Some(state),
-                        timestamp: Some(chrono::Utc::now().timestamp_millis()),
+                        timestamp: Some(now_ms),
                         metadata,
                         format_version: Some(self.version_manager.current_version().to_string()),
                     }),
@@ -910,7 +937,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             if let Some(ref bus) = self.event_bus {
                 bus.publish(CheckpointEventBus::deleted_with(
                     checkpoint_id.to_string(),
-                    Some("manual".to_string()),
+                    Some("delete".to_string()),
                 ));
             }
         }
@@ -1030,8 +1057,8 @@ impl WorkflowCheckpointCoordinator {
     /// Merge a caller-supplied description into an existing checkpoint row
     /// without allocating a new row. Shared implementation lives in
     /// [`crate::coordinator::base::merge_description_back`]; the contract
-    /// (trigger label untouched, timestamp preserved, missing target falls
-    /// back to current latest) is identical for both coordinators.
+    /// (trigger label untouched, timestamp preserved, missing target reports
+    /// not-found) is identical for both coordinators.
     pub async fn merge_description_back(
         &self,
         checkpoint_id: &str,
@@ -1047,13 +1074,6 @@ impl WorkflowCheckpointCoordinator {
             self.event_bus.as_ref(),
         )
         .await?;
-        if merged.id != checkpoint_id {
-            if let Some(manager) = self.file_checkpoint_manager.as_ref() {
-                if let Some(metrics) = manager.checkpoint_metrics_for_observability() {
-                    metrics.record_cleanup_skip(entity_id);
-                }
-            }
-        }
         Ok(merged)
     }
 
@@ -1062,7 +1082,7 @@ impl WorkflowCheckpointCoordinator {
         latest: &CheckpointStorageMetadata,
         entity_id: &str,
         description: Option<&str>,
-    ) -> String {
+    ) -> Result<String, CheckpointError> {
         crate::coordinator::base::reuse_duplicate_checkpoint(
             &self.state_manager,
             latest,
@@ -1307,7 +1327,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merge_missing_target_returns_current_latest() {
+    async fn merge_missing_target_reports_not_found() {
         let coord = make_coordinator();
         let ctx = coord
             .prepare("exec-1", CheckpointTiming::AfterExecute)
@@ -1319,15 +1339,18 @@ mod tests {
             .prepare("exec-1", CheckpointTiming::BeforeExecute)
             .await
             .unwrap();
-        let second = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&second, "exec-1").await.unwrap();
+        let _second = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&_second, "exec-1").await.unwrap();
 
         coord.state_manager().delete(&first.id).await.unwrap();
-        let merged = coord
+        let err = coord
             .merge_description_back(&first.id, "exec-1", "late note")
             .await
-            .unwrap();
-        assert_eq!(merged.id, second.id);
+            .unwrap_err();
+        assert!(
+            matches!(err, CheckpointError::NotFound { .. }),
+            "a cleaned-up merge target must report not-found, never silently merge into latest"
+        );
     }
 
     #[tokio::test]

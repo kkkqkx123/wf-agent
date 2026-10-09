@@ -67,7 +67,9 @@ pub fn publish_persist_failed(
 }
 
 /// Shared best-effort failure publishing reusing the Failed shape so
-/// async projection, persistence queue and cleanup races stay queryable.
+/// async projection and persistence failures stay queryable. Expected races
+/// (cleanup contention, duplicate merge-back) must use `publish_cleanup_skipped`
+/// instead so failure dashboards stay clean.
 pub fn publish_best_effort_failed(
     bus: Option<&CheckpointEventBus>,
     checkpoint_id: Option<String>,
@@ -85,14 +87,33 @@ pub fn publish_best_effort_failed(
     }
 }
 
+/// Publish an expected skip (cleanup race, duplicate merge-back, queue
+/// backlog wait) as a `Skipped` event instead of `Failed`.
+pub fn publish_cleanup_skipped(
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: Option<String>,
+    entity_id: &str,
+    operation: &str,
+    reason: &str,
+) {
+    if let Some(bus) = bus {
+        bus.publish(CheckpointEventBus::skipped(
+            operation,
+            reason,
+            checkpoint_id,
+        ));
+        let _ = entity_id;
+    }
+}
+
 /// Read-modify-write description merge shared by the agent-loop and
 /// workflow coordinators: rewrites the caller-supplied text under
 /// `customFields.description` on the stored blob without allocating a new
 /// row. The trigger label (`metadata.description`) and every other field are
 /// untouched, and the blob timestamp is preserved so chain order never
 /// shifts. When cleanup removed the target between the gate read and this
-/// write, the merge is skipped and the current latest row is returned so the
-/// caller never sees a noisy not-found for a lossless race.
+/// write, an explicit not-found error is reported so callers never mistake a
+/// lost race for a successful merge.
 pub async fn merge_description_back<M>(
     manager: &M,
     checkpoint_id: &str,
@@ -106,24 +127,16 @@ where
     M::Checkpoint: CheckpointBlob,
 {
     let Some(mut checkpoint) = manager.load(checkpoint_id).await? else {
-        tracing::warn!(
-            checkpoint_id = %checkpoint_id,
-            entity_id = %entity_id,
-            "merge target already cleaned up; returning current latest"
-        );
-        publish_best_effort_failed(
+        publish_cleanup_skipped(
             bus,
             Some(checkpoint_id.to_string()),
             entity_id,
             "cleanup_skip",
-            "merge target already cleaned up; returning current latest",
+            "merge target already cleaned up",
         );
-        return manager
-            .get_latest(entity_id)
-            .await?
-            .ok_or_else(|| CheckpointError::NotFound {
-                id: checkpoint_id.to_string(),
-            });
+        return Err(CheckpointError::NotFound {
+            id: checkpoint_id.to_string(),
+        });
     };
     let metadata = checkpoint.blob_metadata_mut().get_or_insert_default();
     match metadata
@@ -144,31 +157,23 @@ where
     if let Some(meta) = manager.load_metadata(checkpoint_id).await? {
         return Ok(meta);
     }
-    tracing::warn!(
-        checkpoint_id = %checkpoint_id,
-        entity_id = %entity_id,
-        "merged row cleaned up before re-read; returning current latest"
-    );
-    publish_best_effort_failed(
+    publish_cleanup_skipped(
         bus,
         Some(checkpoint_id.to_string()),
         entity_id,
         "cleanup_skip",
-        "merged row cleaned up before re-read; returning current latest",
+        "merged row cleaned up before re-read",
     );
-    manager
-        .get_latest(entity_id)
-        .await?
-        .ok_or_else(|| CheckpointError::NotFound {
-            id: checkpoint_id.to_string(),
-        })
+    Err(CheckpointError::NotFound {
+        id: checkpoint_id.to_string(),
+    })
 }
 
 /// Shared duplicate-gate reuse: when progress coordinates compare equal the
 /// caller reuses the latest row instead of persisting a duplicate. A changed
 /// description merges back into the latest row; an unchanged or absent
-/// description keeps the latest id. Merge failures fall back to the latest id
-/// so a metadata write never blocks checkpointing.
+/// description keeps the latest id. Merge failures are reported loudly so a
+/// metadata write never silently blocks checkpointing.
 pub async fn reuse_duplicate_checkpoint<M>(
     manager: &M,
     latest: &CheckpointStorageMetadata,
@@ -176,7 +181,7 @@ pub async fn reuse_duplicate_checkpoint<M>(
     entity_id: &str,
     description: Option<&str>,
     bus: Option<&CheckpointEventBus>,
-) -> String
+) -> Result<String, CheckpointError>
 where
     M: CheckpointStateManager,
     M::Checkpoint: CheckpointBlob,
@@ -188,14 +193,13 @@ where
             .and_then(|fields| fields.get("description"))
             .and_then(|v| v.as_str());
         if current != Some(text) {
-            if let Ok(merged) =
-                merge_description_back(manager, &latest.id, entity_type, entity_id, text, bus).await
-            {
-                return merged.id;
-            }
+            let merged =
+                merge_description_back(manager, &latest.id, entity_type, entity_id, text, bus)
+                    .await?;
+            return Ok(merged.id);
         }
     }
-    latest.id.clone()
+    Ok(latest.id.clone())
 }
 
 /// Blob surface the shared description merge needs: mutable metadata map.
@@ -203,6 +207,13 @@ where
 /// implementation covers them.
 pub trait CheckpointBlob: Send + Sync {
     fn blob_metadata_mut(&mut self) -> &mut Option<HashMap<String, serde_json::Value>>;
+}
+
+/// Direct checkpoint identity without serialization round-trips.
+/// Coordinators implement this with field access; the serialization fallback
+/// below is only for generic contexts.
+pub trait CheckpointId: Send + Sync {
+    fn checkpoint_id(&self) -> &str;
 }
 
 impl<TDelta, TSnapshot> CheckpointBlob for BaseCheckpointCore<TDelta, TSnapshot>
@@ -215,8 +226,18 @@ where
     }
 }
 
+impl<TDelta, TSnapshot> CheckpointId for BaseCheckpointCore<TDelta, TSnapshot>
+where
+    TDelta: Send + Sync,
+    TSnapshot: Send + Sync,
+{
+    fn checkpoint_id(&self) -> &str {
+        &self.id
+    }
+}
+
 pub trait CheckpointCoordinator: Send + Sync {
-    type Checkpoint: Send + Sync + serde::Serialize;
+    type Checkpoint: Send + Sync + serde::Serialize + CheckpointId;
     type Entity: Send + Sync;
     type State: Send + Sync;
 
@@ -369,7 +390,7 @@ pub trait CheckpointCoordinator: Send + Sync {
             let lifecycle = is_lifecycle_trigger(&trigger);
             let checkpoint = self.build(ctx, state).await?;
             self.validate_checkpoint(&checkpoint).await?;
-            let checkpoint_id = checkpoint_id_of(&checkpoint)?;
+            let checkpoint_id = checkpoint.checkpoint_id().to_string();
             self.persist(&checkpoint, entity_id).await?;
             if self.async_persistence_enabled() {
                 self.enqueue_persistence(&checkpoint_id, entity_id).await;
@@ -485,7 +506,7 @@ pub async fn push_persistence_handle(
 ) {
     let mut guard = queue.lock().await;
     if guard.len() >= MAX_PERSISTENCE_QUEUE {
-        publish_best_effort_failed(
+        publish_cleanup_skipped(
             bus,
             Some(checkpoint_id.to_string()),
             entity_id,
@@ -545,20 +566,20 @@ pub async fn drain_persistence_handles(
     }
 }
 
-/// Shared synchronous metadata loader over a pre-built checkpoint metadata
-/// index for child discovery breadth-first traversal, which runs synchronously.
-pub struct ChildMetadataIndex {
+/// Shared synchronous metadata index over pre-built checkpoint metadata
+/// for child discovery breadth-first traversal, which runs synchronously.
+pub struct ChildDiscoveryIndex {
     index: HashMap<String, CheckpointStorageMetadata>,
 }
 
-impl ChildMetadataIndex {
+impl ChildDiscoveryIndex {
     pub fn new(index: HashMap<String, CheckpointStorageMetadata>) -> Self {
         Self { index }
     }
 }
 
-impl checkpoint_state::restore::ChildMetadataLoader for ChildMetadataIndex {
-    fn load_metadata(
+impl checkpoint_state::restore::ChildDiscoveryLoader for ChildDiscoveryIndex {
+    fn load_child_metadata(
         &self,
         id: &str,
     ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
@@ -566,15 +587,4 @@ impl checkpoint_state::restore::ChildMetadataLoader for ChildMetadataIndex {
     }
 }
 
-/// Extract the checkpoint id for event/metadata correlation. Serialization
-/// is mandatory: a checkpoint whose id cannot be extracted is a hard error,
-/// not a silently empty correlation key.
-fn checkpoint_id_of<C: serde::Serialize>(checkpoint: &C) -> Result<String, CheckpointError> {
-    let json = serde_json::to_value(checkpoint).map_err(|err| {
-        CheckpointError::Internal(format!("checkpoint serialization failed: {err}"))
-    })?;
-    json.get("id")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .ok_or_else(|| CheckpointError::Internal("checkpoint has no string `id` field".to_string()))
-}
+pub type ChildMetadataIndex = ChildDiscoveryIndex;

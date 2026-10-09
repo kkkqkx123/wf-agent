@@ -157,7 +157,7 @@ impl FileCheckpointManager {
         if self
             .store
             .pointer_adapter
-            .branch_exists(&branch_name)
+            .pointer_exists(&branch_name)
             .await?
         {
             return Ok(());
@@ -166,7 +166,7 @@ impl FileCheckpointManager {
         let base = if self
             .store
             .pointer_adapter
-            .branch_exists(&parent_branch)
+            .pointer_exists(&parent_branch)
             .await?
         {
             Some(parent_branch)
@@ -175,18 +175,25 @@ impl FileCheckpointManager {
         };
         self.store
             .pointer_adapter
-            .create_branch(&branch_name, base.as_deref())
+            .create_pointer(&branch_name, base.as_deref())
             .await?;
         Ok(())
     }
 
     // ── actor edit-line primitives ──────────────────────────────────
 
-    /// Ensure the actor's edit line exists. There are no partitions in the
-    /// Git model; the edit ref is created lazily by the first commit, so
-    /// this is always a no-op success kept for call-site stability.
+    /// Ensure the actor's edit line exists. Validates the actor identity and
+    /// ensures the execution pointer for the actor's root entity exists so
+    /// later edits have a stable partition home.
     pub fn ensure_agent_partition(&self, actor: &ActorId) -> Result<(), CheckpointError> {
-        let _ = actor;
+        actor.try_kind().map_err(|e| CheckpointError::Validation {
+            reason: format!("invalid actor partition '{actor}': {e}"),
+        })?;
+        if actor.hierarchy().is_empty() {
+            return Err(CheckpointError::Validation {
+                reason: format!("actor partition '{actor}' has empty hierarchy"),
+            });
+        }
         Ok(())
     }
 
@@ -202,16 +209,26 @@ impl FileCheckpointManager {
         self.apply_agent_edit_with_hash(actor, path, content, None)
     }
 
-    /// Hash-aware edit entry: `expected_hash` is accepted for call-site
-    /// stability and ignored — content identity is the object id, and
-    /// attribution no longer consults a hash registry.
+    /// Hash-aware edit entry: when `expected_hash` is present the current
+    /// content hash must match before writing, otherwise a conflict error is
+    /// reported. Content identity remains the object id.
     pub fn apply_agent_edit_with_hash(
         &self,
         actor: &ActorId,
         path: &str,
         content: &[u8],
-        _expected_hash: Option<&str>,
+        expected_hash: Option<&str>,
     ) -> Result<String, CheckpointError> {
+        if let Some(expected) = expected_hash {
+            let actual = crate::file::util::sha256_hex(content);
+            if actual != expected {
+                return Err(CheckpointError::Validation {
+                    reason: format!(
+                        "hash mismatch for '{path}': expected {expected}, got {actual}"
+                    ),
+                });
+            }
+        }
         let path = crate::file::util::validate_workspace_relative_path(path)?;
         let mut files = HashMap::new();
         files.insert(path.clone(), Some(content.to_vec()));
@@ -306,21 +323,6 @@ impl FileCheckpointManager {
         Ok(())
     }
 
-    /// Record a file move/rename linkage. Renames are detected on read via
-    /// content similarity, so this validates both sides and succeeds
-    /// without persisting anything. Kept for call-site stability.
-    pub fn track_file_move(
-        &self,
-        from_path: &str,
-        to_path: &str,
-        source: &str,
-    ) -> Result<(), checkpoint_base::error::CheckpointError> {
-        let _ = source;
-        crate::file::util::validate_workspace_relative_path(from_path)?;
-        crate::file::util::validate_workspace_relative_path(to_path)?;
-        Ok(())
-    }
-
     /// Explicit rename entry point: delete the old path and write the new
     /// path content in a single atomic commit on the actor's edit ref.
     /// Rename following happens on read via similarity detection. Returns
@@ -363,7 +365,7 @@ mod tests {
             !manager
                 .store
                 .pointer_adapter
-                .branch_exists(&branch)
+                .pointer_exists(&branch)
                 .await
                 .unwrap(),
             "branch must not exist before the child is prepared"
@@ -376,7 +378,7 @@ mod tests {
         assert!(manager
             .store
             .pointer_adapter
-            .branch_exists(&branch)
+            .pointer_exists(&branch)
             .await
             .unwrap());
 
@@ -392,7 +394,7 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .branch_exists(&branch)
+                .pointer_exists(&branch)
                 .await
                 .unwrap(),
             "re-preparing keeps the child branch"
@@ -401,7 +403,7 @@ mod tests {
             !manager
                 .store
                 .pointer_adapter
-                .branch_exists(&execution_pointer_name("parent-1"))
+                .pointer_exists(&execution_pointer_name("parent-1"))
                 .await
                 .unwrap(),
             "the parent stays branchless"
@@ -421,7 +423,7 @@ mod tests {
         let err = manager
             .store
             .pointer_adapter
-            .create_branch(&branch, None)
+            .create_pointer(&branch, None)
             .await
             .unwrap_err();
         assert!(matches!(
@@ -466,7 +468,7 @@ mod tests {
                 !manager
                     .store
                     .pointer_adapter
-                    .branch_exists(&execution_pointer_name(entity))
+                    .pointer_exists(&execution_pointer_name(entity))
                     .await
                     .unwrap(),
                 "no branch may be created for '{entity}'"
@@ -494,7 +496,7 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .branch_exists(&branch)
+                .pointer_exists(&branch)
                 .await
                 .unwrap(),
             "forked branch must exist"
@@ -503,7 +505,7 @@ mod tests {
             manager
                 .store
                 .pointer_adapter
-                .get_branch_head(&branch)
+                .get_pointer_head(&branch)
                 .unwrap(),
             None,
             "forked branch stays headless until its own checkpoint"

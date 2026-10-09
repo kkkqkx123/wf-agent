@@ -18,7 +18,6 @@ use std::time::Duration;
 
 use checkpoint_base::actor::id::{ActorId, ActorKind};
 use checkpoint_file::file::FileCheckpointManager;
-use checkpoint_file::scan::ScanConfig;
 use checkpoint_file::script_capture::WorkspaceChangeCollector;
 use checkpoint_file::watcher::ManualChangeService;
 use wf_types::config::file_checkpoint::{FailureBehavior, FileCheckpointConfig};
@@ -216,8 +215,7 @@ async fn manual_change_service_routes_external_edits() {
     let manager = manager_for(root);
 
     let mut service =
-        ManualChangeService::start(manager.clone(), root, ScanConfig::default(), 50, 50)
-            .expect("service starts");
+        ManualChangeService::start(manager.clone(), root, 50).expect("service starts");
 
     std::fs::write(root.join("human.txt"), b"hello watcher").unwrap();
     wait_until(

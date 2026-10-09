@@ -9,7 +9,7 @@ use wf_types::config::file_checkpoint::ConflictBehavior;
 
 use crate::approval::{to_conflict_views, MergeOutcome, PendingApproval};
 use crate::event::CheckpointEventBus;
-use crate::file::git_merge::{GitConflictDetail, GitMergeOutcome};
+use crate::file::git_merge::{conflict_details, GitMergeOutcome};
 use crate::file::git_write::map_git_error;
 use crate::file::merge::MergeCommitResult;
 use crate::file::util::{resolve_restore_target, validate_workspace_relative_path};
@@ -18,13 +18,6 @@ use crate::git_store::{feat_ref_for_name, REF_REVIEW_PREFIX};
 use crate::provenance::DeltaSummary;
 use crate::storage::ReviewStatus;
 use checkpoint_base::error::CheckpointError;
-
-fn split_lines(bytes: &[u8]) -> Vec<String> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .map(str::to_string)
-        .collect()
-}
 
 impl FileCheckpointManager {
     // ── approval layer (list / approve / reject) ─────────────────────
@@ -330,22 +323,8 @@ impl FileCheckpointManager {
                         ));
                     }
                 }
-                let conflicts = to_conflict_views(
-                    &conflict_files
-                        .iter()
-                        .map(|file| GitConflictDetail {
-                            file: file.clone(),
-                            ours_lines: feature_tree
-                                .get(file)
-                                .map(|b| split_lines(b))
-                                .unwrap_or_default(),
-                            theirs_lines: review_tree
-                                .get(file)
-                                .map(|b| split_lines(b))
-                                .unwrap_or_default(),
-                        })
-                        .collect::<Vec<_>>(),
-                );
+                let conflicts =
+                    to_conflict_views(&conflict_details(&merged_changes, &conflict_files));
                 return Ok(MergeOutcome {
                     merged: true,
                     snapshot_id: head,
@@ -552,10 +531,7 @@ impl FileCheckpointManager {
                 &[head],
                 actor.as_str(),
                 crate::git_store::SYSTEM_COMMITTER,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0),
+                self.creation_timestamp()?,
                 &message,
             )
             .map_err(map_git_error)?;
@@ -613,7 +589,7 @@ impl FileCheckpointManager {
 
     /// Default feature name merged into under `ApprovalPolicy::auto` (a
     /// per-execution feature keeps actors isolated while still landing the
-    /// changes into the integrated layer).
+    /// changes into the mainline layer).
     pub fn default_feature_name(entity_id: &str) -> String {
         format!("exec-{}", entity_id)
     }

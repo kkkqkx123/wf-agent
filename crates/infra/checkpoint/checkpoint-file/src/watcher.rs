@@ -446,17 +446,14 @@ pub struct ManualChangeService {
 
 impl ManualChangeService {
     /// Start polling `root` and feed human edits into the manager.
-    /// `poll_ms` is the single polling interval (no debounce layer).
-    /// `scan_config` and `debounce_ms` are accepted for call-site
-    /// stability and otherwise ignored.
+    /// `poll_ms` is the single polling interval. Polling is the only human
+    /// attribution path; the realtime watcher is only an incremental hint and
+    /// never drives commits directly.
     pub fn start(
         manager: FileCheckpointManager,
         root: impl Into<PathBuf>,
-        scan_config: ScanConfig,
-        debounce_ms: u64,
         poll_ms: u64,
     ) -> Result<Self, CheckpointError> {
-        let _ = (scan_config, debounce_ms);
         let root = root.into();
         let (stop_tx, stop_rx) = watch::channel(false);
         let task = tokio::spawn(run_manual_change_pump(

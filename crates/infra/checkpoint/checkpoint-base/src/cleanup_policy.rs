@@ -4,6 +4,7 @@ use std::time::Instant;
 use wf_types::storage::CheckpointStorageMetadata;
 
 use crate::checkpoint_graph::CheckpointDependencyGraph;
+use crate::clock::CheckpointClock;
 use wf_metrics::CheckpointMetricsCollector;
 
 const DAY_MS: i64 = 86_400_000;
@@ -98,14 +99,17 @@ impl CleanupExecutor {
     /// Evaluate which checkpoints to remove, optionally recording cleanup
     /// metrics. Freed bytes are unavailable at evaluation time and reported
     /// as 0 (use `evaluate_protected_with_result` for accurate accounting).
+    /// Time based decisions read the injected clock and fail closed when the
+    /// clock is unavailable.
     pub fn evaluate_with_metrics(
         &self,
         checkpoints: &[CheckpointStorageMetadata],
         strategy: &CleanupStrategy,
         metrics: Option<&CheckpointMetricsCollector>,
+        clock: &CheckpointClock,
     ) -> Vec<String> {
         let start = Instant::now();
-        let to_remove = self.evaluate(checkpoints, strategy);
+        let to_remove = self.evaluate(checkpoints, strategy, clock);
         if let Some(metrics) = metrics {
             metrics.record_cleanup(
                 to_remove.len() as u64,
@@ -120,12 +124,13 @@ impl CleanupExecutor {
         &self,
         checkpoints: &[CheckpointStorageMetadata],
         strategy: &CleanupStrategy,
+        clock: &CheckpointClock,
     ) -> Vec<String> {
         match strategy {
             CleanupStrategy::TimeBased {
                 max_age_seconds,
                 min_retention,
-            } => self.evaluate_time(checkpoints, *max_age_seconds, *min_retention),
+            } => self.evaluate_time(checkpoints, *max_age_seconds, *min_retention, clock),
             CleanupStrategy::CountBased {
                 max_checkpoints,
                 min_retention,
@@ -137,7 +142,7 @@ impl CleanupExecutor {
             CleanupStrategy::Tiered {
                 tiers,
                 min_retention,
-            } => self.evaluate_tiered(checkpoints, tiers, *min_retention),
+            } => self.evaluate_tiered(checkpoints, tiers, *min_retention, clock),
         }
     }
 
@@ -149,8 +154,9 @@ impl CleanupExecutor {
         &self,
         checkpoints: &[CheckpointStorageMetadata],
         strategy: &CleanupStrategy,
+        clock: &CheckpointClock,
     ) -> Vec<String> {
-        self.evaluate_protected_with_result(checkpoints, strategy)
+        self.evaluate_protected_with_result(checkpoints, strategy, clock)
             .deleted_checkpoint_ids
     }
 
@@ -160,8 +166,9 @@ impl CleanupExecutor {
         &self,
         checkpoints: &[CheckpointStorageMetadata],
         strategy: &CleanupStrategy,
+        clock: &CheckpointClock,
     ) -> CleanupResult {
-        let candidates = self.evaluate(checkpoints, strategy);
+        let candidates = self.evaluate(checkpoints, strategy, clock);
         let candidate_set: HashSet<String> = candidates.iter().cloned().collect();
 
         let mut to_remove: HashSet<String> = candidate_set.clone();
@@ -217,8 +224,11 @@ impl CleanupExecutor {
         checkpoints: &[CheckpointStorageMetadata],
         max_age_seconds: u64,
         min_retention: u64,
+        clock: &CheckpointClock,
     ) -> Vec<String> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let Some(now) = clock.now_ms().filter(|ms| *ms >= 0) else {
+            return Vec::new();
+        };
         let max_age_ms = (max_age_seconds * 1000) as i64;
         // Future timestamps clamp to zero age so they read as newest and
         // are retained, consistent with the tiered path.
@@ -300,8 +310,11 @@ impl CleanupExecutor {
         checkpoints: &[CheckpointStorageMetadata],
         tiers: &[RetentionTier],
         min_retention: u64,
+        clock: &CheckpointClock,
     ) -> Vec<String> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let Some(now) = clock.now_ms().filter(|ms| *ms >= 0) else {
+            return Vec::new();
+        };
         let mut tiers: Vec<&RetentionTier> = tiers.iter().collect();
         tiers.sort_by_key(|t| t.min_age_days);
 
@@ -420,7 +433,8 @@ mod tests {
 
     #[test]
     fn time_based_cleanup() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("old", now - 3_600_000, None),
             make_checkpoint("new", now - 1_000, None),
@@ -432,13 +446,15 @@ mod tests {
                 max_age_seconds: 1800,
                 min_retention: 1,
             },
+            &clock,
         );
         assert_eq!(to_remove, vec!["old"]);
     }
 
     #[test]
     fn time_based_min_retention_keeps_newest() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("old-1", now - 7_200_000, None),
             make_checkpoint("old-2", now - 7_000_000, None),
@@ -452,6 +468,7 @@ mod tests {
                 max_age_seconds: 3600,
                 min_retention: 2,
             },
+            &clock,
         );
         assert_eq!(to_remove.len(), 2);
         assert!(!to_remove.contains(&"old-3".to_string()));
@@ -460,7 +477,8 @@ mod tests {
 
     #[test]
     fn count_based_cleanup() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("c1", now - 5000, None),
             make_checkpoint("c2", now - 4000, None),
@@ -473,13 +491,15 @@ mod tests {
                 max_checkpoints: 2,
                 min_retention: 1,
             },
+            &clock,
         );
         assert_eq!(to_remove, vec!["c1"]);
     }
 
     #[test]
     fn count_based_under_limit() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![make_checkpoint("c1", now - 5000, None)];
         let executor = CleanupExecutor::new();
         let to_remove = executor.evaluate(
@@ -488,13 +508,15 @@ mod tests {
                 max_checkpoints: 10,
                 min_retention: 1,
             },
+            &clock,
         );
         assert!(to_remove.is_empty());
     }
 
     #[test]
     fn size_based_uses_real_blob_size() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("big", now - 5000, Some(8000)),
             make_checkpoint("small", now - 4000, Some(1000)),
@@ -508,13 +530,15 @@ mod tests {
                 max_total_bytes: 2000,
                 min_retention: 1,
             },
+            &clock,
         );
         assert_eq!(to_remove, vec!["big"]);
     }
 
     #[test]
     fn size_based_result_reports_freed_bytes() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("c1", now - 5000, Some(1000)),
             make_checkpoint("c2", now - 4000, Some(2000)),
@@ -527,6 +551,7 @@ mod tests {
                 max_checkpoints: 1,
                 min_retention: 0,
             },
+            &clock,
         );
         assert_eq!(result.deleted_count, 2);
         assert_eq!(result.freed_bytes, 3000);
@@ -536,7 +561,8 @@ mod tests {
 
     #[test]
     fn tiered_cleanup_keeps_one_per_window() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let day = DAY_MS;
         let checkpoints = vec![
             make_checkpoint("d10-1", now - 10 * day, None),
@@ -551,6 +577,7 @@ mod tests {
                 tiers: vec![RetentionTier::new(7, None, 1)],
                 min_retention: 1,
             },
+            &clock,
         );
         // Only the two checkpoints sharing a 1-day window are candidates;
         // the newest (recent) is protected by min_retention.
@@ -560,7 +587,8 @@ mod tests {
 
     #[test]
     fn tiered_zero_interval_keeps_all() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let day = DAY_MS;
         let checkpoints = vec![
             make_checkpoint("a", now - 30 * day, None),
@@ -573,13 +601,15 @@ mod tests {
                 tiers: vec![RetentionTier::new(7, None, 0)],
                 min_retention: 0,
             },
+            &clock,
         );
         assert!(to_remove.is_empty());
     }
 
     #[test]
     fn tiered_max_age_excludes_newer_checkpoints() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let day = DAY_MS;
         let checkpoints = vec![
             make_checkpoint("d30", now - 30 * day, None),
@@ -592,13 +622,15 @@ mod tests {
                 tiers: vec![RetentionTier::new(7, Some(14), 0)],
                 min_retention: 0,
             },
+            &clock,
         );
         assert!(to_remove.is_empty(), "d5 is outside the tier age window");
     }
 
     #[test]
     fn protection_keeps_chain_members_of_survivors() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("full-1", now - 4000, Some(100)),
             make_delta_checkpoint("delta-1", now - 3000, Some("full-1"), Some("full-1")),
@@ -612,6 +644,7 @@ mod tests {
                 max_checkpoints: 2,
                 min_retention: 0,
             },
+            &clock,
         );
 
         assert!(to_remove.is_empty(), "whole chain protected");
@@ -619,7 +652,8 @@ mod tests {
 
     #[test]
     fn protection_allows_removing_unreferenced_full() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("full-1", now - 4000, Some(100)),
             make_checkpoint("full-2", now - 3000, Some(100)),
@@ -633,6 +667,7 @@ mod tests {
                 max_checkpoints: 2,
                 min_retention: 0,
             },
+            &clock,
         );
 
         assert_eq!(to_remove, vec!["full-1"]);
@@ -640,7 +675,8 @@ mod tests {
 
     #[test]
     fn chain_group_protection_keeps_deltas_of_surviving_baseline() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let day = 86_400_000i64;
         let checkpoints = vec![
             // Baseline and the other baseline survive (recent).
@@ -657,6 +693,7 @@ mod tests {
                 max_age_seconds: 86_400,
                 min_retention: 0,
             },
+            &clock,
         );
 
         assert!(
@@ -667,7 +704,8 @@ mod tests {
 
     #[test]
     fn tiered_clamps_future_timestamps_to_zero_age() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let day = DAY_MS;
         let checkpoints = vec![
             make_checkpoint("future-1", now + day, None),
@@ -681,6 +719,7 @@ mod tests {
                 tiers: vec![RetentionTier::new(0, None, 1)],
                 min_retention: 1,
             },
+            &clock,
         );
         assert!(
             !to_remove.contains(&"future-2".to_string()),
@@ -690,7 +729,8 @@ mod tests {
 
     #[test]
     fn time_based_retains_future_timestamps() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("future", now + 3_600_000, None),
             make_checkpoint("old", now - 7_200_000, None),
@@ -702,13 +742,15 @@ mod tests {
                 max_age_seconds: 3600,
                 min_retention: 0,
             },
+            &clock,
         );
         assert_eq!(to_remove, vec!["old"]);
     }
 
     #[test]
     fn count_cleanup_is_deterministic_on_timestamp_ties() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
         let checkpoints = vec![
             make_checkpoint("b", now, None),
             make_checkpoint("a", now, None),
@@ -721,6 +763,7 @@ mod tests {
                 max_checkpoints: 1,
                 min_retention: 0,
             },
+            &clock,
         );
         let second = executor.evaluate(
             &checkpoints,
@@ -728,8 +771,28 @@ mod tests {
                 max_checkpoints: 1,
                 min_retention: 0,
             },
+            &clock,
         );
         assert_eq!(first, second);
         assert_eq!(first.len(), 2);
+    }
+
+    #[test]
+    fn time_based_fails_closed_without_clock() {
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
+        let handle = clock.manual_handle().expect("manual clock has handle");
+        handle.fail();
+        let checkpoints = vec![make_checkpoint("old", now - 7_200_000, None)];
+        let executor = CleanupExecutor::new();
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::TimeBased {
+                max_age_seconds: 3600,
+                min_retention: 0,
+            },
+            &clock,
+        );
+        assert!(to_remove.is_empty());
     }
 }

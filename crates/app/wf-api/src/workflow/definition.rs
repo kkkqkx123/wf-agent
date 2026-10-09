@@ -242,8 +242,8 @@ mod tests {
     use crate::workflow::version::{
         list_workflow_versions as list_vers, save_workflow_version as save_ver,
     };
-    use wf_checkpoint::coordinator::CheckpointCoordinator;
     use checkpoint_state::CheckpointStateManager;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;

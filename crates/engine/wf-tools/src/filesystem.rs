@@ -511,8 +511,12 @@ impl FsToolHandlers {
                 let operation = result["operation"].as_str().unwrap_or("");
                 match operation {
                     "add" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Created),
-                    "delete" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Deleted),
-                    "update" => notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified),
+                    "delete" => {
+                        notify_precise(ctx, &path, wf_types::effect::FileOperation::Deleted)
+                    }
+                    "update" => {
+                        notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified)
+                    }
                     "rename" => {
                         let new_path = result["new_path"]
                             .as_str()

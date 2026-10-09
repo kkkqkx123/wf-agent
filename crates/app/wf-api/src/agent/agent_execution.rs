@@ -206,8 +206,9 @@ pub async fn resume_from_checkpoint(
     use checkpoint_state::CheckpointStateManager;
 
     gate_agent_config(ctx, &params.config)?;
-    let state_manager =
-        checkpoint_state::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let state_manager = checkpoint_state::state::agent::AgentCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    );
     let owned = state_manager
         .list_by_entity(agent_loop_id)
         .await
@@ -257,8 +258,9 @@ pub async fn auto_resume(
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
     use checkpoint_state::CheckpointStateManager;
 
-    let state_manager =
-        checkpoint_state::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let state_manager = checkpoint_state::state::agent::AgentCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    );
     let latest = state_manager
         .get_latest(agent_loop_id)
         .await

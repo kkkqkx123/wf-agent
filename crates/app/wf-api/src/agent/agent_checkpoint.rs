@@ -10,11 +10,11 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use checkpoint_state::state::agent::AgentCheckpointStateManager;
+use checkpoint_state::CheckpointStateManager;
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
 use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use checkpoint_state::state::agent::AgentCheckpointStateManager;
-use checkpoint_state::CheckpointStateManager;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 use wf_types::checkpoint::CheckpointTiming;

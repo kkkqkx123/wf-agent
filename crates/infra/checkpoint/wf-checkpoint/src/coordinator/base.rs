@@ -220,6 +220,10 @@ pub trait CheckpointCoordinator: Send + Sync {
     type Entity: Send + Sync;
     type State: Send + Sync;
 
+    /// Build the checkpoint context for an entity. This has side effects:
+    /// it ensures the execution branch and resolves the actor id, so
+    /// calling it twice for one creation wastes work and must be avoided
+    /// by reusing a single prepared context per creation.
     fn prepare(
         &self,
         entity_id: &str,
@@ -346,8 +350,23 @@ pub trait CheckpointCoordinator: Send + Sync {
         state: Self::State,
     ) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send {
         async move {
+            let ctx = self.prepare(entity_id, trigger.clone()).await?;
+            self.create_checkpoint_with_context(trigger, ctx, entity_id, state)
+                .await
+        }
+    }
+
+    /// Shared creation body over an already prepared context, so strategy
+    /// gating and creation never prepare twice for one checkpoint.
+    fn create_checkpoint_with_context(
+        &self,
+        trigger: CheckpointTiming,
+        ctx: CheckpointContext,
+        entity_id: &str,
+        state: Self::State,
+    ) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send {
+        async move {
             let lifecycle = is_lifecycle_trigger(&trigger);
-            let ctx = self.prepare(entity_id, trigger).await?;
             let checkpoint = self.build(ctx, state).await?;
             self.validate_checkpoint(&checkpoint).await?;
             let checkpoint_id = checkpoint_id_of(&checkpoint)?;
@@ -385,7 +404,8 @@ pub trait CheckpointCoordinator: Send + Sync {
     /// Create a checkpoint guarded by the default strategy: when the strategy
     /// rejects the trigger, no checkpoint is produced (returns `Ok(None)`).
     /// The checkpoint is persisted when created, and the saved id is
-    /// returned.
+    /// returned. Preparation runs exactly once: the same context gates the
+    /// strategy and builds the checkpoint.
     fn create_checkpoint_with_strategy(
         &self,
         trigger: CheckpointTiming,
@@ -399,8 +419,9 @@ pub trait CheckpointCoordinator: Send + Sync {
                     return Ok(None);
                 }
             }
-            let id = self.create_checkpoint(trigger, entity_id, state).await?;
-            Ok(Some(id))
+            self.create_checkpoint_with_context(trigger, ctx, entity_id, state)
+                .await
+                .map(Some)
         }
     }
 
@@ -525,18 +546,18 @@ pub async fn drain_persistence_handles(
 }
 
 /// Shared synchronous metadata loader over a pre-built checkpoint metadata
-/// index for hierarchy breadth-first restore, which traverses synchronously.
-pub struct MetadataIndexLoader {
+/// index for child discovery breadth-first traversal, which runs synchronously.
+pub struct ChildMetadataIndex {
     index: HashMap<String, CheckpointStorageMetadata>,
 }
 
-impl MetadataIndexLoader {
+impl ChildMetadataIndex {
     pub fn new(index: HashMap<String, CheckpointStorageMetadata>) -> Self {
         Self { index }
     }
 }
 
-impl checkpoint_state::restore::HierarchyMetadataLoader for MetadataIndexLoader {
+impl checkpoint_state::restore::ChildMetadataLoader for ChildMetadataIndex {
     fn load_metadata(
         &self,
         id: &str,
@@ -555,7 +576,5 @@ fn checkpoint_id_of<C: serde::Serialize>(checkpoint: &C) -> Result<String, Check
     json.get("id")
         .and_then(|v| v.as_str())
         .map(String::from)
-        .ok_or_else(|| CheckpointError::Internal(
-            "checkpoint has no string `id` field".to_string(),
-        ))
+        .ok_or_else(|| CheckpointError::Internal("checkpoint has no string `id` field".to_string()))
 }

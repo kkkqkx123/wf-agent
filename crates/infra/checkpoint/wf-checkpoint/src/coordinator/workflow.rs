@@ -1,6 +1,6 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, MetadataIndexLoader,
+    publish_persisted, ChildMetadataIndex,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::CheckpointLoader;
@@ -22,7 +22,7 @@ use checkpoint_base::version_manager::MIN_COMPATIBLE_VERSION;
 use checkpoint_file::event::CheckpointEventBus;
 use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_state::restore::hierarchy::{
-    HierarchyRestorer, RestoreSummary, StorageChildResolver,
+    ChildDiscovery, ChildDiscoverySummary, InMemoryChildResolver,
 };
 use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::CheckpointStateManager;
@@ -213,7 +213,9 @@ impl WorkflowCheckpointCoordinator {
     /// A disabled policy yields a strategy that never checkpoints. The
     /// policy's `content.async` flag also enables async persistence mode.
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(policy));
+        self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(
+            policy,
+        ));
         self.async_persistence = policy
             .content
             .as_ref()
@@ -247,7 +249,8 @@ impl WorkflowCheckpointCoordinator {
 
     /// Configure the error handler from a unified policy.
     pub fn with_error_policy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.error_handler = checkpoint_base::error_handling::CheckpointErrorHandler::from_policy(policy);
+        self.error_handler =
+            checkpoint_base::error_handling::CheckpointErrorHandler::from_policy(policy);
         self
     }
 
@@ -273,11 +276,14 @@ impl WorkflowCheckpointCoordinator {
         &self.version_manager
     }
 
-    fn apply_content_policy(&self, state: &mut WorkflowExecutionStateSnapshot) {
+    fn apply_content_policy(
+        &self,
+        state: &mut WorkflowExecutionStateSnapshot,
+    ) -> Result<(), CheckpointError> {
         if let Some(strategy) = &self.strategy {
             let filter = checkpoint_base::common::content::ContentFilter::new();
             let config = strategy.content_config();
-            if !filter.should_include_state(config) {
+            if !filter.should_include_state(config)? {
                 state.input = None;
                 state.output = None;
                 state.node_results = None;
@@ -293,10 +299,11 @@ impl WorkflowCheckpointCoordinator {
                 state.conversation_state = None;
                 state.trigger_states = None;
             }
-            if !filter.should_include_history(config) {
+            if !filter.should_include_history(config)? {
                 state.messages = None;
             }
         }
+        Ok(())
     }
 
     /// Load the checkpoint blob and bring it to the current format version.
@@ -344,16 +351,16 @@ impl WorkflowCheckpointCoordinator {
         CheckpointSerializer::auto_deserialize(&migrated)
     }
 
-    /// Post-restore phase: restore child executions. Latest checkpoints of
+    /// Post-restore phase: discover child executions. Latest checkpoints of
     /// child executions are resolved from storage with bounded concurrency,
-    /// BFS-restored via `HierarchyRestorer`, and (when a restore strategy is
+    /// discovered via `ChildDiscovery`, and (when a restore strategy is
     /// registered for the child execution type) fully restored through the
     /// strategy registry.
     async fn restore_child_hierarchy(
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-    ) -> Result<RestoreSummary, CheckpointError> {
+    ) -> Result<ChildDiscoverySummary, CheckpointError> {
         // Children are found by querying the checkpoints whose entity records
         // this execution as their parent. The link lives on the child, so the
         // result reflects every child that ever checkpointed, including ones
@@ -363,7 +370,7 @@ impl WorkflowCheckpointCoordinator {
             .list_latest_by_parent(parent_entity_id)
             .await?;
         if latest_by_child.is_empty() {
-            return Ok(RestoreSummary {
+            return Ok(ChildDiscoverySummary {
                 total: 0,
                 success: 0,
                 failed: 0,
@@ -394,7 +401,7 @@ impl WorkflowCheckpointCoordinator {
             }));
         }
 
-        let resolver = StorageChildResolver::new();
+        let resolver = InMemoryChildResolver::new();
         let mut index: HashMap<String, CheckpointStorageMetadata> = HashMap::new();
         let mut restored = 0u32;
 
@@ -424,10 +431,10 @@ impl WorkflowCheckpointCoordinator {
             }
         }
 
-        let loader = MetadataIndexLoader::new(index);
-        let restorer = HierarchyRestorer::new(Arc::new(resolver));
-        let results = restorer.restore_children_bfs(checkpoint_id, &loader, 8, None)?;
-        let mut summary = HierarchyRestorer::summarize_results(&results);
+        let loader = ChildMetadataIndex::new(index);
+        let discovery = ChildDiscovery::new(Arc::new(resolver));
+        let results = discovery.discover_children_bfs(checkpoint_id, &loader, 8, None)?;
+        let mut summary = ChildDiscovery::summarize_results(&results);
         summary.success += restored as usize;
         Ok(summary)
     }
@@ -627,7 +634,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         let coords = snapshot_workflow_coords(&state);
         // Content policy (ContentFilter) applied before any storage type
         // decision is made.
-        self.apply_content_policy(&mut state);
+        self.apply_content_policy(&mut state)?;
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
@@ -1073,7 +1080,7 @@ pub struct WorkflowExecutionEntity {
     pub execution_id: String,
     pub status: String,
     pub snapshot: WorkflowExecutionStateSnapshot,
-    pub restore_summary: Option<RestoreSummary>,
+    pub restore_summary: Option<ChildDiscoverySummary>,
 }
 
 #[cfg(test)]
@@ -1696,9 +1703,7 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.execution_id, "exec-1");
-        let workspace = file_manager
-            .get_actor_workspace("agent:exec-1")
-            .unwrap();
+        let workspace = file_manager.get_actor_workspace("agent:exec-1").unwrap();
         assert!(
             workspace.iter().any(|f| f.path == "a.txt"),
             "actor edit line stored via coordinator query view"
@@ -1728,9 +1733,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(coord.pending_persistence_count().await, 1);
-        let before = file_manager
-            .get_actor_workspace("agent:exec-1")
-            .unwrap();
+        let before = file_manager.get_actor_workspace("agent:exec-1").unwrap();
         assert!(before.iter().any(|f| f.path == "a.txt"));
 
         coord.wait_for_persistence().await;
@@ -1738,9 +1741,7 @@ mod tests {
         // Deferred file persistence is a read-only projection correlated
         // with the state checkpoint: it resolves the same workspace instead
         // of appending a duplicate commit.
-        let after = file_manager
-            .get_actor_workspace("agent:exec-1")
-            .unwrap();
+        let after = file_manager.get_actor_workspace("agent:exec-1").unwrap();
         assert_eq!(
             before, after,
             "deferred projection must not duplicate the commit"
@@ -1888,12 +1889,14 @@ mod tests {
         invalid.previous_checkpoint_id = None;
         invalid.snapshot = None;
         invalid.delta = None;
-        coord.persist(&invalid, "exec-1").await.unwrap();
-
-        let err = coord.restore(&invalid.id).await.unwrap_err();
+        // Broken delta links fail fast at persist, never reaching restore.
+        let err = coord.persist(&invalid, "exec-1").await.unwrap_err();
         assert!(
-            matches!(err, CheckpointError::Validation { .. }),
-            "missing previous_checkpoint_id rejected before restore"
+            matches!(
+                err,
+                CheckpointError::Validation { .. } | CheckpointError::DeltaChainBroken { .. }
+            ),
+            "missing previous_checkpoint_id rejected at persist"
         );
     }
 

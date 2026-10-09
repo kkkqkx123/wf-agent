@@ -18318,12 +18318,12 @@
         ]
       }
     },
-    "/api/v1/file-checkpoint/diff/staged/{id}": {
+    "/api/v1/file-checkpoint/diff/main/{id}": {
       "get": {
         "tags": [
           "checkpoint"
         ],
-        "operationId": "handle_diff_against_staged",
+        "operationId": "handle_diff_against_main",
         "parameters": [
           {
             "name": "id",

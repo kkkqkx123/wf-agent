@@ -1,9 +1,10 @@
 //! Feature/content branch name validation.
 //!
-//! Execution branches (`execution/{id}`) are owned by `BranchStorageAdapter`;
-//! feature branches (`{feature}`) are lightweight content-merge pointers at
-//! `refs/wf/feat/*`. This module owns the feature-namespace name rule so raw
-//! ref writes disappear from checkpoint orchestration code.
+//! Execution pointers (`execution-pointer/{id}`) are owned by
+//! `ExecutionPointerAdapter`; feature branches (`{feature}`) are lightweight
+//! content-merge pointers at `refs/wf/feat/*`. This module owns the
+//! feature-namespace name rule so raw ref writes disappear from checkpoint
+//! orchestration code.
 
 use checkpoint_base::error::CheckpointError;
 

@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_checkpoint::event::CheckpointEventBus;
 use checkpoint_base::execution_events::ExecutionEventBus;
+use wf_checkpoint::event::CheckpointEventBus;
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;

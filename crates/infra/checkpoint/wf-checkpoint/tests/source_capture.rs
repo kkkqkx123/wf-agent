@@ -81,9 +81,7 @@ fn script_capture_produces_single_atomic_commit() {
         "script run must record new changes via query view"
     );
 
-    let workspace = manager
-        .get_actor_workspace(script.as_str())
-        .unwrap();
+    let workspace = manager.get_actor_workspace(script.as_str()).unwrap();
     let by_path: std::collections::HashMap<_, _> = workspace
         .iter()
         .map(|f| (f.path.as_str(), &f.content))
@@ -178,8 +176,7 @@ fn manual_changes_skip_agent_content_and_record_human_edits() {
     );
     let human_changes = manager.list_changes_by_path("b.txt", None).unwrap();
     assert!(
-        human_changes.iter().all(|c| c.source != "human")
-            || human_changes.is_empty(),
+        human_changes.iter().all(|c| c.source != "human") || human_changes.is_empty(),
         "no human commit may exist yet"
     );
 

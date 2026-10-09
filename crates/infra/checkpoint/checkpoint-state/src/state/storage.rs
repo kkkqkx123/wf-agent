@@ -177,9 +177,17 @@ where
                         meta.chain_root_id.or_else(|| Some(prev.to_string())),
                         Some(meta.chain_position.unwrap_or(0) + 1),
                     )),
-                    None => Ok((Some(id.to_string()), Some(0))),
+                    // A delta must link to a readable predecessor. Falling
+                    // back to a new chain head would silently hide a broken
+                    // chain, so report the missing link loudly.
+                    None => Err(CheckpointError::DeltaChainBroken {
+                        checkpoint_id: id.to_string(),
+                        missing_id: prev.to_string(),
+                    }),
                 },
-                None => Ok((Some(id.to_string()), Some(0))),
+                None => Err(CheckpointError::Validation {
+                    reason: format!("delta checkpoint '{id}' missing previous_checkpoint_id"),
+                }),
             },
         }
     }

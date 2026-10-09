@@ -368,6 +368,7 @@ pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
 pub use checkpoint_base::common::{
     diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
 };
+pub use checkpoint_base::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
 pub use checkpoint_file::approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use checkpoint_file::event::{CheckpointEvent, CheckpointEventBus};
@@ -377,7 +378,6 @@ pub use checkpoint_file::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
-pub use checkpoint_base::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use checkpoint_file::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
 };

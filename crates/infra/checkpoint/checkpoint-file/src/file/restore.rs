@@ -56,9 +56,11 @@ impl FileCheckpointManager {
     }
 
     /// Resolve the file set belonging to a state checkpoint: the linked
-    /// file commit when one was recorded and still exists, otherwise the
-    /// entity's latest file checkpoint. Checkpoints created before linking
-    /// have no entry and take the latest path with a log line.
+    /// file commit when one was recorded and still exists. Checkpoints
+    /// created before linking have no entry and report `None` so callers
+    /// handle the gap explicitly. A recorded link pointing at a missing or
+    /// malformed commit is an explicit error, never a silent fallback to a
+    /// possibly wrong latest version.
     pub fn restore_state_files(
         &self,
         entity_id: &str,
@@ -68,17 +70,15 @@ impl FileCheckpointManager {
             .storage_ref()?
             .lookup_state_file_link(state_checkpoint_id)?;
         if let Some(commit_id) = linked {
-            if crate::git_store::is_hex_id(&commit_id) {
-                let git = self.git_ref()?;
-                if git.read_commit(&commit_id).is_ok() {
-                    return Ok(Some(self.restore_checkpoint(entity_id, &commit_id)?));
-                }
+            if !crate::git_store::is_hex_id(&commit_id) {
+                return Err(CheckpointError::Corrupted {
+                    id: state_checkpoint_id.to_string(),
+                    reason: format!("linked file commit id malformed: '{commit_id}'"),
+                });
             }
-            tracing::warn!(
-                state_checkpoint_id = %state_checkpoint_id,
-                file_commit_id = %commit_id,
-                "linked file commit is unusable; falling back to latest file checkpoint"
-            );
+            let git = self.git_ref()?;
+            git.read_commit(&commit_id).map_err(map_git_error)?;
+            return Ok(Some(self.restore_checkpoint(entity_id, &commit_id)?));
         }
         self.restore_latest(entity_id)
     }

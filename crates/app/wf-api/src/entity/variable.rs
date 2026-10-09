@@ -329,8 +329,8 @@ async fn latest_checkpoint_variables(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<BTreeMap<String, Value>>> {
-    use wf_checkpoint::coordinator::CheckpointCoordinator;
     use checkpoint_state::CheckpointStateManager;
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
 
     let state_manager = checkpoint_state::state::workflow::WorkflowCheckpointStateManager::new(
         ctx.checkpoint_store.clone(),

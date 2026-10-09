@@ -54,7 +54,7 @@ impl FileCheckpointManager {
     /// input order; a conflicted feature aborts the sequence with a
     /// `MergeConflict` error (main already gained the earlier merges, each
     /// individually revertable).
-    pub fn merge_features_to_staged(
+    pub fn merge_features_to_main(
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
@@ -91,7 +91,7 @@ impl FileCheckpointManager {
         &self,
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
-        let merged = self.merge_features_to_staged(feature_names)?;
+        let merged = self.merge_features_to_main(feature_names)?;
         let git = self.git_ref()?;
         for name in feature_names {
             git.delete_ref(&feat_ref_for_name(name))

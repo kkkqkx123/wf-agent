@@ -12,7 +12,7 @@ use crate::manager_store::{ManagerPolicy, ManagerStore};
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use crate::storage::{MetadataStore, SqliteStorage};
-use checkpoint_base::actor::registry::ActorRegistry;
+use checkpoint_base::actor::registry::ActorCache;
 use checkpoint_base::clock::CheckpointClock;
 use checkpoint_base::common::diff::unified_diff_text;
 use checkpoint_base::error::CheckpointError;
@@ -131,11 +131,6 @@ pub struct FileCheckpointOptions {
     pub failure_behavior: FailureBehavior,
     /// Additional ignore patterns applied while scanning the workspace.
     pub custom_ignore_patterns: Vec<String>,
-    /// Byte-change ratio above which a text edit is stored as a full-content
-    /// snapshot instead of a line-level delta. Defaults to
-    /// `checkpoint_base::common::DEFAULT_FULL_SNAPSHOT_THRESHOLD`;
-    /// mirrors `FileCheckpointConfig.full_snapshot_threshold`.
-    pub full_snapshot_threshold: f64,
 }
 
 impl Default for FileCheckpointOptions {
@@ -143,7 +138,6 @@ impl Default for FileCheckpointOptions {
         Self {
             failure_behavior: FailureBehavior::Warn,
             custom_ignore_patterns: Vec::new(),
-            full_snapshot_threshold: checkpoint_base::common::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
         }
     }
 }
@@ -183,7 +177,7 @@ pub struct FileCheckpointManager {
     /// first actor resolution: a child execution whose parent is known in
     /// the index gets `parent.child(execution_id)`, so nested executions
     /// live in their own hierarchical partition.
-    pub(crate) actor_index: ActorRegistry,
+    pub(crate) actor_index: ActorCache,
     /// Shared scoped-shell sampling state (foreground scopes + background
     /// sessions). Owned here so every `CheckpointSession` clone routes to
     /// the same registry instead of isolated per-handle maps.
@@ -273,7 +267,7 @@ impl FileCheckpointManager {
             clock: CheckpointClock::system(),
             event_bus: None,
             workspace_root: None,
-            actor_index: ActorRegistry::new(),
+            actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),
             redo_stacks: Arc::new(DashMap::new()),
@@ -299,9 +293,6 @@ impl FileCheckpointManager {
         };
         manager.policy.approval_policy = config.approval_policy;
         manager.policy.conflict_behavior = config.conflict_behavior;
-        manager.policy.full_snapshot_threshold = config
-            .full_snapshot_threshold
-            .unwrap_or(checkpoint_base::common::DEFAULT_FULL_SNAPSHOT_THRESHOLD);
         manager.policy.gc_interval_secs = config.gc_interval_secs;
         manager.policy.gc_retention = config.gc_retention.map(|r| crate::gc::GcRetention {
             keep_recent_heads: r.keep_recent_heads,
@@ -356,7 +347,7 @@ impl FileCheckpointManager {
             clock: CheckpointClock::system(),
             event_bus: None,
             workspace_root: None,
-            actor_index: ActorRegistry::new(),
+            actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),
             redo_stacks: Arc::new(DashMap::new()),
@@ -379,11 +370,6 @@ impl FileCheckpointManager {
     /// background sessions). Cloned sessions observe the same state.
     pub(crate) fn session_scopes(&self) -> Arc<crate::scope::SessionScopeRegistry> {
         self.session_scopes.clone()
-    }
-
-    /// Configured full-snapshot threshold threaded into file edits.
-    pub fn full_snapshot_threshold(&self) -> f64 {
-        self.policy.full_snapshot_threshold
     }
 
     pub(crate) fn storage_ref(&self) -> Result<&SqliteStorage, CheckpointError> {
@@ -410,8 +396,9 @@ impl FileCheckpointManager {
 
     /// Scan the workspace and commit it as one atomic commit on the
     /// actor's edit ref (the default full-scan path). Files missing from
-    /// the scan but present in the actor's current tree commit as
-    /// deletions, so the ref becomes a true sync of the worktree. Empty
+    /// the scan but present in the global tracked set (main plus every
+    /// edit-ref head) commit as deletions, so the ref becomes a true sync
+    /// of the shared worktree truth rather than actor-local history. Empty
     /// directories are recorded in the empty-dir manifest for restore.
     pub fn create_workspace_checkpoint(
         &self,
@@ -426,16 +413,32 @@ impl FileCheckpointManager {
         let scan = scanner.scan(base_dir)?;
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
-        let tracked: HashSet<String> = git
-            .read_ref(&crate::git_store::edit_ref_for_actor(actor.as_str()))
+        // Global tracked set: main plus every edit-ref head. Deletion
+        // detection against this set keeps workspace scope global.
+        let mut ref_names = vec![crate::git_store::REF_MAIN.to_string()];
+        for (name, _) in git
+            .list_refs(crate::git_store::REF_EDIT_PREFIX)
             .map_err(crate::file::git_write::map_git_error)?
-            .map(|head| {
-                git.read_commit(&head)
-                    .and_then(|c| git.tree_to_files(&c.tree).map(|m| m.into_keys().collect()))
-            })
-            .transpose()
-            .map_err(crate::file::git_write::map_git_error)?
-            .unwrap_or_default();
+        {
+            ref_names.push(name);
+        }
+        ref_names.sort();
+        let mut tracked: HashSet<String> = HashSet::new();
+        for name in ref_names {
+            let Some(head) = git
+                .read_ref(&name)
+                .map_err(crate::file::git_write::map_git_error)?
+            else {
+                continue;
+            };
+            if let Ok(files) = git.read_commit(&head).and_then(|c| {
+                git.tree_to_files(&c.tree)
+                    .map(|m| m.into_keys().collect::<HashSet<String>>())
+            }) {
+                tracked.extend(files);
+            }
+        }
+        let _ = actor;
         let mut entries = Vec::with_capacity(scan.files.len());
         for state in &scan.files {
             let relative = crate::file::util::validate_workspace_relative_path(&state.path)?;
@@ -497,7 +500,7 @@ impl FileCheckpointManager {
     }
 
     /// All partitions of the file-checkpoint store (actor partitions,
-    /// approval, integrated features, staged).
+    /// approval, integrated features, main).
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
         self.reader()?.list_partitions()
     }
@@ -537,12 +540,12 @@ impl FileCheckpointManager {
         self.reader()?.diff_actors(actor_a, actor_b)
     }
 
-    /// Per-file diff between an actor workspace and the staged partition.
-    pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
-        self.reader()?.diff_against_staged(actor)
+    /// Per-file diff between an actor workspace and the main line.
+    pub fn diff_against_main(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
+        self.reader()?.diff_against_main(actor)
     }
 
-    /// Files with unresolved merge conflicts across the staged and feature
+    /// Files with unresolved merge conflicts across the main and feature
     /// partitions, with re-derived conflict regions (see
     /// [`crate::provenance::list_conflicts`]).
     pub fn list_conflicts(&self) -> Result<Vec<crate::provenance::ConflictFile>, CheckpointError> {
@@ -881,9 +884,9 @@ mod tests {
         assert!(!result.merge_result.commit_id.is_empty());
         assert!(!result.checkpoint_id.is_empty());
 
-        let staged = manager.merge_features_to_staged(&["feature-1"]).unwrap();
-        assert!(!staged.merge_result.has_conflicts());
-        assert!(!staged.checkpoint_id.is_empty());
+        let main = manager.merge_features_to_main(&["feature-1"]).unwrap();
+        assert!(!main.merge_result.has_conflicts());
+        assert!(!main.checkpoint_id.is_empty());
     }
 
     /// Reads the reconstructed text of every file on a feature ref.
@@ -1067,7 +1070,7 @@ mod tests {
         // Branch head pointers are removed; the DAG data stays intact.
         let partitions = manager.list_partitions().unwrap();
         assert!(
-            partitions.iter().any(|p| p.kind == "staged"),
+            partitions.iter().any(|p| p.kind == "main"),
             "main partition exists after join"
         );
     }

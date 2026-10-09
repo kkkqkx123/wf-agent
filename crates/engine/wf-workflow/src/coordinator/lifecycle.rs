@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use wf_checkpoint::event::CheckpointEventBus;
 use checkpoint_base::execution_events::ExecutionEventBus;
+use wf_checkpoint::event::CheckpointEventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;

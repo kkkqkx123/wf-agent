@@ -44,7 +44,7 @@ pub struct DeltaSummary {
 pub struct PartitionView {
     pub partition_id: String,
     pub name: String,
-    /// `manual` | `agent` | `approval` | `integrated` | `staged`.
+    /// `manual` | `agent` | `approval` | `integrated` | `main`.
     pub kind: String,
     /// Actor id for per-actor lines (agent/approval), `None` otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,7 +175,7 @@ fn all_refs(git: &GitStore) -> Result<Vec<(String, String)>, CheckpointError> {
 /// Classify a ref into the stable partition-kind vocabulary.
 fn classify_ref(name: &str, head: &GitCommit) -> (String, Option<String>) {
     if name == REF_MAIN {
-        ("staged".to_string(), None)
+        ("main".to_string(), None)
     } else if name == REF_HUMAN {
         ("manual".to_string(), None)
     } else if name.strip_prefix(REF_REVIEW_PREFIX).is_some() {
@@ -385,8 +385,8 @@ pub fn get_actor_workspace(
     workspace_files_for_tree(git, &commit.tree, commit.committer_ts)
 }
 
-/// The main line's reconstructed file set (`diff_against_staged` base).
-pub fn get_staged_workspace(git: &GitStore) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+/// The main line's reconstructed file set (`diff_against_main` base).
+pub fn get_main_workspace(git: &GitStore) -> Result<Vec<WorkspaceFile>, CheckpointError> {
     let head = git
         .read_ref(REF_MAIN)
         .map_err(map_git_error)?
@@ -571,13 +571,13 @@ pub fn diff_actors(
 }
 
 /// Diff between an actor workspace and the main line.
-pub fn diff_against_staged(
+pub fn diff_against_main(
     git: &GitStore,
     actor: &str,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
     let actor_files = get_actor_workspace(git, actor)?;
-    let staged_files = get_staged_workspace(git)?;
-    Ok(diff_workspaces(&actor_files, &staged_files))
+    let main_files = get_main_workspace(git)?;
+    Ok(diff_workspaces(&actor_files, &main_files))
 }
 
 /// Read-only provenance service borrowing the stores.
@@ -628,8 +628,8 @@ impl<'a> ProvenanceReader<'a> {
         diff_actors(self.git, actor_a, actor_b)
     }
 
-    pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
-        diff_against_staged(self.git, actor)
+    pub fn diff_against_main(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
+        diff_against_main(self.git, actor)
     }
 
     pub fn list_conflicts(&self) -> Result<Vec<ConflictFile>, CheckpointError> {

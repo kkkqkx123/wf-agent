@@ -320,7 +320,6 @@ fn test_assemble_new_domain_overrides() {
             custom_ignore_patterns: None,
             storage: None,
             failure_behavior: wf_types::config::file_checkpoint::FailureBehavior::Error,
-            full_snapshot_threshold: Some(0.7),
             ..Default::default()
         }),
         ..Default::default()
@@ -330,7 +329,6 @@ fn test_assemble_new_domain_overrides() {
     assert!(config.tools.read_file.is_some());
     assert_eq!(config.tools.read_file.as_ref().unwrap().max_file_size, 1000);
     assert!(config.file_checkpoint.enabled);
-    assert_eq!(config.file_checkpoint.full_snapshot_threshold, Some(0.7));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -363,8 +361,8 @@ fn test_full_bundle_assembly_from_repo_configs() {
         500_000,
         "read_file defaults applied"
     );
-    assert_eq!(
-        config.file_checkpoint.full_snapshot_threshold, None,
+    assert!(
+        !config.file_checkpoint.enabled,
         "repo file-checkpoint.toml must load"
     );
 }

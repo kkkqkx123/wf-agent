@@ -8,6 +8,23 @@ type MessageDiff = (
     Option<Vec<u32>>,
 );
 
+/// Marker for a deleted variable in a workflow delta. Deletions must not
+/// reuse JSON null: null is a legitimate variable value, so a dedicated
+/// object marker keeps explicit nulls round-tripping while deletions remove
+/// the key on apply.
+pub const VARIABLE_DELETED_MARKER_KEY: &str = "__wf_variable_deleted__";
+
+fn is_variable_deleted_marker(value: &serde_json::Value) -> bool {
+    value.as_object().is_some_and(|obj| {
+        obj.get(VARIABLE_DELETED_MARKER_KEY)
+            .is_some_and(|v| v == &serde_json::Value::Bool(true))
+    })
+}
+
+fn variable_deleted_marker() -> serde_json::Value {
+    serde_json::json!({ VARIABLE_DELETED_MARKER_KEY: true })
+}
+
 pub struct WorkflowDiffCalculator;
 
 impl WorkflowDiffCalculator {
@@ -142,10 +159,12 @@ impl
             match serde_json::from_value(node_results.clone()) {
                 Ok(parsed) => result.node_results = Some(parsed),
                 Err(err) => {
-                    tracing::warn!(
-                        error = %err,
-                        "node results deserialization failed while applying delta; field dropped"
-                    );
+                    return Err(CheckpointError::Corrupted {
+                        id: String::new(),
+                        reason: format!(
+                            "node results deserialization failed while applying delta: {err}"
+                        ),
+                    });
                 }
             }
         }
@@ -187,7 +206,7 @@ impl
 
         if let Some(ref vars) = delta.modified_variables {
             for (name, value) in vars {
-                if value.is_null() {
+                if is_variable_deleted_marker(value) {
                     result.variable_state.variables.remove(name);
                 } else {
                     result
@@ -350,7 +369,7 @@ impl WorkflowDiffCalculator {
 
         for name in previous.variables.keys() {
             if !current.variables.contains_key(name) {
-                modified.insert(name.clone(), serde_json::Value::Null);
+                modified.insert(name.clone(), variable_deleted_marker());
             }
         }
 
@@ -629,9 +648,29 @@ impl
             match delta.added_message_base_seq {
                 Some(base_seq) => {
                     let base_start = base.message_seq_start.unwrap_or(0);
+                    // Sequence rollback or reorder indicates a corrupted or
+                    // mismatched base: truncating on it would splice the wrong
+                    // prefix, so fail loudly instead of merging.
+                    if base_seq < base_start {
+                        return Err(CheckpointError::Corrupted {
+                            id: String::new(),
+                            reason: format!(
+                                "agent delta base_seq {base_seq} precedes base start {base_start}; refusing suffix merge"
+                            ),
+                        });
+                    }
                     let keep = base_seq.saturating_sub(base_start) as usize;
                     let mut merged = base.conversation_snapshot.clone().unwrap_or_default();
-                    merged.truncate(keep.min(merged.len()));
+                    if keep > merged.len() {
+                        return Err(CheckpointError::Corrupted {
+                            id: String::new(),
+                            reason: format!(
+                                "agent delta base_seq {base_seq} exceeds base history length {}; refusing suffix merge",
+                                merged.len()
+                            ),
+                        });
+                    }
+                    merged.truncate(keep);
                     merged.extend(messages.clone());
                     result.conversation_snapshot = Some(merged);
                 }

@@ -1,6 +1,6 @@
-use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use checkpoint_file::file::session::EditGroup;
 use checkpoint_file::gc::{GcRetention, GcStats};
+use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 
 use crate::infra::context::ApiContext;
 use crate::ApiError;
@@ -61,10 +61,10 @@ pub fn diff_actors(ctx: &ApiContext, actor_a: &str, actor_b: &str) -> ApiResult<
         .map_err(ApiError::execution_with_source)
 }
 
-/// Per-file diff between an actor workspace and the staged partition.
-pub fn diff_against_staged(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileDiffView>> {
+/// Per-file diff between an actor workspace and the main line.
+pub fn diff_against_main(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileDiffView>> {
     manager(ctx)?
-        .diff_against_staged(actor)
+        .diff_against_main(actor)
         .map_err(ApiError::execution_with_source)
 }
 

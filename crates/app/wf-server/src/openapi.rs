@@ -257,7 +257,7 @@ use utoipa::OpenApi;
         crate::api::checkpoint::file_provenance::handle_list_partitions,
         crate::api::checkpoint::file_provenance::handle_get_actor_workspace,
         crate::api::checkpoint::file_provenance::handle_diff_actors,
-        crate::api::checkpoint::file_provenance::handle_diff_against_staged,
+        crate::api::checkpoint::file_provenance::handle_diff_against_main,
         crate::api::checkpoint::file_provenance::handle_file_timeline,
         crate::api::checkpoint::file_provenance::handle_read_content,
         crate::api::checkpoint::file_provenance::handle_list_tree,

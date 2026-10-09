@@ -17,10 +17,10 @@ use wf_types::llm::{
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::tool::{Tool, ToolType};
 
-use wf_llm::{LlmClient, LlmClientImpl};
 use wf_llm::create_codec;
 use wf_llm::LlmError;
 use wf_llm::LlmGateway;
+use wf_llm::{LlmClient, LlmClientImpl};
 
 const OPENAI_CHAT_RESPONSE: &str = r#"{
     "id": "chatcmpl-1",

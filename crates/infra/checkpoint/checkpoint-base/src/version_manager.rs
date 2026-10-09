@@ -111,9 +111,10 @@ impl VersionManager {
 
     /// Default migration chain for checkpoint format evolution. Each handler
     /// receives the raw serialized checkpoint and returns migrated bytes.
+    /// Only migrations targeting at most the current version are registered,
+    /// so every registered handler stays reachable from the compatibility gate.
     fn register_default_migrations(&self) {
         self.register_migration("1.0.0", "1.1.0", Box::new(DefaultV1ToV1_1));
-        self.register_migration("1.1.0", "2.0.0", Box::new(DefaultV1_1ToV2));
     }
 
     pub fn register_migration(
@@ -271,11 +272,14 @@ impl VersionManager {
         }
     }
 
-    /// Version distance between two versions: `major_diff * 100 + minor_diff`.
+    /// Version distance between two versions, including the patch component:
+    /// `major_diff * 10000 + minor_diff * 100 + patch_diff`.
     pub fn get_version_distance(&self, a: &str, b: &str) -> Result<i64, CheckpointError> {
         let a = SemanticVersion::parse(a)?;
         let b = SemanticVersion::parse(b)?;
-        Ok((a.major as i64 - b.major as i64) * 100 + (a.minor as i64 - b.minor as i64))
+        Ok((a.major as i64 - b.major as i64) * 10000
+            + (a.minor as i64 - b.minor as i64) * 100
+            + (a.patch as i64 - b.patch as i64))
     }
 
     /// Compare two version strings numerically (semantic version ordering).
@@ -292,13 +296,35 @@ impl VersionManager {
             return Ok(Vec::new());
         }
 
+        // Deterministic breadth-first search for the shortest path. Keys are
+        // sorted so concurrent map iteration order never affects the result.
+        use std::collections::{HashMap, VecDeque};
+        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+        let mut keys: Vec<(String, String)> = Vec::new();
         for entry in self.migrations.iter() {
             let (f, t) = entry.key();
-            if f == from {
-                let mut sub_path = self.find_migration_path(t, to)?;
-                let mut path = vec![(f.clone(), t.clone())];
-                path.append(&mut sub_path);
-                return Ok(path);
+            keys.push((f.clone(), t.clone()));
+        }
+        keys.sort();
+        for (f, t) in keys {
+            edges.entry(f).or_default().push(t);
+        }
+        let mut queue: VecDeque<(String, Vec<(String, String)>)> = VecDeque::new();
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        queue.push_back((from.to_string(), Vec::new()));
+        visited.insert(from.to_string());
+        while let Some((current, path)) = queue.pop_front() {
+            if let Some(nexts) = edges.get(&current) {
+                for next in nexts {
+                    let mut next_path = path.clone();
+                    next_path.push((current.clone(), next.clone()));
+                    if next == to {
+                        return Ok(next_path);
+                    }
+                    if visited.insert(next.clone()) {
+                        queue.push_back((next.clone(), next_path));
+                    }
+                }
             }
         }
 
@@ -335,8 +361,11 @@ impl MigrationHandler for DefaultV1ToV1_1 {
     }
 }
 
-/// Default migration v1.1.0 -> v2.0.0: stamps the blob with the
-/// major-version upgrade marker.
+/// Major-version upgrade handler, available for explicit registration when
+/// the format target moves beyond the current version. It is not part of the
+/// default chain so the compatibility gate never advertises an unreachable
+/// migration.
+#[allow(dead_code)]
 struct DefaultV1_1ToV2;
 
 #[async_trait]
@@ -520,6 +549,7 @@ mod tests {
     async fn migration_chain_reaches_major_upgrade() {
         let mut vm = VersionManager::new();
         vm.set_current_version("2.0.0").unwrap();
+        vm.register_migration("1.1.0", "2.0.0", Box::new(DefaultV1_1ToV2));
         let data = serde_json::json!({
             "id": "cp-1",
             "type": "full",
@@ -543,6 +573,7 @@ mod tests {
     async fn migration_to_major_version_applies_1_1_handler() {
         let mut vm = VersionManager::new();
         vm.set_current_version("2.0.0").unwrap();
+        vm.register_migration("1.1.0", "2.0.0", Box::new(DefaultV1_1ToV2));
         let data = serde_json::json!({
             "id": "cp-1",
             "type": "full",
@@ -595,9 +626,10 @@ mod tests {
     #[test]
     fn version_distance_uses_major_minor_scale() {
         let vm = VersionManager::new();
-        assert_eq!(vm.get_version_distance("2.0.0", "1.0.0").unwrap(), 100);
-        assert_eq!(vm.get_version_distance("1.1.0", "1.0.0").unwrap(), 1);
+        assert_eq!(vm.get_version_distance("2.0.0", "1.0.0").unwrap(), 10000);
+        assert_eq!(vm.get_version_distance("1.1.0", "1.0.0").unwrap(), 100);
         assert_eq!(vm.get_version_distance("1.0.0", "1.0.0").unwrap(), 0);
+        assert_eq!(vm.get_version_distance("1.1.1", "1.1.0").unwrap(), 1);
     }
 
     #[test]

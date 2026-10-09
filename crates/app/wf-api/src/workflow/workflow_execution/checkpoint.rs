@@ -4,9 +4,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::Value;
 
+use checkpoint_state::WorkflowCheckpointStateManager;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use checkpoint_state::WorkflowCheckpointStateManager;
 use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;

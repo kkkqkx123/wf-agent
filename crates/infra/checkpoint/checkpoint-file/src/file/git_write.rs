@@ -141,9 +141,10 @@ impl FileCheckpointManager {
         Ok(())
     }
 
-    /// Carry the union of the parents' empty-dir manifests onto a new
-    /// commit. Only worktree scans observe the true empty-directory set,
-    /// so non-scan commits preserve rather than invent it.
+    /// Carry the parents' empty-dir manifests onto a new commit, filtered
+    /// to dirs still empty in the new tree. Only worktree scans observe the
+    /// true set, so non-scan commits preserve it without resurrecting dirs
+    /// that now contain files.
     fn inherit_empty_dirs_manifest(&self, commit_id: &str) -> Result<(), CheckpointError> {
         let git = self.git_ref()?;
         let commit = git.read_commit(commit_id).map_err(map_git_error)?;
@@ -157,9 +158,19 @@ impl FileCheckpointManager {
                 merged.insert(dir);
             }
         }
-        if !merged.is_empty() {
-            let dirs: Vec<String> = merged.into_iter().collect();
-            storage.store_empty_dirs(commit_id, &dirs)?;
+        if merged.is_empty() {
+            return Ok(());
+        }
+        let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+        let prefix_free: Vec<String> = merged
+            .into_iter()
+            .filter(|dir| {
+                let prefix = format!("{dir}/");
+                !files.keys().any(|path| path.starts_with(&prefix))
+            })
+            .collect();
+        if !prefix_free.is_empty() {
+            storage.store_empty_dirs(commit_id, &prefix_free)?;
         }
         Ok(())
     }
@@ -262,7 +273,11 @@ impl FileCheckpointManager {
             }
         }
         // Agent-owned content: union of main plus every edit-ref head tree.
-        let mut owned: HashMap<String, Vec<u8>> = HashMap::new();
+        // Deterministic rule: a worktree file matching any tracked agent
+        // content is agent-owned and skipped; otherwise it is human.
+        // All known bytes per path are retained so main versus edit
+        // divergence never misclassifies an agent file as human.
+        let mut owned: HashMap<String, std::collections::HashSet<Vec<u8>>> = HashMap::new();
         let mut ref_names = vec![crate::git_store::REF_MAIN.to_string()];
         for (name, _) in git
             .list_refs(crate::git_store::REF_EDIT_PREFIX)
@@ -270,6 +285,7 @@ impl FileCheckpointManager {
         {
             ref_names.push(name);
         }
+        ref_names.sort();
         for name in ref_names {
             let Some(head) = git.read_ref(&name).map_err(map_git_error)? else {
                 continue;
@@ -279,7 +295,7 @@ impl FileCheckpointManager {
             };
             if let Ok(files) = git.tree_to_bytes(&commit.tree) {
                 for (path, bytes) in files {
-                    owned.entry(path).or_insert(bytes);
+                    owned.entry(path).or_default().insert(bytes);
                 }
             }
         }
@@ -294,7 +310,7 @@ impl FileCheckpointManager {
         };
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         for (path, bytes) in &worktree {
-            if owned.get(path).is_some_and(|known| known == bytes) {
+            if owned.get(path).is_some_and(|known| known.contains(bytes)) {
                 continue;
             }
             if human_tree.get(path).is_some_and(|known| known == bytes) {
@@ -303,10 +319,10 @@ impl FileCheckpointManager {
             changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes.clone())));
         }
         // Human deletions: present in the human-tracked view but gone from
-        // the worktree, and not explained by an agent deletion.
+        // the worktree, and not explained by any agent content.
         let mut tracked: HashMap<String, Vec<u8>> = human_tree.clone();
-        for (path, bytes) in &owned {
-            tracked.entry(path.clone()).or_insert_with(|| bytes.clone());
+        for path in owned.keys() {
+            tracked.entry(path.clone()).or_default();
         }
         for path in tracked.keys() {
             if !worktree.contains_key(path) && !owned.contains_key(path) {

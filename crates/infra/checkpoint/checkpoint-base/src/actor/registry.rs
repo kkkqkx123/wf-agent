@@ -1,8 +1,7 @@
-//! Actor resolution index extracted from `FileCheckpointManager`.
+//! Actor resolution cache extracted from `FileCheckpointManager`.
 //!
-//! First step of splitting the manager god-object: entity id -> `ActorId`
-//! caching lives here so actor hierarchy rules can evolve without touching
-//! storage, scan or merge code.
+//! Entity id -> `ActorId` caching lives here so actor hierarchy rules can
+//! evolve without touching storage, scan or merge code.
 
 use std::sync::Arc;
 
@@ -12,11 +11,11 @@ use crate::actor::id::ActorId;
 
 /// Thread-safe entity id -> resolved actor cache.
 #[derive(Debug, Clone, Default)]
-pub struct ActorRegistry {
+pub struct ActorCache {
     inner: Arc<DashMap<String, ActorId>>,
 }
 
-impl ActorRegistry {
+impl ActorCache {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(DashMap::new()),
@@ -34,11 +33,6 @@ impl ActorRegistry {
     pub fn remove(&self, entity_id: &str) {
         self.inner.remove(entity_id);
     }
-
-    /// Direct access for migration-era call sites still using map APIs.
-    pub fn as_map(&self) -> &DashMap<String, ActorId> {
-        &self.inner
-    }
 }
 
 #[cfg(test)]
@@ -47,13 +41,13 @@ mod tests {
     use crate::actor::id::{ActorId, ActorKind};
 
     #[test]
-    fn registry_roundtrip() {
-        let reg = ActorRegistry::new();
-        assert!(reg.get("e1").is_none());
+    fn cache_roundtrip() {
+        let cache = ActorCache::new();
+        assert!(cache.get("e1").is_none());
         let actor = ActorId::new(ActorKind::Agent, &[wf_types::Id::from("e1")]).unwrap();
-        reg.insert("e1", actor.clone());
-        assert_eq!(reg.get("e1"), Some(actor));
-        reg.remove("e1");
-        assert!(reg.get("e1").is_none());
+        cache.insert("e1", actor.clone());
+        assert_eq!(cache.get("e1"), Some(actor));
+        cache.remove("e1");
+        assert!(cache.get("e1").is_none());
     }
 }

@@ -112,7 +112,12 @@ impl<SS, DS> GenericDeltaRestorer<SS, DS> {
                 .await?
                 .ok_or_else(|| CheckpointError::NotFound { id: id.clone() })?;
 
-            let is_base = meta.checkpoint_type == CheckpointType::Full;
+            // A baseline carries a full snapshot and no link to an older
+            // baseline. Checking the type alone would mistake a full row that
+            // still points at a predecessor for a chain head and truncate
+            // restorable history.
+            let is_base =
+                meta.checkpoint_type == CheckpointType::Full && meta.base_checkpoint_id.is_none();
             current_id = if is_base {
                 None
             } else {

@@ -79,12 +79,12 @@ async fn fire_hook_with_opt_in(
     hook_type: &str,
     create_checkpoint: Option<bool>,
 ) -> u64 {
+    use checkpoint_state::state::agent::AgentCheckpointStateManager;
+    use checkpoint_state::CheckpointStateManager;
     use wf_agent::checkpoint::AgentCheckpointIntegration;
     use wf_agent::entity::AgentLoopEntity;
     use wf_agent::hook::AgentHookEmitter;
     use wf_agent::AgentCheckpointStrategy;
-    use checkpoint_state::state::agent::AgentCheckpointStateManager;
-    use checkpoint_state::CheckpointStateManager;
     use wf_execution_shared::hooks::types::HookDefinition;
     use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
 
@@ -210,12 +210,12 @@ async fn hook_create_checkpoint_covers_all_wired_points() {
     }
 
     {
+        use checkpoint_state::state::agent::AgentCheckpointStateManager;
+        use checkpoint_state::CheckpointStateManager;
         use wf_agent::checkpoint::AgentCheckpointIntegration;
         use wf_agent::entity::AgentLoopEntity;
         use wf_agent::hook::AgentHookEmitter;
         use wf_agent::AgentCheckpointStrategy;
-        use checkpoint_state::state::agent::AgentCheckpointStateManager;
-        use checkpoint_state::CheckpointStateManager;
         use wf_execution_shared::hooks::types::HookDefinition;
 
         let store = Arc::new(StorageBackend::new_memory());

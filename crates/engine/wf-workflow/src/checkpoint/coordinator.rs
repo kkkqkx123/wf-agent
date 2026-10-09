@@ -2,16 +2,16 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde_json::Value;
-use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
-use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
-use wf_checkpoint::event::CheckpointEventBus;
 use checkpoint_base::execution_events::ExecutionEventBus;
 use checkpoint_base::metadata::builder::{
     custom_fields_equal, fingerprint_entries, fingerprint_option, WF_PROGRESS_COORD_KEYS,
 };
 use checkpoint_state::CheckpointStateManager;
 use checkpoint_state::WorkflowCheckpointStateManager;
+use serde_json::Value;
+use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
+use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::CheckpointError;
 use wf_core::EventBus;
 use wf_storage::backend::StorageBackend;

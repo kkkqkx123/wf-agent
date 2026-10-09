@@ -43,7 +43,7 @@ fn isolated_lines_merge_with_full_ancestry() {
     let partitions = manager.list_partitions().unwrap();
     let main = partitions
         .iter()
-        .find(|p| p.kind == "staged")
+        .find(|p| p.kind == "main")
         .expect("main partition exists after join");
     assert_eq!(main.current_snapshot, joined.checkpoint_id);
     assert!(
@@ -94,7 +94,7 @@ fn rollback_one_feature_leaves_the_other_intact() {
     let partitions = manager.list_partitions().unwrap();
     let main = partitions
         .iter()
-        .find(|p| p.kind == "staged")
+        .find(|p| p.kind == "main")
         .expect("main partition exists after rollback");
     assert_eq!(main.current_snapshot, reverted);
 }
@@ -142,7 +142,7 @@ fn overlapping_merge_uses_standard_markers_and_resolves() {
 
     let partitions = manager.list_partitions().unwrap();
     assert!(
-        !partitions.iter().any(|p| p.kind == "staged"),
+        !partitions.iter().any(|p| p.kind == "main"),
         "main is blocked while the feature is unresolved"
     );
     let conflicts = manager.list_conflicts().unwrap();
@@ -167,7 +167,7 @@ fn overlapping_merge_uses_standard_markers_and_resolves() {
 }
 
 #[test]
-fn execution_branches_do_not_carry_file_content() {
+fn execution_pointers_do_not_carry_file_content() {
     let manager = manager();
     manager
         .create_checkpoint("parent", &[entry("a.txt", b"base")])
@@ -179,7 +179,7 @@ fn execution_branches_do_not_carry_file_content() {
     );
     assert!(
         !partitions.iter().any(|p| p.kind == "execution"),
-        "file checkpoints never create execution branch partitions"
+        "file checkpoints never create execution pointer partitions"
     );
     let timeline = manager.file_timeline("a.txt").unwrap();
     assert!(

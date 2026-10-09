@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
+use crate::branch::{execution_pointer_name, manager::ExecutionPointerAdapter};
 use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
 pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
@@ -153,19 +153,19 @@ impl FileCheckpointManager {
         if parent == entity_id {
             return Ok(());
         }
-        let branch_name = execution_branch_name(entity_id);
+        let branch_name = execution_pointer_name(entity_id);
         if self
             .store
-            .branch_adapter
+            .pointer_adapter
             .branch_exists(&branch_name)
             .await?
         {
             return Ok(());
         }
-        let parent_branch = execution_branch_name(parent);
+        let parent_branch = execution_pointer_name(parent);
         let base = if self
             .store
-            .branch_adapter
+            .pointer_adapter
             .branch_exists(&parent_branch)
             .await?
         {
@@ -174,7 +174,7 @@ impl FileCheckpointManager {
             None
         };
         self.store
-            .branch_adapter
+            .pointer_adapter
             .create_branch(&branch_name, base.as_deref())
             .await?;
         Ok(())
@@ -358,11 +358,11 @@ mod tests {
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
             .unwrap();
 
-        let branch = execution_branch_name("child-1");
+        let branch = execution_pointer_name("child-1");
         assert!(
             !manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .branch_exists(&branch)
                 .await
                 .unwrap(),
@@ -375,7 +375,7 @@ mod tests {
             .unwrap();
         assert!(manager
             .store
-            .branch_adapter
+            .pointer_adapter
             .branch_exists(&branch)
             .await
             .unwrap());
@@ -391,7 +391,7 @@ mod tests {
         assert!(
             manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .branch_exists(&branch)
                 .await
                 .unwrap(),
@@ -400,8 +400,8 @@ mod tests {
         assert!(
             !manager
                 .store
-                .branch_adapter
-                .branch_exists(&execution_branch_name("parent-1"))
+                .pointer_adapter
+                .branch_exists(&execution_pointer_name("parent-1"))
                 .await
                 .unwrap(),
             "the parent stays branchless"
@@ -410,17 +410,17 @@ mod tests {
 
     #[tokio::test]
     async fn duplicate_branch_rejected() {
-        use crate::branch::BranchStorageAdapter;
+        use crate::branch::ExecutionPointerAdapter;
 
         let manager = FileCheckpointManager::new_in_memory().unwrap();
         manager
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
-        let branch = execution_branch_name("child-1");
+        let branch = execution_pointer_name("child-1");
         let err = manager
             .store
-            .branch_adapter
+            .pointer_adapter
             .create_branch(&branch, None)
             .await
             .unwrap_err();
@@ -465,8 +465,8 @@ mod tests {
             assert!(
                 !manager
                     .store
-                    .branch_adapter
-                    .branch_exists(&execution_branch_name(entity))
+                    .pointer_adapter
+                    .branch_exists(&execution_pointer_name(entity))
                     .await
                     .unwrap(),
                 "no branch may be created for '{entity}'"
@@ -489,11 +489,11 @@ mod tests {
         // The forked branch exists natively but stays headless until its own
         // first checkpoint; the parent base remains readable as the fork
         // point without a KV registry entry.
-        let branch = execution_branch_name("child-1");
+        let branch = execution_pointer_name("child-1");
         assert!(
             manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .branch_exists(&branch)
                 .await
                 .unwrap(),
@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(
             manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .get_branch_head(&branch)
                 .unwrap(),
             None,

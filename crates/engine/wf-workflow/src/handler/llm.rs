@@ -92,12 +92,7 @@ impl LlmHandler {
             tools: if tools.is_empty() {
                 None
             } else {
-                Some(
-                    tools
-                        .iter()
-                        .map(|tool| tool.wire_declaration())
-                        .collect(),
-                )
+                Some(tools.iter().map(|tool| tool.wire_declaration()).collect())
             },
             tool_call_protocol: cfg
                 .tool_call_protocol

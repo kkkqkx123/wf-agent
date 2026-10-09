@@ -5,8 +5,8 @@ use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, Messag
 
 use llm_types::tool::Tool;
 
-use llm_codec::LlmCodec;
 use llm_codec::error::{LlmError, LlmResult};
+use llm_codec::LlmCodec;
 
 /// Adapt a plugin-provided [`PluginLlmCodec`] to the host [`LlmCodec`].
 ///

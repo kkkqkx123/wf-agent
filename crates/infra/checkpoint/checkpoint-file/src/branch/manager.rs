@@ -1,6 +1,6 @@
 use checkpoint_base::error::CheckpointError;
 
-pub trait BranchStorageAdapter: Send + Sync {
+pub trait ExecutionPointerAdapter: Send + Sync {
     fn create_branch(
         &self,
         name: &str,

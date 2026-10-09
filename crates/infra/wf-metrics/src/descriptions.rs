@@ -133,7 +133,9 @@ pub fn metric_description(name: &str) -> Option<&'static str> {
         checkpoint_metrics::LOAD_DURATION => "Checkpoint load duration",
         checkpoint_metrics::LOAD_FAILURE_COUNT => "Checkpoint load failure count",
         checkpoint_metrics::CHAIN_LENGTH => "Checkpoint chain length",
-        checkpoint_metrics::ASYNC_PROJECTION_FAILURE_COUNT => "Checkpoint async projection failure count",
+        checkpoint_metrics::ASYNC_PROJECTION_FAILURE_COUNT => {
+            "Checkpoint async projection failure count"
+        }
         checkpoint_metrics::PERSISTENCE_BACKLOG_COUNT => "Checkpoint persistence backlog count",
         checkpoint_metrics::PERSISTENCE_FAILURE_COUNT => "Checkpoint persistence failure count",
         checkpoint_metrics::CLEANUP_SKIP_COUNT => "Checkpoint cleanup skip count",

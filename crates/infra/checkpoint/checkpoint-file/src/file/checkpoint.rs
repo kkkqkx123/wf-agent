@@ -112,7 +112,7 @@ impl FileCheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branch::execution_branch_name;
+    use crate::branch::execution_pointer_name;
     use crate::file::FileContentEntry;
 
     fn entry(path: &str, content: &[u8]) -> FileContentEntry {
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn checkpoint_advances_edit_ref_not_execution_branch() {
+    async fn checkpoint_advances_edit_ref_not_execution_pointer() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
         manager
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
@@ -130,15 +130,15 @@ mod tests {
             .await
             .unwrap();
 
-        let branch = execution_branch_name("child-1");
+        let branch = execution_pointer_name("child-1");
         assert_eq!(
             manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .get_branch_head(&branch)
                 .unwrap(),
             None,
-            "execution branches stay headless until execution state advances them"
+            "execution pointers stay headless until execution state advances them"
         );
 
         // File commits advance the actor's edit ref instead.
@@ -163,11 +163,11 @@ mod tests {
         assert_eq!(
             manager
                 .store
-                .branch_adapter
+                .pointer_adapter
                 .get_branch_head(&branch)
                 .unwrap(),
             None,
-            "file commits never move execution branch heads"
+            "file commits never move execution pointer heads"
         );
     }
 
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_branch_heads_roundtrip() {
+    fn execution_pointer_heads_roundtrip() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
         let head_cp = manager
             .create_checkpoint("child-1", &[entry("a.txt", b"v1")])
@@ -239,26 +239,26 @@ mod tests {
         assert_eq!(
             manager
                 .store
-                .branch_adapter
-                .get_branch_head("execution/child-1")
+                .pointer_adapter
+                .get_branch_head("execution-pointer/child-1")
                 .unwrap(),
             None
         );
         manager
             .store
-            .branch_adapter
-            .set_branch_head("execution/child-1", &head_cp.id)
+            .pointer_adapter
+            .set_branch_head("execution-pointer/child-1", &head_cp.id)
             .unwrap();
         assert_eq!(
             manager
                 .store
-                .branch_adapter
-                .get_branch_head("execution/child-1")
+                .pointer_adapter
+                .get_branch_head("execution-pointer/child-1")
                 .unwrap()
                 .as_deref(),
             Some(head_cp.id.as_str())
         );
-        // File lines are unaffected by execution branch pointers.
+        // File lines are unaffected by execution pointers.
         let actor = manager.actor_id_for("child-1");
         let seen = manager.latest_checkpoint_id(&actor).unwrap();
         assert_eq!(seen.as_deref(), Some(head_cp.id.as_str()));

@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_checkpoint::CheckpointSession;
-use wf_types::effect::SessionBoundary;
 use wf_shell::lifecycle::{SessionLifecycleEvent, SessionLifecycleKind, SessionLifecycleSink};
+use wf_types::effect::SessionBoundary;
 
 /// Routes store monitor-thread lifecycle events to the checkpoint session
 /// that the owning execution registered. Shared per shell-tool registry

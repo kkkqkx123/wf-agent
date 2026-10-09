@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
-use wf_checkpoint::error::CheckpointError;
 use checkpoint_state::CheckpointStateManager;
 use checkpoint_state::StorageBackedStateManager;
+use wf_checkpoint::error::CheckpointError;
 use wf_storage::backend::StorageBackend;
 use wf_storage::store::sqlite::SqliteStorage;
 use wf_types::checkpoint::BaseCheckpointCore;

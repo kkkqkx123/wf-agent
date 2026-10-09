@@ -12,9 +12,6 @@ mod tests {
 
     #[test]
     fn workspace_root_key_uses_canonical_prefix() {
-        assert_eq!(
-            WORKSPACE_ROOT_KEY,
-            "wf-checkpoint:workspace-root"
-        );
+        assert_eq!(WORKSPACE_ROOT_KEY, "wf-checkpoint:workspace-root");
     }
 }

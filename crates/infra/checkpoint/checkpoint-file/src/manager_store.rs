@@ -20,7 +20,7 @@ use checkpoint_base::error::CheckpointError;
 /// Persistence handles shared by every file-checkpoint operation.
 pub(crate) struct ManagerStore {
     pub(crate) storage: Option<Arc<SqliteStorage>>,
-    pub(crate) branch_adapter: Arc<SqliteBackend>,
+    pub(crate) pointer_adapter: Arc<SqliteBackend>,
     /// Independent bare Git object store: file bytes, trees, history and
     /// ref pointers. `None` until a workspace binds one; Git operations
     /// fail with an explicit uninitialized error instead of silently
@@ -45,10 +45,10 @@ impl ManagerStore {
     }
 
     pub(crate) fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
-        let branch_adapter = Arc::new(SqliteBackend::from_shared(storage.clone()));
+        let pointer_adapter = Arc::new(SqliteBackend::from_shared(storage.clone()));
         Self {
             storage: Some(storage),
-            branch_adapter,
+            pointer_adapter,
             git: None,
             latest_checkpoints: Arc::new(DashMap::new()),
         }
@@ -73,7 +73,7 @@ impl Clone for ManagerStore {
     fn clone(&self) -> Self {
         Self {
             storage: self.storage.clone(),
-            branch_adapter: Arc::clone(&self.branch_adapter),
+            pointer_adapter: Arc::clone(&self.pointer_adapter),
             git: self.git.clone(),
             latest_checkpoints: self.latest_checkpoints.clone(),
         }
@@ -81,41 +81,13 @@ impl Clone for ManagerStore {
 }
 
 /// Behavioral configuration threaded into checkpoint operations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ManagerPolicy {
     pub(crate) scan_config: ScanConfig,
     pub(crate) approval_policy: ApprovalPolicy,
     pub(crate) conflict_behavior: ConflictBehavior,
-    pub(crate) full_snapshot_threshold: f64,
     pub(crate) gc_interval_secs: Option<u64>,
     pub(crate) gc_retention: Option<crate::gc::GcRetention>,
 }
 
-impl Default for ManagerPolicy {
-    fn default() -> Self {
-        Self {
-            scan_config: ScanConfig::default(),
-            approval_policy: ApprovalPolicy::default(),
-            conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold: checkpoint_base::common::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
-            gc_interval_secs: None,
-            gc_retention: None,
-        }
-    }
-}
-
 impl ManagerPolicy {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn policy_default_threshold() {
-        let policy = ManagerPolicy::default();
-        assert_eq!(
-            policy.full_snapshot_threshold,
-            checkpoint_base::common::DEFAULT_FULL_SNAPSHOT_THRESHOLD
-        );
-    }
-}

@@ -1,6 +1,6 @@
 use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, MetadataIndexLoader,
+    publish_persisted, ChildMetadataIndex,
 };
 use crate::coordinator::CheckpointCoordinator;
 use checkpoint_base::delta::AgentDiffCalculator;
@@ -23,7 +23,7 @@ use checkpoint_file::event::CheckpointEventBus;
 use checkpoint_file::file::git_merge::GitMergeOutcome;
 use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_state::restore::hierarchy::{
-    HierarchyRestorer, RestoreSummary, StorageChildResolver,
+    ChildDiscovery, ChildDiscoverySummary, InMemoryChildResolver,
 };
 use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::AgentCheckpoint;
@@ -270,7 +270,9 @@ impl AgentCheckpointCoordinator {
     /// A disabled policy yields a strategy that never checkpoints. The
     /// policy's `content.async` flag also enables async persistence mode.
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(policy));
+        self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(
+            policy,
+        ));
         self.async_persistence = policy
             .content
             .as_ref()
@@ -290,7 +292,8 @@ impl AgentCheckpointCoordinator {
 
     /// Configure the error handler from a unified policy.
     pub fn with_error_policy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
-        self.error_handler = checkpoint_base::error_handling::CheckpointErrorHandler::from_policy(policy);
+        self.error_handler =
+            checkpoint_base::error_handling::CheckpointErrorHandler::from_policy(policy);
         self
     }
 
@@ -329,7 +332,7 @@ impl AgentCheckpointCoordinator {
         &self.version_manager
     }
 
-    fn apply_content_policy(&self, state: &mut AgentStateSnapshot) {
+    fn apply_content_policy(&self, state: &mut AgentStateSnapshot) -> Result<(), CheckpointError> {
         if let Some(strategy) = &self.strategy {
             let filter = checkpoint_base::common::content::ContentFilter::new();
             let config = strategy.content_config();
@@ -337,7 +340,7 @@ impl AgentCheckpointCoordinator {
             // content policy excludes state or history, the message log stays
             // so a restore never yields an empty dialogue. Only auxiliary
             // fields are filtered.
-            if !filter.should_include_state(config) {
+            if !filter.should_include_state(config)? {
                 state.tool_call_history = None;
                 state.variable_snapshots = None;
                 state.error = None;
@@ -350,10 +353,11 @@ impl AgentCheckpointCoordinator {
                 state.pending_tool_call_ids = None;
                 state.trigger_state = None;
             }
-            if !filter.should_include_history(config) {
+            if !filter.should_include_history(config)? {
                 state.iteration_history = None;
             }
         }
+        Ok(())
     }
 
     /// Timeline anchors for one execution, ordered by sequence end.
@@ -433,13 +437,13 @@ impl AgentCheckpointCoordinator {
         CheckpointSerializer::auto_deserialize(&migrated)
     }
 
-    /// Post-restore phase: restore child executions through BFS
-    /// `HierarchyRestorer` plus the registered restore strategies.
+    /// Post-restore phase: discover child executions through BFS
+    /// `ChildDiscovery` plus the registered restore strategies.
     async fn restore_child_hierarchy(
         &self,
         checkpoint_id: &str,
         parent_entity_id: &str,
-    ) -> Result<RestoreSummary, CheckpointError> {
+    ) -> Result<ChildDiscoverySummary, CheckpointError> {
         // Children are found by querying the checkpoints whose entity records
         // this loop as their parent, so the answer covers every child that
         // ever checkpointed regardless of when the parent last persisted.
@@ -448,7 +452,7 @@ impl AgentCheckpointCoordinator {
             .list_latest_by_parent(parent_entity_id)
             .await?;
         if latest_by_child.is_empty() {
-            return Ok(RestoreSummary {
+            return Ok(ChildDiscoverySummary {
                 total: 0,
                 success: 0,
                 failed: 0,
@@ -479,7 +483,7 @@ impl AgentCheckpointCoordinator {
             }));
         }
 
-        let resolver = StorageChildResolver::new();
+        let resolver = InMemoryChildResolver::new();
         let mut index: HashMap<String, CheckpointStorageMetadata> = HashMap::new();
         let mut restored = 0u32;
 
@@ -509,10 +513,10 @@ impl AgentCheckpointCoordinator {
             }
         }
 
-        let loader = MetadataIndexLoader::new(index);
-        let restorer = HierarchyRestorer::new(Arc::new(resolver));
-        let results = restorer.restore_children_bfs(checkpoint_id, &loader, 8, None)?;
-        let mut summary = HierarchyRestorer::summarize_results(&results);
+        let loader = ChildMetadataIndex::new(index);
+        let discovery = ChildDiscovery::new(Arc::new(resolver));
+        let results = discovery.discover_children_bfs(checkpoint_id, &loader, 8, None)?;
+        let mut summary = ChildDiscovery::summarize_results(&results);
         summary.success += restored as usize;
         Ok(summary)
     }
@@ -655,9 +659,13 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         ctx: CheckpointContext,
         mut state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError> {
+        // Progress coordinates describe the execution state, not the stored
+        // payload: compute them before the content policy may strip blob
+        // domains, so filtered checkpoints still dedup identically.
+        let coords = snapshot_progress_coords(&state);
         // Content policy (ContentFilter) applied before any storage type
         // decision is made.
-        self.apply_content_policy(&mut state);
+        self.apply_content_policy(&mut state)?;
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
@@ -678,34 +686,37 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             CHAIN_POSITION_FIELD.to_string(),
             serde_json::json!(chain_position),
         );
-        if let Some(start) = state.message_seq_start {
-            custom_fields.insert(MSG_SEQ_START_FIELD.to_string(), serde_json::json!(start));
-        }
-        if let Some(end) = state.message_seq_end {
-            custom_fields.insert(MSG_SEQ_END_FIELD.to_string(), serde_json::json!(end));
-        }
-        if let Some(next) = state.message_next_seq {
-            custom_fields.insert(MSG_SEQ_NEXT_FIELD.to_string(), serde_json::json!(next));
-        }
+        custom_fields.insert(
+            MSG_SEQ_START_FIELD.to_string(),
+            serde_json::json!(coords.seq_start),
+        );
+        custom_fields.insert(
+            MSG_SEQ_END_FIELD.to_string(),
+            serde_json::json!(coords.seq_end),
+        );
+        custom_fields.insert(
+            MSG_SEQ_NEXT_FIELD.to_string(),
+            serde_json::json!(coords.seq_next),
+        );
         // Progress coordinates: always present going forward so a repeat
         // creation can detect "no side effect since latest" from metadata
         // alone. Committed progress plus the in-flight call count — stream
         // buffers stay excluded as pure transients.
         custom_fields.insert(
             ITERATION_FIELD.to_string(),
-            serde_json::json!(state.current_iteration),
+            serde_json::json!(coords.iteration),
         );
         custom_fields.insert(
             TOOL_CALL_COUNT_FIELD.to_string(),
-            serde_json::json!(state.tool_call_count),
+            serde_json::json!(coords.tool_call_count),
         );
         custom_fields.insert(
             LOOP_STATUS_FIELD.to_string(),
-            serde_json::json!(state.status),
+            serde_json::json!(coords.loop_status),
         );
         custom_fields.insert(
             PENDING_COUNT_FIELD.to_string(),
-            serde_json::json!(pending_call_count(&state)),
+            serde_json::json!(coords.pending_count),
         );
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
@@ -1177,7 +1188,7 @@ pub struct AgentLoopEntity {
     pub status: String,
     pub current_iteration: u32,
     pub snapshot: AgentStateSnapshot,
-    pub restore_summary: Option<RestoreSummary>,
+    pub restore_summary: Option<ChildDiscoverySummary>,
 }
 
 #[cfg(test)]
@@ -1575,9 +1586,7 @@ mod tests {
 
         let entity = coord.restore(&cp.id).await.unwrap();
         assert_eq!(entity.agent_loop_id, "loop-1");
-        let workspace = file_manager
-            .get_actor_workspace("agent:loop-1")
-            .unwrap();
+        let workspace = file_manager.get_actor_workspace("agent:loop-1").unwrap();
         assert!(
             workspace.iter().any(|f| f.path == "a.txt"),
             "actor edit line stored via coordinator query view"
@@ -1829,8 +1838,7 @@ mod tests {
         let sm = AgentCheckpointStateManager::new(storage);
         let bus = CheckpointEventBus::new();
         let mut rx = bus.subscribe();
-        let coord =
-            AgentCheckpointCoordinator::new(sm).with_event_bus(bus);
+        let coord = AgentCheckpointCoordinator::new(sm).with_event_bus(bus);
 
         let first = build_and_persist(&coord, "running", 1).await;
         let second = build_and_persist(&coord, "running", 2).await;
@@ -1861,7 +1869,12 @@ mod tests {
 
     #[test]
     fn best_effort_failure_factory_reuses_failed_shape_for_all_operations() {
-        for operation in ["async_projection", "persistence_backlog", "persistence_failure", "cleanup_skip"] {
+        for operation in [
+            "async_projection",
+            "persistence_backlog",
+            "persistence_failure",
+            "cleanup_skip",
+        ] {
             let event = CheckpointEventBus::failed_with(
                 Some("cp-1".to_string()),
                 operation,

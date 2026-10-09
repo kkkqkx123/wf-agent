@@ -11,12 +11,12 @@ pub trait ChildCheckpointResolver: Send + Sync {
     fn resolve_parent(&self, child_id: &str) -> Option<String>;
 }
 
-pub struct StorageChildResolver {
+pub struct InMemoryChildResolver {
     parent_to_children: DashMap<String, Vec<String>>,
     child_to_parent: DashMap<String, String>,
 }
 
-impl StorageChildResolver {
+impl InMemoryChildResolver {
     pub fn new() -> Self {
         Self {
             parent_to_children: DashMap::new(),
@@ -25,10 +25,13 @@ impl StorageChildResolver {
     }
 
     pub fn register_relationship(&self, parent_id: &str, child_id: &str) {
-        self.parent_to_children
+        let mut entry = self
+            .parent_to_children
             .entry(parent_id.to_string())
-            .or_default()
-            .push(child_id.to_string());
+            .or_default();
+        if !entry.iter().any(|id| id == child_id) {
+            entry.push(child_id.to_string());
+        }
         self.child_to_parent
             .insert(child_id.to_string(), parent_id.to_string());
     }
@@ -40,13 +43,13 @@ impl StorageChildResolver {
     }
 }
 
-impl Default for StorageChildResolver {
+impl Default for InMemoryChildResolver {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ChildCheckpointResolver for StorageChildResolver {
+impl ChildCheckpointResolver for InMemoryChildResolver {
     fn resolve_children(&self, parent_id: &str) -> Vec<String> {
         self.parent_to_children
             .get(parent_id)
@@ -100,25 +103,30 @@ impl ChildCheckpointResolver for CachedChildResolver {
     }
 }
 
-pub struct HierarchyRestorer {
+/// Single-recovery child discovery over an in-memory parent to children
+/// index. The index is a per-recovery deduplication and pruning cache, not
+/// cross-call truth: persistent truth lives in the storage parent index.
+pub struct ChildDiscovery {
     resolver: Arc<dyn ChildCheckpointResolver>,
 }
 
-impl HierarchyRestorer {
+impl ChildDiscovery {
     pub fn new(resolver: Arc<dyn ChildCheckpointResolver>) -> Self {
         Self { resolver }
     }
 
-    /// Restore children breadth-first, optionally recording load metrics per
-    /// child. Size bytes are unavailable at metadata load and reported as 0;
-    /// `None` keeps the path zero-overhead.
-    pub fn restore_children_bfs(
+    /// Discover reachable children breadth-first, optionally recording load
+    /// metrics per child. This checks metadata reachability only; restoring a
+    /// discovered entity happens through the restore registry. Size bytes are
+    /// unavailable at metadata load and reported as 0; `None` keeps the path
+    /// zero-overhead.
+    pub fn discover_children_bfs(
         &self,
         parent_id: &str,
-        loader: &dyn HierarchyMetadataLoader,
+        loader: &dyn ChildMetadataLoader,
         max_depth: usize,
         metrics: Option<&CheckpointMetricsCollector>,
-    ) -> Result<Vec<RestoreResult>, CheckpointError> {
+    ) -> Result<Vec<ChildDiscoveryResult>, CheckpointError> {
         let mut results = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut queue = VecDeque::new();
@@ -141,20 +149,20 @@ impl HierarchyRestorer {
 
                 let start = Instant::now();
                 let result = match loader.load_metadata(child_id) {
-                    Ok(_) => RestoreResult::Success {
+                    Ok(_) => ChildDiscoveryResult::Success {
                         checkpoint_id: child_id.clone(),
                         depth: depth + 1,
                     },
-                    Err(e) => RestoreResult::Failed {
+                    Err(e) => ChildDiscoveryResult::Failed {
                         checkpoint_id: child_id.clone(),
                         error: e.to_string(),
                     },
                 };
                 if let Some(metrics) = metrics {
                     metrics.record_load(
-                        parent_id,
+                        child_id,
                         start.elapsed().as_millis() as f64,
-                        matches!(result, RestoreResult::Success { .. }),
+                        matches!(result, ChildDiscoveryResult::Success { .. }),
                     );
                 }
 
@@ -166,18 +174,18 @@ impl HierarchyRestorer {
         Ok(results)
     }
 
-    pub fn summarize_results(results: &[RestoreResult]) -> RestoreSummary {
+    pub fn summarize_results(results: &[ChildDiscoveryResult]) -> ChildDiscoverySummary {
         let mut success = 0;
         let mut failed = 0;
 
         for r in results {
             match r {
-                RestoreResult::Success { .. } => success += 1,
-                RestoreResult::Failed { .. } => failed += 1,
+                ChildDiscoveryResult::Success { .. } => success += 1,
+                ChildDiscoveryResult::Failed { .. } => failed += 1,
             }
         }
 
-        RestoreSummary {
+        ChildDiscoverySummary {
             total: results.len(),
             success,
             failed,
@@ -185,13 +193,13 @@ impl HierarchyRestorer {
     }
 }
 
-pub trait HierarchyMetadataLoader: Send + Sync {
+pub trait ChildMetadataLoader: Send + Sync {
     fn load_metadata(&self, id: &str)
         -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
 }
 
 #[derive(Debug, Clone)]
-pub enum RestoreResult {
+pub enum ChildDiscoveryResult {
     Success {
         checkpoint_id: String,
         depth: usize,
@@ -203,13 +211,13 @@ pub enum RestoreResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct RestoreSummary {
+pub struct ChildDiscoverySummary {
     pub total: usize,
     pub success: usize,
     pub failed: usize,
 }
 
-impl RestoreSummary {
+impl ChildDiscoverySummary {
     pub fn all_succeeded(&self) -> bool {
         self.failed == 0 && self.total > 0
     }
@@ -449,7 +457,7 @@ mod tests {
 
     #[test]
     fn storage_child_resolver_basic() {
-        let resolver = StorageChildResolver::new();
+        let resolver = InMemoryChildResolver::new();
         resolver.register_relationship("parent-1", "child-1");
         resolver.register_relationship("parent-1", "child-2");
         resolver.register_relationship("child-1", "grandchild-1");
@@ -468,7 +476,7 @@ mod tests {
 
     #[test]
     fn cached_resolver_caches_results() {
-        let inner = Arc::new(StorageChildResolver::new());
+        let inner = Arc::new(InMemoryChildResolver::new());
         inner.register_relationship("p1", "c1");
 
         let cached = CachedChildResolver::new(inner);
@@ -481,16 +489,16 @@ mod tests {
 
     #[test]
     fn hierarchy_restorer_bfs() {
-        let storage_resolver = StorageChildResolver::new();
+        let storage_resolver = InMemoryChildResolver::new();
         storage_resolver.register_relationship("root", "child-a");
         storage_resolver.register_relationship("root", "child-b");
         storage_resolver.register_relationship("child-a", "grandchild-a1");
         let resolver: Arc<dyn ChildCheckpointResolver> = Arc::new(storage_resolver);
 
-        let restorer = HierarchyRestorer::new(resolver);
+        let restorer = ChildDiscovery::new(resolver);
 
         struct MockLoader;
-        impl HierarchyMetadataLoader for MockLoader {
+        impl ChildMetadataLoader for MockLoader {
             fn load_metadata(
                 &self,
                 _id: &str,
@@ -515,28 +523,28 @@ mod tests {
         }
 
         let results = restorer
-            .restore_children_bfs("root", &MockLoader, 3, None)
+            .discover_children_bfs("root", &MockLoader, 3, None)
             .unwrap();
 
         assert_eq!(results.len(), 3);
 
-        let summary = HierarchyRestorer::summarize_results(&results);
+        let summary = ChildDiscovery::summarize_results(&results);
         assert_eq!(summary.total, 3);
         assert!(summary.all_succeeded());
     }
 
     #[test]
     fn restore_records_load_metrics() {
-        let storage_resolver = StorageChildResolver::new();
+        let storage_resolver = InMemoryChildResolver::new();
         storage_resolver.register_relationship("root", "child-a");
         storage_resolver.register_relationship("root", "child-b");
         let resolver: Arc<dyn ChildCheckpointResolver> = Arc::new(storage_resolver);
 
-        let restorer = HierarchyRestorer::new(resolver);
+        let restorer = ChildDiscovery::new(resolver);
         let metrics = CheckpointMetricsCollector::new(wf_metrics::CollectorConfig::default());
 
         struct FailingLoader;
-        impl HierarchyMetadataLoader for FailingLoader {
+        impl ChildMetadataLoader for FailingLoader {
             fn load_metadata(
                 &self,
                 _id: &str,
@@ -548,7 +556,7 @@ mod tests {
         }
 
         struct MockLoader;
-        impl HierarchyMetadataLoader for MockLoader {
+        impl ChildMetadataLoader for MockLoader {
             fn load_metadata(
                 &self,
                 _id: &str,
@@ -573,10 +581,10 @@ mod tests {
         }
 
         let _ = restorer
-            .restore_children_bfs("root", &FailingLoader, 3, Some(&metrics))
+            .discover_children_bfs("root", &FailingLoader, 3, Some(&metrics))
             .unwrap();
         let _ = restorer
-            .restore_children_bfs("root", &MockLoader, 3, Some(&metrics))
+            .discover_children_bfs("root", &MockLoader, 3, Some(&metrics))
             .unwrap();
 
         let stats = metrics.usage_stats();

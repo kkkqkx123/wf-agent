@@ -103,13 +103,13 @@ pub fn diff_actors(
     Ok(diff)
 }
 
-/// Get the diff between an actor workspace and the staged partition.
-pub fn diff_against_staged(
+/// Get the diff between an actor workspace and the main line.
+pub fn diff_against_main(
     manager: &FileCheckpointManager,
     actor: &str,
 ) -> ApiResult<Vec<FileDiffView>> {
     let diff = manager
-        .diff_against_staged(actor)
+        .diff_against_main(actor)
         .map_err(crate::ApiError::execution_with_source)?;
     Ok(diff)
 }

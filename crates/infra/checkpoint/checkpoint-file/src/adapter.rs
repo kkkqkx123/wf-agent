@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use crate::branch::BranchStorageAdapter;
+use crate::branch::ExecutionPointerAdapter;
 use crate::storage::SqliteStorage;
 use checkpoint_base::error::CheckpointError;
 
-/// Storage adapter for execution branch heads.
-/// Execution branch heads live in `meta_kv` under `exec_branch/`.
+/// Storage adapter for execution pointer heads.
+/// Execution pointer heads live in `meta_kv` under `exec_pointer/`.
 /// File branches (review/feature/main) live as Git refs.
-/// A branch created without a resolvable base head starts headless
+/// A pointer created without a resolvable base head starts headless
 /// (reported as `None` until its first checkpoint).
 pub struct SqliteBackend {
     storage: SqliteStorage,
@@ -24,16 +24,16 @@ impl SqliteBackend {
     }
 }
 
-/// Execution branch heads: `meta_kv` rows under `exec_branch/` only.
-/// File branches (review/feature/main) live as Git refs; execution branches
+/// Execution pointer heads: `meta_kv` rows under `exec_pointer/` only.
+/// File branches (review/feature/main) live as Git refs; execution pointers
 /// keep a lightweight pointer here.
 impl SqliteBackend {
     fn branch_key(branch: &str) -> String {
-        format!("exec_branch/{branch}")
+        format!("exec_pointer/{branch}")
     }
 
-    /// Update the branch head pointer (execution namespace). Any non-empty
-    /// id is accepted; missing branches are created.
+    /// Update the pointer head (execution namespace). Any non-empty
+    /// id is accepted; missing pointers are created.
     pub fn set_branch_head(
         &self,
         branch: &str,
@@ -51,8 +51,8 @@ impl SqliteBackend {
         Ok(())
     }
 
-    /// Read the branch head pointer. Missing branches and headless
-    /// branches (empty marker) both report `None`.
+    /// Read the pointer head. Missing pointers and headless
+    /// pointers (empty marker) both report `None`.
     pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
         use crate::storage::MetadataStore;
 
@@ -62,7 +62,7 @@ impl SqliteBackend {
             .filter(|head| !head.is_empty()))
     }
 
-    /// Synchronous branch existence check (headless branches exist).
+    /// Synchronous pointer existence check (headless pointers exist).
     pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
         use crate::storage::MetadataStore;
 
@@ -78,21 +78,21 @@ impl SqliteBackend {
     }
 }
 
-/// Production `BranchStorageAdapter` over the sqlite backend: execution
-/// branch pointers live in `meta_kv`. A new branch inherits the base
-/// branch's head when available, otherwise starts headless (reported as
+/// Production `ExecutionPointerAdapter` over the sqlite backend: execution
+/// pointer values live in `meta_kv`. A new pointer inherits the base
+/// pointer's head when available, otherwise starts headless (reported as
 /// `None` until its first checkpoint).
-impl BranchStorageAdapter for SqliteBackend {
+impl ExecutionPointerAdapter for SqliteBackend {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
-        if !crate::branch::is_execution_branch_name(name) {
+        if !crate::branch::is_execution_pointer_name(name) {
             return Err(CheckpointError::Branch(format!(
-                "execution branch name must start with 'execution/' and carry an id: '{name}'"
+                "execution pointer name must start with 'execution-pointer/' and carry an id: '{name}'"
             )));
         }
         if let Some(base_name) = base {
-            if !crate::branch::is_execution_branch_name(base_name) {
+            if !crate::branch::is_execution_pointer_name(base_name) {
                 return Err(CheckpointError::Branch(format!(
-                    "base must be an execution branch name, got '{base_name}'"
+                    "base must be an execution pointer name, got '{base_name}'"
                 )));
             }
         }

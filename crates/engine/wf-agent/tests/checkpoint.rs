@@ -284,9 +284,9 @@ async fn checkpoint_message_interval_produces_interval_checkpoints() {
 async fn in_place_resume_continues_under_source_execution_id() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use wf_agent::AgentCheckpointStrategy;
     use checkpoint_state::state::agent::AgentCheckpointStateManager;
     use checkpoint_state::CheckpointStateManager;
+    use wf_agent::AgentCheckpointStrategy;
     use wf_types::Id;
 
     let echo_runs = Arc::new(AtomicUsize::new(0));

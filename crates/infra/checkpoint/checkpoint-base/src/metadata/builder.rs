@@ -288,7 +288,7 @@ pub fn build_checkpoint_state(
         workflow_id,
         execution_id,
         timestamp: wf_common::time::now(),
-        format_version: "1.0".to_string(),
+        format_version: crate::version_manager::CURRENT_FORMAT_VERSION.to_string(),
         status: Some("active".to_string()),
         start_time: None,
         end_time: None,
@@ -324,7 +324,10 @@ mod tests {
     #[test]
     fn test_build_checkpoint_state() {
         let state = build_checkpoint_state(Id::new(), None, None);
-        assert_eq!(state.format_version, "1.0");
+        assert_eq!(
+            state.format_version,
+            crate::version_manager::CURRENT_FORMAT_VERSION
+        );
         assert_eq!(state.status, Some("active".to_string()));
     }
 

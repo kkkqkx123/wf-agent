@@ -1,5 +1,5 @@
 //! File-checkpoint provenance endpoints: partition listing, paged change
-//! queries, actor workspace reconstruction and actor/staged diffs. Handlers
+//! queries, actor workspace reconstruction and actor/main diffs. Handlers
 //! are thin transport adapters over `wf-api::checkpoint::provenance`.
 
 use axum::extract::{Path, Query, State};
@@ -29,8 +29,8 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_diff_actors),
         )
         .route(
-            "/file-checkpoint/diff/staged/{id}",
-            get(handle_diff_against_staged),
+            "/file-checkpoint/diff/main/{id}",
+            get(handle_diff_against_main),
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
         .route("/file-checkpoint/timeline/{id}", get(handle_file_timeline))
@@ -106,17 +106,17 @@ pub(crate) async fn handle_diff_actors(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/file-checkpoint/diff/staged/{id}",
+    path = "/api/v1/file-checkpoint/diff/main/{id}",
     tag = "checkpoint",
     params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
-pub(crate) async fn handle_diff_against_staged(
+pub(crate) async fn handle_diff_against_main(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::diff_against_staged(&state.ctx, &path.id) {
+    match wf_api::checkpoint::provenance::diff_against_main(&state.ctx, &path.id) {
         Ok(diffs) => ok(diffs).into_response(),
         Err(err) => error_response(err),
     }

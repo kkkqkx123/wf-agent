@@ -83,12 +83,6 @@ pub struct FileCheckpointConfig {
     /// `marker` is the default.
     #[serde(default)]
     pub conflict_behavior: ConflictBehavior,
-    /// Byte-change ratio above which a text edit is stored as a full-content
-    /// snapshot instead of a line-level delta. `None` selects the
-    /// layertwine default (0.5). Values outside `[0.0, 1.0]` are rejected
-    /// by config validation.
-    #[serde(default)]
-    pub full_snapshot_threshold: Option<f64>,
     /// Whether the manual watcher is enabled (`true` when both
     /// `FileCheckpointConfig.enabled` and `workspace_root` are set).
     #[serde(default)]

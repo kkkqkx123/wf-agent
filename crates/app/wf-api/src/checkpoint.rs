@@ -17,8 +17,9 @@ pub use file::{
     FileCheckpointSummary, WorkspaceScanResult,
 };
 pub use provenance::{
-    get_actor_workspace as provenance_get_actor_workspace, list_changes_by_actor,
-    list_changes_by_path, list_partitions as provenance_list_partitions, run_gc,
+    create_workspace_checkpoint, get_actor_workspace as provenance_get_actor_workspace,
+    list_changes_by_actor, list_changes_by_path, list_partitions as provenance_list_partitions,
+    restore_workspace, run_gc,
 };
 pub use record::{
     chain_for_execution, delete_checkpoint, delete_checkpoints_by_entity, delete_for_execution,

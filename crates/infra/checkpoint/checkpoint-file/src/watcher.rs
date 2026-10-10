@@ -106,9 +106,14 @@ impl WatcherState {
     }
 }
 
-/// Persistent file watcher based on `notify`: tracks changed files in real
-/// time so checkpoints only need to hash the actual changes instead of
+/// Advisory realtime file watcher based on `notify`: tracks changed files
+/// so checkpoints only need to hash the actual changes instead of
 /// rescanning the whole workspace.
+///
+/// Advisory only: the production human-edit pump is
+/// [`ManualChangeService`] (periodic polling into the human ref), which is
+/// what the runtime starts. This watcher never drives commits directly and
+/// exists for prompt-style hinting and tests.
 pub struct FileWatcher {
     root: PathBuf,
     scanner: WorkspaceScanner,

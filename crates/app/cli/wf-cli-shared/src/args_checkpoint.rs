@@ -50,6 +50,51 @@ pub enum CheckpointSub {
         #[arg(long, value_name = "PATH")]
         path: String,
     },
+    /// List file-checkpoint partitions of the bound workspace.
+    FilePartitions,
+    /// List file changes by actor and/or path.
+    FileChanges {
+        /// Actor partition to query.
+        #[arg(long, value_name = "ACTOR")]
+        actor: Option<String>,
+        /// Path substring filter (or the full path query when no actor given).
+        #[arg(long, value_name = "PATH")]
+        path: Option<String>,
+        /// Start of the time window (epoch seconds).
+        #[arg(long, value_name = "TIMESTAMP")]
+        start: Option<i64>,
+        /// End of the time window (epoch seconds).
+        #[arg(long, value_name = "TIMESTAMP")]
+        end: Option<i64>,
+    },
+    /// Show the per-file diff between an actor workspace and the main line.
+    FileDiffMain {
+        /// Actor partition to compare.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+    },
+    /// Show the version timeline of a file path.
+    FileTimeline {
+        /// Workspace-relative file path.
+        #[arg(value_name = "PATH")]
+        path: String,
+    },
+    /// Restore the bound workspace from a file checkpoint.
+    FileRestore {
+        /// Execution or entity id owning the checkpoint.
+        #[arg(value_name = "ENTITY")]
+        entity: String,
+        /// File checkpoint (commit) id to restore from.
+        #[arg(long, value_name = "CHECKPOINT")]
+        checkpoint: String,
+    },
+    /// Run object-store cleanup on the file-checkpoint store.
+    FileGc {
+        /// Keep this many recent partition heads protected beyond the
+        /// built-in protected set.
+        #[arg(long, value_name = "N", default_value_t = 0)]
+        keep_recent_heads: usize,
+    },
     /// List checkpoints of an execution (domain auto-resolved).
     List {
         /// Execution id.
@@ -198,6 +243,67 @@ mod tests {
         };
         assert_eq!(id, "loop-1");
         assert_eq!(checkpoint, "cp-1");
+    }
+
+    #[test]
+    fn checkpoint_file_surface_parses() {
+        let cli = parse(&["checkpoint", "file-partitions"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FilePartitions));
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-changes",
+            "--actor",
+            "agent-1",
+            "--start",
+            "1000",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileChanges { actor, start, .. } = sub else {
+            panic!("expected file-changes");
+        };
+        assert_eq!(actor.as_deref(), Some("agent-1"));
+        assert_eq!(start, Some(1000));
+
+        let cli = parse(&["checkpoint", "file-diff-main", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileDiffMain { .. }));
+
+        let cli = parse(&["checkpoint", "file-timeline", "src/main.rs"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileTimeline { .. }));
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-restore",
+            "exec-1",
+            "--checkpoint",
+            "cp-1",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileRestore { .. }));
+
+        let cli = parse(&["checkpoint", "file-gc", "--keep-recent-heads", "3"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileGc { keep_recent_heads } = sub else {
+            panic!("expected file-gc");
+        };
+        assert_eq!(keep_recent_heads, 3);
     }
 
     #[test]

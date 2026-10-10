@@ -16,6 +16,8 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
+        .route("/file-checkpoint/checkpoints", post(handle_create_checkpoint))
+        .route("/file-checkpoint/restore", post(handle_restore_checkpoint))
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
         .route("/file-checkpoint/changes", get(handle_list_changes_paged))
         .route("/file-checkpoint/content", get(handle_read_content))
@@ -45,6 +47,62 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/file-checkpoint/undo/{id}", post(handle_undo_edit))
         .route("/file-checkpoint/redo/{id}", post(handle_redo_edit))
         .route("/file-checkpoint/rename", post(handle_rename_file))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct CreateCheckpointRequest {
+    /// Actor the file edits are attributed to.
+    actor: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct RestoreCheckpointResponse {
+    restored: usize,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct RestoreCheckpointRequest {
+    /// Execution or entity id owning the checkpoint.
+    entity: String,
+    /// File checkpoint (commit) id to restore from.
+    checkpoint: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/checkpoints",
+    tag = "checkpoint",
+    request_body = CreateCheckpointRequest,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_create_checkpoint(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<CreateCheckpointRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::create_workspace_checkpoint(&state.ctx, &body.actor) {
+        Ok(summary) => ok(summary).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/restore",
+    tag = "checkpoint",
+    request_body = RestoreCheckpointRequest,
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::RestoreCheckpointResponse>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_restore_checkpoint(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<RestoreCheckpointRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::restore_workspace(&state.ctx, &body.entity, &body.checkpoint)
+    {
+        Ok(restored) => ok(RestoreCheckpointResponse { restored }).into_response(),
+        Err(err) => error_response(err),
+    }
 }
 
 #[utoipa::path(

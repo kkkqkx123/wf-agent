@@ -16,7 +16,9 @@ use crate::env::apply_env_overrides;
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
 use crate::orchestrator_loader::{load_domain_config_with_metrics, resolve_file_mapping};
-use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
+use crate::processor::file_checkpoint::{
+    merge_file_checkpoint_with_defaults, validate_file_checkpoint_config,
+};
 use crate::processor::infrastructure::{
     get_metrics_environment_defaults, get_output_environment_defaults,
     get_storage_environment_defaults, merge_metrics_with_defaults, merge_output_with_defaults,
@@ -377,6 +379,12 @@ impl ConfigOrchestratorLoaded {
             }
             return Err(e);
         }
+        if let Err(e) = validate_file_checkpoint_config(&file_checkpoint) {
+            if let Some(metrics) = metrics {
+                metrics.record_validation_error();
+            }
+            return Err(e);
+        }
 
         Ok(AssembledConfig {
             storage,
@@ -531,6 +539,7 @@ impl ConfigOrchestratorLoaded {
         }
         if let Some(file_checkpoint) = overrides.file_checkpoint {
             config.file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
+            validate_file_checkpoint_config(&config.file_checkpoint)?;
         }
         if let Some(tool_approval) = overrides.tool_approval {
             config.tool_approval = tool_approval;

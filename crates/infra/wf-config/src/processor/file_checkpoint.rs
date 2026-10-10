@@ -1,4 +1,4 @@
-use crate::error::ConfigResult;
+use crate::error::{ConfigError, ConfigResult};
 use wf_types::config::file_checkpoint::{
     FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType,
 };
@@ -21,7 +21,51 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
     }
 }
 
-pub fn validate_file_checkpoint_config(_config: &FileCheckpointConfig) -> ConfigResult<()> {
+/// Fail-fast validation for the file-checkpoint config: reject empty
+/// workspace roots and database paths, illegal ignore patterns, and a
+/// manual watcher without a workspace to watch. Value ranges that carry
+/// an explicit disabled meaning (`gc_interval_secs = 0`) are accepted so
+/// the bootstrap keeps a single interpretation of them.
+pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigResult<()> {
+    if let Some(root) = config.workspace_root.as_deref() {
+        if root.trim().is_empty() {
+            return Err(ConfigError::Validation(
+                "file_checkpoint.workspace_root must not be empty".to_string(),
+            ));
+        }
+    }
+    if config.enabled
+        && config.manual_watch
+        && config.workspace_root.as_deref().is_none_or(|root| root.trim().is_empty())
+    {
+        return Err(ConfigError::Validation(
+            "file_checkpoint.manual_watch requires file_checkpoint.workspace_root".to_string(),
+        ));
+    }
+    if let Some(patterns) = config.custom_ignore_patterns.as_deref() {
+        for pattern in patterns {
+            if pattern.is_empty() || pattern.len() > 256 {
+                return Err(ConfigError::Validation(format!(
+                    "file_checkpoint.custom_ignore_patterns entries must be 1..=256 chars, got '{pattern}'"
+                )));
+            }
+            if pattern.contains('\0') {
+                return Err(ConfigError::Validation(
+                    "file_checkpoint.custom_ignore_patterns entries must not contain NUL"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+    if let Some(storage) = config.storage.as_ref() {
+        if let Some(db_path) = storage.db_path.as_deref() {
+            if db_path.trim().is_empty() {
+                return Err(ConfigError::Validation(
+                    "file_checkpoint.storage.db_path must not be empty".to_string(),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -74,5 +118,59 @@ mod tests {
             gc_retention: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
+    }
+
+    fn enabled_config() -> FileCheckpointConfig {
+        FileCheckpointConfig {
+            enabled: true,
+            workspace_root: Some("/workspace".to_string()),
+            custom_ignore_patterns: None,
+            storage: None,
+            failure_behavior: FailureBehavior::Warn,
+            approval_policy: wf_types::config::file_checkpoint::ApprovalPolicy::default(),
+            conflict_behavior: wf_types::config::file_checkpoint::ConflictBehavior::default(),
+            manual_watch: false,
+            gc_interval_secs: None,
+            gc_retention: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_accepts_enabled_config() {
+        assert!(validate_file_checkpoint_config(&enabled_config()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_workspace_root() {
+        let mut config = enabled_config();
+        config.workspace_root = Some("   ".to_string());
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_manual_watch_without_root() {
+        let mut config = enabled_config();
+        config.workspace_root = None;
+        config.manual_watch = true;
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_illegal_ignore_patterns() {
+        let mut config = enabled_config();
+        config.custom_ignore_patterns = Some(vec!["".to_string()]);
+        assert!(validate_file_checkpoint_config(&config).is_err());
+        config.custom_ignore_patterns = Some(vec!["a\0b".to_string()]);
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_db_path() {
+        let mut config = enabled_config();
+        config.storage = Some(FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some("  ".to_string()),
+        });
+        assert!(validate_file_checkpoint_config(&config).is_err());
     }
 }

@@ -269,6 +269,8 @@ use utoipa::OpenApi;
         crate::api::checkpoint::file_provenance::handle_redo_edit,
         crate::api::checkpoint::file_provenance::handle_rename_file,
         crate::api::checkpoint::file_provenance::handle_run_gc,
+        crate::api::checkpoint::file_provenance::handle_create_checkpoint,
+        crate::api::checkpoint::file_provenance::handle_restore_checkpoint,
         // ── trigger ──
         crate::api::trigger::executions::handle_list_trigger_executions,
         crate::api::trigger::executions::handle_save_trigger_execution,
@@ -633,6 +635,9 @@ use utoipa::OpenApi;
         crate::api::observation::query::QueryBody,
         crate::api::checkpoint::file_approvals::RejectRequest,
         crate::api::checkpoint::file_provenance::RenameFileRequest,
+        crate::api::checkpoint::file_provenance::CreateCheckpointRequest,
+        crate::api::checkpoint::file_provenance::RestoreCheckpointRequest,
+        crate::api::checkpoint::file_provenance::RestoreCheckpointResponse,
         crate::api::web::preferences::ReplacePreferencesBody,
         crate::api::workflow::approvals::RespondBody,
         crate::api::agent::executions::ResumeCheckpointBody,

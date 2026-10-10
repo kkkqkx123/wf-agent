@@ -18162,6 +18162,76 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/checkpoints": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_create_checkpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/content": {
       "get": {
         "tags": [
@@ -18592,6 +18662,76 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/restore": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_restore_checkpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreCheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RestoreCheckpointResponse"
                 }
               }
             }
@@ -37671,6 +37811,39 @@
           }
         }
       },
+      "ApiEnvelope_RestoreCheckpointResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "restored"
+            ],
+            "properties": {
+              "restored": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_String": {
         "type": "object",
         "required": [
@@ -38720,6 +38893,18 @@
               "null"
             ],
             "description": "Optional description for the checkpoint"
+          }
+        }
+      },
+      "CreateCheckpointRequest": {
+        "type": "object",
+        "required": [
+          "actor"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Actor the file edits are attributed to."
           }
         }
       },
@@ -40078,6 +40263,35 @@
         "properties": {
           "response_data": {},
           "result_data": {}
+        }
+      },
+      "RestoreCheckpointRequest": {
+        "type": "object",
+        "required": [
+          "entity",
+          "checkpoint"
+        ],
+        "properties": {
+          "checkpoint": {
+            "type": "string",
+            "description": "File checkpoint (commit) id to restore from."
+          },
+          "entity": {
+            "type": "string",
+            "description": "Execution or entity id owning the checkpoint."
+          }
+        }
+      },
+      "RestoreCheckpointResponse": {
+        "type": "object",
+        "required": [
+          "restored"
+        ],
+        "properties": {
+          "restored": {
+            "type": "integer",
+            "minimum": 0
+          }
         }
       },
       "ResumeCheckpointBody": {

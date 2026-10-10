@@ -41,6 +41,80 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-create", data).with_entity(created.id.clone()),
             )
         }
+        CheckpointSub::FilePartitions => {
+            let partitions = wf_api::checkpoint::provenance::list_partitions(ctx)?;
+            let data = serde_json::to_value(&partitions)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-partitions", data),
+            )
+        }
+        CheckpointSub::FileChanges {
+            actor,
+            path,
+            start,
+            end,
+        } => {
+            let time_range = match (start, end) {
+                (None, None) => None,
+                (start, end) => {
+                    let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
+                    let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
+                    Some((start_ms, end_ms))
+                }
+            };
+            let changes = if let Some(actor) = actor {
+                wf_api::checkpoint::provenance::list_changes_by_actor(
+                    ctx,
+                    actor,
+                    path.as_deref(),
+                    time_range,
+                )?
+            } else if let Some(path) = path {
+                wf_api::checkpoint::provenance::list_changes_by_path(ctx, path, time_range)?
+            } else {
+                return Err(crate::error::CliError::Business(
+                    "one of --actor or --path is required".to_string(),
+                ));
+            };
+            let data = serde_json::to_value(&changes)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-changes", data),
+            )
+        }
+        CheckpointSub::FileDiffMain { actor } => {
+            let diffs = wf_api::checkpoint::provenance::diff_against_main(ctx, actor)?;
+            let data = serde_json::to_value(&diffs)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-diff", data).with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileTimeline { path } => {
+            let timeline = wf_api::checkpoint::provenance::file_timeline_capped(ctx, path)?;
+            let data = serde_json::to_value(&timeline)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-timeline", data)
+                    .with_entity(path.clone()),
+            )
+        }
+        CheckpointSub::FileRestore { entity, checkpoint } => {
+            let restored =
+                wf_api::checkpoint::provenance::restore_workspace(ctx, entity, checkpoint)?;
+            let data = serde_json::json!({"entity": entity, "checkpoint": checkpoint, "restored": restored});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-restore", data)
+                    .with_entity(entity.clone()),
+            )
+        }
+        CheckpointSub::FileGc { keep_recent_heads } => {
+            let stats = wf_api::checkpoint::provenance::run_gc(ctx, *keep_recent_heads)?;
+            let data = serde_json::to_value(&stats)?;
+            render_envelope(cli.output, OutputEnvelope::success("checkpoint-file-gc", data))
+        }
         CheckpointSub::FileCreate { id, path } => {
             let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
                 crate::error::CliError::Business(

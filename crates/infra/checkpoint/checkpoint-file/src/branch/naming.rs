@@ -1,3 +1,8 @@
+//! Name predicates for the two disjoint branch namespaces: execution
+//! pointers (`execution-pointer/<id>`, execution index in `meta_kv`) and
+//! bare feature names (collaboration targets merged as Git refs under
+//! `refs/wf/feat/`).
+
 /// Sole prefix identifying execution pointers. Feature branches are bare
 /// names without this prefix. The prefix check is intentionally strict so a
 /// stray slash in a feature name is rejected instead of misclassified.

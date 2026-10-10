@@ -1,7 +1,9 @@
 use checkpoint_file::file::session::EditGroup;
+use checkpoint_file::file::FileCheckpointOptions;
 use checkpoint_file::gc::{GcRetention, GcStats};
 use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 
+use super::file::FileCheckpointSummary;
 use crate::infra::context::ApiContext;
 use crate::ApiError;
 use crate::ApiResult;
@@ -12,6 +14,65 @@ fn manager(ctx: &ApiContext) -> ApiResult<&checkpoint_file::file::FileCheckpoint
     ctx.file_checkpoint_manager().ok_or_else(|| {
         ApiError::execution("file checkpointing is not enabled; set file_checkpoint.enabled=true")
     })
+}
+
+/// Workspace root bound to the attached manager, or an error when the
+/// manager has no workspace bound (direct workspace writes need one).
+fn bound_workspace_root(
+    manager: &checkpoint_file::file::FileCheckpointManager,
+) -> ApiResult<std::path::PathBuf> {
+    manager.workspace_root().map(|root| root.to_path_buf()).ok_or_else(|| {
+        ApiError::execution("file checkpoint workspace root is not configured")
+    })
+}
+
+/// Create a full workspace checkpoint for an actor against the bound
+/// workspace root. Used by the HTTP create endpoint and CLI troubleshooting
+/// commands; execution-driven snapshots keep using the coordinator path.
+pub fn create_workspace_checkpoint(
+    ctx: &ApiContext,
+    actor: &str,
+) -> ApiResult<FileCheckpointSummary> {
+    if actor.trim().is_empty() {
+        return Err(ApiError::Validation("actor must not be empty".to_string()));
+    }
+    let manager = manager(ctx)?;
+    let root = bound_workspace_root(manager)?;
+    let opts = FileCheckpointOptions::default();
+    let checkpoint = manager
+        .create_workspace_checkpoint(actor, &root, &opts)
+        .map_err(ApiError::execution_with_source)?;
+    Ok(FileCheckpointSummary {
+        id: checkpoint.id,
+        timestamp: checkpoint.timestamp,
+        file_count: checkpoint.files.len(),
+    })
+}
+
+/// Restore the bound workspace from a file checkpoint. Returns the number
+/// of restored files.
+pub fn restore_workspace(
+    ctx: &ApiContext,
+    entity_id: &str,
+    checkpoint_id: &str,
+) -> ApiResult<usize> {
+    if entity_id.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "entity id must not be empty".to_string(),
+        ));
+    }
+    if checkpoint_id.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "checkpoint id must not be empty".to_string(),
+        ));
+    }
+    let manager = manager(ctx)?;
+    let root = bound_workspace_root(manager)?;
+    let opts = FileCheckpointOptions::default();
+    let result = manager
+        .restore_workspace(entity_id, checkpoint_id, &root, &opts)
+        .map_err(ApiError::execution_with_source)?;
+    Ok(result.restored)
 }
 
 /// All partitions of the file-checkpoint store (actor partitions, approval,

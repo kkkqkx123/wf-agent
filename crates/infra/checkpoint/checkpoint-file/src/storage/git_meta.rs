@@ -139,6 +139,14 @@ impl SqliteStorage {
         })
     }
 
+    pub fn delete_empty_dirs(&self, commit_id: &str) -> StorageResult<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM empty_dirs WHERE commit_id = ?1", [commit_id])
+                .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
     /// Single-level transaction owned by this call: the transaction object
     /// is the critical section, so nested manual begin/commit strings can no
     /// longer mis-pair `COMMIT`/`ROLLBACK` on the shared connection.
@@ -245,6 +253,41 @@ impl SqliteStorage {
         let count = tx.execute("DELETE FROM source_index", []).map_err(db_err)?;
         tx.commit().map_err(db_err)?;
         Ok(count)
+    }
+
+    pub fn replace_source_index(&self, entries: &[SourceIndexEntry]) -> StorageResult<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction().map_err(db_err)?;
+        tx.execute("DELETE FROM source_index_paths", [])
+            .map_err(db_err)?;
+        tx.execute("DELETE FROM source_index", []).map_err(db_err)?;
+        for entry in entries {
+            let payload = serde_json::to_vec(&entry.paths).unwrap_or_default();
+            tx.execute(
+                "INSERT INTO source_index (commit_id, actor, session, tool, paths, timestamp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(commit_id) DO UPDATE SET actor = excluded.actor, session = excluded.session,
+                    tool = excluded.tool, paths = excluded.paths, timestamp = excluded.timestamp",
+                rusqlite::params![
+                    entry.commit_id,
+                    entry.actor,
+                    entry.session,
+                    entry.tool,
+                    payload,
+                    entry.timestamp
+                ],
+            )
+            .map_err(db_err)?;
+            for path in &entry.paths {
+                tx.execute(
+                    "INSERT OR IGNORE INTO source_index_paths (commit_id, path) VALUES (?1, ?2)",
+                    rusqlite::params![entry.commit_id, path],
+                )
+                .map_err(db_err)?;
+            }
+        }
+        tx.commit().map_err(db_err)?;
+        Ok(())
     }
 
     pub fn delete_source_index(&self, commit_id: &str) -> StorageResult<()> {

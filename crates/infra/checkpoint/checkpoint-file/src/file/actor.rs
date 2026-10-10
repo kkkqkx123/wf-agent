@@ -219,8 +219,28 @@ impl FileCheckpointManager {
         content: &[u8],
         expected_hash: Option<&str>,
     ) -> Result<String, CheckpointError> {
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
         if let Some(expected) = expected_hash {
-            let actual = crate::file::util::sha256_hex(content);
+            let git = self.git_ref()?;
+            let edit_ref = crate::git_store::edit_ref_for_actor(actor.as_str());
+            let actual = match git
+                .read_ref(&edit_ref)
+                .map_err(crate::file::git_write::map_git_error)?
+            {
+                Some(head) => {
+                    let commit = git
+                        .read_commit(&head)
+                        .map_err(crate::file::git_write::map_git_error)?;
+                    let files = git
+                        .tree_to_bytes(&commit.tree)
+                        .map_err(crate::file::git_write::map_git_error)?;
+                    match files.get(&path) {
+                        Some(bytes) => crate::file::util::sha256_hex(bytes),
+                        None => String::new(),
+                    }
+                }
+                None => String::new(),
+            };
             if actual != expected {
                 return Err(CheckpointError::Validation {
                     reason: format!(
@@ -229,10 +249,9 @@ impl FileCheckpointManager {
                 });
             }
         }
-        let path = crate::file::util::validate_workspace_relative_path(path)?;
         let mut files = HashMap::new();
         files.insert(path.clone(), Some(content.to_vec()));
-        let outcome = self.commit_tool_files(actor, &files, None, None, "tool edit")?;
+        let outcome = self.commit_tool_files(actor, &files, None, Some("tool"), "tool edit")?;
         Ok(outcome.id)
     }
 
@@ -246,7 +265,7 @@ impl FileCheckpointManager {
         let path = crate::file::util::validate_workspace_relative_path(path)?;
         let mut files = HashMap::new();
         files.insert(path.clone(), None);
-        let outcome = self.commit_tool_files(actor, &files, None, None, "tool delete")?;
+        let outcome = self.commit_tool_files(actor, &files, None, Some("tool"), "tool delete")?;
         Ok(outcome.id)
     }
 
@@ -262,8 +281,13 @@ impl FileCheckpointManager {
             path.clone(),
             Some((crate::git_store::MODE_FILE.to_string(), content.to_vec())),
         );
-        let message =
-            crate::git_store::commit_message("manual edit", Some("human"), None, None, &[]);
+        let message = crate::git_store::commit_message(
+            "manual edit",
+            Some("human"),
+            None,
+            Some("manual"),
+            &[],
+        );
         let outcome = git
             .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
             .map_err(map_git_error)?;
@@ -289,8 +313,13 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let mut changes = HashMap::new();
         changes.insert(path.clone(), None);
-        let message =
-            crate::git_store::commit_message("manual delete", Some("human"), None, None, &[]);
+        let message = crate::git_store::commit_message(
+            "manual delete",
+            Some("human"),
+            None,
+            Some("manual"),
+            &[],
+        );
         let outcome = git
             .commit_on_ref(crate::git_store::REF_HUMAN, &changes, "human", &message)
             .map_err(map_git_error)?;
@@ -339,7 +368,7 @@ impl FileCheckpointManager {
         let mut files = HashMap::new();
         files.insert(from, None);
         files.insert(to, Some(content.to_vec()));
-        self.commit_tool_files(actor, &files, None, None, "rename")
+        self.commit_tool_files(actor, &files, None, Some("tool"), "rename")
             .map(|o| o.id)
     }
 }

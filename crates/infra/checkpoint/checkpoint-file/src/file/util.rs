@@ -109,7 +109,16 @@ pub(crate) fn write_file_with_dirs(target: &Path, content: &[u8]) -> Result<(), 
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(target, content)
+    let mut tmp = target.as_os_str().to_owned();
+    tmp.push(".wf-tmp");
+    std::fs::write(&tmp, content)?;
+    match std::fs::rename(&tmp, target) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(err)
+        }
+    }
 }
 
 pub(crate) fn handle_restore_failure(
@@ -135,8 +144,17 @@ pub(crate) fn resolve_restore_target(
     path: &str,
 ) -> Result<PathBuf, CheckpointError> {
     let relative = validate_workspace_relative_path(path)?;
-    let joined = base_dir.join(relative);
     let base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
+    let joined = base.join(&relative);
+    if !joined.starts_with(&base) {
+        return Err(CheckpointError::Validation {
+            reason: format!(
+                "file checkpoint path '{}' escapes base directory '{}'",
+                path,
+                base_dir.display()
+            ),
+        });
+    }
     let mut existing = joined.as_path();
     while !existing.exists() {
         existing = existing

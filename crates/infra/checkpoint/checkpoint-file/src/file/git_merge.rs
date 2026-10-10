@@ -162,21 +162,28 @@ impl FileCheckpointManager {
                 reason: format!("actor '{}' has no commits to submit", actor.as_str()),
             })?;
         let timestamp = self.creation_timestamp()?;
-        let taken = git
-            .list_refs(&format!("{REF_REVIEW_PREFIX}{}", sanitize(actor.as_str())))
-            .map_err(map_git_error)?
-            .len();
-        let review_id = format!("{}-{}-{}", sanitize(actor.as_str()), timestamp, taken);
-        let review_ref = review_ref_for_id(&review_id);
-        git.copy_ref(&edit_ref, &review_ref)
-            .map_err(map_git_error)?;
-        storage.set_review_state(&review_ref, ReviewStatus::Pending)?;
-        let _ = head;
-        let head = git
-            .read_ref(&review_ref)
-            .map_err(map_git_error)?
-            .unwrap_or_default();
-        Ok((review_ref, head))
+        let head_prefix = head.get(..8).unwrap_or(&head).to_string();
+        for attempt in 0..8u32 {
+            let review_id = format!(
+                "{}-{}-{}-{}",
+                sanitize(actor.as_str()),
+                timestamp,
+                head_prefix,
+                attempt
+            );
+            let review_ref = review_ref_for_id(&review_id);
+            match git.compare_and_swap(&review_ref, None, &head) {
+                Ok(()) => {
+                    storage.set_review_state(&review_ref, ReviewStatus::Pending)?;
+                    return Ok((review_ref, head));
+                }
+                Err(crate::git_store::GitStoreError::RefConflict(_)) => continue,
+                Err(e) => return Err(map_git_error(e)),
+            }
+        }
+        Err(CheckpointError::Branch(
+            "concurrent review submission conflict".to_string(),
+        ))
     }
 
     /// Newest pending review ref for an actor, if any.
@@ -280,13 +287,26 @@ impl FileCheckpointManager {
             parents.push(head);
         }
         parents.push(review_head.to_string());
+        let review_session = review_commit
+            .trailer(crate::git_store::TRAILER_SESSION)
+            .unwrap_or_default();
         if conflicts.is_empty() {
+            if let Some(parent_tree) = parent_tree.as_deref() {
+                if parent_tree == merged_tree {
+                    storage.set_review_state(review_ref, ReviewStatus::Approved)?;
+                    let existing = feature_head.clone().unwrap_or_default();
+                    return Ok(GitMergeOutcome {
+                        commit_id: existing,
+                        parents,
+                        conflict_files: Vec::new(),
+                        details: Vec::new(),
+                    });
+                }
+            }
             let message = commit_message(
                 &format!("merge review into feature '{feature_name}'"),
                 Some(actor_str),
-                review_commit
-                    .trailer(crate::git_store::TRAILER_SESSION)
-                    .as_deref(),
+                Some(review_session.as_str()).filter(|s| !s.is_empty()),
                 Some("review"),
                 &[],
             );
@@ -303,7 +323,14 @@ impl FileCheckpointManager {
             git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
                 .map_err(map_git_error)?;
             storage.set_review_state(review_ref, ReviewStatus::Approved)?;
-            self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
+            self.index_commit(
+                storage,
+                &id,
+                actor_str,
+                &review_session,
+                "review",
+                &all_paths,
+            )?;
             return Ok(GitMergeOutcome {
                 commit_id: id,
                 parents,
@@ -321,9 +348,7 @@ impl FileCheckpointManager {
         let message = commit_message(
             &format!("merge review into feature '{feature_name}' (conflicted)"),
             Some(actor_str),
-            review_commit
-                .trailer(crate::git_store::TRAILER_SESSION)
-                .as_deref(),
+            Some(review_session.as_str()).filter(|s| !s.is_empty()),
             Some("review"),
             &trailers,
         );
@@ -340,7 +365,14 @@ impl FileCheckpointManager {
         git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
             .map_err(map_git_error)?;
         storage.set_review_state(review_ref, ReviewStatus::Pending)?;
-        self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
+        self.index_commit(
+            storage,
+            &id,
+            actor_str,
+            &review_session,
+            "review",
+            &all_paths,
+        )?;
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::merge_conflicted(
                 id.clone(),
@@ -433,7 +465,12 @@ impl FileCheckpointManager {
             let merged_tree = git
                 .build_tree_from_parent(parent_tree.as_deref(), &changes)
                 .map_err(map_git_error)?;
-            let parents = vec![feature_head.clone()];
+            let mut parents = vec![feature_head.clone()];
+            if let Some(main) = main_head.clone() {
+                if main != feature_head {
+                    parents.push(main);
+                }
+            }
             let mut trailers = vec![(
                 TRAILER_STATE.to_string(),
                 STATE_CONFLICT_UNRESOLVED.to_string(),
@@ -502,6 +539,17 @@ impl FileCheckpointManager {
             parents.push(head);
         }
         parents.push(feature_head.clone());
+        if let Some(parent_tree) = parent_tree.as_deref() {
+            if parent_tree == merged_tree {
+                let existing = main_head.clone().unwrap_or_default();
+                return Ok(GitMergeOutcome {
+                    commit_id: existing,
+                    parents,
+                    conflict_files: Vec::new(),
+                    details: Vec::new(),
+                });
+            }
+        }
         let message = commit_message(
             &format!("merge feature '{feature_name}' into main"),
             Some(actor_str),
@@ -591,6 +639,14 @@ impl FileCheckpointManager {
         // Inverse application: base = the feature result as merged,
         // theirs = main just before the absorbing merge.
         let (merged, conflicts) = merge_file_maps(&feature_tree, &main_tree, &pre_merge_tree);
+        if !conflicts.is_empty() {
+            let mut sorted = conflicts.clone();
+            sorted.sort();
+            return Err(CheckpointError::MergeConflict {
+                actor: actor_str.to_string(),
+                files: sorted,
+            });
+        }
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         let mut all_paths: Vec<String> = Vec::new();
         for (path, content) in &merged {
@@ -606,23 +662,21 @@ impl FileCheckpointManager {
         let merged_tree = git
             .build_tree_from_parent(Some(&main_commit.tree), &changes)
             .map_err(map_git_error)?;
-        let parents = vec![main_head.clone()];
-        let mut trailers = Vec::new();
-        if !conflicts.is_empty() {
-            trailers.push((
-                TRAILER_STATE.to_string(),
-                STATE_CONFLICT_UNRESOLVED.to_string(),
-            ));
-            for file in &conflicts {
-                trailers.push((TRAILER_CONFLICT_FILE.to_string(), file.clone()));
-            }
+        if merged_tree == main_commit.tree {
+            return Ok(GitMergeOutcome {
+                commit_id: main_head.clone(),
+                parents: vec![main_head.clone()],
+                conflict_files: Vec::new(),
+                details: Vec::new(),
+            });
         }
+        let parents = vec![main_head.clone()];
         let message = commit_message(
             &format!("revert feature merge {feature_head}"),
             Some(actor_str),
             None,
             Some("rollback"),
-            &trailers,
+            &[],
         );
         let id = git
             .write_commit(

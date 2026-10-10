@@ -65,6 +65,17 @@ pub fn merge_file_contents(
         current: Some(gix_object::bstr::BStr::new("ours")),
         other: Some(gix_object::bstr::BStr::new("theirs")),
     };
+    let options = gix_merge::blob::builtin_driver::text::Options {
+        conflict:
+            gix_merge::blob::builtin_driver::text::Conflict::Keep {
+                style: gix_merge::blob::builtin_driver::text::ConflictStyle::Diff3,
+                marker_size: std::num::NonZeroU8::new(
+                    gix_merge::blob::builtin_driver::text::Conflict::DEFAULT_MARKER_SIZE,
+                )
+                .expect("default marker size is non-zero"),
+            },
+        ..Default::default()
+    };
     let resolution = gix_merge::blob::builtin_driver::text(
         &mut merged,
         &mut input,
@@ -72,7 +83,7 @@ pub fn merge_file_contents(
         ours_bytes,
         base_bytes,
         theirs_bytes,
-        gix_merge::blob::builtin_driver::text::Options::default(),
+        options,
     );
     MergeFileOutcome {
         bytes: Some(merged),

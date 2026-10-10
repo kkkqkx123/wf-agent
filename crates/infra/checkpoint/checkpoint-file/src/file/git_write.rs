@@ -124,7 +124,12 @@ impl FileCheckpointManager {
         tool: &str,
         paths: &[String],
     ) -> Result<(), CheckpointError> {
-        let timestamp = self.creation_timestamp()?;
+        let timestamp = self
+            .git_ref()
+            .ok()
+            .and_then(|git| git.read_commit(commit_id).ok())
+            .map(|commit| commit.committer_ts)
+            .unwrap_or_else(|| self.creation_timestamp().unwrap_or(0));
         storage.record_source_index(&crate::storage::SourceIndexEntry {
             commit_id: commit_id.to_string(),
             actor: actor.to_string(),
@@ -230,8 +235,17 @@ impl FileCheckpointManager {
     ) -> Result<Option<String>, CheckpointError> {
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
+        let mut ignore_patterns = self
+            .policy
+            .scan_config
+            .custom_ignore_patterns
+            .clone();
+        ignore_patterns.extend(crate::scan::storage_exclude_patterns(
+            base_dir,
+            storage.db_path().as_deref(),
+        ));
         let scanner = WorkspaceScanner::new(ScanConfig {
-            custom_ignore_patterns: self.policy.scan_config.custom_ignore_patterns.clone(),
+            custom_ignore_patterns: ignore_patterns,
             failure_behavior: self.policy.scan_config.failure_behavior,
         });
         let scan = scanner.scan(base_dir)?;

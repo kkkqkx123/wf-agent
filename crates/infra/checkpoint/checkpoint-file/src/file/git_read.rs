@@ -40,8 +40,13 @@ impl FileCheckpointManager {
             target_hash.insert(path.clone(), sha256_hex(bytes));
         }
 
+        let mut ignore_patterns = opts.custom_ignore_patterns.clone();
+        ignore_patterns.extend(crate::scan::storage_exclude_patterns(
+            base_dir,
+            storage.db_path().as_deref(),
+        ));
         let scanner = WorkspaceScanner::new(ScanConfig {
-            custom_ignore_patterns: opts.custom_ignore_patterns.clone(),
+            custom_ignore_patterns: ignore_patterns,
             failure_behavior: opts.failure_behavior,
         });
         let current = scanner.scan(base_dir)?;

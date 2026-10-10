@@ -48,6 +48,28 @@ pub fn is_hardcoded_ignored(relative_path: &str) -> bool {
         .any(|part| HARDCODED_IGNORE_DIRS.contains(&part))
 }
 
+/// Ignore patterns excluding a SQLite database file inside the workspace
+/// plus its WAL sidecars. Returns empty when the database lives outside
+/// the workspace root.
+pub fn storage_exclude_patterns(root: &Path, db_path: Option<&Path>) -> Vec<String> {
+    let Some(db) = db_path else {
+        return Vec::new();
+    };
+    let Ok(relative) = db.strip_prefix(root) else {
+        return Vec::new();
+    };
+    let posix = crate::file::util::normalize_posix_separators(&relative.to_string_lossy());
+    if posix.is_empty() {
+        return Vec::new();
+    }
+    vec![
+        format!("/{posix}"),
+        format!("/{posix}-wal"),
+        format!("/{posix}-shm"),
+        format!("/{posix}-journal"),
+    ]
+}
+
 fn custom_search(custom: &[String]) -> gix_ignore::Search {
     gix_ignore::Search::from_overrides(custom.iter().cloned(), Default::default())
 }
@@ -132,8 +154,17 @@ impl WorkspaceScanner {
     /// files are collected upfront and combined with the hardcoded and custom
     /// patterns.
     pub fn scan(&self, root: &Path) -> Result<WorkspaceScan, CheckpointError> {
-        let mut search = custom_search(&self.config.custom_ignore_patterns);
+        let mut search = custom_search(&[]);
         self.collect_gitignore(root, root, &mut search)?;
+        if !self.config.custom_ignore_patterns.is_empty() {
+            let buffer = self.config.custom_ignore_patterns.join("\n");
+            search.add_patterns_buffer(
+                buffer.as_bytes(),
+                root.join(".wf-custom-ignore"),
+                Some(root),
+                Default::default(),
+            );
+        }
 
         let mut files = Vec::new();
         let mut dirs = Vec::new();

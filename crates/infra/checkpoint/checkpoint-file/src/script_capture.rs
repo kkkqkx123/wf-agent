@@ -52,7 +52,6 @@ impl CollectedChange {
 ///   stage in the log.
 pub struct WorkspaceChangeCollector {
     base_dir: PathBuf,
-    canonical_base: PathBuf,
     scope: Vec<PathBuf>,
     scanner: WorkspaceScanner,
 }
@@ -63,9 +62,6 @@ impl WorkspaceChangeCollector {
     /// workspace are excluded from the scope.
     pub fn new(base_dir: &Path, allowed_write: &[String], scanner: WorkspaceScanner) -> Self {
         let normalized_base = crate::watcher::normalize_absolute_path(base_dir);
-        let canonical_base = base_dir
-            .canonicalize()
-            .unwrap_or_else(|_| normalized_base.clone());
         let mut scope = Vec::new();
         for prefix in allowed_write {
             let candidate = if Path::new(prefix).is_absolute() {
@@ -81,7 +77,6 @@ impl WorkspaceChangeCollector {
         scope.dedup();
         Self {
             base_dir: normalized_base,
-            canonical_base,
             scope,
             scanner,
         }
@@ -110,35 +105,6 @@ impl WorkspaceChangeCollector {
         Ok(hashes)
     }
 
-    /// Resolve a symlink to its canonical target when the target stays
-    /// inside the workspace. Out-of-workspace or unresolvable targets are
-    /// rejected (warned, skipped) so links can never smuggle outside files
-    /// into the capture. `followed` guards against link cycles.
-    fn resolve_link(&self, link: &Path, followed: &mut HashSet<PathBuf>) -> Option<PathBuf> {
-        match link.canonicalize() {
-            Ok(target) if target.starts_with(&self.canonical_base) => {
-                // Only directories join the cycle guard: two links to one
-                // file are a diamond, not a cycle. Directory cycles must
-                // pass through a dir, so guarding dirs alone suffices.
-                if target.is_dir() && !followed.insert(target.clone()) {
-                    tracing::warn!(
-                        link = %link.display(),
-                        "symlink cycle detected; skipping"
-                    );
-                    return None;
-                }
-                Some(target)
-            }
-            _ => {
-                tracing::warn!(
-                    link = %link.display(),
-                    "symlink escapes workspace or is unresolvable; skipping"
-                );
-                None
-            }
-        }
-    }
-
     fn record_file(
         &self,
         walk_path: &Path,
@@ -164,42 +130,27 @@ impl WorkspaceChangeCollector {
         Ok(())
     }
 
-    /// `walk` is the filesystem path traversed (canonical after following an
-    /// in-workspace link); `recorded` is the key stored in the snapshot
-    /// (always the lexical in-workspace path, so before/after maps agree).
+    /// `walk` is the filesystem path traversed; `recorded` is the key stored
+    /// in the snapshot (always the lexical in-workspace path, so
+    /// before/after maps agree). Symlinks are skipped.
     fn collect_dir(
         &self,
         walk: &Path,
         recorded: &Path,
-        followed: &mut HashSet<PathBuf>,
+        _followed: &mut HashSet<PathBuf>,
         out: &mut HashMap<PathBuf, String>,
     ) -> Result<(), CheckpointError> {
+        if std::fs::symlink_metadata(walk).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Ok(());
+        }
         if walk.is_file() {
-            if std::fs::symlink_metadata(walk).is_ok_and(|m| m.file_type().is_symlink())
-                && self.resolve_link(walk, followed).is_none()
-            {
-                return Ok(());
-            }
             self.record_file(walk, recorded, out)?;
             return Ok(());
         }
         if !walk.is_dir() {
             return Ok(());
         }
-        // A symlinked scope or directory is traversed at its canonical
-        // target while keys stay lexical; escapes were rejected above.
-        let physical;
-        let walk = if std::fs::symlink_metadata(walk).is_ok_and(|m| m.file_type().is_symlink()) {
-            match self.resolve_link(walk, followed) {
-                Some(target) => {
-                    physical = target;
-                    &physical
-                }
-                None => return Ok(()),
-            }
-        } else {
-            walk
-        };
+        let walk = walk;
         // A single directory scan: a missing scope directory is "no files",
         // not an error; per-file read failures below are path-qualified.
         let entries = std::fs::read_dir(walk).map_err(|e| {
@@ -224,18 +175,9 @@ impl WorkspaceChangeCollector {
                 )))
             })?;
             if file_type.is_symlink() {
-                // Links never enter the store: in-workspace targets
-                // contribute content under the link path, escapes are cut.
-                let Some(target) = self.resolve_link(&path, followed) else {
-                    continue;
-                };
-                if target.is_file() {
-                    self.record_file(&path, &recorded_child, out)?;
-                } else if target.is_dir() {
-                    self.collect_dir(&target, &recorded_child, followed, out)?;
-                }
+                continue;
             } else if file_type.is_dir() {
-                self.collect_dir(&path, &recorded_child, followed, out)?;
+                self.collect_dir(&path, &recorded_child, _followed, out)?;
             } else if file_type.is_file() {
                 self.record_file(&path, &recorded_child, out)?;
             }
@@ -400,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn in_workspace_symlink_content_is_captured_under_link_path() {
+    fn in_workspace_symlink_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("real.txt"), b"data").unwrap();
         std::os::unix::fs::symlink(dir.path().join("real.txt"), dir.path().join("link.txt"))
@@ -408,8 +350,9 @@ mod tests {
 
         let c = collector(dir.path(), &["."]);
         let map = c.capture().unwrap();
+        assert!(!map.contains_key(&dir.path().join("link.txt")));
         assert_eq!(
-            map.get(&dir.path().join("link.txt")).unwrap(),
+            map.get(&dir.path().join("real.txt")).unwrap(),
             &sha256_hex(b"data")
         );
     }

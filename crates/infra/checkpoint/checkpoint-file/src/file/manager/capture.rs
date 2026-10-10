@@ -16,9 +16,8 @@ use super::FileCheckpointManager;
 impl FileCheckpointManager {
     /// Scan the workspace and commit it as one atomic commit on the
     /// actor's edit ref (the default full-scan path). Files missing from
-    /// the scan but present in the global tracked set (main plus every
-    /// edit-ref head) commit as deletions, so the ref becomes a true sync
-    /// of the shared worktree truth rather than actor-local history. Empty
+    /// the scan but present in main plus this actor's edit head commit as
+    /// deletions; files owned by other actors are never deleted here. Empty
     /// directories are recorded in the empty-dir manifest for restore.
     pub fn create_workspace_checkpoint(
         &self,
@@ -26,8 +25,15 @@ impl FileCheckpointManager {
         base_dir: &Path,
         opts: &FileCheckpointOptions,
     ) -> Result<FileCheckpoint, CheckpointError> {
+        let mut ignore_patterns = opts.custom_ignore_patterns.clone();
+        if let Ok(storage) = self.storage_ref() {
+            ignore_patterns.extend(crate::scan::storage_exclude_patterns(
+                base_dir,
+                storage.db_path().as_deref(),
+            ));
+        }
         let scanner = WorkspaceScanner::new(ScanConfig {
-            custom_ignore_patterns: opts.custom_ignore_patterns.clone(),
+            custom_ignore_patterns: ignore_patterns,
             failure_behavior: opts.failure_behavior,
         });
         let scan = scanner.scan(base_dir)?;

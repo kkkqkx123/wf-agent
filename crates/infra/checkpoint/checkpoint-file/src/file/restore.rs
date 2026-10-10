@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use crate::file::git_write::map_git_error;
-use crate::file::util::resolve_restore_target;
 use crate::file::{
     FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
 };
@@ -63,55 +62,47 @@ impl FileCheckpointManager {
     /// possibly wrong latest version.
     pub fn restore_state_files(
         &self,
-        entity_id: &str,
+        _entity_id: &str,
         state_checkpoint_id: &str,
     ) -> Result<Option<Vec<FileState>>, CheckpointError> {
         let linked = self
             .storage_ref()?
             .lookup_state_file_link(state_checkpoint_id)?;
-        if let Some(commit_id) = linked {
-            if !crate::git_store::is_hex_id(&commit_id) {
-                return Err(CheckpointError::Corrupted {
-                    id: state_checkpoint_id.to_string(),
-                    reason: format!("linked file commit id malformed: '{commit_id}'"),
-                });
-            }
-            let git = self.git_ref()?;
-            git.read_commit(&commit_id).map_err(map_git_error)?;
-            return Ok(Some(self.restore_checkpoint(entity_id, &commit_id)?));
+        let Some(commit_id) = linked else {
+            return Ok(None);
+        };
+        if !crate::git_store::is_hex_id(&commit_id) {
+            return Err(CheckpointError::Corrupted {
+                id: state_checkpoint_id.to_string(),
+                reason: format!("linked file commit id malformed: '{commit_id}'"),
+            });
         }
-        self.restore_latest(entity_id)
+        let git = self.git_ref()?;
+        git.read_commit(&commit_id).map_err(map_git_error)?;
+        Ok(Some(self.project_commit(&commit_id)?.files))
     }
 
-    /// Content-level rollback: write the files of `checkpoint_id` back to
-    /// disk. Relative paths are resolved under `base_dir`; paths escaping
-    /// `base_dir` are rejected (rollback must never write outside the
-    /// working tree). Returns the list of written paths.
+    /// Workspace-aligned content rollback: expand the target tree, delete
+    /// extra files not in the target set, recreate empty directories from
+    /// the manifest, and skip identical content. Relative paths resolve
+    /// under `base_dir`; escapes are rejected. Returns written paths.
     pub fn restore_content(
         &self,
         checkpoint_id: &str,
         base_dir: &Path,
     ) -> Result<Vec<String>, CheckpointError> {
-        if !crate::git_store::is_hex_id(checkpoint_id) {
-            return Err(CheckpointError::NotFound {
-                id: checkpoint_id.to_string(),
-            });
-        }
+        let opts = crate::file::FileCheckpointOptions::default();
+        let commit_id = checkpoint_id.to_string();
+        self.materialize_commit(&commit_id, base_dir, &opts)?;
         let git = self.git_ref()?;
         let commit = git.read_commit(checkpoint_id).map_err(map_git_error)?;
         let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
-        let mut paths: Vec<&String> = files.keys().collect();
+        let mut paths: Vec<String> = files.keys().cloned().collect();
         paths.sort();
-        let mut written = Vec::with_capacity(paths.len());
-        for path in paths {
-            let target = resolve_restore_target(base_dir, path)?;
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&target, &files[path])?;
-            written.push(target.to_string_lossy().into_owned());
-        }
-        Ok(written)
+        Ok(paths
+            .into_iter()
+            .map(|p| base_dir.join(p).to_string_lossy().into_owned())
+            .collect())
     }
 
     /// Content-level rollback to the latest checkpoint of an entity, if any.

@@ -302,7 +302,9 @@ impl FileCheckpointManager {
                         stack.push(id);
                     }
                     self.store.latest_checkpoints.remove(actor.as_str());
-                    return Ok(head);
+                    return Err(CheckpointError::NotFound {
+                        id: format!("no commits for actor '{}'", actor.as_str()),
+                    });
                 };
                 cursor = parent;
                 stepped = true;

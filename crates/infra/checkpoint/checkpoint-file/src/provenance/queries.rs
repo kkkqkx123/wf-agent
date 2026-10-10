@@ -182,7 +182,8 @@ pub fn list_changes_by_path(
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
     let indexed = storage.find_commits_by_path(path, 0)?;
     let commits: Vec<GitCommit> = if indexed.is_empty() {
-        // Fallback: scan every reachable commit's tree for the path, bounded.
+        // Fallback: scan every reachable commit's changed set for the path,
+        // bounded. Changed-set semantics match the source index.
         tracing::warn!(
             path = %path,
             "source index empty for path; falling back to graph scan"
@@ -198,10 +199,10 @@ pub fn list_changes_by_path(
         }
         let mut found = Vec::new();
         for commit in all {
-            let Ok(files) = git.tree_to_files(&commit.tree) else {
+            let Ok(changed) = super::index::changed_paths(git, &commit) else {
                 continue;
             };
-            if files.contains_key(path) {
+            if changed.iter().any(|p| p == path) {
                 found.push(commit);
             }
         }
@@ -213,7 +214,8 @@ pub fn list_changes_by_path(
             .collect()
     };
     // Path history is exact: no similarity expansion. A caller that wants
-    // rename-spanning history uses `file_timeline`.
+    // rename-spanning history uses `file_timeline`. Deletions synthesize a
+    // tombstone summary since the file is absent from the commit tree.
     let mut changes = Vec::new();
     for commit in commits {
         if let Some((start, end)) = time_range {
@@ -221,9 +223,29 @@ pub fn list_changes_by_path(
                 continue;
             }
         }
+        let mut matched = false;
         for summary in summaries_for_commit(git, &commit)? {
             if summary.file == path {
                 changes.push(summary);
+                matched = true;
+            }
+        }
+        if !matched {
+            let Ok(changed) = super::index::changed_paths(git, &commit) else {
+                continue;
+            };
+            if changed.iter().any(|p| p == path) {
+                let source = commit
+                    .trailer(TRAILER_ACTOR)
+                    .unwrap_or_else(|| "agent".to_string());
+                changes.push(DeltaSummary {
+                    file: path.to_string(),
+                    source,
+                    timestamp: commit.committer_ts,
+                    snapshot_id: commit.id.clone(),
+                    hash: String::new(),
+                    message: intent_line(&commit.message),
+                });
             }
         }
     }

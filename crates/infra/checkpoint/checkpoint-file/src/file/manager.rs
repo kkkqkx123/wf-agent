@@ -53,9 +53,12 @@ pub struct FileCheckpointManager {
     pub(crate) session_scopes: Arc<crate::scope::SessionScopeRegistry>,
     /// Staged multi-file operations awaiting their single atomic commit,
     /// keyed by session id string. Grouping is a commit trailer, never a
-    /// persistence row.
+    /// persistence row. In-memory only: a restart drops staged groups while
+    /// committed session trailers survive in the commit graph.
     pub(crate) pending_batches: Arc<DashMap<String, crate::file::git_write::PendingEditBatch>>,
     /// Undone edit-ref heads per actor, for redo after a local undo.
+    /// In-memory only: a restart drops redo history while committed history
+    /// stays reachable from the refs.
     pub(crate) redo_stacks: Arc<DashMap<String, Vec<String>>>,
     /// Unified checkpoint metrics collector. Clones share the same slot so
     /// a collector attached after construction still observes every handle.

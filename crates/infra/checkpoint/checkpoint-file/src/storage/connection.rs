@@ -99,6 +99,10 @@ impl SqliteStorage {
         self.clone()
     }
 
+    pub fn db_path(&self) -> Option<std::path::PathBuf> {
+        self.path.clone()
+    }
+
     /// Single-level locking: the closure must not call back into storage
     /// methods that lock again. A plain mutex backs the connection so
     /// nested use deadlocks loudly instead of mis-pairing transactions.

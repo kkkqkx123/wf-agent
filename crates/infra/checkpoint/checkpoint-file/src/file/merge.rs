@@ -189,9 +189,7 @@ impl FileCheckpointManager {
             }
             orphan_commits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
             for (_, id) in orphan_commits.into_iter().take(retention.keep_recent_heads) {
-                if let Ok(commit) = git.read_commit(&id) {
-                    Self::insert_commit_closure(git, &commit.id, &commit.tree, &mut reachable);
-                }
+                Self::insert_ancestry_closure(git, &id, &mut reachable);
             }
         }
         let mut pruned_commits = 0usize;
@@ -222,10 +220,32 @@ impl FileCheckpointManager {
             if let Ok(storage) = self.storage_ref() {
                 for id in &pruned_commit_ids {
                     let _ = storage.delete_source_index(id);
+                    let _ = storage.delete_empty_dirs(id);
                 }
             }
         }
         Ok((pruned_commits, pruned_trees, pruned_blobs))
+    }
+
+    fn insert_ancestry_closure(
+        git: &crate::git_store::GitStore,
+        commit_id: &str,
+        reachable: &mut std::collections::HashSet<String>,
+    ) {
+        let mut stack = vec![commit_id.to_string()];
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            let Ok(commit) = git.read_commit(&id) else {
+                continue;
+            };
+            Self::insert_commit_closure(git, &commit.id, &commit.tree, reachable);
+            for parent in commit.parents {
+                stack.push(parent);
+            }
+        }
     }
 
     fn insert_commit_closure(

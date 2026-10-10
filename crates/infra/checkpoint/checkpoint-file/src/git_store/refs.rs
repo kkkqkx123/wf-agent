@@ -35,12 +35,20 @@ pub(crate) fn sanitize_ref_component(raw: &str) -> String {
             out.push('_');
         }
     }
-    let trimmed = out.trim_matches(|c| c == '/' || c == '.');
-    if trimmed.is_empty() {
-        "unnamed".to_string()
-    } else {
-        trimmed.to_string()
+    let mut cleaned = out.replace("..", "__");
+    while cleaned.contains("//") {
+        cleaned = cleaned.replace("//", "/_");
     }
+    let trimmed = cleaned
+        .trim_matches(|c| c == '/' || c == '.')
+        .to_string();
+    if trimmed.is_empty() {
+        return "unnamed".to_string();
+    }
+    if trimmed.ends_with(".lock") {
+        return format!("{trimmed}_");
+    }
+    trimmed
 }
 
 impl GitStore {
@@ -89,11 +97,17 @@ impl GitStore {
         };
         let mut lock = path;
         lock.as_mut_os_string().push(".lock");
-        let stale = fs::symlink_metadata(&lock)
-            .ok()
-            .and_then(|meta| meta.modified().ok())
-            .and_then(|modified| modified.elapsed().ok())
-            .is_some_and(|age| age > Duration::from_secs(60));
+        let metadata = match fs::symlink_metadata(&lock) {
+            Ok(meta) => meta,
+            Err(_) => return,
+        };
+        let stale = match metadata.modified() {
+            Ok(modified) => match modified.elapsed() {
+                Ok(age) => age > Duration::from_secs(60),
+                Err(_) => true,
+            },
+            Err(_) => true,
+        };
         if stale {
             let _ = fs::remove_file(&lock);
         }
@@ -118,18 +132,27 @@ impl GitStore {
     /// Read a ref. `Ok(None)` means the ref does not exist yet.
     pub fn read_ref(&self, name: &str) -> Result<Option<String>, GitStoreError> {
         let path = self.ref_path(name)?;
-        match fs::read_to_string(&path) {
-            Ok(content) => {
-                let id = content.trim().to_string();
-                if id.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(id))
+        for attempt in 0..3u32 {
+            match fs::read_to_string(&path) {
+                Ok(content) => {
+                    let id = content.trim().to_string();
+                    if id.is_empty() {
+                        return Ok(None);
+                    } else {
+                        return Ok(Some(id));
+                    }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    if attempt < 2 {
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    }
+                    return Ok(None);
+                }
+                Err(e) => return Err(GitStoreError::from(e)),
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(GitStoreError::from(e)),
         }
+        Ok(None)
     }
 
     /// Atomically point a ref at `id`. Concurrent writers to the same ref
@@ -172,12 +195,23 @@ impl GitStore {
             expected_value,
             "",
         );
-        if let Err(error) = self.commit_ref_edit(name, edit, gix_lock::acquire::Fail::Immediately) {
+        if let Err(error) = self.commit_ref_edit(
+            name,
+            edit,
+            gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_millis(500)),
+        ) {
             let current = self.read_ref(name)?;
             if current.as_deref() != expected {
                 return Err(GitStoreError::RefConflict(name.to_string()));
             }
-            return Err(GitStoreError::Io(error.to_string()));
+            let message = error.to_string();
+            if message.contains("must exist")
+                || message.contains("mismatch")
+                || message.contains("conflict")
+            {
+                return Err(GitStoreError::RefConflict(name.to_string()));
+            }
+            return Err(GitStoreError::Io(message));
         }
         Ok(())
     }
@@ -207,14 +241,15 @@ impl GitStore {
 
     /// List `(refname, id)` pairs under a prefix, sorted by refname. A
     /// prefix that names a ref exactly matches that single ref. Only
-    /// object targets are listed: a symbolic link under `refs/wf/` would
-    /// violate the store rules and is reported instead of being returned
-    /// as an id.
+    /// object targets are listed; symbolic refs under the prefix are
+    /// skipped with a warning so one stray link never breaks listings.
     pub fn list_refs(&self, prefix: &str) -> Result<Vec<(String, String)>, GitStoreError> {
         let mut out = Vec::new();
         let store = self.ref_store();
         let platform = store.iter().map_err(|e| GitStoreError::Io(e.to_string()))?;
-        let refs = platform.all()?;
+        let refs = platform
+            .all()
+            .map_err(|e| GitStoreError::Io(e.to_string()))?;
         for reference in refs {
             let reference = reference.map_err(|e| GitStoreError::Io(e.to_string()))?;
             let name = reference.name.to_string();
@@ -224,12 +259,12 @@ impl GitStore {
             match reference.target {
                 gix_ref::Target::Object(id) => out.push((name, id.to_hex().to_string())),
                 gix_ref::Target::Symbolic(_) => {
-                    return Err(GitStoreError::InvalidInput(format!(
-                        "ref '{name}' must point at an object id"
-                    )));
+                    tracing::warn!(refname = %name, "skipping symbolic ref under managed prefix");
+                    continue;
                 }
             }
         }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
     }
 }

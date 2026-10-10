@@ -1,5 +1,11 @@
 pub mod agent;
 pub mod base;
+pub mod child_restore;
+pub mod events;
+pub mod migration;
+pub mod persist;
+pub mod projection;
+pub mod queue;
 pub mod workflow;
 
 pub use agent::{AgentCheckpointCoordinator, AgentLoopEntity};

@@ -1,37 +1,42 @@
+mod content_policy;
+mod progress;
+mod restore;
+#[cfg(test)]
+mod tests;
+
+pub use progress::{snapshot_workflow_coords, workflow_progress_coords, WorkflowProgressCoords};
+
 use crate::coordinator::base::{
-    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
-    publish_persisted, ChildDiscoveryIndex,
+    decide_checkpoint_type_by_count, next_chain_position, prepare_context, stamp_custom_fields,
+    CheckpointCoordinator,
 };
-use crate::coordinator::CheckpointCoordinator;
+use crate::coordinator::persist::{delete_checkpoint, persist_checkpoint};
+use crate::coordinator::projection::{
+    enqueue_persistence, restore_state_files, save_file_snapshot,
+};
+use crate::coordinator::queue::{drain_persistence_handles, PersistenceQueue};
+use crate::coordinator::workflow::progress::progress_custom_fields;
 use checkpoint_base::clock::CheckpointClock;
-use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::delta::DeltaRestorer;
 use checkpoint_base::delta::DiffCalculator;
 use checkpoint_base::delta::GenericDeltaRestorer;
 use checkpoint_base::delta::WorkflowDiffCalculator;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::metadata::builder::{
-    build_checkpoint_metadata, fingerprint_entries, fingerprint_option, trigger_description,
-    trigger_tag, CHAIN_POSITION_FIELD, WF_CURRENT_NODE_FIELD, WF_NODE_RESULTS_HASH_FIELD,
-    WF_RECORD_COUNT_FIELD, WF_STATUS_FIELD, WF_TRIGGER_STATES_HASH_FIELD, WF_VARIABLES_HASH_FIELD,
+    build_checkpoint_metadata, trigger_description, trigger_tag,
 };
-use checkpoint_base::serializer::CheckpointSerializer;
 use checkpoint_base::strategy::CheckpointStrategy;
 use checkpoint_base::strategy::StandardStrategy;
 use checkpoint_base::version_manager::VersionManager;
-use checkpoint_base::version_manager::MIN_COMPATIBLE_VERSION;
 use checkpoint_file::event::CheckpointEventBus;
 use checkpoint_file::file::FileCheckpointManager;
-use checkpoint_state::restore::hierarchy::{
-    ChildDiscovery, ChildDiscoverySummary, InMemoryChildResolver,
-};
+use checkpoint_state::restore::hierarchy::ChildDiscoverySummary;
 use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::CheckpointStateManager;
 use checkpoint_state::state::WorkflowCheckpoint;
 use checkpoint_state::state::WorkflowCheckpointStateManager;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use wf_common::gate::ConcurrencyGate;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -41,123 +46,6 @@ use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 use wf_types::checkpoint::UnifiedCheckpointPolicy;
 use wf_types::storage::CheckpointStorageMetadata;
-
-/// Progress coordinates of a workflow checkpoint: execution status, resume
-/// pointer, content hashes of node results and variables, the audit record
-/// count and the trigger-state hash — read from metadata without loading
-/// blobs. Equal coordinates mean no side effect landed since the recorded
-/// checkpoint. Rows predating the coordinate fields read as `None` and never
-/// compare equal to a fresh build, so dedup over old history is fail-open.
-///
-/// The resume pointer (`current_node_id`) is deliberately included: the row
-/// after node A and the row before node B differ only in it, and their
-/// restore paths differ (completed-node skip with successor re-derivation
-/// versus direct continuation), so they are not duplicates.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkflowProgressCoords {
-    pub status: Option<String>,
-    pub current_node: Option<String>,
-    pub node_results_hash: Option<String>,
-    pub variables_hash: Option<String>,
-    pub record_count: Option<u64>,
-    pub trigger_states_hash: Option<String>,
-}
-
-impl WorkflowProgressCoords {
-    /// Render coordinates as stored custom fields (`None` as JSON null,
-    /// mirroring what `build` injects) for the shared gate comparison over
-    /// [`checkpoint_base::metadata::builder::WF_PROGRESS_COORD_KEYS`].
-    pub fn as_fields(&self) -> HashMap<String, serde_json::Value> {
-        HashMap::from([
-            (WF_STATUS_FIELD.to_string(), serde_json::json!(self.status)),
-            (
-                WF_CURRENT_NODE_FIELD.to_string(),
-                serde_json::json!(self.current_node),
-            ),
-            (
-                WF_NODE_RESULTS_HASH_FIELD.to_string(),
-                serde_json::json!(self.node_results_hash),
-            ),
-            (
-                WF_VARIABLES_HASH_FIELD.to_string(),
-                serde_json::json!(self.variables_hash),
-            ),
-            (
-                WF_RECORD_COUNT_FIELD.to_string(),
-                serde_json::json!(self.record_count),
-            ),
-            (
-                WF_TRIGGER_STATES_HASH_FIELD.to_string(),
-                serde_json::json!(self.trigger_states_hash),
-            ),
-        ])
-    }
-}
-
-/// Progress coordinates from stored checkpoint metadata.
-pub fn workflow_progress_coords(meta: &CheckpointStorageMetadata) -> WorkflowProgressCoords {
-    let get = |key: &str| {
-        meta.custom_fields
-            .as_ref()
-            .and_then(|fields| fields.get(key))
-    };
-    WorkflowProgressCoords {
-        status: get(WF_STATUS_FIELD)
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        current_node: get(WF_CURRENT_NODE_FIELD)
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        node_results_hash: get(WF_NODE_RESULTS_HASH_FIELD)
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        variables_hash: get(WF_VARIABLES_HASH_FIELD)
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        record_count: get(WF_RECORD_COUNT_FIELD).and_then(|v| v.as_u64()),
-        trigger_states_hash: get(WF_TRIGGER_STATES_HASH_FIELD)
-            .and_then(|v| v.as_str())
-            .map(String::from),
-    }
-}
-
-/// Hash one string-keyed value map with sorted keys so map iteration order
-/// never affects the fingerprint. Same-key value changes alter the hash, so
-/// counter-style variable overwrites still force a new row.
-fn hash_value_map(map: &HashMap<String, serde_json::Value>) -> String {
-    let entries: BTreeMap<String, Vec<u8>> = map
-        .iter()
-        .map(|(key, value)| (key.clone(), serde_json::to_vec(value).unwrap_or_default()))
-        .collect();
-    fingerprint_entries(&entries)
-}
-
-/// Progress coordinates of a not-yet-persisted snapshot. Mirrors the
-/// coordinate fields `build` injects, so a live snapshot can be compared
-/// against stored metadata before any blob is written. Computed from the
-/// pre-policy snapshot: content filtering may strip blob domains, but the
-/// coordinates describe the execution state, not the stored payload.
-pub fn snapshot_workflow_coords(
-    snapshot: &WorkflowExecutionStateSnapshot,
-) -> WorkflowProgressCoords {
-    let empty: HashMap<String, serde_json::Value> = HashMap::new();
-    WorkflowProgressCoords {
-        status: Some(snapshot.status.clone()),
-        current_node: snapshot.current_node_id.clone(),
-        node_results_hash: Some(hash_value_map(
-            snapshot.node_results.as_ref().unwrap_or(&empty),
-        )),
-        variables_hash: Some(hash_value_map(&snapshot.variable_state.variables)),
-        record_count: Some(
-            snapshot
-                .node_execution_records
-                .as_ref()
-                .map(Vec::len)
-                .unwrap_or(0) as u64,
-        ),
-        trigger_states_hash: Some(fingerprint_option(&snapshot.trigger_states)),
-    }
-}
 
 pub struct WorkflowCheckpointCoordinator {
     state_manager: WorkflowCheckpointStateManager,
@@ -176,7 +64,7 @@ pub struct WorkflowCheckpointCoordinator {
     async_persistence: bool,
     /// Background persistence queue (`persistenceQueue`); drained by
     /// `wait_for_persistence`.
-    persistence_queue: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    persistence_queue: PersistenceQueue,
 }
 
 impl WorkflowCheckpointCoordinator {
@@ -288,208 +176,114 @@ impl WorkflowCheckpointCoordinator {
         &self.version_manager
     }
 
-    fn apply_content_policy(
+    /// [`CheckpointCoordinator::prepare`] with the immediate parent execution
+    /// id (sub-execution isolation): the actor id is resolved hierarchically
+    /// when the parent is known.
+    pub async fn prepare_with_parent(
         &self,
-        state: &mut WorkflowExecutionStateSnapshot,
-    ) -> Result<(), CheckpointError> {
-        if let Some(strategy) = &self.strategy {
-            let filter = checkpoint_base::common::content::ContentFilter::new();
-            let config = strategy.content_config();
-            if !filter.should_include_state(config)? {
-                state.input = None;
-                state.output = None;
-                state.node_results = None;
-                state.messages = None;
-                state.fork_join_context = None;
-                state.active_operations = None;
-                state.error_records = None;
-                state.interruption_records = None;
-                state.event_records = None;
-                state.fork_join_aggregation_state = None;
-                state.hook_execution_context = None;
-                state.execution_config = None;
-                state.conversation_state = None;
-                state.trigger_states = None;
-            }
-            if !filter.should_include_history(config)? {
-                state.messages = None;
-            }
-        }
-        Ok(())
+        entity_id: &str,
+        trigger: CheckpointTiming,
+        parent_execution_id: Option<&str>,
+    ) -> Result<CheckpointContext, CheckpointError> {
+        prepare_context(
+            self.file_checkpoint_manager.as_ref(),
+            "workflow_execution",
+            entity_id,
+            trigger,
+            parent_execution_id,
+            None,
+        )
+        .await
     }
 
-    /// Load the checkpoint blob and bring it to the current format version.
-    async fn load_migrated(
+    /// [`CheckpointCoordinator::prepare`] with the full ancestor chain of the
+    /// execution, so the actor id is resolved hierarchically.
+    pub async fn prepare_with_hierarchy(
         &self,
-        checkpoint_id: &str,
-    ) -> Result<WorkflowCheckpoint, CheckpointError> {
-        let checkpoint = self
-            .state_manager
-            .load(checkpoint_id)
-            .await?
-            .ok_or_else(|| CheckpointError::NotFound {
-                id: checkpoint_id.to_string(),
-            })?;
-
-        let version = checkpoint
-            .format_version
-            .as_deref()
-            .unwrap_or(MIN_COMPATIBLE_VERSION);
-
-        let compatibility = self.version_manager.check_compatibility(version);
-        if !compatibility.compatible {
-            return Err(CheckpointError::VersionIncompatible {
-                current: self.version_manager.current_version().to_string(),
-                required: version.to_string(),
-            });
-        }
-
-        if !compatibility.requires_migration {
-            return Ok(checkpoint);
-        }
-
-        // Re-read the raw bytes so the migration can rewrite the blob.
-        // Storage bytes may be gzip-compressed; migration handlers expect
-        // plain encoded bytes, so normalize first.
-        let raw = self
-            .state_manager
-            .load_checkpoint_data(checkpoint_id)
-            .await?
-            .ok_or_else(|| CheckpointError::NotFound {
-                id: checkpoint_id.to_string(),
-            })?;
-        let raw = CheckpointSerializer::decompressed(&raw)?;
-        let migrated = self.version_manager.migrate_data(&raw, version).await?;
-        CheckpointSerializer::auto_deserialize(&migrated)
+        entity_id: &str,
+        trigger: CheckpointTiming,
+        parent_execution_id: Option<&str>,
+        ancestors: &[String],
+    ) -> Result<CheckpointContext, CheckpointError> {
+        prepare_context(
+            self.file_checkpoint_manager.as_ref(),
+            "workflow_execution",
+            entity_id,
+            trigger,
+            parent_execution_id,
+            Some(ancestors),
+        )
+        .await
     }
 
-    /// Post-restore phase: discover child executions. Latest checkpoints of
-    /// child executions are resolved from storage with bounded concurrency,
-    /// discovered via `ChildDiscovery`, and (when a restore strategy is
-    /// registered for the child execution type) fully restored through the
-    /// strategy registry.
-    async fn restore_child_hierarchy(
+    /// Merge a caller-supplied description into an existing checkpoint row
+    /// without allocating a new row. Shared implementation lives in
+    /// [`crate::coordinator::base::merge_description_back`]; the contract
+    /// (trigger label untouched, timestamp preserved, missing target reports
+    /// not-found) is identical for both coordinators.
+    pub async fn merge_description_back(
         &self,
         checkpoint_id: &str,
-        parent_entity_id: &str,
-    ) -> Result<ChildDiscoverySummary, CheckpointError> {
-        // Children are found by querying the checkpoints whose entity records
-        // this execution as their parent. The link lives on the child, so the
-        // result reflects every child that ever checkpointed, including ones
-        // spawned after the parent's own last persist.
-        let latest_by_child = self
-            .state_manager
-            .list_latest_by_parent(parent_entity_id)
-            .await?;
-        if latest_by_child.is_empty() {
-            return Ok(ChildDiscoverySummary {
-                total: 0,
-                success: 0,
-                failed: 0,
-            });
-        }
+        entity_id: &str,
+        description: &str,
+    ) -> Result<CheckpointStorageMetadata, CheckpointError> {
+        let merged = crate::coordinator::base::merge_description_back(
+            &self.state_manager,
+            checkpoint_id,
+            "workflow_execution",
+            entity_id,
+            description,
+            self.event_bus.as_ref(),
+        )
+        .await?;
+        Ok(merged)
+    }
 
-        // Bounded concurrency for the per-child restore phase.
-        let gate = Arc::new(ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY));
-        let storage = self.state_manager.storage().clone();
-        let restore_registry = self.restore_registry.clone();
-        let mut handles = Vec::new();
-        for meta in &latest_by_child {
-            let gate = gate.clone();
-            let meta = meta.clone();
-            let storage = storage.clone();
-            let restore_registry = restore_registry.clone();
-            handles.push(tokio::spawn(async move {
-                let _permit = match gate.acquire_wait().await {
-                    Ok(permit) => permit,
-                    Err(e) => {
-                        return Err(CheckpointError::Internal(format!(
-                            "child restore gate acquire failed: {e}"
-                        )))
-                    }
-                };
-                let state_manager = WorkflowCheckpointStateManager::new(storage);
-                restore_child(&state_manager, restore_registry.as_ref(), meta).await
-            }));
-        }
+    pub async fn reuse_duplicate(
+        &self,
+        latest: &CheckpointStorageMetadata,
+        entity_id: &str,
+        description: Option<&str>,
+    ) -> Result<String, CheckpointError> {
+        crate::coordinator::base::reuse_duplicate_checkpoint(
+            &self.state_manager,
+            latest,
+            "workflow_execution",
+            entity_id,
+            description,
+            self.event_bus.as_ref(),
+        )
+        .await
+    }
 
-        let resolver = InMemoryChildResolver::new();
-        let mut index: HashMap<String, CheckpointStorageMetadata> = HashMap::new();
-        let mut restored = 0u32;
+    /// Nearest previous checkpoint that still carries a full snapshot (the
+    /// chain base); deltas in between have no snapshot of their own.
+    async fn find_base(
+        &self,
+        previous: &Option<CheckpointStorageMetadata>,
+    ) -> Result<(Option<String>, Option<WorkflowExecutionStateSnapshot>), CheckpointError> {
+        let mut base_id: Option<String> = None;
+        let mut base_snapshot: Option<WorkflowExecutionStateSnapshot> = None;
+        let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
+        let mut visited: HashSet<String> = HashSet::new();
 
-        for handle in handles {
-            match handle.await {
-                Ok(Ok(outcome)) => {
-                    index.insert(outcome.metadata.id.clone(), outcome.metadata.clone());
-                    resolver.register_relationship(checkpoint_id, &outcome.metadata.id);
-                    if outcome.restored {
-                        restored += 1;
-                    }
+        while let Some(id) = cursor {
+            if !visited.insert(id.clone()) {
+                break;
+            }
+            match self.state_manager.load(&id).await? {
+                Some(cp) if cp.snapshot.is_some() => {
+                    base_id = Some(id);
+                    base_snapshot = cp.snapshot;
+                    break;
                 }
-                Ok(Err(err)) => {
-                    tracing::warn!(
-                        parent = %parent_entity_id,
-                        error = %err,
-                        "child restore failed"
-                    );
-                }
-                Err(join_err) => {
-                    tracing::warn!(
-                        parent = %parent_entity_id,
-                        error = %join_err,
-                        "child restore task panicked"
-                    );
-                }
+                Some(cp) => cursor = cp.previous_checkpoint_id,
+                None => break,
             }
         }
 
-        let loader = ChildDiscoveryIndex::new(index);
-        let discovery = ChildDiscovery::new(Arc::new(resolver));
-        let results = discovery.discover_children_bfs(checkpoint_id, &loader, 8, None)?;
-        let mut summary = ChildDiscovery::summarize_results(&results);
-        summary.success += restored as usize;
-        Ok(summary)
+        Ok((base_id, base_snapshot))
     }
-}
-
-/// Restore a single child from its pre-resolved latest checkpoint metadata
-/// through the restore strategy registry when one is registered for the
-/// child's entity type. Spawned with bounded concurrency by
-/// `restore_child_hierarchy`.
-async fn restore_child(
-    state_manager: &WorkflowCheckpointStateManager,
-    restore_registry: Option<&RestoreStrategyRegistry>,
-    meta: CheckpointStorageMetadata,
-) -> Result<ChildRestoreOutcome, CheckpointError> {
-    let mut outcome = ChildRestoreOutcome {
-        metadata: meta.clone(),
-        restored: false,
-    };
-
-    if let Some(reg) = restore_registry {
-        if let Some(data) = state_manager.load_checkpoint_data(&meta.id).await? {
-            match reg.restore(&meta.entity_type, &meta.id, &data).await {
-                Ok(_) => outcome.restored = true,
-                Err(err) => {
-                    tracing::warn!(
-                        child_id = %meta.entity_id,
-                        checkpoint_id = %meta.id,
-                        error = %err,
-                        "child restore strategy failed"
-                    );
-                }
-            }
-        }
-    }
-    Ok(outcome)
-}
-
-/// Bounded concurrency for the child restore phase.
-const CHILD_RESTORE_CONCURRENCY: usize = 5;
-
-struct ChildRestoreOutcome {
-    metadata: CheckpointStorageMetadata,
-    restored: bool,
 }
 
 impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
@@ -501,122 +295,26 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         self.async_persistence
     }
 
-    /// Synchronous best-effort file projection for the entity. Missing file
-    /// history yields `Ok` so the state checkpoint never fails. Success and
-    /// failure are logged with the state checkpoint id for correlation.
-    /// A successful projection records the state-to-file link so restore
-    /// resolves the exact file set instead of "latest".
     async fn save_file_snapshot(
         &self,
         checkpoint_id: &str,
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
-        if let Some(manager) = &self.file_checkpoint_manager {
-            let manager_for_task = manager.clone();
-            let entity_id_owned = entity_id.to_string();
-            let outcome = tokio::task::spawn_blocking(move || {
-                manager_for_task.create_latest_file_checkpoint(&entity_id_owned)
-            })
-            .await
-            .map_err(|e| {
-                CheckpointError::Internal(format!("file projection task failed: {e}"))
-            })??;
-            match outcome {
-                Some(file_checkpoint) => {
-                    manager.record_state_file_link(checkpoint_id, &file_checkpoint.id)?;
-                    tracing::debug!(
-                        entity_id = %entity_id,
-                        checkpoint_id = %checkpoint_id,
-                        file_checkpoint_id = %file_checkpoint.id,
-                        "file projection correlated with state checkpoint"
-                    );
-                }
-                None => {
-                    tracing::debug!(
-                        entity_id = %entity_id,
-                        checkpoint_id = %checkpoint_id,
-                        "no file history for state checkpoint"
-                    );
-                }
-            }
-        }
-        Ok(())
+        save_file_snapshot(
+            self.file_checkpoint_manager.as_ref(),
+            checkpoint_id,
+            entity_id,
+        )
+        .await
     }
 
-    /// Defer post-persist side effects (file snapshot) to the background
-    /// persistence queue (async mode). The queue is bounded and shared with
-    /// the agent coordinator.
     async fn enqueue_persistence(&self, checkpoint_id: &str, entity_id: &str) {
-        let checkpoint_id = checkpoint_id.to_string();
-        let entity_id = entity_id.to_string();
-        let file_manager = self.file_checkpoint_manager.clone();
-        let bus = self.event_bus.clone();
-        let checkpoint_id_for_task = checkpoint_id.clone();
-        let entity_id_for_task = entity_id.clone();
-        let metrics = self
-            .file_checkpoint_manager
-            .as_ref()
-            .and_then(|m| m.checkpoint_metrics_for_observability());
-        let handle = tokio::task::spawn_blocking(move || {
-            if let Some(manager) = file_manager {
-                match manager.create_latest_file_checkpoint(&entity_id_for_task) {
-                    Ok(Some(file_checkpoint)) => {
-                        if let Err(err) = manager
-                            .record_state_file_link(&checkpoint_id_for_task, &file_checkpoint.id)
-                        {
-                            tracing::warn!(
-                                entity_id = %entity_id_for_task,
-                                checkpoint_id = %checkpoint_id_for_task,
-                                error = %err,
-                                "deferred state-to-file link failed (best-effort)"
-                            );
-                        }
-                        tracing::debug!(
-                            entity_id = %entity_id_for_task,
-                            checkpoint_id = %checkpoint_id_for_task,
-                            file_checkpoint_id = %file_checkpoint.id,
-                            "deferred file projection correlated with state checkpoint"
-                        );
-                    }
-                    Ok(None) => {
-                        tracing::debug!(
-                            entity_id = %entity_id_for_task,
-                            checkpoint_id = %checkpoint_id_for_task,
-                            "deferred file projection found no history"
-                        );
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            entity_id = %entity_id_for_task,
-                            checkpoint_id = %checkpoint_id_for_task,
-                            error = %err,
-                            "deferred file checkpoint creation failed (best-effort)"
-                        );
-                        crate::coordinator::base::publish_best_effort_failed(
-                            bus.as_ref(),
-                            Some(checkpoint_id_for_task.clone()),
-                            &entity_id_for_task,
-                            "async_projection",
-                            &format!("deferred file checkpoint creation failed: {err}"),
-                        );
-                        if let Some(metrics) = metrics.as_ref() {
-                            metrics.record_persistence_failure(&entity_id_for_task);
-                        }
-                    }
-                }
-            }
-        });
-        let queue_metrics = self
-            .file_checkpoint_manager
-            .as_ref()
-            .and_then(|m| m.checkpoint_metrics_for_observability());
-        crate::coordinator::base::push_persistence_handle(
+        enqueue_persistence(
             &self.persistence_queue,
-            handle,
+            self.file_checkpoint_manager.as_ref(),
             self.event_bus.as_ref(),
-            &entity_id,
-            &checkpoint_id,
-            queue_metrics.as_deref(),
+            checkpoint_id,
+            entity_id,
         )
         .await;
     }
@@ -627,7 +325,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             .file_checkpoint_manager
             .as_ref()
             .and_then(|m| m.checkpoint_metrics_for_observability());
-        crate::coordinator::base::drain_persistence_handles(
+        drain_persistence_handles(
             &self.persistence_queue,
             self.event_bus.as_ref(),
             "all",
@@ -671,35 +369,8 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             &checkpoint_type,
             previous.as_ref().and_then(|p| p.chain_position),
         );
-        let mut custom_fields = ctx.metadata.clone().unwrap_or_default();
-        custom_fields.insert(
-            CHAIN_POSITION_FIELD.to_string(),
-            serde_json::json!(chain_position),
-        );
-        custom_fields.insert(
-            WF_STATUS_FIELD.to_string(),
-            serde_json::json!(coords.status),
-        );
-        custom_fields.insert(
-            WF_CURRENT_NODE_FIELD.to_string(),
-            serde_json::json!(coords.current_node),
-        );
-        custom_fields.insert(
-            WF_NODE_RESULTS_HASH_FIELD.to_string(),
-            serde_json::json!(coords.node_results_hash),
-        );
-        custom_fields.insert(
-            WF_VARIABLES_HASH_FIELD.to_string(),
-            serde_json::json!(coords.variables_hash),
-        );
-        custom_fields.insert(
-            WF_RECORD_COUNT_FIELD.to_string(),
-            serde_json::json!(coords.record_count),
-        );
-        custom_fields.insert(
-            WF_TRIGGER_STATES_HASH_FIELD.to_string(),
-            serde_json::json!(coords.trigger_states_hash),
-        );
+        let custom_fields = progress_custom_fields(&coords, chain_position);
+        let custom_fields = stamp_custom_fields(ctx.metadata, custom_fields);
         let now_ms = self.clock.now_ms().ok_or_else(|| {
             CheckpointError::Internal(
                 "checkpoint clock unavailable; refusing to stamp a checkpoint".to_string(),
@@ -775,44 +446,15 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         checkpoint: &Self::Checkpoint,
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
-        if let Err(err) = self
-            .state_manager
-            .save(checkpoint, "workflow_execution", entity_id)
-            .await
-        {
-            publish_persist_failed(
-                self.event_bus.as_ref(),
-                Some(checkpoint.id.clone()),
-                entity_id,
-                &err,
-            );
-            // Route through the checkpoint error handler: the default
-            // handler surfaces the failure to the caller so a failed write
-            // never masquerades as a saved checkpoint. Only an explicitly
-            // lenient handler lets the execution continue without one.
-            let context = self
-                .error_handler
-                .context("create", Some(checkpoint.id.clone()), None);
-            let outcome = self.error_handler.decide(&context, &err);
-            if outcome.should_rethrow {
-                return Err(err);
-            }
-            return Ok(());
-        }
-
-        let description = checkpoint
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("description"))
-            .and_then(|v| v.as_str());
-        publish_persisted(
-            self.event_bus.as_ref(),
-            &checkpoint.id,
+        persist_checkpoint(
+            &self.state_manager,
+            checkpoint,
+            "workflow_execution",
             entity_id,
-            description,
-        );
-
-        Ok(())
+            self.event_bus.as_ref(),
+            &self.error_handler,
+        )
+        .await
     }
 
     async fn validate_checkpoint(
@@ -910,16 +552,11 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         // restore the file set linked to this state checkpoint (falls back
         // to the latest file checkpoint for pre-link history). Best-effort:
         // state restore stands regardless of file history.
-        if let Some(manager) = &self.file_checkpoint_manager {
-            if let Err(err) = manager.restore_state_files(&entity.execution_id, checkpoint_id) {
-                tracing::warn!(
-                    checkpoint_id = %checkpoint_id,
-                    entity_id = %entity.execution_id,
-                    error = %err,
-                    "file checkpoint restore failed for state checkpoint; state restore still stands"
-                );
-            }
-        }
+        restore_state_files(
+            self.file_checkpoint_manager.as_ref(),
+            &entity.execution_id,
+            checkpoint_id,
+        );
 
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::restored(
@@ -932,16 +569,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     }
 
     async fn delete(&self, checkpoint_id: &str) -> Result<bool, CheckpointError> {
-        let deleted = self.state_manager.delete(checkpoint_id).await?;
-        if deleted {
-            if let Some(ref bus) = self.event_bus {
-                bus.publish(CheckpointEventBus::deleted_with(
-                    checkpoint_id.to_string(),
-                    Some("delete".to_string()),
-                ));
-            }
-        }
-        Ok(deleted)
+        delete_checkpoint(&self.state_manager, checkpoint_id, self.event_bus.as_ref()).await
     }
 
     async fn determine_type(
@@ -964,1060 +592,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     }
 }
 
-impl WorkflowCheckpointCoordinator {
-    /// [`CheckpointCoordinator::prepare`] with the immediate parent execution
-    /// id (sub-execution isolation): the actor id is resolved hierarchically
-    /// when the parent is known.
-    pub async fn prepare_with_parent(
-        &self,
-        entity_id: &str,
-        trigger: CheckpointTiming,
-        parent_execution_id: Option<&str>,
-    ) -> Result<CheckpointContext, CheckpointError> {
-        if let Some(manager) = &self.file_checkpoint_manager {
-            manager
-                .ensure_child_branch(entity_id, parent_execution_id)
-                .await?;
-        }
-        let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
-            manager
-                .resolve_actor(entity_id, parent_execution_id)
-                .to_string()
-        });
-        Ok(CheckpointContext {
-            entity_type: "workflow_execution".to_string(),
-            entity_id: entity_id.to_string(),
-            trigger: Some(trigger),
-            actor_id,
-            attempt: None,
-            retry_count: None,
-            error: None,
-            fallback_used: None,
-            metadata: None,
-        })
-    }
-
-    pub async fn prepare_with_hierarchy(
-        &self,
-        entity_id: &str,
-        trigger: CheckpointTiming,
-        parent_execution_id: Option<&str>,
-        ancestors: &[String],
-    ) -> Result<CheckpointContext, CheckpointError> {
-        if let Some(manager) = &self.file_checkpoint_manager {
-            manager
-                .ensure_child_branch(entity_id, parent_execution_id)
-                .await?;
-        }
-        let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
-            manager
-                .resolve_actor_with_chain(entity_id, ancestors, parent_execution_id)
-                .to_string()
-        });
-        Ok(CheckpointContext {
-            entity_type: "workflow_execution".to_string(),
-            entity_id: entity_id.to_string(),
-            trigger: Some(trigger),
-            actor_id,
-            attempt: None,
-            retry_count: None,
-            error: None,
-            fallback_used: None,
-            metadata: None,
-        })
-    }
-
-    async fn find_base(
-        &self,
-        previous: &Option<CheckpointStorageMetadata>,
-    ) -> Result<(Option<String>, Option<WorkflowExecutionStateSnapshot>), CheckpointError> {
-        let mut base_id: Option<String> = None;
-        let mut base_snapshot: Option<WorkflowExecutionStateSnapshot> = None;
-        let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
-        let mut visited: HashSet<String> = HashSet::new();
-
-        while let Some(id) = cursor {
-            if !visited.insert(id.clone()) {
-                break;
-            }
-            match self.state_manager.load(&id).await? {
-                Some(cp) if cp.snapshot.is_some() => {
-                    base_id = Some(id);
-                    base_snapshot = cp.snapshot;
-                    break;
-                }
-                Some(cp) => cursor = cp.previous_checkpoint_id,
-                None => break,
-            }
-        }
-
-        Ok((base_id, base_snapshot))
-    }
-
-    /// Merge a caller-supplied description into an existing checkpoint row
-    /// without allocating a new row. Shared implementation lives in
-    /// [`crate::coordinator::base::merge_description_back`]; the contract
-    /// (trigger label untouched, timestamp preserved, missing target reports
-    /// not-found) is identical for both coordinators.
-    pub async fn merge_description_back(
-        &self,
-        checkpoint_id: &str,
-        entity_id: &str,
-        description: &str,
-    ) -> Result<CheckpointStorageMetadata, CheckpointError> {
-        let merged = crate::coordinator::base::merge_description_back(
-            &self.state_manager,
-            checkpoint_id,
-            "workflow_execution",
-            entity_id,
-            description,
-            self.event_bus.as_ref(),
-        )
-        .await?;
-        Ok(merged)
-    }
-
-    pub async fn reuse_duplicate(
-        &self,
-        latest: &CheckpointStorageMetadata,
-        entity_id: &str,
-        description: Option<&str>,
-    ) -> Result<String, CheckpointError> {
-        crate::coordinator::base::reuse_duplicate_checkpoint(
-            &self.state_manager,
-            latest,
-            "workflow_execution",
-            entity_id,
-            description,
-            self.event_bus.as_ref(),
-        )
-        .await
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct WorkflowExecutionEntity {
     pub execution_id: String,
     pub status: String,
     pub snapshot: WorkflowExecutionStateSnapshot,
     pub restore_summary: Option<ChildDiscoverySummary>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use checkpoint_base::metadata::builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
-    use checkpoint_base::version_manager::VersionManager;
-    use checkpoint_file::event::CheckpointEvent;
-    use std::sync::Arc;
-    use wf_storage::backend::StorageBackend;
-    use wf_types::checkpoint::CheckpointTiming;
-
-    fn make_snapshot() -> WorkflowExecutionStateSnapshot {
-        WorkflowExecutionStateSnapshot {
-            execution_id: "exec-1".to_string(),
-            status: "running".to_string(),
-            current_node_id: Some("node-1".to_string()),
-            node_results: None,
-            variable_state: wf_types::checkpoint::CheckpointVariableState {
-                variables: std::collections::HashMap::new(),
-            },
-            message_contexts: None,
-            input: None,
-            output: None,
-            messages: None,
-            fork_join_context: None,
-            active_operations: None,
-
-            node_execution_records: None,
-            conversation_state: None,
-            trigger_states: None,
-            error_records: None,
-            interruption_records: None,
-            event_records: None,
-            hierarchy: None,
-            execution_config: None,
-            fork_join_aggregation_state: None,
-            hook_execution_context: None,
-            error_suspend: None,
-        }
-    }
-
-    fn make_coordinator() -> WorkflowCheckpointCoordinator {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        WorkflowCheckpointCoordinator::new(sm)
-    }
-
-    #[tokio::test]
-    async fn prepare_returns_context() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        assert_eq!(ctx.entity_type, "workflow_execution");
-        assert_eq!(ctx.entity_id, "exec-1");
-    }
-
-    #[tokio::test]
-    async fn build_creates_full_checkpoint_on_first_save() {
-        let coord = make_coordinator();
-        let ctx = CheckpointContext {
-            entity_type: "workflow_execution".to_string(),
-            entity_id: "exec-1".to_string(),
-            trigger: None,
-            actor_id: None,
-            attempt: None,
-            retry_count: None,
-            error: None,
-            fallback_used: None,
-            metadata: None,
-        };
-        let checkpoint = coord.build(ctx, make_snapshot()).await.unwrap();
-        assert_eq!(checkpoint.r#type, Some(CheckpointType::Full));
-        assert!(checkpoint.snapshot.is_some());
-        assert!(checkpoint.format_version.is_some());
-    }
-
-    #[tokio::test]
-    async fn persist_saves_to_storage() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let loaded = coord.state_manager().load(&cp.id).await.unwrap();
-        assert!(loaded.is_some());
-    }
-
-    #[tokio::test]
-    async fn restore_from_full_checkpoint() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        let id = cp.id.clone();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&id).await.unwrap();
-        assert_eq!(entity.execution_id, "exec-1");
-        assert_eq!(entity.status, "running");
-    }
-
-    #[tokio::test]
-    async fn determine_type_respects_config() {
-        let coord = make_coordinator();
-        let config = DeltaStorageConfig {
-            enabled: false,
-            baseline_interval: 5,
-            max_delta_chain_length: 10,
-        };
-        let tp = coord.determine_type("exec-1", &config).await.unwrap();
-        assert_eq!(tp, CheckpointType::Full);
-
-        let config_enabled = DeltaStorageConfig {
-            enabled: true,
-            baseline_interval: 5,
-            max_delta_chain_length: 10,
-        };
-        let tp = coord
-            .determine_type("exec-1", &config_enabled)
-            .await
-            .unwrap();
-        assert_eq!(tp, CheckpointType::Full);
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let tp = coord
-            .determine_type("exec-1", &config_enabled)
-            .await
-            .unwrap();
-        assert_eq!(tp, CheckpointType::Delta);
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let tp = coord
-            .determine_type("exec-1", &config_enabled)
-            .await
-            .unwrap();
-        assert_eq!(tp, CheckpointType::Full);
-    }
-
-    #[tokio::test]
-    async fn progress_coords_survive_build_persist_round_trip() {
-        let coord = make_coordinator();
-        let snapshot = make_snapshot();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot.clone()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let latest = coord
-            .state_manager()
-            .get_latest("exec-1")
-            .await
-            .unwrap()
-            .expect("persisted checkpoint listed");
-        assert_eq!(
-            workflow_progress_coords(&latest),
-            snapshot_workflow_coords(&snapshot)
-        );
-    }
-
-    #[tokio::test]
-    async fn merge_description_back_rewrites_user_text_only() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let merged = coord
-            .merge_description_back(&cp.id, "exec-1", "second")
-            .await
-            .unwrap();
-        assert_eq!(merged.id, cp.id);
-        let description = merged
-            .custom_fields
-            .as_ref()
-            .and_then(|fields| fields.get("description"))
-            .and_then(|v| v.as_str());
-        assert_eq!(description, Some("second"));
-    }
-
-    #[tokio::test]
-    async fn merge_missing_target_reports_not_found() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let first = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&first, "exec-1").await.unwrap();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let _second = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&_second, "exec-1").await.unwrap();
-
-        coord.state_manager().delete(&first.id).await.unwrap();
-        let err = coord
-            .merge_description_back(&first.id, "exec-1", "late note")
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(err, CheckpointError::NotFound { .. }),
-            "a cleaned-up merge target must report not-found, never silently merge into latest"
-        );
-    }
-
-    #[tokio::test]
-    async fn coords_match_full_snapshot_under_stripping_policy() {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let policy = wf_types::checkpoint::UnifiedCheckpointPolicy {
-            enabled: true,
-            triggers: vec![],
-            content: Some(wf_types::checkpoint::CheckpointContentConfig {
-                include_state: Some(false),
-                include_history: None,
-                include_statistics: None,
-                metadata: None,
-                asynchronous: None,
-            }),
-            retention: None,
-            error_handling: None,
-        };
-        let coord = WorkflowCheckpointCoordinator::new(sm).with_strategy(&policy);
-        let mut snapshot = make_snapshot();
-        snapshot.node_results = Some(HashMap::from([(
-            "node-1".to_string(),
-            serde_json::json!({"ok": true}),
-        )]));
-        snapshot
-            .variable_state
-            .variables
-            .insert("counter".to_string(), serde_json::json!(1));
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot.clone()).await.unwrap();
-        // The blob payload is stripped, but the coordinates still describe
-        // the pre-policy execution state.
-        assert!(cp.snapshot.as_ref().unwrap().node_results.is_none());
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let latest = coord
-            .state_manager()
-            .get_latest("exec-1")
-            .await
-            .unwrap()
-            .expect("persisted checkpoint listed");
-        assert_eq!(
-            workflow_progress_coords(&latest),
-            snapshot_workflow_coords(&snapshot)
-        );
-    }
-
-    #[tokio::test]
-    async fn persist_emits_event() {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let bus = CheckpointEventBus::new();
-        let coord = WorkflowCheckpointCoordinator::new(sm).with_event_bus(bus.clone());
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        assert_eq!(bus.receiver_count(), 0);
-    }
-
-    async fn build_and_persist(
-        coord: &WorkflowCheckpointCoordinator,
-        status: &str,
-        node: &str,
-    ) -> WorkflowCheckpoint {
-        let mut snapshot = make_snapshot();
-        snapshot.status = status.to_string();
-        snapshot.current_node_id = Some(node.to_string());
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-        cp
-    }
-
-    #[tokio::test]
-    async fn delta_chain_restore_after_multiple_deltas() {
-        let coord = make_coordinator();
-        build_and_persist(&coord, "running", "node-1").await;
-        build_and_persist(&coord, "running", "node-2").await;
-        let cp3 = build_and_persist(&coord, "completed", "node-3").await;
-
-        assert_eq!(cp3.r#type, Some(CheckpointType::Delta));
-        assert!(cp3.base_checkpoint_id.is_some());
-
-        let entity = coord.restore(&cp3.id).await.unwrap();
-        assert_eq!(entity.status, "completed");
-        assert_eq!(entity.snapshot.current_node_id, Some("node-3".to_string()));
-    }
-
-    #[tokio::test]
-    async fn delta_chain_base_points_to_snapshot_checkpoint() {
-        let coord = make_coordinator();
-        let cp1 = build_and_persist(&coord, "running", "node-1").await;
-        build_and_persist(&coord, "running", "node-2").await;
-        let cp3 = build_and_persist(&coord, "completed", "node-3").await;
-
-        assert_eq!(cp1.r#type, Some(CheckpointType::Full));
-        assert_eq!(cp3.r#type, Some(CheckpointType::Delta));
-        assert_eq!(cp3.base_checkpoint_id.as_deref(), Some(cp1.id.as_str()));
-    }
-
-    #[tokio::test]
-    async fn baseline_interval_forces_periodic_full() {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let config = DeltaStorageConfig {
-            enabled: true,
-            baseline_interval: 2,
-            max_delta_chain_length: 5,
-        };
-        let coord = WorkflowCheckpointCoordinator::new(sm).with_delta_config(config);
-
-        let cp1 = build_and_persist(&coord, "running", "node-1").await;
-        let cp2 = build_and_persist(&coord, "running", "node-2").await;
-        let cp3 = build_and_persist(&coord, "running", "node-3").await;
-
-        assert_eq!(cp1.r#type, Some(CheckpointType::Full));
-        assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
-        assert_eq!(cp3.r#type, Some(CheckpointType::Full));
-    }
-
-    #[tokio::test]
-    async fn restore_after_periodic_baseline() {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let config = DeltaStorageConfig {
-            enabled: true,
-            baseline_interval: 2,
-            max_delta_chain_length: 5,
-        };
-        let coord = WorkflowCheckpointCoordinator::new(sm).with_delta_config(config);
-
-        build_and_persist(&coord, "running", "node-1").await;
-        build_and_persist(&coord, "running", "node-2").await;
-        build_and_persist(&coord, "running", "node-3").await;
-        let cp4 = build_and_persist(&coord, "completed", "node-4").await;
-
-        assert_eq!(cp4.r#type, Some(CheckpointType::Delta));
-
-        let entity = coord.restore(&cp4.id).await.unwrap();
-        assert_eq!(entity.status, "completed");
-        assert_eq!(entity.snapshot.current_node_id, Some("node-4".to_string()));
-    }
-
-    #[tokio::test]
-    async fn fallback_to_full_when_chain_base_missing() {
-        let coord = make_coordinator();
-        let cp1 = build_and_persist(&coord, "running", "node-1").await;
-        let cp2 = build_and_persist(&coord, "running", "node-2").await;
-        assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
-
-        coord.state_manager().delete(&cp1.id).await.unwrap();
-
-        let cp3 = build_and_persist(&coord, "running", "node-3").await;
-        assert_eq!(cp3.r#type, Some(CheckpointType::Full));
-        assert!(cp3.snapshot.is_some());
-
-        let entity = coord.restore(&cp3.id).await.unwrap();
-        assert_eq!(entity.snapshot.current_node_id, Some("node-3".to_string()));
-    }
-
-    fn make_policy(triggers: Vec<CheckpointTiming>) -> UnifiedCheckpointPolicy {
-        UnifiedCheckpointPolicy {
-            enabled: true,
-            triggers,
-            content: None,
-            retention: None,
-            error_handling: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn strategy_skips_unconfigured_trigger() {
-        let coord =
-            make_coordinator().with_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]));
-
-        let skipped = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::BeforeExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(skipped.is_none());
-
-        let created = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(created.is_some());
-    }
-
-    #[tokio::test]
-    async fn strategy_disabled_never_checkpoints() {
-        let coord = make_coordinator().with_strategy(&UnifiedCheckpointPolicy {
-            enabled: false,
-            triggers: vec![CheckpointTiming::AfterExecute],
-            content: None,
-            retention: None,
-            error_handling: None,
-        });
-
-        let result = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(result.is_none());
-    }
-
-    #[tokio::test]
-    async fn no_strategy_always_checkpoints() {
-        let coord = make_coordinator();
-        let result = coord
-            .create_checkpoint_with_strategy(CheckpointTiming::Manual, "exec-1", make_snapshot())
-            .await
-            .unwrap();
-        assert!(result.is_some());
-    }
-
-    #[tokio::test]
-    async fn restore_migrates_old_format_version() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        cp.format_version = Some("1.0.0".to_string());
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        assert_eq!(entity.execution_id, "exec-1");
-    }
-
-    #[tokio::test]
-    async fn restore_rejects_incompatible_version() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        cp.format_version = Some("0.5.0".to_string());
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let err = coord.restore(&cp.id).await.unwrap_err();
-        assert!(matches!(err, CheckpointError::VersionIncompatible { .. }));
-    }
-
-    #[tokio::test]
-    async fn restore_future_version_rejected() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let mut cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        cp.format_version = Some("9.0.0".to_string());
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        assert!(matches!(
-            coord.restore(&cp.id).await.unwrap_err(),
-            CheckpointError::VersionIncompatible { .. }
-        ));
-    }
-
-    #[tokio::test]
-    async fn restore_child_hierarchy_summary() {
-        use wf_types::execution::{ExecutionHierarchy, ExecutionType};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let coord = WorkflowCheckpointCoordinator::new(sm);
-
-        // Parent checkpoint: a root, holding no knowledge of any child.
-        let mut snapshot = make_snapshot();
-        snapshot.hierarchy = Some(ExecutionHierarchy::new(
-            "wf-1".to_string(),
-            "exec-1".to_string(),
-            Vec::new(),
-            None,
-            None,
-            None,
-        ));
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        // Child checkpoint stored under the child execution id, linking
-        // forward to the parent. The parent record predates the child, so the
-        // only way restore can find it is through this link.
-        let mut child_snapshot = make_snapshot();
-        child_snapshot.execution_id = "child-exec-1".to_string();
-        child_snapshot.status = "completed".to_string();
-        child_snapshot.hierarchy = Some(ExecutionHierarchy::new(
-            "wf-1".to_string(),
-            "child-exec-1".to_string(),
-            vec!["exec-1".to_string()],
-            Some(ExecutionType::Workflow),
-            Some(ExecutionType::Workflow),
-            None,
-        ));
-        let ctx = coord
-            .prepare("child-exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let child_cp = coord.build(ctx, child_snapshot).await.unwrap();
-        coord.persist(&child_cp, "child-exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        let summary = entity.restore_summary.unwrap();
-        assert_eq!(summary.total, 1, "child found through its own parent link");
-    }
-
-    #[tokio::test]
-    async fn version_manager_is_exposed() {
-        let coord = make_coordinator();
-        assert_eq!(coord.version_manager().current_version(), "1.1.0");
-        let vm = VersionManager::new();
-        let coord = make_coordinator().with_version_manager(vm);
-        assert_eq!(coord.version_manager().current_version(), "1.1.0");
-    }
-
-    #[tokio::test]
-    async fn restore_restores_file_checkpoint() {
-        use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-
-        let file_manager = FileCheckpointManager::new_in_memory().unwrap();
-        let file_manager2 = file_manager.clone();
-        file_manager
-            .create_checkpoint(
-                "exec-1",
-                &[FileContentEntry::new("a.txt", b"hello".to_vec())],
-            )
-            .unwrap();
-
-        let coord =
-            WorkflowCheckpointCoordinator::new(sm).with_file_checkpoint_manager(file_manager2);
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp.id).await.unwrap();
-        assert_eq!(entity.execution_id, "exec-1");
-        let workspace = file_manager.get_actor_workspace("agent:exec-1").unwrap();
-        assert!(
-            workspace.iter().any(|f| f.path == "a.txt"),
-            "actor edit line stored via coordinator query view"
-        );
-    }
-
-    #[tokio::test]
-    async fn async_persistence_defers_file_snapshot_until_wait() {
-        use checkpoint_file::file::{FileCheckpointManager, FileContentEntry};
-
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let file_manager = FileCheckpointManager::new_in_memory().unwrap();
-        file_manager
-            .create_checkpoint(
-                "exec-1",
-                &[FileContentEntry::new("a.txt", b"hello".to_vec())],
-            )
-            .unwrap();
-
-        let coord = WorkflowCheckpointCoordinator::new(sm)
-            .with_async_persistence(true)
-            .with_file_checkpoint_manager(file_manager.clone());
-
-        let id = coord
-            .create_checkpoint(CheckpointTiming::AfterExecute, "exec-1", make_snapshot())
-            .await
-            .unwrap();
-        assert_eq!(coord.pending_persistence_count().await, 1);
-        let before = file_manager.get_actor_workspace("agent:exec-1").unwrap();
-        assert!(before.iter().any(|f| f.path == "a.txt"));
-
-        coord.wait_for_persistence().await;
-        assert_eq!(coord.pending_persistence_count().await, 0);
-        // Deferred file persistence is a read-only projection correlated
-        // with the state checkpoint: it resolves the same workspace instead
-        // of appending a duplicate commit.
-        let after = file_manager.get_actor_workspace("agent:exec-1").unwrap();
-        assert_eq!(
-            before, after,
-            "deferred projection must not duplicate the commit"
-        );
-
-        let loaded = coord.state_manager().load(&id).await.unwrap();
-        assert!(
-            loaded.is_some(),
-            "checkpoint itself persisted synchronously"
-        );
-    }
-
-    #[tokio::test]
-    async fn async_persistence_enabled_via_policy_content_config() {
-        let storage = Arc::new(StorageBackend::new_memory());
-        let sm = WorkflowCheckpointStateManager::new(storage);
-        let policy = UnifiedCheckpointPolicy {
-            enabled: true,
-            triggers: vec![CheckpointTiming::AfterExecute],
-            content: Some(wf_types::checkpoint::CheckpointContentConfig {
-                include_state: Some(true),
-                include_history: Some(true),
-                include_statistics: Some(false),
-                metadata: None,
-                asynchronous: Some(true),
-            }),
-            retention: None,
-            error_handling: None,
-        };
-        let coord = WorkflowCheckpointCoordinator::new(sm).with_strategy(&policy);
-        assert!(coord.async_persistence_enabled());
-
-        coord
-            .create_checkpoint(CheckpointTiming::AfterExecute, "exec-1", make_snapshot())
-            .await
-            .unwrap();
-        assert_eq!(coord.pending_persistence_count().await, 1);
-        coord.wait_for_persistence().await;
-        assert_eq!(coord.pending_persistence_count().await, 0);
-    }
-
-    #[tokio::test]
-    async fn build_writes_metadata_with_trigger_and_chain_position() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::OnError)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-
-        let metadata = cp.metadata.unwrap();
-        assert_eq!(
-            metadata.get("description").and_then(|v| v.as_str()),
-            Some("Error checkpoint"),
-            "trigger-based description"
-        );
-        assert_eq!(
-            metadata.get("tags"),
-            Some(&serde_json::json!(["trigger:ON_ERROR"]))
-        );
-        let custom = metadata.get("customFields").unwrap().as_object().unwrap();
-        assert_eq!(
-            custom.get(FORMAT_VERSION_FIELD).and_then(|v| v.as_str()),
-            Some("1.1.0")
-        );
-        assert!(custom.get(CREATED_AT_FIELD).is_some());
-        assert_eq!(
-            custom.get(CHAIN_POSITION_FIELD),
-            Some(&serde_json::json!(0))
-        );
-    }
-
-    #[tokio::test]
-    async fn caller_custom_fields_are_merged_into_metadata() {
-        let coord = make_coordinator();
-        let ctx = CheckpointContext {
-            entity_type: "workflow_execution".to_string(),
-            entity_id: "exec-1".to_string(),
-            trigger: None,
-            actor_id: None,
-            attempt: None,
-            retry_count: None,
-            error: None,
-            fallback_used: None,
-            metadata: Some(std::collections::HashMap::from([(
-                "nodeId".to_string(),
-                serde_json::json!("node-7"),
-            )])),
-        };
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        let metadata = cp.metadata.unwrap();
-        let custom = metadata.get("customFields").unwrap().as_object().unwrap();
-        assert_eq!(custom.get("nodeId"), Some(&serde_json::json!("node-7")));
-    }
-    #[tokio::test]
-    async fn create_checkpoint_aggregate_persists_and_returns_id() {
-        let coord = make_coordinator();
-        let id = coord
-            .create_checkpoint(CheckpointTiming::AfterExecute, "exec-1", make_snapshot())
-            .await
-            .unwrap();
-        assert!(!id.is_empty());
-        assert!(coord.state_manager().load(&id).await.unwrap().is_some());
-    }
-
-    #[tokio::test]
-    async fn create_checkpoint_with_strategy_persists_saved_id() {
-        let coord =
-            make_coordinator().with_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]));
-
-        let created = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(coord
-            .state_manager()
-            .load(&created)
-            .await
-            .unwrap()
-            .is_some());
-    }
-
-    #[tokio::test]
-    async fn restore_rejects_invalid_delta_checkpoint() {
-        let coord = make_coordinator();
-        let cp1 = build_and_persist(&coord, "running", "node-1").await;
-
-        let mut invalid = coord
-            .build(
-                coord
-                    .prepare("exec-1", CheckpointTiming::AfterExecute)
-                    .await
-                    .unwrap(),
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        invalid.r#type = Some(CheckpointType::Delta);
-        invalid.base_checkpoint_id = Some(cp1.id.clone());
-        invalid.previous_checkpoint_id = None;
-        invalid.snapshot = None;
-        invalid.delta = None;
-        // Broken delta links fail fast at persist, never reaching restore.
-        let err = coord.persist(&invalid, "exec-1").await.unwrap_err();
-        assert!(
-            matches!(
-                err,
-                CheckpointError::Validation { .. } | CheckpointError::DeltaChainBroken { .. }
-            ),
-            "missing previous_checkpoint_id rejected at persist"
-        );
-    }
-
-    #[tokio::test]
-    async fn failed_event_factory_carries_correlation_fields() {
-        let bus = CheckpointEventBus::new();
-        let mut rx = bus.subscribe();
-
-        bus.publish(CheckpointEventBus::failed_with(
-            Some("cp-1".to_string()),
-            "create",
-            "persist failed: boom",
-            Some("exec-1".to_string()),
-        ));
-
-        let event = rx.try_recv().unwrap();
-        match event {
-            CheckpointEvent::Failed { data, .. } => {
-                assert_eq!(data.checkpoint_id.as_deref(), Some("cp-1"));
-                assert_eq!(data.operation.as_deref(), Some("create"));
-                assert_eq!(data.error.as_deref(), Some("persist failed: boom"));
-                assert_eq!(data.execution_id.as_deref(), Some("exec-1"));
-            }
-            other => panic!("expected Failed event, got {:?}", other),
-        }
-    }
-
-    #[tokio::test]
-    async fn strategy_gates_created_checkpoints_without_second_cadence_layer() {
-        let coord =
-            make_coordinator().with_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]));
-
-        let created = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(created.is_some(), "configured trigger fires");
-
-        let skipped = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::BeforeExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(skipped.is_none(), "unconfigured trigger skipped");
-    }
-
-    #[tokio::test]
-    async fn both_coordinators_restore_reuse_same_identifier() {
-        let coord = make_coordinator();
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        assert_eq!(ctx.entity_type, "workflow_execution");
-        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
-        coord.persist(&cp, "exec-1").await.unwrap();
-        let entity = coord.restore(&cp.id).await.unwrap();
-        assert_eq!(entity.execution_id, "exec-1");
-        let latest = coord
-            .state_manager()
-            .get_latest("exec-1")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(latest.entity_id, "exec-1");
-    }
-
-    #[test]
-    fn full_projection_type_and_empty_trigger_unified() {
-        use checkpoint_base::strategy::{CheckpointStrategy, StandardStrategy};
-        use wf_types::checkpoint::UnifiedCheckpointPolicy;
-        let empty = UnifiedCheckpointPolicy {
-            enabled: true,
-            triggers: vec![],
-            content: None,
-            retention: None,
-            error_handling: None,
-        };
-        let strategy = StandardStrategy::from_policy(&empty);
-        let ctx = CheckpointContext {
-            entity_type: "workflow_execution".to_string(),
-            entity_id: "exec-1".to_string(),
-            trigger: Some(CheckpointTiming::AfterExecute),
-            actor_id: None,
-            attempt: None,
-            retry_count: None,
-            error: None,
-            fallback_used: None,
-            metadata: None,
-        };
-        assert!(!strategy.should_checkpoint(&CheckpointTiming::AfterExecute, &ctx));
-        assert_eq!(strategy.content_config().include_state, Some(true));
-    }
 }

@@ -1,6 +1,8 @@
+use crate::coordinator::events::publish_cleanup_skipped;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::strategy::CheckpointStrategy;
 use checkpoint_file::event::CheckpointEventBus;
+use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_state::state::CheckpointStateManager;
 use std::collections::HashMap;
 use wf_types::checkpoint::{
@@ -33,77 +35,57 @@ pub fn next_chain_position(
     }
 }
 
-/// Shared persist event publishing so agent and workflow report identically.
-pub fn publish_persisted(
-    bus: Option<&CheckpointEventBus>,
-    checkpoint_id: &str,
+/// Build the checkpoint creation context shared by both coordinators. The
+/// file checkpoint side effects have observable effects: the execution branch
+/// is ensured and the actor id is resolved hierarchically, so calling this
+/// twice for one creation wastes work.
+pub async fn prepare_context(
+    file_checkpoint_manager: Option<&FileCheckpointManager>,
+    entity_type: &str,
     entity_id: &str,
-    description: Option<&str>,
-) {
-    if let Some(bus) = bus {
-        bus.publish(CheckpointEventBus::created_with(
-            checkpoint_id.to_string(),
-            Some(entity_id.to_string()),
-            description.map(String::from),
-        ));
+    trigger: CheckpointTiming,
+    parent_execution_id: Option<&str>,
+    ancestors: Option<&[String]>,
+) -> Result<CheckpointContext, CheckpointError> {
+    if let Some(manager) = file_checkpoint_manager {
+        manager
+            .ensure_child_branch(entity_id, parent_execution_id)
+            .await?;
     }
+    let actor_id = file_checkpoint_manager.map(|manager| match ancestors {
+        Some(ancestors) => manager
+            .resolve_actor_with_chain(entity_id, ancestors, parent_execution_id)
+            .to_string(),
+        None => manager
+            .resolve_actor(entity_id, parent_execution_id)
+            .to_string(),
+    });
+    Ok(CheckpointContext {
+        entity_type: entity_type.to_string(),
+        entity_id: entity_id.to_string(),
+        trigger: Some(trigger),
+        actor_id,
+        attempt: None,
+        retry_count: None,
+        error: None,
+        fallback_used: None,
+        metadata: None,
+    })
 }
 
-/// Shared persist-failure event publishing.
-pub fn publish_persist_failed(
-    bus: Option<&CheckpointEventBus>,
-    checkpoint_id: Option<String>,
-    entity_id: &str,
-    err: &CheckpointError,
-) {
-    if let Some(bus) = bus {
-        bus.publish(CheckpointEventBus::failed_with(
-            checkpoint_id,
-            "create",
-            format!("persist failed: {}", err),
-            Some(entity_id.to_string()),
-        ));
+/// Assemble the wire custom fields: caller fields first, then the generated
+/// chain-position and progress-coordinate fields, which win over a same-named
+/// caller field so coordinates always describe the real execution state.
+/// Both coordinators stamp the same wire shape.
+pub fn stamp_custom_fields(
+    caller: Option<HashMap<String, serde_json::Value>>,
+    generated: HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let mut fields = caller.unwrap_or_default();
+    for (key, value) in generated {
+        fields.insert(key, value);
     }
-}
-
-/// Shared best-effort failure publishing reusing the Failed shape so
-/// async projection and persistence failures stay queryable. Expected races
-/// (cleanup contention, duplicate merge-back) must use `publish_cleanup_skipped`
-/// instead so failure dashboards stay clean.
-pub fn publish_best_effort_failed(
-    bus: Option<&CheckpointEventBus>,
-    checkpoint_id: Option<String>,
-    entity_id: &str,
-    operation: &str,
-    err: &str,
-) {
-    if let Some(bus) = bus {
-        bus.publish(CheckpointEventBus::failed_with(
-            checkpoint_id,
-            operation,
-            err,
-            Some(entity_id.to_string()),
-        ));
-    }
-}
-
-/// Publish an expected skip (cleanup race, duplicate merge-back, queue
-/// backlog wait) as a `Skipped` event instead of `Failed`.
-pub fn publish_cleanup_skipped(
-    bus: Option<&CheckpointEventBus>,
-    checkpoint_id: Option<String>,
-    entity_id: &str,
-    operation: &str,
-    reason: &str,
-) {
-    if let Some(bus) = bus {
-        bus.publish(CheckpointEventBus::skipped(
-            operation,
-            reason,
-            checkpoint_id,
-        ));
-        let _ = entity_id;
-    }
+    fields
 }
 
 /// Read-modify-write description merge shared by the agent-loop and
@@ -202,10 +184,16 @@ where
     Ok(latest.id.clone())
 }
 
-/// Blob surface the shared description merge needs: mutable metadata map.
+/// Blob surface both coordinators and the shared helpers need: the mutable
+/// metadata map, the caller description stored under it, and the row id.
 /// Both checkpoint types share the same core shape, so one blanket
 /// implementation covers them.
 pub trait CheckpointBlob: Send + Sync {
+    /// Trigger description carried by the stored wire metadata, published
+    /// with the persist event.
+    fn blob_description(&self) -> Option<&str>;
+
+    /// Mutable wire metadata map.
     fn blob_metadata_mut(&mut self) -> &mut Option<HashMap<String, serde_json::Value>>;
 }
 
@@ -221,6 +209,13 @@ where
     TDelta: Send + Sync,
     TSnapshot: Send + Sync,
 {
+    fn blob_description(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(|m| m.get("description"))
+            .and_then(|v| v.as_str())
+    }
+
     fn blob_metadata_mut(&mut self) -> &mut Option<HashMap<String, serde_json::Value>> {
         &mut self.metadata
     }
@@ -349,7 +344,7 @@ pub trait CheckpointCoordinator: Send + Sync {
                     error = %err,
                     "deferred file checkpoint creation failed (best-effort)"
                 );
-                publish_best_effort_failed(
+                crate::coordinator::events::publish_best_effort_failed(
                     self.event_bus(),
                     Some(checkpoint_id.to_string()),
                     entity_id,
@@ -410,7 +405,7 @@ pub trait CheckpointCoordinator: Send + Sync {
                         "file checkpoint creation failed (best-effort)"
                     );
                 }
-                publish_best_effort_failed(
+                crate::coordinator::events::publish_best_effort_failed(
                     self.event_bus(),
                     Some(checkpoint_id.clone()),
                     entity_id,
@@ -489,81 +484,6 @@ pub fn is_lifecycle_trigger(trigger: &CheckpointTiming) -> bool {
             | CheckpointTiming::OnStopped
             | CheckpointTiming::OnFailure
     )
-}
-
-/// Upper bound on deferred persistence queues shared by both coordinators.
-pub const MAX_PERSISTENCE_QUEUE: usize = 128;
-
-/// Push a background persistence handle, awaiting the backlog first when
-/// the queue is full so memory stays bounded. Shared by both coordinators.
-pub async fn push_persistence_handle(
-    queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
-    handle: tokio::task::JoinHandle<()>,
-    bus: Option<&CheckpointEventBus>,
-    entity_id: &str,
-    checkpoint_id: &str,
-    metrics: Option<&wf_metrics::CheckpointMetricsCollector>,
-) {
-    let mut guard = queue.lock().await;
-    if guard.len() >= MAX_PERSISTENCE_QUEUE {
-        publish_cleanup_skipped(
-            bus,
-            Some(checkpoint_id.to_string()),
-            entity_id,
-            "persistence_backlog",
-            "persistence queue full; awaiting backlog",
-        );
-        if let Some(metrics) = metrics {
-            metrics.record_persistence_backlog(entity_id);
-        }
-        let backlog: Vec<_> = std::mem::take(&mut *guard);
-        drop(guard);
-        for task in backlog {
-            if let Err(join_err) = task.await {
-                tracing::warn!(error = %join_err, "persistence task panicked");
-                publish_best_effort_failed(
-                    bus,
-                    Some(checkpoint_id.to_string()),
-                    entity_id,
-                    "persistence_failure",
-                    &format!("persistence task panicked: {join_err}"),
-                );
-                if let Some(metrics) = metrics {
-                    metrics.record_persistence_failure(entity_id);
-                }
-            }
-        }
-        guard = queue.lock().await;
-    }
-    guard.push(handle);
-}
-
-/// Drain all deferred persistence handles. Shared by both coordinators.
-pub async fn drain_persistence_handles(
-    queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
-    bus: Option<&CheckpointEventBus>,
-    entity_id: &str,
-    metrics: Option<&wf_metrics::CheckpointMetricsCollector>,
-) {
-    let handles: Vec<_> = {
-        let mut guard = queue.lock().await;
-        std::mem::take(&mut *guard)
-    };
-    for handle in handles {
-        if let Err(join_err) = handle.await {
-            tracing::warn!(error = %join_err, "persistence task panicked");
-            publish_best_effort_failed(
-                bus,
-                None,
-                entity_id,
-                "persistence_failure",
-                &format!("persistence task panicked: {join_err}"),
-            );
-            if let Some(metrics) = metrics {
-                metrics.record_persistence_failure(entity_id);
-            }
-        }
-    }
 }
 
 /// Shared synchronous metadata index over pre-built checkpoint metadata

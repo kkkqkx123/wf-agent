@@ -28,16 +28,35 @@ use checkpoint_base::ActorId;
 /// (explicit "no synchronous capture range", never a whole-workspace scan).
 /// When the requested scope encloses the workspace, the scope is narrowed to
 /// the workspace root.
+///
+/// Containment is re-checked on the physical path: a lexically-inside scope
+/// that physically escapes through a symlink is rejected. The returned path
+/// stays lexical so capture keys remain stable; the physical check only
+/// gates admission. Not-yet-existing scopes keep the lexical result and are
+/// re-checked at capture time by the collector.
 pub fn resolve_shell_scope(workspace_root: &Path, scope_dir: &Path) -> Option<PathBuf> {
     let ws = crate::watcher::normalize_absolute_path(workspace_root);
     let scope = crate::watcher::normalize_absolute_path(scope_dir);
-    if scope.starts_with(&ws) {
-        Some(scope)
+    let resolved = if scope.starts_with(&ws) {
+        scope
     } else if ws.starts_with(&scope) {
-        Some(ws)
+        ws
     } else {
-        None
+        return None;
+    };
+    if let Ok(physical) = resolved.canonicalize() {
+        let ws_physical = workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| crate::watcher::normalize_absolute_path(workspace_root));
+        if !physical.starts_with(&ws_physical) {
+            tracing::warn!(
+                scope = %resolved.display(),
+                "shell scope escapes workspace through symlink; rejecting"
+            );
+            return None;
+        }
     }
+    Some(resolved)
 }
 
 /// Manager-owned registry for scoped shell sampling state.
@@ -54,9 +73,11 @@ pub fn resolve_shell_scope(workspace_root: &Path, scope_dir: &Path) -> Option<Pa
 pub struct SessionScopeRegistry {
     /// `execution_id|scope` -> before hashes for foreground scoped runs.
     scoped_before: DashMap<String, HashMap<PathBuf, String>>,
-    /// session_id -> before hashes for background sessions.
+    /// `session_id|scope` -> before hashes for background sessions. A
+    /// session restarted under a different scope gets its own entry instead
+    /// of silently reusing the old domain.
     session_before: DashMap<String, HashMap<PathBuf, String>>,
-    /// session_id -> resolved scope dir.
+    /// `session_id|scope` -> resolved scope dir.
     session_scope: DashMap<String, PathBuf>,
 }
 
@@ -152,50 +173,89 @@ impl ScopeCapture {
 
     // ---- background session helpers ----
 
+    /// Begin a background session domain. The entry is keyed by session id
+    /// plus resolved scope: restarting the same session under a different
+    /// scope opens a new domain (with a warning) instead of silently
+    /// reusing the old one. A failed capture disables the domain: no empty
+    /// baseline is recorded.
     pub fn begin_session(&self, session_id: &str, scope_dir: &Path) -> Option<PathBuf> {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
+        let session_key = key(session_id, &scope);
         if let Some(before) = self.capture_scope(&scope) {
-            if self.scopes.session_before.contains_key(session_id) {
+            if self.scopes.session_before.contains_key(&session_key) {
                 return Some(scope);
+            }
+            if self.scopes.session_scope.iter().any(|e| {
+                e.key()
+                    .strip_prefix(session_id)
+                    .is_some_and(|rest| rest.starts_with('|'))
+            }) {
+                tracing::warn!(
+                    session = %session_id,
+                    scope = %scope.display(),
+                    "session restarted under a different scope; opening a new domain"
+                );
             }
             self.scopes
                 .session_before
-                .insert(session_id.to_string(), before);
-            self.scopes
-                .session_scope
-                .insert(session_id.to_string(), scope.clone());
+                .insert(session_key.clone(), before);
+            self.scopes.session_scope.insert(session_key, scope.clone());
         }
         Some(scope)
     }
 
+    /// Flush every domain of a session: each `session_id|scope` entry diffs
+    /// and refreshes its own baseline.
     pub fn session_command_finished(&self, session_id: &str, execution_id: &str) {
-        let (Some(before), Some(scope)) = (
-            self.scopes
-                .session_before
-                .get(session_id)
-                .map(|e| e.clone()),
-            self.scopes.session_scope.get(session_id).map(|e| e.clone()),
-        ) else {
-            return;
-        };
-        let _ = self.apply_scoped_diff(&scope, &before, execution_id);
-        if let Some(next) = self.capture_scope(&scope) {
-            self.scopes
-                .session_before
-                .insert(session_id.to_string(), next);
+        let prefix = format!("{session_id}|");
+        let domains: Vec<(String, PathBuf, HashMap<PathBuf, String>)> = self
+            .scopes
+            .session_scope
+            .iter()
+            .filter(|e| e.key().starts_with(&prefix))
+            .filter_map(|e| {
+                let session_key = e.key().clone();
+                let scope = e.value().clone();
+                self.scopes
+                    .session_before
+                    .get(&session_key)
+                    .map(|b| (session_key, scope, b.clone()))
+            })
+            .collect();
+        for (session_key, scope, before) in domains {
+            let _ = self.apply_scoped_diff(&scope, &before, execution_id);
+            if let Some(next) = self.capture_scope(&scope) {
+                self.scopes.session_before.insert(session_key, next);
+            }
         }
     }
 
+    /// End a session: flush and drop every domain registered under the
+    /// session id, so no entry leaks when the scope changed mid-session.
     pub fn end_session(&self, session_id: &str, execution_id: &str) {
-        let before = self
+        let prefix = format!("{session_id}|");
+        let keys: Vec<String> = self
             .scopes
-            .session_before
-            .remove(session_id)
-            .map(|(_, v)| v);
-        let scope = self.scopes.session_scope.remove(session_id).map(|(_, v)| v);
-        if let (Some(before), Some(scope)) = (before, scope) {
-            let _ = self.apply_scoped_diff(&scope, &before, execution_id);
+            .session_scope
+            .iter()
+            .filter(|e| e.key().starts_with(&prefix))
+            .map(|e| e.key().clone())
+            .collect();
+        for session_key in keys {
+            let before = self
+                .scopes
+                .session_before
+                .remove(&session_key)
+                .map(|(_, v)| v);
+            let scope = self
+                .scopes
+                .session_scope
+                .remove(&session_key)
+                .map(|(_, v)| v);
+            if let (Some(before), Some(scope)) = (before, scope) {
+                let _ = self.apply_scoped_diff(&scope, &before, execution_id);
+            }
         }
     }
 
@@ -350,5 +410,34 @@ mod tests {
             Some(PathBuf::from("/ws"))
         );
         assert_eq!(resolve_shell_scope(ws, Path::new("/tmp")), None);
+    }
+
+    #[test]
+    fn symlinked_scope_escaping_workspace_is_rejected() {
+        let ws = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), ws.path().join("evil")).unwrap();
+        assert_eq!(
+            resolve_shell_scope(ws.path(), &ws.path().join("evil")),
+            None
+        );
+    }
+
+    #[test]
+    fn begin_session_same_id_new_scope_opens_new_domain() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager.set_workspace_root(Some(dir.path().to_path_buf()));
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b")).unwrap();
+        let actor = manager.actor_id_for("e1");
+        let capture = ScopeCapture::new(manager.clone(), actor, "e1").unwrap();
+        assert!(capture.begin_session("s1", &dir.path().join("a")).is_some());
+        assert!(capture.begin_session("s1", &dir.path().join("b")).is_some());
+        let scopes = manager.session_scopes();
+        assert_eq!(scopes.session_scope.len(), 2);
+        capture.end_session("s1", "exec-1");
+        assert!(scopes.session_scope.is_empty());
+        assert!(scopes.session_before.is_empty());
     }
 }

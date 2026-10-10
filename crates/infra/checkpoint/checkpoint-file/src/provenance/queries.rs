@@ -17,6 +17,11 @@ use super::types::{DeltaSummary, PartitionView};
 /// empty. Larger stores must rebuild the index; cold full scans stay bounded.
 const MAX_FALLBACK_SCAN_COMMITS: usize = 5000;
 
+/// Maximum commits a single partition walk may traverse when measuring
+/// history length. Histories longer than this saturate `history_len` at
+/// the cap instead of walking the whole ancestry.
+const MAX_PARTITION_HISTORY_COMMITS: usize = 5000;
+
 /// Whether a path matches the optional filter (plain substring match).
 fn path_matches(path: &str, filter: Option<&str>) -> bool {
     match filter {
@@ -136,7 +141,15 @@ pub fn list_partitions(
         let Ok(head) = git.read_commit(&head_id) else {
             continue;
         };
-        let log = git.log(&head_id, 0).map_err(map_git_error)?;
+        // Bounded walk: one extra slot detects truncation without walking
+        // the whole ancestry. Saturated lengths are observable as exactly
+        // the cap (see `PartitionView::history_len`).
+        let log = git
+            .log(&head_id, MAX_PARTITION_HISTORY_COMMITS + 1)
+            .map_err(map_git_error)?;
+        if log.len() > MAX_PARTITION_HISTORY_COMMITS {
+            tracing::warn!(partition = %name, "partition history exceeds walk cap; length saturated");
+        }
         let created_at = log
             .iter()
             .map(|c| c.committer_ts)
@@ -149,7 +162,7 @@ pub fn list_partitions(
             kind,
             actor,
             current_snapshot: head_id,
-            history_len: log.len(),
+            history_len: log.len().min(MAX_PARTITION_HISTORY_COMMITS),
             created_at,
             updated_at: head.committer_ts,
         });

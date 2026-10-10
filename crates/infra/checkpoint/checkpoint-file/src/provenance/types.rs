@@ -32,7 +32,8 @@ pub struct PartitionView {
     pub actor: Option<String>,
     /// Commit id (hex) of the ref head.
     pub current_snapshot: String,
-    /// Number of commits reachable from the head.
+    /// Number of commits reachable from the head, saturated at the
+    /// partition walk cap. A value exactly at the cap means truncated.
     pub history_len: usize,
     /// Creation time of the oldest reachable commit.
     pub created_at: i64,

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::file::util::sha256_hex;
@@ -44,12 +44,15 @@ impl CollectedChange {
 ///   caller's responsibility;
 /// - an empty scope is the explicit "no synchronous capture range" result,
 ///   never a signal to scan the whole workspace;
-/// - symbolic links are skipped (documented, unchanged);
+/// - symbolic links never enter the store as links: an in-workspace target
+///   contributes its content under the link path, an out-of-workspace
+///   target rejects the whole subtree it would escape through;
 /// - capture-time file read failures surface as path-qualified IO errors so
 ///   the caller can apply its `FailureBehavior` with execution id, scope and
 ///   stage in the log.
 pub struct WorkspaceChangeCollector {
     base_dir: PathBuf,
+    canonical_base: PathBuf,
     scope: Vec<PathBuf>,
     scanner: WorkspaceScanner,
 }
@@ -60,6 +63,9 @@ impl WorkspaceChangeCollector {
     /// workspace are excluded from the scope.
     pub fn new(base_dir: &Path, allowed_write: &[String], scanner: WorkspaceScanner) -> Self {
         let normalized_base = crate::watcher::normalize_absolute_path(base_dir);
+        let canonical_base = base_dir
+            .canonicalize()
+            .unwrap_or_else(|_| normalized_base.clone());
         let mut scope = Vec::new();
         for prefix in allowed_write {
             let candidate = if Path::new(prefix).is_absolute() {
@@ -75,6 +81,7 @@ impl WorkspaceChangeCollector {
         scope.dedup();
         Self {
             base_dir: normalized_base,
+            canonical_base,
             scope,
             scanner,
         }
@@ -96,81 +103,141 @@ impl WorkspaceChangeCollector {
     /// [`WorkspaceChangeCollector::diff`].
     pub fn capture(&self) -> Result<HashMap<PathBuf, String>, CheckpointError> {
         let mut hashes = HashMap::new();
+        let mut followed: HashSet<PathBuf> = HashSet::new();
         for prefix in &self.scope {
-            self.collect_dir(prefix, &mut hashes)?;
+            self.collect_dir(prefix, prefix, &mut followed, &mut hashes)?;
         }
         Ok(hashes)
     }
 
-    fn collect_dir(
+    /// Resolve a symlink to its canonical target when the target stays
+    /// inside the workspace. Out-of-workspace or unresolvable targets are
+    /// rejected (warned, skipped) so links can never smuggle outside files
+    /// into the capture. `followed` guards against link cycles.
+    fn resolve_link(&self, link: &Path, followed: &mut HashSet<PathBuf>) -> Option<PathBuf> {
+        match link.canonicalize() {
+            Ok(target) if target.starts_with(&self.canonical_base) => {
+                // Only directories join the cycle guard: two links to one
+                // file are a diamond, not a cycle. Directory cycles must
+                // pass through a dir, so guarding dirs alone suffices.
+                if target.is_dir() && !followed.insert(target.clone()) {
+                    tracing::warn!(
+                        link = %link.display(),
+                        "symlink cycle detected; skipping"
+                    );
+                    return None;
+                }
+                Some(target)
+            }
+            _ => {
+                tracing::warn!(
+                    link = %link.display(),
+                    "symlink escapes workspace or is unresolvable; skipping"
+                );
+                None
+            }
+        }
+    }
+
+    fn record_file(
         &self,
-        dir: &Path,
+        walk_path: &Path,
+        recorded_path: &Path,
         out: &mut HashMap<PathBuf, String>,
     ) -> Result<(), CheckpointError> {
-        if dir.is_file()
-            && !std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink())
-        {
-            let relative = crate::file::util::normalize_posix_separators(
-                &dir.strip_prefix(&self.base_dir)
-                    .unwrap_or(dir)
-                    .to_string_lossy(),
-            );
-            if !self.scanner.is_ignored(&relative) {
-                let content = std::fs::read(dir).map_err(|e| {
-                    CheckpointError::Io(std::io::Error::other(format!(
-                        "failed to read scoped file '{}': {e}",
-                        dir.display()
-                    )))
-                })?;
-                out.insert(dir.to_path_buf(), sha256_hex(&content));
+        let relative = crate::file::util::normalize_posix_separators(
+            &recorded_path
+                .strip_prefix(&self.base_dir)
+                .unwrap_or(recorded_path)
+                .to_string_lossy(),
+        );
+        if self.scanner.is_ignored(&relative) {
+            return Ok(());
+        }
+        let content = std::fs::read(walk_path).map_err(|e| {
+            CheckpointError::Io(std::io::Error::other(format!(
+                "failed to read scoped file '{}': {e}",
+                walk_path.display()
+            )))
+        })?;
+        out.insert(recorded_path.to_path_buf(), sha256_hex(&content));
+        Ok(())
+    }
+
+    /// `walk` is the filesystem path traversed (canonical after following an
+    /// in-workspace link); `recorded` is the key stored in the snapshot
+    /// (always the lexical in-workspace path, so before/after maps agree).
+    fn collect_dir(
+        &self,
+        walk: &Path,
+        recorded: &Path,
+        followed: &mut HashSet<PathBuf>,
+        out: &mut HashMap<PathBuf, String>,
+    ) -> Result<(), CheckpointError> {
+        if walk.is_file() {
+            if std::fs::symlink_metadata(walk).is_ok_and(|m| m.file_type().is_symlink())
+                && self.resolve_link(walk, followed).is_none()
+            {
+                return Ok(());
             }
+            self.record_file(walk, recorded, out)?;
             return Ok(());
         }
-        if !dir.is_dir() {
+        if !walk.is_dir() {
             return Ok(());
         }
+        // A symlinked scope or directory is traversed at its canonical
+        // target while keys stay lexical; escapes were rejected above.
+        let physical;
+        let walk = if std::fs::symlink_metadata(walk).is_ok_and(|m| m.file_type().is_symlink()) {
+            match self.resolve_link(walk, followed) {
+                Some(target) => {
+                    physical = target;
+                    &physical
+                }
+                None => return Ok(()),
+            }
+        } else {
+            walk
+        };
         // A single directory scan: a missing scope directory is "no files",
         // not an error; per-file read failures below are path-qualified.
-        let entries = std::fs::read_dir(dir).map_err(|e| {
+        let entries = std::fs::read_dir(walk).map_err(|e| {
             CheckpointError::Io(std::io::Error::other(format!(
                 "failed to scan scope '{}': {e}",
-                dir.display()
+                walk.display()
             )))
         })?;
         for entry in entries {
             let entry = entry.map_err(|e| {
                 CheckpointError::Io(std::io::Error::other(format!(
                     "failed to read scope entry in '{}': {e}",
-                    dir.display()
+                    walk.display()
                 )))
             })?;
             let path = entry.path();
+            let recorded_child = recorded.join(entry.file_name());
             let file_type = entry.file_type().map_err(|e| {
                 CheckpointError::Io(std::io::Error::other(format!(
                     "failed to stat '{}': {e}",
                     path.display()
                 )))
             })?;
-            if file_type.is_dir() {
-                self.collect_dir(&path, out)?;
-            } else if file_type.is_file() && !file_type.is_symlink() {
-                // Symlinks are intentionally skipped (documented policy).
-                let relative = crate::file::util::normalize_posix_separators(
-                    &path
-                        .strip_prefix(&self.base_dir)
-                        .unwrap_or(&path)
-                        .to_string_lossy(),
-                );
-                if self.scanner.is_ignored(&relative) {
+            if file_type.is_symlink() {
+                // Links never enter the store: in-workspace targets
+                // contribute content under the link path, escapes are cut.
+                let Some(target) = self.resolve_link(&path, followed) else {
                     continue;
+                };
+                if target.is_file() {
+                    self.record_file(&path, &recorded_child, out)?;
+                } else if target.is_dir() {
+                    self.collect_dir(&target, &recorded_child, followed, out)?;
                 }
-                let content = std::fs::read(&path).map_err(|e| {
-                    CheckpointError::Io(std::io::Error::other(format!(
-                        "failed to read scoped file '{}': {e}",
-                        path.display()
-                    )))
-                })?;
-                out.insert(path, sha256_hex(&content));
+            } else if file_type.is_dir() {
+                self.collect_dir(&path, &recorded_child, followed, out)?;
+            } else if file_type.is_file() {
+                self.record_file(&path, &recorded_child, out)?;
             }
         }
         Ok(())
@@ -308,9 +375,56 @@ mod tests {
     #[test]
     fn diff_is_empty_without_changes() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.txt"), b"same").unwrap();
+        std::fs::write(dir.path().join("same"), b"same").unwrap();
         let before = hashes(dir.path());
         let after = hashes(dir.path());
         assert!(WorkspaceChangeCollector::diff(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn symlink_escape_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), b"secret").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("evil")).unwrap();
+        std::fs::write(dir.path().join("ok.txt"), b"ok").unwrap();
+
+        let c = collector(dir.path(), &["."]);
+        let map = c.capture().unwrap();
+        assert!(map.contains_key(&dir.path().join("ok.txt")));
+        assert!(
+            !map.keys().any(|p| p.starts_with(outside.path())),
+            "outside files must never enter the capture"
+        );
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn in_workspace_symlink_content_is_captured_under_link_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("real.txt"), b"data").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real.txt"), dir.path().join("link.txt"))
+            .unwrap();
+
+        let c = collector(dir.path(), &["."]);
+        let map = c.capture().unwrap();
+        assert_eq!(
+            map.get(&dir.path().join("link.txt")).unwrap(),
+            &sha256_hex(b"data")
+        );
+    }
+
+    #[test]
+    fn symlink_cycle_terminates() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        std::fs::create_dir_all(dir.path().join("b")).unwrap();
+        std::fs::write(dir.path().join("a/f.txt"), b"f").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("b"), dir.path().join("a/to_b")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("a"), dir.path().join("b/to_a")).unwrap();
+
+        let c = collector(dir.path(), &["."]);
+        let map = c.capture().unwrap();
+        assert!(map.contains_key(&dir.path().join("a/f.txt")));
     }
 }

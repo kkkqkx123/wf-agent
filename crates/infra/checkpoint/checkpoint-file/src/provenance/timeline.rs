@@ -5,9 +5,49 @@ use std::collections::{HashMap, HashSet};
 
 use crate::file::git_write::map_git_error;
 use crate::file::util::sha256_hex;
-use crate::git_store::{GitStore, TRAILER_ACTOR};
+use crate::git_store::{GitCommit, GitStore, TRAILER_ACTOR};
 use crate::storage::SqliteStorage;
 use checkpoint_base::error::CheckpointError;
+
+/// Maximum commits a timeline graph scan may walk when the source index has
+/// no row for the path. Larger stores must rebuild the index.
+const MAX_TIMELINE_SCAN_COMMITS: usize = 5000;
+
+/// Candidate commits for a timeline: the inverted path index wins, so cost
+/// tracks the path's own history instead of the whole store. Only when the
+/// index is empty does a bounded full-graph scan run.
+fn candidate_commits(
+    git: &GitStore,
+    storage: &SqliteStorage,
+    path: &str,
+) -> Result<Vec<GitCommit>, CheckpointError> {
+    let indexed = storage.find_commits_by_path(path, 0)?;
+    if !indexed.is_empty() {
+        let mut out = Vec::with_capacity(indexed.len());
+        for entry in indexed {
+            if let Ok(commit) = git.read_commit(&entry.commit_id) {
+                out.push(commit);
+            }
+        }
+        if !out.is_empty() {
+            return Ok(out);
+        }
+    }
+    tracing::warn!(
+        path = %path,
+        "source index empty for timeline; falling back to graph scan"
+    );
+    let all = git.all_commits().map_err(map_git_error)?;
+    if all.len() > MAX_TIMELINE_SCAN_COMMITS {
+        return Err(CheckpointError::Validation {
+            reason: format!(
+                "source index empty and graph holds {} commits, exceeding timeline cap {MAX_TIMELINE_SCAN_COMMITS}; rebuild the index",
+                all.len()
+            ),
+        });
+    }
+    Ok(all)
+}
 
 /// Rename similarity threshold aligned with standard rename detection
 /// defaults: contents with at least half their lines in common count as
@@ -69,14 +109,16 @@ pub struct FileTimeline {
 /// Build the complete version timeline for a file path, including
 /// rename/move tracing via content-similarity detection (similar contents
 /// appearing under a new name while the old name disappears in the same
-/// commit count as a rename). Walks the commit graph with rename
-/// following; no move table is consulted.
+/// commit count as a rename). Only index-selected candidate commits (plus
+/// their parents for rename comparison) are expanded; blob bytes load only
+/// for vanished/appeared files, and identical blob ids short-circuit
+/// without reading content. No move table is consulted.
 pub fn file_timeline(
     git: &GitStore,
-    _storage: &SqliteStorage,
+    storage: &SqliteStorage,
     path: &str,
 ) -> Result<FileTimeline, CheckpointError> {
-    let mut commits = git.all_commits().map_err(map_git_error)?;
+    let mut commits = candidate_commits(git, storage, path)?;
     commits.sort_by(|a, b| a.committer_ts.cmp(&b.committer_ts).then(a.id.cmp(&b.id)));
     // Current blob per path as we sweep chronologically, so renames link
     // across consecutive commits touching the file.
@@ -110,41 +152,87 @@ pub fn file_timeline(
                 }
             }
         }
-        for (new_name, new_blob) in &appeared {
-            let Ok(new_bytes) = git.read_blob(new_blob) else {
-                continue;
-            };
-            let mut best: Option<(String, f64)> = None;
-            for (old_name, old_blob) in &disappeared {
-                if old_blob == new_blob {
-                    best = Some((old_name.clone(), 1.0));
-                    break;
+        // Deterministic order first: tree maps iterate randomly, so sort
+        // both sides by path before scoring. Pairs then resolve in global
+        // score order with path tie-breaks, making timelines repeatable.
+        disappeared.sort_by(|a, b| a.0.cmp(&b.0));
+        appeared.sort_by(|a, b| a.0.cmp(&b.0));
+        // Blob bytes load once per id: vanished/appeared blobs are read a
+        // single time and shared across the score matrix. Unreadable blobs
+        // make their pairs ineligible instead of failing the timeline.
+        let mut blob_bytes: HashMap<&str, Vec<u8>> = HashMap::new();
+        for (_, blob) in disappeared.iter().chain(appeared.iter()) {
+            if !blob_bytes.contains_key(blob.as_str()) {
+                if let Ok(bytes) = git.read_blob(blob) {
+                    blob_bytes.insert(blob.as_str(), bytes);
                 }
-                let Ok(old_bytes) = git.read_blob(old_blob) else {
-                    continue;
+            }
+        }
+        let pair_score =
+            |old_blob: &str, new_blob: &str, cache: &HashMap<&str, Vec<u8>>| -> Option<f64> {
+                // Identical blob ids short-circuit without byte reads.
+                if old_blob == new_blob {
+                    return Some(1.0);
+                }
+                let (Some(old_bytes), Some(new_bytes)) = (cache.get(old_blob), cache.get(new_blob))
+                else {
+                    return None;
                 };
                 // Small files require identical bytes (checked above):
                 // similarity on a handful of lines is boilerplate noise.
-                if line_count(&old_bytes) < RENAME_EXACT_MATCH_MAX_LINES
-                    || line_count(&new_bytes) < RENAME_EXACT_MATCH_MAX_LINES
+                if line_count(old_bytes) < RENAME_EXACT_MATCH_MAX_LINES
+                    || line_count(new_bytes) < RENAME_EXACT_MATCH_MAX_LINES
                 {
-                    continue;
+                    return None;
                 }
-                let score = content_similarity(&old_bytes, &new_bytes);
-                if score >= RENAME_SIMILARITY_THRESHOLD
-                    && best.as_ref().is_none_or(|(_, s)| score > *s)
-                {
-                    best = Some((old_name.clone(), score));
+                let score = content_similarity(old_bytes, new_bytes);
+                (score >= RENAME_SIMILARITY_THRESHOLD).then_some(score)
+            };
+        // Score matrix over index pairs.
+        let mut pairs: Vec<(usize, usize, f64)> = Vec::new();
+        for (oi, (_, old_blob)) in disappeared.iter().enumerate() {
+            for (ni, (_, new_blob)) in appeared.iter().enumerate() {
+                if let Some(score) = pair_score(old_blob, new_blob, &blob_bytes) {
+                    pairs.push((oi, ni, score));
                 }
             }
-            if let Some((old_name, _)) = best {
-                moved_from
-                    .entry(new_name.clone())
-                    .or_insert_with(|| old_name.clone());
-                if known_names.contains(&old_name) {
-                    known_names.insert(new_name.clone());
-                }
+        }
+        pairs.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(disappeared[a.0].0.cmp(&disappeared[b.0].0))
+                .then(appeared[a.1].0.cmp(&appeared[b.1].0))
+        });
+        let mut link = |new_name: &str, old_name: &str| {
+            moved_from
+                .entry(new_name.to_string())
+                .or_insert_with(|| old_name.to_string());
+            if known_names.contains(old_name) {
+                known_names.insert(new_name.to_string());
             }
+        };
+        // Phase one: one-to-one main-chain links in global score order, so
+        // competing olds no longer depend on iteration luck.
+        let mut used_old = vec![false; disappeared.len()];
+        let mut used_new = vec![false; appeared.len()];
+        for (oi, ni, _) in &pairs {
+            if used_old[*oi] || used_new[*ni] {
+                continue;
+            }
+            used_old[*oi] = true;
+            used_new[*ni] = true;
+            link(&appeared[*ni].0.clone(), &disappeared[*oi].0.clone());
+        }
+        // Phase two: split branches. An unmatched appearance still linking
+        // to an old name becomes a same-origin branch entry instead of a
+        // forged single chain; the first (highest-score) link keeps the
+        // main `moved_from`.
+        for (oi, ni, _) in &pairs {
+            if used_new[*ni] {
+                continue;
+            }
+            used_new[*ni] = true;
+            link(&appeared[*ni].0.clone(), &disappeared[*oi].0.clone());
         }
         for name in known_names.clone() {
             if let Some((_, blob)) = files.get(&name) {

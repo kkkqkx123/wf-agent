@@ -86,7 +86,9 @@ impl CheckpointSession {
         &self.entity_id
     }
 
-    /// Workspace root at session creation time.
+    /// Workspace root snapshotted at session creation time. A later root
+    /// change on the manager does not affect sessions already built: their
+    /// capture domain stays pinned to the root they started with.
     pub fn workspace_root(&self) -> Option<&PathBuf> {
         self.workspace_root.as_ref()
     }

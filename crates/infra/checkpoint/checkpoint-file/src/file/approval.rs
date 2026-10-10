@@ -24,14 +24,21 @@ impl FileCheckpointManager {
 
     /// All pending approvals: review refs whose explicit state is
     /// `pending`. Persisted in SQLite, so pending approvals survive across
-    /// executions ("review after the run ends").
+    /// executions ("review after the run ends"). Refs without any state row
+    /// are half-submitted leftovers: treated as unsubmitted, skipped with a
+    /// warning instead of surfacing half-state.
     pub fn list_pending_approvals(&self) -> Result<Vec<PendingApproval>, CheckpointError> {
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let mut views = Vec::new();
         for (review_ref, _) in git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error)? {
-            if storage.get_review_state(&review_ref)? != Some(ReviewStatus::Pending) {
-                continue;
+            match storage.get_review_state(&review_ref)? {
+                Some(ReviewStatus::Pending) => {}
+                None => {
+                    tracing::warn!(review = %review_ref, "pending scan found ref without state row; skipping");
+                    continue;
+                }
+                _ => continue,
             }
             let Some(head) = git.read_ref(&review_ref).map_err(map_git_error)? else {
                 tracing::warn!(review = %review_ref, "pending review ref has no head; skipping");
@@ -68,9 +75,42 @@ impl FileCheckpointManager {
         Ok(views)
     }
 
+    /// Sweep half-rejected leftovers for an actor: pending state rows whose
+    /// review ref no longer exists (a previous reject deleted the ref but
+    /// failed before deleting the row). The rows are deleted and counted so
+    /// a repeated reject converges instead of leaving invisible pending
+    /// state behind. Only rows under this actor's review-ref prefix are
+    /// touched, matching the submission naming scheme.
+    pub fn reconcile_reviews(&self, entity_id: &str) -> Result<usize, CheckpointError> {
+        let actor = self.actor_id_for(entity_id);
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let prefix = format!(
+            "{REF_REVIEW_PREFIX}{}-",
+            crate::git_store::sanitize_ref_component(actor.as_str())
+        );
+        let mut swept = 0usize;
+        for (review_ref, status) in storage.list_review_states()? {
+            if status != ReviewStatus::Pending || !review_ref.starts_with(&prefix) {
+                continue;
+            }
+            let headless = git.read_ref(&review_ref).map_err(map_git_error)?.is_none();
+            if headless {
+                tracing::warn!(review = %review_ref, "reconciling orphan pending state row; ref already gone");
+                storage.delete_review_state(&review_ref)?;
+                swept += 1;
+            }
+        }
+        Ok(swept)
+    }
+
     /// Reject a pending approval: delete the actor's pending review refs
     /// and their state rows. Merged history is never touched. Returns the
     /// last deleted review commit id (hex).
+    ///
+    /// Deletion order is fixed (ref first, then state row) and orphan state
+    /// rows are swept up front, so a repeated call after a mid-loop failure
+    /// converges to the same result instead of stalling on half-state.
     ///
     /// `reason` is an optional human-readable rejection reason used only for
     /// logging and diagnostics; it never changes the rollback semantics and
@@ -81,6 +121,7 @@ impl FileCheckpointManager {
         reason: Option<&str>,
     ) -> Result<String, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
+        let swept = self.reconcile_reviews(entity_id)?;
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let mut targets: Vec<(String, String)> = Vec::new();
@@ -118,11 +159,13 @@ impl FileCheckpointManager {
                 entity = %entity_id,
                 baseline = %last,
                 reason = %reason,
+                reconciled_orphans = swept,
                 "rejected pending approval",
             ),
             None => tracing::info!(
                 entity = %entity_id,
                 baseline = %last,
+                reconciled_orphans = swept,
                 "rejected pending approval without a reason",
             ),
         }
@@ -798,5 +841,52 @@ impl FileCheckpointManager {
             self.policy.conflict_behavior,
             self.workspace_root.as_deref(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn orphan_ref(manager: &FileCheckpointManager, entity: &str, tag: &str) -> String {
+        let actor = manager.actor_id_for(entity);
+        format!(
+            "refs/wf/review/{}-{tag}-0",
+            crate::git_store::sanitize_ref_component(actor.as_str())
+        )
+    }
+
+    #[test]
+    fn reconcile_sweeps_only_actor_orphans() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let storage = manager.storage_ref().unwrap();
+        let alice_row = orphan_ref(&manager, "alice", "7");
+        storage
+            .set_review_state(&alice_row, ReviewStatus::Pending)
+            .unwrap();
+        storage
+            .set_review_state("refs/wf/review/bob-7-0", ReviewStatus::Pending)
+            .unwrap();
+        assert_eq!(manager.reconcile_reviews("alice").unwrap(), 1);
+        assert_eq!(storage.get_review_state(&alice_row).unwrap(), None);
+        assert_eq!(
+            storage.get_review_state("refs/wf/review/bob-7-0").unwrap(),
+            Some(ReviewStatus::Pending)
+        );
+    }
+
+    #[test]
+    fn reject_converges_after_orphan_sweep() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let storage = manager.storage_ref().unwrap();
+        let alice_row = orphan_ref(&manager, "alice", "9");
+        storage
+            .set_review_state(&alice_row, ReviewStatus::Pending)
+            .unwrap();
+        let first = manager.reject_changes("alice", None);
+        assert!(first.is_err());
+        assert_eq!(storage.get_review_state(&alice_row).unwrap(), None);
+        let second = manager.reject_changes("alice", None);
+        assert!(second.is_err());
     }
 }

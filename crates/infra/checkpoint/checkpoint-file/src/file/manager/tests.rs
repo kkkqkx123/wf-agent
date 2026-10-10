@@ -423,6 +423,102 @@ fn approve_changes_full_batch_matches_legacy_behavior() {
 }
 
 #[test]
+fn approve_reuses_pending_when_edit_unchanged() {
+    let manager = manager();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one")])
+        .unwrap();
+    manager.move_agent_to_approval("exec-1").unwrap();
+    let before = manager
+        .git_ref()
+        .unwrap()
+        .list_refs(crate::git_store::REF_REVIEW_PREFIX)
+        .unwrap();
+    assert_eq!(before.len(), 1);
+    let (first_ref, first_head) = manager.reuse_or_submit_review("exec-1").unwrap();
+    assert_eq!(first_ref, before[0].0);
+    let (second_ref, second_head) = manager.reuse_or_submit_review("exec-1").unwrap();
+    assert_eq!(second_ref, first_ref);
+    assert_eq!(second_head, first_head);
+    let after = manager
+        .git_ref()
+        .unwrap()
+        .list_refs(crate::git_store::REF_REVIEW_PREFIX)
+        .unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].0, first_ref);
+    manager
+        .create_checkpoint("exec-1", &[entry("b.txt", b"two")])
+        .unwrap();
+    let (third_ref, third_head) = manager.reuse_or_submit_review("exec-1").unwrap();
+    assert_ne!(third_ref, first_ref);
+    assert_ne!(third_head, first_head);
+}
+
+#[test]
+fn sequential_partial_approvals_compose() {
+    let manager = manager();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-1", &[entry("b.txt", b"two")])
+        .unwrap();
+    let first = manager
+        .approve_changes(
+            "exec-1",
+            "feature-1",
+            Some(vec!["a.txt".to_string()]),
+            ConflictBehavior::Marker,
+            None,
+        )
+        .unwrap();
+    assert!(first.merged);
+    let second = manager
+        .approve_changes(
+            "exec-1",
+            "feature-1",
+            Some(vec!["b.txt".to_string()]),
+            ConflictBehavior::Marker,
+            None,
+        )
+        .unwrap();
+    assert!(second.merged);
+    let texts = feature_texts(&manager, "feature-1");
+    assert_eq!(texts.get("a.txt").map(String::as_str), Some("one"));
+    assert_eq!(texts.get("b.txt").map(String::as_str), Some("two"));
+}
+
+#[test]
+fn full_approve_closes_remainder_after_partial() {
+    let manager = manager();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-1", &[entry("b.txt", b"two")])
+        .unwrap();
+    let partial = manager
+        .approve_changes(
+            "exec-1",
+            "feature-1",
+            Some(vec!["a.txt".to_string()]),
+            ConflictBehavior::Marker,
+            None,
+        )
+        .unwrap();
+    assert!(partial.merged);
+    let full = manager
+        .approve_changes("exec-1", "feature-1", None, ConflictBehavior::Marker, None)
+        .unwrap();
+    assert!(full.merged);
+    let texts = feature_texts(&manager, "feature-1");
+    assert_eq!(texts.get("a.txt").map(String::as_str), Some("one"));
+    assert_eq!(texts.get("b.txt").map(String::as_str), Some("two"));
+    assert!(manager.list_pending_approvals().unwrap().is_empty());
+}
+
+#[test]
 fn conflict_flow_lists_and_resolves() {
     let manager = manager();
     // Agent 1 edits the first line and merges cleanly.

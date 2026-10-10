@@ -66,6 +66,29 @@ pub fn reject_changes(
         .map_err(ApiError::execution_with_source)
 }
 
+/// Merge named features into main in input order, one merge commit per
+/// feature. Explicit host action: promotion from the feature layer to the
+/// integration truth never happens automatically.
+pub fn merge_features_to_main(
+    ctx: &ApiContext,
+    feature_names: &[&str],
+) -> ApiResult<checkpoint_file::MergeCommitResult> {
+    manager(ctx)?
+        .merge_features_to_main(feature_names)
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Merge named features into main, then delete the feature pointers.
+/// Ancestry stays in the commit graph, so provenance is preserved.
+pub fn merge_branch_changes(
+    ctx: &ApiContext,
+    feature_names: &[&str],
+) -> ApiResult<checkpoint_file::MergeCommitResult> {
+    manager(ctx)?
+        .merge_branch_changes(feature_names)
+        .map_err(ApiError::execution_with_source)
+}
+
 /// Outcome of a single-shot approval review.
 ///
 /// `Decided` carries the merge outcome of the executed verdict tool.

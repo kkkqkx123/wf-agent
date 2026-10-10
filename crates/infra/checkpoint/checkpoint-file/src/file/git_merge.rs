@@ -214,6 +214,31 @@ impl FileCheckpointManager {
         Ok(pending.into_iter().next().map(|(r, h, _)| (r, h)))
     }
 
+    /// Reuse the newest pending review when it already points at the
+    /// current edit head; otherwise submit a fresh review ref. This keeps
+    /// repeated approvals without new edits from piling up review refs
+    /// while still capturing edits that advanced since the last submit.
+    pub(crate) fn reuse_or_submit_review(
+        &self,
+        entity_id: &str,
+    ) -> Result<(String, String), CheckpointError> {
+        let actor = self.actor_id_for(entity_id);
+        if let Some((review_ref, review_head)) =
+            self.newest_pending_review(actor.as_str())?
+        {
+            let git = self.git_ref()?;
+            let edit_head = git
+                .read_ref(&edit_ref_for_actor(actor.as_str()))
+                .map_err(map_git_error)?;
+            match edit_head {
+                None => return Ok((review_ref, review_head)),
+                Some(edit) if edit == review_head => return Ok((review_ref, review_head)),
+                _ => {}
+            }
+        }
+        self.submit_for_review(entity_id)
+    }
+
     /// Merge a review head into a feature ref with a true multi-parent
     /// merge. Conflicts advance the feature ref to an unresolved commit
     /// (blocking later main merges); clean merges mark the review
@@ -263,7 +288,33 @@ impl FileCheckpointManager {
             },
             (None, _) => HashMap::new(),
         };
-        let (merged, conflicts) = merge_file_maps(&base_tree, &feature_tree, &review_tree);
+        let dominated = match &feature_head {
+            Some(feature) => git
+                .is_ancestor(review_head, feature)
+                .map_err(map_git_error)
+                .unwrap_or(false),
+            None => false,
+        };
+        let (mut merged, conflicts) = merge_file_maps(&base_tree, &feature_tree, &review_tree);
+        if dominated {
+            // A withheld file reads as a feature-side deletion once its
+            // review is an ancestor of the feature. Restore the add
+            // semantics for such paths so earlier partial approvals stay
+            // completable; genuine resolutions (feature holds content)
+            // are untouched.
+            for (path, theirs) in &review_tree {
+                if feature_tree.contains_key(path) {
+                    continue;
+                }
+                if merged.get(path).is_some_and(|v| v.is_some()) {
+                    continue;
+                }
+                if base_tree.get(path) != Some(theirs) {
+                    continue;
+                }
+                merged.insert(path.clone(), Some(theirs.clone()));
+            }
+        }
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         let mut all_paths: Vec<String> = Vec::new();
         for (path, content) in &merged {

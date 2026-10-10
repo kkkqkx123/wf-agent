@@ -7,7 +7,6 @@ use wf_types::tool::{Tool, ToolPropertySchema, ToolType};
 use checkpoint_file::file::FileCheckpointManager;
 
 const APPROVE_CHANGES_TOOL_ID: &str = "approve_changes";
-const DEFAULT_FEATURE: &str = "default";
 
 /// Minimum trimmed length of a rejection reason (characters).
 const MIN_REJECT_REASON_LEN: usize = 8;
@@ -98,7 +97,8 @@ pub fn register_approval_tools(registry: &ToolRegistry, manager: FileCheckpointM
             let raw_reason = args.get("reason").and_then(|v| v.as_str());
 
             let outcome = if approve {
-                manager.approve_pending(agent_instance_id, DEFAULT_FEATURE)
+                let feature = FileCheckpointManager::default_feature_name(agent_instance_id);
+                manager.approve_pending(agent_instance_id, &feature)
             } else {
                 let trimmed = raw_reason.map(str::trim).unwrap_or("");
                 if trimmed.chars().count() < MIN_REJECT_REASON_LEN {

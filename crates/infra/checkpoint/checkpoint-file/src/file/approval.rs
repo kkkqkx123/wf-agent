@@ -217,9 +217,10 @@ impl FileCheckpointManager {
                 });
             }
         }
-        // Every approval starts from a fresh submission: edit to review is
-        // a ref copy, never a merge.
-        let (review_ref, review_head) = self.submit_for_review(entity_id)?;
+        // Reuse the pending submission when it already points at the
+        // current edit head; otherwise submit a fresh review ref. Edit to
+        // review stays a ref copy, never a merge.
+        let (review_ref, review_head) = self.reuse_or_submit_review(entity_id)?;
 
         // File-level approval: three-way merge only the selected paths from
         // the reviewed tree onto the feature ref, leaving the review pending
@@ -283,6 +284,13 @@ impl FileCheckpointManager {
                 },
                 None => HashMap::new(),
             };
+            let dominated = match &feature_head {
+                Some(feature) => git
+                    .is_ancestor(&review_head, feature)
+                    .map_err(map_git_error)
+                    .unwrap_or(false),
+                None => false,
+            };
             let mut merged_changes: HashMap<String, Option<Vec<u8>>> = HashMap::new();
             let mut conflict_files: Vec<String> = Vec::new();
             let mut approved: Vec<String> = Vec::new();
@@ -294,7 +302,18 @@ impl FileCheckpointManager {
                 if ours == theirs {
                     continue;
                 }
-                let outcome = crate::git_store::merge_file_contents(base, ours, theirs);
+                let mut outcome = crate::git_store::merge_file_contents(base, ours, theirs);
+                if !outcome.conflicted && outcome.bytes.is_none() && dominated {
+                    // A withheld file reads as a feature-side deletion once
+                    // its review is an ancestor of the feature. Restore the
+                    // add semantics so earlier partial approvals stay
+                    // completable.
+                    if let Some(theirs_bytes) = theirs {
+                        if base == Some(theirs_bytes) {
+                            outcome.bytes = Some(theirs_bytes.to_vec());
+                        }
+                    }
+                }
                 if outcome.conflicted {
                     conflict_files.push(path.clone());
                 }
@@ -644,7 +663,8 @@ impl FileCheckpointManager {
         }
     }
 
-    /// Full merge entry point for an actor: submit to review, then merge
+    /// Full merge entry point for an actor: reuse the pending review when
+    /// it matches the current edit head, otherwise submit, then merge
     /// into the named feature (the `ApprovalPolicy::auto` path). The merge
     /// commit itself is the multi-parent record linking the feature head
     /// and the review commit.
@@ -655,7 +675,7 @@ impl FileCheckpointManager {
     ) -> Result<MergeCommitResult, CheckpointError> {
         crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
-        let (review_ref, review_head) = self.submit_for_review(entity_id)?;
+        let (review_ref, review_head) = self.reuse_or_submit_review(entity_id)?;
         let merge_result = self.merge_review_into_feature(
             &review_ref,
             &review_head,

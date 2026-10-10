@@ -28,8 +28,8 @@ pub enum FailureBehavior {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalPolicy {
-    /// Skip the approval layer entirely: agent ends and is merged straight
-    /// into the feature (current default, behavior unchanged).
+    /// No-op: the actor edit line keeps its history and stays queryable.
+    /// Nothing is submitted for review and nothing is merged.
     #[default]
     None,
     /// Move agent changes to approval and immediately merge into the feature.

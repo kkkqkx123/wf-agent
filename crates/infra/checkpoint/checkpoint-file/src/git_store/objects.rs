@@ -178,88 +178,115 @@ impl GitStore {
 
     /// Build a new tree from a parent tree plus path changes
     /// (`None` blob = deletion). Pure object pipelining, no checkout.
+    /// Only trees along changed paths are loaded and rewritten; unchanged
+    /// subtrees are reused by identifier.
     pub fn build_tree_from_parent(
         &self,
         parent_tree: Option<&str>,
         changes: &HashMap<String, Option<(String, Vec<u8>)>>,
     ) -> Result<String, GitStoreError> {
-        // Split every tree level into nested maps, apply the changes at the
-        // leaves, then rebuild bottom-up.
-        #[derive(Default)]
-        struct Node {
-            blobs: HashMap<String, (String, String)>,
-            trees: HashMap<String, Box<Node>>,
-        }
-        fn load(store: &GitStore, tree_id: &str, node: &mut Node) -> Result<(), GitStoreError> {
-            for entry in store.read_tree(tree_id)? {
-                if entry.mode == "40000" {
-                    let mut child = Box::new(Node::default());
-                    load(store, &entry.id, &mut child)?;
-                    node.trees.insert(entry.name, child);
-                } else {
-                    node.blobs.insert(entry.name, (entry.mode, entry.id));
-                }
+        if changes.is_empty() {
+            if let Some(tree) = parent_tree {
+                return Ok(tree.to_string());
             }
-            Ok(())
+            return self.write_tree(&[]);
         }
-        let mut root = Node::default();
-        if let Some(tree) = parent_tree {
-            load(self, tree, &mut root)?;
-        }
+        let mut blob_changes: HashMap<String, Option<(String, String)>> =
+            HashMap::with_capacity(changes.len());
         for (path, change) in changes {
-            let mut parts: Vec<&str> = path.split('/').collect();
-            let Some(leaf) = parts.pop() else { continue };
-            let mut node = &mut root;
-            let mut ok = true;
-            for part in parts {
-                if node.blobs.contains_key(part) {
-                    ok = false;
-                    break;
-                }
-                node = node
-                    .trees
-                    .entry(part.to_string())
-                    .or_insert_with(|| Box::new(Node::default()));
-            }
-            if !ok {
-                return Err(GitStoreError::InvalidInput(format!(
-                    "path collides with a file: '{path}'"
-                )));
-            }
             match change {
                 Some((mode, bytes)) => {
                     let blob = self.write_blob(bytes)?;
-                    node.blobs.insert(leaf.to_string(), (mode.clone(), blob));
-                    node.trees.remove(leaf);
+                    blob_changes.insert(path.clone(), Some((mode.clone(), blob)));
                 }
                 None => {
-                    node.blobs.remove(leaf);
-                    node.trees.remove(leaf);
+                    blob_changes.insert(path.clone(), None);
                 }
             }
         }
-        fn store_node(git: &GitStore, node: &Node) -> Result<String, GitStoreError> {
-            let mut entries = Vec::new();
-            for (name, child) in &node.trees {
-                if child.blobs.is_empty() && child.trees.is_empty() {
-                    continue;
-                }
-                entries.push(TreeEntry {
-                    mode: "40000".to_string(),
-                    name: name.clone(),
-                    id: store_node(git, child)?,
-                });
-            }
-            for (name, (mode, blob)) in &node.blobs {
-                entries.push(TreeEntry {
-                    mode: mode.clone(),
-                    name: name.clone(),
-                    id: blob.clone(),
-                });
-            }
-            git.write_tree(&entries)
+        let staged: HashMap<String, Option<(String, String)>> = blob_changes;
+        match self.build_tree_level(parent_tree, &staged)? {
+            Some(id) => Ok(id),
+            None => self.write_tree(&[]),
         }
-        store_node(self, &root)
+    }
+
+    fn build_tree_level(
+        &self,
+        parent_tree: Option<&str>,
+        staged: &HashMap<String, Option<(String, String)>>,
+    ) -> Result<Option<String>, GitStoreError> {
+        let mut blobs: HashMap<String, (String, String)> = HashMap::new();
+        let mut trees: HashMap<String, String> = HashMap::new();
+        if let Some(tree) = parent_tree {
+            for entry in self.read_tree(tree)? {
+                if entry.mode == "40000" {
+                    trees.insert(entry.name, entry.id);
+                } else {
+                    blobs.insert(entry.name, (entry.mode, entry.id));
+                }
+            }
+        }
+        let mut deeper: HashMap<String, HashMap<String, Option<(String, String)>>> = HashMap::new();
+        for (path, change) in staged {
+            match path.split_once('/') {
+                None => match change {
+                    Some((mode, blob)) => {
+                        blobs.insert(path.clone(), (mode.clone(), blob.clone()));
+                        trees.remove(path);
+                    }
+                    None => {
+                        blobs.remove(path);
+                        trees.remove(path);
+                    }
+                },
+                Some((head, rest)) => {
+                    deeper
+                        .entry(head.to_string())
+                        .or_default()
+                        .insert(rest.to_string(), change.clone());
+                }
+            }
+        }
+        for (dir, sub) in &deeper {
+            if blobs.contains_key(dir) {
+                let full = sub
+                    .keys()
+                    .next()
+                    .map_or(dir.clone(), |r| format!("{dir}/{r}"));
+                return Err(GitStoreError::InvalidInput(format!(
+                    "path collides with a file: '{full}'"
+                )));
+            }
+            let child_parent = trees.get(dir).map(String::as_str);
+            match self.build_tree_level(child_parent, sub)? {
+                Some(child_id) => {
+                    trees.insert(dir.clone(), child_id);
+                }
+                None => {
+                    trees.remove(dir);
+                }
+            }
+        }
+        if blobs.is_empty() && trees.is_empty() {
+            return Ok(None);
+        }
+        let mut entries = Vec::with_capacity(blobs.len() + trees.len());
+        for (name, id) in &trees {
+            entries.push(TreeEntry {
+                mode: "40000".to_string(),
+                name: name.clone(),
+                id: id.clone(),
+            });
+        }
+        for (name, (mode, blob)) in &blobs {
+            entries.push(TreeEntry {
+                mode: mode.clone(),
+                name: name.clone(),
+                id: blob.clone(),
+            });
+        }
+        Ok(Some(self.write_tree(&entries)?))
     }
 
     /// Store a commit object. Empty-change commits are the caller's

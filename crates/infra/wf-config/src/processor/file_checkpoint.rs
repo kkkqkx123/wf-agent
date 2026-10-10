@@ -16,6 +16,7 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         approval_policy: user.approval_policy,
         conflict_behavior: user.conflict_behavior,
         manual_watch: user.manual_watch,
+        manual_poll_ms: user.manual_poll_ms,
         gc_interval_secs: user.gc_interval_secs,
         gc_retention: user.gc_retention,
     }
@@ -36,7 +37,10 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
     }
     if config.enabled
         && config.manual_watch
-        && config.workspace_root.as_deref().is_none_or(|root| root.trim().is_empty())
+        && config
+            .workspace_root
+            .as_deref()
+            .is_none_or(|root| root.trim().is_empty())
     {
         return Err(ConfigError::Validation(
             "file_checkpoint.manual_watch requires file_checkpoint.workspace_root".to_string(),
@@ -66,6 +70,13 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
             }
         }
     }
+    if let Some(poll_ms) = config.manual_poll_ms {
+        if poll_ms == 0 {
+            return Err(ConfigError::Validation(
+                "file_checkpoint.manual_poll_ms must not be zero".to_string(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -85,6 +96,7 @@ mod tests {
             approval_policy: wf_types::config::file_checkpoint::ApprovalPolicy::Manual,
             conflict_behavior: wf_types::config::file_checkpoint::ConflictBehavior::Fail,
             manual_watch: true,
+            manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
         };
@@ -114,6 +126,7 @@ mod tests {
             approval_policy: wf_types::config::file_checkpoint::ApprovalPolicy::default(),
             conflict_behavior: wf_types::config::file_checkpoint::ConflictBehavior::default(),
             manual_watch: false,
+            manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
         };
@@ -130,6 +143,7 @@ mod tests {
             approval_policy: wf_types::config::file_checkpoint::ApprovalPolicy::default(),
             conflict_behavior: wf_types::config::file_checkpoint::ConflictBehavior::default(),
             manual_watch: false,
+            manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
         }

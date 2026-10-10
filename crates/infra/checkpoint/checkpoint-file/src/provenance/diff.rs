@@ -7,7 +7,9 @@ use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
 use checkpoint_base::error::CheckpointError;
 
 use super::types::{FileDiffKind, FileDiffView, WorkspaceFile};
-use super::workspace::{get_actor_workspace, get_main_workspace};
+use super::workspace::{actor_tree_ids, main_tree_ids};
+use crate::file::git_write::map_git_error;
+use crate::file::util::sha256_hex;
 
 /// Per-file diff between two workspace states. Binary files report
 /// `Modified` without a diff.
@@ -82,23 +84,94 @@ fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Opt
     )
 }
 
-/// Diff between two actor workspaces.
+/// Diff between two actor workspaces. Identifier maps are compared first;
+/// only files with differing identifiers load bytes for content diff.
 pub fn diff_actors(
     git: &GitStore,
     actor_a: &str,
     actor_b: &str,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
-    let a = get_actor_workspace(git, actor_a)?;
-    let b = get_actor_workspace(git, actor_b)?;
-    Ok(diff_workspaces(&a, &b))
+    let a = actor_tree_ids(git, actor_a)?;
+    let b = actor_tree_ids(git, actor_b)?;
+    diff_ids(git, &a, &b)
 }
 
-/// Diff between an actor workspace and the main line.
+/// Diff between an actor workspace and the main line. Same lazy loading as
+/// actor diffs: unchanged files never pay blob reads.
 pub fn diff_against_main(
     git: &GitStore,
     actor: &str,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
-    let actor_files = get_actor_workspace(git, actor)?;
-    let main_files = get_main_workspace(git)?;
-    Ok(diff_workspaces(&actor_files, &main_files))
+    let actor_files = actor_tree_ids(git, actor)?;
+    let main_files = main_tree_ids(git)?;
+    diff_ids(git, &actor_files, &main_files)
+}
+
+fn diff_ids(
+    git: &GitStore,
+    a: &std::collections::HashMap<String, (String, String)>,
+    b: &std::collections::HashMap<String, (String, String)>,
+) -> Result<Vec<FileDiffView>, CheckpointError> {
+    use std::collections::HashSet;
+    let mut paths: Vec<&str> = a
+        .keys()
+        .chain(b.keys())
+        .map(String::as_str)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    paths.sort_unstable();
+    let mut views = Vec::with_capacity(paths.len());
+    for path in paths {
+        match (a.get(path), b.get(path)) {
+            (None, Some(_)) => views.push(FileDiffView {
+                path: path.to_string(),
+                kind: FileDiffKind::Added,
+                diff: None,
+                additions: None,
+                deletions: None,
+            }),
+            (Some(_), None) => views.push(FileDiffView {
+                path: path.to_string(),
+                kind: FileDiffKind::Deleted,
+                diff: None,
+                additions: None,
+                deletions: None,
+            }),
+            (None, None) => {}
+            (Some((_, blob_a)), Some((_, blob_b))) => {
+                if blob_a == blob_b {
+                    views.push(FileDiffView {
+                        path: path.to_string(),
+                        kind: FileDiffKind::Unchanged,
+                        diff: None,
+                        additions: None,
+                        deletions: None,
+                    });
+                    continue;
+                }
+                let bytes_a = git.read_blob(blob_a).map_err(map_git_error)?;
+                let bytes_b = git.read_blob(blob_b).map_err(map_git_error)?;
+                if sha256_hex(&bytes_a) == sha256_hex(&bytes_b) {
+                    views.push(FileDiffView {
+                        path: path.to_string(),
+                        kind: FileDiffKind::Unchanged,
+                        diff: None,
+                        additions: None,
+                        deletions: None,
+                    });
+                    continue;
+                }
+                let (diff, additions, deletions) = text_diff(&bytes_a, &bytes_b);
+                views.push(FileDiffView {
+                    path: path.to_string(),
+                    kind: FileDiffKind::Modified,
+                    diff,
+                    additions,
+                    deletions,
+                });
+            }
+        }
+    }
+    Ok(views)
 }

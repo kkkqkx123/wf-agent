@@ -47,6 +47,36 @@ pub fn get_actor_workspace(
     workspace_files_for_tree(git, &commit.tree, commit.committer_ts)
 }
 
+/// File identifier map for an actor line without loading bytes. Used by
+/// diff paths so unchanged files never pay blob reads.
+pub fn actor_tree_ids(
+    git: &GitStore,
+    actor: &str,
+) -> Result<std::collections::HashMap<String, (String, String)>, CheckpointError> {
+    let head = git
+        .read_ref(&edit_ref_for_actor(actor))
+        .map_err(map_git_error)?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: format!("actor workspace for '{actor}'"),
+        })?;
+    let commit = git.read_commit(&head).map_err(map_git_error)?;
+    git.tree_to_files(&commit.tree).map_err(map_git_error)
+}
+
+/// File identifier map for the main line without loading bytes.
+pub fn main_tree_ids(
+    git: &GitStore,
+) -> Result<std::collections::HashMap<String, (String, String)>, CheckpointError> {
+    let head = git
+        .read_ref(REF_MAIN)
+        .map_err(map_git_error)?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: "main workspace".to_string(),
+        })?;
+    let commit = git.read_commit(&head).map_err(map_git_error)?;
+    git.tree_to_files(&commit.tree).map_err(map_git_error)
+}
+
 /// The main line's reconstructed file set (`diff_against_main` base).
 pub fn get_main_workspace(git: &GitStore) -> Result<Vec<WorkspaceFile>, CheckpointError> {
     let head = git

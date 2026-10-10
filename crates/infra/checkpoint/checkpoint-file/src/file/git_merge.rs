@@ -223,9 +223,7 @@ impl FileCheckpointManager {
         entity_id: &str,
     ) -> Result<(String, String), CheckpointError> {
         let actor = self.actor_id_for(entity_id);
-        if let Some((review_ref, review_head)) =
-            self.newest_pending_review(actor.as_str())?
-        {
+        if let Some((review_ref, review_head)) = self.newest_pending_review(actor.as_str())? {
             let git = self.git_ref()?;
             let edit_head = git
                 .read_ref(&edit_ref_for_actor(actor.as_str()))

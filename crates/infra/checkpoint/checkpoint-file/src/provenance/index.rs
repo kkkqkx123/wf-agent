@@ -45,9 +45,7 @@ pub(crate) fn changed_paths(
     commit: &crate::git_store::GitCommit,
 ) -> Result<Vec<String>, CheckpointError> {
     use std::collections::HashSet;
-    let current = git
-        .tree_to_files(&commit.tree)
-        .map_err(map_git_error)?;
+    let current = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
     if commit.parents.is_empty() {
         let mut paths: Vec<String> = current.into_keys().collect();
         paths.sort();

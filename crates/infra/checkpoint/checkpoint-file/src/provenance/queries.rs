@@ -64,6 +64,32 @@ fn summaries_for_commit(
     Ok(out)
 }
 
+/// Summary for a single path at a commit without expanding other files.
+/// Returns the present-file summary when the path exists, otherwise `None`
+/// so callers can synthesize a deletion tombstone from the changed set.
+fn summary_for_path(
+    git: &GitStore,
+    commit: &GitCommit,
+    path: &str,
+) -> Result<Option<DeltaSummary>, CheckpointError> {
+    let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+    let Some((_, blob)) = files.get(path) else {
+        return Ok(None);
+    };
+    let bytes = git.read_blob(blob).map_err(map_git_error)?;
+    let source = commit
+        .trailer(TRAILER_ACTOR)
+        .unwrap_or_else(|| "agent".to_string());
+    Ok(Some(DeltaSummary {
+        file: path.to_string(),
+        source,
+        timestamp: commit.committer_ts,
+        snapshot_id: commit.id.clone(),
+        hash: sha256_hex(&bytes),
+        message: intent_line(&commit.message),
+    }))
+}
+
 /// Commits touching one actor: index fast path, bounded graph scan fallback.
 /// The fallback scans at most `MAX_FALLBACK_SCAN_COMMITS` commits; larger
 /// stores must rebuild the source index instead of cold scanning.
@@ -216,6 +242,8 @@ pub fn list_changes_by_path(
     // Path history is exact: no similarity expansion. A caller that wants
     // rename-spanning history uses `file_timeline`. Deletions synthesize a
     // tombstone summary since the file is absent from the commit tree.
+    // Only the target path is loaded per commit; other files are never
+    // expanded.
     let mut changes = Vec::new();
     for commit in commits {
         if let Some((start, end)) = time_range {
@@ -223,30 +251,25 @@ pub fn list_changes_by_path(
                 continue;
             }
         }
-        let mut matched = false;
-        for summary in summaries_for_commit(git, &commit)? {
-            if summary.file == path {
-                changes.push(summary);
-                matched = true;
-            }
+        if let Some(summary) = summary_for_path(git, &commit, path)? {
+            changes.push(summary);
+            continue;
         }
-        if !matched {
-            let Ok(changed) = super::index::changed_paths(git, &commit) else {
-                continue;
-            };
-            if changed.iter().any(|p| p == path) {
-                let source = commit
-                    .trailer(TRAILER_ACTOR)
-                    .unwrap_or_else(|| "agent".to_string());
-                changes.push(DeltaSummary {
-                    file: path.to_string(),
-                    source,
-                    timestamp: commit.committer_ts,
-                    snapshot_id: commit.id.clone(),
-                    hash: String::new(),
-                    message: intent_line(&commit.message),
-                });
-            }
+        let Ok(changed) = super::index::changed_paths(git, &commit) else {
+            continue;
+        };
+        if changed.iter().any(|p| p == path) {
+            let source = commit
+                .trailer(TRAILER_ACTOR)
+                .unwrap_or_else(|| "agent".to_string());
+            changes.push(DeltaSummary {
+                file: path.to_string(),
+                source,
+                timestamp: commit.committer_ts,
+                snapshot_id: commit.id.clone(),
+                hash: String::new(),
+                message: intent_line(&commit.message),
+            });
         }
     }
     changes.sort_by(|a, b| {

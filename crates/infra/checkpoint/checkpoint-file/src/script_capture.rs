@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::file::util::sha256_hex;
 use crate::scan::WorkspaceScanner;
 use checkpoint_base::error::CheckpointError;
 
@@ -120,13 +119,13 @@ impl WorkspaceChangeCollector {
         if self.scanner.is_ignored(&relative) {
             return Ok(());
         }
-        let content = std::fs::read(walk_path).map_err(|e| {
+        let hash = crate::file::util::sha256_file(walk_path).map_err(|e| {
             CheckpointError::Io(std::io::Error::other(format!(
                 "failed to read scoped file '{}': {e}",
                 walk_path.display()
             )))
         })?;
-        out.insert(recorded_path.to_path_buf(), sha256_hex(&content));
+        out.insert(recorded_path.to_path_buf(), hash);
         Ok(())
     }
 
@@ -218,6 +217,7 @@ impl WorkspaceChangeCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file::util::sha256_hex;
     use crate::scan::ScanConfig;
 
     fn collector(root: &Path, prefixes: &[&str]) -> WorkspaceChangeCollector {

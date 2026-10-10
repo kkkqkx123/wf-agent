@@ -255,7 +255,9 @@ impl FileCheckpointManager {
         reachable: &mut std::collections::HashSet<String>,
     ) {
         reachable.insert(commit_id.to_string());
-        reachable.insert(tree_id.to_string());
+        if !reachable.insert(tree_id.to_string()) {
+            return;
+        }
         let Ok(files) = git.tree_to_files(tree_id) else {
             return;
         };

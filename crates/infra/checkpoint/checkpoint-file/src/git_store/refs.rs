@@ -39,9 +39,7 @@ pub(crate) fn sanitize_ref_component(raw: &str) -> String {
     while cleaned.contains("//") {
         cleaned = cleaned.replace("//", "/_");
     }
-    let trimmed = cleaned
-        .trim_matches(|c| c == '/' || c == '.')
-        .to_string();
+    let trimmed = cleaned.trim_matches(|c| c == '/' || c == '.').to_string();
     if trimmed.is_empty() {
         return "unnamed".to_string();
     }

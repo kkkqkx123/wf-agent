@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::file::util::{normalize_posix_separators, sha256_hex};
+use crate::file::util::normalize_posix_separators;
 use crate::file::FileState;
 use checkpoint_base::error::CheckpointError;
 
@@ -154,6 +154,18 @@ impl WorkspaceScanner {
     /// files are collected upfront and combined with the hardcoded and custom
     /// patterns.
     pub fn scan(&self, root: &Path) -> Result<WorkspaceScan, CheckpointError> {
+        self.scan_with_baseline(root, &HashMap::new())
+    }
+
+    /// Incremental scan: entries whose size and modification time match the
+    /// baseline reuse the baseline hash without reading bytes. Clock skew or
+    /// coarse timestamps fall back to hashing on any mismatch, so the hash
+    /// stays authoritative.
+    pub fn scan_with_baseline(
+        &self,
+        root: &Path,
+        baseline: &HashMap<String, FileState>,
+    ) -> Result<WorkspaceScan, CheckpointError> {
         let mut search = custom_search(&[]);
         self.collect_gitignore(root, root, &mut search)?;
         if !self.config.custom_ignore_patterns.is_empty() {
@@ -168,7 +180,7 @@ impl WorkspaceScanner {
 
         let mut files = Vec::new();
         let mut dirs = Vec::new();
-        self.scan_dir(root, root, &search, &mut files, &mut dirs)?;
+        self.scan_dir(root, root, &search, baseline, &mut files, &mut dirs)?;
         let empty_dirs = find_empty_dirs(&dirs, &files);
         Ok(WorkspaceScan {
             files,
@@ -235,6 +247,7 @@ impl WorkspaceScanner {
         root: &Path,
         current: &Path,
         search: &gix_ignore::Search,
+        baseline: &HashMap<String, FileState>,
         files: &mut Vec<FileState>,
         dirs: &mut Vec<String>,
     ) -> Result<(), CheckpointError> {
@@ -280,9 +293,9 @@ impl WorkspaceScanner {
             }
             if file_type.is_dir() {
                 dirs.push(relative);
-                self.scan_dir(root, &entry.path(), search, files, dirs)?;
+                self.scan_dir(root, &entry.path(), search, baseline, files, dirs)?;
             } else if file_type.is_file() {
-                match self.hash_file(&relative, &entry.path()) {
+                match self.hash_file_with_baseline(&relative, &entry.path(), baseline) {
                     Ok(state) => files.push(state),
                     Err(CheckpointError::Io(err)) => {
                         self.handle_failure(&format!("failed to hash '{}'", relative), &err)?;
@@ -294,19 +307,56 @@ impl WorkspaceScanner {
         Ok(())
     }
 
-    fn hash_file(&self, relative: &str, absolute: &Path) -> Result<FileState, CheckpointError> {
-        let content = fs::read(absolute)?;
+    fn hash_file_with_baseline(
+        &self,
+        relative: &str,
+        absolute: &Path,
+        baseline: &HashMap<String, FileState>,
+    ) -> Result<FileState, CheckpointError> {
+        use std::io::Read;
         let metadata = fs::metadata(absolute)?;
+        let size = metadata.len();
         let last_modified = metadata
             .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        if let Some(previous) = baseline.get(relative) {
+            if previous.size == size
+                && previous.last_modified == last_modified
+                && !previous.hash.is_empty()
+            {
+                return Ok(FileState {
+                    path: relative.to_string(),
+                    hash: previous.hash.clone(),
+                    size,
+                    last_modified,
+                    deleted: false,
+                });
+            }
+        }
+        let file = std::fs::File::open(absolute)?;
+        let mut reader = std::io::BufReader::with_capacity(65536, file);
+        let mut hasher = sha2::Sha256::new();
+        use sha2::Digest;
+        let mut buf = [0u8; 65536];
+        loop {
+            let read = reader.read(&mut buf)?;
+            if read == 0 {
+                break;
+            }
+            hasher.update(&buf[..read]);
+        }
+        let hash = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         Ok(FileState {
             path: relative.to_string(),
-            hash: sha256_hex(&content),
-            size: metadata.len(),
+            hash,
+            size,
             last_modified,
             deleted: false,
         })
@@ -357,6 +407,7 @@ fn find_empty_dirs(dirs: &[String], files: &[FileState]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file::util::sha256_hex;
 
     fn write(root: &Path, rel: &str, content: &[u8]) {
         let path = root.join(rel);

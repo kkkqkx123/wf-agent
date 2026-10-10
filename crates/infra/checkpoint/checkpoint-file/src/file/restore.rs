@@ -96,8 +96,8 @@ impl FileCheckpointManager {
         self.materialize_commit(&commit_id, base_dir, &opts)?;
         let git = self.git_ref()?;
         let commit = git.read_commit(checkpoint_id).map_err(map_git_error)?;
-        let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
-        let mut paths: Vec<String> = files.keys().cloned().collect();
+        let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+        let mut paths: Vec<String> = files.into_keys().collect();
         paths.sort();
         Ok(paths
             .into_iter()

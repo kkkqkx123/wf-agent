@@ -17,6 +17,28 @@ pub fn sha256_hex(data: &[u8]) -> String {
         .collect()
 }
 
+/// Streaming SHA-256 of a file without buffering the whole content.
+/// Returns the hex digest. Large binaries no longer allocate a full copy.
+pub fn sha256_file(path: &Path) -> Result<String, std::io::Error> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::with_capacity(65536, file);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let read = reader.read(&mut buf)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buf[..read]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect())
+}
+
 /// Single posix-separator normalization for workspace-relative paths.
 /// Every scan, capture and restore path routes through this function so
 /// backslash handling never diverges between modules.
@@ -143,10 +165,21 @@ pub(crate) fn resolve_restore_target(
     base_dir: &Path,
     path: &str,
 ) -> Result<PathBuf, CheckpointError> {
-    let relative = validate_workspace_relative_path(path)?;
     let base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
-    let joined = base.join(&relative);
-    if !joined.starts_with(&base) {
+    resolve_restore_target_with_base(&base, base_dir, path)
+}
+
+/// Resolve with an already canonicalized base directory. Callers expanding
+/// many files canonicalize the base once and reuse it instead of paying one
+/// canonicalization per file.
+pub(crate) fn resolve_restore_target_with_base(
+    canonical_base: &Path,
+    base_dir: &Path,
+    path: &str,
+) -> Result<PathBuf, CheckpointError> {
+    let relative = validate_workspace_relative_path(path)?;
+    let joined = canonical_base.join(&relative);
+    if !joined.starts_with(canonical_base) {
         return Err(CheckpointError::Validation {
             reason: format!(
                 "file checkpoint path '{}' escapes base directory '{}'",
@@ -164,7 +197,7 @@ pub(crate) fn resolve_restore_target(
             })?;
     }
     let canonical_parent = existing.canonicalize().map_err(CheckpointError::Io)?;
-    if !canonical_parent.starts_with(&base) {
+    if !canonical_parent.starts_with(canonical_base) {
         return Err(CheckpointError::Validation {
             reason: format!(
                 "file checkpoint path '{}' escapes base directory '{}'",

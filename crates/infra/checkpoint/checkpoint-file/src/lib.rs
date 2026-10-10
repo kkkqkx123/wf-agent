@@ -43,6 +43,4 @@ pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
 pub use scope::ScopeEndOutcome;
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use session::CheckpointSession;
-pub use watcher::{
-    normalize_absolute_path, FileChangeKind, FileChangeRecord, ManualChangeService,
-};
+pub use watcher::{normalize_absolute_path, FileChangeKind, FileChangeRecord, ManualChangeService};

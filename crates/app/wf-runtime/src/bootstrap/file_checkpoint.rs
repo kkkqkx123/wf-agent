@@ -43,7 +43,8 @@ pub fn init_manual_change_service(
     if !config.enabled || !config.manual_watch {
         return Ok(None);
     }
-    match checkpoint_file::watcher::ManualChangeService::start(manager.clone(), root, 200) {
+    let poll_ms = config.manual_poll_ms.unwrap_or(2000);
+    match checkpoint_file::watcher::ManualChangeService::start(manager.clone(), root, poll_ms) {
         Ok(service) => {
             info!(root = %root, "Manual file watcher started");
             Ok(Some(service))

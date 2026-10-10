@@ -235,11 +235,7 @@ impl FileCheckpointManager {
     ) -> Result<Option<String>, CheckpointError> {
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
-        let mut ignore_patterns = self
-            .policy
-            .scan_config
-            .custom_ignore_patterns
-            .clone();
+        let mut ignore_patterns = self.policy.scan_config.custom_ignore_patterns.clone();
         ignore_patterns.extend(crate::scan::storage_exclude_patterns(
             base_dir,
             storage.db_path().as_deref(),
@@ -268,9 +264,9 @@ impl FileCheckpointManager {
         // Agent-owned content: union of main plus every edit-ref head tree.
         // Deterministic rule: a worktree file matching any tracked agent
         // content is agent-owned and skipped; otherwise it is human.
-        // All known bytes per path are retained so main versus edit
-        // divergence never misclassifies an agent file as human.
-        let mut owned: HashMap<String, std::collections::HashSet<Vec<u8>>> = HashMap::new();
+        // Identifier maps load first without bytes; tracked bytes load only
+        // for worktree paths so large stores never retain every reference.
+        let mut owned_ids: HashMap<String, Vec<String>> = HashMap::new();
         let mut ref_names = vec![crate::git_store::REF_MAIN.to_string()];
         for (name, _) in git
             .list_refs(crate::git_store::REF_EDIT_PREFIX)
@@ -279,54 +275,74 @@ impl FileCheckpointManager {
             ref_names.push(name);
         }
         ref_names.sort();
-        for name in ref_names {
-            let Some(head) = git.read_ref(&name).map_err(map_git_error)? else {
+        for name in &ref_names {
+            let Some(head) = git.read_ref(name).map_err(map_git_error)? else {
                 continue;
             };
             let Ok(commit) = git.read_commit(&head) else {
                 continue;
             };
-            if let Ok(files) = git.tree_to_bytes(&commit.tree) {
-                for (path, bytes) in files {
-                    owned.entry(path).or_default().insert(bytes);
+            if let Ok(files) = git.tree_to_files(&commit.tree) {
+                for (path, (_, blob)) in files {
+                    owned_ids.entry(path).or_default().push(blob);
                 }
             }
         }
-        let human_head = git.read_ref(REF_HUMAN).map_err(map_git_error)?;
-        let human_tree: HashMap<String, Vec<u8>> = match &human_head {
-            Some(id) => git
-                .read_commit(id)
-                .map_err(map_git_error)
-                .and_then(|c| git.tree_to_bytes(&c.tree).map_err(map_git_error))
-                .unwrap_or_default(),
-            None => HashMap::new(),
-        };
-        let main_tree: HashMap<String, Vec<u8>> = match git
+        let human_ids: HashMap<String, (String, String)> =
+            match git.read_ref(REF_HUMAN).map_err(map_git_error)? {
+                Some(id) => git
+                    .read_commit(&id)
+                    .map_err(map_git_error)
+                    .and_then(|c| git.tree_to_files(&c.tree).map_err(map_git_error))
+                    .unwrap_or_default(),
+                None => HashMap::new(),
+            };
+        let main_ids: HashMap<String, (String, String)> = match git
             .read_ref(crate::git_store::REF_MAIN)
             .map_err(map_git_error)?
         {
             Some(id) => git
                 .read_commit(&id)
                 .map_err(map_git_error)
-                .and_then(|c| git.tree_to_bytes(&c.tree).map_err(map_git_error))
+                .and_then(|c| git.tree_to_files(&c.tree).map_err(map_git_error))
                 .unwrap_or_default(),
             None => HashMap::new(),
         };
+        let read_tracked = |blob: &str| git.read_blob(blob).map_err(map_git_error);
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         for (path, bytes) in &worktree {
-            if owned.get(path).is_some_and(|known| known.contains(bytes)) {
+            let mut agent_owned = false;
+            if let Some(candidates) = owned_ids.get(path) {
+                for blob in candidates {
+                    if let Ok(known) = read_tracked(blob) {
+                        if &known == bytes {
+                            agent_owned = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if agent_owned {
                 // Revert sync: the worktree matches main exactly while the
                 // human ref still carries an older edit. Record the sync so
                 // the human ref follows the revert instead of going stale.
-                let matches_main = main_tree.get(path).is_some_and(|m| m == bytes);
-                let human_differs = human_tree.get(path).is_some_and(|h| h != bytes);
+                let matches_main = main_ids
+                    .get(path)
+                    .is_some_and(|(_, blob)| read_tracked(blob).is_ok_and(|m| &m == bytes));
+                let human_differs = human_ids
+                    .get(path)
+                    .is_some_and(|(_, blob)| read_tracked(blob).is_ok_and(|h| &h != bytes));
                 if matches_main && human_differs {
                     changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes.clone())));
                 }
                 continue;
             }
-            if human_tree.get(path).is_some_and(|known| known == bytes) {
-                continue;
+            if let Some((_, blob)) = human_ids.get(path) {
+                if let Ok(known) = read_tracked(blob) {
+                    if &known == bytes {
+                        continue;
+                    }
+                }
             }
             changes.insert(path.clone(), Some((MODE_FILE.to_string(), bytes.clone())));
         }
@@ -335,18 +351,19 @@ impl FileCheckpointManager {
         // agents still carry are ambiguous and stay uncommitted (see the
         // method docs): they are reported loudly so the gap stays
         // observable instead of silently diverging.
-        let mut tracked: HashMap<String, Vec<u8>> = human_tree.clone();
-        for path in owned.keys() {
-            tracked.entry(path.clone()).or_default();
+        let mut tracked_paths: std::collections::HashSet<String> =
+            human_ids.keys().cloned().collect();
+        for path in owned_ids.keys() {
+            tracked_paths.insert(path.clone());
         }
         let mut ambiguous_deletes: Vec<String> = Vec::new();
-        for path in tracked.keys() {
+        for path in &tracked_paths {
             if worktree.contains_key(path) {
                 continue;
             }
-            if !owned.contains_key(path) {
+            if !owned_ids.contains_key(path) {
                 changes.insert(path.clone(), None);
-            } else if human_tree.contains_key(path) {
+            } else if human_ids.contains_key(path) {
                 ambiguous_deletes.push(path.clone());
             }
         }

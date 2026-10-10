@@ -52,8 +52,13 @@ impl FileCheckpointManager {
         }
         let commit_id = self.commit_edit_group(entity_id, &session_id, Some("checkpoint"))?;
         let git = self.git_ref()?;
-        let chain_length = git.log(&commit_id, 0).map_err(map_git_error)?.len() as u64;
-        let is_full = chain_length <= 1;
+        let commit = git.read_commit(&commit_id).map_err(map_git_error)?;
+        let is_full = commit.parents.is_empty();
+        let chain_length = if is_full {
+            1
+        } else {
+            git.log(&commit_id, 1025).map_err(map_git_error)?.len() as u64
+        };
         Ok((self.project_commit(&commit_id)?, chain_length, is_full))
     }
 

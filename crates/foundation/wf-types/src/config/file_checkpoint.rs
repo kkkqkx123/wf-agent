@@ -87,6 +87,11 @@ pub struct FileCheckpointConfig {
     /// `FileCheckpointConfig.enabled` and `workspace_root` are set).
     #[serde(default)]
     pub manual_watch: bool,
+    /// Manual watcher poll interval in milliseconds; `None` uses the
+    /// built-in default. Larger values cut background full-scan cost on
+    /// large workspaces.
+    #[serde(default)]
+    pub manual_poll_ms: Option<u64>,
     /// Physical GC auto-run interval in seconds; `None` = never run
     /// automatically (explicit `run_gc` / API only).
     #[serde(default)]

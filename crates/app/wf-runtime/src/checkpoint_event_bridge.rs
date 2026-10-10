@@ -30,7 +30,16 @@ pub fn spawn(
         loop {
             match receiver.recv().await {
                 Ok(event) => forward(&bus, &event),
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    // The bus dropped events this subscriber could not keep up
+                    // with; warn with the skipped count so fault-class events
+                    // never go missing silently.
+                    tracing::warn!(
+                        skipped = skipped,
+                        "checkpoint event bridge lagged and skipped events"
+                    );
+                    continue;
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }

@@ -118,6 +118,77 @@ async fn load_batch_reports_missing() {
 }
 
 #[tokio::test]
+async fn save_honors_configured_compression() {
+    use checkpoint_base::serializer::CheckpointSerializer;
+    use wf_types::checkpoint::CompressionStrategy;
+
+    // Small payload stays below the Auto threshold, so it discriminates
+    // Gzip (compresses anyway) from the default.
+    let storage = make_storage();
+    let gzip_mgr = StorageBackedStateManager::<Envelope>::new(storage.clone())
+        .with_compression(CompressionStrategy::Gzip);
+    gzip_mgr
+        .save(
+            &make_envelope(
+                "cp-small",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "a"})),
+            ),
+            "test",
+            "exec-1",
+        )
+        .await
+        .unwrap();
+    let (raw, _) = storage
+        .load("cp-small")
+        .await
+        .unwrap()
+        .expect("row persisted");
+    assert!(
+        CheckpointSerializer::is_compressed(&raw),
+        "Gzip strategy must compress even small payloads"
+    );
+    // Reads stay transparent regardless of the write strategy.
+    assert_eq!(
+        gzip_mgr.load("cp-small").await.unwrap().unwrap().id,
+        "cp-small"
+    );
+
+    // Large payload proves None skips compression where Auto would apply it.
+    let storage = make_storage();
+    let none_mgr = StorageBackedStateManager::<Envelope>::new(storage.clone())
+        .with_compression(CompressionStrategy::None);
+    none_mgr
+        .save(
+            &make_envelope(
+                "cp-big",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "a".repeat(2048)})),
+            ),
+            "test",
+            "exec-1",
+        )
+        .await
+        .unwrap();
+    let (raw, _) = storage
+        .load("cp-big")
+        .await
+        .unwrap()
+        .expect("row persisted");
+    assert!(
+        !CheckpointSerializer::is_compressed(&raw),
+        "None strategy must leave large payloads plain"
+    );
+    assert_eq!(none_mgr.load("cp-big").await.unwrap().unwrap().id, "cp-big");
+}
+
+#[tokio::test]
 async fn metrics_recorded_on_save_and_load() {
     let storage = make_storage();
     let metrics = Arc::new(CheckpointMetricsCollector::new(

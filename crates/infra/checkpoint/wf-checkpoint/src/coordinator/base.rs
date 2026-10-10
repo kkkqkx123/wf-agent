@@ -1,4 +1,5 @@
 use crate::coordinator::events::publish_cleanup_skipped;
+use checkpoint_base::cleanup_policy::cleanup_strategies_from_retention;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::strategy::CheckpointStrategy;
 use checkpoint_file::event::CheckpointEventBus;
@@ -460,6 +461,65 @@ pub trait CheckpointCoordinator: Send + Sync {
             }
             self.create_checkpoint(CheckpointTiming::Manual, entity_id, state)
                 .await
+        }
+    }
+}
+
+/// Enforce the strategy's retention config after a successful persist.
+///
+/// `is_retention_exceeded` is the cheap gate (aggregate count plus the oldest
+/// row, no full listing) and `cleanup_with_strategy` is the executor; the two
+/// stay paired here so there is a single retention entry point. Best-effort:
+/// every failure is warn-logged and never fails the persist that already
+/// succeeded. `now` must come from the state manager's clock so gating and
+/// execution read the same time source.
+pub async fn enforce_retention<M>(
+    manager: &M,
+    strategy: &dyn CheckpointStrategy,
+    entity_id: &str,
+    now: Option<i64>,
+) where
+    M: CheckpointStateManager,
+{
+    let Some(retention) = strategy.retention_config() else {
+        return;
+    };
+    let strategies = cleanup_strategies_from_retention(retention);
+    if strategies.is_empty() {
+        return;
+    }
+    let count = match manager.count_by_entity(entity_id).await {
+        Ok(count) => count,
+        Err(err) => {
+            tracing::warn!(
+                entity_id = %entity_id,
+                error = %err,
+                "retention cleanup skipped: checkpoint count unreadable"
+            );
+            return;
+        }
+    };
+    let oldest_timestamp = match manager.list_by_entity_paged(entity_id, 0, 1).await {
+        Ok(rows) => rows.first().map(|row| row.timestamp).unwrap_or(0),
+        Err(err) => {
+            tracing::warn!(
+                entity_id = %entity_id,
+                error = %err,
+                "retention cleanup skipped: oldest checkpoint unreadable"
+            );
+            return;
+        }
+    };
+    if !strategy.is_retention_exceeded(count as u32, oldest_timestamp, now) {
+        return;
+    }
+    for cleanup in &strategies {
+        if let Err(err) = manager.cleanup_with_strategy(entity_id, cleanup).await {
+            tracing::warn!(
+                entity_id = %entity_id,
+                error = %err,
+                "retention cleanup failed (best-effort)"
+            );
         }
     }
 }

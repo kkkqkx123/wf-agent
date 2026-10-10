@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use wf_types::checkpoint::CheckpointRetentionConfig;
 use wf_types::storage::CheckpointStorageMetadata;
 
 use crate::checkpoint_graph::CheckpointDependencyGraph;
@@ -78,6 +79,31 @@ impl CleanupStrategy {
     }
 }
 
+/// Bridge a retention config onto executable cleanup strategies. This is the
+/// single milliseconds-to-seconds conversion point: `max_age` is
+/// milliseconds, `CleanupStrategy::TimeBased` is seconds (rounded up, at
+/// least one second). A config carrying both limits yields both strategies,
+/// count first; an empty config yields no strategy.
+pub fn cleanup_strategies_from_retention(
+    config: &CheckpointRetentionConfig,
+) -> Vec<CleanupStrategy> {
+    let mut strategies = Vec::new();
+    if let Some(max) = config.max_checkpoints {
+        strategies.push(CleanupStrategy::CountBased {
+            max_checkpoints: max as u64,
+            min_retention: 1,
+        });
+    }
+    if let Some(max_age_ms) = config.max_age.filter(|ms| *ms > 0) {
+        let seconds = (max_age_ms as u64).div_ceil(1000).max(1);
+        strategies.push(CleanupStrategy::TimeBased {
+            max_age_seconds: seconds,
+            min_retention: 1,
+        });
+    }
+    strategies
+}
+
 /// Result of a cleanup run
 /// (`deletedCheckpointIds`, `deletedCount`, `freedSpaceBytes`,
 /// `remainingCount`).
@@ -147,9 +173,9 @@ impl CleanupExecutor {
     }
 
     /// Evaluate candidates with dependency protection: the latest checkpoint
-    /// is always kept, any candidate referenced by a surviving checkpoint
-    /// through the previous-id chain is protected, and chain-group members
-    /// whose FULL baseline survives are protected as well.
+    /// is always kept, any candidate on a surviving delta's restore chain
+    /// (previous links up to and including its FULL head) is protected, and
+    /// chain-group members whose FULL baseline survives are protected as well.
     pub fn evaluate_protected(
         &self,
         checkpoints: &[CheckpointStorageMetadata],
@@ -794,5 +820,102 @@ mod tests {
             &clock,
         );
         assert!(to_remove.is_empty());
+    }
+
+    #[test]
+    fn retention_bridge_maps_count_and_age() {
+        let strategies = cleanup_strategies_from_retention(&CheckpointRetentionConfig {
+            max_checkpoints: Some(1000),
+            max_age: Some(604_800_000),
+            compression: None,
+        });
+        assert_eq!(strategies.len(), 2);
+        assert!(matches!(
+            strategies[0],
+            CleanupStrategy::CountBased {
+                max_checkpoints: 1000,
+                min_retention: 1
+            }
+        ));
+        assert!(matches!(
+            strategies[1],
+            CleanupStrategy::TimeBased {
+                max_age_seconds: 604_800,
+                min_retention: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn retention_bridge_rounds_age_up_to_seconds() {
+        let strategies = cleanup_strategies_from_retention(&CheckpointRetentionConfig {
+            max_checkpoints: None,
+            max_age: Some(1500),
+            compression: None,
+        });
+        assert_eq!(strategies.len(), 1);
+        assert!(matches!(
+            strategies[0],
+            CleanupStrategy::TimeBased {
+                max_age_seconds: 2,
+                min_retention: 1
+            }
+        ));
+
+        let sub_second = cleanup_strategies_from_retention(&CheckpointRetentionConfig {
+            max_checkpoints: None,
+            max_age: Some(1),
+            compression: None,
+        });
+        assert!(matches!(
+            sub_second[0],
+            CleanupStrategy::TimeBased {
+                max_age_seconds: 1,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn retention_bridge_ignores_empty_and_non_positive_age() {
+        let empty = cleanup_strategies_from_retention(&CheckpointRetentionConfig {
+            max_checkpoints: None,
+            max_age: None,
+            compression: None,
+        });
+        assert!(empty.is_empty());
+
+        let non_positive = cleanup_strategies_from_retention(&CheckpointRetentionConfig {
+            max_checkpoints: None,
+            max_age: Some(0),
+            compression: None,
+        });
+        assert!(non_positive.is_empty());
+    }
+
+    #[test]
+    fn protected_cleanup_retires_linked_full_generations() {
+        let now = 1_700_000_000_000i64;
+        let clock = CheckpointClock::manual(now);
+        let mut checkpoints = vec![
+            make_checkpoint("full-1", now - 4000, Some(100)),
+            make_checkpoint("full-2", now - 3000, Some(100)),
+            make_checkpoint("full-3", now - 2000, Some(100)),
+            make_checkpoint("full-4", now - 1000, Some(100)),
+        ];
+        for i in 1..checkpoints.len() {
+            let prev = checkpoints[i - 1].id.clone();
+            checkpoints[i].previous_checkpoint_id = Some(prev);
+        }
+        let executor = CleanupExecutor::new();
+        let to_remove = executor.evaluate_protected(
+            &checkpoints,
+            &CleanupStrategy::CountBased {
+                max_checkpoints: 2,
+                min_retention: 0,
+            },
+            &clock,
+        );
+        assert_eq!(to_remove, vec!["full-1", "full-2"]);
     }
 }

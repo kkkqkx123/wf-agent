@@ -1,5 +1,6 @@
 use crate::state::storage::StorageBackedStateManager;
 use crate::state::CheckpointStateManager;
+use checkpoint_base::cleanup_policy::CleanupStrategy;
 use checkpoint_base::delta::CheckpointLoader;
 use checkpoint_base::error::CheckpointError;
 use std::sync::Arc;
@@ -7,6 +8,7 @@ use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
+use wf_types::checkpoint::CompressionStrategy;
 use wf_types::storage::CheckpointStorageMetadata;
 
 pub type AgentCheckpoint = BaseCheckpointCore<AgentCheckpointDelta, AgentStateSnapshot>;
@@ -26,6 +28,24 @@ impl AgentCheckpointStateManager {
         Self {
             inner: self.inner.with_clock(clock),
         }
+    }
+
+    pub fn with_compression(self, compression: CompressionStrategy) -> Self {
+        Self {
+            inner: self.inner.with_compression(compression),
+        }
+    }
+
+    pub fn set_compression(&mut self, compression: CompressionStrategy) {
+        self.inner.set_compression(compression);
+    }
+
+    pub fn compression(&self) -> CompressionStrategy {
+        self.inner.compression()
+    }
+
+    pub fn clock(&self) -> &checkpoint_base::clock::CheckpointClock {
+        self.inner.clock()
     }
 
     /// The underlying storage backend (used to rebuild state managers in
@@ -121,6 +141,14 @@ impl CheckpointStateManager for AgentCheckpointStateManager {
         max_count: Option<u32>,
     ) -> Result<u64, CheckpointError> {
         self.inner.cleanup(entity_id, max_count).await
+    }
+
+    async fn cleanup_with_strategy(
+        &self,
+        entity_id: &str,
+        strategy: &CleanupStrategy,
+    ) -> Result<u64, CheckpointError> {
+        self.inner.cleanup_with_strategy(entity_id, strategy).await
     }
 }
 

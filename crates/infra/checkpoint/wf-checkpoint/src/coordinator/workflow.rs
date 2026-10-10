@@ -112,10 +112,16 @@ impl WorkflowCheckpointCoordinator {
     /// Configure the default checkpoint strategy from a unified policy.
     /// A disabled policy yields a strategy that never checkpoints. The
     /// policy's `content.async` flag also enables async persistence mode.
+    /// The policy's retention compression is applied to the state manager so
+    /// the save path honors it instead of silently staying on `Auto`.
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
         self.strategy = Some(checkpoint_base::strategy::create_checkpoint_strategy(
             policy,
         ));
+        if let Some(ref strategy) = self.strategy {
+            self.state_manager
+                .set_compression(strategy.compression_strategy());
+        }
         self.async_persistence = policy
             .content
             .as_ref()
@@ -454,7 +460,20 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             self.event_bus.as_ref(),
             &self.error_handler,
         )
-        .await
+        .await?;
+        // Retention enforcement is best-effort and never fails the persist
+        // that already succeeded.
+        if let Some(ref strategy) = self.strategy {
+            let now = self.state_manager.clock().now_ms();
+            crate::coordinator::base::enforce_retention(
+                &self.state_manager,
+                strategy,
+                entity_id,
+                now,
+            )
+            .await;
+        }
+        Ok(())
     }
 
     async fn validate_checkpoint(

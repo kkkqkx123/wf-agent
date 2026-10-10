@@ -51,6 +51,9 @@ pub struct StorageBackedStateManager<T> {
     /// Time source for save-timestamp defaults and cleanup watermark
     /// clamping. Tests inject a manual clock and advance it explicitly.
     clock: CheckpointClock,
+    /// Compression applied on the save path. Reads detect gzip via magic
+    /// bytes, so switching strategies is format-compatible.
+    compression: CompressionStrategy,
     _marker: PhantomData<T>,
 }
 
@@ -61,6 +64,7 @@ impl<T> StorageBackedStateManager<T> {
             metrics: None,
             cleanup_locks: dashmap::DashMap::new(),
             clock: CheckpointClock::system(),
+            compression: CompressionStrategy::Auto,
             _marker: PhantomData,
         }
     }
@@ -75,6 +79,27 @@ impl<T> StorageBackedStateManager<T> {
     pub fn with_clock(mut self, clock: CheckpointClock) -> Self {
         self.clock = clock;
         self
+    }
+
+    /// Override the save-path compression strategy (default `Auto`).
+    pub fn with_compression(mut self, compression: CompressionStrategy) -> Self {
+        self.compression = compression;
+        self
+    }
+
+    /// Override the save-path compression strategy in place, so owners that
+    /// already hold the manager (e.g. coordinators learning the strategy
+    /// after construction) can apply it without rebuilding.
+    pub fn set_compression(&mut self, compression: CompressionStrategy) {
+        self.compression = compression;
+    }
+
+    pub fn compression(&self) -> CompressionStrategy {
+        self.compression
+    }
+
+    pub fn clock(&self) -> &CheckpointClock {
+        &self.clock
     }
 
     /// The underlying storage backend (used to rebuild state managers in
@@ -120,8 +145,8 @@ where
             "previous_checkpoint_id",
         );
 
-        // compression is enabled on the save path with an `Auto`
-        // strategy (payloads larger than the compression threshold are gzip
+        // Compression follows the configured strategy (`Auto` by default:
+        // payloads larger than the compression threshold are gzip
         // compressed; smaller payloads stay plain). Reads transparently
         // detect gzip via magic bytes, so the switch is format-compatible.
         // The async variant keeps the compressor's deflate working set off
@@ -130,7 +155,7 @@ where
         let data = CheckpointSerializer::serialize_with_compression_async(
             checkpoint,
             CheckpointCodec::Json,
-            CompressionStrategy::Auto,
+            self.compression,
         )
         .await?;
 

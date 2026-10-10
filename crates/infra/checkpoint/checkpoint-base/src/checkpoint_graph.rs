@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use wf_types::checkpoint::CheckpointType;
 use wf_types::storage::CheckpointStorageMetadata;
 
 /// Dependency guard over an entity's execution-state checkpoint chain.
@@ -14,11 +15,20 @@ use wf_types::storage::CheckpointStorageMetadata;
 /// - `chain_root_map` maps each checkpoint id to its chain root id
 ///   (`chainRootId ?? id`).
 /// - `chain_groups` maps each chain root id to its member ids.
+/// - `delta_ids` marks delta checkpoints: only surviving deltas seed
+///   protection walks, because a surviving FULL restores from its own row
+///   and needs no ancestor.
+/// - `heads` marks restore chain heads (FULL with no base link): walks stop
+///   after including the head, mirroring the delta restorer, so an older
+///   retired generation is never kept alive by a newer one that merely
+///   follows it in time.
 #[derive(Debug, Clone, Default)]
 pub struct CheckpointDependencyGraph {
     pub referenced_by: HashMap<String, Vec<String>>,
     pub chain_root_map: HashMap<String, String>,
     pub chain_groups: HashMap<String, Vec<String>>,
+    heads: HashSet<String>,
+    delta_ids: HashSet<String>,
 }
 
 impl CheckpointDependencyGraph {
@@ -26,6 +36,8 @@ impl CheckpointDependencyGraph {
         let mut referenced_by: HashMap<String, Vec<String>> = HashMap::new();
         let mut chain_root_map: HashMap<String, String> = HashMap::new();
         let mut chain_groups: HashMap<String, Vec<String>> = HashMap::new();
+        let mut heads: HashSet<String> = HashSet::new();
+        let mut delta_ids: HashSet<String> = HashSet::new();
         for cp in checkpoints {
             if let Some(prev) = &cp.previous_checkpoint_id {
                 if prev != &cp.id {
@@ -38,47 +50,75 @@ impl CheckpointDependencyGraph {
             let root = cp.chain_root_id.clone().unwrap_or_else(|| cp.id.clone());
             chain_root_map.insert(cp.id.clone(), root.clone());
             chain_groups.entry(root).or_default().push(cp.id.clone());
+            if cp.checkpoint_type == CheckpointType::Delta {
+                delta_ids.insert(cp.id.clone());
+            } else if cp.base_checkpoint_id.is_none() {
+                heads.insert(cp.id.clone());
+            }
         }
         Self {
             referenced_by,
             chain_root_map,
             chain_groups,
+            heads,
+            delta_ids,
         }
     }
 
-    /// Compute the set of candidate checkpoints that must be kept because a
-    /// surviving checkpoint depends on them through the `previous_checkpoint_id`
-    /// chain.
-    pub fn compute_protected(
-        &self,
-        candidate_ids: &HashSet<String>,
-        all_checkpoint_ids: &HashSet<String>,
-    ) -> HashSet<String> {
+    fn previous_map(&self) -> HashMap<String, String> {
         let mut previous_map: HashMap<String, String> = HashMap::new();
         for (prev, refs) in &self.referenced_by {
             for reference in refs {
                 previous_map.insert(reference.clone(), prev.clone());
             }
         }
+        previous_map
+    }
+
+    /// Walk the restore chain of one surviving delta: previous links back to
+    /// and including the nearest chain head. A FULL head carries its own
+    /// snapshot, so nothing older is needed to restore the seed.
+    fn restore_chain(&self, seed_id: &str, previous_map: &HashMap<String, String>) -> Vec<String> {
+        let mut chain = Vec::new();
+        let mut visited = HashSet::new();
+        let mut current = previous_map.get(seed_id).cloned();
+        while let Some(id) = current {
+            if !visited.insert(id.clone()) {
+                break;
+            }
+            chain.push(id.clone());
+            if self.heads.contains(&id) {
+                break;
+            }
+            current = previous_map.get(&id).cloned();
+        }
+        chain
+    }
+
+    /// Compute the set of candidate checkpoints that must be kept because a
+    /// surviving delta needs them to restore: each surviving delta keeps the
+    /// candidates on its restore chain (up to and including its FULL head).
+    /// Candidates older than every surviving delta's head are free to retire,
+    /// which is what lets count/age retention bound FULL generations.
+    pub fn compute_protected(
+        &self,
+        candidate_ids: &HashSet<String>,
+        all_checkpoint_ids: &HashSet<String>,
+    ) -> HashSet<String> {
+        let previous_map = self.previous_map();
 
         let mut protected = HashSet::new();
-        let surviving_ids: Vec<String> = all_checkpoint_ids
+        let surviving_deltas: Vec<String> = all_checkpoint_ids
             .iter()
-            .filter(|id| !candidate_ids.contains(*id))
+            .filter(|id| !candidate_ids.contains(*id) && self.delta_ids.contains(*id))
             .cloned()
             .collect();
 
-        for surviving_id in surviving_ids {
-            let mut current = Some(surviving_id);
-            let mut visited = HashSet::new();
-            while let Some(id) = current {
-                if !visited.insert(id.clone()) {
-                    break;
-                }
+        for seed in surviving_deltas {
+            for id in self.restore_chain(&seed, &previous_map) {
                 if candidate_ids.contains(&id) {
-                    protected.insert(id.clone());
+                    protected.insert(id);
                 }
-                current = previous_map.get(&id).cloned();
             }
         }
 
@@ -105,40 +145,31 @@ impl CheckpointDependencyGraph {
         protected
     }
 
-    /// Bases that must be kept because a surviving checkpoint depends on them
-    /// directly or through the previous-id chain. This is the base-priority
+    /// Bases that must be kept because a surviving delta depends on them
+    /// directly or through its restore chain. This is the base-priority
     /// rule complementing `compute_protected`: it runs on the finalized
     /// removal set (after dependency and chain-group protection already
     /// narrowed the candidates), so a checkpoint kept by those rules also
-    /// keeps its base here. `removing` is the finalized removal set (already
-    /// excluding protected/surviving checkpoints); the returned set are
-    /// candidate bases that must be removed from `removing`. This is
-    /// intentionally conservative (any candidate ancestor of a survivor is
-    /// kept); it does not implement generation-atomic retirement where a
-    /// whole chain generation retires only together.
+    /// keeps its base here. Walks seed from surviving deltas only and stop
+    /// at the nearest chain head, matching the restorer. `removing` is the
+    /// finalized removal set (already excluding protected/surviving
+    /// checkpoints); the returned set are candidate bases that must be
+    /// removed from `removing`. This is intentionally conservative (any
+    /// candidate on a survivor's restore chain is kept); it does not
+    /// implement generation-atomic retirement where a whole chain generation
+    /// retires only together.
     pub fn bases_with_surviving_dependents(&self, removing: &HashSet<String>) -> HashSet<String> {
-        let mut previous_map: HashMap<String, String> = HashMap::new();
-        for (prev, refs) in &self.referenced_by {
-            for reference in refs {
-                previous_map.insert(reference.clone(), prev.clone());
-            }
-        }
+        let previous_map = self.previous_map();
 
         let mut protected = HashSet::new();
         for id in self.chain_root_map.keys() {
-            if removing.contains(id) {
+            if removing.contains(id) || !self.delta_ids.contains(id) {
                 continue;
             }
-            let mut cursor = previous_map.get(id).cloned();
-            let mut guard = HashSet::new();
-            while let Some(prev) = cursor {
-                if !guard.insert(prev.clone()) {
-                    break;
-                }
+            for prev in self.restore_chain(id, &previous_map) {
                 if removing.contains(&prev) {
-                    protected.insert(prev.clone());
+                    protected.insert(prev);
                 }
-                cursor = previous_map.get(&prev).cloned();
             }
         }
         protected
@@ -320,5 +351,42 @@ mod tests {
         let candidates: HashSet<String> = ["a".to_string()].into_iter().collect();
         let protected = graph.compute_protected(&candidates, &all);
         assert!(protected.contains("a"));
+    }
+
+    #[test]
+    fn full_generations_retire_without_delta_dependents() {
+        let checkpoints = vec![
+            make_checkpoint("full-1", CheckpointType::Full, Some("full-0"), 1000),
+            make_checkpoint("full-2", CheckpointType::Full, Some("full-1"), 2000),
+            make_checkpoint("full-3", CheckpointType::Full, Some("full-2"), 3000),
+        ];
+        let graph = CheckpointDependencyGraph::build(&checkpoints);
+        let all: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
+        let candidates: HashSet<String> = ["full-1".to_string()].into_iter().collect();
+        let protected = graph.compute_protected(&candidates, &all);
+        assert!(
+            protected.is_empty(),
+            "a surviving FULL restores alone; older FULL generations may retire"
+        );
+    }
+
+    #[test]
+    fn restore_chain_stops_at_nearest_head() {
+        let checkpoints = vec![
+            make_checkpoint("full-1", CheckpointType::Full, None, 1000),
+            make_checkpoint("delta-1", CheckpointType::Delta, Some("full-1"), 2000),
+            make_checkpoint("full-2", CheckpointType::Full, Some("delta-1"), 3000),
+            make_checkpoint("delta-2", CheckpointType::Delta, Some("full-2"), 4000),
+        ];
+        let graph = CheckpointDependencyGraph::build(&checkpoints);
+        let all: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
+        let candidates: HashSet<String> = ["full-1".to_string(), "delta-1".to_string()]
+            .into_iter()
+            .collect();
+        let protected = graph.compute_protected(&candidates, &all);
+        assert!(
+            protected.is_empty(),
+            "delta-2 restores from full-2; the older generation is unneeded"
+        );
     }
 }

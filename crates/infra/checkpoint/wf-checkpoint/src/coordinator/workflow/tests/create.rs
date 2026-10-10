@@ -5,6 +5,7 @@ use checkpoint_base::metadata::builder::{
 };
 use std::collections::HashMap;
 use wf_storage::backend::StorageBackend;
+use wf_types::checkpoint::{CheckpointRetentionConfig, CompressionStrategy};
 
 #[tokio::test]
 async fn prepare_returns_context() {
@@ -425,4 +426,79 @@ async fn strategy_gates_created_checkpoints_without_second_cadence_layer() {
         .await
         .unwrap();
     assert!(skipped.is_none(), "unconfigured trigger skipped");
+}
+
+#[tokio::test]
+async fn strategy_compression_reaches_state_manager() {
+    let coord =
+        make_coordinator().with_strategy(&checkpoint_base::strategy::policy_comprehensive());
+    assert_eq!(
+        coord.state_manager().compression(),
+        CompressionStrategy::Gzip,
+        "comprehensive preset declares Gzip and the save path must honor it"
+    );
+}
+
+#[tokio::test]
+async fn persist_enforces_retention_count() {
+    use checkpoint_base::clock::CheckpointClock;
+
+    let storage = Arc::new(StorageBackend::new_memory());
+    let clock = CheckpointClock::manual(1_700_000_000_000);
+    let handle = clock.manual_handle().expect("manual clock has handle");
+    let sm = WorkflowCheckpointStateManager::new(storage).with_clock(clock.clone());
+    let coord = WorkflowCheckpointCoordinator::new(sm)
+        .with_clock(clock)
+        .with_delta_config(DeltaStorageConfig {
+            enabled: false,
+            baseline_interval: 10,
+            max_delta_chain_length: 20,
+        })
+        .with_strategy(&UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: vec![CheckpointTiming::AfterExecute],
+            content: None,
+            retention: Some(CheckpointRetentionConfig {
+                max_checkpoints: Some(2),
+                max_age: None,
+                compression: None,
+            }),
+            error_handling: None,
+        });
+
+    let mut ids = Vec::new();
+    // Enough persists to cover several full-scan cycles: count limits are
+    // global while incremental runs only see the post-watermark window, so
+    // the bound is amortized (every tenth run is a full scan), not exact
+    // after every persist.
+    for i in 1..=25u32 {
+        // Distinct timestamps: same-millisecond bursts stay invisible to the
+        // incremental cleanup watermark until its periodic full scan.
+        handle.advance(1000);
+        ids.push(
+            build_and_persist(&coord, "running", &format!("n{i}"))
+                .await
+                .id,
+        );
+    }
+
+    let remaining = coord
+        .state_manager()
+        .list_by_entity("exec-1")
+        .await
+        .unwrap();
+    assert!(
+        remaining.len() <= 12,
+        "retention keeps the history bounded, got {}",
+        remaining.len()
+    );
+    let kept: Vec<_> = remaining.iter().map(|m| m.id.clone()).collect();
+    assert!(
+        !kept.contains(&ids[0]),
+        "retention collects the oldest checkpoints"
+    );
+    assert!(
+        kept.contains(ids.last().unwrap()),
+        "retention keeps the newest checkpoint"
+    );
 }

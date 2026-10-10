@@ -411,6 +411,15 @@ fn approve_changes_full_batch_matches_legacy_behavior() {
         pending.is_empty(),
         "full-batch approve clears the submission"
     );
+    let reviews = manager
+        .git_ref()
+        .unwrap()
+        .list_refs(crate::git_store::REF_REVIEW_PREFIX)
+        .unwrap();
+    assert!(
+        reviews.is_empty(),
+        "approved review refs are recycled, ancestry stays in the merge parents"
+    );
 }
 
 #[test]

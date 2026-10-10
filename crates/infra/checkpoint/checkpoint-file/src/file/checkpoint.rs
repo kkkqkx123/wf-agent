@@ -112,36 +112,19 @@ impl FileCheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branch::execution_pointer_name;
     use crate::file::FileContentEntry;
 
     fn entry(path: &str, content: &[u8]) -> FileContentEntry {
         FileContentEntry::new(path, content.to_vec())
     }
 
-    #[tokio::test]
-    async fn checkpoint_advances_edit_ref_not_execution_pointer() {
+    #[test]
+    fn checkpoint_advances_actor_edit_ref() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
         manager
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
             .unwrap();
-        manager
-            .ensure_child_branch("child-1", Some("parent-1"))
-            .await
-            .unwrap();
 
-        let branch = execution_pointer_name("child-1");
-        assert_eq!(
-            manager
-                .store
-                .pointer_adapter
-                .get_pointer_head(&branch)
-                .unwrap(),
-            None,
-            "execution pointers stay headless until execution state advances them"
-        );
-
-        // File commits advance the actor's edit ref instead.
         let cp1 = manager
             .create_checkpoint("child-1", &[entry("a.txt", b"edit-1")])
             .unwrap();
@@ -158,16 +141,6 @@ mod tests {
         assert_eq!(
             manager.latest_checkpoint_id(&actor).unwrap().as_deref(),
             Some(cp2.id.as_str())
-        );
-        // The execution branch is untouched by file commits.
-        assert_eq!(
-            manager
-                .store
-                .pointer_adapter
-                .get_pointer_head(&branch)
-                .unwrap(),
-            None,
-            "file commits never move execution pointer heads"
         );
     }
 
@@ -228,40 +201,6 @@ mod tests {
             stored.parents.iter().any(|p| p == &second.id),
             "third commit must chain onto the newest commit"
         );
-    }
-
-    #[test]
-    fn execution_pointer_heads_roundtrip() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let head_cp = manager
-            .create_checkpoint("child-1", &[entry("a.txt", b"v1")])
-            .unwrap();
-        assert_eq!(
-            manager
-                .store
-                .pointer_adapter
-                .get_pointer_head("execution-pointer/child-1")
-                .unwrap(),
-            None
-        );
-        manager
-            .store
-            .pointer_adapter
-            .set_pointer_head("execution-pointer/child-1", &head_cp.id)
-            .unwrap();
-        assert_eq!(
-            manager
-                .store
-                .pointer_adapter
-                .get_pointer_head("execution-pointer/child-1")
-                .unwrap()
-                .as_deref(),
-            Some(head_cp.id.as_str())
-        );
-        // File lines are unaffected by execution pointers.
-        let actor = manager.actor_id_for("child-1");
-        let seen = manager.latest_checkpoint_id(&actor).unwrap();
-        assert_eq!(seen.as_deref(), Some(head_cp.id.as_str()));
     }
 
     #[test]

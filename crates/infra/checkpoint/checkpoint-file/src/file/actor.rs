@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::branch::{execution_pointer_name, manager::ExecutionPointerAdapter};
 use crate::file::git_write::map_git_error;
 use crate::file::FileCheckpointManager;
 pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
@@ -138,52 +137,9 @@ impl FileCheckpointManager {
         self.actor_index.get(entity_id)
     }
 
-    /// Ensure the child execution's branch has been created. Called by
-    /// `prepare_with_parent` to set up the branch isolation before any
-    /// checkpoint activity. No-op when the entity has no parent or is the
-    /// parent itself.
-    pub async fn ensure_child_branch(
-        &self,
-        entity_id: &str,
-        parent_execution_id: Option<&str>,
-    ) -> Result<(), CheckpointError> {
-        let Some(parent) = parent_execution_id else {
-            return Ok(());
-        };
-        if parent == entity_id {
-            return Ok(());
-        }
-        let branch_name = execution_pointer_name(entity_id);
-        if self
-            .store
-            .pointer_adapter
-            .pointer_exists(&branch_name)
-            .await?
-        {
-            return Ok(());
-        }
-        let parent_branch = execution_pointer_name(parent);
-        let base = if self
-            .store
-            .pointer_adapter
-            .pointer_exists(&parent_branch)
-            .await?
-        {
-            Some(parent_branch)
-        } else {
-            None
-        };
-        self.store
-            .pointer_adapter
-            .create_pointer(&branch_name, base.as_deref())
-            .await?;
-        Ok(())
-    }
-
     // ── actor edit-line primitives ──────────────────────────────────
 
-    /// Ensure the actor's edit line exists. Validates the actor identity and
-    /// ensures the execution pointer for the actor's root entity exists so
+    /// Ensure the actor's edit line exists. Validates the actor identity so
     /// later edits have a stable partition home.
     pub fn ensure_agent_partition(&self, actor: &ActorId) -> Result<(), CheckpointError> {
         actor.try_kind().map_err(|e| CheckpointError::Validation {
@@ -382,83 +338,23 @@ mod tests {
         FileContentEntry::new(path, content.to_vec())
     }
 
-    #[tokio::test]
-    async fn child_execution_creates_branch() {
+    #[test]
+    fn child_actor_stays_isolated_without_pointer_index() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
-        manager
+        let parent_cp = manager
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
             .unwrap();
 
-        let branch = execution_pointer_name("child-1");
-        assert!(
-            !manager
-                .store
-                .pointer_adapter
-                .pointer_exists(&branch)
-                .await
-                .unwrap(),
-            "branch must not exist before the child is prepared"
-        );
-
-        manager
-            .ensure_child_branch("child-1", Some("parent-1"))
-            .await
-            .unwrap();
-        assert!(manager
-            .store
-            .pointer_adapter
-            .pointer_exists(&branch)
-            .await
-            .unwrap());
-
-        // Idempotent: preparing the same child again keeps the branch set
-        // stable. The parent stays branchless: checkpoint creation only
-        // advances explicitly prepared execution branches and never
-        // implicitly registers one for root executions.
-        manager
-            .ensure_child_branch("child-1", Some("parent-1"))
-            .await
-            .unwrap();
-        assert!(
+        let child = manager.resolve_actor("child-1", Some("parent-1"));
+        let parent_actor = manager.actor_id_for("parent-1");
+        assert_ne!(child.as_str(), parent_actor.as_str());
+        assert_eq!(
             manager
-                .store
-                .pointer_adapter
-                .pointer_exists(&branch)
-                .await
-                .unwrap(),
-            "re-preparing keeps the child branch"
+                .latest_checkpoint_id(&parent_actor)
+                .unwrap()
+                .as_deref(),
+            Some(parent_cp.id.as_str())
         );
-        assert!(
-            !manager
-                .store
-                .pointer_adapter
-                .pointer_exists(&execution_pointer_name("parent-1"))
-                .await
-                .unwrap(),
-            "the parent stays branchless"
-        );
-    }
-
-    #[tokio::test]
-    async fn duplicate_branch_rejected() {
-        use crate::branch::ExecutionPointerAdapter;
-
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        manager
-            .ensure_child_branch("child-1", Some("parent-1"))
-            .await
-            .unwrap();
-        let branch = execution_pointer_name("child-1");
-        let err = manager
-            .store
-            .pointer_adapter
-            .create_pointer(&branch, None)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            checkpoint_base::error::CheckpointError::Branch(_)
-        ));
     }
 
     #[tokio::test]
@@ -479,75 +375,6 @@ mod tests {
         let chained = manager.resolve_actor_with_chain("leaf", &[], Some("parent"));
         let direct = manager.resolve_actor("other", Some("parent"));
         assert_eq!(chained.as_str(), direct.as_str().replace("other", "leaf"));
-    }
-
-    #[tokio::test]
-    async fn ensure_child_branch_ignores_roots_and_self_parent() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-
-        // No parent (root execution) and self-parent are no-ops.
-        manager.ensure_child_branch("solo", None).await.unwrap();
-        manager
-            .ensure_child_branch("same", Some("same"))
-            .await
-            .unwrap();
-
-        for entity in ["solo", "same"] {
-            assert!(
-                !manager
-                    .store
-                    .pointer_adapter
-                    .pointer_exists(&execution_pointer_name(entity))
-                    .await
-                    .unwrap(),
-                "no branch may be created for '{entity}'"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn child_branch_starts_headless_after_fork() {
-        let manager = FileCheckpointManager::new_in_memory().unwrap();
-        let parent_cp = manager
-            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
-            .unwrap();
-
-        manager
-            .ensure_child_branch("child-1", Some("parent-1"))
-            .await
-            .unwrap();
-
-        // The forked branch exists natively but stays headless until its own
-        // first checkpoint; the parent base remains readable as the fork
-        // point without a KV registry entry.
-        let branch = execution_pointer_name("child-1");
-        assert!(
-            manager
-                .store
-                .pointer_adapter
-                .pointer_exists(&branch)
-                .await
-                .unwrap(),
-            "forked branch must exist"
-        );
-        assert_eq!(
-            manager
-                .store
-                .pointer_adapter
-                .get_pointer_head(&branch)
-                .unwrap(),
-            None,
-            "forked branch stays headless until its own checkpoint"
-        );
-        let parent_actor = manager.actor_id_for("parent-1");
-        assert_eq!(
-            manager
-                .latest_checkpoint_id(&parent_actor)
-                .unwrap()
-                .as_deref(),
-            Some(parent_cp.id.as_str()),
-            "parent base stays readable as the fork point"
-        );
     }
 
     #[test]

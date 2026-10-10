@@ -6,7 +6,8 @@
 //! - review to feature and feature to main are true merges with full
 //!   ancestry (multi-parent commits);
 //! - review state is the explicit `review_state` table (pending / approved
-//!   / rejected); rejection only deletes the review ref;
+//!   / rejected); rejection deletes the review ref, approval deletes it
+//!   after a clean merge while the merge parents preserve history;
 //! - conflicts land with standard markers, stay on the target feature ref
 //!   as unresolved commits, and block the corresponding main merge until
 //!   resolved (no new main commit is created meanwhile);
@@ -294,6 +295,7 @@ impl FileCheckpointManager {
             if let Some(parent_tree) = parent_tree.as_deref() {
                 if parent_tree == merged_tree {
                     storage.set_review_state(review_ref, ReviewStatus::Approved)?;
+                    git.delete_ref(review_ref).map_err(map_git_error)?;
                     let existing = feature_head.clone().unwrap_or_default();
                     return Ok(GitMergeOutcome {
                         commit_id: existing,
@@ -323,6 +325,7 @@ impl FileCheckpointManager {
             git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
                 .map_err(map_git_error)?;
             storage.set_review_state(review_ref, ReviewStatus::Approved)?;
+            git.delete_ref(review_ref).map_err(map_git_error)?;
             self.index_commit(
                 storage,
                 &id,

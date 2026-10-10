@@ -36,9 +36,8 @@ pub fn next_chain_position(
 }
 
 /// Build the checkpoint creation context shared by both coordinators. The
-/// file checkpoint side effects have observable effects: the execution branch
-/// is ensured and the actor id is resolved hierarchically, so calling this
-/// twice for one creation wastes work.
+/// file checkpoint side effect has observable effects: the actor id is
+/// resolved hierarchically, so calling this twice for one creation wastes work.
 pub async fn prepare_context(
     file_checkpoint_manager: Option<&FileCheckpointManager>,
     entity_type: &str,
@@ -47,11 +46,6 @@ pub async fn prepare_context(
     parent_execution_id: Option<&str>,
     ancestors: Option<&[String]>,
 ) -> Result<CheckpointContext, CheckpointError> {
-    if let Some(manager) = file_checkpoint_manager {
-        manager
-            .ensure_child_branch(entity_id, parent_execution_id)
-            .await?;
-    }
     let actor_id = file_checkpoint_manager.map(|manager| match ancestors {
         Some(ancestors) => manager
             .resolve_actor_with_chain(entity_id, ancestors, parent_execution_id)
@@ -237,9 +231,9 @@ pub trait CheckpointCoordinator: Send + Sync {
     type State: Send + Sync;
 
     /// Build the checkpoint context for an entity. This has side effects:
-    /// it ensures the execution branch and resolves the actor id, so
-    /// calling it twice for one creation wastes work and must be avoided
-    /// by reusing a single prepared context per creation.
+    /// it resolves the actor id, so calling it twice for one creation
+    /// wastes work and must be avoided by reusing a single prepared context
+    /// per creation.
     fn prepare(
         &self,
         entity_id: &str,

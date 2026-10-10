@@ -32,12 +32,12 @@ fn isolated_lines_merge_with_full_ancestry() {
         .create_checkpoint("child2", &[entry("b.txt", b"other")])
         .unwrap();
 
-    let merge1 = manager.merge_entity_changes("child", "main").unwrap();
+    let merge1 = manager.merge_entity_changes("child", "shared").unwrap();
     assert!(!merge1.merge_result.has_conflicts());
-    let attempt = manager.merge_entity_changes("child2", "main").unwrap();
+    let attempt = manager.merge_entity_changes("child2", "shared").unwrap();
     assert!(!attempt.merge_result.has_conflicts());
 
-    let joined = manager.merge_branch_changes(&["main"]).unwrap();
+    let joined = manager.merge_branch_changes(&["shared"]).unwrap();
     assert!(!joined.merge_result.has_conflicts());
 
     let partitions = manager.list_partitions().unwrap();
@@ -167,7 +167,7 @@ fn overlapping_merge_uses_standard_markers_and_resolves() {
 }
 
 #[test]
-fn execution_pointers_do_not_carry_file_content() {
+fn actor_partitions_carry_file_content() {
     let manager = manager();
     manager
         .create_checkpoint("parent", &[entry("a.txt", b"base")])
@@ -179,7 +179,7 @@ fn execution_pointers_do_not_carry_file_content() {
     );
     assert!(
         !partitions.iter().any(|p| p.kind == "execution"),
-        "file checkpoints never create execution pointer partitions"
+        "file checkpoints keep actor isolation without a second index"
     );
     let timeline = manager.file_timeline("a.txt").unwrap();
     assert!(

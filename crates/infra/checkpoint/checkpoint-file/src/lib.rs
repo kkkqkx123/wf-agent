@@ -13,7 +13,6 @@
 //! the production pump). Reads go through `provenance` (partitions,
 //! diffs, timelines, conflict enumeration) with an index fast path and a
 //! bounded commit-graph fallback.
-pub(crate) mod adapter;
 pub mod approval;
 pub(crate) mod branch;
 pub mod event;

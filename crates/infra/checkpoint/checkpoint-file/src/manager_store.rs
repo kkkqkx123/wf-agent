@@ -1,6 +1,6 @@
 //! Split-out ownership for `FileCheckpointManager`.
 //!
-//! `ManagerStore` owns persistence handles (SQLite, branch adapter, latest
+//! `ManagerStore` owns persistence handles (SQLite, latest
 //! index); `ManagerPolicy` owns behavioral configuration (scan rules,
 //! approval/conflict policy, thresholds, GC). The manager composes both so
 //! storage lifecycle and policy evolve independently.
@@ -11,7 +11,6 @@ use dashmap::DashMap;
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 
-use crate::adapter::SqliteBackend;
 use crate::git_store::GitStore;
 use crate::scan::ScanConfig;
 use crate::storage::SqliteStorage;
@@ -20,7 +19,6 @@ use checkpoint_base::error::CheckpointError;
 /// Persistence handles shared by every file-checkpoint operation.
 pub(crate) struct ManagerStore {
     pub(crate) storage: Option<Arc<SqliteStorage>>,
-    pub(crate) pointer_adapter: Arc<SqliteBackend>,
     /// Independent bare Git object store: file bytes, trees, history and
     /// ref pointers. `None` until a workspace binds one; Git operations
     /// fail with an explicit uninitialized error instead of silently
@@ -45,10 +43,8 @@ impl ManagerStore {
     }
 
     pub(crate) fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
-        let pointer_adapter = Arc::new(SqliteBackend::from_shared(storage.clone()));
         Self {
             storage: Some(storage),
-            pointer_adapter,
             git: None,
             latest_checkpoints: Arc::new(DashMap::new()),
         }
@@ -73,7 +69,6 @@ impl Clone for ManagerStore {
     fn clone(&self) -> Self {
         Self {
             storage: self.storage.clone(),
-            pointer_adapter: Arc::clone(&self.pointer_adapter),
             git: self.git.clone(),
             latest_checkpoints: self.latest_checkpoints.clone(),
         }

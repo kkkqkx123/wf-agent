@@ -63,6 +63,8 @@ fn apply_light_migrations(conn: &rusqlite::Connection) -> StorageResult<()> {
 pub fn initialize_database(conn: &rusqlite::Connection) -> StorageResult<()> {
     conn.execute_batch(PRAGMA_JOURNAL_MODE_WAL)
         .map_err(db_err)?;
+    conn.execute_batch("PRAGMA busy_timeout = 5000;")
+        .map_err(db_err)?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")
         .map_err(db_err)?;
     conn.execute_batch("PRAGMA auto_vacuum = INCREMENTAL;")

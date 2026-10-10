@@ -14,5 +14,10 @@ pub(crate) fn ensure_feature_branch_name(name: &str) -> Result<(), CheckpointErr
             "feature branch name must be a bare name without '/': '{name}'"
         )));
     }
+    if crate::git_store::sanitize_ref_component(name) != name {
+        return Err(CheckpointError::Branch(format!(
+            "feature branch name contains characters that alias another ref: '{name}'"
+        )));
+    }
     Ok(())
 }

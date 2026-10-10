@@ -33,15 +33,10 @@ impl FileCheckpointManager {
         let scan = scanner.scan(base_dir)?;
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
-        // Global tracked set: main plus every edit-ref head. Deletion
-        // detection against this set keeps workspace scope global.
+        // Tracked set for deletions: main plus this actor edit head only,
+        // so one actor never commits deletions for files owned by others.
         let mut ref_names = vec![crate::git_store::REF_MAIN.to_string()];
-        for (name, _) in git
-            .list_refs(crate::git_store::REF_EDIT_PREFIX)
-            .map_err(crate::file::git_write::map_git_error)?
-        {
-            ref_names.push(name);
-        }
+        ref_names.push(crate::git_store::edit_ref_for_actor(actor.as_str()));
         ref_names.sort();
         let mut tracked: HashSet<String> = HashSet::new();
         for name in ref_names {
@@ -58,10 +53,19 @@ impl FileCheckpointManager {
                 tracked.extend(files);
             }
         }
-        let _ = actor;
         let mut entries = Vec::with_capacity(scan.files.len());
         for state in &scan.files {
-            let relative = crate::file::util::validate_workspace_relative_path(&state.path)?;
+            let relative = match crate::file::util::validate_workspace_relative_path(&state.path) {
+                Ok(v) => v,
+                Err(err) => match opts.failure_behavior {
+                    FailureBehavior::Error => return Err(err),
+                    FailureBehavior::Warn => {
+                        tracing::warn!("skipping unscannable path '{}': {err}", state.path);
+                        continue;
+                    }
+                    FailureBehavior::Ignore => continue,
+                },
+            };
             let path = base_dir.join(&relative);
             match std::fs::read(&path) {
                 Ok(content) => entries.push(FileContentEntry::new(relative, content)),
@@ -91,8 +95,12 @@ impl FileCheckpointManager {
         }
         let mut checkpoint = self.create_checkpoint(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
-        self.storage_ref()?
-            .store_empty_dirs(&checkpoint.id, &scan.empty_dirs)?;
+        if let Err(err) = self
+            .storage_ref()?
+            .store_empty_dirs(&checkpoint.id, &scan.empty_dirs)
+        {
+            tracing::warn!("storing empty dir manifest failed: {err}");
+        }
         Ok(checkpoint)
     }
 

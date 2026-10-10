@@ -74,7 +74,7 @@ impl WorkspaceChangeCollector {
         scope.sort();
         scope.dedup();
         Self {
-            base_dir: base_dir.to_path_buf(),
+            base_dir: normalized_base,
             scope,
             scanner,
         }
@@ -107,6 +107,25 @@ impl WorkspaceChangeCollector {
         dir: &Path,
         out: &mut HashMap<PathBuf, String>,
     ) -> Result<(), CheckpointError> {
+        if dir.is_file()
+            && !std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink())
+        {
+            let relative = crate::file::util::normalize_posix_separators(
+                &dir.strip_prefix(&self.base_dir)
+                    .unwrap_or(dir)
+                    .to_string_lossy(),
+            );
+            if !self.scanner.is_ignored(&relative) {
+                let content = std::fs::read(dir).map_err(|e| {
+                    CheckpointError::Io(std::io::Error::other(format!(
+                        "failed to read scoped file '{}': {e}",
+                        dir.display()
+                    )))
+                })?;
+                out.insert(dir.to_path_buf(), sha256_hex(&content));
+            }
+            return Ok(());
+        }
         if !dir.is_dir() {
             return Ok(());
         }

@@ -12,7 +12,7 @@ use crate::event::CheckpointEventBus;
 use crate::file::git_merge::{conflict_details, GitMergeOutcome};
 use crate::file::git_write::map_git_error;
 use crate::file::merge::MergeCommitResult;
-use crate::file::util::{resolve_restore_target, validate_workspace_relative_path};
+use crate::file::util::{resolve_restore_target, sha256_hex, validate_workspace_relative_path};
 use crate::file::FileCheckpointManager;
 use crate::git_store::{feat_ref_for_name, REF_REVIEW_PREFIX};
 use crate::provenance::DeltaSummary;
@@ -34,23 +34,25 @@ impl FileCheckpointManager {
                 continue;
             }
             let Some(head) = git.read_ref(&review_ref).map_err(map_git_error)? else {
+                tracing::warn!(review = %review_ref, "pending review ref has no head; skipping");
                 continue;
             };
             let Ok(commit) = git.read_commit(&head) else {
+                tracing::warn!(review = %review_ref, head = %head, "pending review head unreadable; skipping");
                 continue;
             };
             let actor = commit
                 .trailer(crate::git_store::TRAILER_ACTOR)
                 .unwrap_or_default();
-            let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
+            let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
             let mut changes: Vec<DeltaSummary> = files
                 .iter()
-                .map(|(path, (_, blob))| DeltaSummary {
+                .map(|(path, bytes)| DeltaSummary {
                     file: path.clone(),
                     source: actor.clone(),
                     timestamp: commit.committer_ts,
                     snapshot_id: head.clone(),
-                    hash: blob.clone(),
+                    hash: sha256_hex(bytes),
                     message: None,
                 })
                 .collect();
@@ -81,20 +83,26 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
-        let mut deleted: Vec<String> = Vec::new();
+        let mut targets: Vec<(String, String)> = Vec::new();
         for (review_ref, _) in git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error)? {
             if storage.get_review_state(&review_ref)? != Some(ReviewStatus::Pending) {
                 continue;
             }
             let Some(head) = git.read_ref(&review_ref).map_err(map_git_error)? else {
+                tracing::warn!(review = %review_ref, "reject scan found headless review; skipping");
                 continue;
             };
             let Ok(commit) = git.read_commit(&head) else {
+                tracing::warn!(review = %review_ref, "reject scan found unreadable review; skipping");
                 continue;
             };
             if commit.trailer(crate::git_store::TRAILER_ACTOR).as_deref() != Some(actor.as_str()) {
                 continue;
             }
+            targets.push((review_ref, head));
+        }
+        let mut deleted: Vec<String> = Vec::new();
+        for (review_ref, head) in targets {
             git.delete_ref(&review_ref).map_err(map_git_error)?;
             storage.delete_review_state(&review_ref)?;
             deleted.push(head);
@@ -148,6 +156,25 @@ impl FileCheckpointManager {
     ) -> Result<MergeOutcome, CheckpointError> {
         crate::branch::ensure_feature_branch_name(feature_name)?;
         let actor = self.actor_id_for(entity_id);
+        if let Some(ref selected) = paths {
+            for path in selected {
+                validate_workspace_relative_path(path)?;
+            }
+            if selected.is_empty() {
+                let snapshot_id = self
+                    .newest_pending_review(actor.as_str())?
+                    .map(|(_, head)| head)
+                    .or(self.latest_checkpoint_id(&actor)?)
+                    .unwrap_or_default();
+                return Ok(MergeOutcome {
+                    merged: false,
+                    snapshot_id,
+                    conflicts: vec![],
+                    conflict_files: vec![],
+                    message: "no paths selected; changes remain pending".to_string(),
+                });
+            }
+        }
         // Every approval starts from a fresh submission: edit to review is
         // a ref copy, never a merge.
         let (review_ref, review_head) = self.submit_for_review(entity_id)?;
@@ -157,15 +184,6 @@ impl FileCheckpointManager {
         // for the rest. Unselected paths keep the feature content, so concurrent
         // feature changes outside the selection are never overwritten.
         if let Some(paths) = paths {
-            if paths.is_empty() {
-                return Ok(MergeOutcome {
-                    merged: false,
-                    snapshot_id: review_head,
-                    conflicts: vec![],
-                    conflict_files: vec![],
-                    message: "no paths selected; changes remain pending".to_string(),
-                });
-            }
             if conflict_behavior == ConflictBehavior::Approval {
                 // Consistent with full-batch approval: keep the submission
                 // pending and let the host resolve it.
@@ -304,14 +322,35 @@ impl FileCheckpointManager {
                 if conflict_behavior == ConflictBehavior::Marker {
                     if let Some(root) = workspace_root {
                         for file in &conflict_files {
-                            let target = resolve_restore_target(root, file)?;
+                            let target = match resolve_restore_target(root, file) {
+                                Ok(v) => v,
+                                Err(err) => {
+                                    tracing::warn!("marker write skipped for '{file}': {err}");
+                                    continue;
+                                }
+                            };
                             if let Some(parent) = target.parent() {
-                                std::fs::create_dir_all(parent)?;
+                                if let Err(err) = std::fs::create_dir_all(parent) {
+                                    tracing::warn!("marker write skipped for '{file}': {err}");
+                                    continue;
+                                }
                             }
-                            let commit = git.read_commit(&head).map_err(map_git_error)?;
-                            let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+                            let Ok(commit) = git.read_commit(&head) else {
+                                tracing::warn!(
+                                    "marker write skipped for '{file}': head unreadable"
+                                );
+                                continue;
+                            };
+                            let Ok(files) = git.tree_to_bytes(&commit.tree) else {
+                                tracing::warn!(
+                                    "marker write skipped for '{file}': tree unreadable"
+                                );
+                                continue;
+                            };
                             if let Some(bytes) = files.get(file) {
-                                std::fs::write(&target, bytes)?;
+                                if let Err(err) = std::fs::write(&target, bytes) {
+                                    tracing::warn!("marker write skipped for '{file}': {err}");
+                                }
                             }
                         }
                     }
@@ -361,6 +400,58 @@ impl FileCheckpointManager {
             });
         }
 
+        if conflict_behavior == ConflictBehavior::Fail {
+            let git = self.git_ref()?;
+            let feature_ref = feat_ref_for_name(feature_name);
+            if let Some(head) = git.read_ref(&feature_ref).map_err(map_git_error)? {
+                if let Ok(commit) = git.read_commit(&head) {
+                    if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
+                        == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
+                    {
+                        return Err(CheckpointError::MergeConflict {
+                            actor: actor.as_str().to_string(),
+                            files: commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE),
+                        });
+                    }
+                }
+            }
+            let review_commit = git.read_commit(&review_head).map_err(map_git_error)?;
+            let review_tree = git
+                .tree_to_bytes(&review_commit.tree)
+                .map_err(map_git_error)?;
+            let feature_head = git.read_ref(&feature_ref).map_err(map_git_error)?;
+            let feature_tree: std::collections::HashMap<String, Vec<u8>> = match &feature_head {
+                Some(head) => {
+                    let commit = git.read_commit(head).map_err(map_git_error)?;
+                    git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
+                }
+                None => std::collections::HashMap::new(),
+            };
+            let base_tree: std::collections::HashMap<String, Vec<u8>> = match &feature_head {
+                Some(feature) => match git
+                    .merge_base(feature, &review_head)
+                    .map_err(map_git_error)?
+                {
+                    Some(base) => {
+                        let commit = git.read_commit(&base).map_err(map_git_error)?;
+                        git.tree_to_bytes(&commit.tree).map_err(map_git_error)?
+                    }
+                    None => std::collections::HashMap::new(),
+                },
+                None => std::collections::HashMap::new(),
+            };
+            let (_, predicted) =
+                crate::git_store::merge_file_maps(&base_tree, &feature_tree, &review_tree);
+            if !predicted.is_empty() {
+                let mut files = predicted;
+                files.sort();
+                return Err(CheckpointError::MergeConflict {
+                    actor: actor.as_str().to_string(),
+                    files,
+                });
+            }
+        }
+
         match self.merge_review_into_feature(
             &review_ref,
             &review_head,
@@ -380,16 +471,53 @@ impl FileCheckpointManager {
                 if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
                     if let Some(root) = workspace_root {
                         for detail in &merged.details {
-                            let target = resolve_restore_target(root, &detail.file)?;
+                            let target = match resolve_restore_target(root, &detail.file) {
+                                Ok(v) => v,
+                                Err(err) => {
+                                    tracing::warn!(
+                                        "marker write skipped for '{}': {err}",
+                                        detail.file
+                                    );
+                                    continue;
+                                }
+                            };
                             if let Some(parent) = target.parent() {
-                                std::fs::create_dir_all(parent)?;
+                                if let Err(err) = std::fs::create_dir_all(parent) {
+                                    tracing::warn!(
+                                        "marker write skipped for '{}': {err}",
+                                        detail.file
+                                    );
+                                    continue;
+                                }
                             }
-                            let git = self.git_ref()?;
-                            let commit =
-                                git.read_commit(&merged.commit_id).map_err(map_git_error)?;
-                            let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+                            let Ok(git) = self.git_ref() else {
+                                tracing::warn!(
+                                    "marker write skipped for '{}': store unavailable",
+                                    detail.file
+                                );
+                                continue;
+                            };
+                            let Ok(commit) = git.read_commit(&merged.commit_id) else {
+                                tracing::warn!(
+                                    "marker write skipped for '{}': commit unreadable",
+                                    detail.file
+                                );
+                                continue;
+                            };
+                            let Ok(files) = git.tree_to_bytes(&commit.tree) else {
+                                tracing::warn!(
+                                    "marker write skipped for '{}': tree unreadable",
+                                    detail.file
+                                );
+                                continue;
+                            };
                             if let Some(bytes) = files.get(&detail.file) {
-                                std::fs::write(&target, bytes)?;
+                                if let Err(err) = std::fs::write(&target, bytes) {
+                                    tracing::warn!(
+                                        "marker write skipped for '{}': {err}",
+                                        detail.file
+                                    );
+                                }
                             }
                         }
                     }
@@ -475,18 +603,21 @@ impl FileCheckpointManager {
             .ok_or_else(|| CheckpointError::NotFound {
                 id: format!("feature '{feature_name}'"),
             })?;
-        let conflicted = git
-            .read_commit(&head)
-            .map(|commit| {
-                if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
-                    == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
-                {
-                    commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE)
-                } else {
-                    Vec::new()
-                }
-            })
-            .unwrap_or_default();
+        if resolutions.is_empty() {
+            return Err(CheckpointError::Validation {
+                reason: "conflict resolutions must not be empty".to_string(),
+            });
+        }
+        let conflicted = {
+            let commit = git.read_commit(&head).map_err(map_git_error)?;
+            if commit.trailer(crate::git_store::TRAILER_STATE).as_deref()
+                == Some(crate::git_store::STATE_CONFLICT_UNRESOLVED)
+            {
+                commit.trailers(crate::git_store::TRAILER_CONFLICT_FILE)
+            } else {
+                Vec::new()
+            }
+        };
         let mut changes: HashMap<String, Option<(String, Vec<u8>)>> = HashMap::new();
         let mut paths: Vec<String> = Vec::new();
         let mut resolved_contents: Vec<(String, Vec<u8>)> = Vec::new();
@@ -500,18 +631,7 @@ impl FileCheckpointManager {
             resolved_contents.push((validated, content.clone()));
         }
         paths.sort();
-        let parent_tree = match git.read_commit(&head).map_err(map_git_error) {
-            Ok(commit) => Some(commit.tree),
-            Err(err) => {
-                tracing::warn!(
-                    entity_id = %entity_id,
-                    feature = %feature_name,
-                    error = %err,
-                    "reading feature head commit failed; building tree without a parent"
-                );
-                None
-            }
-        };
+        let parent_tree = Some(git.read_commit(&head).map_err(map_git_error)?.tree);
         let tree = git
             .build_tree_from_parent(parent_tree.as_deref(), &changes)
             .map_err(map_git_error)?;
@@ -528,14 +648,15 @@ impl FileCheckpointManager {
         let id = git
             .write_commit(
                 &tree,
-                &[head],
+                std::slice::from_ref(&head),
                 actor.as_str(),
                 crate::git_store::SYSTEM_COMMITTER,
                 self.creation_timestamp()?,
                 &message,
             )
             .map_err(map_git_error)?;
-        git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
+        git.compare_and_swap(&feature_ref, Some(head.as_str()), &id)
+            .map_err(map_git_error)?;
         self.index_commit(storage, &id, actor.as_str(), "", "review", &paths)?;
         for (path, content) in &resolved_contents {
             self.publish_file_event(&id, path, actor.as_str(), Some(content.as_slice()));
@@ -545,9 +666,10 @@ impl FileCheckpointManager {
             .iter()
             .filter(|file| !resolved.contains(file.as_str()))
             .count();
-        if remaining == 0 {
+        if remaining == 0 && !conflicted.is_empty() {
             // Fully resolved: advance related pending reviews to approved so
-            // the review state machine does not stall in pending.
+            // the review state machine does not stall in pending. Only reviews
+            // reachable from the resolution commit are closed.
             if let Ok(refs) = git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error) {
                 for (review_ref, _) in refs {
                     if storage.get_review_state(&review_ref).unwrap_or(None)
@@ -562,8 +684,15 @@ impl FileCheckpointManager {
                     {
                         if let Ok(commit) = git.read_commit(&head_id) {
                             if commit.trailer(crate::git_store::TRAILER_ACTOR).as_deref()
-                                == Some(actor.as_str())
+                                != Some(actor.as_str())
                             {
+                                continue;
+                            }
+                            let related = git
+                                .is_ancestor(&head_id, &id)
+                                .map_err(map_git_error)
+                                .unwrap_or(false);
+                            if related {
                                 let _ =
                                     storage.set_review_state(&review_ref, ReviewStatus::Approved);
                             }
@@ -615,12 +744,24 @@ impl FileCheckpointManager {
             crate::file::ApprovalPolicy::None => Ok(None),
             crate::file::ApprovalPolicy::Auto => {
                 let feature = Self::default_feature_name(entity_id);
-                let merged = self.merge_entity_changes(entity_id, &feature)?;
-                Ok(Some(merged.merge_result))
+                match self.merge_entity_changes(entity_id, &feature) {
+                    Ok(merged) => Ok(Some(merged.merge_result)),
+                    Err(err) => {
+                        tracing::warn!("auto approval failed after successful execution: {err}");
+                        Ok(None)
+                    }
+                }
             }
             crate::file::ApprovalPolicy::Llm | crate::file::ApprovalPolicy::Manual => {
-                self.move_agent_to_approval(entity_id)?;
-                Ok(None)
+                match self.move_agent_to_approval(entity_id) {
+                    Ok(_) => Ok(None),
+                    Err(err) => {
+                        tracing::warn!(
+                            "submit for approval failed after successful execution: {err}"
+                        );
+                        Ok(None)
+                    }
+                }
             }
         }
     }

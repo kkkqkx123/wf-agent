@@ -69,7 +69,7 @@ static GROUP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn next_edit_group_id(timestamp: i64) -> EditGroupId {
     let n = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    EditGroupId(format!("sess-{timestamp}-{n}"))
+    EditGroupId(format!("sess-{timestamp}-{}-{n}", std::process::id()))
 }
 
 impl FileCheckpointManager {
@@ -80,17 +80,25 @@ impl FileCheckpointManager {
     /// commit atomically via [`Self::commit_edit_group`].
     pub fn begin_edit_group(&self, label: Option<String>) -> Result<EditGroupId, CheckpointError> {
         let timestamp = self.creation_timestamp()?;
-        let id = next_edit_group_id(timestamp);
-        self.pending_batches.insert(
-            id.to_string(),
-            PendingEditBatch {
-                label,
-                actor: String::new(),
-                created_at: timestamp,
-                files: HashMap::new(),
-            },
-        );
-        Ok(id)
+        for _ in 0..64 {
+            let id = next_edit_group_id(timestamp);
+            if self.pending_batches.contains_key(&id.to_string()) {
+                continue;
+            }
+            self.pending_batches.insert(
+                id.to_string(),
+                PendingEditBatch {
+                    label,
+                    actor: String::new(),
+                    created_at: timestamp,
+                    files: HashMap::new(),
+                },
+            );
+            return Ok(id);
+        }
+        Err(CheckpointError::Internal(
+            "failed to allocate a unique edit group id".to_string(),
+        ))
     }
 
     /// List staged (not yet committed) edit groups, newest first.
@@ -107,7 +115,7 @@ impl FileCheckpointManager {
                 }
             })
             .collect();
-        groups.sort_by_key(|s| std::cmp::Reverse(s.created_at));
+        groups.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.id.0.cmp(&b.id.0)));
         Ok(groups)
     }
 
@@ -182,27 +190,53 @@ impl FileCheckpointManager {
                 id: format!("edit group {group_id}"),
             })?;
         if !batch.actor.is_empty() && batch.actor != actor.as_str() {
+            let owner = batch.actor.clone();
+            self.pending_batches.insert(group_id.to_string(), batch);
             return Err(CheckpointError::Validation {
                 reason: format!(
-                    "edit group {group_id} belongs to '{}', not '{}'",
-                    batch.actor,
+                    "edit group {group_id} belongs to '{owner}', not '{}'",
                     actor.as_str()
                 ),
             });
         }
         if batch.files.is_empty() {
-            let git = self.git_ref()?;
-            let head = git
+            let git_result = self.git_ref();
+            let git = match git_result {
+                Ok(git) => git,
+                Err(err) => {
+                    self.pending_batches.insert(group_id.to_string(), batch);
+                    return Err(err);
+                }
+            };
+            match git
                 .read_ref(&edit_ref_for_actor(actor.as_str()))
-                .map_err(map_git_error)?;
-            return head.ok_or_else(|| CheckpointError::NotFound {
-                id: format!("no commits for actor '{}'", actor.as_str()),
-            });
+                .map_err(map_git_error)
+            {
+                Ok(head) => match head {
+                    Some(id) => {
+                        return Ok(id);
+                    }
+                    None => {
+                        self.pending_batches.insert(group_id.to_string(), batch);
+                        return Err(CheckpointError::NotFound {
+                            id: format!("no commits for actor '{}'", actor.as_str()),
+                        });
+                    }
+                },
+                Err(err) => {
+                    self.pending_batches.insert(group_id.to_string(), batch);
+                    return Err(err);
+                }
+            }
         }
         let session = group_id.to_string();
-        let outcome =
-            self.commit_tool_files(&actor, &batch.files, Some(&session), tool, "grouped edit")?;
-        Ok(outcome.id)
+        match self.commit_tool_files(&actor, &batch.files, Some(&session), tool, "grouped edit") {
+            Ok(outcome) => Ok(outcome.id),
+            Err(err) => {
+                self.pending_batches.insert(group_id.to_string(), batch);
+                Err(err)
+            }
+        }
     }
 
     /// Roll back an entire edit group on an actor's edit ref: drop the staged
@@ -237,14 +271,31 @@ impl FileCheckpointManager {
         let target = group_id.to_string();
         let mut cursor = head.clone();
         let mut stepped = false;
+        let mut visited: Vec<String> = Vec::new();
         loop {
             let commit = git.read_commit(&cursor).map_err(map_git_error)?;
             if commit.trailer(crate::git_store::TRAILER_SESSION).as_deref() != Some(target.as_str())
             {
                 break;
             }
+            visited.push(cursor.clone());
             let Some(parent) = commit.parents.first().cloned() else {
-                break;
+                let current = git.read_ref(&refname).map_err(map_git_error)?;
+                if current.as_deref() != Some(head.as_str()) {
+                    return Err(CheckpointError::Branch(format!(
+                        "concurrent ref update conflict on '{refname}'"
+                    )));
+                }
+                git.delete_ref(&refname).map_err(map_git_error)?;
+                let mut stack = self
+                    .redo_stacks
+                    .entry(actor.as_str().to_string())
+                    .or_default();
+                for id in visited {
+                    stack.push(id);
+                }
+                self.store.latest_checkpoints.remove(actor.as_str());
+                return Ok(head);
             };
             cursor = parent;
             stepped = true;
@@ -260,11 +311,15 @@ impl FileCheckpointManager {
         if cursor == head {
             return Ok(head);
         }
-        git.write_ref(&refname, &cursor).map_err(map_git_error)?;
-        self.redo_stacks
+        git.compare_and_swap(&refname, Some(head.as_str()), &cursor)
+            .map_err(map_git_error)?;
+        let mut stack = self
+            .redo_stacks
             .entry(actor.as_str().to_string())
-            .or_default()
-            .push(head);
+            .or_default();
+        for id in visited {
+            stack.push(id);
+        }
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), cursor.clone());
@@ -294,7 +349,8 @@ impl FileCheckpointManager {
                 .ok_or_else(|| CheckpointError::Validation {
                     reason: format!("actor '{}' has only the initial commit", actor.as_str()),
                 })?;
-        git.write_ref(&refname, &parent).map_err(map_git_error)?;
+        git.compare_and_swap(&refname, Some(head.as_str()), &parent)
+            .map_err(map_git_error)?;
         self.redo_stacks
             .entry(actor.as_str().to_string())
             .or_default()
@@ -318,7 +374,9 @@ impl FileCheckpointManager {
             })?;
         let git = self.git_ref()?;
         let refname = edit_ref_for_actor(actor.as_str());
-        git.write_ref(&refname, &next).map_err(map_git_error)?;
+        let current = git.read_ref(&refname).map_err(map_git_error)?;
+        git.compare_and_swap(&refname, current.as_deref(), &next)
+            .map_err(map_git_error)?;
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), next.clone());

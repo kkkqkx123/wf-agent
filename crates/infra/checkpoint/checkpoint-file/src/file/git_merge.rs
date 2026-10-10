@@ -87,6 +87,15 @@ pub fn parse_conflict_regions(bytes: &[u8]) -> Vec<GitConflictRegion> {
             _ => {}
         }
     }
+    if state != 0 {
+        out.push(GitConflictRegion {
+            start_line,
+            end_line: text.lines().count(),
+            base_lines: std::mem::take(&mut base),
+            ours_lines: std::mem::take(&mut ours),
+            theirs_lines: std::mem::take(&mut theirs),
+        });
+    }
     out
 }
 
@@ -291,7 +300,8 @@ impl FileCheckpointManager {
                     &message,
                 )
                 .map_err(map_git_error)?;
-            git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
+            git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
+                .map_err(map_git_error)?;
             storage.set_review_state(review_ref, ReviewStatus::Approved)?;
             self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
             return Ok(GitMergeOutcome {
@@ -327,7 +337,8 @@ impl FileCheckpointManager {
                 &message,
             )
             .map_err(map_git_error)?;
-        git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
+        git.compare_and_swap(&feature_ref, feature_head.as_deref(), &id)
+            .map_err(map_git_error)?;
         storage.set_review_state(review_ref, ReviewStatus::Pending)?;
         self.index_commit(storage, &id, actor_str, "", "review", &all_paths)?;
         if let Some(ref bus) = self.event_bus {
@@ -447,7 +458,8 @@ impl FileCheckpointManager {
                     &message,
                 )
                 .map_err(map_git_error)?;
-            git.write_ref(&feature_ref, &id).map_err(map_git_error)?;
+            git.compare_and_swap(&feature_ref, Some(feature_head.as_str()), &id)
+                .map_err(map_git_error)?;
             let mut all_paths: Vec<String> = merged.keys().cloned().collect();
             all_paths.sort();
             self.index_commit(storage, &id, actor_str, "", "merge", &all_paths)?;
@@ -507,7 +519,8 @@ impl FileCheckpointManager {
                 &message,
             )
             .map_err(map_git_error)?;
-        git.write_ref(REF_MAIN, &id).map_err(map_git_error)?;
+        git.compare_and_swap(REF_MAIN, main_head.as_deref(), &id)
+            .map_err(map_git_error)?;
         self.index_commit(storage, &id, actor_str, "", "merge", &all_paths)?;
         Ok(GitMergeOutcome {
             commit_id: id,
@@ -593,7 +606,7 @@ impl FileCheckpointManager {
         let merged_tree = git
             .build_tree_from_parent(Some(&main_commit.tree), &changes)
             .map_err(map_git_error)?;
-        let parents = vec![main_head];
+        let parents = vec![main_head.clone()];
         let mut trailers = Vec::new();
         if !conflicts.is_empty() {
             trailers.push((
@@ -621,7 +634,8 @@ impl FileCheckpointManager {
                 &message,
             )
             .map_err(map_git_error)?;
-        git.write_ref(REF_MAIN, &id).map_err(map_git_error)?;
+        git.compare_and_swap(REF_MAIN, Some(main_head.as_str()), &id)
+            .map_err(map_git_error)?;
         self.index_commit(storage, &id, actor_str, "", "rollback", &all_paths)?;
         let details = conflict_details(&merged, &conflicts);
         Ok(GitMergeOutcome {

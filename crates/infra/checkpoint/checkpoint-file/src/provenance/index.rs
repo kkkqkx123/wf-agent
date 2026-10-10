@@ -13,15 +13,14 @@ pub fn rebuild_source_index(
     git: &GitStore,
     storage: &SqliteStorage,
 ) -> Result<usize, CheckpointError> {
-    storage.clear_source_index()?;
     let mut commits = git.all_commits().map_err(map_git_error)?;
     commits.sort_by_key(|a| a.committer_ts);
-    let mut count = 0;
+    let mut entries = Vec::with_capacity(commits.len());
     for commit in commits {
         let files = git.tree_to_files(&commit.tree).map_err(map_git_error)?;
         let mut paths: Vec<String> = files.into_keys().collect();
         paths.sort();
-        storage.record_source_index(&crate::storage::SourceIndexEntry {
+        entries.push(crate::storage::SourceIndexEntry {
             commit_id: commit.id.clone(),
             actor: commit.trailer(TRAILER_ACTOR).unwrap_or_default(),
             session: commit
@@ -32,7 +31,12 @@ pub fn rebuild_source_index(
                 .unwrap_or_default(),
             paths,
             timestamp: commit.committer_ts,
-        })?;
+        });
+    }
+    storage.clear_source_index()?;
+    let mut count = 0;
+    for entry in &entries {
+        storage.record_source_index(entry)?;
         count += 1;
     }
     Ok(count)

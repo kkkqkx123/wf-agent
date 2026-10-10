@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::file::util::normalize_posix_separators;
+use crate::file::util::{normalize_posix_separators, sha256_hex};
 use crate::file::FileCheckpointManager;
 use crate::script_capture::{CollectedChange, CollectedChangeKind};
 use checkpoint_base::actor::id::ActorId;
@@ -116,7 +116,13 @@ impl FileCheckpointManager {
         let applied = staged.len();
         // One script run is exactly one atomic commit.
         match self.commit_tool_files(actor, &staged, None, Some("script"), "script run") {
-            Ok(_) => Ok(applied),
+            Ok(outcome) => {
+                if outcome.created {
+                    Ok(applied)
+                } else {
+                    Ok(0)
+                }
+            }
             Err(err) => match behavior {
                 FailureBehavior::Error => Err(err),
                 FailureBehavior::Warn => {
@@ -178,7 +184,19 @@ impl FileCheckpointManager {
                 PreciseFileEventKind::Created | PreciseFileEventKind::Modified => {
                     // Prefer the tool-captured bytes: avoids a second disk
                     // read and closes the TOCTOU window between the tool
-                    // write and the checkpoint apply.
+                    // write and the checkpoint apply. A hint hash mismatch
+                    // only signals a stale caller hint; bytes stay
+                    // authoritative so placeholder hashes never block writes.
+                    if let (Some(bytes), Some(expected)) =
+                        (&event.content_hint, &event.expected_hash)
+                    {
+                        if sha256_hex(bytes) != *expected {
+                            tracing::warn!(
+                                path = %abs_norm.display(),
+                                "precise hint hash mismatch; trusting captured bytes"
+                            );
+                        }
+                    }
                     let content = match &event.content_hint {
                         Some(bytes) => Ok(bytes.clone()),
                         None => std::fs::read(&abs_norm).map_err(|err| {
@@ -209,6 +227,35 @@ impl FileCheckpointManager {
                     };
                     if !from_in_scope {
                         stats.out_of_scope.push(from_norm.display().to_string());
+                    }
+                    if from_in_scope && from_valid.is_none() {
+                        return match behavior {
+                            FailureBehavior::Error => Err(CheckpointError::Validation {
+                                reason: format!("invalid rename source '{}'", from_norm.display()),
+                            }),
+                            FailureBehavior::Warn => {
+                                tracing::warn!(
+                                    path = %from_norm.display(),
+                                    "rename source invalid; skipping rename"
+                                );
+                                stats.failed.push(from_norm.display().to_string());
+                                continue;
+                            }
+                            FailureBehavior::Ignore => {
+                                stats.failed.push(from_norm.display().to_string());
+                                continue;
+                            }
+                        };
+                    }
+                    if let (Some(bytes), Some(expected)) =
+                        (&event.content_hint, &event.expected_hash)
+                    {
+                        if sha256_hex(bytes) != *expected {
+                            tracing::warn!(
+                                path = %abs_norm.display(),
+                                "precise hint hash mismatch; trusting captured bytes"
+                            );
+                        }
                     }
                     let content = match &event.content_hint {
                         Some(bytes) => Ok(bytes.clone()),
@@ -247,10 +294,15 @@ impl FileCheckpointManager {
         if staged.is_empty() {
             return Ok(stats);
         }
-        // One tool call is exactly one commit. The expected hashes stay a
-        // caller-side concern; content identity is the object id.
-        if let Err(err) = self.commit_tool_files(actor, &staged, None, Some("tool"), "tool edit") {
-            match behavior {
+        // One tool call is exactly one commit. Content identity is the
+        // object id; a tree match commits nothing and reports zero applied.
+        match self.commit_tool_files(actor, &staged, None, Some("tool"), "tool edit") {
+            Ok(outcome) => {
+                if !outcome.created {
+                    stats.applied = 0;
+                }
+            }
+            Err(err) => match behavior {
                 FailureBehavior::Error => return Err(err),
                 FailureBehavior::Warn => {
                     tracing::warn!("precise batch commit failed: {err}");
@@ -261,7 +313,7 @@ impl FileCheckpointManager {
                     stats.failed.extend(staged.keys().cloned());
                     stats.applied = 0;
                 }
-            }
+            },
         }
         Ok(stats)
     }

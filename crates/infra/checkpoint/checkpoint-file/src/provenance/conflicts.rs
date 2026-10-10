@@ -47,6 +47,15 @@ pub fn parse_marker_conflicts(path: &str, bytes: &[u8]) -> Vec<ConflictView> {
             _ => {}
         }
     }
+    if state != 0 {
+        out.push(ConflictView {
+            file: path.to_string(),
+            start_line,
+            base: std::mem::take(&mut base),
+            ours: std::mem::take(&mut ours),
+            theirs: std::mem::take(&mut theirs),
+        });
+    }
     out
 }
 

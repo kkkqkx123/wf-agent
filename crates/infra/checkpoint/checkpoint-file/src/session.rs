@@ -110,7 +110,11 @@ impl CheckpointSession {
                 path = %mutation.path.display(),
                 "record_file_mutation skipped: no workspace root"
             );
-            return crate::PreciseApplyStats::default();
+            return crate::PreciseApplyStats {
+                applied: 0,
+                failed: Vec::new(),
+                out_of_scope: vec![mutation.path.display().to_string()],
+            };
         };
         let kind = match &mutation.operation {
             wf_types::effect::FileOperation::Created => crate::PreciseFileEventKind::Created,
@@ -151,7 +155,11 @@ impl CheckpointSession {
                     error = %err,
                     "record_file_mutation apply failed"
                 );
-                crate::PreciseApplyStats::default()
+                crate::PreciseApplyStats {
+                    applied: 0,
+                    failed: vec![mutation.path.display().to_string()],
+                    out_of_scope: Vec::new(),
+                }
             }
         }
     }

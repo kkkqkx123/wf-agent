@@ -183,9 +183,33 @@ impl ScopeCapture {
     // ---- foreground scope helpers ----
 
     pub fn begin_scope(&self, execution_id: &str, scope_dir: &Path) -> Option<PathBuf> {
-        let root = self.manager.workspace_root()?;
-        let scope = resolve_shell_scope(root, scope_dir)?;
-        let capture_scopes = self.intersected_capture_scopes(&scope)?;
+        let Some(root) = self.manager.workspace_root() else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope_dir.display(),
+                "scope capture skipped: no workspace root"
+            );
+            return None;
+        };
+        let Some(scope) = resolve_shell_scope(root, scope_dir) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope_dir.display(),
+                "scope capture skipped: outside workspace root"
+            );
+            return None;
+        };
+        let Some(capture_scopes) = self.intersected_capture_scopes(&scope) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope.display(),
+                "scope capture skipped: outside checkpoint prefixes"
+            );
+            return None;
+        };
         // A failed before-capture disables the scope: recording an empty
         // baseline would misreport the whole scope as newly added content.
         let before = self.capture_scopes(&capture_scopes, &scope)?;
@@ -202,12 +226,30 @@ impl ScopeCapture {
         terminated: bool,
     ) -> ScopeEndOutcome {
         let Some(root) = self.manager.workspace_root() else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope_dir.display(),
+                "scope end skipped: no workspace root"
+            );
             return ScopeEndOutcome::Skipped;
         };
         let Some(scope) = resolve_shell_scope(root, scope_dir) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope_dir.display(),
+                "scope end skipped: outside workspace root"
+            );
             return ScopeEndOutcome::Skipped;
         };
         let Some(capture_scopes) = self.intersected_capture_scopes(&scope) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                scope = %scope.display(),
+                "scope end skipped: outside checkpoint prefixes"
+            );
             return ScopeEndOutcome::Skipped;
         };
         if !terminated {
@@ -239,9 +281,33 @@ impl ScopeCapture {
     /// reusing the old one. A failed capture disables the domain: no empty
     /// baseline is recorded.
     pub fn begin_session(&self, session_id: &str, scope_dir: &Path) -> Option<PathBuf> {
-        let root = self.manager.workspace_root()?;
-        let scope = resolve_shell_scope(root, scope_dir)?;
-        let capture_scopes = self.intersected_capture_scopes(&scope)?;
+        let Some(root) = self.manager.workspace_root() else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                session = %session_id,
+                scope = %scope_dir.display(),
+                "session capture skipped: no workspace root"
+            );
+            return None;
+        };
+        let Some(scope) = resolve_shell_scope(root, scope_dir) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                session = %session_id,
+                scope = %scope_dir.display(),
+                "session capture skipped: outside workspace root"
+            );
+            return None;
+        };
+        let Some(capture_scopes) = self.intersected_capture_scopes(&scope) else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                session = %session_id,
+                scope = %scope.display(),
+                "session capture skipped: outside checkpoint prefixes"
+            );
+            return None;
+        };
         let session_key = key(session_id, &scope);
         if let Some(before) = self.capture_scopes(&capture_scopes, &scope) {
             if self.scopes.session_before.contains_key(&session_key) {

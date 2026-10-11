@@ -147,7 +147,20 @@ impl CheckpointSession {
                     out_of_scope: vec![mutation.path.display().to_string()],
                 };
             }
-            if !scope.checkpoint_prefixes.is_empty() {
+            if scope.checkpoint_prefixes.is_empty() {
+                tracing::warn!(
+                    entity = %self.entity_id,
+                    execution = %execution_id,
+                    path = %mutation.path.display(),
+                    "record_file_mutation filtered: checkpoint prefixes deny everything"
+                );
+                return crate::PreciseApplyStats {
+                    applied: 0,
+                    failed: Vec::new(),
+                    out_of_scope: vec![mutation.path.display().to_string()],
+                };
+            }
+            {
                 let path_str = mutation.path.to_string_lossy().to_string();
                 let inside = scope.checkpoint_prefixes.iter().any(|bound| {
                     wf_types::config::file_scope::scope_path_contains(bound, &path_str)
@@ -397,5 +410,27 @@ mod tests {
         assert!(session
             .begin_scope("exec-1", &dir.path().join("frontend"))
             .is_some());
+    }
+
+    #[test]
+    fn empty_checkpoint_prefix_denies_precise_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager.set_workspace_root(Some(dir.path().to_path_buf()));
+        let target = dir.path().join("a.txt");
+        std::fs::write(&target, b"data").unwrap();
+        let scope = wf_types::config::file_scope::ResolvedFileScope {
+            enabled: true,
+            read_prefixes: vec![dir.path().to_string_lossy().to_string()],
+            write_prefixes: vec![dir.path().to_string_lossy().to_string()],
+            checkpoint_prefixes: vec![],
+            workdir: None,
+        };
+        let session =
+            CheckpointSession::new_with_scope(manager, "agent-1", None, Some(scope)).unwrap();
+        let stats = session
+            .record_file_mutation("exec-1", FileMutation::new(target, FileOperation::Modified));
+        assert_eq!(stats.applied, 0);
+        assert_eq!(stats.out_of_scope.len(), 1);
     }
 }

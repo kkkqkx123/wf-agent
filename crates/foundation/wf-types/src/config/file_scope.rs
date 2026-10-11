@@ -317,10 +317,17 @@ pub fn expand_file_scope(
 }
 
 fn check_within_workspace(prefixes: &[String], workspace_root: &str) -> Result<(), String> {
-    if !workspace_root.starts_with('/') {
+    let root = normalize_scope_path(workspace_root);
+    if root == "." {
+        for prefix in prefixes {
+            if prefix.starts_with('/') {
+                return Err(format!(
+                    "scope entry '{prefix}' is outside workspace root '{root}'"
+                ));
+            }
+        }
         return Ok(());
     }
-    let root = normalize_scope_path(workspace_root);
     for prefix in prefixes {
         if !scope_path_contains(&root, prefix) {
             return Err(format!(
@@ -547,5 +554,45 @@ mod tests {
         assert!(is_scope_subset(&[], &outer));
         assert!(is_scope_subset(&[String::from("/repo/app/src")], &outer));
         assert!(!is_scope_subset(&[String::from("/repo/other")], &outer));
+    }
+
+    #[test]
+    fn relative_root_still_enforces_containment() {
+        let inside = ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["work/sub".to_string()]),
+            write_prefixes: Some(vec!["work/sub".to_string()]),
+            checkpoint_prefixes: Some(vec!["work/sub".to_string()]),
+            workdir: None,
+        };
+        assert!(
+            resolve_execution_scope_checked(None, None, Some(&inside), None, Some("work")).is_ok()
+        );
+        let outside = ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["/etc".to_string()]),
+            write_prefixes: Some(vec!["/etc".to_string()]),
+            checkpoint_prefixes: Some(vec!["/etc".to_string()]),
+            workdir: None,
+        };
+        assert!(
+            resolve_execution_scope_checked(None, None, Some(&outside), None, Some("work"))
+                .is_err()
+        );
+        let absolute_under_dot = ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["/etc".to_string()]),
+            write_prefixes: Some(vec!["/etc".to_string()]),
+            checkpoint_prefixes: Some(vec!["/etc".to_string()]),
+            workdir: None,
+        };
+        assert!(resolve_execution_scope_checked(
+            None,
+            None,
+            Some(&absolute_under_dot),
+            None,
+            Some(".")
+        )
+        .is_err());
     }
 }

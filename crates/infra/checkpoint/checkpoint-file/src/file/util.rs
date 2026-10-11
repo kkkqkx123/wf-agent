@@ -54,10 +54,10 @@ pub(crate) fn normalize_workspace_key(root: &Path) -> String {
     let raw = root.to_string_lossy();
     let trimmed = raw.trim_end_matches(['/', '\\']);
     if trimmed.is_empty() {
-        raw.into_owned()
-    } else {
-        trimmed.to_string()
+        return raw.into_owned();
     }
+    let unified = trimmed.replace('\\', "/");
+    wf_types::config::file_scope::normalize_scope_path(&unified)
 }
 
 /// Validate and normalize a workspace-relative file path.
@@ -70,7 +70,8 @@ pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, Che
             reason: "file path must not be empty".to_string(),
         });
     }
-    let candidate = Path::new(path);
+    let unified = normalize_posix_separators(path);
+    let candidate = Path::new(&unified);
     if candidate.is_absolute() || candidate.has_root() {
         return Err(CheckpointError::Validation {
             reason: format!("file path must be workspace-relative: '{path}'"),
@@ -223,4 +224,28 @@ pub(crate) fn root_actor(execution_id: wf_types::Id) -> checkpoint_base::actor::
         )
         .expect("invariant: the 'unknown' fallback actor id is always valid")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backslash_escape_is_rejected_after_unification() {
+        assert!(validate_workspace_relative_path("..\\..\\etc").is_err());
+        assert!(validate_workspace_relative_path("a\\..\\..\\b").is_err());
+        assert_eq!(validate_workspace_relative_path("a\\b").unwrap(), "a/b");
+    }
+
+    #[test]
+    fn workspace_key_collapses_equivalent_spellings() {
+        assert_eq!(
+            normalize_workspace_key(std::path::Path::new("/ws/./sub/")),
+            "/ws/sub"
+        );
+        assert_eq!(
+            normalize_workspace_key(std::path::Path::new("/ws/sub")),
+            "/ws/sub"
+        );
+    }
 }

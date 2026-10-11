@@ -157,6 +157,11 @@ impl FileCheckpointManager {
         for event in events {
             let abs_norm = crate::watcher::normalize_absolute_path(&event.path);
             let Ok(relative) = abs_norm.strip_prefix(&root_norm) else {
+                tracing::warn!(
+                    path = %abs_norm.display(),
+                    root = %root_norm.display(),
+                    "precise event outside workspace root"
+                );
                 stats.out_of_scope.push(abs_norm.display().to_string());
                 continue;
             };

@@ -88,20 +88,9 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
                     let root_norm = wf_types::config::file_scope::normalize_scope_path(root);
                     let db_norm = wf_types::config::file_scope::normalize_scope_path(db_path);
                     if !wf_types::config::file_scope::scope_path_contains(&root_norm, &db_norm) {
-                        let parent = std::path::Path::new(&db_norm)
-                            .parent()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        let inside =
-                            wf_types::config::file_scope::scope_path_contains(&root_norm, &parent)
-                                || wf_types::config::file_scope::scope_path_contains(
-                                    &root_norm, &db_norm,
-                                );
-                        if !inside {
-                            return Err(ConfigError::Validation(format!(
-                                "file_checkpoint.storage.db_path '{db_path}' is outside workspace root '{root}'"
-                            )));
-                        }
+                        return Err(ConfigError::Validation(format!(
+                            "file_checkpoint.storage.db_path '{db_path}' is outside workspace root '{root}'"
+                        )));
                     }
                 } else if root.starts_with('/') {
                     let root_norm = wf_types::config::file_scope::normalize_scope_path(root);

@@ -6,7 +6,6 @@ use serde_json::json;
 use wf_types::tool::approval::ApprovalCategories;
 use wf_types::tool::file_permission::{FileOperationType, FilePermissionSettings};
 
-
 fn make_request(id: &str, name: &str, risk: Option<&str>) -> ToolApprovalRequestData {
     ToolApprovalRequestData {
         tool_call_id: id.into(),
@@ -557,4 +556,56 @@ fn test_network_domain_suffix_match() {
     ));
     assert!(!domain_matches("not-evil.example", "evil.example"));
     assert!(!domain_matches("evil.example.evil.com", "evil.example"));
+}
+
+#[test]
+fn test_shell_command_sensitive_write_routes_to_approval() {
+    use super::file_policy::extract_shell_file_paths;
+    let coordinator = ToolApprovalCoordinator::with_defaults();
+    let mut req = make_execute_request("t1", "echo secret > app/.env");
+    assert_eq!(
+        coordinator.check_approval(&req, None, None),
+        ApprovalDecision::Ask
+    );
+    let (_, writes) = extract_shell_file_paths("echo secret > app/.env");
+    assert!(writes.iter().any(|p| p.ends_with("app/.env")));
+    let fp = FilePermissionSettings::default_rules();
+    assert!(writes
+        .iter()
+        .any(|p| !check_file_permission(p, &FileOperationType::Write, &fp)));
+    req.parameters = json!({ "command": "echo hi" });
+    let (reads, writes) = extract_shell_file_paths("echo hi");
+    assert!(reads.is_empty() && writes.is_empty());
+}
+
+#[test]
+fn test_shell_command_sensitive_read_routes_to_approval() {
+    use super::file_policy::extract_shell_file_paths;
+    let coordinator = ToolApprovalCoordinator::with_defaults();
+    let req = make_execute_request("t1", "cat app/secrets/key.txt");
+    assert_eq!(
+        coordinator.check_approval(&req, None, None),
+        ApprovalDecision::Ask
+    );
+    let (reads, _) = extract_shell_file_paths("cat app/secrets/key.txt");
+    let fp = FilePermissionSettings::default_rules();
+    assert!(reads
+        .iter()
+        .any(|p| !check_file_permission(p, &FileOperationType::Read, &fp)));
+}
+
+#[test]
+fn test_nested_arguments_paths_are_extracted() {
+    use super::file_policy::extract_file_paths;
+    let params = json!({
+        "server_name": "s",
+        "tool_name": "t",
+        "arguments": { "path": "secrets/key.txt" },
+        "cwd": "/workspace/app",
+        "uri": "file:///workspace/app/.env",
+    });
+    let paths = extract_file_paths(&params);
+    assert!(paths.iter().any(|p| p.ends_with("secrets/key.txt")));
+    assert!(paths.contains(&"/workspace/app".to_string()));
+    assert!(paths.iter().any(|p| p.ends_with(".env")));
 }

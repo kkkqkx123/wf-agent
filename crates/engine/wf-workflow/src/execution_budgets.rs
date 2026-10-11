@@ -38,6 +38,64 @@ pub fn persist_totals(
     );
 }
 
+/// Reserved variable holding the cumulative human-approval wait time of
+/// this execution. Approval waits never consume wall-clock budgets, so both
+/// the node timeout and the total `max_execution_time` check subtract it.
+pub const APPROVAL_WAIT_VAR: &str = "__approval_wait_ms";
+/// Reserved variable marking an in-progress approval wait with its start
+/// timestamp. Tool calls run sequentially within one node execution, so a
+/// single marker is sufficient; its presence freezes the active-time clock
+/// until the wait lands and is credited.
+pub const APPROVAL_WAITING_VAR: &str = "__approval_wait_started_ms";
+
+/// Completed approval waits so far, in milliseconds.
+pub fn approval_wait_ms(variables: &VariableStore) -> u64 {
+    variables
+        .get(APPROVAL_WAIT_VAR)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+}
+
+/// Start timestamp of the in-progress approval wait, if any.
+pub fn approval_wait_started_ms(variables: &VariableStore) -> Option<i64> {
+    variables.get(APPROVAL_WAITING_VAR).and_then(|v| v.as_i64())
+}
+
+/// Active time between two timestamps: wall-clock minus completed approval
+/// waits minus the still-running wait, so budget guards never charge human
+/// response time to the execution.
+pub fn active_elapsed_ms(variables: &VariableStore, start_ms: i64, now_ms: i64) -> u64 {
+    let elapsed = (now_ms - start_ms).max(0) as u64;
+    let in_progress = approval_wait_started_ms(variables)
+        .map(|t0| (now_ms - t0).max(0) as u64)
+        .unwrap_or(0);
+    elapsed
+        .saturating_sub(approval_wait_ms(variables))
+        .saturating_sub(in_progress)
+}
+
+/// Mark the start of a human-approval wait.
+pub fn begin_approval_wait(variables: &VariableStore) {
+    variables.insert(
+        APPROVAL_WAITING_VAR.to_string(),
+        serde_json::Value::from(wf_common::now()),
+    );
+}
+
+/// Land a finished approval wait: remove the in-progress marker and credit
+/// its duration into the accumulator.
+pub fn end_approval_wait(variables: &VariableStore) {
+    let now = wf_common::now();
+    if let Some(started) = variables.get(APPROVAL_WAITING_VAR).and_then(|v| v.as_i64()) {
+        variables.remove(APPROVAL_WAITING_VAR);
+        let waited = (now - started).max(0) as u64;
+        let total = approval_wait_ms(variables).saturating_add(waited);
+        variables.insert(
+            APPROVAL_WAIT_VAR.to_string(),
+            serde_json::Value::from(total),
+        );
+    }
+}
 /// Accumulated active time before this segment, carried across resumes.
 pub fn accumulated_ms(variables: &VariableStore) -> u64 {
     variables
@@ -208,5 +266,39 @@ mod tests {
     fn missing_config_stays_unbudgeted() {
         let next = continuation_options("exec-1", None).unwrap();
         assert_eq!(next.max_execution_time, None);
+    }
+
+    #[test]
+    fn approval_waits_are_credited_and_subtracted() {
+        let vars = store();
+        assert_eq!(approval_wait_ms(&vars), 0);
+        assert_eq!(approval_wait_started_ms(&vars), None);
+        assert_eq!(active_elapsed_ms(&vars, 1000, 1500), 500);
+
+        vars.insert(APPROVAL_WAIT_VAR.to_string(), serde_json::json!(200u64));
+        vars.insert(APPROVAL_WAITING_VAR.to_string(), serde_json::json!(1200i64));
+        assert_eq!(approval_wait_ms(&vars), 200);
+        assert_eq!(approval_wait_started_ms(&vars), Some(1200));
+        assert_eq!(active_elapsed_ms(&vars, 1000, 1500), 0);
+
+        vars.remove(APPROVAL_WAITING_VAR);
+        begin_approval_wait(&vars);
+        assert!(approval_wait_started_ms(&vars).is_some());
+        end_approval_wait(&vars);
+        assert_eq!(approval_wait_started_ms(&vars), None);
+        let credited = approval_wait_ms(&vars);
+        assert!(credited >= 200);
+        let now = wf_common::now();
+        assert_eq!(
+            active_elapsed_ms(&vars, 1000, now),
+            (now - 1000).max(0) as u64 - credited
+        );
+    }
+
+    #[test]
+    fn end_without_begin_credits_nothing() {
+        let vars = store();
+        end_approval_wait(&vars);
+        assert_eq!(approval_wait_ms(&vars), 0);
     }
 }

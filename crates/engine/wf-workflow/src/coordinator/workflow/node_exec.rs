@@ -149,6 +149,10 @@ impl WorkflowCoordinator {
         let coordinator = NodeCoordinator::new();
         let timeout_dur = resolve_node_timeout(node, node_type, node_timeout);
 
+        // The handler future borrows the node context mutably, so the
+        // approval accounting below reads through a clone of the shared
+        // variable map taken before the future is built.
+        let variables = node_ctx.variables.clone();
         let fut = coordinator.execute_node(
             entity,
             handler,
@@ -183,17 +187,38 @@ impl WorkflowCoordinator {
                     );
                 }
                 let node_start = wf_common::now();
-                let result = tokio::time::timeout(tout_dur, guarded)
+                let budget_ms = tout_dur.as_millis().min(u64::MAX as u128) as u64;
+                let timeout_failure = || WorkflowError::NodeFailure {
+                    node_id: node_id.to_string(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
+                    detail: format!("timed out after {:?}", tout_dur),
+                    failure_source: wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                };
+                let mut guarded = Box::pin(guarded);
+                // Human-approval waits never consume the node budget: when
+                // the sleep lapses, recompute the active time with fresh
+                // approval accounting and re-arm for the remainder instead
+                // of failing a node that only waited on a human.
+                let result = loop {
+                    let active_ms = crate::execution_budgets::active_elapsed_ms(
+                        &variables,
+                        node_start,
+                        wf_common::now(),
+                    );
+                    if active_ms >= budget_ms {
+                        break Err(timeout_failure());
+                    }
+                    let remaining = budget_ms - active_ms;
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(remaining),
+                        guarded.as_mut(),
+                    )
                     .await
-                    .map_err(|_| WorkflowError::NodeFailure {
-                        node_id: node_id.to_string(),
-                        category:
-                            wf_types::workflow::error_branch::NodeErrorCategory::TransportTimeout,
-                        detail: format!("timed out after {:?}", tout_dur),
-                        failure_source:
-                            wf_types::workflow::error_branch::NodeFailureSource::Handler,
-                    })
-                    .and_then(|handler_result| handler_result.map_err(panic_failure));
+                    {
+                        Ok(handler_result) => break handler_result.map_err(&panic_failure),
+                        Err(_) => continue,
+                    }
+                };
                 match &result {
                     Err(_) => {
                         if let Some(ref metrics) = timeout_metrics {

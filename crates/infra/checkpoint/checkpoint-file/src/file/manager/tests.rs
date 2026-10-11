@@ -774,13 +774,13 @@ fn scoped_restore_only_touches_checkpoint_range() {
     std::fs::write(dir.path().join("backend/b.txt"), b"w2").unwrap();
     std::fs::write(dir.path().join("frontend/extra.txt"), b"extra").unwrap();
     let frontend = dir.path().join("frontend").to_string_lossy().to_string();
-    let result = manager
+    manager
         .restore_workspace_scoped(
             "exec-1",
             &cp.id,
             dir.path(),
             &opts,
-            Some(&[frontend.clone()]),
+            Some(std::slice::from_ref(&frontend)),
         )
         .unwrap();
     assert_eq!(

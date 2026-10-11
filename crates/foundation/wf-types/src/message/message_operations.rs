@@ -18,7 +18,7 @@ pub enum MessageOperationType {
 pub enum MessageOperationConfig {
     Append(AppendMessageOperation),
     Insert(InsertMessageOperation),
-    Replace(ReplaceMessageOperation),
+    Replace(Box<ReplaceMessageOperation>),
     Filter(FilterMessageOperation),
     Rollback(RollbackMessageOperation),
     BatchManagement(BatchManagementOperation),

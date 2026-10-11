@@ -675,3 +675,39 @@ fn checkpoint_ignored_write_is_marked_unrestorable() {
         .unwrap();
     assert!(!ok.as_str().unwrap().contains("cannot be restored"));
 }
+
+#[test]
+fn closed_channel_denies_writes_but_allows_reads() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("note.txt"), "hi").unwrap();
+    let handlers = FsToolHandlers::new(FsToolConfig {
+        workspace_dir: Some(root.path().to_path_buf()),
+        enable_ignore: false,
+        ..Default::default()
+    });
+    let root_str = root.path().to_string_lossy().to_string();
+    let ctx = ToolExecutionContext::new("exec-closed".into()).with_file_scope(Some(
+        wf_types::config::file_scope::ResolvedFileScope {
+            enabled: false,
+            read_prefixes: vec![root_str.clone()],
+            write_prefixes: vec![root_str.clone()],
+            checkpoint_prefixes: vec![root_str],
+            workdir: None,
+        },
+    ));
+    let note = root.path().join("note.txt");
+    handlers
+        .read_file(&serde_json::json!({ "path": note.to_str().unwrap() }), &ctx)
+        .unwrap();
+    let err = handlers
+        .write_file(
+            &serde_json::json!({
+                "path": note.to_str().unwrap(),
+                "content": "changed"
+            }),
+            &ctx,
+        )
+        .expect_err("closed channel write must fail");
+    assert!(err.is_scope_violation());
+    assert!(err.to_string().contains("file channel is closed"));
+}

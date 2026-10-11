@@ -27,7 +27,7 @@ use wf_types::tool::{Tool, ToolRiskLevel};
 use wf_shell::command_safety::{CommandDecision, CommandPolicy};
 use wf_shell::config::ShellToolConfig;
 
-use file_policy::{extract_file_operation, extract_file_paths};
+use file_policy::{extract_file_operation, extract_file_paths, extract_shell_file_paths};
 use mcp::handle_mcp_approval;
 use network_policy::{domain_matches, extract_domain};
 
@@ -195,6 +195,18 @@ impl ToolApprovalCoordinator {
                     // needs explicit sign-off. Reserve the hard `Deny` for
                     // write-protected files guarded by the protect_controller
                     // below, which are never meant to be edited at all.
+                    return ApprovalDecision::Ask;
+                }
+            }
+            if let Some(command) = tool.parameters.get("command").and_then(|v| v.as_str()) {
+                let (reads, writes) = extract_shell_file_paths(command);
+                let write_blocked = writes
+                    .iter()
+                    .any(|p| !check_file_permission(p, &FileOperationType::Write, fp));
+                let read_blocked = reads
+                    .iter()
+                    .any(|p| !check_file_permission(p, &FileOperationType::Read, fp));
+                if write_blocked || read_blocked {
                     return ApprovalDecision::Ask;
                 }
             }

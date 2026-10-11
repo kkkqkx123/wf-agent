@@ -88,7 +88,24 @@ impl FsToolHandlers {
             return Ok(resolved.to_path_buf());
         };
         if !scope.enabled {
-            return Ok(resolved.to_path_buf());
+            if !want_write {
+                return Ok(resolved.to_path_buf());
+            }
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                path = %resolved.display(),
+                "filesystem scope violation: write with closed file channel"
+            );
+            return self.scope_violation(
+                tool,
+                ctx,
+                format!(
+                    "path '{}' cannot be written: the file channel is closed for this execution.",
+                    resolved.display()
+                ),
+                resolved.to_path_buf(),
+                true,
+            );
         }
         let kind = if want_write { "write" } else { "read" };
         if !resolved.is_absolute() {

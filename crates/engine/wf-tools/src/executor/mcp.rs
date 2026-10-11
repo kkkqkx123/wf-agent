@@ -7,6 +7,7 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use crate::mcp::analytics::McpUsageAnalytics;
+use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
@@ -50,6 +51,98 @@ impl McpExecutor {
 
         Ok(Self::new(server_name))
     }
+}
+
+fn file_uri_path(uri: &str) -> Option<String> {
+    let stripped = uri.strip_prefix("file://")?;
+    if stripped.starts_with('/') {
+        Some(stripped.to_string())
+    } else {
+        Some(format!("/{stripped}"))
+    }
+}
+
+fn ensure_mcp_uri_in_scope(
+    tool_name: &str,
+    uri: &str,
+    context: &ToolExecutionContext,
+) -> Result<(), ToolError> {
+    let Some(scope) = context.file_scope.as_ref() else {
+        return Ok(());
+    };
+    if !scope.enabled {
+        return Ok(());
+    }
+    let Some(raw) = file_uri_path(uri) else {
+        return Ok(());
+    };
+    let candidate = std::path::Path::new(&raw);
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(workdir) = scope.workdir.as_ref() {
+        std::path::Path::new(workdir).join(candidate)
+    } else {
+        return Err(ToolError::scope_violation(
+            tool_name,
+            format!(
+                "resource '{uri}' outside allowed read prefixes: relative resource without base."
+            ),
+        ));
+    };
+    if !resolved.is_absolute() {
+        return Err(ToolError::scope_violation(
+            tool_name,
+            format!(
+                "resource '{uri}' outside allowed read prefixes: relative resource without base."
+            ),
+        ));
+    }
+    let lexical = normalize_scope_path(&resolved.to_string_lossy());
+    let lexically_inside = scope
+        .read_prefixes
+        .iter()
+        .any(|bound| scope_path_contains(bound, &lexical));
+    if !lexically_inside {
+        return Err(ToolError::scope_violation(
+            tool_name,
+            format!("resource '{uri}' outside allowed read prefixes."),
+        ));
+    }
+    if let Ok(physical) = resolved.canonicalize() {
+        let physical_str = physical.to_string_lossy().to_string();
+        let physically_inside = scope
+            .read_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, &physical_str));
+        if !physically_inside {
+            return Err(ToolError::scope_violation(
+                tool_name,
+                format!("resource '{uri}' escapes allowed read prefixes through symlink."),
+            ));
+        }
+    } else if let Some(parent) = resolved.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Ok(physical_parent) = parent.canonicalize() {
+                if let Some(name) = resolved.file_name() {
+                    let physical = physical_parent.join(name);
+                    let physical_str = physical.to_string_lossy().to_string();
+                    let physically_inside = scope
+                        .read_prefixes
+                        .iter()
+                        .any(|bound| scope_path_contains(bound, &physical_str));
+                    if !physically_inside {
+                        return Err(ToolError::scope_violation(
+                            tool_name,
+                            format!(
+                                "resource '{uri}' escapes allowed read prefixes through symlink."
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn process_tool_result(result: &Value) -> String {
@@ -128,10 +221,14 @@ impl ToolExecutor for McpExecutor {
         tool: &wf_types::tool::Tool,
         parameters: &Value,
         options: &ToolExecutionOptions,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
     ) -> ToolResult<ToolExecutionResult> {
         let start = Instant::now();
         BaseExecutor::validate_parameters(tool, parameters)?;
+
+        if let Some(uri) = parameters.get("uri").and_then(|v| v.as_str()) {
+            ensure_mcp_uri_in_scope(&tool.name, uri, context)?;
+        }
 
         let timeout_ms = options.timeout.unwrap_or(30000);
 
@@ -313,5 +410,26 @@ mod tests {
     fn test_process_resource_result_empty() {
         let result = wf_types::tool::McpResourceReadResult { contents: vec![] };
         assert_eq!(process_resource_result(&result), "(Empty response)");
+    }
+
+    #[test]
+    fn test_file_uri_outside_scope_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let root_str = root.path().to_string_lossy().to_string();
+        let ctx = ToolExecutionContext::new("exec-mcp".into()).with_file_scope(Some(
+            wf_types::config::file_scope::ResolvedFileScope {
+                enabled: true,
+                read_prefixes: vec![root_str.clone()],
+                write_prefixes: vec![root_str],
+                checkpoint_prefixes: vec![],
+                workdir: None,
+            },
+        ));
+        let inside = format!("file://{}/doc.txt", root.path().to_string_lossy());
+        ensure_mcp_uri_in_scope("read_resource", &inside, &ctx).unwrap();
+        let err = ensure_mcp_uri_in_scope("read_resource", "file:///etc/passwd", &ctx)
+            .expect_err("outside file uri must fail");
+        assert!(err.is_scope_violation());
+        ensure_mcp_uri_in_scope("read_resource", "https://example.com/doc", &ctx).unwrap();
     }
 }

@@ -177,7 +177,13 @@ impl WorkflowCoordinator {
         }
 
         if let Some(max_execution_time) = self.ctx.options.max_execution_time {
-            if max_execution_time > 0 && (now() - self.start_time) as u64 >= max_execution_time {
+            // Human-approval waits never consume the wall-clock budget.
+            let active_ms = crate::execution_budgets::active_elapsed_ms(
+                &self.ctx.variables,
+                self.start_time,
+                now(),
+            );
+            if max_execution_time > 0 && active_ms >= max_execution_time {
                 tracing::warn!(
                     execution_id = %entity.id(),
                     max_execution_time,

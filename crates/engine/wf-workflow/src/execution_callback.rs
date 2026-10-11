@@ -362,7 +362,7 @@ impl WorkflowExecutionCallback {
 
         let mut options = default_options(variables);
         options.file_scope = inherit_workflow_scope(input.file_scope, parent.as_ref())
-            .map_err(|e| WorkflowError::CoordinatorError(e))?;
+            .map_err(WorkflowError::CoordinatorError)?;
         let params = self.build_params(workflow_id, execution_id.clone(), options, None)?;
         let lifecycle = self.build_lifecycle();
         let executions = self.executions.clone();

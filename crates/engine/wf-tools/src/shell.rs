@@ -196,6 +196,23 @@ pub(crate) fn check_shell_scope(
         return Ok(());
     };
     if !scope.enabled {
+        let chains = wf_sandbox::parse_command_chain(command);
+        for chain in &chains {
+            let tokens = wf_sandbox::strategy::shell::vfs_paths::tokenize_command(chain);
+            let (_, writes) = wf_sandbox::extract_file_paths(&tokens);
+            if !writes.is_empty() {
+                tracing::warn!(
+                    execution = %execution,
+                    "shell scope violation: write with closed file channel"
+                );
+                return scope_violation(
+                    tool,
+                    "command cannot run: the file channel is closed for this execution and writes are denied.".to_string(),
+                    None,
+                    execution,
+                );
+            }
+        }
         return Ok(());
     }
     let Some(dir) = scope_dir else {
@@ -241,10 +258,7 @@ pub(crate) fn check_shell_scope(
         .or_else(|_| ensure_shell_path_in_scope(tool, dir, scope, true, execution, mode))?;
     let chains = wf_sandbox::parse_command_chain(command);
     for chain in &chains {
-        let tokens = chain
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let tokens = wf_sandbox::strategy::shell::vfs_paths::tokenize_command(chain);
         let (reads, writes) = wf_sandbox::extract_file_paths(&tokens);
         for raw in &writes {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
@@ -274,6 +288,17 @@ pub(crate) fn gate_session_shell(
         return Ok(None);
     };
     if !scope.enabled {
+        let default_dir = scope.workdir.as_ref().map(std::path::PathBuf::from);
+        let scope_dir = resolve_scope_dir(params_cwd, default_dir.as_ref());
+        check_shell_scope(
+            tool,
+            scope_dir.as_ref(),
+            command.unwrap_or(""),
+            Some(scope),
+            default_dir.as_ref(),
+            &ctx.execution_id.to_string(),
+            None,
+        )?;
         return Ok(None);
     }
     let default_dir = scope.workdir.as_ref().map(std::path::PathBuf::from);
@@ -648,6 +673,52 @@ mod tests {
             &ctx,
         )
         .expect_err("outside command path must fail");
+        assert!(err.is_scope_violation());
+    }
+
+    #[test]
+    fn quoted_redirect_outside_scope_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("work")).unwrap();
+        let ctx = scoped_shell_ctx(root.path(), "work");
+        let inside = root.path().join("work").to_string_lossy().to_string();
+        let err = gate_session_shell(
+            "execute_in_session",
+            Some(&inside),
+            Some("echo hi > \"/etc/passwd\""),
+            &ctx,
+        )
+        .expect_err("quoted outside redirect must fail");
+        assert!(err.is_scope_violation());
+    }
+
+    #[test]
+    fn closed_channel_denies_shell_writes_but_allows_reads() {
+        let root = tempfile::tempdir().unwrap();
+        let root_str = root.path().to_string_lossy().to_string();
+        let ctx = ToolExecutionContext::new("exec-closed".into()).with_file_scope(Some(
+            wf_types::config::file_scope::ResolvedFileScope {
+                enabled: false,
+                read_prefixes: vec![root_str],
+                write_prefixes: vec![],
+                checkpoint_prefixes: vec![],
+                workdir: None,
+            },
+        ));
+        gate_session_shell(
+            "execute_in_session",
+            Some(root.path().to_str().unwrap()),
+            Some("echo hi"),
+            &ctx,
+        )
+        .expect("read-only shell must pass with closed channel");
+        let err = gate_session_shell(
+            "execute_in_session",
+            Some(root.path().to_str().unwrap()),
+            Some("echo hi > out.txt"),
+            &ctx,
+        )
+        .expect_err("shell write must fail with closed channel");
         assert!(err.is_scope_violation());
     }
 }

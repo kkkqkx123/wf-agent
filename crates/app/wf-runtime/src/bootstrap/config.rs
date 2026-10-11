@@ -239,16 +239,14 @@ pub async fn resolve_infra_config(
     // closed file channel (`enabled = false`, which reads identical to the
     // type default) must survive instead of being mistaken for "unset" and
     // covered by the assembled value.
-    if infra.overrides.file_checkpoint.is_some() {
-        config.file_checkpoint = assembled.file_checkpoint;
-    } else if config.file_checkpoint == FileCheckpointConfig::default() {
+    if infra.overrides.file_checkpoint.is_some()
+        || config.file_checkpoint == FileCheckpointConfig::default()
+    {
         config.file_checkpoint = assembled.file_checkpoint;
     } else {
         config.file_checkpoint = merge_file_checkpoint_with_defaults(&config.file_checkpoint);
     }
-    if infra.overrides.sandbox.is_some() {
-        config.sandbox = assembled.sandbox;
-    } else if config.sandbox.is_none() {
+    if infra.overrides.sandbox.is_some() || config.sandbox.is_none() {
         config.sandbox = assembled.sandbox;
     }
     if config.presets == wf_types::config::presets::PresetsConfig::default() {

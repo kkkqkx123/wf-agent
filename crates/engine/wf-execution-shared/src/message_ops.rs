@@ -253,10 +253,12 @@ mod tests {
         let base = vec![msg(MessageRole::User, "q")];
         let (out, stats) = apply(
             &base,
-            &config(MessageOperationConfig::Replace(ReplaceMessageOperation {
-                index: 5,
-                message: msg(MessageRole::User, "new"),
-            })),
+            &config(MessageOperationConfig::Replace(Box::new(
+                ReplaceMessageOperation {
+                    index: 5,
+                    message: msg(MessageRole::User, "new"),
+                },
+            ))),
         );
         assert_eq!(out.len(), 1);
         assert_eq!(stats.modified, 0);

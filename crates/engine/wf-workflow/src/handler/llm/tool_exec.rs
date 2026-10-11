@@ -311,7 +311,12 @@ pub async fn execute_tool_call(
                                     total_tools: batch.map(|b| b.total),
                                     pending_queue: batch.map(|b| b.pending_queue.clone()),
                                 };
+                            // Approval waits never consume wall-clock budgets:
+                            // mark the wait so the node timeout re-arms around
+                            // it and the total budget check subtracts it.
+                            crate::execution_budgets::begin_approval_wait(&ctx.variables);
                             let result = handler.request_approval(&request).await;
+                            crate::execution_budgets::end_approval_wait(&ctx.variables);
                             match result.approved {
                                 true => Ok(result.edited_parameters),
                                 false => Err(result.rejection_reason.unwrap_or_else(|| {
@@ -534,6 +539,102 @@ mod tests {
         let blocked = execute_tool_call(&ctx, &call, None, None).await;
         assert!(
             matches!(&blocked.content, MessageContentValue::Text(t) if t.contains("not visible"))
+        );
+    }
+
+    #[tokio::test]
+    async fn approval_wait_is_credited_to_execution_budget() {
+        struct EchoBuiltin;
+        #[async_trait]
+        impl wf_tools::executor::BuiltinToolHandler for EchoBuiltin {
+            fn tool_name(&self) -> &'static str {
+                "echo_tool"
+            }
+            async fn handle(
+                &self,
+                parameters: &Value,
+                _context: &wf_tools::executor::trait_def::ToolExecutionContext,
+                _resources: &wf_tools::executor::BuiltinHandlerResources,
+            ) -> wf_tools::error::ToolResult<Value> {
+                Ok(parameters.clone())
+            }
+        }
+
+        struct SleepyApprover;
+        #[async_trait]
+        impl wf_execution_shared::approval::ToolApprovalHandler for SleepyApprover {
+            async fn request_approval(
+                &self,
+                request: &wf_execution_shared::approval::ToolApprovalRequest,
+            ) -> wf_execution_shared::approval::ToolApprovalResult {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                wf_execution_shared::approval::ToolApprovalResult::approved(
+                    request.tool_call_id.clone(),
+                )
+            }
+        }
+
+        let vars = std::sync::Arc::new(dashmap::DashMap::new());
+        let registry = std::sync::Arc::new(wf_tools::registry::ToolRegistry::new());
+        registry.register_builtin_handler("echo_tool", std::sync::Arc::new(EchoBuiltin));
+        let mut tool = wf_types::tool::Tool {
+            id: wf_types::Id::from("echo_tool"),
+            name: "echo_tool".to_string(),
+            description: "echo".to_string(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: None,
+        };
+        tool.parameters = Some(wf_types::tool::ToolParameterSchema {
+            r#type: "object".into(),
+            properties: Default::default(),
+            required: Vec::new(),
+            additional_properties: Some(true),
+        });
+        registry.register_tool(tool);
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "llm1".to_string(),
+            StaticNodeType::Llm,
+            Value::Null,
+            vars.clone(),
+        );
+        ctx.tool_registry = Some(registry);
+        ctx.tool_approval_options =
+            Some(wf_types::tool::approval::ToolApprovalOptions::handler_fallback());
+        ctx.tool_approval_handler = Some(std::sync::Arc::new(SleepyApprover));
+
+        let call = wf_types::message::LlmToolCall {
+            id: "call-1".to_string(),
+            r#type: "function".to_string(),
+            function: wf_types::message::LlmFunctionCall {
+                name: "echo_tool".to_string(),
+                arguments: "{\"x\": 1}".to_string(),
+            },
+        };
+
+        let ok = execute_tool_call(&ctx, &call, None, None).await;
+        let is_error = ok
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("is_error"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(!is_error, "approved tool must execute");
+        let waited = crate::execution_budgets::approval_wait_ms(&vars);
+        assert!(
+            waited >= 50,
+            "approval wait must be credited, got {waited}ms"
+        );
+        assert_eq!(
+            crate::execution_budgets::approval_wait_started_ms(&vars),
+            None,
+            "in-progress marker must land after the wait"
         );
     }
 }

@@ -36,16 +36,92 @@ pub fn check_file_permission(
 }
 
 pub(super) fn normalize_file_path(path: &str) -> String {
-    path.replace('\\', "/").trim().to_string()
+    let trimmed = path.replace('\\', "/").trim().to_string();
+    if let Some(stripped) = trimmed.strip_prefix("file://") {
+        if stripped.starts_with('/') {
+            return stripped.to_string();
+        }
+        return format!("/{stripped}");
+    }
+    trimmed
+}
+
+fn push_normalized(paths: &mut Vec<String>, raw: &str) {
+    let normalized = normalize_file_path(raw);
+    if !normalized.is_empty() && !paths.contains(&normalized) {
+        paths.push(normalized);
+    }
+}
+
+fn extract_direct_paths(params: &serde_json::Value, paths: &mut Vec<String>) {
+    for key in [
+        "path",
+        "file_path",
+        "file",
+        "filename",
+        "cwd",
+        "working_dir",
+        "workdir",
+        "directory",
+        "uri",
+    ] {
+        if let Some(p) = params.get(key).and_then(|v| v.as_str()) {
+            push_normalized(paths, p);
+        }
+    }
+}
+
+/// Shell command paths split by read and write intent. Pure string
+/// analysis over the same chain splitter and lexer the execution scope
+/// gate uses, so approval sees the same candidate set the scope gate
+/// enforces.
+pub(super) fn extract_shell_file_paths(command: &str) -> (Vec<String>, Vec<String>) {
+    let mut reads = Vec::new();
+    let mut writes = Vec::new();
+    for chain in wf_sandbox::parse_command_chain(command) {
+        let tokens = wf_sandbox::strategy::shell::vfs_paths::tokenize_command(&chain);
+        let (chain_reads, chain_writes) = wf_sandbox::extract_file_paths(&tokens);
+        for raw in chain_reads {
+            let normalized = normalize_file_path(&raw);
+            if !normalized.is_empty() && !reads.contains(&normalized) {
+                reads.push(normalized);
+            }
+        }
+        for raw in chain_writes {
+            let normalized = normalize_file_path(&raw);
+            if !normalized.is_empty() && !writes.contains(&normalized) {
+                writes.push(normalized);
+            }
+        }
+    }
+    (reads, writes)
 }
 
 pub(super) fn extract_file_paths(params: &serde_json::Value) -> Vec<String> {
     let mut paths = Vec::new();
-    for key in ["path", "file_path", "file", "filename"] {
-        if let Some(p) = params.get(key).and_then(|v| v.as_str()) {
-            let normalized = normalize_file_path(p);
-            if !normalized.is_empty() {
-                paths.push(normalized);
+    extract_direct_paths(params, &mut paths);
+    if let Some(nested) = params.get("arguments").and_then(|v| v.as_object()) {
+        for key in [
+            "path",
+            "file_path",
+            "file",
+            "filename",
+            "cwd",
+            "working_dir",
+            "workdir",
+            "directory",
+            "uri",
+        ] {
+            if let Some(p) = nested.get(key).and_then(|v| v.as_str()) {
+                push_normalized(&mut paths, p);
+            }
+        }
+    }
+    if let Some(command) = params.get("command").and_then(|v| v.as_str()) {
+        let (reads, writes) = extract_shell_file_paths(command);
+        for raw in reads.into_iter().chain(writes) {
+            if !paths.contains(&raw) {
+                paths.push(raw);
             }
         }
     }

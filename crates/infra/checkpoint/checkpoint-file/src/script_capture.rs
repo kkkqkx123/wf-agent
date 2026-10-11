@@ -149,7 +149,6 @@ impl WorkspaceChangeCollector {
         if !walk.is_dir() {
             return Ok(());
         }
-        let walk = walk;
         // A single directory scan: a missing scope directory is "no files",
         // not an error; per-file read failures below are path-qualified.
         let entries = std::fs::read_dir(walk).map_err(|e| {

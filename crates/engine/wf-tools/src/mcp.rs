@@ -1,7 +1,9 @@
 pub mod analytics;
 pub mod connection;
+pub mod health;
 pub mod metadata;
 pub mod registration;
+pub mod registry;
 pub mod rmcp_client;
 
 pub use analytics::{McpUsageAnalytics, ToolStats};

@@ -2,6 +2,7 @@ pub mod base;
 pub mod builtin;
 pub mod builtin_handler;
 pub mod builtin_handlers;
+pub mod circuit_breaker;
 pub mod cli;
 pub mod mcp;
 pub mod remote;
@@ -18,6 +19,7 @@ pub use builtin_handlers::{
     ExecuteWorkflowHandler, ExecuteWorkflowParams, ExecutionIdParams, QueryWorkflowStatusHandler,
     SkillHandler, SkillParams,
 };
+pub use circuit_breaker::CircuitBreaker;
 pub use cli::{
     CliExecutionOptions, CliExecutionResult, CliExecutor, CliToolExecutor, ExecutorConfig,
     ExecutorInfo, ExecutorStatus, RipgrepExecutor,
@@ -34,3 +36,8 @@ pub use rest::{
 pub use stateful::{InstanceFactory, StatefulExecutor, StatefulInstance};
 pub use stateless::{StatelessAsyncHandler, StatelessExecutor, StatelessHandler};
 pub use trait_def::{ToolExecutor, ToolExecutorExt};
+
+#[cfg(test)]
+mod rest_tests;
+#[cfg(test)]
+mod test_util;

@@ -19,10 +19,15 @@ pub async fn init_tool_registry_with_mcp(
     }
     shell_config.sandbox_policy = Some(sandbox_runtime.default_policy().clone());
     let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    let fs_scope_mode = sandbox_runtime.default_policy().mode.clone();
     wf_tools::register_builtin_handlers(
         &tool_registry,
         wf_tools::BuiltinHandlersConfig {
             shell: shell_config.clone(),
+            fs: wf_tools::FsToolConfig {
+                scope_mode: fs_scope_mode,
+                ..Default::default()
+            },
             code_context: code_context.unwrap_or_default(),
             ..Default::default()
         },

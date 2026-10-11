@@ -10,9 +10,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use checkpoint_state::state::agent::AgentCheckpointStateManager;
-use checkpoint_state::CheckpointStateManager;
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
+use wf_checkpoint::{AgentCheckpointStateManager, CheckpointStateManager};
 use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_execution_shared::types::state_manager::StateManager;
@@ -412,7 +411,7 @@ async fn global_checkpoints(ctx: &ApiContext) -> ApiResult<Vec<Checkpoint>> {
                 .get("entityId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            match checkpoint_state::parse_storage_metadata(id, entity_id, meta) {
+            match wf_checkpoint::parse_storage_metadata(id, entity_id, meta) {
                 Ok(parsed) => Some(parsed),
                 Err(e) => {
                     tracing::warn!(checkpoint_id = %id, error = %e, "skipping corrupt checkpoint metadata");

@@ -334,6 +334,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }
     }

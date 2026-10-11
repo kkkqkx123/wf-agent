@@ -195,6 +195,7 @@ impl ToolVisibilityHandler {
                 tool_name: None,
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: Some(std::collections::HashMap::from([(
                     "type".to_string(),
                     Value::String("tool_visibility".to_string()),

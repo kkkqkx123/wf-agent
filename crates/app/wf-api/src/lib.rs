@@ -364,12 +364,11 @@ pub use wf_workflow::variable::{
 };
 
 // -- checkpoint facade + subsystems --
-pub use checkpoint_base::actor::id::{ActorId, ActorIdError, ActorKind};
-pub use checkpoint_base::common::{
-    diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
+pub use wf_checkpoint::{
+    build_checkpoint_state, diff_stats_for_text, inline_word_diff, unified_diff_text,
+    CheckpointCodec, CheckpointMetadataBuilder, CheckpointSerializer, DiffStats, ActorId,
+    ActorIdError, ActorKind,
 };
-pub use checkpoint_base::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
-pub use checkpoint_base::serializer::{CheckpointCodec, CheckpointSerializer};
 pub use wf_checkpoint::approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use wf_checkpoint::event::{CheckpointEvent, CheckpointEventBus};
 pub use wf_checkpoint::file::merge::MergeCommitResult;

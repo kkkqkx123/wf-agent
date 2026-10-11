@@ -3450,6 +3450,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/file-checkpoint/checkpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_create_checkpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/file-checkpoint/content": {
         parameters: {
             query?: never;
@@ -3482,14 +3498,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/file-checkpoint/diff/staged/{id}": {
+    "/api/v1/file-checkpoint/diff/main/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["handle_diff_against_staged"];
+        get: operations["handle_diff_against_main"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3556,6 +3572,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_rename_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["handle_restore_checkpoint"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7072,6 +7104,13 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_RestoreCheckpointResponse: {
+            data?: {
+                restored: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_String: {
             data?: string;
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -7335,6 +7374,10 @@ export interface components {
             /** @description Optional description for the checkpoint */
             description?: string | null;
         };
+        CreateCheckpointRequest: {
+            /** @description Actor the file edits are attributed to. */
+            actor: string;
+        };
         CreateFromTemplateBody: {
             overrides: unknown;
             template_name: string;
@@ -7425,6 +7468,11 @@ export interface components {
             record: unknown;
         };
         ExecuteBody: {
+            /**
+             * @description Optional per-execution filesystem scope. Missing inherits the parent
+             *     execution then the global default.
+             */
+            file_scope?: unknown;
             input?: unknown;
         };
         ExecuteToolBody: {
@@ -7738,6 +7786,15 @@ export interface components {
             response_data?: unknown;
             result_data?: unknown;
         };
+        RestoreCheckpointRequest: {
+            /** @description File checkpoint (commit) id to restore from. */
+            checkpoint: string;
+            /** @description Execution or entity id owning the checkpoint. */
+            entity: string;
+        };
+        RestoreCheckpointResponse: {
+            restored: number;
+        };
         ResumeCheckpointBody: components["schemas"]["RunAgentLoopBody"] & {
             mode?: string;
         };
@@ -7765,6 +7822,11 @@ export interface components {
             discoverable_tool_names?: string[] | null;
             enable_general_tool?: boolean | null;
             enable_token_tracking?: boolean | null;
+            /**
+             * @description Optional per-execution filesystem scope. Missing inherits the parent
+             *     execution then the global default; explicit values override per field.
+             */
+            file_scope?: unknown;
             hidden_tool_names?: string[] | null;
             hooks?: unknown[] | null;
             initial_tool_names?: string[] | null;
@@ -26012,6 +26074,83 @@ export interface operations {
             };
         };
     };
+    handle_create_checkpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCheckpointRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_read_content: {
         parameters: {
             query: {
@@ -26164,7 +26303,7 @@ export interface operations {
             };
         };
     };
-    handle_diff_against_staged: {
+    handle_diff_against_main: {
         parameters: {
             query?: never;
             header?: never;
@@ -26464,6 +26603,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_restore_checkpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreCheckpointRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_RestoreCheckpointResponse"];
                 };
             };
             /** @description Invalid parameters */

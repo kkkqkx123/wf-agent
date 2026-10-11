@@ -142,9 +142,9 @@ pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
     )
     .await?;
     {
-        use checkpoint_state::CheckpointStateManager;
+        use wf_checkpoint::CheckpointStateManager;
 
-        let checkpoints = checkpoint_state::state::workflow::WorkflowCheckpointStateManager::new(
+        let checkpoints = wf_checkpoint::WorkflowCheckpointStateManager::new(
             ctx.checkpoint_store.clone(),
         );
         for execution in &executions {
@@ -242,7 +242,7 @@ mod tests {
     use crate::workflow::version::{
         list_workflow_versions as list_vers, save_workflow_version as save_ver,
     };
-    use checkpoint_state::CheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
     use wf_common;
     use wf_core::registry::Registry;
@@ -503,7 +503,7 @@ mod tests {
             error_suspend: None,
         };
         let coordinator = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
-            checkpoint_state::state::workflow::WorkflowCheckpointStateManager::new(
+            wf_checkpoint::WorkflowCheckpointStateManager::new(
                 ctx.checkpoint_store.clone(),
             ),
         );
@@ -526,7 +526,7 @@ mod tests {
                 .await
                 .is_err()
         );
-        let remaining = checkpoint_state::state::workflow::WorkflowCheckpointStateManager::new(
+        let remaining = wf_checkpoint::WorkflowCheckpointStateManager::new(
             ctx.checkpoint_store.clone(),
         )
         .list_by_entity("exec-cascade-1")

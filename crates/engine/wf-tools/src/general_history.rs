@@ -353,6 +353,7 @@ fn tool_message(id: &wf_types::Id, tool_call_id: &str, tool_name: &str, output: 
         tool_name: Some(tool_name.to_string()),
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -630,6 +631,7 @@ mod tests {
             tool_name: None,
             tool_calls: Some(calls),
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }
     }
@@ -644,6 +646,7 @@ mod tests {
             tool_name: Some(tool.to_string()),
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }
     }

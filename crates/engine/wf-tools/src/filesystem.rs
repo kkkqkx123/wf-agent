@@ -26,6 +26,11 @@ pub struct FsToolConfig {
     pub max_lines: usize,
     pub max_results: usize,
     pub enable_ignore: bool,
+    /// Scope enforcement mode following the sandbox contract: Strict
+    /// rejects out-of-scope paths, Lenient warns and still executes (the
+    /// checkpoint layer filters the write and reports it as out of scope),
+    /// Disabled skips scope gating. `None` defaults to Strict.
+    pub scope_mode: Option<wf_types::script::sandbox::SandboxMode>,
 }
 
 impl Default for FsToolConfig {
@@ -37,6 +42,7 @@ impl Default for FsToolConfig {
             max_lines: DEFAULT_MAX_LINES,
             max_results: DEFAULT_MAX_RESULTS,
             enable_ignore: true,
+            scope_mode: None,
         }
     }
 }
@@ -77,6 +83,31 @@ impl FsToolHandlers {
         }
     }
 
+    fn scope_allows_violation(&self) -> bool {
+        use wf_types::script::sandbox::SandboxMode;
+        matches!(
+            self.config.scope_mode,
+            Some(SandboxMode::Lenient) | Some(SandboxMode::Disabled)
+        )
+    }
+
+    fn scope_violation(
+        &self,
+        ctx: &ToolExecutionContext,
+        message: String,
+        fallback: PathBuf,
+    ) -> ToolResult<PathBuf> {
+        if self.scope_allows_violation() {
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                error = %message,
+                "filesystem scope violation allowed by lenient mode; checkpoint will not endorse the write"
+            );
+            return Ok(fallback);
+        }
+        Err(ToolError::ExecutionError(message))
+    }
+
     fn ensure_in_scope(
         &self,
         resolved: &Path,
@@ -95,11 +126,15 @@ impl FsToolHandlers {
                 path = %resolved.display(),
                 "filesystem scope violation: relative path without base"
             );
-            return Err(ToolError::ExecutionError(format!(
-                "path '{}' outside allowed {} prefixes: relative path without base",
-                resolved.display(),
-                if want_write { "write" } else { "read" }
-            )));
+            return self.scope_violation(
+                ctx,
+                format!(
+                    "path '{}' outside allowed {} prefixes: relative path without base",
+                    resolved.display(),
+                    if want_write { "write" } else { "read" }
+                ),
+                resolved.to_path_buf(),
+            );
         }
         let lexical = normalize_scope_path(&resolved.to_string_lossy());
         let bounds = if want_write {
@@ -117,11 +152,15 @@ impl FsToolHandlers {
                 want_write = want_write,
                 "filesystem scope violation: outside allowed prefixes"
             );
-            return Err(ToolError::ExecutionError(format!(
-                "path '{}' outside allowed {} prefixes",
-                resolved.display(),
-                if want_write { "write" } else { "read" }
-            )));
+            return self.scope_violation(
+                ctx,
+                format!(
+                    "path '{}' outside allowed {} prefixes",
+                    resolved.display(),
+                    if want_write { "write" } else { "read" }
+                ),
+                PathBuf::from(&lexical),
+            );
         }
         if let Ok(physical) = resolved.canonicalize() {
             let physical_str = physical.to_string_lossy().to_string();
@@ -135,11 +174,15 @@ impl FsToolHandlers {
                     physical = %physical.display(),
                     "filesystem scope violation: symlink escapes allowed prefixes"
                 );
-                return Err(ToolError::ExecutionError(format!(
-                    "path '{}' escapes allowed {} prefixes through symlink",
-                    resolved.display(),
-                    if want_write { "write" } else { "read" }
-                )));
+                return self.scope_violation(
+                    ctx,
+                    format!(
+                        "path '{}' escapes allowed {} prefixes through symlink",
+                        resolved.display(),
+                        if want_write { "write" } else { "read" }
+                    ),
+                    physical.clone(),
+                );
             }
             return Ok(physical);
         }
@@ -159,11 +202,15 @@ impl FsToolHandlers {
                                 physical = %physical.display(),
                                 "filesystem scope violation: parent symlink escapes prefixes"
                             );
-                            return Err(ToolError::ExecutionError(format!(
-                                "path '{}' escapes allowed {} prefixes through symlink",
-                                resolved.display(),
-                                if want_write { "write" } else { "read" }
-                            )));
+                            return self.scope_violation(
+                                ctx,
+                                format!(
+                                    "path '{}' escapes allowed {} prefixes through symlink",
+                                    resolved.display(),
+                                    if want_write { "write" } else { "read" }
+                                ),
+                                physical.clone(),
+                            );
                         }
                     }
                 }
@@ -172,6 +219,9 @@ impl FsToolHandlers {
         Ok(PathBuf::from(lexical))
     }
 
+    // Instance scope, global protection and ignore rules intersect as a
+    // tightening: a path must pass scope gating and must not be protected
+    // or ignored. Instance scope never relaxes a global denial.
     fn ignore_controller(&self) -> Option<IgnoreController> {
         if !self.config.enable_ignore {
             return None;

@@ -354,11 +354,16 @@ export async function deleteWorkflow(id: string): Promise<boolean> {
 export async function executeWorkflow(
 	id: string,
 	input?: unknown,
+	/**
+	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
+	 * backend). Absent inherits the global default.
+	 */
+	fileScope?: unknown,
 ): Promise<string> {
 	const data = await call<{ execution_id?: string }>(
 		client.POST('/api/v1/workflows/{id}/execute', {
 			params: { path: { id } },
-			body: { input: input ?? null },
+			body: { input: input ?? null, file_scope: fileScope ?? null },
 		}),
 	);
 	const executionId = data?.execution_id ?? '';

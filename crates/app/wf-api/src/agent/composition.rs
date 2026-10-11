@@ -448,6 +448,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         });
         let env = env_for(&regs);
@@ -594,6 +595,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: Some(std::collections::HashMap::from([(
                 "type".to_string(),
                 serde_json::Value::String("dynamic_context".to_string()),

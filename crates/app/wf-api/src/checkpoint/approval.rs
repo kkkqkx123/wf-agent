@@ -112,6 +112,7 @@ fn review_message(role: MessageRole, text: String) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -366,6 +367,7 @@ mod tests {
                 stream_options: None,
                 context_window_size: None,
                 proxy: None,
+                no_proxy: None,
                 circuit_breaker: None,
             })
             .expect("mock profile registers");

@@ -520,6 +520,7 @@ fn assistant_message_from_result(result: &Value) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -1034,6 +1035,7 @@ mod tests {
                 tool_name: None,
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: None,
             });
         let (message_count, array_version) = {

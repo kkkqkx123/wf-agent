@@ -170,6 +170,7 @@ impl AgentIterationCoordinator {
                 }
                 Ok(MessageStreamEvent::End(_))
                 | Ok(MessageStreamEvent::Connect(_))
+                | Ok(MessageStreamEvent::Start(_))
                 | Ok(MessageStreamEvent::InputJson(_))
                 | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
                 Err(e) => {

@@ -1072,6 +1072,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let request = ContextCompressionRequest {
@@ -1103,6 +1104,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let event = build_context_compression_completed_event(
@@ -1209,6 +1211,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let event = build_context_compression_requested_event(
@@ -1270,6 +1273,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let event = build_context_compression_completed_event(
@@ -1317,6 +1321,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let event = build_conversation_writeback_completed_event(

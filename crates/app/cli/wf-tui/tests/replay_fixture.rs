@@ -30,6 +30,7 @@ fn make_message(id: &str, role: MessageRole, text: &str, ts: i64) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }

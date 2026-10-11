@@ -242,6 +242,7 @@ impl AgentLoopCoordinator {
                 tool_name: None,
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: None,
             };
             entity.conversation().write().await.add_message(msg);

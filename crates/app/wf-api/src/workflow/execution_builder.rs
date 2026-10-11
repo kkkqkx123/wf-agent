@@ -90,6 +90,16 @@ impl ExecutionBuilder {
         self
     }
 
+    /// Set the per-execution filesystem scope. Missing inherits the parent
+    /// execution then the global default; explicit values override per field.
+    pub fn with_file_scope(
+        mut self,
+        scope: wf_types::config::file_scope::ExecutionFileScope,
+    ) -> Self {
+        self.options.file_scope = Some(scope);
+        self
+    }
+
     /// Register a callback invoked whenever a node completes.
     pub fn on_node_executed(
         mut self,

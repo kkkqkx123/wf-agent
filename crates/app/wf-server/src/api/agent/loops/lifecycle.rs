@@ -42,6 +42,11 @@ pub struct RunAgentLoopBody {
     /// `AgentLoopConfig::checkpoint_message_interval`.
     #[serde(default)]
     checkpoint_message_interval: Option<u32>,
+    /// Optional per-execution filesystem scope. Missing inherits the parent
+    /// execution then the global default; explicit values override per field.
+    #[serde(default)]
+    #[schema(value_type = Option<Value>)]
+    file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
     #[serde(default)]
     context: HashMap<String, Value>,
     #[schema(value_type = Option<Vec<Value>>)]
@@ -61,7 +66,7 @@ pub(crate) fn params_from_body(
         body.agent_id
     };
     let config = wf_api::AgentLoopConfig {
-        file_scope: None,
+        file_scope: body.file_scope,
         agent_id: wf_api::Id::from(agent_id),
         model: body.model,
         max_iterations: body.max_iterations,

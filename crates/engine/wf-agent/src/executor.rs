@@ -800,6 +800,7 @@ mod tests {
             mock.script_error(LlmError::ProviderError {
                 status: None,
                 message: "LLM provider exploded".to_string(),
+                retry_after_ms: None,
             });
         }
         gateway.register_mock("mock", mock);

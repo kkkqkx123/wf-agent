@@ -343,10 +343,10 @@ function toFileDiff(d: FileDiffDto): FileDiff {
 		truncated: parsed.truncated,
 	};
 }
-/** Per-file staged diffs for one actor workspace, backing the diff preview. */
-export async function getStagedDiffs(actor: string): Promise<FileDiff[]> {
+/** Per-file diffs of one actor workspace against main, backing the diff preview. */
+export async function getMainDiffs(actor: string): Promise<FileDiff[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/file-checkpoint/diff/staged/{id}', {
+		client.GET('/api/v1/file-checkpoint/diff/main/{id}', {
 			params: { path: { id: actor } },
 		}),
 	);

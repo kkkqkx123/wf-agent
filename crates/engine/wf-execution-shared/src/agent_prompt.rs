@@ -890,6 +890,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: Some(HashMap::from([(
                 "type".to_string(),
                 Value::String(DYNAMIC_CONTEXT_MESSAGE_TYPE.to_string()),
@@ -912,6 +913,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let filtered = strip_dynamic_context_messages(vec![tail, user.clone()]);
@@ -930,6 +932,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         };
         let stale = dynamic_context_message("old".into());

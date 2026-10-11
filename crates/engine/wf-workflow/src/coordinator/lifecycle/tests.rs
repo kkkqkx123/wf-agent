@@ -127,8 +127,8 @@ async fn test_execute_then_resume() {
     assert_eq!(first.execution_id, "exec-resume-1");
 
     // Snapshot must have captured variables written by v1
-    use checkpoint_state::CheckpointStateManager;
-    let sm = checkpoint_state::WorkflowCheckpointStateManager::new(store.clone());
+    use wf_checkpoint::CheckpointStateManager;
+    let sm = wf_checkpoint::WorkflowCheckpointStateManager::new(store.clone());
     let latest = sm
         .get_latest("exec-resume-1")
         .await
@@ -211,8 +211,8 @@ async fn test_checkpoints_disabled_execution_skips_checkpointing() {
         .expect("execution should complete without checkpoints");
     assert_eq!(output.execution_id, "exec-no-cp");
 
-    use checkpoint_state::CheckpointStateManager;
-    let sm = checkpoint_state::WorkflowCheckpointStateManager::new(store.clone());
+    use wf_checkpoint::CheckpointStateManager;
+    let sm = wf_checkpoint::WorkflowCheckpointStateManager::new(store.clone());
     let latest = sm.get_latest("exec-no-cp").await.expect("query ok");
     assert!(latest.is_none(), "no checkpoint created when disabled");
 }
@@ -509,8 +509,8 @@ fn linear_graph_with_count(n: u32) -> WorkflowGraphStructure {
 
 #[tokio::test]
 async fn test_max_execution_timeout_interrupts_workflow() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
     use wf_core::EventBus;
@@ -585,8 +585,8 @@ async fn test_max_execution_timeout_interrupts_workflow() {
 
 #[tokio::test]
 async fn test_before_node_checkpoint_persisted() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
 
@@ -651,8 +651,8 @@ async fn test_before_node_checkpoint_persisted() {
 
 #[tokio::test]
 async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
 
@@ -783,8 +783,8 @@ async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
 
 #[tokio::test]
 async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
 
@@ -928,8 +928,8 @@ async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
 
 #[tokio::test]
 async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
 
@@ -1021,8 +1021,8 @@ async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
 
 #[tokio::test]
 async fn test_resume_from_before_node_checkpoint() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
 
     let store = Arc::new(StorageBackend::new_memory());
@@ -1091,8 +1091,8 @@ async fn test_resume_from_before_node_checkpoint() {
 
 #[tokio::test]
 async fn test_resume_from_before_node_checkpoint_reruns_incomplete_node() {
-    use checkpoint_state::CheckpointStateManager;
-    use checkpoint_state::WorkflowCheckpointStateManager;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
 
     let store = Arc::new(StorageBackend::new_memory());

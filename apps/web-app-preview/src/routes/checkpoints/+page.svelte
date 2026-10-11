@@ -21,7 +21,7 @@
 		listCheckpoints,
 		getFileChangesPage,
 		getApprovalRequests,
-		getStagedDiffs,
+		getMainDiffs,
 		getDiffActors,
 		getFileContent,
 		getFileTree,
@@ -63,7 +63,7 @@
 	let fileChanges = $state<FileChange[]>([]);
 	let approvals = $state<Approval[]>([]);
 	let selectedChangeId = $state<string | null>(null);
-	let stagedDiff = $state<FileDiff | null>(null);
+	let mainDiff = $state<FileDiff | null>(null);
 	let diffNote = $state<string | null>(null);
 	let diffLoading = $state(false);
 	let previewContent = $state<FileContent | null>(null);
@@ -162,7 +162,7 @@
 
 	async function selectChange(change: FileChange): Promise<void> {
 		selectedChangeId = change.id;
-		stagedDiff = null;
+		mainDiff = null;
 		previewContent = null;
 		previewTimeline = null;
 		previewTree = null;
@@ -181,11 +181,11 @@
 							const hit = paired.find((diff) => diff.path === change.path);
 							if (hit) return [hit];
 						} catch {
-							// Fall through to the single-actor staged diff.
+							// Fall through to the single-actor diff against main.
 						}
 					}
-					const staged = await getStagedDiffs(change.actor);
-					return staged.filter((diff) => diff.path === change.path);
+					const diffs = await getMainDiffs(change.actor);
+					return diffs.filter((diff) => diff.path === change.path);
 				})(),
 				getFileContent(change.actor, change.path).catch(() => null),
 				getFileTimeline(change.path).catch(() => null),
@@ -193,17 +193,17 @@
 			]);
 			const match = diffs[0] ?? null;
 			if (!match) {
-				diffNote = 'No staged diff for this path';
+				diffNote = 'No diff against main for this path';
 			} else {
-				stagedDiff = match;
+				mainDiff = match;
 			}
 			previewContent = content;
 			previewTimeline = timeline;
 			previewTree = tree;
 		} catch (e) {
-			console.error('Failed to load staged diff:', e);
-			diffNote = 'Staged diff unavailable';
-			toasts.error('Staged diff unavailable');
+			console.error('Failed to load diff against main:', e);
+			diffNote = 'Diff against main unavailable';
+			toasts.error('Diff against main unavailable');
 		} finally {
 			diffLoading = false;
 		}
@@ -446,18 +446,18 @@
 						{#if diffLoading}
 							<Card title="Selected delta">
 								<p class="text-caption text-muted-foreground">
-									Loading staged diff…
+									Loading diff against main…
 								</p>
 							</Card>
-						{:else if stagedDiff && !stagedDiff.binary}
+						{:else if mainDiff && !mainDiff.binary}
 							<DiffView
-								lines={stagedDiff.lines}
-								title={stagedDiff.truncated
-									? `${stagedDiff.path} · truncated`
-									: stagedDiff.path}
+								lines={mainDiff.lines}
+								title={mainDiff.truncated
+									? `${mainDiff.path} · truncated`
+									: mainDiff.path}
 							/>
-						{:else if stagedDiff?.binary}
-							<Card title={stagedDiff.path}>
+						{:else if mainDiff?.binary}
+							<Card title={mainDiff.path}>
 								<p class="text-caption text-muted-foreground">
 									Binary content has no text diff
 								</p>
@@ -465,7 +465,8 @@
 						{:else}
 							<Card title="Selected delta">
 								<p class="text-caption text-muted-foreground">
-									{diffNote ?? 'Select a change to preview its staged diff'}
+									{diffNote ??
+										'Select a change to preview its diff against main'}
 								</p>
 							</Card>
 						{/if}

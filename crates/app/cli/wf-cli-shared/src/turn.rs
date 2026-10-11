@@ -61,7 +61,7 @@ pub fn build_agent_loop_params(
         agent_loop_id: Some(Id::from(wf_common::generate_id())),
         approval_options,
         approval_handler,
-        config: build_agent_loop_config(params.agent.clone(), params.model.clone()),
+        config: build_agent_loop_config(params.agent.clone(), params.model.clone(), None),
         input: AgentLoopInput {
             message: sanitized,
             context: std::collections::HashMap::new(),
@@ -174,6 +174,7 @@ mod tests {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }];
         let params = TurnParams {

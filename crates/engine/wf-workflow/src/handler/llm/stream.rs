@@ -116,6 +116,7 @@ pub async fn run_streaming_request(
                     finish_reason: Some("stop".to_string()),
                     duration: 0,
                     reasoning_content: None,
+                    reasoning_signature: None,
                     reasoning_tokens: None,
                     metadata: None,
                     stream_stats: None,

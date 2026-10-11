@@ -32,6 +32,7 @@ fn text_message(role: MessageRole, text: &str) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -1745,6 +1746,7 @@ async fn execution_context_registry_writes_back_to_registered_execution() {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     };
     // An array the execution never created is not writable.
@@ -1791,6 +1793,7 @@ async fn versioned_write_back_discards_stale_compression() {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }],
     );
@@ -1812,6 +1815,7 @@ async fn versioned_write_back_discards_stale_compression() {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }],
     );
@@ -1829,6 +1833,7 @@ async fn versioned_write_back_discards_stale_compression() {
                     tool_name: None,
                     tool_calls: None,
                     thinking: None,
+                    thinking_signature: None,
                     metadata: None,
                 }],
                 emitted_version,
@@ -1853,6 +1858,7 @@ async fn versioned_write_back_discards_stale_compression() {
                 tool_name: None,
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: None,
             }],
             current,

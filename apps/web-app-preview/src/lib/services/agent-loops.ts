@@ -288,7 +288,8 @@ export async function listLoopTimeline(id: string): Promise<TimelineEntry[]> {
 			}),
 		);
 		requireData(data, `Timeline missing for loop ${id}`);
-		const page: CursorPageResult<TimelineDto> = extractCursorPage<TimelineDto>(data);
+		const page: CursorPageResult<TimelineDto> =
+			extractCursorPage<TimelineDto>(data);
 		for (const item of page.items) {
 			rows.push(toTimelineEntry(item));
 		}
@@ -471,6 +472,12 @@ export interface RunLoopInput {
 	model: string;
 	message: string;
 	conversation?: RunLoopMessage[];
+	/**
+	 * Optional per-run filesystem scope (`ExecutionFileScope` on the
+	 * backend: `{ read, write }` path lists). Absent inherits the global
+	 * default; the generated schema types it as unknown.
+	 */
+	fileScope?: unknown;
 }
 
 export interface AgentRunResult {
@@ -503,6 +510,7 @@ export async function runAgentLoop(
 					message: input.message,
 					tool_call_protocol: { format: 'json' },
 					conversation: input.conversation ?? [],
+					file_scope: input.fileScope ?? null,
 				},
 			}),
 		),

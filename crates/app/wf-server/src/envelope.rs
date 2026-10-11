@@ -420,6 +420,7 @@ mod tests {
             wf_api::ApiError::from(wf_api::LlmError::ProviderError {
                 status: Some(503),
                 message: "unavailable".to_string(),
+                retry_after_ms: None,
             }),
             StatusCode::SERVICE_UNAVAILABLE,
             "SERVICE_UNAVAILABLE",

@@ -133,6 +133,7 @@ async fn stream_emits_chunks_and_aggregates_output() {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     };
     mock.script_stream(vec![
@@ -156,6 +157,8 @@ async fn stream_emits_chunks_and_aggregates_output() {
                 total_cost: None,
             }),
             stream_stats: None,
+            id: None,
+            model: None,
         }),
         wf_types::llm::MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
@@ -347,6 +350,7 @@ async fn system_prompt_and_context_are_forwarded_to_mock() {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }],
     );
@@ -460,6 +464,7 @@ async fn llm_errors_propagate_without_node_retry() {
     mock.script_error(LlmError::ProviderError {
         status: Some(500),
         message: "boom".to_string(),
+        retry_after_ms: None,
     });
     let handlers = llm_handlers(mock.clone());
 

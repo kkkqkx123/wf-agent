@@ -1,217 +1,65 @@
 //! Execution file-scope merge, validation, and expansion.
 //!
-//! Implements the reusable inheritance semantics shared by the global
-//! default scope and future per-execution overrides: missing values inherit
-//! the next lower layer, explicit values (including explicit empty lists,
-//! which deny everything) override it. Checkpoint prefixes must stay inside
-//! the write prefixes; a violation fails instead of silently narrowing.
+//! Thin config-layer wrappers over the canonical scope helpers in
+//! `wf_types::config::file_scope`. Missing values inherit the next lower
+//! layer, explicit values (including explicit empty lists, which deny
+//! everything) override it.
 
 use crate::error::{ConfigError, ConfigResult};
-use wf_types::config::file_scope::{
-    scope_path_contains, validate_scope_path, ExecutionFileScope, ResolvedFileScope,
-};
+use wf_types::config::file_scope::{ExecutionFileScope, ResolvedFileScope};
 
-/// Merge two scope layers: every value set on `upper` wins (an explicit
-/// empty list wins as a denial), every missing value inherits `base`.
 pub fn merge_file_scope(
     base: &ExecutionFileScope,
     upper: &ExecutionFileScope,
 ) -> ExecutionFileScope {
-    ExecutionFileScope {
-        enabled: upper.enabled.or(base.enabled),
-        read_prefixes: upper
-            .read_prefixes
-            .clone()
-            .or_else(|| base.read_prefixes.clone()),
-        write_prefixes: upper
-            .write_prefixes
-            .clone()
-            .or_else(|| base.write_prefixes.clone()),
-        checkpoint_prefixes: upper
-            .checkpoint_prefixes
-            .clone()
-            .or_else(|| base.checkpoint_prefixes.clone()),
-        workdir: upper.workdir.clone().or_else(|| base.workdir.clone()),
-    }
+    wf_types::config::file_scope::merge_file_scope(base, upper)
 }
 
-/// Merge a layer chain given from lowest to highest priority (global default
-/// first, call argument last). Folding with [`merge_file_scope`] keeps the
-/// highest set value per field.
 pub fn merge_file_scope_chain<'a>(
     layers: impl IntoIterator<Item = &'a ExecutionFileScope>,
 ) -> ExecutionFileScope {
-    let mut merged = ExecutionFileScope::default();
-    for layer in layers {
-        merged = merge_file_scope(&merged, layer);
-    }
-    merged
+    wf_types::config::file_scope::merge_file_scope_chain(layers)
 }
 
-/// Validate one lexical path entry, mapping the failure into a config error.
-fn validate_entry(path: &str, field: &str) -> ConfigResult<()> {
-    validate_scope_path(path, field).map_err(ConfigError::Validation)
+fn map_err(message: String) -> ConfigError {
+    ConfigError::Validation(message)
 }
 
-/// Validate an optional prefix list entry by entry. Missing stays missing;
-/// an explicit empty list is valid and means denial.
 pub fn validate_optional_scope_path_list(
     entries: Option<&[String]>,
     field: &str,
 ) -> ConfigResult<()> {
-    if let Some(list) = entries {
-        validate_scope_path_list(list, field)?;
+    for entry in entries.unwrap_or_default() {
+        wf_types::config::file_scope::validate_scope_path(entry, field).map_err(map_err)?;
     }
     Ok(())
 }
 
-/// Validate a concrete prefix list entry by entry.
 pub fn validate_scope_path_list(entries: &[String], field: &str) -> ConfigResult<()> {
-    for entry in entries {
-        validate_entry(entry, field)?;
-    }
-    Ok(())
+    validate_optional_scope_path_list(Some(entries), field)
 }
 
-/// Validate an optional single path (workdir, workspace root, database path
-/// style values). Missing stays missing; blank values fail.
 pub fn validate_optional_scope_path(value: Option<&str>, field: &str) -> ConfigResult<()> {
     if let Some(path) = value {
-        validate_entry(path, field)?;
+        wf_types::config::file_scope::validate_scope_path(path, field).map_err(map_err)?;
     }
     Ok(())
 }
 
-/// Validate an unexpanded scope: every listed prefix must be lexically
-/// valid, checkpoint prefixes must already be inside the write prefixes
-/// when both are concretely known, and a workdir must sit inside the read
-/// or write prefixes when both are concretely known. Layers left for
-/// inheritance (`None`) are resolved by [`expand_file_scope`] instead.
 pub fn validate_file_scope(scope: &ExecutionFileScope) -> ConfigResult<()> {
-    validate_optional_scope_path_list(scope.read_prefixes.as_deref(), "scope.read_prefixes")?;
-    validate_optional_scope_path_list(scope.write_prefixes.as_deref(), "scope.write_prefixes")?;
-    validate_optional_scope_path_list(
-        scope.checkpoint_prefixes.as_deref(),
-        "scope.checkpoint_prefixes",
-    )?;
-    validate_optional_scope_path(scope.workdir.as_deref(), "scope.workdir")?;
-    if let (Some(checkpoint), Some(write)) = (
-        scope.checkpoint_prefixes.as_deref(),
-        scope.write_prefixes.as_deref(),
-    ) {
-        check_checkpoint_subset(checkpoint, write)?;
-    }
-    if let (Some(read), Some(write), Some(workdir)) = (
-        scope.read_prefixes.as_deref(),
-        scope.write_prefixes.as_deref(),
-        scope.workdir.as_deref(),
-    ) {
-        check_workdir_within_bounds(workdir, read, write)?;
-    }
-    Ok(())
+    wf_types::config::file_scope::validate_file_scope(scope).map_err(map_err)
 }
 
-/// Expand a scope into concrete values: a missing checkpoint list copies the
-/// resolved write list, missing read/write lists fall back to the global
-/// default then to the workspace root, a missing flag falls back to the
-/// global default then to enabled, and a missing workdir falls back to the
-/// global default. Downstream consumers only see the expanded result.
 pub fn expand_file_scope(
     scope: &ExecutionFileScope,
     global_default: Option<&ExecutionFileScope>,
     workspace_root: Option<&str>,
 ) -> ResolvedFileScope {
-    let read_prefixes = resolve_prefix_list(
-        scope.read_prefixes.as_ref(),
-        global_default.and_then(|g| g.read_prefixes.as_ref()),
-        workspace_root,
-    );
-    let write_prefixes = resolve_prefix_list(
-        scope.write_prefixes.as_ref(),
-        global_default.and_then(|g| g.write_prefixes.as_ref()),
-        workspace_root,
-    );
-    let checkpoint_prefixes = scope
-        .checkpoint_prefixes
-        .clone()
-        .or_else(|| global_default.and_then(|g| g.checkpoint_prefixes.clone()))
-        .unwrap_or_else(|| write_prefixes.clone());
-    let enabled = scope
-        .enabled
-        .or_else(|| global_default.and_then(|g| g.enabled))
-        .unwrap_or(true);
-    let workdir = scope
-        .workdir
-        .clone()
-        .or_else(|| global_default.and_then(|g| g.workdir.clone()));
-    ResolvedFileScope {
-        enabled,
-        read_prefixes,
-        write_prefixes,
-        checkpoint_prefixes,
-        workdir,
-    }
+    wf_types::config::file_scope::expand_file_scope(scope, global_default, workspace_root)
 }
 
-/// Validate a fully expanded scope: lexical checks plus unconditional
-/// checkpoint-inside-write and workdir-inside-bounds enforcement, since no
-/// layer is left to inherit.
 pub fn validate_resolved_file_scope(scope: &ResolvedFileScope) -> ConfigResult<()> {
-    validate_scope_path_list(&scope.read_prefixes, "scope.read_prefixes")?;
-    validate_scope_path_list(&scope.write_prefixes, "scope.write_prefixes")?;
-    validate_scope_path_list(&scope.checkpoint_prefixes, "scope.checkpoint_prefixes")?;
-    if let Some(workdir) = scope.workdir.as_deref() {
-        validate_entry(workdir, "scope.workdir")?;
-    }
-    check_checkpoint_subset(&scope.checkpoint_prefixes, &scope.write_prefixes)?;
-    if let Some(workdir) = scope.workdir.as_deref() {
-        check_workdir_within_bounds(workdir, &scope.read_prefixes, &scope.write_prefixes)?;
-    }
-    Ok(())
-}
-
-fn resolve_prefix_list(
-    scope: Option<&Vec<String>>,
-    global: Option<&Vec<String>>,
-    workspace_root: Option<&str>,
-) -> Vec<String> {
-    if let Some(list) = scope {
-        return list.clone();
-    }
-    if let Some(list) = global {
-        return list.clone();
-    }
-    workspace_root
-        .map(|root| vec![root.to_string()])
-        .unwrap_or_default()
-}
-
-fn check_checkpoint_subset(checkpoint: &[String], write: &[String]) -> ConfigResult<()> {
-    for prefix in checkpoint {
-        if !write.iter().any(|bound| scope_path_contains(bound, prefix)) {
-            return Err(ConfigError::Validation(format!(
-                "scope.checkpoint_prefixes entry '{prefix}' is outside scope.write_prefixes"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn check_workdir_within_bounds(
-    workdir: &str,
-    read: &[String],
-    write: &[String],
-) -> ConfigResult<()> {
-    let within_read = read.iter().any(|bound| scope_path_contains(bound, workdir));
-    let within_write = write
-        .iter()
-        .any(|bound| scope_path_contains(bound, workdir));
-    if !within_read && !within_write {
-        return Err(ConfigError::Validation(format!(
-            "scope.workdir '{workdir}' is outside scope.read_prefixes and scope.write_prefixes"
-        )));
-    }
-    Ok(())
+    wf_types::config::file_scope::validate_resolved_file_scope(scope).map_err(map_err)
 }
 
 #[cfg(test)]

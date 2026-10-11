@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use checkpoint_base::execution_events::ExecutionEventBus;
-use checkpoint_base::metadata::builder::{custom_fields_equal, PROGRESS_COORD_KEYS};
-use checkpoint_state::AgentCheckpointStateManager;
-use checkpoint_state::CheckpointStateManager;
 use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
+use wf_checkpoint::{
+    custom_fields_equal, AgentCheckpointStateManager, CheckpointStateManager, ExecutionEventBus,
+    PROGRESS_COORD_KEYS,
+};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::CheckpointError;

@@ -131,6 +131,7 @@ async fn token_events_emitted_when_limit_crossed() {
             stream_options: None,
             context_window_size: Some(1000),
             proxy: None,
+            no_proxy: None,
             circuit_breaker: None,
         })
         .expect("mock profile registers");
@@ -201,6 +202,7 @@ async fn estimated_usage_recorded_when_provider_reports_none() {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         });
     }

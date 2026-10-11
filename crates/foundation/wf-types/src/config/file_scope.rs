@@ -125,6 +125,355 @@ pub fn is_scope_subset(inner: &[String], outer: &[String]) -> bool {
         .all(|path| outer.iter().any(|bound| scope_path_contains(bound, path)))
 }
 
+/// Merge two scope layers: every value set on `upper` wins (an explicit
+/// empty list wins as a denial), every missing value inherits `base`.
+pub fn merge_file_scope(
+    base: &ExecutionFileScope,
+    upper: &ExecutionFileScope,
+) -> ExecutionFileScope {
+    ExecutionFileScope {
+        enabled: upper.enabled.or(base.enabled),
+        read_prefixes: upper
+            .read_prefixes
+            .clone()
+            .or_else(|| base.read_prefixes.clone()),
+        write_prefixes: upper
+            .write_prefixes
+            .clone()
+            .or_else(|| base.write_prefixes.clone()),
+        checkpoint_prefixes: upper
+            .checkpoint_prefixes
+            .clone()
+            .or_else(|| base.checkpoint_prefixes.clone()),
+        workdir: upper.workdir.clone().or_else(|| base.workdir.clone()),
+    }
+}
+
+/// Merge a layer chain given from lowest to highest priority (global default
+/// first, call argument last). Folding keeps the highest set value per field.
+pub fn merge_file_scope_chain<'a>(
+    layers: impl IntoIterator<Item = &'a ExecutionFileScope>,
+) -> ExecutionFileScope {
+    let mut merged = ExecutionFileScope::default();
+    for layer in layers {
+        merged = merge_file_scope(&merged, layer);
+    }
+    merged
+}
+
+fn validate_entry(path: &str, field: &str) -> Result<(), String> {
+    validate_scope_path(path, field)
+}
+
+fn validate_path_list(entries: &[String], field: &str) -> Result<(), String> {
+    for entry in entries {
+        validate_entry(entry, field)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_path_list(
+    entries: Option<&[String]>,
+    field: &str,
+) -> Result<(), String> {
+    if let Some(list) = entries {
+        validate_path_list(list, field)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_path(value: Option<&str>, field: &str) -> Result<(), String> {
+    if let Some(path) = value {
+        validate_entry(path, field)?;
+    }
+    Ok(())
+}
+
+fn check_checkpoint_subset(checkpoint: &[String], write: &[String]) -> Result<(), String> {
+    for prefix in checkpoint {
+        if !write.iter().any(|bound| scope_path_contains(bound, prefix)) {
+            return Err(format!(
+                "scope.checkpoint_prefixes entry '{prefix}' is outside scope.write_prefixes"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_workdir_within_bounds(
+    workdir: &str,
+    read: &[String],
+    write: &[String],
+) -> Result<(), String> {
+    let within_read = read.iter().any(|bound| scope_path_contains(bound, workdir));
+    let within_write = write
+        .iter()
+        .any(|bound| scope_path_contains(bound, workdir));
+    if !within_read && !within_write {
+        return Err(format!(
+            "scope.workdir '{workdir}' is outside scope.read_prefixes and scope.write_prefixes"
+        ));
+    }
+    Ok(())
+}
+
+/// Validate an unexpanded scope: every listed prefix must be lexically
+/// valid, checkpoint prefixes must already be inside the write prefixes
+/// when both are concretely known, and a workdir must sit inside the read
+/// or write prefixes when both are concretely known.
+pub fn validate_file_scope(scope: &ExecutionFileScope) -> Result<(), String> {
+    validate_optional_path_list(scope.read_prefixes.as_deref(), "scope.read_prefixes")?;
+    validate_optional_path_list(scope.write_prefixes.as_deref(), "scope.write_prefixes")?;
+    validate_optional_path_list(
+        scope.checkpoint_prefixes.as_deref(),
+        "scope.checkpoint_prefixes",
+    )?;
+    validate_optional_path(scope.workdir.as_deref(), "scope.workdir")?;
+    if let (Some(checkpoint), Some(write)) = (
+        scope.checkpoint_prefixes.as_deref(),
+        scope.write_prefixes.as_deref(),
+    ) {
+        check_checkpoint_subset(checkpoint, write)?;
+    }
+    if let (Some(read), Some(write), Some(workdir)) = (
+        scope.read_prefixes.as_deref(),
+        scope.write_prefixes.as_deref(),
+        scope.workdir.as_deref(),
+    ) {
+        check_workdir_within_bounds(workdir, read, write)?;
+    }
+    Ok(())
+}
+
+fn resolve_prefix_list(
+    scope: Option<&Vec<String>>,
+    global: Option<&Vec<String>>,
+    workspace_root: Option<&str>,
+) -> Vec<String> {
+    if let Some(list) = scope {
+        return list.clone();
+    }
+    if let Some(list) = global {
+        return list.clone();
+    }
+    workspace_root
+        .map(|root| vec![root.to_string()])
+        .unwrap_or_default()
+}
+
+/// Expand a scope into concrete values: a missing checkpoint list copies the
+/// resolved write list, missing read/write lists fall back to the global
+/// default then to the workspace root, a missing flag falls back to the
+/// global default then to enabled, and a missing workdir falls back to the
+/// global default.
+pub fn expand_file_scope(
+    scope: &ExecutionFileScope,
+    global_default: Option<&ExecutionFileScope>,
+    workspace_root: Option<&str>,
+) -> ResolvedFileScope {
+    let read_prefixes = resolve_prefix_list(
+        scope.read_prefixes.as_ref(),
+        global_default.and_then(|g| g.read_prefixes.as_ref()),
+        workspace_root,
+    );
+    let write_prefixes = resolve_prefix_list(
+        scope.write_prefixes.as_ref(),
+        global_default.and_then(|g| g.write_prefixes.as_ref()),
+        workspace_root,
+    );
+    let checkpoint_prefixes = scope
+        .checkpoint_prefixes
+        .clone()
+        .or_else(|| global_default.and_then(|g| g.checkpoint_prefixes.clone()))
+        .unwrap_or_else(|| write_prefixes.clone());
+    let enabled = scope
+        .enabled
+        .or_else(|| global_default.and_then(|g| g.enabled))
+        .unwrap_or(true);
+    let workdir = scope
+        .workdir
+        .clone()
+        .or_else(|| global_default.and_then(|g| g.workdir.clone()));
+    ResolvedFileScope {
+        enabled,
+        read_prefixes,
+        write_prefixes,
+        checkpoint_prefixes,
+        workdir,
+    }
+}
+
+/// Validate a fully expanded scope: lexical checks plus unconditional
+/// checkpoint-inside-write and workdir-inside-bounds enforcement.
+pub fn validate_resolved_file_scope(scope: &ResolvedFileScope) -> Result<(), String> {
+    validate_path_list(&scope.read_prefixes, "scope.read_prefixes")?;
+    validate_path_list(&scope.write_prefixes, "scope.write_prefixes")?;
+    validate_path_list(&scope.checkpoint_prefixes, "scope.checkpoint_prefixes")?;
+    if let Some(workdir) = scope.workdir.as_deref() {
+        validate_entry(workdir, "scope.workdir")?;
+    }
+    check_checkpoint_subset(&scope.checkpoint_prefixes, &scope.write_prefixes)?;
+    if let Some(workdir) = scope.workdir.as_deref() {
+        check_workdir_within_bounds(workdir, &scope.read_prefixes, &scope.write_prefixes)?;
+    }
+    Ok(())
+}
+
+/// Check that a child scope stays inside its parent. An empty child set is
+/// always contained; any out-of-bounds entry reports the offending path.
+pub fn check_child_scope_subset(
+    child: &ResolvedFileScope,
+    parent: &ResolvedFileScope,
+) -> Result<(), String> {
+    for prefix in child
+        .read_prefixes
+        .iter()
+        .chain(child.write_prefixes.iter())
+        .chain(child.checkpoint_prefixes.iter())
+    {
+        let inside_read = parent
+            .read_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, prefix));
+        let inside_write = parent
+            .write_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, prefix));
+        if !inside_read && !inside_write {
+            return Err(format!(
+                "child scope entry '{prefix}' is outside parent read and write prefixes"
+            ));
+        }
+    }
+    for prefix in &child.checkpoint_prefixes {
+        if !child
+            .write_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, prefix))
+        {
+            return Err(format!(
+                "checkpoint prefix '{prefix}' is outside child write prefixes"
+            ));
+        }
+    }
+    if let Some(workdir) = child.workdir.as_deref() {
+        let inside_read = child
+            .read_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, workdir));
+        let inside_write = child
+            .write_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, workdir));
+        if !inside_read && !inside_write {
+            return Err(format!(
+                "workdir '{workdir}' is outside child read and write prefixes"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// True when the resolved scope disables the file channel. Closed
+/// executions create no session, run no scan, and record no file link.
+pub fn is_file_channel_closed(scope: Option<&ResolvedFileScope>) -> bool {
+    scope.is_some_and(|s| !s.enabled)
+}
+
+/// Resolve the effective execution scope from the layered inputs.
+/// Priority from low to high is global default, parent execution, node
+/// declaration, then call argument.
+pub fn resolve_execution_scope(
+    global_default: Option<&ExecutionFileScope>,
+    parent: Option<&ExecutionFileScope>,
+    node: Option<&ExecutionFileScope>,
+    call: Option<&ExecutionFileScope>,
+    workspace_root: Option<&str>,
+) -> ResolvedFileScope {
+    let merged = merge_file_scope_chain(
+        [
+            global_default,
+            parent,
+            node,
+            call,
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    // Re-expand against the global default so missing checkpoint lists copy
+    // the merged write list while missing read/write lists still fall back
+    // to the global default then the workspace root.
+    let merged_with_global = merge_file_scope(
+        &global_default.cloned().unwrap_or_default(),
+        &merged,
+    );
+    expand_file_scope(&merged_with_global, global_default, workspace_root)
+}
+
+/// Resolve and validate the effective scope. Lexical failures, checkpoint
+/// outside write, workdir outside bounds, and child outside parent all
+/// fail instead of silently narrowing.
+pub fn resolve_execution_scope_checked(
+    global_default: Option<&ExecutionFileScope>,
+    parent_resolved: Option<&ResolvedFileScope>,
+    node: Option<&ExecutionFileScope>,
+    call: Option<&ExecutionFileScope>,
+    workspace_root: Option<&str>,
+) -> Result<ResolvedFileScope, String> {
+    let parent_exec = parent_resolved.map(|p| ExecutionFileScope {
+        enabled: Some(p.enabled),
+        read_prefixes: Some(p.read_prefixes.clone()),
+        write_prefixes: Some(p.write_prefixes.clone()),
+        checkpoint_prefixes: Some(p.checkpoint_prefixes.clone()),
+        workdir: p.workdir.clone(),
+    });
+    let resolved = resolve_execution_scope(
+        global_default,
+        parent_exec.as_ref(),
+        node,
+        call,
+        workspace_root,
+    );
+    for path in resolved
+        .read_prefixes
+        .iter()
+        .chain(resolved.write_prefixes.iter())
+        .chain(resolved.checkpoint_prefixes.iter())
+    {
+        validate_scope_path(path, "scope.prefix")?;
+    }
+    if let Some(workdir) = resolved.workdir.as_deref() {
+        validate_scope_path(workdir, "scope.workdir")?;
+    }
+    for prefix in &resolved.checkpoint_prefixes {
+        if !resolved
+            .write_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, prefix))
+        {
+            return Err(format!(
+                "checkpoint prefix '{prefix}' is outside write prefixes"
+            ));
+        }
+    }
+    if let Some(workdir) = resolved.workdir.as_deref() {
+        let inside = resolved
+            .read_prefixes
+            .iter()
+            .chain(resolved.write_prefixes.iter())
+            .any(|bound| scope_path_contains(bound, workdir));
+        if !inside {
+            return Err(format!(
+                "workdir '{workdir}' is outside read and write prefixes"
+            ));
+        }
+    }
+    if let Some(parent) = parent_resolved {
+        check_child_scope_subset(&resolved, parent)?;
+    }
+    Ok(resolved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

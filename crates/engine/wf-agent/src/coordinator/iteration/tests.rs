@@ -30,6 +30,7 @@ fn tool_call_message(tool_call_id: &str) -> Message {
             },
         }]),
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -44,6 +45,7 @@ fn text_message(content: &str) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -116,6 +118,8 @@ async fn test_stream_events_text_only() {
             message: text_message("hello world"),
             usage: None,
             stream_stats: None,
+            id: None,
+            model: None,
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
@@ -177,6 +181,8 @@ async fn test_stream_events_with_tool_call() {
             message: tool_call_message("tc-9"),
             usage: None,
             stream_stats: None,
+            id: None,
+            model: None,
         }),
         MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
@@ -363,6 +369,7 @@ fn user_message(text: &str) -> Message {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }
@@ -467,6 +474,7 @@ async fn blocking_llm_error_maps_to_agent_llm_error() {
     mock.script_error(wf_llm::LlmError::ProviderError {
         status: Some(500),
         message: "provider down".to_string(),
+        retry_after_ms: None,
     });
 
     let entity = running_entity("agent-block-err").await;

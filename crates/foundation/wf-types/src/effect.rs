@@ -102,21 +102,10 @@ pub struct ToolEffect {
 }
 
 /// Lexically normalize an absolute path (no filesystem access) so effect
-/// reports and checkpoint keys share one spelling. Mirrors the old
-/// `normalize_observer_path` from `wf-tools::observe`.
+/// reports and checkpoint keys share one spelling. Delegates to the
+/// canonical scope path normalizer so all layers use one spelling.
 pub fn normalize_effect_path(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    if out.as_os_str().is_empty() {
-        return PathBuf::from("/");
-    }
-    out
+    PathBuf::from(crate::config::file_scope::normalize_scope_path(
+        &path.to_string_lossy(),
+    ))
 }

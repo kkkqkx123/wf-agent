@@ -356,6 +356,20 @@ impl NodeBuilder<Typed> {
         self
     }
 
+    /// Set the per-node filesystem scope for script nodes. Missing inherits
+    /// the execution scope; explicit values override per field.
+    pub fn with_file_scope(
+        mut self,
+        scope: wf_types::config::file_scope::ExecutionFileScope,
+    ) -> Self {
+        if let Value::Object(map) = &mut self.config {
+            if let Ok(value) = serde_json::to_value(&scope) {
+                map.insert("file_scope".to_string(), value);
+            }
+        }
+        self
+    }
+
     /// Build the static node. The node type is always assigned in this phase.
     pub fn build(self) -> BaseStaticNode {
         BaseStaticNode {

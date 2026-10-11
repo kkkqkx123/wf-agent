@@ -447,6 +447,7 @@ fn session_message(role: wf_types::message::MessageRole, text: &str) -> wf_types
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }

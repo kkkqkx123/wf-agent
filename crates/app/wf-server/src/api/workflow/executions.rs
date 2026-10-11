@@ -52,6 +52,28 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[derive(Deserialize, ToSchema)]
 pub struct ExecuteBody {
     pub(crate) input: Option<serde_json::Value>,
+    /// Optional per-execution filesystem scope. Missing inherits the parent
+    /// execution then the global default.
+    #[serde(default)]
+    #[schema(value_type = Option<serde_json::Value>)]
+    pub(crate) file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+}
+
+fn execution_options(
+    file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
+) -> Option<wf_types::workflow_execution::WorkflowExecutionOptions> {
+    file_scope.map(|scope| wf_types::workflow_execution::WorkflowExecutionOptions {
+        file_scope: Some(scope),
+        input: None,
+        max_steps: None,
+        timeout: None,
+        max_execution_time: None,
+        enable_checkpoints: None,
+        node_timeout: None,
+        max_pause_duration: None,
+        max_navigation_multiplier: None,
+        loop_max_iterations_cap: None,
+    })
 }
 
 #[derive(Serialize, ToSchema)]
@@ -82,7 +104,7 @@ pub(crate) async fn handle_execute_workflow(
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         input: body.input,
-        options: None,
+        options: execution_options(body.file_scope),
     };
     match wf_api::workflow::workflow_execution::execute(&state.ctx, params).await {
         Ok(output) => ok(ExecuteView {
@@ -115,7 +137,7 @@ pub(crate) async fn handle_execute_stream(
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         input: body.input,
-        options: None,
+        options: execution_options(body.file_scope),
     };
     let (execution_id, stream) =
         match wf_api::workflow::workflow_execution::stream(state.ctx, params).await {
@@ -157,7 +179,7 @@ pub(crate) async fn handle_execute_background(
     let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         input: body.input,
-        options: None,
+        options: execution_options(body.file_scope),
     };
     // `stream` spawns the driver detached from this request and hands back
     // the id immediately. Draining the stream in a server task keeps the

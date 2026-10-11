@@ -526,6 +526,7 @@ pub struct AgentLoopConfigBuilder<S> {
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
     history_normalization: bool,
+    file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
     _marker: PhantomData<S>,
 }
 
@@ -548,6 +549,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_warning_threshold: None,
             enable_token_tracking: None,
             history_normalization: false,
+            file_scope: None,
             _marker: PhantomData,
         }
     }
@@ -571,6 +573,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_warning_threshold: self.token_warning_threshold,
             enable_token_tracking: self.enable_token_tracking,
             history_normalization: self.history_normalization,
+            file_scope: self.file_scope,
             _marker: PhantomData,
         }
     }
@@ -639,13 +642,23 @@ impl<S> AgentLoopConfigBuilder<S> {
         self.hooks.push(HookConfig::from_agent_hook(&hook));
         self
     }
+
+    /// Set the per-execution filesystem scope. Missing inherits the parent
+    /// execution then the global default; explicit values override per field.
+    pub fn file_scope(
+        mut self,
+        scope: wf_types::config::file_scope::ExecutionFileScope,
+    ) -> Self {
+        self.file_scope = Some(scope);
+        self
+    }
 }
 
 impl AgentLoopConfigBuilder<LoopConfigured> {
     /// Build the runtime loop config consumed by [`crate::agent::agent_execution::run`].
     pub fn build(self) -> AgentLoopConfig {
         AgentLoopConfig {
-            file_scope: None,
+            file_scope: self.file_scope,
             agent_id: self.agent_id,
             model: self.model,
             max_iterations: self.max_iterations,

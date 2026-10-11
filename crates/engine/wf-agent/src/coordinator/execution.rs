@@ -588,6 +588,7 @@ mod tests {
                     AgentError::LlmError(LlmError::ProviderError {
                         status: Some(500),
                         message: "upstream".to_string(),
+                        retry_after_ms: None,
                     })
                 } else {
                     AgentError::SharedError(ExecutionSharedError::ToolError(

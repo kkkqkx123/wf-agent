@@ -54,26 +54,13 @@ impl FileChangeRecord {
     }
 }
 
-/// Lexically normalize an absolute path without touching the filesystem:
-/// resolve `.`, collapse `..` without escaping the root prefix, and strip
-/// redundant separators. Absolute domain only for watcher keys.
-/// Workspace-relative inputs use file validation, ref names use ref
-/// sanitization.
+/// Lexically normalize an absolute path without touching the filesystem.
+/// Delegates to the canonical scope path normalizer so watcher keys,
+/// effect reports and scope checks share one spelling.
 pub fn normalize_absolute_path(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    if out.as_os_str().is_empty() {
-        return PathBuf::from("/");
-    }
-    out
+    PathBuf::from(wf_types::config::file_scope::normalize_scope_path(
+        &path.to_string_lossy(),
+    ))
 }
 
 #[derive(Default)]

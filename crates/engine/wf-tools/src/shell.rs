@@ -35,11 +35,36 @@ fn resolve_scope_dir(
     Some(wf_types::effect::normalize_effect_path(&absolute))
 }
 
+fn scope_allows_violation(mode: Option<&wf_types::script::sandbox::SandboxMode>) -> bool {
+    use wf_types::script::sandbox::SandboxMode;
+    matches!(
+        mode,
+        Some(SandboxMode::Lenient) | Some(SandboxMode::Disabled)
+    )
+}
+
+fn scope_violation(
+    message: String,
+    mode: Option<&wf_types::script::sandbox::SandboxMode>,
+    execution: &str,
+) -> Result<(), ToolError> {
+    if scope_allows_violation(mode) {
+        tracing::warn!(
+            execution = %execution,
+            error = %message,
+            "shell scope violation allowed by lenient mode; checkpoint will not endorse the write"
+        );
+        return Ok(());
+    }
+    Err(ToolError::ExecutionError(message))
+}
+
 fn ensure_shell_path_in_scope(
     path: &std::path::Path,
     scope: &wf_types::config::file_scope::ResolvedFileScope,
     want_write: bool,
     execution: &str,
+    mode: Option<&wf_types::script::sandbox::SandboxMode>,
 ) -> Result<(), ToolError> {
     use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
     if !path.is_absolute() {
@@ -48,11 +73,15 @@ fn ensure_shell_path_in_scope(
             path = %path.display(),
             "shell scope violation: relative command path without base"
         );
-        return Err(ToolError::ExecutionError(format!(
-            "command path '{}' outside allowed {} prefixes",
-            path.display(),
-            if want_write { "write" } else { "read" }
-        )));
+        return scope_violation(
+            format!(
+                "command path '{}' outside allowed {} prefixes",
+                path.display(),
+                if want_write { "write" } else { "read" }
+            ),
+            mode,
+            execution,
+        );
     }
     let lexical = normalize_scope_path(&path.to_string_lossy());
     let bounds = if want_write {
@@ -70,11 +99,15 @@ fn ensure_shell_path_in_scope(
             want_write = want_write,
             "shell scope violation: command path outside allowed prefixes"
         );
-        return Err(ToolError::ExecutionError(format!(
-            "command path '{}' outside allowed {} prefixes",
-            path.display(),
-            if want_write { "write" } else { "read" }
-        )));
+        return scope_violation(
+            format!(
+                "command path '{}' outside allowed {} prefixes",
+                path.display(),
+                if want_write { "write" } else { "read" }
+            ),
+            mode,
+            execution,
+        );
     }
     let physical = path.canonicalize().ok().or_else(|| {
         path.parent()
@@ -94,11 +127,15 @@ fn ensure_shell_path_in_scope(
                 physical = %physical.display(),
                 "shell scope violation: command path escapes through symlink"
             );
-            return Err(ToolError::ExecutionError(format!(
-                "command path '{}' escapes allowed {} prefixes through symlink",
-                path.display(),
-                if want_write { "write" } else { "read" }
-            )));
+            return scope_violation(
+                format!(
+                    "command path '{}' escapes allowed {} prefixes through symlink",
+                    path.display(),
+                    if want_write { "write" } else { "read" }
+                ),
+                mode,
+                execution,
+            );
         }
     }
     Ok(())
@@ -128,6 +165,7 @@ fn check_shell_scope(
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
     default_dir: Option<&std::path::PathBuf>,
     execution: &str,
+    mode: Option<&wf_types::script::sandbox::SandboxMode>,
 ) -> Result<(), ToolError> {
     let Some(scope) = scope else {
         return Ok(());
@@ -140,9 +178,11 @@ fn check_shell_scope(
             execution = %execution,
             "shell scope violation: missing startup directory"
         );
-        return Err(ToolError::ExecutionError(
+        return scope_violation(
             "startup directory outside allowed prefixes: no working directory".to_string(),
-        ));
+            mode,
+            execution,
+        );
     };
     let inside_read_or_write = scope
         .read_prefixes
@@ -160,13 +200,17 @@ fn check_shell_scope(
             path = %dir.display(),
             "shell scope violation: startup directory outside allowed prefixes"
         );
-        return Err(ToolError::ExecutionError(format!(
-            "startup directory '{}' outside allowed prefixes",
-            dir.display()
-        )));
+        return scope_violation(
+            format!(
+                "startup directory '{}' outside allowed prefixes",
+                dir.display()
+            ),
+            mode,
+            execution,
+        );
     }
-    ensure_shell_path_in_scope(dir, scope, false, execution)
-        .or_else(|_| ensure_shell_path_in_scope(dir, scope, true, execution))?;
+    ensure_shell_path_in_scope(dir, scope, false, execution, mode)
+        .or_else(|_| ensure_shell_path_in_scope(dir, scope, true, execution, mode))?;
     let chains = wf_sandbox::parse_command_chain(command);
     for chain in &chains {
         let tokens = chain
@@ -176,19 +220,18 @@ fn check_shell_scope(
         let (reads, writes) = wf_sandbox::extract_file_paths(&tokens);
         for raw in &writes {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
-            ensure_shell_path_in_scope(&resolved, scope, true, execution)?;
+            ensure_shell_path_in_scope(&resolved, scope, true, execution, mode)?;
         }
         for raw in &reads {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
             let under_workspace = default_dir.is_some_and(|ws| {
-                resolved.starts_with(ws)
-                    || wf_types::config::file_scope::scope_path_contains(
-                        &ws.to_string_lossy(),
-                        &resolved.to_string_lossy(),
-                    )
+                wf_types::config::file_scope::scope_path_contains(
+                    &ws.to_string_lossy(),
+                    &resolved.to_string_lossy(),
+                )
             });
             if under_workspace {
-                ensure_shell_path_in_scope(&resolved, scope, false, execution)?;
+                ensure_shell_path_in_scope(&resolved, scope, false, execution, mode)?;
             }
         }
     }
@@ -254,12 +297,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                         .map(|p| p.to_string_lossy().to_string())
                 });
             let scope_dir = resolve_scope_dir(cwd.as_deref(), effective_default.as_ref());
+            let scope_mode = config
+                .sandbox_policy
+                .as_ref()
+                .and_then(|policy| policy.mode.as_ref());
             check_shell_scope(
                 scope_dir.as_ref(),
                 &command,
                 ctx.file_scope.as_ref(),
                 effective_default.as_ref(),
                 &ctx.execution_id.to_string(),
+                scope_mode,
             )?;
 
             let input = parameters.get("input").and_then(|v| v.as_str());

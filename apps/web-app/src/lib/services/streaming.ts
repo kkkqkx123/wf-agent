@@ -30,6 +30,8 @@ export interface LoopStreamBody {
 	model: string;
 	message: string;
 	conversation?: RunLoopMessage[];
+	/** Optional per-run filesystem scope; absent inherits the global default. */
+	fileScope?: unknown;
 }
 
 /**
@@ -49,6 +51,7 @@ export function streamLoopRun(
 			message: body.message,
 			tool_call_protocol: { format: 'json' },
 			conversation: body.conversation ?? [],
+			file_scope: body.fileScope ?? null,
 		},
 		signal,
 		onFrame: (event, data) => handleExecutionFrame(event, data, callbacks),

@@ -761,6 +761,7 @@ fn general_ctx(registry: Arc<ToolRegistry>, entity: Arc<AgentLoopEntity>) -> Gen
         retry_budget: None,
         checkpoint_session: None,
         parent_link: None,
+        file_scope: None,
         cancellation: None,
     };
     GeneralToolContext::new(run_ctx, entity, None)
@@ -981,6 +982,7 @@ async fn test_general_inner_call_faces_approval_like_direct() {
         retry_budget: None,
         checkpoint_session: None,
         parent_link: None,
+        file_scope: None,
         cancellation: None,
     };
     let ctx = GeneralToolContext::new(run_ctx, entity, None);
@@ -1068,6 +1070,7 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
         retry_budget: None,
         checkpoint_session: None,
         parent_link: None,
+        file_scope: None,
         cancellation: None,
     };
     let ctx = GeneralToolContext::new(run_ctx, entity, None);

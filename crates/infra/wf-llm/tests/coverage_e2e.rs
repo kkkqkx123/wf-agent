@@ -72,6 +72,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> L
         stream_options: None,
         context_window_size: None,
         proxy: None,
+        no_proxy: None,
         circuit_breaker: None,
     }
 }
@@ -88,6 +89,7 @@ fn user_request(profile_id: &str) -> LlmRequest {
             tool_name: None,
             tool_calls: None,
             thinking: None,
+            thinking_signature: None,
             metadata: None,
         }],
         parameters: None,
@@ -274,6 +276,7 @@ async fn provider_definition_supplies_base_url() {
             api_version: None,
             metadata: None,
             proxy: None,
+            no_proxy: None,
             rate_limit: None,
         })
         .expect("provider");

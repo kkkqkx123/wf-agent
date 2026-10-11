@@ -782,6 +782,7 @@ async fn test_execution_callback_execute_workflow_via_tool() {
         tool_name: None,
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     };
     let result = runtime

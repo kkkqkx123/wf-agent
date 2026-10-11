@@ -157,7 +157,15 @@ impl NodeHandler for TemplateSubgraphHandler {
         ctx: &mut wf_execution_shared::context::NodeExecutionContext,
     ) -> ExecutionSharedResult<NodeHandlerResult> {
         let options = WorkflowExecutionOptions {
-            file_scope: None,
+            file_scope: ctx.file_scope.clone().map(|resolved| {
+                wf_types::config::file_scope::ExecutionFileScope {
+                    enabled: Some(resolved.enabled),
+                    read_prefixes: Some(resolved.read_prefixes.clone()),
+                    write_prefixes: Some(resolved.write_prefixes.clone()),
+                    checkpoint_prefixes: Some(resolved.checkpoint_prefixes.clone()),
+                    workdir: resolved.workdir.clone(),
+                }
+            }),
             input: Some(ctx.input.clone()),
             max_steps: None,
             timeout: None,

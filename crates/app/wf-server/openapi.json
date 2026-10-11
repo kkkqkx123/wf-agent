@@ -39201,6 +39201,9 @@
       "ExecuteBody": {
         "type": "object",
         "properties": {
+          "file_scope": {
+            "description": "Optional per-execution filesystem scope. Missing inherits the parent\nexecution then the global default."
+          },
           "input": {}
         }
       },
@@ -40384,6 +40387,9 @@
               "boolean",
               "null"
             ]
+          },
+          "file_scope": {
+            "description": "Optional per-execution filesystem scope. Missing inherits the parent\nexecution then the global default; explicit values override per field."
           },
           "hidden_tool_names": {
             "type": [

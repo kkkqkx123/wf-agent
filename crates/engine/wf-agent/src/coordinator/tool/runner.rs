@@ -46,6 +46,7 @@ pub(crate) async fn run_tool(
                 tool_name: Some(tool_name),
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: None,
             };
             return Ok(msg);
@@ -386,6 +387,7 @@ pub(crate) async fn run_tool(
                 tool_name: Some(tc.function.name.clone()),
                 tool_calls: None,
                 thinking: None,
+                thinking_signature: None,
                 metadata: None,
             };
             emit_progress(
@@ -506,6 +508,7 @@ pub(crate) fn error_message(
         tool_name: tool_name.map(String::from),
         tool_calls: None,
         thinking: None,
+        thinking_signature: None,
         metadata: None,
     }
 }

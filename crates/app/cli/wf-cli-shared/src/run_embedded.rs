@@ -548,6 +548,7 @@ mod tests {
                 mock.script_error(wf_llm::LlmError::ProviderError {
                     status: None,
                     message: "provider exploded".into(),
+                    retry_after_ms: None,
                 });
             }
             adapter.llm_gateway().register_mock("mock", mock);

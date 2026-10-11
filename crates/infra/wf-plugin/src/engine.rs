@@ -171,6 +171,7 @@ pub(crate) fn convert_provider_definition(
         api_version: provider.api_version.clone(),
         metadata: provider.metadata.clone(),
         proxy: None,
+        no_proxy: None,
         rate_limit: None,
     }
 }

@@ -50,13 +50,8 @@ export const NAV_GROUPS: NavGroup[] = [
 				href: '/executions',
 				label: 'Workbench',
 				icon: 'activity',
-				description: 'Execution list, status and live detail',
-			},
-			{
-				href: '/agent-loops',
-				label: 'Agent Loops',
-				icon: 'loop',
-				description: 'Loop runs, messages, variables and checkpoints',
+				description:
+					'Unified execution list for workflows and agent loops, with live detail',
 			},
 		],
 	},

@@ -44,7 +44,7 @@
 
 	let query = $state('');
 	let status = $state('');
-	let engine = $state<'all' | 'workflow' | 'agent_loop'>('workflow');
+	let engine = $state<'all' | 'workflow' | 'agent_loop'>('all');
 	let view = $state<'list' | 'table'>('list');
 	let selectedId = $state<string | null>(null);
 	let compareMode = $state(false);
@@ -133,10 +133,6 @@
 			detail = null;
 			return;
 		}
-		if (selectedItem?.kind === 'agent_loop') {
-			detail = null;
-			return;
-		}
 		void getExecutionDetail(id)
 			.then((row) => {
 				detail = row;
@@ -156,7 +152,7 @@
 			compareDetail = null;
 			return;
 		}
-		if (id === selectedId || comparedItem?.kind === 'agent_loop') {
+		if (id === selectedId) {
 			compareDetail = null;
 			return;
 		}
@@ -188,8 +184,7 @@
 	const selected = $derived(detail);
 	const compared = $derived(compareDetail);
 
-	// Agent runs drill down on the agent-loops surface, whose detail
-	// endpoints differ from the workflow ones used above.
+	// Detail is unified: both engines resolve through getExecutionDetail.
 	const selectedItem = $derived(
 		filtered.find((execution) => execution.id === selectedId) ?? null,
 	);
@@ -419,17 +414,7 @@
 	</div>
 
 	{#snippet inspector()}
-		{#if selectedItem?.kind === 'agent_loop' && selectedId}
-			<div class="m-3 rounded-lg border border-border bg-card p-4">
-				<p class="text-sm font-medium">Agent run {selectedId.slice(0, 8)}</p>
-				<p class="text-caption text-muted-foreground">
-					Agent runs drill down on the agent-loops surface.
-				</p>
-				<Button size="sm" href="/agent-loops" class="mt-2">
-					Open agent loops
-				</Button>
-			</div>
-		{:else if selected}
+		{#if selected}
 			<ExecutionInspector
 				execution={selected}
 				onrefresh={() => {
@@ -451,17 +436,7 @@
 	{/snippet}
 
 	{#snippet secondary()}
-		{#if comparedItem?.kind === 'agent_loop' && compareId}
-			<div class="m-3 rounded-lg border border-border bg-card p-4">
-				<p class="text-sm font-medium">Agent run {compareId.slice(0, 8)}</p>
-				<p class="text-caption text-muted-foreground">
-					Agent runs drill down on the agent-loops surface.
-				</p>
-				<Button size="sm" href="/agent-loops" class="mt-2">
-					Open agent loops
-				</Button>
-			</div>
-		{:else if compared}
+		{#if compared}
 			<ExecutionInspector
 				execution={compared}
 				onrefresh={() => {

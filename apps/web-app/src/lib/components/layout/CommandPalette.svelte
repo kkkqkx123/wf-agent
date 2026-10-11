@@ -119,7 +119,7 @@
 			hint: `${loop.id} · ${loop.status}`,
 			run: () => {
 				ui.setCommandOpen(false);
-				void goto(resolve('/agent-loops/[id]', { id: loop.id }));
+				void goto(resolve('/executions/[id]', { id: loop.id }));
 			},
 		}));
 
@@ -135,7 +135,7 @@
 					hit.executionId != null
 						? resolve('/executions/[id]', { id: hit.executionId })
 						: hit.agentLoopId != null
-							? resolve('/agent-loops/[id]', { id: hit.agentLoopId })
+							? resolve('/executions/[id]', { id: hit.agentLoopId })
 							: resolve('/');
 				void goto(target);
 			},

@@ -64,8 +64,13 @@
 	} from '$lib/graph/execution-projection';
 	import {
 		EXECUTION_TABS,
+		TAB_GROUPS,
+		defaultTab,
 		type ExecutionTab,
 	} from '$lib/config/execution-tabs';
+	import LoopMessagesPanel from './LoopMessagesPanel.svelte';
+	import LoopVariablesPanel from './LoopVariablesPanel.svelte';
+	import LoopCheckpointsPanel from './LoopCheckpointsPanel.svelte';
 	import type { StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -85,6 +90,21 @@
 		class: className = '',
 		onrefresh,
 	}: Props = $props();
+
+	// Which engine owns this execution decides the tab strip and the extra
+	// loop-specific panels below.
+	const kind = $derived(execution.kind ?? 'workflow');
+	const kindTabs = $derived(
+		EXECUTION_TABS.filter((entry) => TAB_GROUPS[kind].includes(entry.id)),
+	);
+
+	// Keep `?tab=` honest across kinds: a workflow tab on a loop detail (or
+	// vice versa, e.g. after the redirect) falls back to the group default.
+	$effect(() => {
+		if (!TAB_GROUPS[kind].includes(tab)) {
+			tab = defaultTab(kind);
+		}
+	});
 
 	let toolCalls = $state<ToolCallEntry[]>([]);
 	let toolsError = $state<string | null>(null);
@@ -770,7 +790,7 @@
 	</div>
 
 	<Segmented
-		items={EXECUTION_TABS}
+		items={kindTabs}
 		bind:value={tab}
 		size="sm"
 		class="px-2"
@@ -1211,6 +1231,12 @@
 					</Card>
 				</div>
 			{/if}
+		{:else if tab === 'messages'}
+			<LoopMessagesPanel id={execution.id} />
+		{:else if tab === 'variables'}
+			<LoopVariablesPanel id={execution.id} />
+		{:else if tab === 'checkpoints'}
+			<LoopCheckpointsPanel id={execution.id} />
 		{:else if tab === 'hierarchy'}
 			{#if hierarchyError}
 				<ErrorState

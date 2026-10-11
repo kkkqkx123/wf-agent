@@ -19,6 +19,11 @@
 		pauseExecution,
 		resumeExecution,
 	} from '$lib/services/executions';
+	import {
+		cancelAgentLoop,
+		pauseAgentLoop,
+		resumeAgentLoop,
+	} from '$lib/services/agent-loops';
 	import type { ExecutionDetail } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
@@ -50,6 +55,24 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	// Each engine exposes its own pause/resume/cancel endpoints; pick per kind.
+	function controlsFor(
+		kind: ExecutionDetail['kind'],
+	): {
+		pause: (id: string) => Promise<void>;
+		resume: (id: string) => Promise<void>;
+		cancel: (id: string) => Promise<void>;
+	} {
+		if (kind === 'agent_loop') {
+			return {
+				pause: pauseAgentLoop,
+				resume: resumeAgentLoop,
+				cancel: cancelAgentLoop,
+			};
+		}
+		return { pause: pauseExecution, resume: resumeExecution, cancel: cancelExecution };
 	}
 
 	async function runControl(
@@ -107,42 +130,49 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
-			<IconButton
-				icon="pause"
-				label="Pause execution"
-				disabled={controlBusy}
-				onclick={() => void runControl('Pause', pauseExecution)}
-			/>
-			<IconButton
-				icon="play"
-				label="Resume execution"
-				disabled={controlBusy}
-				onclick={() => void runControl('Resume', resumeExecution)}
-			/>
-			{#if cancelArmed}
-				<Button
-					variant="outline"
-					size="sm"
+			{#if execution}
+				{@const controls = controlsFor(execution.kind)}
+				<IconButton
+					icon="pause"
+					label="Pause execution"
 					disabled={controlBusy}
-					onclick={() => {
-						cancelArmed = false;
-						void runControl('Cancel', cancelExecution);
-					}}
-				>
-					Confirm cancel
-				</Button>
-				<Button variant="ghost" size="sm" onclick={() => (cancelArmed = false)}>
-					Keep
-				</Button>
-			{:else}
-				<Button
-					variant="outline"
-					size="sm"
-					onclick={() => (cancelArmed = true)}
-				>
-					<Icon name="square" size={13} />
-					Cancel
-				</Button>
+					onclick={() => void runControl('Pause', controls.pause)}
+				/>
+				<IconButton
+					icon="play"
+					label="Resume execution"
+					disabled={controlBusy}
+					onclick={() => void runControl('Resume', controls.resume)}
+				/>
+				{#if cancelArmed}
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={controlBusy}
+						onclick={() => {
+							cancelArmed = false;
+							void runControl('Cancel', controls.cancel);
+						}}
+					>
+						Confirm cancel
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						onclick={() => (cancelArmed = false)}
+					>
+						Keep
+					</Button>
+				{:else}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => (cancelArmed = true)}
+					>
+						<Icon name="square" size={13} />
+						Cancel
+					</Button>
+				{/if}
 			{/if}
 			<Button variant="outline" size="sm" href="/executions">
 				<Icon name="arrow-left" size={13} />

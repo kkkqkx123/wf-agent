@@ -1114,3 +1114,19 @@ fn test_approval_gate_config_roundtrip() {
     assert!(options.is_none());
     assert!(Arc::strong_count(&handler.expect("handler present")) >= 1);
 }
+
+// Missing-file text must never count as a scope violation: no marker is set
+// on plain error messages, so the violation streak ignores them.
+#[test]
+fn test_missing_file_text_is_never_a_scope_violation() {
+    let plain = super::runner::error_message(
+        "not_found: file '/work/missing.txt' does not exist. Use list_files to confirm the path or write_file to create it.",
+        Some("call-1"),
+        Some("read_file"),
+    );
+    assert!(!super::runner::is_scope_violation_message(&plain));
+    assert!(!text_of(&plain).contains("outside allowed"));
+    let mut marked = plain.clone();
+    super::runner::mark_scope_violation(&mut marked);
+    assert!(super::runner::is_scope_violation_message(&marked));
+}

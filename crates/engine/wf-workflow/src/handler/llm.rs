@@ -23,13 +23,17 @@ pub mod tool_exec;
 
 use config::parse_llm_node_config;
 use events::emit_llm_event;
-use messages::{build_messages, tool_result_message};
+use messages::{build_messages, is_scope_violation_message, tool_result_message};
 use stream::run_streaming_request;
 use token_budget::{
     await_compression_settle, check_preflight_budget, check_still_over_budget_escalation,
     emit_token_usage_events, record_non_stream_usage, setup_token_tracker,
 };
 use tool_exec::{call_llm, execute_tool_call, pending_queue_for, resolve_tools, LlmToolCallBatch};
+
+/// Consecutive all-violation tool rounds after which the node routes to the
+/// error branch instead of burning more interactions on blind path retries.
+const MAX_CONSECUTIVE_SCOPE_VIOLATION_ROUNDS: u32 = 3;
 
 pub struct LlmHandler {
     gateway: Arc<LlmGateway>,
@@ -147,6 +151,10 @@ impl LlmHandler {
         // structured output carries every call, so nothing is truncated
         // silently.
         let mut stopped_with_tools = false;
+        // Consecutive rounds where every executed tool result was a scope
+        // violation mutate nothing: cap them so blind path retries route to
+        // the error branch instead of burning the interaction budget.
+        let mut scope_violation_rounds = 0u32;
         for _round in 0..cfg.max_interactions {
             if cfg.token_tracking_enabled {
                 await_compression_settle(ctx).await?;
@@ -199,6 +207,8 @@ impl LlmHandler {
             };
             let skipped = &calls[run_now.len()..];
             let mut any_result = false;
+            let mut round_results = 0u32;
+            let mut round_violations = 0u32;
             // One approval batch per response, mirroring the agent gate:
             // parallel calls share the batch id and see each other in the
             // pending queue instead of approving in isolation. Skipped
@@ -231,6 +241,10 @@ impl LlmHandler {
                     "name": call.function.name,
                     "success": !is_error,
                 }));
+                round_results += 1;
+                if is_scope_violation_message(&result_msg) {
+                    round_violations += 1;
+                }
                 messages.push(result_msg);
                 any_result = true;
             }
@@ -257,6 +271,27 @@ impl LlmHandler {
             }
             if !any_result {
                 break;
+            }
+            // A round where every executed tool result was a scope violation
+            // mutated nothing: count it and route to the error branch once
+            // blind retries stop converging instead of spending the whole
+            // interaction budget.
+            if round_results > 0 && round_violations == round_results {
+                scope_violation_rounds += 1;
+            } else {
+                scope_violation_rounds = 0;
+            }
+            if scope_violation_rounds >= MAX_CONSECUTIVE_SCOPE_VIOLATION_ROUNDS {
+                return Err(crate::error::WorkflowError::NodeFailure {
+                    node_id: ctx.node_id.clone(),
+                    category: wf_types::workflow::error_branch::NodeErrorCategory::BusinessFailure,
+                    detail: format!(
+                        "Tool calls violated the execution file scope {} rounds in a row; staying inside the allowed read and write prefixes is required",
+                        scope_violation_rounds
+                    ),
+                    failure_source:
+                        wf_types::workflow::error_branch::NodeFailureSource::Handler,
+                });
             }
             // The interaction budget covers model generations: when no
             // generation remains, the tools just executed are returned

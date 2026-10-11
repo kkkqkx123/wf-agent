@@ -144,6 +144,15 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
         // Remaining variants (ExecutionFailed, RetryExhausted, Serialization,
         // CallbackNotRegistered, Internal, ExecutionError) are terminal
         // failures; `RetryExhausted` has already spent its upstream budget.
+        // Scope violations are deterministic caller misuse: the same path
+        // reproduces the same rejection, so the model must pick a different
+        // path instead of retrying. Terminal by construction.
+        ToolError::ScopeViolation { .. } => (
+            ErrorKind::Tool,
+            ErrorType::ToolError,
+            false,
+            RecoveryAction::Abort,
+        ),
         _ => (
             ErrorKind::Tool,
             ErrorType::ToolError,
@@ -611,6 +620,17 @@ mod tests {
     fn test_tool_not_found_abort() {
         let analysis = tool_error_analysis(&ToolError::NotFound("missing".to_string()));
         assert_eq!(analysis.kind, ErrorKind::NotFound);
+        assert!(!analysis.retryable);
+        assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
+    }
+
+    #[test]
+    fn test_scope_violation_is_terminal() {
+        let analysis = tool_error_analysis(&ToolError::scope_violation(
+            "read_file",
+            "path '/etc/passwd' outside allowed read prefixes".to_string(),
+        ));
+        assert!(ToolError::scope_violation("t", "d".to_string()).is_scope_violation());
         assert!(!analysis.retryable);
         assert_eq!(analysis.recovery_action, RecoveryAction::Abort);
     }

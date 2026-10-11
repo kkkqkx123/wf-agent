@@ -11,7 +11,7 @@ pub static READ_FILE: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "filesystem",
     tags: &["read", "file"],
-    description: "Read the contents of a file at the given path. Returns the file content as text. Supports line-range and offset-based slicing.",
+    description: "Read the contents of a file at the given path. Returns the file content as text. Supports line-range and offset-based slicing. Direct reads bypass discovery ignore rules; execution scope still applies.",
     parameters: &[
         ToolParameter { name: "path", r#type: "string", required: true, description: "Absolute path to the file", default_json: None, constraints: None },
         ToolParameter { name: "offset", r#type: "number", required: false, description: "Line number to start reading from (1-indexed)", default_json: None, constraints: None },

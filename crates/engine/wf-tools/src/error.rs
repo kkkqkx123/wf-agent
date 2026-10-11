@@ -49,9 +49,53 @@ pub enum ToolError {
 
     #[error("Execution error: {0}")]
     ExecutionError(String),
+
+    #[error("Scope violation in tool '{tool_id}': {detail}")]
+    ScopeViolation { tool_id: String, detail: String },
 }
 
 pub type ToolResult<T> = Result<T, ToolError>;
+
+/// Metadata key marking tool messages that carry a scope violation. Engines
+/// set it when converting a [`ToolError::ScopeViolation`] into conversation
+/// text so violation rounds stay countable without string sniffing.
+pub const SCOPE_VIOLATION_METADATA_KEY: &str = "scope_violation";
+
+/// Stable machine-readable tags heading model-visible error text. Scope
+/// rejections and missing files share the same shape (a failed tool call
+/// with a path in it), so each class carries its own tag and readers never
+/// have to guess from prose. The metadata marker stays the counting signal
+/// for engines; the tag is the human and test signal.
+pub const SCOPE_VIOLATION_TAG: &str = "scope_violation";
+pub const NOT_FOUND_TAG: &str = "not_found";
+
+/// Prefix a model-visible error detail with its class tag.
+pub fn tag_detail(tag: &str, detail: String) -> String {
+    format!("{tag}: {detail}")
+}
+
+impl ToolError {
+    pub fn scope_violation(tool_id: impl Into<String>, detail: String) -> Self {
+        ToolError::ScopeViolation {
+            tool_id: tool_id.into(),
+            detail: tag_detail(SCOPE_VIOLATION_TAG, detail),
+        }
+    }
+
+    pub fn is_scope_violation(&self) -> bool {
+        matches!(self, ToolError::ScopeViolation { .. })
+    }
+}
+
+/// True when a tool message carries the scope violation marker.
+pub fn message_marks_scope_violation(
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> bool {
+    metadata
+        .and_then(|m| m.get(SCOPE_VIOLATION_METADATA_KEY))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
 
 impl From<wf_shell::ShellError> for ToolError {
     fn from(err: wf_shell::ShellError) -> Self {

@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::error::{ToolError, ToolResult};
+use crate::error::{tag_detail, ToolError, ToolResult, NOT_FOUND_TAG};
 use crate::executor::trait_def::ToolExecutionContext;
 use crate::ignore::{IgnoreController, IgnoreMode};
 use crate::protect::ProtectController;
@@ -83,8 +83,14 @@ impl FsToolHandlers {
         }
     }
 
-    fn scope_allows_violation(&self) -> bool {
+    fn scope_allows_violation(&self, want_write: bool) -> bool {
         use wf_types::script::sandbox::SandboxMode;
+        // Writes stay fail-closed in every mode: a lenient write would land
+        // on disk while the checkpoint layer drops it as out of scope,
+        // leaving an unrestorable side effect behind a success message.
+        if want_write {
+            return false;
+        }
         matches!(
             self.config.scope_mode,
             Some(SandboxMode::Lenient) | Some(SandboxMode::Disabled)
@@ -93,11 +99,13 @@ impl FsToolHandlers {
 
     fn scope_violation(
         &self,
+        tool: &str,
         ctx: &ToolExecutionContext,
         message: String,
         fallback: PathBuf,
+        want_write: bool,
     ) -> ToolResult<PathBuf> {
-        if self.scope_allows_violation() {
+        if self.scope_allows_violation(want_write) {
             tracing::warn!(
                 execution = %ctx.execution_id,
                 error = %message,
@@ -105,11 +113,27 @@ impl FsToolHandlers {
             );
             return Ok(fallback);
         }
-        Err(ToolError::ExecutionError(message))
+        Err(ToolError::scope_violation(tool, message))
+    }
+
+    fn scope_guidance(&self, ctx: &ToolExecutionContext, kind: &str) -> String {
+        match ctx
+            .file_scope
+            .as_ref()
+            .and_then(|s| s.workdir.as_deref())
+        {
+            Some(workdir) => format!(
+                " Work inside '{workdir}' and keep paths under the allowed {kind} prefixes of this execution."
+            ),
+            None => format!(
+                " Keep paths under the allowed {kind} prefixes of this execution."
+            ),
+        }
     }
 
     fn ensure_in_scope(
         &self,
+        tool: &str,
         resolved: &Path,
         ctx: &ToolExecutionContext,
         want_write: bool,
@@ -120,20 +144,25 @@ impl FsToolHandlers {
         if !scope.enabled {
             return Ok(resolved.to_path_buf());
         }
+        let kind = if want_write { "write" } else { "read" };
         if !resolved.is_absolute() {
             tracing::warn!(
                 execution = %ctx.execution_id,
                 path = %resolved.display(),
                 "filesystem scope violation: relative path without base"
             );
+            let guidance = self.scope_guidance(ctx, kind);
             return self.scope_violation(
+                tool,
                 ctx,
                 format!(
-                    "path '{}' outside allowed {} prefixes: relative path without base",
+                    "path '{}' outside allowed {} prefixes: relative path without base.{}",
                     resolved.display(),
-                    if want_write { "write" } else { "read" }
+                    kind,
+                    guidance
                 ),
                 resolved.to_path_buf(),
+                want_write,
             );
         }
         let lexical = normalize_scope_path(&resolved.to_string_lossy());
@@ -152,14 +181,18 @@ impl FsToolHandlers {
                 want_write = want_write,
                 "filesystem scope violation: outside allowed prefixes"
             );
+            let guidance = self.scope_guidance(ctx, kind);
             return self.scope_violation(
+                tool,
                 ctx,
                 format!(
-                    "path '{}' outside allowed {} prefixes",
+                    "path '{}' outside allowed {} prefixes.{}",
                     resolved.display(),
-                    if want_write { "write" } else { "read" }
+                    kind,
+                    guidance
                 ),
                 PathBuf::from(&lexical),
+                want_write,
             );
         }
         if let Ok(physical) = resolved.canonicalize() {
@@ -174,17 +207,21 @@ impl FsToolHandlers {
                     physical = %physical.display(),
                     "filesystem scope violation: symlink escapes allowed prefixes"
                 );
+                let guidance = self.scope_guidance(ctx, kind);
                 return self.scope_violation(
+                    tool,
                     ctx,
                     format!(
-                        "path '{}' escapes allowed {} prefixes through symlink",
+                        "path '{}' escapes allowed {} prefixes through symlink.{}",
                         resolved.display(),
-                        if want_write { "write" } else { "read" }
+                        kind,
+                        guidance
                     ),
                     physical.clone(),
+                    want_write,
                 );
             }
-            return Ok(physical);
+            return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
         }
         if let Some(parent) = resolved.parent() {
             if !parent.as_os_str().is_empty() {
@@ -202,37 +239,166 @@ impl FsToolHandlers {
                                 physical = %physical.display(),
                                 "filesystem scope violation: parent symlink escapes prefixes"
                             );
+                            let guidance = self.scope_guidance(ctx, kind);
                             return self.scope_violation(
+                                tool,
                                 ctx,
                                 format!(
-                                    "path '{}' escapes allowed {} prefixes through symlink",
+                                    "path '{}' escapes allowed {} prefixes through symlink.{}",
                                     resolved.display(),
-                                    if want_write { "write" } else { "read" }
+                                    kind,
+                                    guidance
                                 ),
                                 physical.clone(),
+                                want_write,
                             );
                         }
+                        return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
                     }
                 }
             }
         }
-        Ok(PathBuf::from(lexical))
+        self.finish_write_gate(tool, &PathBuf::from(&lexical), ctx, want_write, &lexical)
+    }
+
+    fn finish_write_gate(
+        &self,
+        tool: &str,
+        admitted: &Path,
+        ctx: &ToolExecutionContext,
+        want_write: bool,
+        lexical: &str,
+    ) -> ToolResult<PathBuf> {
+        if !want_write {
+            return Ok(admitted.to_path_buf());
+        }
+        // Writes converge on the write and checkpoint intersection: a path
+        // inside the write prefixes but outside the checkpoint prefixes
+        // would report success while recording drops it as out of scope,
+        // leaving an unrestorable side effect. Fail closed instead.
+        let Some(scope) = ctx.file_scope.as_ref() else {
+            return Ok(admitted.to_path_buf());
+        };
+        let admitted_str = admitted.to_string_lossy().to_string();
+        let tracked = scope
+            .checkpoint_prefixes
+            .iter()
+            .any(|bound| scope_path_contains(bound, &admitted_str))
+            && scope
+                .checkpoint_prefixes
+                .iter()
+                .any(|bound| scope_path_contains(bound, lexical));
+        if !tracked {
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                path = %admitted.display(),
+                "filesystem scope violation: write outside checkpoint prefixes"
+            );
+            let guidance = self.scope_guidance(ctx, "write");
+            return self.scope_violation(
+                tool,
+                ctx,
+                format!(
+                    "path '{}' is outside checkpoint-tracked directories: writes must stay inside checkpoint prefixes so they can be restored.{}",
+                    admitted.display(),
+                    guidance
+                ),
+                admitted.to_path_buf(),
+                true,
+            );
+        }
+        Ok(admitted.to_path_buf())
     }
 
     // Instance scope, global protection and ignore rules intersect as a
     // tightening: a path must pass scope gating and must not be protected
     // or ignored. Instance scope never relaxes a global denial.
-    fn ignore_controller(&self) -> Option<IgnoreController> {
+    //
+    // The discovery anchor prefers the execution workdir over the static
+    // workspace dir so workspace ignore files resolve against the same
+    // root the execution was scoped to.
+    fn scope_anchor(&self, ctx: &ToolExecutionContext) -> PathBuf {
+        ctx.file_scope
+            .as_ref()
+            .and_then(|s| s.workdir.as_ref().map(PathBuf::from))
+            .or_else(|| self.config.workspace_dir.clone())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    fn ignore_controller(&self, ctx: &ToolExecutionContext) -> Option<IgnoreController> {
         if !self.config.enable_ignore {
             return None;
         }
-        let cwd = self
-            .config
-            .workspace_dir
-            .as_ref()
-            .and_then(|p| p.to_str())
-            .unwrap_or(".");
-        Some(IgnoreController::new(cwd, IgnoreMode::All))
+        let anchor = self.scope_anchor(ctx);
+        Some(
+            IgnoreController::new(&anchor.to_string_lossy(), IgnoreMode::All)
+                .with_workspace_gitignore(&anchor),
+        )
+    }
+
+    fn include_ignored(parameters: &Value) -> bool {
+        parameters
+            .get("include_ignored")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn ignore_note(count: usize) -> String {
+        format!(
+            "\nNote: {count} entries hidden by ignore rules were skipped; read an explicit path directly to inspect them."
+        )
+    }
+
+    /// Checkpoint capture verdict for a write target: hardcoded excludes
+    /// plus the workspace ignore files, resolved against the execution
+    /// anchor. A capture-ignored write lands on disk but can never be
+    /// restored, so callers mark the success text instead of implying
+    /// durability. Paths outside the anchor cannot be evaluated and stay
+    /// unmarked; scope gating already passed them.
+    fn capture_ignored(&self, ctx: &ToolExecutionContext, path: &Path) -> bool {
+        let anchor = self.scope_anchor(ctx);
+        if !anchor.is_absolute() {
+            return false;
+        }
+        let Ok(rel) = path.strip_prefix(&anchor) else {
+            return false;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if rel.is_empty() {
+            return false;
+        }
+        if wf_checkpoint::scan::is_hardcoded_ignored(&rel) {
+            return true;
+        }
+        // The search build walks the anchor once per write; writes are
+        // rare next to reads, so freshness wins over caching here.
+        let search = wf_checkpoint::scan::collect_gitignore_search(&anchor);
+        wf_checkpoint::scan::gitignore_ignored(&search, &rel)
+    }
+
+    fn unrestorable_note(&self, ctx: &ToolExecutionContext, path: &Path) -> Option<&'static str> {
+        if !self.capture_ignored(ctx, path) {
+            return None;
+        }
+        tracing::warn!(
+            execution = %ctx.execution_id,
+            path = %path.display(),
+            "filesystem write target is ignored by checkpoint capture and cannot be restored"
+        );
+        Some("\nNote: this path is ignored by checkpoint capture and cannot be restored.")
+    }
+
+    /// Read gate for callers without a full handler (service-side paths):
+    /// resolves against the execution workdir and applies the same read
+    /// prefixes plus opportunistic physical check as the file tools.
+    pub(crate) fn ensure_read_scoped(
+        &self,
+        tool: &str,
+        raw: &str,
+        ctx: &ToolExecutionContext,
+    ) -> ToolResult<PathBuf> {
+        let resolved = self.resolve_scoped(raw, ctx);
+        self.ensure_in_scope(tool, &resolved, ctx, false)
     }
 
     fn is_write_protected(&self, path: &Path) -> bool {
@@ -246,7 +412,7 @@ impl FsToolHandlers {
     pub fn read_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, false)?;
+        let path = self.ensure_in_scope("read_file", &resolved, ctx, false)?;
 
         let offset = parameters
             .get("offset")
@@ -257,7 +423,17 @@ impl FsToolHandlers {
         }
 
         let meta = std::fs::metadata(&path).map_err(|e| {
-            ToolError::ExecutionError(format!("Cannot access '{}': {}", path.display(), e))
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ToolError::ExecutionError(tag_detail(
+                    NOT_FOUND_TAG,
+                    format!(
+                        "file '{}' does not exist. Use list_files to confirm the path or write_file to create it.",
+                        path.display()
+                    ),
+                ))
+            } else {
+                ToolError::ExecutionError(format!("Cannot access '{}': {}", path.display(), e))
+            }
         })?;
         if meta.is_dir() {
             return Err(ToolError::ExecutionError(format!(
@@ -340,7 +516,7 @@ impl FsToolHandlers {
         let path_str = require_string(parameters, "path")?;
         let content = require_string(parameters, "content")?;
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, true)?;
+        let path = self.ensure_in_scope("write_file", &resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
             return Err(ToolError::ExecutionError(format!(
@@ -372,8 +548,9 @@ impl FsToolHandlers {
         notify_precise(ctx, &path, op);
 
         Ok(Value::String(format!(
-            "Successfully wrote to {}",
-            path.display()
+            "Successfully wrote to {}{}",
+            path.display(),
+            self.unrestorable_note(ctx, &path).unwrap_or("")
         )))
     }
 
@@ -384,7 +561,7 @@ impl FsToolHandlers {
         let old_string = require_string(parameters, "old_string")?;
         let new_string = require_string(parameters, "new_string")?;
         let resolved = self.resolve_scoped(file_path, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, true)?;
+        let path = self.ensure_in_scope("edit_file", &resolved, ctx, true)?;
 
         if old_string.is_empty() {
             return Err(ToolError::ValidationFailed(
@@ -400,11 +577,17 @@ impl FsToolHandlers {
         }
 
         let content = std::fs::read_to_string(&path).map_err(|e| {
-            ToolError::ExecutionError(format!(
-                "Failed to read '{}': {} (use write_file to create it)",
-                path.display(),
-                e
-            ))
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ToolError::ExecutionError(tag_detail(
+                    NOT_FOUND_TAG,
+                    format!(
+                        "file '{}' does not exist (use write_file to create it).",
+                        path.display()
+                    ),
+                ))
+            } else {
+                ToolError::ExecutionError(format!("Failed to read '{}': {}", path.display(), e))
+            }
         })?;
 
         let count = content.matches(old_string).count();
@@ -431,8 +614,9 @@ impl FsToolHandlers {
         notify_precise(ctx, &path, wf_types::effect::FileOperation::Modified);
 
         Ok(Value::String(format!(
-            "Edited {}: replaced 1 occurrence(s)",
-            path.display()
+            "Edited {}: replaced 1 occurrence(s){}",
+            path.display(),
+            self.unrestorable_note(ctx, &path).unwrap_or("")
         )))
     }
 
@@ -444,17 +628,43 @@ impl FsToolHandlers {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, false)?;
+        let path = self.ensure_in_scope("list_files", &resolved, ctx, false)?;
 
         validate_directory(&path)?;
-        let ignore = self.ignore_controller();
+        // An explicit include_ignored request bypasses discovery ignore so
+        // build outputs and other hidden files stay verifiable; scope gating
+        // above still applies.
+        let ignore = if Self::include_ignored(parameters) {
+            None
+        } else {
+            self.ignore_controller(ctx)
+        };
         let scope = ctx.file_scope.as_ref();
 
         let mut entries: Vec<(String, String)> = Vec::new();
+        let mut scope_filtered = 0usize;
+        let mut ignore_filtered = 0usize;
         if recursive {
-            walk_recursive(&path, &path, &mut entries, ignore.as_ref(), 0, scope);
+            walk_recursive(
+                &path,
+                &path,
+                &mut entries,
+                ignore.as_ref(),
+                0,
+                scope,
+                &mut scope_filtered,
+                &mut ignore_filtered,
+            );
         } else {
-            walk_flat(&path, &path, &mut entries, ignore.as_ref(), scope);
+            walk_flat(
+                &path,
+                &path,
+                &mut entries,
+                ignore.as_ref(),
+                scope,
+                &mut scope_filtered,
+                &mut ignore_filtered,
+            );
         }
 
         let truncated = entries.len() > self.config.max_results;
@@ -487,6 +697,15 @@ impl FsToolHandlers {
                 ));
             }
         }
+        if scope_filtered > 0 {
+            display.push_str(&format!(
+                "\nNote: {} entries outside the execution read scope were omitted, not absent.",
+                scope_filtered
+            ));
+        }
+        if ignore_filtered > 0 {
+            display.push_str(&Self::ignore_note(ignore_filtered));
+        }
 
         let entries_json: Vec<Value> = entries
             .iter()
@@ -506,7 +725,7 @@ impl FsToolHandlers {
         let pattern = require_string(parameters, "pattern")?;
         let path_str = require_string(parameters, "path")?;
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, false)?;
+        let path = self.ensure_in_scope("grep_search", &resolved, ctx, false)?;
 
         let regex = Regex::new(pattern).map_err(|e| {
             ToolError::ValidationFailed(format!("Invalid regex pattern '{}': {}", pattern, e))
@@ -522,17 +741,39 @@ impl FsToolHandlers {
             .transpose()?;
 
         validate_directory(&path)?;
-        let ignore = self.ignore_controller();
+        let ignore = if Self::include_ignored(parameters) {
+            None
+        } else {
+            self.ignore_controller(ctx)
+        };
         let scope = ctx.file_scope.as_ref();
 
         let mut files: Vec<PathBuf> = Vec::new();
+        let mut scope_filtered = 0usize;
+        let mut ignore_filtered = 0usize;
         collect_files(
             &path,
             &mut files,
             include_glob.as_ref(),
             ignore.as_ref(),
             scope,
+            &mut scope_filtered,
+            &mut ignore_filtered,
         );
+
+        let scope_note = if scope_filtered > 0 {
+            format!(
+                "\nNote: {} files outside the execution read scope were omitted, not absent.",
+                scope_filtered
+            )
+        } else {
+            String::new()
+        };
+        let ignore_note = if ignore_filtered > 0 {
+            Self::ignore_note(ignore_filtered)
+        } else {
+            String::new()
+        };
 
         let mut out = String::new();
         let mut result_count = 0usize;
@@ -575,10 +816,21 @@ impl FsToolHandlers {
         }
 
         if result_count == 0 {
-            return Ok(Value::String("No matches found".into()));
+            if scope_note.is_empty() && ignore_note.is_empty() {
+                return Ok(Value::String("No matches found".into()));
+            }
+            return Ok(Value::String(format!(
+                "No matches found.{}{}",
+                scope_note, ignore_note
+            )));
         }
 
-        Ok(Value::String(out.trim_end().to_string()))
+        Ok(Value::String(format!(
+            "{}{}{}",
+            out.trim_end(),
+            scope_note,
+            ignore_note
+        )))
     }
 
     /// glob_search: find files matching a glob pattern relative to the search path.
@@ -586,7 +838,7 @@ impl FsToolHandlers {
         let pattern = require_string(parameters, "pattern")?;
         let path_str = require_string(parameters, "path")?;
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, false)?;
+        let path = self.ensure_in_scope("glob_search", &resolved, ctx, false)?;
 
         let glob = Glob::new(pattern)
             .map(|g| g.compile_matcher())
@@ -595,10 +847,16 @@ impl FsToolHandlers {
             })?;
 
         validate_directory(&path)?;
-        let ignore = self.ignore_controller();
+        let ignore = if Self::include_ignored(parameters) {
+            None
+        } else {
+            self.ignore_controller(ctx)
+        };
         let scope = ctx.file_scope.as_ref();
 
         let mut entries: Vec<(String, String)> = Vec::new();
+        let mut scope_filtered = 0usize;
+        let mut ignore_filtered = 0usize;
         collect_glob_matches(
             &path,
             &path,
@@ -607,6 +865,8 @@ impl FsToolHandlers {
             ignore.as_ref(),
             DEFAULT_GLOB_MAX_RESULTS,
             scope,
+            &mut scope_filtered,
+            &mut ignore_filtered,
         );
         entries.sort_by(|a, b| {
             type_rank(&b.1)
@@ -640,6 +900,15 @@ impl FsToolHandlers {
                 display.push_str("\nShowing first 50 results (truncated).");
             }
         }
+        if scope_filtered > 0 {
+            display.push_str(&format!(
+                "\nNote: {} entries outside the execution read scope were omitted, not absent.",
+                scope_filtered
+            ));
+        }
+        if ignore_filtered > 0 {
+            display.push_str(&Self::ignore_note(ignore_filtered));
+        }
 
         let entries_json: Vec<Value> = entries
             .iter()
@@ -668,7 +937,7 @@ impl FsToolHandlers {
 
         for hunk in hunks {
             let resolved = self.resolve_scoped(&hunk.path, ctx);
-            let scoped = self.ensure_in_scope(&resolved, ctx, true);
+            let scoped = self.ensure_in_scope("apply_patch", &resolved, ctx, true);
             let path = match scoped {
                 Ok(p) => p,
                 Err(err) => {
@@ -689,7 +958,7 @@ impl FsToolHandlers {
             };
             if let Some(move_path) = hunk.move_path.as_ref() {
                 let dest_resolved = self.resolve_scoped(move_path, ctx);
-                if let Err(err) = self.ensure_in_scope(&dest_resolved, ctx, true) {
+                if let Err(err) = self.ensure_in_scope("apply_patch", &dest_resolved, ctx, true) {
                     tracing::warn!(
                         execution = %ctx.execution_id,
                         path = %dest_resolved.display(),
@@ -746,6 +1015,20 @@ impl FsToolHandlers {
 
         let total = results.len();
         let failed = total - succeeded;
+        // A capture-ignored target lands on disk but can never be restored;
+        // one shared note covers every affected hunk.
+        let unrestorable = results
+            .iter()
+            .filter(|r| r["success"] == Value::Bool(true))
+            .flat_map(|r| [r["path"].as_str(), r["new_path"].as_str()])
+            .flatten()
+            .map(|p| self.resolve_scoped(p, ctx))
+            .any(|p| self.capture_ignored(ctx, &p));
+        let unrestorable_note = if unrestorable {
+            "\nNote: one or more paths are ignored by checkpoint capture and cannot be restored."
+        } else {
+            ""
+        };
         let display: Vec<String> = results
             .iter()
             .map(|r| {
@@ -781,7 +1064,7 @@ impl FsToolHandlers {
             "success": failed == 0,
             "summary": { "total": total, "succeeded": succeeded, "failed": failed },
             "results": results,
-            "display": format!("{}\nSummary: {}/{} operations succeeded", display.join("\n"), succeeded, total),
+            "display": format!("{}\nSummary: {}/{} operations succeeded{}", display.join("\n"), succeeded, total, unrestorable_note),
         }))
     }
 
@@ -816,7 +1099,11 @@ impl FsToolHandlers {
             return failure_value(hunk, "delete", "File is write-protected");
         }
         if !path.exists() {
-            return failure_value(hunk, "delete", "File not found");
+            return failure_value(
+                hunk,
+                "delete",
+                &tag_detail(NOT_FOUND_TAG, "File not found".to_string()),
+            );
         }
         if path.is_dir() {
             return failure_value(hunk, "delete", "Path is not a file");
@@ -852,7 +1139,11 @@ impl FsToolHandlers {
             return failure_value(hunk, "update", "File is write-protected");
         }
         if !path.exists() {
-            return failure_value(hunk, "update", "File not found");
+            return failure_value(
+                hunk,
+                "update",
+                &tag_detail(NOT_FOUND_TAG, "File not found".to_string()),
+            );
         }
         if path.is_dir() {
             return failure_value(hunk, "update", "Path is not a file");
@@ -931,7 +1222,7 @@ impl FsToolHandlers {
         let path_str = require_string(parameters, "path")?;
         let diff = require_string(parameters, "diff")?;
         let resolved = self.resolve_scoped(path_str, ctx);
-        let path = self.ensure_in_scope(&resolved, ctx, true)?;
+        let path = self.ensure_in_scope("apply_diff", &resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
             return Err(ToolError::ExecutionError(format!(
@@ -941,11 +1232,17 @@ impl FsToolHandlers {
         }
 
         let content = std::fs::read_to_string(&path).map_err(|e| {
-            ToolError::ExecutionError(format!(
-                "File not found: '{}' ({}). Use read_file to verify the file exists.",
-                path.display(),
-                e
-            ))
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ToolError::ExecutionError(tag_detail(
+                    NOT_FOUND_TAG,
+                    format!(
+                        "file '{}' does not exist. Use read_file to verify the path.",
+                        path.display()
+                    ),
+                ))
+            } else {
+                ToolError::ExecutionError(format!("Cannot access '{}': {}", path.display(), e))
+            }
         })?;
 
         crate::patch::validate_marker_sequencing(diff).map_err(ToolError::ValidationFailed)?;
@@ -1002,10 +1299,11 @@ impl FsToolHandlers {
             )
         };
         let display = format!(
-            "Diff applied successfully to {}\n{} block(s) processed{}",
+            "Diff applied successfully to {}\n{} block(s) processed{}{}",
             path.display(),
             applied,
-            partial_hint
+            partial_hint,
+            self.unrestorable_note(ctx, &path).unwrap_or("")
         );
 
         Ok(serde_json::json!({
@@ -1116,7 +1414,17 @@ fn type_rank(kind: &str) -> u8 {
 
 fn validate_directory(path: &Path) -> ToolResult<()> {
     let meta = std::fs::metadata(path).map_err(|e| {
-        ToolError::ExecutionError(format!("Cannot access '{}': {}", path.display(), e))
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ToolError::ExecutionError(tag_detail(
+                NOT_FOUND_TAG,
+                format!(
+                    "directory '{}' does not exist. Use list_files on the parent to confirm the path.",
+                    path.display()
+                ),
+            ))
+        } else {
+            ToolError::ExecutionError(format!("Cannot access '{}': {}", path.display(), e))
+        }
     })?;
     if !meta.is_dir() {
         return Err(ToolError::ExecutionError(format!(
@@ -1161,6 +1469,8 @@ fn walk_flat(
     out: &mut Vec<(String, String)>,
     ignore: Option<&IgnoreController>,
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    scope_filtered: &mut usize,
+    ignore_filtered: &mut usize,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -1168,6 +1478,7 @@ fn walk_flat(
     for entry in entries.flatten() {
         let path = entry.path();
         if !scope_allows_read(&path, scope) {
+            *scope_filtered += 1;
             continue;
         }
         let rel = path
@@ -1175,24 +1486,29 @@ fn walk_flat(
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         if path.is_dir() {
+            let dir_name = Path::new(&rel)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel.clone());
             if ignore
-                .map(|i| {
-                    let dir_name = Path::new(&rel)
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| rel.clone());
-                    i.should_include_directory(&dir_name, &rel, false, false)
-                })
+                .map(|i| i.dir_allowed(&path, &dir_name, &rel))
                 .unwrap_or(true)
             {
                 out.push((rel, "directory".into()));
+            } else {
+                *ignore_filtered += 1;
             }
-        } else if path.is_file() && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
-            out.push((rel, "file".into()));
+        } else if path.is_file() {
+            if ignore.map(|i| i.file_allowed(&path, &rel)).unwrap_or(true) {
+                out.push((rel, "file".into()));
+            } else {
+                *ignore_filtered += 1;
+            }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk_recursive(
     dir: &Path,
     root: &Path,
@@ -1200,6 +1516,8 @@ fn walk_recursive(
     ignore: Option<&IgnoreController>,
     depth: usize,
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    scope_filtered: &mut usize,
+    ignore_filtered: &mut usize,
 ) {
     if depth > 32 {
         return;
@@ -1210,6 +1528,7 @@ fn walk_recursive(
     for entry in entries.flatten() {
         let path = entry.path();
         if !scope_allows_read(&path, scope) {
+            *scope_filtered += 1;
             continue;
         }
         let rel = path
@@ -1217,21 +1536,34 @@ fn walk_recursive(
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         if path.is_dir() {
+            let dir_name = Path::new(&rel)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel.clone());
             if ignore
-                .map(|i| {
-                    let dir_name = Path::new(&rel)
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| rel.clone());
-                    i.should_include_directory(&dir_name, &rel, false, false)
-                })
+                .map(|i| i.dir_allowed(&path, &dir_name, &rel))
                 .unwrap_or(true)
             {
                 out.push((rel, "directory".into()));
-                walk_recursive(&path, root, out, ignore, depth + 1, scope);
+                walk_recursive(
+                    &path,
+                    root,
+                    out,
+                    ignore,
+                    depth + 1,
+                    scope,
+                    scope_filtered,
+                    ignore_filtered,
+                );
+            } else {
+                *ignore_filtered += 1;
             }
-        } else if path.is_file() && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
-            out.push((rel, "file".into()));
+        } else if path.is_file() {
+            if ignore.map(|i| i.file_allowed(&path, &rel)).unwrap_or(true) {
+                out.push((rel, "file".into()));
+            } else {
+                *ignore_filtered += 1;
+            }
         }
     }
 }
@@ -1242,6 +1574,8 @@ fn collect_files(
     include: Option<&GlobMatcher>,
     ignore: Option<&IgnoreController>,
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    scope_filtered: &mut usize,
+    ignore_filtered: &mut usize,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -1249,6 +1583,7 @@ fn collect_files(
     for entry in entries.flatten() {
         let path = entry.path();
         if !scope_allows_read(&path, scope) {
+            *scope_filtered += 1;
             continue;
         }
         let rel = path
@@ -1256,27 +1591,39 @@ fn collect_files(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         if path.is_dir() {
+            let dir_name = Path::new(&rel)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel.clone());
             if ignore
-                .map(|i| {
-                    let dir_name = Path::new(&rel)
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| rel.clone());
-                    i.should_include_directory(&dir_name, &rel, false, false)
-                })
+                .map(|i| i.dir_allowed(&path, &dir_name, &rel))
                 .unwrap_or(true)
             {
-                collect_files(&path, out, include, ignore, scope);
+                collect_files(
+                    &path,
+                    out,
+                    include,
+                    ignore,
+                    scope,
+                    scope_filtered,
+                    ignore_filtered,
+                );
+            } else {
+                *ignore_filtered += 1;
             }
-        } else if path.is_file()
-            && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
-            && include.map(|g| g.is_match(rel.as_str())).unwrap_or(true)
-        {
-            out.push(path);
+        } else if path.is_file() && include.map(|g| g.is_match(rel.as_str())).unwrap_or(true) {
+            if ignore.map(|i| i.file_allowed(&path, &rel)).unwrap_or(true) {
+                out.push(path);
+            } else {
+                *ignore_filtered += 1;
+            }
         }
     }
 }
 
+/// Glob traversal mirrors the read gate: entries outside the read scope
+/// are counted into `scope_filtered` instead of surfacing to the model.
+#[allow(clippy::too_many_arguments)]
 fn collect_glob_matches(
     dir: &Path,
     root: &Path,
@@ -1285,6 +1632,8 @@ fn collect_glob_matches(
     ignore: Option<&IgnoreController>,
     max: usize,
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    scope_filtered: &mut usize,
+    ignore_filtered: &mut usize,
 ) {
     if out.len() >= max {
         return;
@@ -1295,6 +1644,7 @@ fn collect_glob_matches(
     for entry in entries.flatten() {
         let path = entry.path();
         if !scope_allows_read(&path, scope) {
+            *scope_filtered += 1;
             continue;
         }
         let rel = path
@@ -1306,23 +1656,34 @@ fn collect_glob_matches(
             if glob.is_match(rel_normalized.as_str()) {
                 out.push((rel.clone(), "directory".into()));
             }
+            let dir_name = Path::new(&rel)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| rel.clone());
             if ignore
-                .map(|i| {
-                    let dir_name = Path::new(&rel)
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| rel.clone());
-                    i.should_include_directory(&dir_name, &rel, false, false)
-                })
+                .map(|i| i.dir_allowed(&path, &dir_name, &rel))
                 .unwrap_or(true)
             {
-                collect_glob_matches(&path, root, glob, out, ignore, max, scope);
+                collect_glob_matches(
+                    &path,
+                    root,
+                    glob,
+                    out,
+                    ignore,
+                    max,
+                    scope,
+                    scope_filtered,
+                    ignore_filtered,
+                );
+            } else {
+                *ignore_filtered += 1;
             }
-        } else if path.is_file()
-            && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
-            && glob.is_match(rel_normalized.as_str())
-        {
-            out.push((rel, "file".into()));
+        } else if path.is_file() && glob.is_match(rel_normalized.as_str()) {
+            if ignore.map(|i| i.file_allowed(&path, &rel)).unwrap_or(true) {
+                out.push((rel, "file".into()));
+            } else {
+                *ignore_filtered += 1;
+            }
         }
     }
 }
@@ -1728,5 +2089,283 @@ mod tests {
             err.to_string().contains("outside allowed") || err.to_string().contains("escapes"),
             "unexpected error: {err}"
         );
+    }
+
+    fn checkpoint_narrow_ctx(execution: &str, root: &std::path::Path) -> ToolExecutionContext {
+        let root_str = root.to_string_lossy().to_string();
+        let write_prefix = root.join("work").to_string_lossy().to_string();
+        let checkpoint_prefix = root.join("work/task").to_string_lossy().to_string();
+        ToolExecutionContext::new(execution.into()).with_file_scope(Some(
+            wf_types::config::file_scope::ResolvedFileScope {
+                enabled: true,
+                read_prefixes: vec![root_str.clone()],
+                write_prefixes: vec![write_prefix],
+                checkpoint_prefixes: vec![checkpoint_prefix],
+                workdir: Some(root_str),
+            },
+        ))
+    }
+
+    #[test]
+    fn write_outside_checkpoint_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("work/task")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = checkpoint_narrow_ctx("exec-task", root.path());
+        let outside = root.path().join("work/notes.txt");
+        let err = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": outside.to_str().unwrap(),
+                    "content": "x"
+                }),
+                &ctx,
+            )
+            .expect_err("write outside checkpoint must fail");
+        assert!(err.is_scope_violation());
+        assert!(err.to_string().contains("checkpoint"));
+        assert!(!outside.exists());
+        let inside = root.path().join("work/task/in.txt");
+        handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": inside.to_str().unwrap(),
+                    "content": "ok"
+                }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(inside.exists());
+    }
+
+    #[test]
+    fn lenient_write_stays_fail_closed() {
+        use wf_types::script::sandbox::SandboxMode;
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::fs::create_dir_all(root.path().join("backend")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            scope_mode: Some(SandboxMode::Lenient),
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-lenient", root.path(), "frontend");
+        let outside = root.path().join("backend/out.txt");
+        let err = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": outside.to_str().unwrap(),
+                    "content": "x"
+                }),
+                &ctx,
+            )
+            .expect_err("lenient write outside scope must still fail");
+        assert!(err.is_scope_violation());
+        assert!(!outside.exists());
+    }
+
+    #[test]
+    fn list_reports_scope_omissions() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::fs::write(root.path().join("frontend/a.txt"), "a").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("frontend/evil")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-list", root.path(), "frontend");
+        let out = handlers
+            .list_files(
+                &serde_json::json!({
+                    "path": root.path().join("frontend").to_str().unwrap(),
+                    "recursive": true
+                }),
+                &ctx,
+            )
+            .unwrap();
+        let display = out["display"].as_str().unwrap();
+        assert!(display.contains("outside the execution read scope were omitted"));
+        assert!(!display.contains("secret.txt"));
+    }
+
+    #[test]
+    fn scope_violation_text_is_tagged_and_never_not_found() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-tag-scope", root.path(), "frontend");
+        let err = handlers
+            .read_file(
+                &serde_json::json!({
+                    "path": outside.path().join("secret.txt").to_str().unwrap()
+                }),
+                &ctx,
+            )
+            .expect_err("outside read must fail");
+        assert!(err.is_scope_violation());
+        let text = err.to_string();
+        assert!(text.contains(crate::error::SCOPE_VIOLATION_TAG));
+        assert!(!text.contains(crate::error::NOT_FOUND_TAG));
+        assert!(!text.contains("does not exist"));
+    }
+
+    #[test]
+    fn missing_file_text_is_tagged_and_never_scope() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-tag-missing", root.path(), "frontend");
+        let err = handlers
+            .read_file(
+                &serde_json::json!({
+                    "path": root.path().join("frontend/missing.txt").to_str().unwrap()
+                }),
+                &ctx,
+            )
+            .expect_err("missing file must fail");
+        assert!(!err.is_scope_violation());
+        let text = err.to_string();
+        assert!(text.contains(crate::error::NOT_FOUND_TAG));
+        assert!(!text.contains("outside allowed"));
+        assert!(!text.contains(crate::error::SCOPE_VIOLATION_TAG));
+        let err = handlers
+            .list_files(
+                &serde_json::json!({
+                    "path": root.path().join("frontend/nope").to_str().unwrap()
+                }),
+                &ctx,
+            )
+            .expect_err("missing directory must fail");
+        assert!(!err.is_scope_violation());
+        let text = err.to_string();
+        assert!(text.contains(crate::error::NOT_FOUND_TAG));
+        assert!(!text.contains("outside allowed"));
+    }
+
+    #[test]
+    fn ignore_hidden_entries_are_counted_and_revealable() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("visible.txt"), "v").unwrap();
+        std::fs::create_dir_all(root.path().join("target")).unwrap();
+        std::fs::write(root.path().join("target/built.txt"), "b").unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-ignore", root.path(), "frontend");
+        let out = handlers
+            .list_files(
+                &serde_json::json!({ "path": root.path().to_str().unwrap() }),
+                &ctx,
+            )
+            .unwrap();
+        let display = out["display"].as_str().unwrap();
+        assert!(display.contains("visible.txt"));
+        assert!(!display.contains("built.txt"));
+        assert!(display.contains("hidden by ignore rules"));
+        assert!(!display.contains("outside the execution read scope"));
+        let out = handlers
+            .list_files(
+                &serde_json::json!({
+                    "path": root.path().to_str().unwrap(),
+                    "include_ignored": true
+                }),
+                &ctx,
+            )
+            .unwrap();
+        let display = out["display"].as_str().unwrap();
+        assert!(display.contains("target"));
+        assert!(!display.contains("hidden by ignore rules"));
+    }
+
+    #[test]
+    fn workspace_gitignore_hides_from_discovery_but_not_from_direct_read() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(".gitignore"), "*.log\n").unwrap();
+        std::fs::write(root.path().join("a.log"), "log").unwrap();
+        std::fs::write(root.path().join("b.txt"), "txt").unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-gitignore", root.path(), "frontend");
+        let out = handlers
+            .list_files(
+                &serde_json::json!({ "path": root.path().to_str().unwrap() }),
+                &ctx,
+            )
+            .unwrap();
+        let display = out["display"].as_str().unwrap();
+        assert!(display.contains("b.txt"));
+        assert!(!display.contains("a.log"));
+        assert!(display.contains("hidden by ignore rules"));
+        let direct = handlers
+            .read_file(
+                &serde_json::json!({ "path": root.path().join("a.log").to_str().unwrap() }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(direct.as_str().unwrap().contains("log"));
+        let out = handlers
+            .list_files(
+                &serde_json::json!({
+                    "path": root.path().to_str().unwrap(),
+                    "include_ignored": true
+                }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(out["display"].as_str().unwrap().contains("a.log"));
+    }
+
+    #[test]
+    fn checkpoint_ignored_write_is_marked_unrestorable() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(".gitignore"), "*.log\n").unwrap();
+        std::fs::create_dir_all(root.path().join("work")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-unrestorable", root.path(), "work");
+        let ok = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": root.path().join("work/out.log").to_str().unwrap(),
+                    "content": "log"
+                }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(ok.as_str().unwrap().contains("cannot be restored"));
+        let ok = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": root.path().join("work/ok.txt").to_str().unwrap(),
+                    "content": "ok"
+                }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(!ok.as_str().unwrap().contains("cannot be restored"));
     }
 }

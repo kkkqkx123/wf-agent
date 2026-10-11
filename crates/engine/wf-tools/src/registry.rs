@@ -416,6 +416,7 @@ fn error_type(error: &ToolError) -> &'static str {
         ToolError::CallbackNotRegistered(_) => "callback_not_registered",
         ToolError::Internal(_) => "internal_error",
         ToolError::ExecutionError(_) => "execution_error",
+        ToolError::ScopeViolation { .. } => "scope_violation",
     }
 }
 

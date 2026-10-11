@@ -284,6 +284,7 @@ pub async fn restore(
                     .unwrap_or_default()
                     .into_iter()
                     .collect(),
+                scope_violation_streak: 0,
             })
             .await
             .map_err(|e| ApiError::execution(format!("state restore failed: {e}")))?;

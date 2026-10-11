@@ -58,6 +58,9 @@ impl StatefulInstance for BackendShellInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
+        let cwd = params.get("cwd").and_then(|v| v.as_str());
+        let command = params.get("command").and_then(|v| v.as_str());
+        crate::shell::gate_session_shell("backend_shell", cwd, command, ctx)?;
         self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }

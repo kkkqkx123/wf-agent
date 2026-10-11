@@ -570,6 +570,7 @@ impl AgentCheckpointIntegration {
                 .as_deref()
                 .map(|tools| tools.iter().cloned().collect())
                 .unwrap_or_default(),
+            scope_violation_streak: 0,
         })
     }
 

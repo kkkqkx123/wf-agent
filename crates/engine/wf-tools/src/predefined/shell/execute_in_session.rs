@@ -48,6 +48,24 @@ impl StatefulInstance for ExecuteInSessionInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
+        let session_id = params
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let command = params.get("command").and_then(|v| v.as_str());
+        // Gate on the session working directory so follow-up commands cannot
+        // drift outside the execution scope after a gated creation.
+        let session_cwd = self
+            .store
+            .get(session_id)
+            .and_then(|s| s.cwd())
+            .map(|p| p.to_string_lossy().to_string());
+        crate::shell::gate_session_shell(
+            "execute_in_session",
+            session_cwd.as_deref(),
+            command,
+            ctx,
+        )?;
         self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }

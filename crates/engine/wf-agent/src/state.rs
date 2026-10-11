@@ -148,6 +148,12 @@ pub struct AgentLoopStateSnapshot {
     /// `ToolError`). Informational terminal reporting, never loop control.
     #[serde(default)]
     pub permanently_failed_tools: HashSet<String>,
+    /// Consecutive tool rounds where every result was a scope violation.
+    /// Reset by any round with a non-violation result; crossing the abort
+    /// threshold ends the run instead of burning more context on blind
+    /// retries.
+    #[serde(default)]
+    pub scope_violation_streak: u32,
 }
 
 pub struct AgentLoopState {
@@ -176,6 +182,9 @@ pub struct AgentLoopState {
     /// the terminal failure and the execution record expose it so a host
     /// can tell a broken tool apart from a plain run failure.
     permanently_failed_tools: HashSet<String>,
+    /// Consecutive all-violation tool rounds, mirroring the snapshot field
+    /// of the same name.
+    scope_violation_streak: u32,
     /// Streaming message buffer: content accumulated while streaming.
     streaming_message_buffer: Option<String>,
     /// Whether the stream is currently active.
@@ -210,6 +219,7 @@ impl AgentLoopState {
             locked_tool_call_protocol: None,
             timeout_count: 0,
             permanently_failed_tools: HashSet::new(),
+            scope_violation_streak: 0,
             streaming_message_buffer: None,
             is_streaming: false,
         }
@@ -292,6 +302,21 @@ impl AgentLoopState {
         let mut tools: Vec<String> = self.permanently_failed_tools.iter().cloned().collect();
         tools.sort();
         tools
+    }
+
+    /// Record one tool round for the scope violation streak: an all-violation
+    /// round increments, any other round resets. Returns the new streak.
+    pub fn record_scope_violation_round(&mut self, all_violations: bool) -> u32 {
+        if all_violations {
+            self.scope_violation_streak += 1;
+        } else {
+            self.scope_violation_streak = 0;
+        }
+        self.scope_violation_streak
+    }
+
+    pub fn scope_violation_streak(&self) -> u32 {
+        self.scope_violation_streak
     }
 
     pub fn variable_snapshots(&self) -> &HashMap<String, Value> {
@@ -733,6 +758,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
             locked_tool_call_protocol: self.locked_tool_call_protocol.clone(),
             timeout_count: self.timeout_count,
             permanently_failed_tools: self.permanently_failed_tools.clone(),
+            scope_violation_streak: self.scope_violation_streak,
         })
     }
 
@@ -758,6 +784,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.locked_tool_call_protocol = snapshot.locked_tool_call_protocol;
         self.timeout_count = snapshot.timeout_count;
         self.permanently_failed_tools = snapshot.permanently_failed_tools;
+        self.scope_violation_streak = snapshot.scope_violation_streak;
         Ok(())
     }
 

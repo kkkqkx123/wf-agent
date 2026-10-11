@@ -513,6 +513,21 @@ pub(crate) fn error_message(
     }
 }
 
+/// Mark a tool message as carrying a scope violation so later stages can
+/// count violation rounds without string sniffing. The human-readable
+/// guidance stays in the content; this flag is the machine-readable bit.
+pub(crate) fn mark_scope_violation(msg: &mut Message) {
+    msg.metadata.get_or_insert_with(Default::default).insert(
+        wf_tools::error::SCOPE_VIOLATION_METADATA_KEY.to_string(),
+        Value::Bool(true),
+    );
+}
+
+/// True when a tool message was marked as a scope violation.
+pub(crate) fn is_scope_violation_message(msg: &Message) -> bool {
+    wf_tools::error::message_marks_scope_violation(msg.metadata.as_ref())
+}
+
 /// Rejection message for approval/gate-hook denials: the templated
 /// rejection text carried in the standard error-message shape. Shared by
 /// the sequential and parallel paths so both surface identical denials.

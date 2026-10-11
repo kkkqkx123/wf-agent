@@ -11,7 +11,7 @@ use wf_shell::command_safety::{CommandDecision, CommandPolicy};
 use wf_shell::config::{ShellToolConfig, DEFAULT_TIMEOUT_MS};
 use wf_shell::runner::run_command;
 
-use crate::error::ToolError;
+use crate::error::{ToolError, ToolResult};
 use crate::executor::stateless::StatelessAsyncHandler;
 use crate::executor::trait_def::ToolExecutionContext;
 
@@ -19,7 +19,7 @@ use crate::executor::trait_def::ToolExecutionContext;
 /// paths are used as-is, relative paths resolve against the tool default
 /// workspace dir (or the process cwd when no default exists). Returns
 /// `None` when no cwd information exists at all.
-fn resolve_scope_dir(
+pub(crate) fn resolve_scope_dir(
     cwd: Option<&str>,
     default_dir: Option<&std::path::PathBuf>,
 ) -> Option<std::path::PathBuf> {
@@ -44,6 +44,7 @@ fn scope_allows_violation(mode: Option<&wf_types::script::sandbox::SandboxMode>)
 }
 
 fn scope_violation(
+    tool: &str,
     message: String,
     mode: Option<&wf_types::script::sandbox::SandboxMode>,
     execution: &str,
@@ -56,10 +57,22 @@ fn scope_violation(
         );
         return Ok(());
     }
-    Err(ToolError::ExecutionError(message))
+    Err(ToolError::scope_violation(tool, message))
+}
+
+fn scope_guidance(scope: &wf_types::config::file_scope::ResolvedFileScope, kind: &str) -> String {
+    match scope.workdir.as_deref() {
+        Some(workdir) => format!(
+            " Work inside '{workdir}' and keep paths under the allowed {kind} prefixes of this execution."
+        ),
+        None => format!(
+            " Keep paths under the allowed {kind} prefixes of this execution."
+        ),
+    }
 }
 
 fn ensure_shell_path_in_scope(
+    tool: &str,
     path: &std::path::Path,
     scope: &wf_types::config::file_scope::ResolvedFileScope,
     want_write: bool,
@@ -67,6 +80,11 @@ fn ensure_shell_path_in_scope(
     mode: Option<&wf_types::script::sandbox::SandboxMode>,
 ) -> Result<(), ToolError> {
     use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    // Writes stay fail-closed in every mode: a lenient write would execute
+    // while sampling drops it as out of scope, leaving an unrestorable
+    // side effect behind a success message.
+    let effective_mode = if want_write { None } else { mode };
+    let kind = if want_write { "write" } else { "read" };
     if !path.is_absolute() {
         tracing::warn!(
             execution = %execution,
@@ -74,12 +92,14 @@ fn ensure_shell_path_in_scope(
             "shell scope violation: relative command path without base"
         );
         return scope_violation(
+            tool,
             format!(
-                "command path '{}' outside allowed {} prefixes",
+                "command path '{}' outside allowed {} prefixes: relative command path without base.{}",
                 path.display(),
-                if want_write { "write" } else { "read" }
+                kind,
+                scope_guidance(scope, kind)
             ),
-            mode,
+            effective_mode,
             execution,
         );
     }
@@ -100,12 +120,14 @@ fn ensure_shell_path_in_scope(
             "shell scope violation: command path outside allowed prefixes"
         );
         return scope_violation(
+            tool,
             format!(
-                "command path '{}' outside allowed {} prefixes",
+                "command path '{}' outside allowed {} prefixes.{}",
                 path.display(),
-                if want_write { "write" } else { "read" }
+                kind,
+                scope_guidance(scope, kind)
             ),
-            mode,
+            effective_mode,
             execution,
         );
     }
@@ -128,12 +150,14 @@ fn ensure_shell_path_in_scope(
                 "shell scope violation: command path escapes through symlink"
             );
             return scope_violation(
+                tool,
                 format!(
-                    "command path '{}' escapes allowed {} prefixes through symlink",
+                    "command path '{}' escapes allowed {} prefixes through symlink.{}",
                     path.display(),
-                    if want_write { "write" } else { "read" }
+                    kind,
+                    scope_guidance(scope, kind)
                 ),
-                mode,
+                effective_mode,
                 execution,
             );
         }
@@ -159,7 +183,8 @@ fn resolve_command_path(
     }
 }
 
-fn check_shell_scope(
+pub(crate) fn check_shell_scope(
+    tool: &str,
     scope_dir: Option<&std::path::PathBuf>,
     command: &str,
     scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
@@ -179,7 +204,8 @@ fn check_shell_scope(
             "shell scope violation: missing startup directory"
         );
         return scope_violation(
-            "startup directory outside allowed prefixes: no working directory".to_string(),
+            tool,
+            "startup directory outside allowed prefixes: no working directory. Set an explicit 'cwd' inside the execution workdir.".to_string(),
             mode,
             execution,
         );
@@ -201,16 +227,18 @@ fn check_shell_scope(
             "shell scope violation: startup directory outside allowed prefixes"
         );
         return scope_violation(
+            tool,
             format!(
-                "startup directory '{}' outside allowed prefixes",
-                dir.display()
+                "startup directory '{}' outside allowed prefixes.{}",
+                dir.display(),
+                scope_guidance(scope, "read")
             ),
             mode,
             execution,
         );
     }
-    ensure_shell_path_in_scope(dir, scope, false, execution, mode)
-        .or_else(|_| ensure_shell_path_in_scope(dir, scope, true, execution, mode))?;
+    ensure_shell_path_in_scope(tool, dir, scope, false, execution, mode)
+        .or_else(|_| ensure_shell_path_in_scope(tool, dir, scope, true, execution, mode))?;
     let chains = wf_sandbox::parse_command_chain(command);
     for chain in &chains {
         let tokens = chain
@@ -220,14 +248,46 @@ fn check_shell_scope(
         let (reads, writes) = wf_sandbox::extract_file_paths(&tokens);
         for raw in &writes {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
-            ensure_shell_path_in_scope(&resolved, scope, true, execution, mode)?;
+            ensure_shell_path_in_scope(tool, &resolved, scope, true, execution, mode)?;
         }
         for raw in &reads {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
-            ensure_shell_path_in_scope(&resolved, scope, false, execution, mode)?;
+            ensure_shell_path_in_scope(tool, &resolved, scope, false, execution, mode)?;
         }
     }
     Ok(())
+}
+
+/// Scope gate shared by the stateful session tools, mirroring the
+/// `execute_command` baseline: the startup directory must sit inside the
+/// read or write prefixes and every parsed command path is re-checked.
+/// Session tools carry no sandbox policy of their own, so the gate always
+/// runs fail-closed. Returns the resolved startup directory for checkpoint
+/// sampling, or `None` when no execution scope applies.
+pub(crate) fn gate_session_shell(
+    tool: &'static str,
+    params_cwd: Option<&str>,
+    command: Option<&str>,
+    ctx: &ToolExecutionContext,
+) -> ToolResult<Option<std::path::PathBuf>> {
+    let Some(scope) = ctx.file_scope.as_ref() else {
+        return Ok(None);
+    };
+    if !scope.enabled {
+        return Ok(None);
+    }
+    let default_dir = scope.workdir.as_ref().map(std::path::PathBuf::from);
+    let scope_dir = resolve_scope_dir(params_cwd, default_dir.as_ref());
+    check_shell_scope(
+        tool,
+        scope_dir.as_ref(),
+        command.unwrap_or(""),
+        Some(scope),
+        default_dir.as_ref(),
+        &ctx.execution_id.to_string(),
+        None,
+    )?;
+    Ok(scope_dir)
 }
 
 /// Create the async handler for the execute_command tool.
@@ -294,6 +354,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 .as_ref()
                 .and_then(|policy| policy.mode.as_ref());
             check_shell_scope(
+                "execute_command",
                 scope_dir.as_ref(),
                 &command,
                 ctx.file_scope.as_ref(),
@@ -542,5 +603,51 @@ mod tests {
         .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("timed out"));
+    }
+
+    fn scoped_shell_ctx(root: &std::path::Path, sub: &str) -> ToolExecutionContext {
+        let root_str = root.to_string_lossy().to_string();
+        let sub_str = root.join(sub).to_string_lossy().to_string();
+        ToolExecutionContext::new("exec-session".into()).with_file_scope(Some(
+            wf_types::config::file_scope::ResolvedFileScope {
+                enabled: true,
+                read_prefixes: vec![root_str.clone()],
+                write_prefixes: vec![sub_str.clone()],
+                checkpoint_prefixes: vec![sub_str],
+                workdir: Some(root_str),
+            },
+        ))
+    }
+
+    #[test]
+    fn session_gate_rejects_outside_cwd() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("work")).unwrap();
+        let ctx = scoped_shell_ctx(root.path(), "work");
+        let outside = other.path().to_string_lossy().to_string();
+        let err = gate_session_shell("backend_shell", Some(&outside), Some("echo hi"), &ctx)
+            .expect_err("outside session cwd must fail");
+        assert!(err.is_scope_violation());
+        let inside = root.path().join("work").to_string_lossy().to_string();
+        let dir = gate_session_shell("backend_shell", Some(&inside), Some("echo hi"), &ctx)
+            .expect("inside session cwd must pass");
+        assert!(dir.is_some());
+    }
+
+    #[test]
+    fn session_gate_rejects_outside_command_path() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("work")).unwrap();
+        let ctx = scoped_shell_ctx(root.path(), "work");
+        let inside = root.path().join("work").to_string_lossy().to_string();
+        let err = gate_session_shell(
+            "execute_in_session",
+            Some(&inside),
+            Some("cat /etc/passwd"),
+            &ctx,
+        )
+        .expect_err("outside command path must fail");
+        assert!(err.is_scope_violation());
     }
 }

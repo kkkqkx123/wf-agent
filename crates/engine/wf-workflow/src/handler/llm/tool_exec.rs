@@ -368,7 +368,13 @@ pub async fn execute_tool_call(
                 .unwrap_or_else(|| "".to_string());
             tool_result_message(&call.id, &tool_name, content, is_error)
         }
-        Err(e) => tool_result_message(&call.id, &tool_name, format!("Error: {}", e), true),
+        Err(e) => {
+            if e.is_scope_violation() {
+                super::messages::scope_violation_message(&call.id, &tool_name, e.to_string())
+            } else {
+                tool_result_message(&call.id, &tool_name, format!("Error: {}", e), true)
+            }
+        }
     }
 }
 

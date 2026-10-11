@@ -109,6 +109,56 @@ fn path_is_ignored(search: &gix_ignore::Search, relative_path: &str) -> bool {
     search_is_ignored(search, relative_path, Some(false))
 }
 
+/// Standalone gitignore verdict for an anchor-relative posix path, without
+/// the hardcoded excludes. Shares the ancestor walk with full scans so tool
+/// discovery and checkpoint capture read the same workspace ignore files.
+pub fn gitignore_ignored(search: &gix_ignore::Search, anchor_relative_path: &str) -> bool {
+    for ancestor in ancestors(anchor_relative_path) {
+        if search_is_ignored(search, &ancestor, Some(true)) {
+            return true;
+        }
+    }
+    if search_is_ignored(search, anchor_relative_path, Some(true)) {
+        return true;
+    }
+    search_is_ignored(search, anchor_relative_path, Some(false))
+}
+
+/// Collect every `.gitignore` under an anchor directory into one search,
+/// each file anchored at its own directory. Hardcoded directories are not
+/// traversed. Unreadable branches are skipped best effort: a missing ignore
+/// file must not fail the caller, it only narrows what is hidden.
+pub fn collect_gitignore_search(anchor: &Path) -> gix_ignore::Search {
+    let mut search = custom_search(&[]);
+    collect_gitignore_files(anchor, anchor, &mut search);
+    search
+}
+
+fn collect_gitignore_files(root: &Path, current: &Path, search: &mut gix_ignore::Search) {
+    let gitignore_path = current.join(".gitignore");
+    if let Ok(bytes) = std::fs::read(&gitignore_path) {
+        search.add_patterns_buffer(
+            &bytes,
+            gitignore_path.clone(),
+            Some(root),
+            Default::default(),
+        );
+    }
+    let Ok(entries) = fs::read_dir(current) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        if HARDCODED_IGNORE_DIRS.contains(&name.to_string_lossy().as_ref()) {
+            continue;
+        }
+        collect_gitignore_files(root, &entry.path(), search);
+    }
+}
+
 fn ancestors(relative_path: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = PathBuf::from(relative_path);

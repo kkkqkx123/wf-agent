@@ -122,6 +122,15 @@ pub struct IgnoreController {
     builtin_matcher: globset::GlobSet,
     gitignore_matcher: Option<globset::GlobSet>,
     custom_matcher: Option<globset::GlobSet>,
+    workspace_gitignore: Option<WorkspaceGitignore>,
+}
+
+/// Workspace ignore files collected under one anchor directory, matched
+/// with the same engine as checkpoint capture so discovery hides exactly
+/// what capture skips.
+pub struct WorkspaceGitignore {
+    anchor: std::path::PathBuf,
+    search: gix_ignore::Search,
 }
 
 impl IgnoreController {
@@ -133,6 +142,7 @@ impl IgnoreController {
             builtin_matcher: builtin,
             gitignore_matcher: None,
             custom_matcher: None,
+            workspace_gitignore: None,
         }
     }
 
@@ -144,6 +154,49 @@ impl IgnoreController {
     pub fn with_custom(mut self, patterns: &[String]) -> Self {
         self.custom_matcher = Some(build_glob_matcher(patterns));
         self
+    }
+
+    /// Attach the workspace ignore files found under an anchor directory.
+    /// Collection walks the anchor once; unreadable branches only narrow
+    /// what is hidden, they never fail the caller.
+    pub fn with_workspace_gitignore(mut self, anchor: &std::path::Path) -> Self {
+        self.workspace_gitignore = Some(WorkspaceGitignore {
+            anchor: anchor.to_path_buf(),
+            search: wf_checkpoint::scan::collect_gitignore_search(anchor),
+        });
+        self
+    }
+
+    fn workspace_ignored(&self, abs_path: &std::path::Path) -> bool {
+        let Some(git) = self.workspace_gitignore.as_ref() else {
+            return false;
+        };
+        let Ok(rel) = abs_path.strip_prefix(&git.anchor) else {
+            return false;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if rel.is_empty() {
+            return false;
+        }
+        wf_checkpoint::scan::gitignore_ignored(&git.search, &rel)
+    }
+
+    /// Directory verdict for discovery walks: the builtin and explicit
+    /// rules first, then the workspace ignore files. An ignored directory
+    /// hides its whole subtree from listing and search.
+    pub fn dir_allowed(&self, abs_path: &std::path::Path, dir_name: &str, rel: &str) -> bool {
+        if !self.should_include_directory(dir_name, rel, false, false) {
+            return false;
+        }
+        !self.workspace_ignored(abs_path)
+    }
+
+    /// File verdict for discovery walks, mirroring the directory one.
+    pub fn file_allowed(&self, abs_path: &std::path::Path, rel: &str) -> bool {
+        if !self.validate_access(rel) {
+            return false;
+        }
+        !self.workspace_ignored(abs_path)
     }
 
     fn relative_path(&self, file_path: &str) -> String {

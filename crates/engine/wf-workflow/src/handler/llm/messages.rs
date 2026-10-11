@@ -71,6 +71,22 @@ pub fn tool_result_message(
     )
 }
 
+/// Scope violation result: the error flag plus the machine-readable marker
+/// so the tool loop can count violation rounds without string sniffing.
+pub fn scope_violation_message(tool_call_id: &str, tool_name: &str, content: String) -> Message {
+    let mut msg = tool_result_message(tool_call_id, tool_name, content, true);
+    msg.metadata.get_or_insert_with(Default::default).insert(
+        wf_tools::error::SCOPE_VIOLATION_METADATA_KEY.to_string(),
+        Value::Bool(true),
+    );
+    msg
+}
+
+/// True when a tool message was marked as a scope violation.
+pub fn is_scope_violation_message(msg: &Message) -> bool {
+    wf_tools::error::message_marks_scope_violation(msg.metadata.as_ref())
+}
+
 /// Resolve the system prompt with agent-loop priority: inline text wins,
 /// otherwise the template reference renders through the shared registry.
 /// Returns `None` when neither is configured or rendering is unavailable.
@@ -251,6 +267,33 @@ mod tests {
         let messages = build_messages(&ctx).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].role, MessageRole::User);
+    }
+
+    #[test]
+    fn scope_violation_message_is_marked_and_detectable() {
+        let plain = tool_result_message("call-1", "read_file", "Error: boom".into(), true);
+        assert!(!is_scope_violation_message(&plain));
+        let marked = scope_violation_message("call-2", "read_file", "Scope violation".into());
+        assert!(is_scope_violation_message(&marked));
+        let is_error = marked
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("is_error"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(is_error);
+    }
+
+    #[test]
+    fn missing_file_text_is_never_a_scope_violation() {
+        let missing = tool_result_message(
+            "call-3",
+            "read_file",
+            "not_found: file '/work/missing.txt' does not exist. Use list_files to confirm the path or write_file to create it.".into(),
+            true,
+        );
+        assert!(!is_scope_violation_message(&missing));
+        assert!(!message_to_text(&missing).contains("outside allowed"));
     }
 
     #[test]

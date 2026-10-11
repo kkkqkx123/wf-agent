@@ -11,7 +11,7 @@ pub static LIST_FILES: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "filesystem",
     tags: &["list", "file"],
-    description: "List files and directories at the given path. Can be recursive.",
+    description: "List files and directories at the given path. Can be recursive. Entries hidden by ignore rules are counted and noted; pass include_ignored=true to reveal them. Out-of-scope entries are counted and noted separately.",
     parameters: &[
         ToolParameter {
             name: "path",
@@ -26,6 +26,14 @@ pub static LIST_FILES: ToolDefinition = ToolDefinition {
             r#type: "boolean",
             required: false,
             description: "Whether to list recursively",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "include_ignored",
+            r#type: "boolean",
+            required: false,
+            description: "Reveal entries hidden by ignore rules (default false); execution scope still applies",
             default_json: None,
             constraints: None,
         },

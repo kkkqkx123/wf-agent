@@ -34,6 +34,27 @@ struct ShellSendInputInstance {
 }
 
 impl StatefulInstance for ShellSendInputInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        let session_id = params
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        // Input itself is opaque stdin data, not a parsed command: gate the
+        // session working directory so input cannot reach a session bound
+        // outside the execution scope.
+        let session_cwd = self
+            .store
+            .get(session_id)
+            .and_then(|s| s.cwd())
+            .map(|p| p.to_string_lossy().to_string());
+        crate::shell::gate_session_shell("shell_send_input", session_cwd.as_deref(), None, ctx)?;
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let session_id = params
             .get("session_id")

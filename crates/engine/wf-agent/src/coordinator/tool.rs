@@ -30,6 +30,7 @@ use types::{ApprovalOutcome, TaskOutcome, ToolRunCtx};
 // Facade re-exports: `coordinator::tool` stays the single public path for
 // tool-execution types consumed by sibling modules and external crates.
 pub use general::GeneralToolContext;
+pub(crate) use runner::{is_scope_violation_message, mark_scope_violation};
 pub use types::{
     ToolCheckpointHandler, ToolExecutionMode, ToolProgressEvent, ToolProgressStatus,
     ToolVisibilityStore,
@@ -703,11 +704,15 @@ impl ToolExecutionCoordinator {
                             messages[idx] = Some(msg);
                         }
                         TaskOutcome::Failed(reason) => {
-                            messages[idx] = Some(error_message(
+                            let mut msg = error_message(
                                 &reason.to_string(),
                                 Some(&tool_calls[idx].id),
                                 Some(&tool_calls[idx].function.name),
-                            ));
+                            );
+                            if reason.is_scope_violation() {
+                                mark_scope_violation(&mut msg);
+                            }
+                            messages[idx] = Some(msg);
                             if self.cancel_on_failure {
                                 set.abort_all();
                                 aborted = true;
@@ -803,10 +808,13 @@ impl ToolExecutionCoordinator {
         });
         match run_tool(&ctx, tc, entity.id(), &entity.state).await {
             Ok(msg) => (msg, None),
-            Err(e) => (
-                error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name)),
-                Some(e),
-            ),
+            Err(e) => {
+                let mut msg = error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name));
+                if e.is_scope_violation() {
+                    mark_scope_violation(&mut msg);
+                }
+                (msg, Some(e))
+            }
         }
     }
 
@@ -826,7 +834,11 @@ impl ToolExecutionCoordinator {
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
             .unwrap_or_else(|e| {
-                error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))
+                let mut msg = error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name));
+                if e.is_scope_violation() {
+                    mark_scope_violation(&mut msg);
+                }
+                msg
             }))
     }
 

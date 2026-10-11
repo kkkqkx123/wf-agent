@@ -119,6 +119,10 @@ impl ToolExecutor for StatelessExecutor {
                 execution_time,
                 0,
             )),
+            // Scope violations keep their type so engines can count them
+            // and mark the model-visible message; every other handler
+            // error stays a failure payload.
+            Err(e) if e.is_scope_violation() => Err(e),
             Err(e) => Ok(BaseExecutor::build_result(
                 false,
                 None,

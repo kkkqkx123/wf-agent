@@ -26,9 +26,10 @@ use wf_types::tool::approval::ToolApprovalOptions;
 
 use crate::agent_request::build_agent_request;
 use crate::approval::ToolApprovalHandler;
+use crate::coordinator::tool::is_scope_violation_message;
 use crate::coordinator::tool::ToolExecutionCoordinator;
 use crate::entity::AgentLoopEntity;
-use crate::error::AgentResult;
+use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookEmitter;
 use crate::stream::{AgentEventSink, AgentStreamEvent};
 
@@ -69,6 +70,10 @@ pub enum IterationMode {
 /// Default token warning threshold percentage of the configured limit.
 pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 =
     wf_execution_shared::DEFAULT_TOKEN_WARNING_THRESHOLD;
+
+/// Consecutive all-violation tool rounds after which the run ends instead
+/// of burning more context on blind path retries.
+pub const MAX_CONSECUTIVE_SCOPE_VIOLATION_ROUNDS: u32 = 3;
 
 /// Single iteration implementation shared by blocking and streaming runs.
 pub struct AgentIterationCoordinator {
@@ -540,10 +545,30 @@ impl AgentIterationCoordinator {
         for msg in &tool_messages {
             entity.conversation().write().await.add_message(msg.clone());
         }
+        // A round where every tool result is a scope violation mutated
+        // nothing: count it toward the violation streak and skip the
+        // post-tool snapshot so pure error loops do not bloat checkpoints.
+        // Any other round resets the streak.
+        let all_violations =
+            !tool_messages.is_empty() && tool_messages.iter().all(is_scope_violation_message);
+        let streak = entity
+            .state
+            .write()
+            .await
+            .record_scope_violation_round(all_violations);
+        if all_violations && streak >= MAX_CONSECUTIVE_SCOPE_VIOLATION_ROUNDS {
+            return Err(AgentError::Validation(format!(
+                "Tool calls violated the execution file scope {} times in a row; \
+                 staying inside the allowed read and write prefixes is required",
+                streak
+            )));
+        }
         // Tool results (success or failure) are in the session: snapshot
         // the post-tool moment, then run the message-count backstop.
-        self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolAfter)
-            .await;
+        if !all_violations {
+            self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolAfter)
+                .await;
+        }
         self.maybe_message_checkpoint(entity).await;
 
         let content = llm_call::text_of(&assistant_msg.content);

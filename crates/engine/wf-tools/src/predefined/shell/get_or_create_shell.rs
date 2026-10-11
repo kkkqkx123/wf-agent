@@ -51,6 +51,8 @@ impl StatefulInstance for GetOrCreateShellInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
+        let cwd = params.get("cwd").and_then(|v| v.as_str());
+        crate::shell::gate_session_shell("get_or_create_shell", cwd, None, ctx)?;
         self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }

@@ -2455,6 +2455,94 @@
         ]
       }
     },
+    "/api/v1/agent-loops/{id}/checkpoints/{cid}": {
+      "delete": {
+        "tags": [
+          "agent"
+        ],
+        "operationId": "delete_agent_loops_id_checkpoints_cid",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkpoint deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_bool"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Checkpoint belongs to another loop or domain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Agent loop or checkpoint not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/agent-loops/{id}/checkpoints/{cid}/restore": {
       "post": {
         "tags": [
@@ -8295,6 +8383,7 @@
           {
             "name": "limit",
             "in": "query",
+            "description": "Page limit",
             "required": false,
             "schema": {
               "type": "integer",
@@ -8305,11 +8394,21 @@
           {
             "name": "offset",
             "in": "query",
+            "description": "Page offset",
             "required": false,
             "schema": {
               "type": "integer",
               "format": "int64",
               "minimum": 0
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "description": "Filter by entity type (defaults to the workflow checkpoint type, so\nagent loops keep using their dedicated endpoints unless overridden).",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -8454,6 +8553,15 @@
             "name": "entityId",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "description": "Filter by entity type (defaults to the workflow checkpoint type).",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -12793,6 +12901,105 @@
           },
           "400": {
             "description": "Invalid domain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "404": {
+            "description": "Execution not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/executions/{id}/checkpoints/gc": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "post_executions_id_checkpoints_gc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only delete checkpoints before this timestamp (epoch millis); when\nomitted every checkpoint of the execution is removed.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "description": "Explicit domain override (`workflow` / `agent`), only needed for\nambiguous execution ids; otherwise the domain is auto-resolved.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkpoints garbage-collected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters",
             "content": {
               "application/json": {
                 "schema": {
@@ -18232,6 +18439,56 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/conflicts": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_list_conflicts",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/content": {
       "get": {
         "tags": [
@@ -18251,6 +18508,15 @@
             "name": "path",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "description": "Optional commit id from the file timeline: when present the bytes are\nread at that commit without touching the workspace.",
+            "required": false,
             "schema": {
               "type": "string"
             }

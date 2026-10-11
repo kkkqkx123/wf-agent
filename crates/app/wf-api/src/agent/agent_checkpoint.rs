@@ -11,9 +11,9 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
-use wf_checkpoint::{AgentCheckpointStateManager, CheckpointStateManager};
 use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
+use wf_checkpoint::{AgentCheckpointStateManager, CheckpointStateManager};
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 use wf_types::checkpoint::CheckpointTiming;
@@ -355,6 +355,33 @@ pub async fn delete_for(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<u64>
         }
     }
     Ok(removed)
+}
+
+/// Delete one checkpoint of one agent loop: the checkpoint must exist, belong
+/// to the agent-loop domain and be owned by the given loop. Returns whether a
+/// row was removed.
+pub async fn delete_single(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    checkpoint_id: &str,
+) -> ApiResult<bool> {
+    let checkpoint = crate::checkpoint::record::get_checkpoint(&ctx.storage, checkpoint_id).await?;
+    if checkpoint.entity_type
+        != crate::entity::execution::ExecutionDomain::AgentLoop.checkpoint_entity_type()
+    {
+        return Err(ApiError::Validation(format!(
+            "checkpoint [{checkpoint_id}] belongs to {}, not {}; use the {} checkpoint endpoint",
+            checkpoint.entity_type,
+            crate::entity::execution::ExecutionDomain::AgentLoop.checkpoint_entity_type(),
+            checkpoint.entity_type
+        )));
+    }
+    if checkpoint.entity_id != agent_loop_id {
+        return Err(ApiError::Validation(format!(
+            "checkpoint {checkpoint_id} does not belong to agent loop {agent_loop_id}"
+        )));
+    }
+    crate::checkpoint::record::delete_checkpoint(&ctx.storage, checkpoint_id).await
 }
 
 /// Statistics over the checkpoints of one agent loop (or all agent loops

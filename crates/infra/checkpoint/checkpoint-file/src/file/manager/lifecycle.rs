@@ -70,7 +70,24 @@ impl FileCheckpointManager {
         config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
     ) -> Result<Self, CheckpointError> {
         let mut manager = match &config.storage {
-            Some(storage) => Self::open(storage)?,
+            Some(storage) => {
+                // A relative database path is anchored at the workspace root
+                // so the open-time location matches the validation-time
+                // containment promise; without a root it stays relative to
+                // the process working directory as `open` documents.
+                let effective = match (&storage.db_path, &config.workspace_root) {
+                    (Some(db), Some(root))
+                        if Path::new(db).is_relative() && !root.trim().is_empty() =>
+                    {
+                        wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                            storage_type: storage.storage_type.clone(),
+                            db_path: Some(Path::new(root).join(db).to_string_lossy().into_owned()),
+                        }
+                    }
+                    _ => storage.clone(),
+                };
+                Self::open(&effective)?
+            }
             None => Self::new_in_memory()?,
         };
         manager.workspace_root = config.workspace_root.as_ref().map(PathBuf::from);
@@ -104,9 +121,9 @@ impl FileCheckpointManager {
 
     /// Bind a persistent DB to the current workspace root. The normalized
     /// root is stored in DB metadata on first open; later opens with a
-    /// different root overwrite the binding so a moved workspace keeps
-    /// working instead of failing. In-memory stores and configs without a
-    /// workspace root are not bound.
+    /// different root fail closed so two workspaces never share one
+    /// database. In-memory stores and configs without a workspace root are
+    /// not bound.
     fn check_workspace_root_binding(
         &self,
         config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
@@ -120,17 +137,11 @@ impl FileCheckpointManager {
         let normalized = crate::file::util::normalize_workspace_key(Path::new(root));
         let storage = self.storage_ref()?;
         match storage.load_metadata(checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY)? {
-            Some(existing) if existing != normalized => {
-                tracing::warn!(
-                    previous = %existing,
-                    current = %normalized,
-                    "checkpoint database workspace binding moved; overwriting"
-                );
-                storage.store_metadata(
-                    checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY,
-                    &normalized,
-                )
-            }
+            Some(existing) if existing != normalized => Err(CheckpointError::Validation {
+                reason: format!(
+                    "checkpoint database is bound to workspace '{existing}', refusing different root '{normalized}'"
+                ),
+            }),
             Some(_) => Ok(()),
             None => storage.store_metadata(
                 checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY,

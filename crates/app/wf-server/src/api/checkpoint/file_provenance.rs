@@ -22,6 +22,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/file-checkpoint/restore", post(handle_restore_checkpoint))
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
+        .route("/file-checkpoint/conflicts", get(handle_list_conflicts))
         .route("/file-checkpoint/changes", get(handle_list_changes_paged))
         .route("/file-checkpoint/content", get(handle_read_content))
         .route("/file-checkpoint/tree/{id}", get(handle_list_tree))
@@ -127,6 +128,20 @@ pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> imp
 
 #[utoipa::path(
     get,
+    path = "/api/v1/file-checkpoint/conflicts",
+    tag = "checkpoint",
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_list_conflicts(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::list_conflicts(&state.ctx) {
+        Ok(conflicts) => ok(conflicts).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/file-checkpoint/workspace/{id}",
     tag = "checkpoint",
     params(IdPath),
@@ -215,6 +230,9 @@ pub(crate) async fn handle_file_timeline(
 pub(crate) struct ContentQuery {
     actor: String,
     path: String,
+    /// Optional commit id from the file timeline: when present the bytes are
+    /// read at that commit without touching the workspace.
+    version: Option<String>,
 }
 
 #[utoipa::path(
@@ -229,7 +247,18 @@ pub(crate) async fn handle_read_content(
     State(state): State<ApiState>,
     Query(query): Query<ContentQuery>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::read_file_content(&state.ctx, &query.actor, &query.path) {
+    let result = match query.version.as_deref() {
+        Some(version) => wf_api::checkpoint::provenance::read_file_content_at(
+            &state.ctx,
+            &query.actor,
+            &query.path,
+            version,
+        ),
+        None => {
+            wf_api::checkpoint::provenance::read_file_content(&state.ctx, &query.actor, &query.path)
+        }
+    };
+    match result {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err),
     }

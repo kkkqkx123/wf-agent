@@ -509,10 +509,10 @@ fn linear_graph_with_count(n: u32) -> WorkflowGraphStructure {
 
 #[tokio::test]
 async fn test_max_execution_timeout_interrupts_workflow() {
-    use wf_checkpoint::CheckpointStateManager;
-    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_core::EventBus;
     use wf_types::events::EventType;
 
@@ -585,10 +585,10 @@ async fn test_max_execution_timeout_interrupts_workflow() {
 
 #[tokio::test]
 async fn test_before_node_checkpoint_persisted() {
-    use wf_checkpoint::CheckpointStateManager;
-    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
 
     let store = Arc::new(StorageBackend::new_memory());
     let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
@@ -651,10 +651,10 @@ async fn test_before_node_checkpoint_persisted() {
 
 #[tokio::test]
 async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
-    use wf_checkpoint::CheckpointStateManager;
-    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
 
     async fn checkpointed_nodes(
         store: &Arc<StorageBackend>,
@@ -783,10 +783,10 @@ async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
 
 #[tokio::test]
 async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
-    use wf_checkpoint::CheckpointStateManager;
-    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
 
     // Only v2 carries the force flags; v1 and the control nodes do not.
     fn force_graph() -> WorkflowGraphStructure {
@@ -928,10 +928,10 @@ async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
 
 #[tokio::test]
 async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
-    use wf_checkpoint::CheckpointStateManager;
-    use wf_checkpoint::WorkflowCheckpointStateManager;
     use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
+    use wf_checkpoint::WorkflowCheckpointStateManager;
 
     let store = Arc::new(StorageBackend::new_memory());
     let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())

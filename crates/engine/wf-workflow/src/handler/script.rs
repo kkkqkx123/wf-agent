@@ -19,6 +19,79 @@ use crate::handler::output_mapping;
 use crate::handler::NodeHandler;
 use crate::variable::VariableResolver;
 
+/// Fail-closed working-directory check for script nodes: when a file scope
+/// is attached and enabled, a configured directory must sit inside the read
+/// or write prefixes. Absolute paths are judged directly; relative paths are
+/// resolved against the scope workdir or the checkpoint workspace root when
+/// one is known, otherwise the legacy behavior is kept.
+pub(crate) fn validate_script_working_directory(
+    working_directory: Option<&str>,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    workspace_root: Option<&std::path::Path>,
+    node_id: &str,
+) -> WorkflowResult<()> {
+    use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    let (Some(dir), Some(scope)) = (working_directory, scope) else {
+        return Ok(());
+    };
+    if !scope.enabled {
+        return Ok(());
+    }
+    if dir.trim().is_empty() || dir.contains('\0') {
+        return Err(WorkflowError::ConfigError {
+            node_id: node_id.to_string(),
+            field: "working_directory".to_string(),
+            detail: "must not be empty".to_string(),
+        });
+    }
+    let candidate = std::path::Path::new(dir);
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(base) = scope.workdir.as_deref() {
+        std::path::Path::new(base).join(candidate)
+    } else if let Some(root) = workspace_root {
+        root.join(candidate)
+    } else {
+        return Ok(());
+    };
+    let lexical = normalize_scope_path(&resolved.to_string_lossy());
+    let inside = scope
+        .read_prefixes
+        .iter()
+        .chain(scope.write_prefixes.iter())
+        .any(|bound| scope_path_contains(bound, &lexical));
+    if !inside {
+        return Err(WorkflowError::ConfigError {
+            node_id: node_id.to_string(),
+            field: "working_directory".to_string(),
+            detail: format!("'{dir}' is outside the execution file scope"),
+        });
+    }
+    let physical = resolved.canonicalize().ok().or_else(|| {
+        resolved
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .and_then(|parent| parent.canonicalize().ok())
+            .and_then(|parent| resolved.file_name().map(|name| parent.join(name)))
+    });
+    if let Some(physical) = physical {
+        let physical_str = physical.to_string_lossy().to_string();
+        let inside = scope
+            .read_prefixes
+            .iter()
+            .chain(scope.write_prefixes.iter())
+            .any(|bound| scope_path_contains(bound, &physical_str));
+        if !inside {
+            return Err(WorkflowError::ConfigError {
+                node_id: node_id.to_string(),
+                field: "working_directory".to_string(),
+                detail: format!("'{dir}' escapes the execution file scope through a link"),
+            });
+        }
+    }
+    Ok(())
+}
+
 pub struct ScriptHandler {
     sandbox: Option<Arc<SandboxRuntime>>,
     /// Optional file-checkpoint manager: when attached (file checkpointing
@@ -255,6 +328,14 @@ impl ScriptHandler {
         )?;
         let mut options = script_execution_options_from_config(&config, &ctx.node_id)?;
         options.executor_mode = Some(executor_mode.clone());
+        validate_script_working_directory(
+            options.working_directory.as_deref(),
+            ctx.file_scope.as_ref(),
+            self.file_checkpoint
+                .as_ref()
+                .and_then(|manager| manager.workspace_root()),
+            &ctx.node_id,
+        )?;
 
         let sandbox_config = sandbox_config_from_node(&config, &language, &ctx.node_id)?;
         let router = self

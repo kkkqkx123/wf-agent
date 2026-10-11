@@ -164,12 +164,11 @@ async fn agent_checkpoint_snapshot(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<wf_types::checkpoint::agent::AgentStateSnapshot>> {
-    use wf_checkpoint::CheckpointStateManager;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
 
-    let state_manager = wf_checkpoint::AgentCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    );
+    let state_manager =
+        wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
         crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
     })?
@@ -191,12 +190,11 @@ async fn workflow_checkpoint_snapshot(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot>> {
-    use wf_checkpoint::CheckpointStateManager;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
 
-    let state_manager = wf_checkpoint::WorkflowCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    );
+    let state_manager =
+        wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
         crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
     })?
@@ -390,18 +388,14 @@ pub(crate) async fn checkpoint_count(ctx: &ApiContext, execution_id: &str) -> Ap
     let lookup_failed = |e: wf_checkpoint::CheckpointError| {
         crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
     };
-    let agent = wf_checkpoint::AgentCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    )
-    .list_by_entity(execution_id)
-    .await
-    .map_err(lookup_failed)?;
-    let workflow = wf_checkpoint::WorkflowCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    )
-    .list_by_entity(execution_id)
-    .await
-    .map_err(lookup_failed)?;
+    let agent = wf_checkpoint::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone())
+        .list_by_entity(execution_id)
+        .await
+        .map_err(lookup_failed)?;
+    let workflow = wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone())
+        .list_by_entity(execution_id)
+        .await
+        .map_err(lookup_failed)?;
     let mut ids = std::collections::HashSet::new();
     for checkpoint in agent.into_iter().chain(workflow) {
         ids.insert(checkpoint.id);

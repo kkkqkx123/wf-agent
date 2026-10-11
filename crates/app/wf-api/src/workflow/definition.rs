@@ -144,9 +144,8 @@ pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
     {
         use wf_checkpoint::CheckpointStateManager;
 
-        let checkpoints = wf_checkpoint::WorkflowCheckpointStateManager::new(
-            ctx.checkpoint_store.clone(),
-        );
+        let checkpoints =
+            wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
         for execution in &executions {
             let metas = checkpoints
                 .list_by_entity(&execution.id)
@@ -242,8 +241,8 @@ mod tests {
     use crate::workflow::version::{
         list_workflow_versions as list_vers, save_workflow_version as save_ver,
     };
-    use wf_checkpoint::CheckpointStateManager;
     use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::CheckpointStateManager;
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
@@ -503,9 +502,7 @@ mod tests {
             error_suspend: None,
         };
         let coordinator = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
-            wf_checkpoint::WorkflowCheckpointStateManager::new(
-                ctx.checkpoint_store.clone(),
-            ),
+            wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone()),
         );
         coordinator
             .create_checkpoint(
@@ -526,12 +523,11 @@ mod tests {
                 .await
                 .is_err()
         );
-        let remaining = wf_checkpoint::WorkflowCheckpointStateManager::new(
-            ctx.checkpoint_store.clone(),
-        )
-        .list_by_entity("exec-cascade-1")
-        .await
-        .unwrap();
+        let remaining =
+            wf_checkpoint::WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone())
+                .list_by_entity("exec-cascade-1")
+                .await
+                .unwrap();
         assert!(remaining.is_empty());
         assert!(list_vers(&ctx, "wf-cascade").await.unwrap().is_empty());
     }

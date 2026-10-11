@@ -210,7 +210,9 @@ impl WorkflowLifecycleCoordinator {
                 Some(override_scope),
                 None,
             )
-            .map_err(|e| WorkflowError::VariableError(format!("invalid execution file scope: {e}")))?;
+            .map_err(|e| {
+                WorkflowError::VariableError(format!("invalid execution file scope: {e}"))
+            })?;
             ctx = ctx.with_file_scope(Some(resolved));
         }
         // The coordinator and the entity share one variable map so that

@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
+use wf_checkpoint::coordinator::CheckpointCoordinator;
+use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::CheckpointError;
 use wf_checkpoint::{
     custom_fields_equal, AgentCheckpointStateManager, CheckpointStateManager, ExecutionEventBus,
     PROGRESS_COORD_KEYS,
 };
-use wf_checkpoint::coordinator::CheckpointCoordinator;
-use wf_checkpoint::event::CheckpointEventBus;
-use wf_checkpoint::CheckpointError;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::{AgentStateSnapshot, VariableSnapshot};

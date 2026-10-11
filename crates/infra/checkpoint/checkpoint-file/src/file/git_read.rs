@@ -91,8 +91,9 @@ impl FileCheckpointManager {
         let mut result = WorkspaceRestoreResult::default();
         let canonical_base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
 
-        // Write target files, skipping identical content (idempotent).
-        let mut target_paths: Vec<&String> = target_bytes.keys().collect();
+        // Write target files, skipping identical content (idempotent). Only
+        // in-range paths are expanded; the hash map holds exactly that set.
+        let mut target_paths: Vec<&String> = target_hash.keys().collect();
         target_paths.sort();
         for path in target_paths {
             let bytes = &target_bytes[path];
@@ -149,6 +150,23 @@ impl FileCheckpointManager {
         }
 
         Ok(result)
+    }
+
+    /// Committer timestamp of a commit (Unix milliseconds, `None` when the
+    /// commit is absent). Used to timestamp version-anchored reads without
+    /// expanding the tree.
+    pub fn commit_timestamp(&self, commit_id: &str) -> Result<Option<i64>, CheckpointError> {
+        if !crate::git_store::is_hex_id(commit_id) {
+            return Err(CheckpointError::NotFound {
+                id: commit_id.to_string(),
+            });
+        }
+        let git = self.git_ref()?;
+        match git.read_commit(commit_id) {
+            Ok(commit) => Ok(Some(commit.committer_ts)),
+            Err(crate::git_store::GitStoreError::ObjectNotFound(_)) => Ok(None),
+            Err(err) => Err(map_git_error(err)),
+        }
     }
 
     /// Read one file's bytes at a commit (`None` when absent). Only the

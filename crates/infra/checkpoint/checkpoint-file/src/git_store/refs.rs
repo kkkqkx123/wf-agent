@@ -56,7 +56,11 @@ pub(crate) fn sanitize_ref_component(raw: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
     let digest = hasher.finalize();
-    let suffix: String = digest.iter().take(4).map(|b| format!("{:02x}", b)).collect();
+    let suffix: String = digest
+        .iter()
+        .take(4)
+        .map(|b| format!("{:02x}", b))
+        .collect();
     format!("{base}-{suffix}")
 }
 

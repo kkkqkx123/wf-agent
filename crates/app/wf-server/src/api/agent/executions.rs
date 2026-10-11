@@ -59,6 +59,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             delete(handle_delete_checkpoints),
         )
         .route(
+            "/agent-loops/{id}/checkpoints/{cid}",
+            delete(handle_delete_checkpoint),
+        )
+        .route(
             "/agent-checkpoints/stats",
             get(handle_checkpoint_statistics),
         )
@@ -600,6 +604,33 @@ pub(crate) async fn handle_delete_checkpoints(
     }
     match wf_api::agent::agent_checkpoint::delete_for(&state.ctx, &path.id).await {
         Ok(removed) => ok(removed).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/agent-loops/{id}/checkpoints/{cid}",
+    operation_id = "delete_agent_loops_id_checkpoints_cid",
+    tag = "agent",
+    params(crate::extract::IdCidPath),
+    responses(
+        (status = 200, description = "Checkpoint deleted", body = crate::envelope::ApiEnvelope<bool>),
+        (status = 404, description = "Agent loop or checkpoint not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Checkpoint belongs to another loop or domain", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_delete_checkpoint(
+    State(state): State<ApiState>,
+    Path(path): Path<crate::extract::IdCidPath>,
+) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    match wf_api::agent::agent_checkpoint::delete_single(&state.ctx, &path.id, &path.cid).await {
+        Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
 }

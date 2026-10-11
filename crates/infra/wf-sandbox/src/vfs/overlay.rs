@@ -105,9 +105,13 @@ impl OverlayVfs {
     /// Pending writes are written back with content addressing: base files
     /// whose bytes already match the delta entry are skipped. Whiteouted
     /// paths are removed from the base directory (missing files are
-    /// tolerated). On success the delta and whiteout sets are cleared, making
-    /// `flush` the commit point between the sandbox's in-memory view and the
-    /// real filesystem.
+    /// tolerated). Every pending path is re-checked against the write policy
+    /// before any filesystem mutation so a commit never lands outside the
+    /// allowed set, and relative paths are confined inside the canonical
+    /// base directory (absolute paths stay governed by the policy gate, the
+    /// same rule reads and existence checks use). On success the delta and
+    /// whiteout sets are cleared, making `flush` the commit point between
+    /// the sandbox's in-memory view and the real filesystem.
     pub async fn flush(&self) -> Result<(), std::io::Error> {
         let writes: Vec<(PathBuf, Vec<u8>)> = self
             .delta
@@ -125,10 +129,25 @@ impl OverlayVfs {
             .map(|whiteouts| whiteouts.paths())
             .unwrap_or_default();
 
+        for rel_path in deletions.iter().chain(writes.iter().map(|(path, _)| path)) {
+            self.check_path(
+                &rel_path.to_string_lossy(),
+                &self.path_policy.allowed_write,
+                "Write",
+            )?;
+        }
+        let canonical_base = self
+            .base
+            .canonicalize()
+            .unwrap_or_else(|_| self.base.clone());
+        let mut targets: Vec<PathBuf> = Vec::with_capacity(deletions.len() + writes.len());
+        for rel_path in deletions.iter().chain(writes.iter().map(|(path, _)| path)) {
+            targets.push(self.confined_join(&canonical_base, rel_path)?);
+        }
+
         // Deletions run first so a path that was deleted and rewritten ends
         // up with the fresh write.
-        for rel_path in &deletions {
-            let full_path = self.base.join(rel_path);
+        for full_path in targets.iter().take(deletions.len()) {
             match tokio::fs::remove_file(&full_path).await {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -136,8 +155,7 @@ impl OverlayVfs {
             }
         }
 
-        for (rel_path, data) in &writes {
-            let full_path = self.base.join(rel_path);
+        for ((_, data), full_path) in writes.iter().zip(targets.iter().skip(deletions.len())) {
             if let Ok(existing) = tokio::fs::read(&full_path).await {
                 if existing == *data {
                     continue;
@@ -156,6 +174,50 @@ impl OverlayVfs {
             whiteouts.clear();
         }
         Ok(())
+    }
+
+    fn confined_join(
+        &self,
+        canonical_base: &Path,
+        rel_path: &Path,
+    ) -> Result<PathBuf, std::io::Error> {
+        if rel_path.is_absolute() {
+            return Ok(self.base.join(rel_path));
+        }
+        let full_path = canonical_base.join(rel_path);
+        let scope =
+            wf_types::config::file_scope::normalize_scope_path(&full_path.to_string_lossy());
+        let base_scope =
+            wf_types::config::file_scope::normalize_scope_path(&canonical_base.to_string_lossy());
+        if !wf_types::config::file_scope::scope_path_contains(&base_scope, &scope) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "flush target '{}' escapes the sandbox base directory",
+                    rel_path.display()
+                ),
+            ));
+        }
+        let mut anchor = full_path.as_path();
+        while !anchor.exists() {
+            match anchor.parent() {
+                Some(parent) if parent != anchor => anchor = parent,
+                _ => break,
+            }
+        }
+        let canonical_anchor = anchor
+            .canonicalize()
+            .unwrap_or_else(|_| anchor.to_path_buf());
+        if !canonical_anchor.starts_with(canonical_base) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "flush target '{}' escapes the sandbox base directory through a link",
+                    rel_path.display()
+                ),
+            ));
+        }
+        Ok(full_path)
     }
 
     fn check_path(

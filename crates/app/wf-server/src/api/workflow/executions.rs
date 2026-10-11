@@ -62,18 +62,20 @@ pub struct ExecuteBody {
 fn execution_options(
     file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
 ) -> Option<wf_types::workflow_execution::WorkflowExecutionOptions> {
-    file_scope.map(|scope| wf_types::workflow_execution::WorkflowExecutionOptions {
-        file_scope: Some(scope),
-        input: None,
-        max_steps: None,
-        timeout: None,
-        max_execution_time: None,
-        enable_checkpoints: None,
-        node_timeout: None,
-        max_pause_duration: None,
-        max_navigation_multiplier: None,
-        loop_max_iterations_cap: None,
-    })
+    file_scope.map(
+        |scope| wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope: Some(scope),
+            input: None,
+            max_steps: None,
+            timeout: None,
+            max_execution_time: None,
+            enable_checkpoints: None,
+            node_timeout: None,
+            max_pause_duration: None,
+            max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
+        },
+    )
 }
 
 #[derive(Serialize, ToSchema)]

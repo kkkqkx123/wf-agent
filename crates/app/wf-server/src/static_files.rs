@@ -29,12 +29,18 @@ pub(crate) async fn serve_static(root: &Path, path: &str) -> Response {
     if candidate.is_dir() {
         candidate.push("index.html");
     }
-    let bytes = read_file(candidate.clone()).await;
+    let Some(served) = confine_to_root(root, &candidate) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let bytes = read_file(served.clone()).await;
     let (bytes, served) = match bytes {
-        Some(bytes) => (bytes, candidate),
+        Some(bytes) => (bytes, served),
         None => {
             // SPA fallback: serve the app shell for unknown app routes.
             let index = root.join("index.html");
+            let Some(index) = confine_to_root(root, &index) else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
             match read_file(index.clone()).await {
                 Some(bytes) => (bytes, index),
                 None => return StatusCode::NOT_FOUND.into_response(),
@@ -55,6 +61,47 @@ async fn read_file(path: PathBuf) -> Option<Vec<u8>> {
         .await
         .ok()
         .flatten()
+}
+
+/// Resolve `candidate` against the canonical site root: the nearest existing
+/// ancestor is canonicalized and must stay inside the root, then the
+/// remaining suffix is re-appended and re-checked so links inside the site
+/// cannot carry reads outside it. Returns the confined path on success.
+fn confine_to_root(root: &Path, candidate: &Path) -> Option<PathBuf> {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let mut anchor = candidate;
+    let mut suffix = PathBuf::new();
+    loop {
+        if anchor.exists() {
+            break;
+        }
+        match anchor.parent() {
+            Some(parent) if parent != anchor => {
+                if let Some(name) = anchor.file_name() {
+                    let mut next = PathBuf::from(name);
+                    next.push(suffix);
+                    suffix = next;
+                }
+                anchor = parent;
+            }
+            _ => return None,
+        }
+    }
+    let canonical_anchor = anchor.canonicalize().ok()?;
+    if !canonical_anchor.starts_with(&canonical_root) {
+        return None;
+    }
+    // An empty suffix must not be joined: joining it would append a
+    // trailing separator and turn file reads into directory lookups.
+    let resolved = if suffix.as_os_str().is_empty() {
+        canonical_anchor
+    } else {
+        canonical_anchor.join(suffix)
+    };
+    if !resolved.starts_with(&canonical_root) {
+        return None;
+    }
+    Some(resolved)
 }
 
 fn content_type(path: &Path) -> Option<&'static str> {
@@ -117,5 +164,20 @@ mod tests {
         assert_eq!(api.status(), StatusCode::NOT_FOUND);
         let traversal = serve_static(dir.path(), "/../secret").await;
         assert_eq!(traversal.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlink_escape_stays_404() {
+        let dir = site();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let secret = outside_dir.path().join("secret.txt");
+        std::fs::write(&secret, "secret").unwrap();
+        std::os::unix::fs::symlink(&secret, dir.path().join("leak.txt")).unwrap();
+        let leaked = serve_static(dir.path(), "/leak.txt").await;
+        assert_eq!(leaked.status(), StatusCode::NOT_FOUND);
+        std::os::unix::fs::symlink(outside_dir.path(), dir.path().join("evildir")).unwrap();
+        let dir_leak = serve_static(dir.path(), "/evildir/secret.txt").await;
+        assert_eq!(dir_leak.status(), StatusCode::NOT_FOUND);
     }
 }

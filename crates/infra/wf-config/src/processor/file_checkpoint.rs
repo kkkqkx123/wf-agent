@@ -85,27 +85,33 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
             validate_optional_scope_path(Some(db_path), "file_checkpoint.storage.db_path")?;
             if let Some(root) = config.workspace_root.as_deref() {
                 if root.starts_with('/') && db_path.starts_with('/') {
-                    let root_norm =
-                        wf_types::config::file_scope::normalize_scope_path(root);
-                    let db_norm =
-                        wf_types::config::file_scope::normalize_scope_path(db_path);
+                    let root_norm = wf_types::config::file_scope::normalize_scope_path(root);
+                    let db_norm = wf_types::config::file_scope::normalize_scope_path(db_path);
                     if !wf_types::config::file_scope::scope_path_contains(&root_norm, &db_norm) {
                         let parent = std::path::Path::new(&db_norm)
                             .parent()
                             .map(|p| p.to_string_lossy().to_string())
                             .unwrap_or_default();
-                        let inside = wf_types::config::file_scope::scope_path_contains(
-                            &root_norm,
-                            &parent,
-                        ) || wf_types::config::file_scope::scope_path_contains(
-                            &root_norm,
-                            &db_norm,
-                        );
+                        let inside =
+                            wf_types::config::file_scope::scope_path_contains(&root_norm, &parent)
+                                || wf_types::config::file_scope::scope_path_contains(
+                                    &root_norm, &db_norm,
+                                );
                         if !inside {
                             return Err(ConfigError::Validation(format!(
                                 "file_checkpoint.storage.db_path '{db_path}' is outside workspace root '{root}'"
                             )));
                         }
+                    }
+                } else if root.starts_with('/') {
+                    let root_norm = wf_types::config::file_scope::normalize_scope_path(root);
+                    let joined = wf_types::config::file_scope::normalize_scope_path(&format!(
+                        "{root_norm}/{db_path}"
+                    ));
+                    if !wf_types::config::file_scope::scope_path_contains(&root_norm, &joined) {
+                        return Err(ConfigError::Validation(format!(
+                            "file_checkpoint.storage.db_path '{db_path}' escapes workspace root '{root}'"
+                        )));
                     }
                 }
             }
@@ -313,6 +319,31 @@ mod tests {
         config.storage = Some(FileCheckpointStorageConfig {
             storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
             db_path: Some("  ".to_string()),
+        });
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_relative_db_path_inside_root() {
+        let mut config = enabled_config();
+        config.storage = Some(FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some("state/checkpoint.db".to_string()),
+        });
+        assert!(validate_file_checkpoint_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_escaping_db_path() {
+        let mut config = enabled_config();
+        config.storage = Some(FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some("../outside.db".to_string()),
+        });
+        assert!(validate_file_checkpoint_config(&config).is_err());
+        config.storage = Some(FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some("/outside.db".to_string()),
         });
         assert!(validate_file_checkpoint_config(&config).is_err());
     }

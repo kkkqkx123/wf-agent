@@ -714,7 +714,7 @@ impl StrategyImplementation for VfsCaptureWriter {
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
         *self.captured_vfs.lock().expect("capture lock") = options.vfs.clone();
         if let Some(vfs) = &options.vfs {
-            vfs.write_file("f6-delta.txt", b"injected-write".to_vec())
+            vfs.write_file("f6/delta.txt", b"injected-write".to_vec())
                 .await?;
         }
         Ok(ScriptExecutionResult {
@@ -802,7 +802,7 @@ async fn test_execute_named_with_vfs_uses_injected_instance_and_returns_delta() 
     let delta = used_vfs.take_delta();
     assert_eq!(
         delta
-            .get(PathBuf::from("f6-delta.txt").as_path())
+            .get(PathBuf::from("f6/delta.txt").as_path())
             .map(|v| v.as_slice()),
         Some(b"injected-write".as_slice())
     );
@@ -845,7 +845,9 @@ async fn test_injected_vfs_flush_commits_writes_onto_base() {
     assert!(outcome.result.success, "{:?}", outcome.result.error);
 
     overlay.flush().await.expect("flush must commit");
-    let committed = tokio::fs::read(dir.join("f6-delta.txt")).await.unwrap();
+    let committed = tokio::fs::read(dir.join("f6").join("delta.txt"))
+        .await
+        .unwrap();
     assert_eq!(committed, b"injected-write");
 
     let _ = std::fs::remove_dir_all(&dir);

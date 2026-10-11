@@ -298,6 +298,73 @@ fn is_binary_bytes(content: &[u8]) -> bool {
     content.iter().take(8000).any(|b| *b == 0)
 }
 
+/// Shape raw file bytes into a capped content view with shared truncation
+/// and binary rules for current-state and version-anchored reads.
+fn capped_content_view(
+    path: &str,
+    actor: &str,
+    content: Vec<u8>,
+    hash: String,
+    timestamp: i64,
+) -> FileContentView {
+    let binary = is_binary_bytes(&content);
+    let truncated = content.len() > MAX_FILE_CONTENT_BYTES;
+    let capped = content
+        .get(..MAX_FILE_CONTENT_BYTES.min(content.len()))
+        .unwrap_or_default();
+    let text = if binary {
+        None
+    } else {
+        Some(String::from_utf8_lossy(capped).into_owned())
+    };
+    FileContentView {
+        path: path.to_string(),
+        actor: actor.to_string(),
+        hash,
+        size: content.len(),
+        is_binary: binary,
+        content: text,
+        truncated,
+        timestamp,
+    }
+}
+
+/// Files with unresolved merge conflicts across every partition.
+pub fn list_conflicts(ctx: &ApiContext) -> ApiResult<Vec<wf_checkpoint::provenance::ConflictFile>> {
+    manager(ctx)?
+        .list_conflicts()
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Read one file's bytes at a historical commit without touching the
+/// workspace. The commit id comes from the file timeline; the hash is the
+/// content hash of the bytes at that commit and the timestamp is the commit
+/// time. Truncation and binary rules match current-state reads.
+pub fn read_file_content_at(
+    ctx: &ApiContext,
+    actor: &str,
+    path: &str,
+    version: &str,
+) -> ApiResult<FileContentView> {
+    validate_workspace_path(path)?;
+    if version.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "version must not be empty".to_string(),
+        ));
+    }
+    let manager = manager(ctx)?;
+    let content = manager
+        .read_file_at(version, path)
+        .map_err(ApiError::execution_with_source)?
+        .ok_or_else(|| ApiError::not_found("file", path))?;
+    let timestamp = manager
+        .commit_timestamp(version)
+        .map_err(ApiError::execution_with_source)?
+        .unwrap_or(0);
+    let hash = wf_checkpoint::sha256_hex(&content);
+    Ok(capped_content_view(path, actor, content, hash, timestamp))
+}
+
 /// Read the current workspace content of one file with sandbox checks.
 pub fn read_file_content(ctx: &ApiContext, actor: &str, path: &str) -> ApiResult<FileContentView> {
     validate_workspace_path(path)?;
@@ -305,27 +372,13 @@ pub fn read_file_content(ctx: &ApiContext, actor: &str, path: &str) -> ApiResult
     let Some(file) = files.into_iter().find(|f| f.path == path) else {
         return Err(ApiError::not_found("file", path));
     };
-    let binary = is_binary_bytes(&file.content);
-    let truncated = file.content.len() > MAX_FILE_CONTENT_BYTES;
-    let capped = file
-        .content
-        .get(..MAX_FILE_CONTENT_BYTES.min(file.content.len()))
-        .unwrap_or_default();
-    let content = if binary {
-        None
-    } else {
-        Some(String::from_utf8_lossy(capped).into_owned())
-    };
-    Ok(FileContentView {
-        path: file.path,
-        actor: actor.to_string(),
-        hash: file.hash,
-        size: file.content.len(),
-        is_binary: binary,
-        content,
-        truncated,
-        timestamp: file.timestamp,
-    })
+    Ok(capped_content_view(
+        &file.path,
+        actor,
+        file.content,
+        file.hash,
+        file.timestamp,
+    ))
 }
 
 /// Capped directory tree view with total before truncation.

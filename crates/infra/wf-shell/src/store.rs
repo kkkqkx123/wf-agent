@@ -525,12 +525,18 @@ impl BackgroundShellStore {
     }
 
     fn resolve_cwd(&self, options: &SessionCreateOptions) -> Option<PathBuf> {
-        options
+        let requested: Option<PathBuf> = options
             .cwd
             .clone()
             .filter(|c| !c.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| self.default_cwd.clone())
+            .map(PathBuf::from);
+        match (requested, &self.default_cwd) {
+            // A relative request is anchored at the configured default root
+            // so sessions never resolve against the server process directory.
+            (Some(relative), Some(base)) if relative.is_relative() => Some(base.join(relative)),
+            (Some(explicit), _) => Some(explicit),
+            (None, base) => base.clone(),
+        }
     }
 
     fn reuse_session(

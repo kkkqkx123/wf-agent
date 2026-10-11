@@ -69,6 +69,79 @@ fn parse_script_language(value: &str) -> Option<ScriptLanguage> {
     }
 }
 
+/// Working-directory boundary check for direct executions: when the sandbox
+/// config names allowed read/write prefixes, a configured directory must sit
+/// inside them. Empty allow sets mean no bounds are known, so the legacy
+/// behavior is kept; relative directories are resolved against the bound
+/// file-checkpoint workspace root when one exists.
+fn validate_working_directory(
+    working_directory: Option<&str>,
+    sandbox_config: &SandboxConfig,
+    workspace_root: Option<&std::path::Path>,
+) -> ApiResult<()> {
+    use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    let Some(dir) = working_directory else {
+        return Ok(());
+    };
+    if dir.trim().is_empty() || dir.contains('\0') {
+        return Err(ApiError::Validation(
+            "working_directory must not be empty".to_string(),
+        ));
+    }
+    let filesystem = sandbox_config
+        .policy
+        .as_ref()
+        .and_then(|policy| policy.filesystem.as_ref());
+    let mut bounds: Vec<&String> = Vec::new();
+    if let Some(fs) = filesystem {
+        if let Some(read) = fs.allowed_read_paths.as_ref() {
+            bounds.extend(read.iter());
+        }
+        if let Some(write) = fs.allowed_write_paths.as_ref() {
+            bounds.extend(write.iter());
+        }
+    }
+    if bounds.is_empty() {
+        return Ok(());
+    }
+    let candidate = std::path::Path::new(dir);
+    let resolved = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(root) = workspace_root {
+        root.join(candidate)
+    } else {
+        return Ok(());
+    };
+    let lexical = normalize_scope_path(&resolved.to_string_lossy());
+    if !bounds
+        .iter()
+        .any(|bound| scope_path_contains(bound, &lexical))
+    {
+        return Err(ApiError::Validation(format!(
+            "working_directory '{dir}' is outside the sandbox allowed paths"
+        )));
+    }
+    let physical = resolved.canonicalize().ok().or_else(|| {
+        resolved
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .and_then(|parent| parent.canonicalize().ok())
+            .and_then(|parent| resolved.file_name().map(|name| parent.join(name)))
+    });
+    if let Some(physical) = physical {
+        let physical_str = physical.to_string_lossy().to_string();
+        if !bounds
+            .iter()
+            .any(|bound| scope_path_contains(bound, &physical_str))
+        {
+            return Err(ApiError::Validation(format!(
+                "working_directory '{dir}' escapes the sandbox allowed paths through a link"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Execute a script. When neither `code` nor `template` is supplied, the
 /// script is resolved from the process-wide script registry (the same
 /// registry `ExecuteScript` trigger actions use); a stored-but-contentless
@@ -159,6 +232,11 @@ pub async fn execute(
         .sandbox
         .clone()
         .unwrap_or_else(|| default_sandbox_config(language));
+    validate_working_directory(
+        params.working_directory.as_deref(),
+        &sandbox_config,
+        manager_workspace_root(ctx),
+    )?;
 
     // Script-change capture: diff the allowed-write scope inside
     // the workspace root before/after the execution and record the changes

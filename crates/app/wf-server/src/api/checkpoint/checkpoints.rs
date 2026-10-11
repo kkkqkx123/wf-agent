@@ -14,8 +14,8 @@ use wf_api::CheckpointListOptions;
 
 use crate::api::workflow::executions::ExecuteView;
 use crate::envelope::{error_response, ok};
-use crate::extract::{CidPath, EntityIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields, MAX_CHAIN_ENTRIES};
+use crate::extract::{CidPath, EntityIdPath, IdPath};
+use crate::paged::{fetch_size, ok_page, resolve_page_fields, MAX_CHAIN_ENTRIES};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -35,6 +35,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/executions/checkpoints/{cid}/resume",
             post(handle_restore_and_resume),
+        )
+        .route(
+            "/executions/{id}/checkpoints/gc",
+            post(handle_gc_checkpoints),
         )
         // ── checkpoints ──
         .route("/checkpoints", get(handle_list_checkpoints))
@@ -236,6 +240,55 @@ pub(crate) async fn handle_restore_and_resume(
 
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+pub(crate) struct GcCheckpointsQuery {
+    /// Only delete checkpoints before this timestamp (epoch millis); when
+    /// omitted every checkpoint of the execution is removed.
+    before: Option<i64>,
+    /// Explicit domain override (`workflow` / `agent`), only needed for
+    /// ambiguous execution ids; otherwise the domain is auto-resolved.
+    domain: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/executions/{id}/checkpoints/gc",
+    operation_id = "post_executions_id_checkpoints_gc",
+    tag = "checkpoint",
+    params(IdPath, GcCheckpointsQuery),
+    responses(
+        (status = 200, description = "Checkpoints garbage-collected", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 404, description = "Execution not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_gc_checkpoints(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Query(query): Query<GcCheckpointsQuery>,
+) -> impl IntoResponse {
+    let domain = match query.domain.as_deref() {
+        None => None,
+        Some(raw) => match wf_api::ExecutionDomain::parse(raw) {
+            Some(domain) => Some(domain),
+            None => {
+                return error_response(wf_api::ApiError::Validation(format!(
+                    "unknown execution domain '{raw}'"
+                )));
+            }
+        },
+    };
+    match wf_api::checkpoint::record::gc_for_execution(&state.ctx, &path.id, query.before, domain)
+        .await
+    {
+        Ok(removed) => ok(removed).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListCheckpointsQuery {
     /// Page limit
     limit: Option<u64>,
@@ -321,11 +374,23 @@ pub(crate) async fn handle_delete_checkpoint(
     }
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct EntityCheckpointsQuery {
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
+    /// Filter by entity type (defaults to the workflow checkpoint type, so
+    /// agent loops keep using their dedicated endpoints unless overridden).
+    entity_type: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/checkpoints/entity/{entityId}",
     tag = "checkpoint",
-    params(EntityIdPath, ListQuery),
+    params(EntityIdPath, EntityCheckpointsQuery),
     responses(
         (status = 200, description = "List of checkpoints for entity", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -336,17 +401,18 @@ pub(crate) async fn handle_delete_checkpoint(
 pub(crate) async fn handle_list_checkpoints_by_entity(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<EntityCheckpointsQuery>,
 ) -> impl IntoResponse {
+    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
     match wf_api::checkpoint::record::list_checkpoints_by_entity(
         &state.ctx.storage,
         &path.entity_id,
-        "checkpoint",
+        entity_type,
     )
     .await
     {
         Ok(checkpoints) => {
-            let (limit, offset) = resolve_page(&query);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = checkpoints
                 .into_iter()
                 .skip(offset as usize)
@@ -358,11 +424,18 @@ pub(crate) async fn handle_list_checkpoints_by_entity(
     }
 }
 
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct LatestCheckpointQuery {
+    /// Filter by entity type (defaults to the workflow checkpoint type).
+    entity_type: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/checkpoints/entity/{entityId}/latest",
     tag = "checkpoint",
-    params(EntityIdPath),
+    params(EntityIdPath, LatestCheckpointQuery),
     responses(
         (status = 200, description = "Latest checkpoint", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -373,11 +446,13 @@ pub(crate) async fn handle_list_checkpoints_by_entity(
 pub(crate) async fn handle_latest_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
+    Query(query): Query<LatestCheckpointQuery>,
 ) -> impl IntoResponse {
+    let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
     match wf_api::checkpoint::record::get_latest_checkpoint(
         &state.ctx.storage,
         &path.entity_id,
-        "checkpoint",
+        entity_type,
     )
     .await
     {

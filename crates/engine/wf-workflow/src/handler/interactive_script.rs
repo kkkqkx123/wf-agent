@@ -309,6 +309,14 @@ impl InteractiveScriptHandler {
                     .and_then(|manager| manager.workspace_root())
                     .map(|root| root.to_string_lossy().to_string())
             });
+        super::script::validate_script_working_directory(
+            working_directory.as_deref(),
+            ctx.file_scope.as_ref(),
+            self.file_checkpoint
+                .as_ref()
+                .and_then(|manager| manager.workspace_root()),
+            &ctx.node_id,
+        )?;
         let session_config = InteractiveScriptSessionConfig {
             script_name: script_name.to_string(),
             language: language.to_string(),

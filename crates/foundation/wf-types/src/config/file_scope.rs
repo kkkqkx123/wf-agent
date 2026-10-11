@@ -172,10 +172,7 @@ fn validate_path_list(entries: &[String], field: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_optional_path_list(
-    entries: Option<&[String]>,
-    field: &str,
-) -> Result<(), String> {
+fn validate_optional_path_list(entries: Option<&[String]>, field: &str) -> Result<(), String> {
     if let Some(list) = entries {
         validate_path_list(list, field)?;
     }
@@ -258,10 +255,7 @@ fn absolutize_prefix(prefix: &str, workspace_root: Option<&str>) -> String {
     normalize_scope_path(prefix)
 }
 
-fn resolve_prefix_list(
-    scope: Option<&Vec<String>>,
-    global: Option<&Vec<String>>,
-) -> Vec<String> {
+fn resolve_prefix_list(scope: Option<&Vec<String>>, global: Option<&Vec<String>>) -> Vec<String> {
     if let Some(list) = scope {
         return list.clone();
     }
@@ -424,23 +418,12 @@ pub fn resolve_execution_scope(
     call: Option<&ExecutionFileScope>,
     workspace_root: Option<&str>,
 ) -> ResolvedFileScope {
-    let merged = merge_file_scope_chain(
-        [
-            global_default,
-            parent,
-            node,
-            call,
-        ]
-        .into_iter()
-        .flatten(),
-    );
+    let merged = merge_file_scope_chain([global_default, parent, node, call].into_iter().flatten());
     // Re-expand against the global default so missing checkpoint lists copy
     // the merged write list while missing read/write lists still fall back
     // to the global default and otherwise deny everything.
-    let merged_with_global = merge_file_scope(
-        &global_default.cloned().unwrap_or_default(),
-        &merged,
-    );
+    let merged_with_global =
+        merge_file_scope(&global_default.cloned().unwrap_or_default(), &merged);
     expand_file_scope(&merged_with_global, global_default, workspace_root)
 }
 

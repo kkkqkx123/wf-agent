@@ -332,9 +332,7 @@ async fn latest_checkpoint_variables(
     use wf_checkpoint::coordinator::CheckpointCoordinator;
     use wf_checkpoint::{CheckpointStateManager, WorkflowCheckpointStateManager};
 
-    let state_manager = WorkflowCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    );
+    let state_manager = WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let Some(latest) = state_manager
         .get_latest(execution_id)
         .await

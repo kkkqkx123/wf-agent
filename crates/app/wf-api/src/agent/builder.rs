@@ -645,10 +645,7 @@ impl<S> AgentLoopConfigBuilder<S> {
 
     /// Set the per-execution filesystem scope. Missing inherits the parent
     /// execution then the global default; explicit values override per field.
-    pub fn file_scope(
-        mut self,
-        scope: wf_types::config::file_scope::ExecutionFileScope,
-    ) -> Self {
+    pub fn file_scope(mut self, scope: wf_types::config::file_scope::ExecutionFileScope) -> Self {
         self.file_scope = Some(scope);
         self
     }

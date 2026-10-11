@@ -299,6 +299,11 @@ impl InteractiveScriptHandler {
             .and_then(|v| v.as_str())
             .map(String::from)
             .or_else(|| {
+                ctx.file_scope
+                    .as_ref()
+                    .and_then(|scope| scope.workdir.clone())
+            })
+            .or_else(|| {
                 self.file_checkpoint
                     .as_ref()
                     .and_then(|manager| manager.workspace_root())

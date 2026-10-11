@@ -103,9 +103,10 @@ pub struct FileCheckpointConfig {
     #[serde(default)]
     pub gc_retention: Option<FileCheckpointGcRetention>,
     /// Default execution scope applied when an execution carries no explicit
-    /// scope. Missing means the built-in default (enabled, workspace root
-    /// range); every field inside follows the same missing-inherits versus
-    /// explicit-empty-denies convention.
+    /// scope. Missing means deny everything at the scope core; the checkpoint
+    /// manager materializes an explicit workspace range when a workspace root
+    /// is configured. Every field inside follows the same missing-inherits
+    /// versus explicit-empty-denies convention.
     #[serde(default)]
     pub default_scope: Option<ExecutionFileScope>,
 }

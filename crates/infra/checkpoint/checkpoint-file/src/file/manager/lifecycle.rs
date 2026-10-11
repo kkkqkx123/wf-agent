@@ -74,7 +74,17 @@ impl FileCheckpointManager {
             None => Self::new_in_memory()?,
         };
         manager.workspace_root = config.workspace_root.as_ref().map(PathBuf::from);
-        manager.default_scope = config.default_scope.clone();
+        manager.default_scope = config.default_scope.clone().or_else(|| {
+            config.workspace_root.clone().map(|root| {
+                wf_types::config::file_scope::ExecutionFileScope {
+                    enabled: Some(true),
+                    read_prefixes: Some(vec![root.clone()]),
+                    write_prefixes: Some(vec![root.clone()]),
+                    checkpoint_prefixes: Some(vec![root]),
+                    workdir: None,
+                }
+            })
+        });
         manager.policy.scan_config = ScanConfig {
             custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
             failure_behavior: config.failure_behavior,
@@ -92,12 +102,11 @@ impl FileCheckpointManager {
         Ok(manager)
     }
 
-    /// Guard against opening a persistent DB with a workspace root that
-    /// differs from the one recorded when the DB was first opened (catches
-    /// a wrong `db_path` for a workspace). The normalized workspace root is
-    /// stored in DB metadata on first open; later opens compare against it
-    /// and fail on mismatch. In-memory stores and configs without a
-    /// workspace root (legacy single-workspace) are not bound.
+    /// Bind a persistent DB to the current workspace root. The normalized
+    /// root is stored in DB metadata on first open; later opens with a
+    /// different root overwrite the binding so a moved workspace keeps
+    /// working instead of failing. In-memory stores and configs without a
+    /// workspace root are not bound.
     fn check_workspace_root_binding(
         &self,
         config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
@@ -111,11 +120,17 @@ impl FileCheckpointManager {
         let normalized = crate::file::util::normalize_workspace_key(Path::new(root));
         let storage = self.storage_ref()?;
         match storage.load_metadata(checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY)? {
-            Some(existing) if existing != normalized => Err(CheckpointError::Validation {
-                reason: format!(
-                    "db_path is bound to workspace root '{existing}', cannot open with '{normalized}'"
-                ),
-            }),
+            Some(existing) if existing != normalized => {
+                tracing::warn!(
+                    previous = %existing,
+                    current = %normalized,
+                    "checkpoint database workspace binding moved; overwriting"
+                );
+                storage.store_metadata(
+                    checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY,
+                    &normalized,
+                )
+            }
             Some(_) => Ok(()),
             None => storage.store_metadata(
                 checkpoint_base::metadata::keys::WORKSPACE_ROOT_KEY,

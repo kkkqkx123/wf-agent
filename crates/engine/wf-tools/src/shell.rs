@@ -224,15 +224,7 @@ fn check_shell_scope(
         }
         for raw in &reads {
             let resolved = resolve_command_path(raw, Some(dir), default_dir);
-            let under_workspace = default_dir.is_some_and(|ws| {
-                wf_types::config::file_scope::scope_path_contains(
-                    &ws.to_string_lossy(),
-                    &resolved.to_string_lossy(),
-                )
-            });
-            if under_workspace {
-                ensure_shell_path_in_scope(&resolved, scope, false, execution, mode)?;
-            }
+            ensure_shell_path_in_scope(&resolved, scope, false, execution, mode)?;
         }
     }
     Ok(())

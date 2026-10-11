@@ -151,7 +151,7 @@ mod tests {
         let partial = scope(None, None, Some(vec!["/repo/app"]), None, None);
         let expanded = expand_file_scope(&partial, None, Some("/repo"));
         assert!(expanded.enabled);
-        assert_eq!(expanded.read_prefixes, vec!["/repo".to_string()]);
+        assert!(expanded.read_prefixes.is_empty());
         assert_eq!(expanded.write_prefixes, vec!["/repo/app".to_string()]);
         assert_eq!(expanded.checkpoint_prefixes, vec!["/repo/app".to_string()]);
         assert!(validate_resolved_file_scope(&expanded).is_ok());
@@ -163,6 +163,34 @@ mod tests {
         let expanded = expand_file_scope(&denied, None, Some("/repo"));
         assert!(expanded.checkpoint_prefixes.is_empty());
         assert!(validate_resolved_file_scope(&expanded).is_ok());
+    }
+
+    #[test]
+    fn expansion_denies_missing_lists_without_global() {
+        let empty = scope(None, None, None, None, None);
+        let expanded = expand_file_scope(&empty, None, Some("/repo"));
+        assert!(expanded.read_prefixes.is_empty());
+        assert!(expanded.write_prefixes.is_empty());
+        assert!(expanded.checkpoint_prefixes.is_empty());
+    }
+
+    #[test]
+    fn relative_entries_join_workspace_root() {
+        let partial = scope(
+            None,
+            Some(vec!["sub"]),
+            Some(vec!["sub/write"]),
+            None,
+            Some("sub/write"),
+        );
+        let expanded = expand_file_scope(&partial, None, Some("/repo"));
+        assert_eq!(expanded.read_prefixes, vec!["/repo/sub".to_string()]);
+        assert_eq!(expanded.write_prefixes, vec!["/repo/sub/write".to_string()]);
+        assert_eq!(
+            expanded.checkpoint_prefixes,
+            vec!["/repo/sub/write".to_string()]
+        );
+        assert_eq!(expanded.workdir, Some("/repo/sub/write".to_string()));
     }
 
     #[test]

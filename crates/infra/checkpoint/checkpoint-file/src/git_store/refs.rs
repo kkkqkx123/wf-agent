@@ -26,7 +26,10 @@ pub fn feat_ref_for_name(name: &str) -> String {
 /// Never use for workspace paths, which need relative validation or
 /// absolute normalization instead. This is the single ref sanitizer;
 /// submission-id shaping reuses it so ref naming never diverges.
+/// Names that need no change keep their exact spelling; anything else
+/// gains a short content hash suffix so distinct inputs never collide.
 pub(crate) fn sanitize_ref_component(raw: &str) -> String {
+    use sha2::{Digest, Sha256};
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' || ch == '/' {
@@ -40,13 +43,21 @@ pub(crate) fn sanitize_ref_component(raw: &str) -> String {
         cleaned = cleaned.replace("//", "/_");
     }
     let trimmed = cleaned.trim_matches(|c| c == '/' || c == '.').to_string();
-    if trimmed.is_empty() {
-        return "unnamed".to_string();
+    let base = if trimmed.is_empty() {
+        "unnamed".to_string()
+    } else if trimmed.ends_with(".lock") {
+        format!("{trimmed}_")
+    } else {
+        trimmed
+    };
+    if base == raw {
+        return base;
     }
-    if trimmed.ends_with(".lock") {
-        return format!("{trimmed}_");
-    }
-    trimmed
+    let mut hasher = Sha256::new();
+    hasher.update(raw.as_bytes());
+    let digest = hasher.finalize();
+    let suffix: String = digest.iter().take(4).map(|b| format!("{:02x}", b)).collect();
+    format!("{base}-{suffix}")
 }
 
 impl GitStore {

@@ -203,15 +203,15 @@ impl WorkflowLifecycleCoordinator {
         )
         .with_hierarchy_manager(entity.hierarchy_manager());
         if let Some(override_scope) = options.file_scope.as_ref() {
-            if let Ok(resolved) = wf_checkpoint::resolve_execution_scope_checked(
+            let resolved = wf_checkpoint::resolve_execution_scope_checked(
                 None,
                 None,
                 None,
                 Some(override_scope),
                 None,
-            ) {
-                ctx = ctx.with_file_scope(Some(resolved));
-            }
+            )
+            .map_err(|e| WorkflowError::VariableError(format!("invalid execution file scope: {e}")))?;
+            ctx = ctx.with_file_scope(Some(resolved));
         }
         // The coordinator and the entity share one variable map so that
         // checkpoints (built from the entity) capture live variables.

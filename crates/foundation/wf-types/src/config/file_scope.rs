@@ -245,10 +245,22 @@ pub fn validate_file_scope(scope: &ExecutionFileScope) -> Result<(), String> {
     Ok(())
 }
 
+fn absolutize_prefix(prefix: &str, workspace_root: Option<&str>) -> String {
+    if prefix.starts_with('/') {
+        return normalize_scope_path(prefix);
+    }
+    if let Some(root) = workspace_root {
+        if root.starts_with('/') && !root.trim().is_empty() {
+            let joined = format!("{}/{}", normalize_scope_path(root), prefix);
+            return normalize_scope_path(&joined);
+        }
+    }
+    normalize_scope_path(prefix)
+}
+
 fn resolve_prefix_list(
     scope: Option<&Vec<String>>,
     global: Option<&Vec<String>>,
-    workspace_root: Option<&str>,
 ) -> Vec<String> {
     if let Some(list) = scope {
         return list.clone();
@@ -256,36 +268,42 @@ fn resolve_prefix_list(
     if let Some(list) = global {
         return list.clone();
     }
-    workspace_root
-        .map(|root| vec![root.to_string()])
-        .unwrap_or_default()
+    Vec::new()
 }
 
 /// Expand a scope into concrete values: a missing checkpoint list copies the
 /// resolved write list, missing read/write lists fall back to the global
-/// default then to the workspace root, a missing flag falls back to the
+/// default and otherwise deny everything, a missing flag falls back to the
 /// global default then to enabled, and a missing workdir falls back to the
-/// global default.
+/// global default. Relative entries are joined against the workspace root
+/// when one is known so enforcement sees absolute forms.
 pub fn expand_file_scope(
     scope: &ExecutionFileScope,
     global_default: Option<&ExecutionFileScope>,
     workspace_root: Option<&str>,
 ) -> ResolvedFileScope {
-    let read_prefixes = resolve_prefix_list(
+    let read_prefixes: Vec<String> = resolve_prefix_list(
         scope.read_prefixes.as_ref(),
         global_default.and_then(|g| g.read_prefixes.as_ref()),
-        workspace_root,
-    );
-    let write_prefixes = resolve_prefix_list(
+    )
+    .iter()
+    .map(|p| absolutize_prefix(p, workspace_root))
+    .collect();
+    let write_prefixes: Vec<String> = resolve_prefix_list(
         scope.write_prefixes.as_ref(),
         global_default.and_then(|g| g.write_prefixes.as_ref()),
-        workspace_root,
-    );
-    let checkpoint_prefixes = scope
+    )
+    .iter()
+    .map(|p| absolutize_prefix(p, workspace_root))
+    .collect();
+    let checkpoint_prefixes: Vec<String> = scope
         .checkpoint_prefixes
         .clone()
         .or_else(|| global_default.and_then(|g| g.checkpoint_prefixes.clone()))
-        .unwrap_or_else(|| write_prefixes.clone());
+        .unwrap_or_else(|| write_prefixes.clone())
+        .iter()
+        .map(|p| absolutize_prefix(p, workspace_root))
+        .collect();
     let enabled = scope
         .enabled
         .or_else(|| global_default.and_then(|g| g.enabled))
@@ -293,7 +311,8 @@ pub fn expand_file_scope(
     let workdir = scope
         .workdir
         .clone()
-        .or_else(|| global_default.and_then(|g| g.workdir.clone()));
+        .or_else(|| global_default.and_then(|g| g.workdir.clone()))
+        .map(|w| absolutize_prefix(&w, workspace_root));
     ResolvedFileScope {
         enabled,
         read_prefixes,
@@ -301,6 +320,21 @@ pub fn expand_file_scope(
         checkpoint_prefixes,
         workdir,
     }
+}
+
+fn check_within_workspace(prefixes: &[String], workspace_root: &str) -> Result<(), String> {
+    if !workspace_root.starts_with('/') {
+        return Ok(());
+    }
+    let root = normalize_scope_path(workspace_root);
+    for prefix in prefixes {
+        if !scope_path_contains(&root, prefix) {
+            return Err(format!(
+                "scope entry '{prefix}' is outside workspace root '{root}'"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Validate a fully expanded scope: lexical checks plus unconditional
@@ -402,7 +436,7 @@ pub fn resolve_execution_scope(
     );
     // Re-expand against the global default so missing checkpoint lists copy
     // the merged write list while missing read/write lists still fall back
-    // to the global default then the workspace root.
+    // to the global default and otherwise deny everything.
     let merged_with_global = merge_file_scope(
         &global_default.cloned().unwrap_or_default(),
         &merged,
@@ -466,6 +500,19 @@ pub fn resolve_execution_scope_checked(
             return Err(format!(
                 "workdir '{workdir}' is outside read and write prefixes"
             ));
+        }
+    }
+    if let Some(root) = workspace_root {
+        let all: Vec<String> = resolved
+            .read_prefixes
+            .iter()
+            .chain(resolved.write_prefixes.iter())
+            .chain(resolved.checkpoint_prefixes.iter())
+            .cloned()
+            .collect();
+        check_within_workspace(&all, root)?;
+        if let Some(workdir) = resolved.workdir.as_deref() {
+            check_within_workspace(std::slice::from_ref(&workdir.to_string()), root)?;
         }
     }
     if let Some(parent) = parent_resolved {

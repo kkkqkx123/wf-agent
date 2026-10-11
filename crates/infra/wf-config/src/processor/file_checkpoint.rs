@@ -82,6 +82,33 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
                     "file_checkpoint.storage.db_path must not be empty".to_string(),
                 ));
             }
+            validate_optional_scope_path(Some(db_path), "file_checkpoint.storage.db_path")?;
+            if let Some(root) = config.workspace_root.as_deref() {
+                if root.starts_with('/') && db_path.starts_with('/') {
+                    let root_norm =
+                        wf_types::config::file_scope::normalize_scope_path(root);
+                    let db_norm =
+                        wf_types::config::file_scope::normalize_scope_path(db_path);
+                    if !wf_types::config::file_scope::scope_path_contains(&root_norm, &db_norm) {
+                        let parent = std::path::Path::new(&db_norm)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let inside = wf_types::config::file_scope::scope_path_contains(
+                            &root_norm,
+                            &parent,
+                        ) || wf_types::config::file_scope::scope_path_contains(
+                            &root_norm,
+                            &db_norm,
+                        );
+                        if !inside {
+                            return Err(ConfigError::Validation(format!(
+                                "file_checkpoint.storage.db_path '{db_path}' is outside workspace root '{root}'"
+                            )));
+                        }
+                    }
+                }
+            }
         }
     }
     if let Some(poll_ms) = config.manual_poll_ms {
@@ -96,6 +123,24 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
         let expanded = expand_file_scope(scope, None, config.workspace_root.as_deref());
         validate_resolved_file_scope(&expanded)
             .map_err(|e| ConfigError::Validation(format!("file_checkpoint.default_scope: {e}")))?;
+        if let Some(root) = config.workspace_root.as_deref() {
+            if root.starts_with('/') {
+                let root_norm = wf_types::config::file_scope::normalize_scope_path(root);
+                let all: Vec<&String> = expanded
+                    .read_prefixes
+                    .iter()
+                    .chain(expanded.write_prefixes.iter())
+                    .chain(expanded.checkpoint_prefixes.iter())
+                    .collect();
+                for prefix in all {
+                    if !wf_types::config::file_scope::scope_path_contains(&root_norm, prefix) {
+                        return Err(ConfigError::Validation(format!(
+                            "file_checkpoint.default_scope entry '{prefix}' is outside workspace root '{root}'"
+                        )));
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

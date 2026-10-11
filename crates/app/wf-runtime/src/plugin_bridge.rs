@@ -571,6 +571,7 @@ mod tests {
                 api_version: None,
                 metadata: None,
                 proxy: None,
+                no_proxy: None,
                 rate_limit: None,
             })
             .unwrap();

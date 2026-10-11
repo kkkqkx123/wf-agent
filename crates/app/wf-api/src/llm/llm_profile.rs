@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use wf_llm::profile::validate_profile;
+use wf_types::llm::generation::LlmMaxTokenField;
 use wf_types::llm::{LlmFormat, LlmProfile};
 
 use crate::infra::context::ApiContext;
@@ -389,6 +390,10 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
                 LlmGenerationParams {
                     temperature: Some(0.7),
                     max_tokens: Some(8192),
+                    // OpenAI reasoning models reject `max_tokens`; the
+                    // template states this explicitly rather than inferring
+                    // it from the model name.
+                    max_token_field: Some(LlmMaxTokenField::MaxCompletionTokens),
                     ..Default::default()
                 },
             ),

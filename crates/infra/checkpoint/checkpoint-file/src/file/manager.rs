@@ -42,6 +42,9 @@ pub struct FileCheckpointManager {
     /// Scoped captures (script diff, manual watcher) restrict their scope to
     /// this root; `None` disables them.
     pub(crate) workspace_root: Option<PathBuf>,
+    /// Global default execution scope (from `FileCheckpointConfig`).
+    /// Per-execution scopes inherit from it when they leave fields missing.
+    pub(crate) default_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
     /// Entity id -> resolved `ActorId` (sub-execution isolation). Built at
     /// first actor resolution: a child execution whose parent is known in
     /// the index gets `parent.child(execution_id)`, so nested executions
@@ -74,6 +77,7 @@ impl Clone for FileCheckpointManager {
             clock: self.clock.clone(),
             event_bus: self.event_bus.clone(),
             workspace_root: self.workspace_root.clone(),
+            default_scope: self.default_scope.clone(),
             actor_index: self.actor_index.clone(),
             session_scopes: self.session_scopes.clone(),
             pending_batches: self.pending_batches.clone(),
@@ -84,6 +88,12 @@ impl Clone for FileCheckpointManager {
 }
 
 impl FileCheckpointManager {
+    /// Global default execution scope inherited by executions without an
+    /// explicit override.
+    pub fn default_scope(&self) -> Option<&wf_types::config::file_scope::ExecutionFileScope> {
+        self.default_scope.as_ref()
+    }
+
     /// Attach the unified checkpoint metrics collector. Creation, restore
     /// and cleanup paths record into it; absent collectors add zero
     /// overhead. Shared across clones, so late attachment still observes

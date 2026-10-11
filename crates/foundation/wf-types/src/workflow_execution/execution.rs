@@ -32,6 +32,10 @@ pub struct WorkflowExecutionOptions {
     /// to the engine default (10000).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loop_max_iterations_cap: Option<u32>,
+    /// Optional per-execution filesystem scope. Missing inherits the parent
+    /// execution then the global default; explicit values override per field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_scope: Option<crate::config::file_scope::ExecutionFileScope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

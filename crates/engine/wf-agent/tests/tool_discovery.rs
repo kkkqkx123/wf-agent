@@ -65,6 +65,7 @@ fn discovery_config_with_general(
     general_description: Option<String>,
 ) -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: "discovery-agent".to_string(),
         model: "mock".to_string(),
         max_iterations: Some(5),

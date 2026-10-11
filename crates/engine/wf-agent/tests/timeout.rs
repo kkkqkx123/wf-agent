@@ -23,6 +23,7 @@ fn registry() -> Arc<ToolRegistry> {
 
 fn config() -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: "timeout-agent".to_string(),
         model: "mock".to_string(),
         max_iterations: Some(5),

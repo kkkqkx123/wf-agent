@@ -464,6 +464,7 @@ mod tests {
             reg.into_arc()
         };
         let options = WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(Value::Null),
             max_steps: None,
             timeout: None,
@@ -566,6 +567,7 @@ mod tests {
             reg.into_arc()
         };
         let options = WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(Value::Null),
             max_steps: None,
             timeout: None,
@@ -661,6 +663,7 @@ mod tests {
             reg.into_arc()
         };
         let options = WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(Value::Null),
             max_steps: None,
             timeout: None,

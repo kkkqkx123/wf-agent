@@ -21,4 +21,4 @@ pub use resolver::{
     DEFAULT_PYTHON_CHAIN, DEFAULT_SHELL_CHAIN,
 };
 pub use runtime::{SandboxRuntime, VfsExecutionOutcome};
-pub use strategy::shell::vfs_paths::parse_command_chain;
+pub use strategy::shell::vfs_paths::{extract_file_paths, parse_command_chain};

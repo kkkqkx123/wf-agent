@@ -757,3 +757,51 @@ fn no_max_delta_chain_in_file_options() {
         "checkpoint options must stay free of the dead chain-length knob"
     );
 }
+
+#[test]
+fn scoped_restore_only_touches_checkpoint_range() {
+    let manager = manager();
+    let opts = FileCheckpointOptions::default();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("frontend")).unwrap();
+    std::fs::create_dir_all(dir.path().join("backend")).unwrap();
+    std::fs::write(dir.path().join("frontend/a.txt"), b"v1").unwrap();
+    std::fs::write(dir.path().join("backend/b.txt"), b"w1").unwrap();
+    let cp = manager
+        .create_workspace_checkpoint("exec-1", dir.path(), &opts)
+        .unwrap();
+    std::fs::write(dir.path().join("frontend/a.txt"), b"v2").unwrap();
+    std::fs::write(dir.path().join("backend/b.txt"), b"w2").unwrap();
+    std::fs::write(dir.path().join("frontend/extra.txt"), b"extra").unwrap();
+    let frontend = dir.path().join("frontend").to_string_lossy().to_string();
+    let result = manager
+        .restore_workspace_scoped(
+            "exec-1",
+            &cp.id,
+            dir.path(),
+            &opts,
+            Some(&[frontend.clone()]),
+        )
+        .unwrap();
+    assert_eq!(
+        std::fs::read(dir.path().join("frontend/a.txt")).unwrap(),
+        b"v1"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("backend/b.txt")).unwrap(),
+        b"w2",
+        "outside range preserved"
+    );
+    assert!(
+        !dir.path().join("frontend/extra.txt").exists(),
+        "inside-range extra cleaned"
+    );
+    let second = manager
+        .restore_workspace_scoped("exec-1", &cp.id, dir.path(), &opts, Some(&[frontend]))
+        .unwrap();
+    assert_eq!(second.restored, 0);
+    assert_eq!(
+        std::fs::read(dir.path().join("backend/b.txt")).unwrap(),
+        b"w2"
+    );
+}

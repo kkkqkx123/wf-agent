@@ -96,8 +96,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             let data = serde_json::to_value(&timeline)?;
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-file-timeline", data)
-                    .with_entity(path.clone()),
+                OutputEnvelope::success("checkpoint-file-timeline", data).with_entity(path.clone()),
             )
         }
         CheckpointSub::FileRestore { entity, checkpoint } => {
@@ -113,7 +112,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
         CheckpointSub::FileGc { keep_recent_heads } => {
             let stats = wf_api::checkpoint::provenance::run_gc(ctx, *keep_recent_heads)?;
             let data = serde_json::to_value(&stats)?;
-            render_envelope(cli.output, OutputEnvelope::success("checkpoint-file-gc", data))
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-gc", data),
+            )
         }
         CheckpointSub::FileCreate { id, path } => {
             let manager = ctx.file_checkpoint_manager().ok_or_else(|| {

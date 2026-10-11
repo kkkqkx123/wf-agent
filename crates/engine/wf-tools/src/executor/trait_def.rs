@@ -31,6 +31,10 @@ pub struct ToolExecutionContext {
     /// Per-execution checkpoint session injected by an upper layer.
     /// `None` keeps plain tool behavior with no file/shell effect recording.
     pub checkpoint_session: Option<CheckpointSession>,
+    /// Resolved per-execution filesystem scope injected by the engine.
+    /// `None` means no instance scoping; tools fall back to the global
+    /// workspace base without range gating.
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     /// Abort signal of the owning execution; `None` keeps plain tool
     /// behavior. Engines race tool execution against it so a stop lands
     /// promptly instead of waiting out the tool.
@@ -46,6 +50,7 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("parent_link", &self.parent_link.is_some())
             .field("general_invoker", &self.general_invoker.is_some())
             .field("checkpoint_session", &self.checkpoint_session.is_some())
+            .field("file_scope", &self.file_scope.is_some())
             .field("cancellation", &self.cancellation.is_some())
             .finish()
     }
@@ -60,6 +65,7 @@ impl ToolExecutionContext {
             parent_link: None,
             general_invoker: None,
             checkpoint_session: None,
+            file_scope: None,
             cancellation: None,
         }
     }
@@ -88,6 +94,16 @@ impl ToolExecutionContext {
     /// Inject the checkpoint session. `None` keeps plain tool behavior.
     pub fn with_checkpoint_session(mut self, session: Option<CheckpointSession>) -> Self {
         self.checkpoint_session = session;
+        self
+    }
+
+    /// Inject the resolved execution filesystem scope. `None` keeps the
+    /// legacy global workspace behavior without range gating.
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.file_scope = scope;
         self
     }
 

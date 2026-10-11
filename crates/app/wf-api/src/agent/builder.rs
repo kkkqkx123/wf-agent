@@ -645,6 +645,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
     /// Build the runtime loop config consumed by [`crate::agent::agent_execution::run`].
     pub fn build(self) -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: self.agent_id,
             model: self.model,
             max_iterations: self.max_iterations,

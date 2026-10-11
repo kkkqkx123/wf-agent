@@ -192,6 +192,32 @@ impl AgentLoopExecutor {
         Ok(())
     }
 
+    fn inherit_file_scope(
+        mut config: AgentLoopConfig,
+        parent: Option<&ParentLink>,
+    ) -> AgentResult<AgentLoopConfig> {
+        let parent_scope = parent.and_then(|link| link.file_scope.clone());
+        let Some(parent_scope) = parent_scope else {
+            return Ok(config);
+        };
+        let child_resolved = wf_checkpoint::resolve_execution_scope_checked(
+            None,
+            Some(&parent_scope),
+            None,
+            config.file_scope.as_ref(),
+            None,
+        )
+        .map_err(AgentError::Validation)?;
+        config.file_scope = Some(wf_types::config::file_scope::ExecutionFileScope {
+            enabled: Some(child_resolved.enabled),
+            read_prefixes: Some(child_resolved.read_prefixes.clone()),
+            write_prefixes: Some(child_resolved.write_prefixes.clone()),
+            checkpoint_prefixes: Some(child_resolved.checkpoint_prefixes.clone()),
+            workdir: child_resolved.workdir.clone(),
+        });
+        Ok(config)
+    }
+
     pub async fn execute(
         &self,
         config: AgentLoopConfig,
@@ -210,6 +236,7 @@ impl AgentLoopExecutor {
     ) -> AgentResult<AgentLoopOutput> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
         self.check_sub_agent_depth(parent.as_ref())?;
+        let config = Self::inherit_file_scope(config, parent.as_ref())?;
         let coordinator = self.coordinator(parent.as_ref());
         let output = coordinator.execute(config, input).await;
         // Sync path writes the result slot too, keeping both dispatch paths
@@ -249,6 +276,7 @@ impl AgentLoopExecutor {
         parent: Option<ParentLink>,
     ) -> AgentResult<SpawnedAgentLoop> {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
+        let config = Self::inherit_file_scope(config, parent.as_ref())?;
         let execution_id = Id::from(wf_common::generate_id());
 
         self.check_sub_agent_depth(parent.as_ref())?;
@@ -493,6 +521,7 @@ mod tests {
 
     fn agent_config(agent_id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from(agent_id.to_string()),
             model: "mock".to_string(),
             max_iterations: Some(3),
@@ -525,6 +554,7 @@ mod tests {
 
     fn parent_link_for(entity: &Arc<AgentLoopEntity>) -> ParentLink {
         ParentLink {
+            file_scope: None,
             execution_id: entity.id().clone(),
             // `as_ref` reaches the concrete entity so the inherent handle
             // is used: the blanket trait impl on `Arc` would only lend an
@@ -1160,6 +1190,7 @@ mod tests {
             ExecutionType::Workflow,
         ));
         let link = ParentLink {
+            file_scope: None,
             execution_id: Id::from("wf-parent".to_string()),
             manager: parent_manager,
             cancellation: None,
@@ -1216,6 +1247,7 @@ mod tests {
 
         let parent_token = tokio_util::sync::CancellationToken::new();
         let link = ParentLink {
+            file_scope: None,
             execution_id: Id::from("foreign-parent".to_string()),
             manager: Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 Id::from("foreign-parent".to_string()),
@@ -1298,5 +1330,35 @@ mod tests {
             matches!(err, AgentError::HierarchyLimitReached(_)),
             "depth overflow must surface as HierarchyLimitReached: {err}"
         );
+    }
+
+    #[test]
+    fn inherit_file_scope_rejects_out_of_bounds_child() {
+        let parent_scope = wf_types::config::file_scope::ResolvedFileScope {
+            enabled: true,
+            read_prefixes: vec!["/repo".to_string()],
+            write_prefixes: vec!["/repo/frontend".to_string()],
+            checkpoint_prefixes: vec!["/repo/frontend".to_string()],
+            workdir: None,
+        };
+        let manager = wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+            "p".to_string(),
+            wf_types::execution::ExecutionType::AgentLoop,
+        );
+        let parent = ParentLink {
+            file_scope: Some(parent_scope),
+            execution_id: wf_types::Id::from("p".to_string()),
+            manager: std::sync::Arc::new(manager),
+            cancellation: None,
+        };
+        let mut config = agent_config("a");
+        config.file_scope = Some(wf_types::config::file_scope::ExecutionFileScope {
+            enabled: None,
+            read_prefixes: None,
+            write_prefixes: Some(vec!["/repo/backend".to_string()]),
+            checkpoint_prefixes: None,
+            workdir: None,
+        });
+        assert!(AgentLoopExecutor::inherit_file_scope(config, Some(&parent)).is_err());
     }
 }

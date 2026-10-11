@@ -161,6 +161,7 @@ impl TriggeredAgentExecutionManager {
         // travels as a typed link carrying the parent manager and abort
         // signal. No bare id is written into the input context.
         let parent_link = ParentLink {
+            file_scope: None,
             execution_id: parent.id().clone(),
             // `as_ref` reaches the concrete entity so the inherent handle
             // is used: the blanket trait impl on `Arc` would only lend an
@@ -542,6 +543,7 @@ mod tests {
 
     fn child_config(id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from(id.to_string()),
             model: "mock".to_string(),
             max_iterations: Some(5),

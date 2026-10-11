@@ -98,6 +98,7 @@ fn embed_node(id: &str, sub: &WorkflowGraphStructure) -> WorkflowNode {
 
 fn options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

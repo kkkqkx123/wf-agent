@@ -146,6 +146,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
         let writeback = writeback.unwrap_or_default();
 
         let child_config = AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from(agent_id.clone()),
             model: model.clone().unwrap_or_else(|| "DEFAULT".to_string()),
             max_iterations: None,
@@ -367,6 +368,7 @@ impl AgentTriggerRunner {
         let timeout = *timeout;
         let start = wf_common::now();
         let child_config = AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from(agent_id.clone()),
             model: model.clone().unwrap_or_else(|| "DEFAULT".to_string()),
             max_iterations: None,

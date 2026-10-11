@@ -1,8 +1,21 @@
 use crate::coordinator::events::publish_best_effort_failed;
 use crate::coordinator::queue::{push_persistence_handle, PersistenceQueue};
+use crate::{is_file_channel_closed, ResolvedFileScope};
 use checkpoint_base::error::CheckpointError;
 use checkpoint_file::event::CheckpointEventBus;
 use checkpoint_file::file::FileCheckpointManager;
+
+/// True when the file projection must be skipped for the scope. Closed
+/// channels skip entirely; an explicit empty checkpoint range also skips
+/// because there is nothing to project and no link to record.
+pub fn should_skip_file_projection(scope: Option<&ResolvedFileScope>) -> bool {
+    match scope {
+        None => false,
+        Some(s) => {
+            is_file_channel_closed(Some(s)) || (s.enabled && s.checkpoint_prefixes.is_empty())
+        }
+    }
+}
 
 /// Synchronous best-effort file projection for the entity. Missing file
 /// history yields `Ok` so the state checkpoint never fails. Success and
@@ -14,6 +27,18 @@ pub async fn save_file_snapshot(
     checkpoint_id: &str,
     entity_id: &str,
 ) -> Result<(), CheckpointError> {
+    save_file_snapshot_scoped(file_checkpoint_manager, checkpoint_id, entity_id, None).await
+}
+
+pub async fn save_file_snapshot_scoped(
+    file_checkpoint_manager: Option<&FileCheckpointManager>,
+    checkpoint_id: &str,
+    entity_id: &str,
+    scope: Option<&ResolvedFileScope>,
+) -> Result<(), CheckpointError> {
+    if should_skip_file_projection(scope) {
+        return Ok(());
+    }
     let Some(manager) = file_checkpoint_manager else {
         return Ok(());
     };
@@ -54,6 +79,28 @@ pub async fn enqueue_persistence(
     checkpoint_id: &str,
     entity_id: &str,
 ) {
+    enqueue_persistence_scoped(
+        queue,
+        file_checkpoint_manager,
+        bus,
+        checkpoint_id,
+        entity_id,
+        None,
+    )
+    .await
+}
+
+pub async fn enqueue_persistence_scoped(
+    queue: &PersistenceQueue,
+    file_checkpoint_manager: Option<&FileCheckpointManager>,
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: &str,
+    entity_id: &str,
+    scope: Option<&ResolvedFileScope>,
+) {
+    if should_skip_file_projection(scope) {
+        return;
+    }
     let checkpoint_id = checkpoint_id.to_string();
     let entity_id = entity_id.to_string();
     let file_manager = file_checkpoint_manager.cloned();

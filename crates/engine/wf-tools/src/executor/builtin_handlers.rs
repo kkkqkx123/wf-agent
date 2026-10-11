@@ -66,6 +66,8 @@ pub struct CallAgentParams {
     pub enable_token_tracking: Option<bool>,
     #[serde(default)]
     pub conversation: Vec<Message>,
+    #[serde(default)]
+    pub file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
 }
 
 /// Parameters of the `execute_workflow` tool.
@@ -77,6 +79,8 @@ pub struct ExecuteWorkflowParams {
     pub input: HashMap<String, Value>,
     #[serde(default = "default_wait")]
     pub wait: bool,
+    #[serde(default)]
+    pub file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
 }
 
 /// Parameters shared by `query_workflow_status` and `cancel_workflow`.
@@ -148,6 +152,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             enable_general_tool: params.enable_general_tool,
             activated_tool_names: Vec::new(),
             hidden_tool_names: Vec::new(),
+            file_scope: params.file_scope,
         };
 
         let input = AgentLoopInput {
@@ -211,6 +216,7 @@ impl BuiltinToolHandler for ExecuteWorkflowHandler {
 
         let input = WorkflowInput {
             variables: params.input,
+            file_scope: params.file_scope,
         };
         // The child workflow links under the calling execution through the
         // same typed channel as `call_agent`; without a link it runs as a

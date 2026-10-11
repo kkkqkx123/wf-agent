@@ -493,6 +493,7 @@ async fn resolve_hooks(
 
 pub(crate) fn default_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

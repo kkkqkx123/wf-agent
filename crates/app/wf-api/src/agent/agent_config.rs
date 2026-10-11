@@ -10,6 +10,7 @@ pub const DEFAULT_MAX_ITERATIONS: u32 = 50;
 /// when neither side sets it.
 pub fn build_agent_loop_config(agent_id: Option<String>, model: Option<String>) -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: Id::from(agent_id.unwrap_or_else(|| DEFAULT_AGENT.to_string())),
         model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
         max_iterations: None,

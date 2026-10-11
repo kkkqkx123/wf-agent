@@ -28,17 +28,50 @@ impl FileCheckpointManager {
         base_dir: &Path,
         opts: &FileCheckpointOptions,
     ) -> Result<WorkspaceRestoreResult, CheckpointError> {
+        self.materialize_commit_scoped(commit_id, base_dir, opts, None)
+    }
+
+    /// Range materialization: only files inside `checkpoint_prefixes` are
+    /// expanded, only extras inside the same range are deleted, files
+    /// outside the range are never touched, and empty-dir rebuild stays
+    /// inside the range. `None` means the full tree (legacy); an explicit
+    /// empty list is a no-op. Repeating the same restore skips identical
+    /// content.
+    pub fn materialize_commit_scoped(
+        &self,
+        commit_id: &str,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        checkpoint_prefixes: Option<&[String]>,
+    ) -> Result<WorkspaceRestoreResult, CheckpointError> {
         if !crate::git_store::is_hex_id(commit_id) {
             return Err(CheckpointError::NotFound {
                 id: commit_id.to_string(),
             });
         }
+        if let Some(prefixes) = checkpoint_prefixes {
+            if prefixes.is_empty() {
+                return Ok(WorkspaceRestoreResult::default());
+            }
+        }
         let git = self.git_ref()?;
         let storage = self.storage_ref()?;
         let commit = git.read_commit(commit_id).map_err(map_git_error)?;
         let target_bytes = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+        let in_range = |relative: &str| -> bool {
+            let Some(prefixes) = checkpoint_prefixes else {
+                return true;
+            };
+            let absolute = base_dir.join(relative).to_string_lossy().to_string();
+            prefixes
+                .iter()
+                .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &absolute))
+        };
         let mut target_hash: HashMap<String, String> = HashMap::with_capacity(target_bytes.len());
         for (path, bytes) in &target_bytes {
+            if !in_range(path) {
+                continue;
+            }
             target_hash.insert(path.clone(), sha256_hex(bytes));
         }
 
@@ -79,12 +112,15 @@ impl FileCheckpointManager {
         }
 
         // Delete extras not in the target set; protected ignore names are
-        // never deleted.
+        // never deleted, and files outside the checkpoint range are never
+        // deleted so parallel instances do not clean each other's workspaces.
         let mut extras: Vec<&str> = current
             .files
             .iter()
             .map(|f| f.path.as_str())
-            .filter(|path| !target_hash.contains_key(*path) && !is_hardcoded_ignored(path))
+            .filter(|path| {
+                !target_hash.contains_key(*path) && !is_hardcoded_ignored(path) && in_range(path)
+            })
             .collect();
         extras.sort_unstable();
         for path in extras {
@@ -97,8 +133,12 @@ impl FileCheckpointManager {
 
         // Recreate empty dirs from the manifest (auxiliary and additive:
         // extra directories are kept, a missing manifest restores as empty).
+        // Rebuild stays inside the checkpoint range.
         let empty_dirs = storage.load_empty_dirs(commit_id)?;
         for empty_dir in &empty_dirs {
+            if !in_range(empty_dir) {
+                continue;
+            }
             let dir = resolve_restore_target_with_base(&canonical_base, base_dir, empty_dir)?;
             match std::fs::create_dir_all(&dir) {
                 Ok(()) => {}

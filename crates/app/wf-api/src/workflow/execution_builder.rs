@@ -316,6 +316,7 @@ fn node_info(event: &wf_types::events::BaseEvent) -> Option<NodeExecutedInfo> {
 
 fn default_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

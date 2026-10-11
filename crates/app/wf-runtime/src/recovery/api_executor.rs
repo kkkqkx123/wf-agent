@@ -306,6 +306,7 @@ mod tests {
         // Run partway (after v1) so the auto checkpoint chain holds a genuine
         // mid-execution snapshot.
         let mut partial_options = wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope: None,
             input: None,
             max_steps: None,
             timeout: None,

@@ -6,10 +6,10 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use checkpoint_file::file::{FileCheckpointManager, FileCheckpointOptions, FileState};
-use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
-use checkpoint_file::scan::{ScanConfig, WorkspaceScanner};
-use checkpoint_file::watcher::{FileChangeKind, FileChangeRecord};
+use wf_checkpoint::file::{FileCheckpointManager, FileCheckpointOptions, FileState};
+use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use wf_checkpoint::scan::{ScanConfig, WorkspaceScanner};
+use wf_checkpoint::watcher::{FileChangeKind, FileChangeRecord};
 
 use crate::ApiResult;
 
@@ -136,7 +136,7 @@ pub fn get_actor_workspace(
 /// List files with unresolved merge conflicts.
 pub fn list_conflicts(
     manager: &FileCheckpointManager,
-) -> ApiResult<Vec<checkpoint_file::provenance::ConflictFile>> {
+) -> ApiResult<Vec<wf_checkpoint::provenance::ConflictFile>> {
     let conflicts = manager
         .list_conflicts()
         .map_err(crate::ApiError::execution_with_source)?;

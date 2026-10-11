@@ -99,6 +99,7 @@ impl NodeBuilder<NoType> {
         risk: ScriptRisk,
     ) -> NodeBuilder<Typed> {
         let config = ScriptNodeConfig {
+            file_scope: None,
             script_name: script_name.into(),
             risk,
             inline: None,

@@ -38,7 +38,7 @@ pub struct WorkflowLifecycleCoordinator {
     /// Optional file checkpoint manager: file snapshots are created on
     /// checkpoint persistence and restored after workflow restore
     /// (best-effort).
-    file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
+    file_checkpoint_manager: Option<wf_checkpoint::FileCheckpointManager>,
 }
 
 impl WorkflowLifecycleCoordinator {
@@ -65,7 +65,7 @@ impl WorkflowLifecycleCoordinator {
     /// created/restored through it (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: checkpoint_file::file::FileCheckpointManager,
+        manager: wf_checkpoint::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager);
         self
@@ -199,9 +199,20 @@ impl WorkflowLifecycleCoordinator {
             workflow_id,
             self.event_bus.clone(),
             tool_registry,
-            options,
+            options.clone(),
         )
         .with_hierarchy_manager(entity.hierarchy_manager());
+        if let Some(override_scope) = options.file_scope.as_ref() {
+            if let Ok(resolved) = wf_checkpoint::resolve_execution_scope_checked(
+                None,
+                None,
+                None,
+                Some(override_scope),
+                None,
+            ) {
+                ctx = ctx.with_file_scope(Some(resolved));
+            }
+        }
         // The coordinator and the entity share one variable map so that
         // checkpoints (built from the entity) capture live variables.
         ctx.variables = entity.variables().clone();

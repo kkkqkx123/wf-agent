@@ -101,6 +101,7 @@ async fn prefetch_template_executes_as_subgraph_child() {
         "maxResults": 12,
     });
     let options = WorkflowExecutionOptions {
+        file_scope: None,
         input: Some(input.clone()),
         max_steps: None,
         timeout: None,

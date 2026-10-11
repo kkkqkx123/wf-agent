@@ -1,7 +1,7 @@
-use checkpoint_file::file::session::EditGroup;
-use checkpoint_file::file::FileCheckpointOptions;
-use checkpoint_file::gc::{GcRetention, GcStats};
-use checkpoint_file::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use wf_checkpoint::file::session::EditGroup;
+use wf_checkpoint::file::FileCheckpointOptions;
+use wf_checkpoint::gc::{GcRetention, GcStats};
+use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 
 use super::file::FileCheckpointSummary;
 use crate::infra::context::ApiContext;
@@ -10,7 +10,7 @@ use crate::ApiResult;
 
 /// The attached file checkpoint manager, or an error when file
 /// checkpointing is disabled.
-fn manager(ctx: &ApiContext) -> ApiResult<&checkpoint_file::file::FileCheckpointManager> {
+fn manager(ctx: &ApiContext) -> ApiResult<&wf_checkpoint::FileCheckpointManager> {
     ctx.file_checkpoint_manager().ok_or_else(|| {
         ApiError::execution("file checkpointing is not enabled; set file_checkpoint.enabled=true")
     })
@@ -19,11 +19,12 @@ fn manager(ctx: &ApiContext) -> ApiResult<&checkpoint_file::file::FileCheckpoint
 /// Workspace root bound to the attached manager, or an error when the
 /// manager has no workspace bound (direct workspace writes need one).
 fn bound_workspace_root(
-    manager: &checkpoint_file::file::FileCheckpointManager,
+    manager: &wf_checkpoint::FileCheckpointManager,
 ) -> ApiResult<std::path::PathBuf> {
-    manager.workspace_root().map(|root| root.to_path_buf()).ok_or_else(|| {
-        ApiError::execution("file checkpoint workspace root is not configured")
-    })
+    manager
+        .workspace_root()
+        .map(|root| root.to_path_buf())
+        .ok_or_else(|| ApiError::execution("file checkpoint workspace root is not configured"))
 }
 
 /// Create a full workspace checkpoint for an actor against the bound
@@ -133,7 +134,7 @@ pub fn diff_against_main(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileDif
 pub fn file_timeline(
     ctx: &ApiContext,
     path: &str,
-) -> ApiResult<checkpoint_file::provenance::FileTimeline> {
+) -> ApiResult<wf_checkpoint::provenance::FileTimeline> {
     manager(ctx)?
         .file_timeline(path)
         .map_err(ApiError::execution_with_source)
@@ -146,7 +147,7 @@ pub const MAX_FILE_TIMELINE_ENTRIES: usize = 5000;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FileTimelineView {
     pub original_path: String,
-    pub entries: Vec<checkpoint_file::provenance::FileTimelineEntry>,
+    pub entries: Vec<wf_checkpoint::provenance::FileTimelineEntry>,
     pub truncated: bool,
     pub total: usize,
 }

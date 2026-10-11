@@ -104,6 +104,7 @@ mod e2e {
             approval_options: None,
             approval_handler: None,
             config: AgentLoopConfig {
+                file_scope: None,
                 agent_id: Id::from("cli"),
                 model: "mock".into(),
                 max_iterations: Some(50),

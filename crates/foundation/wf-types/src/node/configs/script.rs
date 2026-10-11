@@ -41,6 +41,10 @@ pub struct ScriptNodeConfig {
     /// profile/rule routing at execution time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<SandboxConfig>,
+    /// Optional per-node filesystem scope. Missing inherits the execution
+    /// scope; explicit values override per field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_scope: Option<crate::config::file_scope::ExecutionFileScope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -68,6 +72,10 @@ pub struct InteractiveScriptNodeConfig {
     /// profile/rule routing at execution time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<SandboxConfig>,
+    /// Optional per-node filesystem scope. Missing inherits the execution
+    /// scope; explicit values override per field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_scope: Option<crate::config::file_scope::ExecutionFileScope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

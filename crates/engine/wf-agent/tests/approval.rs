@@ -57,6 +57,7 @@ fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
 
 fn config() -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: "approval-agent".to_string(),
         model: "mock".to_string(),
         max_iterations: Some(5),

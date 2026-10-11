@@ -53,6 +53,7 @@ impl FileCheckpointManager {
             clock: CheckpointClock::system(),
             event_bus: None,
             workspace_root: None,
+            default_scope: None,
             actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),
@@ -73,6 +74,7 @@ impl FileCheckpointManager {
             None => Self::new_in_memory()?,
         };
         manager.workspace_root = config.workspace_root.as_ref().map(PathBuf::from);
+        manager.default_scope = config.default_scope.clone();
         manager.policy.scan_config = ScanConfig {
             custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
             failure_behavior: config.failure_behavior,
@@ -133,6 +135,7 @@ impl FileCheckpointManager {
             clock: CheckpointClock::system(),
             event_bus: None,
             workspace_root: None,
+            default_scope: None,
             actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),

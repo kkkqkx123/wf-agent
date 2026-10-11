@@ -326,6 +326,7 @@ mod tests {
 
     fn empty_config(agent_id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: wf_types::Id::from(agent_id.to_string()),
             model: "mock".into(),
             max_iterations: None,

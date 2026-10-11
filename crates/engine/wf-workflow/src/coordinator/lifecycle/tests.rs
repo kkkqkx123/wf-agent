@@ -102,6 +102,7 @@ async fn test_execute_then_resume() {
         workflow_id: workflow_id.clone(),
         graph: make_graph(),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(serde_json::json!({"greeting": "hello"})),
             max_steps: Some(2),
             timeout: None,
@@ -184,6 +185,7 @@ async fn test_checkpoints_disabled_execution_skips_checkpointing() {
         workflow_id: wf_types::Id::from("wf-no-cp".to_string()),
         graph: make_graph(),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(serde_json::json!({"greeting": "hello"})),
             max_steps: Some(2),
             timeout: None,
@@ -217,6 +219,7 @@ async fn test_checkpoints_disabled_execution_skips_checkpointing() {
 
 fn options_with(input: Option<Value>) -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input,
         max_steps: None,
         timeout: None,
@@ -524,6 +527,7 @@ async fn test_max_execution_timeout_interrupts_workflow() {
         workflow_id: wf_types::Id::from("wf-timeout-1".to_string()),
         graph: linear_graph_with_count(50),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             max_execution_time: Some(1),
             ..options_with(None)
         },
@@ -595,6 +599,7 @@ async fn test_before_node_checkpoint_persisted() {
         workflow_id: wf_types::Id::from("wf-before-1".to_string()),
         graph: make_graph(),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             max_steps: Some(2),
             ..options_with(None)
         },
@@ -1039,6 +1044,7 @@ async fn test_resume_from_before_node_checkpoint() {
         workflow_id: workflow_id.clone(),
         graph: make_graph(),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             max_steps: Some(2),
             ..options_with(Some(serde_json::json!({"greeting": "hello"})))
         },

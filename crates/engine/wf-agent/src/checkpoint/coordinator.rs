@@ -116,7 +116,7 @@ impl AgentCheckpointIntegration {
     /// entity is restored after a checkpoint restore (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: checkpoint_file::file::FileCheckpointManager,
+        manager: wf_checkpoint::FileCheckpointManager,
     ) -> Self {
         self.inner = self.inner.with_file_checkpoint_manager(manager);
         self

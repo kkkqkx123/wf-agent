@@ -35,6 +35,166 @@ fn resolve_scope_dir(
     Some(wf_types::effect::normalize_effect_path(&absolute))
 }
 
+fn ensure_shell_path_in_scope(
+    path: &std::path::Path,
+    scope: &wf_types::config::file_scope::ResolvedFileScope,
+    want_write: bool,
+    execution: &str,
+) -> Result<(), ToolError> {
+    use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    if !path.is_absolute() {
+        tracing::warn!(
+            execution = %execution,
+            path = %path.display(),
+            "shell scope violation: relative command path without base"
+        );
+        return Err(ToolError::ExecutionError(format!(
+            "command path '{}' outside allowed {} prefixes",
+            path.display(),
+            if want_write { "write" } else { "read" }
+        )));
+    }
+    let lexical = normalize_scope_path(&path.to_string_lossy());
+    let bounds = if want_write {
+        &scope.write_prefixes
+    } else {
+        &scope.read_prefixes
+    };
+    if !bounds
+        .iter()
+        .any(|bound| scope_path_contains(bound, &lexical))
+    {
+        tracing::warn!(
+            execution = %execution,
+            path = %path.display(),
+            want_write = want_write,
+            "shell scope violation: command path outside allowed prefixes"
+        );
+        return Err(ToolError::ExecutionError(format!(
+            "command path '{}' outside allowed {} prefixes",
+            path.display(),
+            if want_write { "write" } else { "read" }
+        )));
+    }
+    let physical = path.canonicalize().ok().or_else(|| {
+        path.parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .and_then(|parent| parent.canonicalize().ok())
+            .and_then(|pp| path.file_name().map(|name| pp.join(name)))
+    });
+    if let Some(physical) = physical {
+        let physical_str = physical.to_string_lossy().to_string();
+        if !bounds
+            .iter()
+            .any(|bound| scope_path_contains(bound, &physical_str))
+        {
+            tracing::warn!(
+                execution = %execution,
+                path = %path.display(),
+                physical = %physical.display(),
+                "shell scope violation: command path escapes through symlink"
+            );
+            return Err(ToolError::ExecutionError(format!(
+                "command path '{}' escapes allowed {} prefixes through symlink",
+                path.display(),
+                if want_write { "write" } else { "read" }
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn resolve_command_path(
+    raw: &str,
+    scope_dir: Option<&std::path::PathBuf>,
+    default_dir: Option<&std::path::PathBuf>,
+) -> std::path::PathBuf {
+    let candidate = std::path::Path::new(raw);
+    if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(base) = scope_dir.or(default_dir) {
+        base.join(candidate)
+    } else {
+        std::env::current_dir()
+            .ok()
+            .map(|cwd| cwd.join(candidate))
+            .unwrap_or_else(|| candidate.to_path_buf())
+    }
+}
+
+fn check_shell_scope(
+    scope_dir: Option<&std::path::PathBuf>,
+    command: &str,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+    default_dir: Option<&std::path::PathBuf>,
+    execution: &str,
+) -> Result<(), ToolError> {
+    let Some(scope) = scope else {
+        return Ok(());
+    };
+    if !scope.enabled {
+        return Ok(());
+    }
+    let Some(dir) = scope_dir else {
+        tracing::warn!(
+            execution = %execution,
+            "shell scope violation: missing startup directory"
+        );
+        return Err(ToolError::ExecutionError(
+            "startup directory outside allowed prefixes: no working directory".to_string(),
+        ));
+    };
+    let inside_read_or_write = scope
+        .read_prefixes
+        .iter()
+        .chain(scope.write_prefixes.iter())
+        .any(|bound| {
+            wf_types::config::file_scope::scope_path_contains(
+                bound,
+                &wf_types::config::file_scope::normalize_scope_path(&dir.to_string_lossy()),
+            )
+        });
+    if !inside_read_or_write {
+        tracing::warn!(
+            execution = %execution,
+            path = %dir.display(),
+            "shell scope violation: startup directory outside allowed prefixes"
+        );
+        return Err(ToolError::ExecutionError(format!(
+            "startup directory '{}' outside allowed prefixes",
+            dir.display()
+        )));
+    }
+    ensure_shell_path_in_scope(dir, scope, false, execution)
+        .or_else(|_| ensure_shell_path_in_scope(dir, scope, true, execution))?;
+    let chains = wf_sandbox::parse_command_chain(command);
+    for chain in &chains {
+        let tokens = chain
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let (reads, writes) = wf_sandbox::extract_file_paths(&tokens);
+        for raw in &writes {
+            let resolved = resolve_command_path(raw, Some(dir), default_dir);
+            ensure_shell_path_in_scope(&resolved, scope, true, execution)?;
+        }
+        for raw in &reads {
+            let resolved = resolve_command_path(raw, Some(dir), default_dir);
+            let under_workspace = default_dir.is_some_and(|ws| {
+                resolved.starts_with(ws)
+                    || wf_types::config::file_scope::scope_path_contains(
+                        &ws.to_string_lossy(),
+                        &resolved.to_string_lossy(),
+                    )
+            });
+            if under_workspace {
+                ensure_shell_path_in_scope(&resolved, scope, false, execution)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Create the async handler for the execute_command tool.
 ///
 /// The final working directory follows the `parameters.cwd` first,
@@ -79,17 +239,28 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
 
             // Final cwd: explicit `parameters.cwd` wins, otherwise the tool
             // default workspace dir. Preserved for the observer input.
+            let effective_default = ctx
+                .file_scope
+                .as_ref()
+                .and_then(|s| s.workdir.as_ref().map(std::path::PathBuf::from))
+                .or_else(|| config.workspace_dir.clone());
             let cwd = parameters
                 .get("cwd")
                 .and_then(|v| v.as_str())
                 .map(String::from)
                 .or_else(|| {
-                    config
-                        .workspace_dir
+                    effective_default
                         .as_ref()
                         .map(|p| p.to_string_lossy().to_string())
                 });
-            let scope_dir = resolve_scope_dir(cwd.as_deref(), config.workspace_dir.as_ref());
+            let scope_dir = resolve_scope_dir(cwd.as_deref(), effective_default.as_ref());
+            check_shell_scope(
+                scope_dir.as_ref(),
+                &command,
+                ctx.file_scope.as_ref(),
+                effective_default.as_ref(),
+                &ctx.execution_id.to_string(),
+            )?;
 
             let input = parameters.get("input").and_then(|v| v.as_str());
 
@@ -103,6 +274,31 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 }
             }
 
+            let effective_sandbox = ctx.file_scope.as_ref().map(|scope| {
+                let mut policy = config.sandbox_policy.clone().unwrap_or(
+                    wf_types::script::sandbox::SandboxPolicy {
+                        mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
+                        shell: None,
+                        python: None,
+                        javascript: None,
+                        lua: None,
+                        filesystem: None,
+                        process: None,
+                        network: None,
+                        resource: None,
+                    },
+                );
+                let fs = policy
+                    .filesystem
+                    .get_or_insert(wf_types::script::sandbox::FilesystemPolicy::default());
+                fs.allowed_read_paths = Some(scope.read_prefixes.clone());
+                fs.allowed_write_paths = Some(scope.write_prefixes.clone());
+                fs.allowed_remove_paths = Some(scope.write_prefixes.clone());
+                policy
+            });
+            let sandbox_ref = effective_sandbox
+                .as_ref()
+                .or(config.sandbox_policy.as_ref());
             let start = Instant::now();
             let output = match run_command(
                 &command,
@@ -110,7 +306,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 timeout_ms,
                 config.shell_type,
                 input,
-                config.sandbox_policy.as_ref(),
+                sandbox_ref,
             )
             .await
             {

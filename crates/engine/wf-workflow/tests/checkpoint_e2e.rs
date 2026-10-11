@@ -157,6 +157,7 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
     let g = linear_graph();
 
     let first_opts = WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,
@@ -216,6 +217,7 @@ async fn checkpoint_disabled_runs_without_store() {
             workflow_id,
             graph: linear_graph(),
             options: WorkflowExecutionOptions {
+                file_scope: None,
                 input: None,
                 max_steps: None,
                 timeout: None,

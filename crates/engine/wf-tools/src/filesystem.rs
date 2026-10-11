@@ -8,6 +8,7 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::trait_def::ToolExecutionContext;
 use crate::ignore::{IgnoreController, IgnoreMode};
 use crate::protect::ProtectController;
+use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
 
 const DEFAULT_MAX_FILE_SIZE: u64 = 500_000;
 const DEFAULT_MAX_CHARS: usize = 50_000;
@@ -58,15 +59,117 @@ impl FsToolHandlers {
         self
     }
 
-    fn resolve_path(&self, path: &str) -> PathBuf {
-        let p = Path::new(path);
-        if p.is_absolute() {
-            p.to_path_buf()
-        } else if let Some(base) = &self.config.workspace_dir {
-            base.join(p)
+    fn scoped_base(&self, ctx: &ToolExecutionContext) -> Option<PathBuf> {
+        ctx.file_scope
+            .as_ref()
+            .and_then(|s| s.workdir.as_ref().map(PathBuf::from))
+            .or_else(|| self.config.workspace_dir.clone())
+    }
+
+    fn resolve_scoped(&self, path: &str, ctx: &ToolExecutionContext) -> PathBuf {
+        let candidate = Path::new(path);
+        if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else if let Some(base) = self.scoped_base(ctx) {
+            base.join(candidate)
         } else {
-            p.to_path_buf()
+            candidate.to_path_buf()
         }
+    }
+
+    fn ensure_in_scope(
+        &self,
+        resolved: &Path,
+        ctx: &ToolExecutionContext,
+        want_write: bool,
+    ) -> ToolResult<PathBuf> {
+        let Some(scope) = ctx.file_scope.as_ref() else {
+            return Ok(resolved.to_path_buf());
+        };
+        if !scope.enabled {
+            return Ok(resolved.to_path_buf());
+        }
+        if !resolved.is_absolute() {
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                path = %resolved.display(),
+                "filesystem scope violation: relative path without base"
+            );
+            return Err(ToolError::ExecutionError(format!(
+                "path '{}' outside allowed {} prefixes: relative path without base",
+                resolved.display(),
+                if want_write { "write" } else { "read" }
+            )));
+        }
+        let lexical = normalize_scope_path(&resolved.to_string_lossy());
+        let bounds = if want_write {
+            &scope.write_prefixes
+        } else {
+            &scope.read_prefixes
+        };
+        let lexically_inside = bounds
+            .iter()
+            .any(|bound| scope_path_contains(bound, &lexical));
+        if !lexically_inside {
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                path = %resolved.display(),
+                want_write = want_write,
+                "filesystem scope violation: outside allowed prefixes"
+            );
+            return Err(ToolError::ExecutionError(format!(
+                "path '{}' outside allowed {} prefixes",
+                resolved.display(),
+                if want_write { "write" } else { "read" }
+            )));
+        }
+        if let Ok(physical) = resolved.canonicalize() {
+            let physical_str = physical.to_string_lossy().to_string();
+            let physically_inside = bounds
+                .iter()
+                .any(|bound| scope_path_contains(bound, &physical_str));
+            if !physically_inside {
+                tracing::warn!(
+                    execution = %ctx.execution_id,
+                    path = %resolved.display(),
+                    physical = %physical.display(),
+                    "filesystem scope violation: symlink escapes allowed prefixes"
+                );
+                return Err(ToolError::ExecutionError(format!(
+                    "path '{}' escapes allowed {} prefixes through symlink",
+                    resolved.display(),
+                    if want_write { "write" } else { "read" }
+                )));
+            }
+            return Ok(physical);
+        }
+        if let Some(parent) = resolved.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Ok(physical_parent) = parent.canonicalize() {
+                    if let Some(name) = resolved.file_name() {
+                        let physical = physical_parent.join(name);
+                        let physical_str = physical.to_string_lossy().to_string();
+                        let physically_inside = bounds
+                            .iter()
+                            .any(|bound| scope_path_contains(bound, &physical_str));
+                        if !physically_inside {
+                            tracing::warn!(
+                                execution = %ctx.execution_id,
+                                path = %resolved.display(),
+                                physical = %physical.display(),
+                                "filesystem scope violation: parent symlink escapes prefixes"
+                            );
+                            return Err(ToolError::ExecutionError(format!(
+                                "path '{}' escapes allowed {} prefixes through symlink",
+                                resolved.display(),
+                                if want_write { "write" } else { "read" }
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(PathBuf::from(lexical))
     }
 
     fn ignore_controller(&self) -> Option<IgnoreController> {
@@ -90,9 +193,10 @@ impl FsToolHandlers {
     }
 
     /// read_file: read a file with optional 1-indexed offset and line limit.
-    pub fn read_file(&self, parameters: &Value) -> ToolResult<Value> {
+    pub fn read_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, false)?;
 
         let offset = parameters
             .get("offset")
@@ -185,7 +289,8 @@ impl FsToolHandlers {
     pub fn write_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let content = require_string(parameters, "content")?;
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
             return Err(ToolError::ExecutionError(format!(
@@ -228,7 +333,8 @@ impl FsToolHandlers {
         let file_path = require_string(parameters, "path")?;
         let old_string = require_string(parameters, "old_string")?;
         let new_string = require_string(parameters, "new_string")?;
-        let path = self.resolve_path(file_path);
+        let resolved = self.resolve_scoped(file_path, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, true)?;
 
         if old_string.is_empty() {
             return Err(ToolError::ValidationFailed(
@@ -281,22 +387,24 @@ impl FsToolHandlers {
     }
 
     /// list_files: list files and directories, optionally recursively.
-    pub fn list_files(&self, parameters: &Value) -> ToolResult<Value> {
+    pub fn list_files(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let recursive = parameters
             .get("recursive")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, false)?;
 
         validate_directory(&path)?;
         let ignore = self.ignore_controller();
+        let scope = ctx.file_scope.as_ref();
 
         let mut entries: Vec<(String, String)> = Vec::new();
         if recursive {
-            walk_recursive(&path, &path, &mut entries, ignore.as_ref(), 0);
+            walk_recursive(&path, &path, &mut entries, ignore.as_ref(), 0, scope);
         } else {
-            walk_flat(&path, &path, &mut entries, ignore.as_ref());
+            walk_flat(&path, &path, &mut entries, ignore.as_ref(), scope);
         }
 
         let truncated = entries.len() > self.config.max_results;
@@ -344,10 +452,11 @@ impl FsToolHandlers {
     }
 
     /// grep_search: regex search over file contents within a directory.
-    pub fn grep_search(&self, parameters: &Value) -> ToolResult<Value> {
+    pub fn grep_search(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let pattern = require_string(parameters, "pattern")?;
         let path_str = require_string(parameters, "path")?;
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, false)?;
 
         let regex = Regex::new(pattern).map_err(|e| {
             ToolError::ValidationFailed(format!("Invalid regex pattern '{}': {}", pattern, e))
@@ -364,9 +473,16 @@ impl FsToolHandlers {
 
         validate_directory(&path)?;
         let ignore = self.ignore_controller();
+        let scope = ctx.file_scope.as_ref();
 
         let mut files: Vec<PathBuf> = Vec::new();
-        collect_files(&path, &mut files, include_glob.as_ref(), ignore.as_ref());
+        collect_files(
+            &path,
+            &mut files,
+            include_glob.as_ref(),
+            ignore.as_ref(),
+            scope,
+        );
 
         let mut out = String::new();
         let mut result_count = 0usize;
@@ -416,10 +532,11 @@ impl FsToolHandlers {
     }
 
     /// glob_search: find files matching a glob pattern relative to the search path.
-    pub fn glob_search(&self, parameters: &Value) -> ToolResult<Value> {
+    pub fn glob_search(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let pattern = require_string(parameters, "pattern")?;
         let path_str = require_string(parameters, "path")?;
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, false)?;
 
         let glob = Glob::new(pattern)
             .map(|g| g.compile_matcher())
@@ -429,6 +546,7 @@ impl FsToolHandlers {
 
         validate_directory(&path)?;
         let ignore = self.ignore_controller();
+        let scope = ctx.file_scope.as_ref();
 
         let mut entries: Vec<(String, String)> = Vec::new();
         collect_glob_matches(
@@ -438,6 +556,7 @@ impl FsToolHandlers {
             &mut entries,
             ignore.as_ref(),
             DEFAULT_GLOB_MAX_RESULTS,
+            scope,
         );
         entries.sort_by(|a, b| {
             type_rank(&b.1)
@@ -498,11 +617,50 @@ impl FsToolHandlers {
         let mut succeeded = 0usize;
 
         for hunk in hunks {
-            let path = self.resolve_path(&hunk.path);
+            let resolved = self.resolve_scoped(&hunk.path, ctx);
+            let scoped = self.ensure_in_scope(&resolved, ctx, true);
+            let path = match scoped {
+                Ok(p) => p,
+                Err(err) => {
+                    tracing::warn!(
+                        execution = %ctx.execution_id,
+                        path = %resolved.display(),
+                        error = %err,
+                        "apply_patch hunk rejected by execution scope"
+                    );
+                    results.push(serde_json::json!({
+                        "path": hunk.path,
+                        "operation": "unknown",
+                        "success": false,
+                        "error": err.to_string(),
+                    }));
+                    continue;
+                }
+            };
+            if let Some(move_path) = hunk.move_path.as_ref() {
+                let dest_resolved = self.resolve_scoped(move_path, ctx);
+                if let Err(err) = self.ensure_in_scope(&dest_resolved, ctx, true) {
+                    tracing::warn!(
+                        execution = %ctx.execution_id,
+                        path = %dest_resolved.display(),
+                        error = %err,
+                        "apply_patch rename destination rejected by execution scope"
+                    );
+                    results.push(serde_json::json!({
+                        "path": hunk.path,
+                        "operation": "rename",
+                        "success": false,
+                        "error": err.to_string(),
+                    }));
+                    continue;
+                }
+            }
             let result = match hunk.op {
                 crate::patch::PatchOp::AddFile => self.apply_patch_add(&hunk, &path),
                 crate::patch::PatchOp::DeleteFile => self.apply_patch_delete(&hunk, &path),
-                crate::patch::PatchOp::UpdateFile => self.apply_patch_update(&hunk, &path),
+                crate::patch::PatchOp::UpdateFile => {
+                    self.apply_patch_update_scoped(&hunk, &path, ctx)
+                }
             };
             if result["success"] == Value::Bool(true) {
                 succeeded += 1;
@@ -520,7 +678,7 @@ impl FsToolHandlers {
                     "rename" => {
                         let new_path = result["new_path"]
                             .as_str()
-                            .map(|s| self.resolve_path(s))
+                            .map(|s| self.resolve_scoped(s, ctx))
                             .unwrap_or_else(|| path.clone());
                         notify_precise(
                             ctx,
@@ -623,7 +781,23 @@ impl FsToolHandlers {
         }
     }
 
-    fn apply_patch_update(&self, hunk: &crate::patch::PatchHunk, path: &Path) -> Value {
+    fn apply_patch_update_scoped(
+        &self,
+        hunk: &crate::patch::PatchHunk,
+        path: &Path,
+        ctx: &ToolExecutionContext,
+    ) -> Value {
+        let scoped_dest = hunk.move_path.as_ref().map(|s| self.resolve_scoped(s, ctx));
+        self.apply_patch_update_inner(hunk, path, scoped_dest.as_deref(), ctx)
+    }
+
+    fn apply_patch_update_inner(
+        &self,
+        hunk: &crate::patch::PatchHunk,
+        path: &Path,
+        scoped_dest: Option<&Path>,
+        ctx: &ToolExecutionContext,
+    ) -> Value {
         if self.is_write_protected(path) {
             return failure_value(hunk, "update", "File is write-protected");
         }
@@ -650,7 +824,16 @@ impl FsToolHandlers {
             };
 
         if let Some(move_path) = &hunk.move_path {
-            let dest = self.resolve_path(move_path);
+            let dest = scoped_dest.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+                let candidate = std::path::Path::new(move_path);
+                if candidate.is_absolute() {
+                    candidate.to_path_buf()
+                } else if let Some(base) = self.scoped_base(ctx) {
+                    base.join(candidate)
+                } else {
+                    candidate.to_path_buf()
+                }
+            });
             if self.is_write_protected(&dest) {
                 return failure_value(hunk, "rename", "Destination file is write-protected");
             }
@@ -697,7 +880,8 @@ impl FsToolHandlers {
     pub fn apply_diff(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let diff = require_string(parameters, "diff")?;
-        let path = self.resolve_path(path_str);
+        let resolved = self.resolve_scoped(path_str, ctx);
+        let path = self.ensure_in_scope(&resolved, ctx, true)?;
 
         if self.is_write_protected(&path) {
             return Err(ToolError::ExecutionError(format!(
@@ -792,14 +976,14 @@ impl FsToolHandlers {
         let this = self.clone();
         let handler = Arc::new(
             move |params: &Value, ctx: &ToolExecutionContext| match tool_name {
-                "read_file" => this.read_file(params),
+                "read_file" => this.read_file(params, ctx),
                 "write_file" => this.write_file(params, ctx),
                 "edit_file" => this.edit_file(params, ctx),
                 "apply_patch" => this.apply_patch(params, ctx),
                 "apply_diff" => this.apply_diff(params, ctx),
-                "list_files" => this.list_files(params),
-                "grep_search" => this.grep_search(params),
-                "glob_search" => this.glob_search(params),
+                "list_files" => this.list_files(params, ctx),
+                "grep_search" => this.grep_search(params, ctx),
+                "glob_search" => this.glob_search(params, ctx),
                 _ => Err(ToolError::NotFound(format!(
                     "No filesystem handler for tool '{}'",
                     tool_name
@@ -893,17 +1077,49 @@ fn validate_directory(path: &Path) -> ToolResult<()> {
     Ok(())
 }
 
+fn scope_allows_read(
+    path: &Path,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
+) -> bool {
+    let Some(scope) = scope else {
+        return true;
+    };
+    if !scope.enabled {
+        return true;
+    }
+    let lexical = wf_types::config::file_scope::normalize_scope_path(&path.to_string_lossy());
+    let lexically_inside = scope
+        .read_prefixes
+        .iter()
+        .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &lexical));
+    if !lexically_inside {
+        return false;
+    }
+    if let Ok(physical) = path.canonicalize() {
+        let physical_str = physical.to_string_lossy().to_string();
+        return scope
+            .read_prefixes
+            .iter()
+            .any(|bound| wf_types::config::file_scope::scope_path_contains(bound, &physical_str));
+    }
+    true
+}
+
 fn walk_flat(
     dir: &Path,
     root: &Path,
     out: &mut Vec<(String, String)>,
     ignore: Option<&IgnoreController>,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if !scope_allows_read(&path, scope) {
+            continue;
+        }
         let rel = path
             .strip_prefix(root)
             .map(|p| p.to_string_lossy().to_string())
@@ -933,6 +1149,7 @@ fn walk_recursive(
     out: &mut Vec<(String, String)>,
     ignore: Option<&IgnoreController>,
     depth: usize,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
 ) {
     if depth > 32 {
         return;
@@ -942,6 +1159,9 @@ fn walk_recursive(
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if !scope_allows_read(&path, scope) {
+            continue;
+        }
         let rel = path
             .strip_prefix(root)
             .map(|p| p.to_string_lossy().to_string())
@@ -958,7 +1178,7 @@ fn walk_recursive(
                 .unwrap_or(true)
             {
                 out.push((rel, "directory".into()));
-                walk_recursive(&path, root, out, ignore, depth + 1);
+                walk_recursive(&path, root, out, ignore, depth + 1, scope);
             }
         } else if path.is_file() && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
             out.push((rel, "file".into()));
@@ -971,12 +1191,16 @@ fn collect_files(
     out: &mut Vec<PathBuf>,
     include: Option<&GlobMatcher>,
     ignore: Option<&IgnoreController>,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if !scope_allows_read(&path, scope) {
+            continue;
+        }
         let rel = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -992,7 +1216,7 @@ fn collect_files(
                 })
                 .unwrap_or(true)
             {
-                collect_files(&path, out, include, ignore);
+                collect_files(&path, out, include, ignore, scope);
             }
         } else if path.is_file()
             && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
@@ -1010,6 +1234,7 @@ fn collect_glob_matches(
     out: &mut Vec<(String, String)>,
     ignore: Option<&IgnoreController>,
     max: usize,
+    scope: Option<&wf_types::config::file_scope::ResolvedFileScope>,
 ) {
     if out.len() >= max {
         return;
@@ -1019,6 +1244,9 @@ fn collect_glob_matches(
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if !scope_allows_read(&path, scope) {
+            continue;
+        }
         let rel = path
             .strip_prefix(root)
             .map(|p| p.to_string_lossy().to_string())
@@ -1038,7 +1266,7 @@ fn collect_glob_matches(
                 })
                 .unwrap_or(true)
             {
-                collect_glob_matches(&path, root, glob, out, ignore, max);
+                collect_glob_matches(&path, root, glob, out, ignore, max, scope);
             }
         } else if path.is_file()
             && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
@@ -1073,14 +1301,18 @@ mod tests {
             workspace_dir: Some(root.clone()),
             ..Default::default()
         });
+        let ctx = ToolExecutionContext::new("test-read".into());
 
         let text = handlers
-            .read_file(&serde_json::json!({ "path": "a.txt" }))
+            .read_file(&serde_json::json!({ "path": "a.txt" }), &ctx)
             .unwrap();
         assert!(text.as_str().unwrap().contains("1|line1"));
 
         let sliced = handlers
-            .read_file(&serde_json::json!({ "path": "a.txt", "offset": 2, "limit": 2 }))
+            .read_file(
+                &serde_json::json!({ "path": "a.txt", "offset": 2, "limit": 2 }),
+                &ctx,
+            )
             .unwrap();
         let s = sliced.as_str().unwrap();
         assert!(s.contains("2|line2"));
@@ -1156,7 +1388,10 @@ mod tests {
         });
 
         let flat = handlers
-            .list_files(&serde_json::json!({ "path": "." }))
+            .list_files(
+                &serde_json::json!({ "path": "." }),
+                &ToolExecutionContext::new("test-list".into()),
+            )
             .unwrap();
         let flat_json = flat.as_object().unwrap();
         assert_eq!(flat_json["entries"].as_array().unwrap().len(), 2);
@@ -1165,7 +1400,10 @@ mod tests {
         assert!(display.contains("[FILE] README.md"));
 
         let recursive = handlers
-            .list_files(&serde_json::json!({ "path": ".", "recursive": true }))
+            .list_files(
+                &serde_json::json!({ "path": ".", "recursive": true }),
+                &ToolExecutionContext::new("test-list".into()),
+            )
             .unwrap();
         let entries = recursive["entries"].as_array().unwrap();
         assert!(entries.iter().any(|e| e["name"] == "src/sub/lib.rs"));
@@ -1187,18 +1425,27 @@ mod tests {
         });
 
         let out = handlers
-            .grep_search(&serde_json::json!({ "pattern": "fn main", "path": "." }))
+            .grep_search(
+                &serde_json::json!({ "pattern": "fn main", "path": "." }),
+                &ToolExecutionContext::new("test-grep".into()),
+            )
             .unwrap();
         let s = out.as_str().unwrap();
         assert!(s.contains("# src/main.rs"));
         assert!(s.contains("1 | fn main()"));
 
         let none = handlers
-            .grep_search(&serde_json::json!({ "pattern": "zzz", "path": "." }))
+            .grep_search(
+                &serde_json::json!({ "pattern": "zzz", "path": "." }),
+                &ToolExecutionContext::new("test-grep".into()),
+            )
             .unwrap();
         assert_eq!(none.as_str().unwrap(), "No matches found");
 
-        let bad = handlers.grep_search(&serde_json::json!({ "pattern": "[", "path": "." }));
+        let bad = handlers.grep_search(
+            &serde_json::json!({ "pattern": "[", "path": "." }),
+            &ToolExecutionContext::new("test-grep".into()),
+        );
         assert!(bad.is_err());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1218,14 +1465,20 @@ mod tests {
         });
 
         let out = handlers
-            .glob_search(&serde_json::json!({ "pattern": "**/*.rs", "path": "." }))
+            .glob_search(
+                &serde_json::json!({ "pattern": "**/*.rs", "path": "." }),
+                &ToolExecutionContext::new("test-glob".into()),
+            )
             .unwrap();
         let entries = out["entries"].as_array().unwrap();
         assert!(entries.iter().any(|e| e["name"] == "src/main.rs"));
         assert!(entries.iter().any(|e| e["name"] == "src/sub/lib.rs"));
 
         let none = handlers
-            .glob_search(&serde_json::json!({ "pattern": "*.toml", "path": "." }))
+            .glob_search(
+                &serde_json::json!({ "pattern": "*.toml", "path": "." }),
+                &ToolExecutionContext::new("test-glob".into()),
+            )
             .unwrap();
         assert!(none["display"]
             .as_str()
@@ -1321,5 +1574,109 @@ mod tests {
             )
             .unwrap();
         assert!(out.as_str().unwrap().contains("Successfully wrote"));
+    }
+
+    fn scoped_ctx(
+        execution: &str,
+        root: &std::path::Path,
+        write_sub: &str,
+    ) -> ToolExecutionContext {
+        let write_prefix = root.join(write_sub).to_string_lossy().to_string();
+        let root_str = root.to_string_lossy().to_string();
+        ToolExecutionContext::new(execution.into()).with_file_scope(Some(
+            wf_types::config::file_scope::ResolvedFileScope {
+                enabled: true,
+                read_prefixes: vec![root_str.clone()],
+                write_prefixes: vec![write_prefix],
+                checkpoint_prefixes: vec![root.join(write_sub).to_string_lossy().to_string()],
+                workdir: Some(root_str),
+            },
+        ))
+    }
+
+    #[test]
+    fn out_of_scope_write_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::fs::create_dir_all(root.path().join("backend")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-frontend", root.path(), "frontend");
+        let outside = root.path().join("backend/out.txt");
+        let err = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": outside.to_str().unwrap(),
+                    "content": "x"
+                }),
+                &ctx,
+            )
+            .expect_err("outside write must fail");
+        assert!(err.to_string().contains("outside allowed write"));
+        assert!(!outside.exists());
+        let inside = root.path().join("frontend/in.txt");
+        handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": inside.to_str().unwrap(),
+                    "content": "ok"
+                }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(inside.exists());
+    }
+
+    #[test]
+    fn sibling_prefix_does_not_match() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("app")).unwrap();
+        std::fs::create_dir_all(root.path().join("application")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-app", root.path(), "app");
+        let sibling = root.path().join("application/out.txt");
+        let err = handlers
+            .write_file(
+                &serde_json::json!({
+                    "path": sibling.to_str().unwrap(),
+                    "content": "x"
+                }),
+                &ctx,
+            )
+            .expect_err("sibling prefix must not match");
+        assert!(err.to_string().contains("outside allowed write"));
+    }
+
+    #[test]
+    fn symlink_escape_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+        std::fs::create_dir_all(root.path().join("frontend")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("frontend/evil")).unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = scoped_ctx("exec-link", root.path(), "frontend");
+        let via_link = root.path().join("frontend/evil/secret.txt");
+        let read = handlers.read_file(
+            &serde_json::json!({ "path": via_link.to_str().unwrap() }),
+            &ctx,
+        );
+        assert!(read.is_err());
+        let err = read.expect_err("symlink escape must fail");
+        assert!(
+            err.to_string().contains("outside allowed") || err.to_string().contains("escapes"),
+            "unexpected error: {err}"
+        );
     }
 }

@@ -231,6 +231,7 @@ fn options_with(
     max_execution_time: Option<u64>,
 ) -> wf_types::workflow_execution::WorkflowExecutionOptions {
     wf_types::workflow_execution::WorkflowExecutionOptions {
+        file_scope: None,
         timeout,
         max_execution_time,
         ..crate::workflow::composition::empty_options()

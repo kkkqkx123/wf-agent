@@ -31,6 +31,9 @@ pub struct ExecutorContext {
     /// executions build their own integration from it (depth-adjusted
     /// strategy); `None` means checkpoints stay disabled below this point.
     pub checkpoint_scope: Option<crate::checkpoint_scope::CheckpointScope>,
+    /// Resolved execution filesystem scope. `None` keeps the legacy global
+    /// workspace behavior; `Some` gates tool paths and checkpoint capture.
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     pub metrics: Option<Arc<MetricsRegistry>>,
     /// Execution-scoped token usage tracker shared by LLM nodes.
     pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
@@ -78,6 +81,7 @@ impl ExecutorContext {
             variables: Arc::new(DashMap::new()),
             options,
             checkpoint_scope: None,
+            file_scope: None,
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
             hook_handler_registry: None,
@@ -205,6 +209,15 @@ impl ExecutorContext {
         self.checkpoint_scope = Some(scope);
         self
     }
+
+    /// Inject the resolved execution filesystem scope.
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.file_scope = scope;
+        self
+    }
 }
 
 /// How a node's `input` was produced from its incoming edges.
@@ -312,6 +325,10 @@ pub struct NodeExecutionContext {
     /// checkpoint-enabled parent yields checkpoint-capable children.
     /// `None` means the parent did not declare a value (treat as enabled).
     pub parent_checkpoints_enabled: Option<bool>,
+    /// Resolved execution filesystem scope inherited from the parent
+    /// execution. Branch and sub-workflow children derive their own scope
+    /// from it; `None` keeps legacy global behavior.
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
 }
 
 impl NodeExecutionContext {
@@ -352,6 +369,7 @@ impl NodeExecutionContext {
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
             parent_checkpoints_enabled: None,
+            file_scope: None,
         }
     }
 
@@ -428,6 +446,15 @@ impl NodeExecutionContext {
 
     pub fn with_parent_checkpoints(mut self, enabled: Option<bool>) -> Self {
         self.parent_checkpoints_enabled = enabled;
+        self
+    }
+
+    /// Inject the resolved execution filesystem scope.
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.file_scope = scope;
         self
     }
 

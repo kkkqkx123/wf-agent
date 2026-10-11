@@ -110,6 +110,7 @@ struct ForkRuntime {
     execution_id: wf_types::Id,
     parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
+    file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     parent_checkpoints_enabled: Option<bool>,
     node_id: String,
 }
@@ -120,6 +121,7 @@ impl ForkRuntime {
             parent_execution_id: self.execution_id.clone(),
             parent_manager: self.parent_manager.clone(),
             checkpoint_scope: self.checkpoint_scope.clone(),
+            file_scope: self.file_scope.clone(),
             parent_checkpoints_enabled: self.parent_checkpoints_enabled,
             node_id: self.node_id.clone(),
             graph: self.graph.clone(),
@@ -132,6 +134,7 @@ impl ForkRuntime {
                 event_bus: self.branch_ctx.event_bus.clone(),
                 tool_registry: self.branch_ctx.tool_registry.clone(),
                 resource_registries: self.branch_ctx.resource_registries.clone(),
+                file_scope: self.branch_ctx.file_scope.clone(),
                 parent_variables: self.branch_ctx.parent_variables.clone(),
                 tool_approval_options: self.branch_ctx.tool_approval_options.clone(),
                 tool_approval_handler: self.branch_ctx.tool_approval_handler.clone(),
@@ -395,6 +398,7 @@ impl ForkHandler {
                 event_bus,
                 tool_registry: ctx.tool_registry.clone(),
                 resource_registries: ctx.resource_registries.clone(),
+                file_scope: ctx.file_scope.clone(),
                 parent_variables: ctx.variables.clone(),
                 tool_approval_options: ctx.tool_approval_options.clone(),
                 tool_approval_handler: ctx.tool_approval_handler.clone(),
@@ -408,6 +412,7 @@ impl ForkHandler {
                 )
             })?,
             checkpoint_scope: ctx.checkpoint_scope.clone(),
+            file_scope: ctx.file_scope.clone(),
             parent_checkpoints_enabled: ctx.parent_checkpoints_enabled,
             node_id: node_id.clone(),
         };

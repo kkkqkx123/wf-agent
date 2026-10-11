@@ -13,6 +13,7 @@ use wf_types::workflow_execution::WorkflowExecutionOptions;
 
 fn test_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

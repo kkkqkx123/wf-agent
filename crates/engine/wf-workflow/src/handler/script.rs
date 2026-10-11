@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use checkpoint_file::file::FileCheckpointManager;
-use checkpoint_file::script_capture::WorkspaceChangeCollector;
 use serde_json::Value;
+use wf_checkpoint::FileCheckpointManager;
+use wf_checkpoint::WorkspaceChangeCollector;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::script_router::ScriptRouter;
 use wf_sandbox::SandboxRuntime;
@@ -262,14 +262,24 @@ impl ScriptHandler {
             .clone()
             .unwrap_or_else(|| Arc::new(ScriptRouter::with_sandbox(self.get_sandbox())));
 
-        // Script-change capture: diff the allowed-write scope
-        // inside the workspace root before/after the execution and record
-        // the changes on the executing actor partition. Capture is
-        // best-effort — it must never block or fail the script node.
-        let collector = self
-            .file_checkpoint
-            .as_ref()
-            .and_then(|manager| manager.collector_for(&allowed_write_scope(&sandbox_config)));
+        // Script-change capture: diff the checkpoint prefixes inside the
+        // workspace before/after the execution and record the changes on
+        // the executing actor partition. Closed channels skip capture
+        // entirely. Capture is best-effort.
+        let capture_prefixes = match ctx.file_scope.as_ref() {
+            Some(scope) if !scope.enabled => Vec::new(),
+            Some(scope) if !scope.checkpoint_prefixes.is_empty() => {
+                scope.checkpoint_prefixes.clone()
+            }
+            _ => allowed_write_scope(&sandbox_config),
+        };
+        let collector = if capture_prefixes.is_empty() && ctx.file_scope.is_some() {
+            None
+        } else {
+            self.file_checkpoint
+                .as_ref()
+                .and_then(|manager| manager.collector_for(&capture_prefixes))
+        };
         let before = match &collector {
             Some(collector) => match collector.capture() {
                 Ok(before) => Some(before),

@@ -142,6 +142,7 @@ pub fn snapshot_elapsed_ms(execution_config: Option<&serde_json::Value>) -> u64 
 
 fn unbudgeted() -> wf_types::workflow_execution::WorkflowExecutionOptions {
     wf_types::workflow_execution::WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,
@@ -164,6 +165,7 @@ mod tests {
 
     fn options() -> wf_types::workflow_execution::WorkflowExecutionOptions {
         wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope: None,
             input: None,
             max_steps: Some(10),
             timeout: None,

@@ -360,12 +360,10 @@ impl WorkflowExecutionCallback {
             });
         }
 
-        let params = self.build_params(
-            workflow_id,
-            execution_id.clone(),
-            default_options(variables),
-            None,
-        )?;
+        let mut options = default_options(variables);
+        options.file_scope = inherit_workflow_scope(input.file_scope, parent.as_ref())
+            .map_err(|e| WorkflowError::CoordinatorError(e))?;
+        let params = self.build_params(workflow_id, execution_id.clone(), options, None)?;
         let lifecycle = self.build_lifecycle();
         let executions = self.executions.clone();
         let mirror_id = execution_id.to_string();
@@ -390,6 +388,7 @@ impl Default for WorkflowExecutionCallback {
 
 fn default_options(input: Option<Value>) -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input,
         max_steps: None,
         timeout: None,
@@ -400,6 +399,30 @@ fn default_options(input: Option<Value>) -> WorkflowExecutionOptions {
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     }
+}
+
+fn inherit_workflow_scope(
+    call: Option<wf_types::config::file_scope::ExecutionFileScope>,
+    parent: Option<&ParentLink>,
+) -> Result<Option<wf_types::config::file_scope::ExecutionFileScope>, String> {
+    let parent_scope = parent.and_then(|link| link.file_scope.clone());
+    let Some(parent_scope) = parent_scope else {
+        return Ok(call);
+    };
+    let child_resolved = wf_checkpoint::resolve_execution_scope_checked(
+        None,
+        Some(&parent_scope),
+        None,
+        call.as_ref(),
+        None,
+    )?;
+    Ok(Some(wf_types::config::file_scope::ExecutionFileScope {
+        enabled: Some(child_resolved.enabled),
+        read_prefixes: Some(child_resolved.read_prefixes.clone()),
+        write_prefixes: Some(child_resolved.write_prefixes.clone()),
+        checkpoint_prefixes: Some(child_resolved.checkpoint_prefixes.clone()),
+        workdir: child_resolved.workdir.clone(),
+    }))
 }
 
 fn status_string(status: wf_execution_shared::types::execution_entity::ExecutionStatus) -> String {
@@ -470,7 +493,11 @@ impl ExecutionCallback for WorkflowExecutionCallback {
             Some(Value::Object(input.variables.into_iter().collect()))
         };
 
-        self.launch(workflow_id, default_options(variables), parent)
+        let mut options = default_options(variables);
+        options.file_scope = inherit_workflow_scope(input.file_scope, parent.as_ref())
+            .map_err(ToolError::ValidationFailed)?;
+
+        self.launch(workflow_id, options, parent)
             .await
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
@@ -609,6 +636,7 @@ mod tests {
             .execute_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::from([(
                         "greeting".to_string(),
                         serde_json::json!("hello"),
@@ -629,6 +657,7 @@ mod tests {
             .execute_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::new(),
                 },
             )
@@ -645,6 +674,7 @@ mod tests {
             .execute_workflow(
                 "missing-id",
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::new(),
                 },
             )
@@ -663,6 +693,7 @@ mod tests {
             .spawn_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::from([("greeting".to_string(), serde_json::json!("hi"))]),
                 },
                 None,
@@ -707,6 +738,7 @@ mod tests {
             .execute_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::from([("greeting".to_string(), serde_json::json!("hey"))]),
                 },
             )
@@ -728,6 +760,7 @@ mod tests {
             .spawn_workflow(
                 "missing-id",
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::new(),
                 },
                 None,
@@ -781,6 +814,7 @@ mod tests {
             .execute_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::from([("greeting".to_string(), serde_json::json!("hi"))]),
                 },
             )
@@ -854,6 +888,7 @@ mod tests {
             .execute_workflow(
                 &workflow_id.to_string(),
                 WorkflowInput {
+                    file_scope: None,
                     variables: HashMap::from([("greeting".to_string(), serde_json::json!("hi"))]),
                 },
             )

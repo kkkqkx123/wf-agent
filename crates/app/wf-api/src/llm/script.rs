@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use checkpoint_base::actor::id::{ActorId, ActorKind};
-use checkpoint_file::script_capture::WorkspaceChangeCollector;
+use wf_checkpoint::WorkspaceChangeCollector;
 use wf_script::{ScriptDefinition, ScriptEngine, ScriptEngineOptions, ScriptExecutionOptions};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::script::{ScriptListOptions, ScriptStorageAdapter};

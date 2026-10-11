@@ -152,6 +152,7 @@ fn graph(
 
 fn options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

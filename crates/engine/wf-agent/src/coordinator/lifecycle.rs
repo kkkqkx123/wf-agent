@@ -73,7 +73,7 @@ pub struct AgentLoopCoordinator {
     hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Optional file checkpoint manager: file snapshots of the agent loop are
     /// restored together with the execution checkpoint (best-effort).
-    file_checkpoint_manager: Option<checkpoint_file::file::FileCheckpointManager>,
+    file_checkpoint_manager: Option<wf_checkpoint::FileCheckpointManager>,
     /// Default `max_iterations` used when the agent config omits it.
     default_max_iterations: u32,
     /// Hard cap on `max_iterations`; configs above it are rejected at
@@ -145,7 +145,7 @@ impl AgentLoopCoordinator {
     /// (best-effort).
     pub fn with_file_checkpoint_manager(
         mut self,
-        manager: checkpoint_file::file::FileCheckpointManager,
+        manager: wf_checkpoint::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager);
         self

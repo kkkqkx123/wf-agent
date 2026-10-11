@@ -58,7 +58,9 @@ pub struct ToolExecutionCoordinator {
     retry_budget: Option<Arc<wf_common::retry::RetryBudget>>,
     /// File-content observer (agent actor partition). Independent from the
     /// execution-state `checkpoint_handler` above.
-    checkpoint_session: Option<checkpoint_file::session::CheckpointSession>,
+    checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    /// Resolved execution filesystem scope gating tool paths.
+    file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     /// Strategy-gated checkpoint handle for hook `create_checkpoint` opt-ins
     /// (`BEFORE_TOOL_CALL` / `AFTER_TOOL_CALL`). Shared (Arc) so coordinator
     /// rebuilds stay cheap; `None` keeps hook fires checkpoint-free.
@@ -84,6 +86,7 @@ impl ToolExecutionCoordinator {
             general_invoker: Arc::new(std::sync::Mutex::new(None)),
             retry_budget: None,
             checkpoint_session: None,
+            file_scope: None,
             agent_checkpoint: None,
         }
     }
@@ -164,10 +167,24 @@ impl ToolExecutionCoordinator {
     /// snapshots for file-content checkpoints.
     pub fn with_checkpoint_session(
         mut self,
-        session: Option<checkpoint_file::session::CheckpointSession>,
+        session: Option<wf_checkpoint::CheckpointSession>,
     ) -> Self {
         self.checkpoint_session = session;
         self
+    }
+
+    /// Inject the resolved execution filesystem scope.
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.file_scope = scope;
+        self
+    }
+
+    /// Current filesystem scope wiring.
+    pub fn file_scope_config(&self) -> Option<wf_types::config::file_scope::ResolvedFileScope> {
+        self.file_scope.clone()
     }
 
     /// Enable failure protection: tools are blocked after a configurable
@@ -221,7 +238,7 @@ impl ToolExecutionCoordinator {
 
     /// Current file observer wiring; lets coordinator rebuilds preserve the
     /// file-content observation contract.
-    pub fn checkpoint_session_config(&self) -> Option<checkpoint_file::session::CheckpointSession> {
+    pub fn checkpoint_session_config(&self) -> Option<wf_checkpoint::CheckpointSession> {
         self.checkpoint_session.clone()
     }
 
@@ -283,6 +300,7 @@ impl ToolExecutionCoordinator {
             general_invoker: wf_common::lock::lock_ok(self.general_invoker.lock()).clone(),
             retry_budget: self.retry_budget.clone(),
             checkpoint_session: self.checkpoint_session.clone(),
+            file_scope: self.file_scope.clone(),
             parent_link: None,
             cancellation: None,
         }
@@ -516,6 +534,7 @@ impl ToolExecutionCoordinator {
         let mut run_ctx = self.run_ctx();
         run_ctx.cancellation = Some(self.batch_cancellation(entity));
         run_ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            file_scope: self.file_scope.clone(),
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: run_ctx.cancellation.clone(),
@@ -777,6 +796,7 @@ impl ToolExecutionCoordinator {
         let mut ctx = self.run_ctx();
         ctx.cancellation = Some(self.batch_cancellation(entity));
         ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            file_scope: self.file_scope.clone(),
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: ctx.cancellation.clone(),
@@ -798,6 +818,7 @@ impl ToolExecutionCoordinator {
         let mut ctx = self.run_ctx();
         ctx.cancellation = Some(self.batch_cancellation(entity));
         ctx.parent_link = Some(wf_tools::callback::ParentLink {
+            file_scope: self.file_scope.clone(),
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: ctx.cancellation.clone(),

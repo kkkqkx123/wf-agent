@@ -235,6 +235,7 @@ impl SubworkflowRunner for WorkflowRunner {
         let limits = self.limits.clone().unwrap_or_default();
         let compression_depth = input.get("compressionDepth").and_then(|v| v.as_u64());
         let options = WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(input),
             max_steps: None,
             timeout: None,

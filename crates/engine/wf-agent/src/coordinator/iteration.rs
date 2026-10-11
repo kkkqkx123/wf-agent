@@ -139,12 +139,14 @@ impl AgentIterationCoordinator {
     ) -> Self {
         let registry = self.tool_coordinator.tool_registry().clone();
         let file_observer = self.tool_coordinator.checkpoint_session_config();
+        let file_scope = self.tool_coordinator.file_scope_config();
         let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(options, handler)
             .with_checkpoint_session(file_observer)
+            .with_file_scope(file_scope)
             .with_agent_checkpoint(agent_checkpoint);
         self
     }
@@ -161,6 +163,7 @@ impl AgentIterationCoordinator {
         let registry = self.tool_coordinator.tool_registry().clone();
         let (approval_options, approval_handler) = self.tool_coordinator.approval_config();
         let file_observer = self.tool_coordinator.checkpoint_session_config();
+        let file_scope = self.tool_coordinator.file_scope_config();
         let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
@@ -168,6 +171,7 @@ impl AgentIterationCoordinator {
             .with_approval(approval_options, approval_handler)
             .with_visibility_store(store)
             .with_checkpoint_session(file_observer)
+            .with_file_scope(file_scope)
             .with_agent_checkpoint(agent_checkpoint);
         self
     }
@@ -257,9 +261,18 @@ impl AgentIterationCoordinator {
     /// snapshot the execution record.
     pub fn with_checkpoint_session(
         mut self,
-        session: Option<checkpoint_file::session::CheckpointSession>,
+        session: Option<wf_checkpoint::CheckpointSession>,
     ) -> Self {
         self.tool_coordinator = self.tool_coordinator.with_checkpoint_session(session);
+        self
+    }
+
+    /// Inject the resolved execution filesystem scope.
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.tool_coordinator = self.tool_coordinator.with_file_scope(scope);
         self
     }
 

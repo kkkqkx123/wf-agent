@@ -98,6 +98,7 @@ pub struct ScopeCapture {
     actor: ActorId,
     entity_id: String,
     scopes: Arc<SessionScopeRegistry>,
+    scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
 }
 
 impl ScopeCapture {
@@ -106,8 +107,19 @@ impl ScopeCapture {
         actor: ActorId,
         entity_id: &str,
     ) -> Result<Self, checkpoint_base::error::CheckpointError> {
+        Self::new_with_scope(manager, actor, entity_id, None)
+    }
+
+    pub fn new_with_scope(
+        manager: FileCheckpointManager,
+        actor: ActorId,
+        entity_id: &str,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Result<Self, checkpoint_base::error::CheckpointError> {
         let scopes = manager.session_scopes();
-        Ok(Self::with_shared(manager, actor, entity_id, scopes))
+        Ok(Self::with_shared_and_scope(
+            manager, actor, entity_id, scopes, scope,
+        ))
     }
 
     pub fn with_shared(
@@ -121,6 +133,50 @@ impl ScopeCapture {
             actor,
             entity_id: entity_id.to_string(),
             scopes,
+            scope: None,
+        }
+    }
+
+    pub fn with_shared_and_scope(
+        manager: FileCheckpointManager,
+        actor: ActorId,
+        entity_id: &str,
+        scopes: Arc<SessionScopeRegistry>,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        Self {
+            manager,
+            actor,
+            entity_id: entity_id.to_string(),
+            scopes,
+            scope,
+        }
+    }
+
+    fn intersected_capture_scopes(&self, resolved: &Path) -> Option<Vec<String>> {
+        let Some(scope) = self.scope.as_ref() else {
+            return Some(vec![resolved.to_string_lossy().to_string()]);
+        };
+        if !scope.enabled || scope.checkpoint_prefixes.is_empty() {
+            return None;
+        }
+        use wf_types::config::file_scope::scope_path_contains;
+        let resolved_str = resolved.to_string_lossy().to_string();
+        let mut out: Vec<String> = Vec::new();
+        for prefix in &scope.checkpoint_prefixes {
+            if scope_path_contains(&resolved_str, prefix) {
+                out.push(prefix.clone());
+            } else if scope_path_contains(prefix, &resolved_str) {
+                out.push(resolved_str.clone());
+                break;
+            }
+        }
+        out.sort();
+        out.dedup();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
         }
     }
 
@@ -129,9 +185,10 @@ impl ScopeCapture {
     pub fn begin_scope(&self, execution_id: &str, scope_dir: &Path) -> Option<PathBuf> {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
+        let capture_scopes = self.intersected_capture_scopes(&scope)?;
         // A failed before-capture disables the scope: recording an empty
         // baseline would misreport the whole scope as newly added content.
-        let before = self.capture_scope(&scope)?;
+        let before = self.capture_scopes(&capture_scopes, &scope)?;
         self.scopes
             .scoped_before
             .insert(key(execution_id, &scope), before);
@@ -150,6 +207,9 @@ impl ScopeCapture {
         let Some(scope) = resolve_shell_scope(root, scope_dir) else {
             return ScopeEndOutcome::Skipped;
         };
+        let Some(capture_scopes) = self.intersected_capture_scopes(&scope) else {
+            return ScopeEndOutcome::Skipped;
+        };
         if !terminated {
             return ScopeEndOutcome::Skipped;
         }
@@ -162,7 +222,7 @@ impl ScopeCapture {
         else {
             return ScopeEndOutcome::Skipped;
         };
-        match self.apply_scoped_diff(&scope, &before, execution_id) {
+        match self.apply_scoped_diff_list(&scope, &capture_scopes, &before, execution_id) {
             Ok(0) => ScopeEndOutcome::NoChange,
             Ok(applied) => ScopeEndOutcome::Applied { applied },
             Err(e) => ScopeEndOutcome::Failed {
@@ -181,8 +241,9 @@ impl ScopeCapture {
     pub fn begin_session(&self, session_id: &str, scope_dir: &Path) -> Option<PathBuf> {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
+        let capture_scopes = self.intersected_capture_scopes(&scope)?;
         let session_key = key(session_id, &scope);
-        if let Some(before) = self.capture_scope(&scope) {
+        if let Some(before) = self.capture_scopes(&capture_scopes, &scope) {
             if self.scopes.session_before.contains_key(&session_key) {
                 return Some(scope);
             }
@@ -224,8 +285,11 @@ impl ScopeCapture {
             })
             .collect();
         for (session_key, scope, before) in domains {
-            let _ = self.apply_scoped_diff(&scope, &before, execution_id);
-            if let Some(next) = self.capture_scope(&scope) {
+            let Some(capture_scopes) = self.intersected_capture_scopes(&scope) else {
+                continue;
+            };
+            let _ = self.apply_scoped_diff_list(&scope, &capture_scopes, &before, execution_id);
+            if let Some(next) = self.capture_scopes(&capture_scopes, &scope) {
                 self.scopes.session_before.insert(session_key, next);
             }
         }
@@ -254,7 +318,10 @@ impl ScopeCapture {
                 .remove(&session_key)
                 .map(|(_, v)| v);
             if let (Some(before), Some(scope)) = (before, scope) {
-                let _ = self.apply_scoped_diff(&scope, &before, execution_id);
+                if let Some(capture_scopes) = self.intersected_capture_scopes(&scope) {
+                    let _ =
+                        self.apply_scoped_diff_list(&scope, &capture_scopes, &before, execution_id);
+                }
             }
         }
     }
@@ -292,11 +359,10 @@ impl ScopeCapture {
 
     // ---- internals ----
 
-    fn collector_for(&self, scope: &Path) -> Option<WorkspaceChangeCollector> {
+    fn collector_for_list(&self, scopes: &[String]) -> Option<WorkspaceChangeCollector> {
         let root = self.manager.workspace_root()?;
         let scanner = WorkspaceScanner::new(self.manager.scan_config().clone());
-        let scope_str = scope.to_string_lossy().to_string();
-        let collector = WorkspaceChangeCollector::new(root, &[scope_str], scanner);
+        let collector = WorkspaceChangeCollector::new(root, scopes, scanner);
         if collector.has_scope() {
             Some(collector)
         } else {
@@ -304,14 +370,18 @@ impl ScopeCapture {
         }
     }
 
-    fn capture_scope(&self, scope: &Path) -> Option<HashMap<PathBuf, String>> {
-        let collector = self.collector_for(scope)?;
+    fn capture_scopes(
+        &self,
+        scopes: &[String],
+        display_path: &Path,
+    ) -> Option<HashMap<PathBuf, String>> {
+        let collector = self.collector_for_list(scopes)?;
         match collector.capture() {
             Ok(map) => Some(map),
             Err(err) => {
                 tracing::warn!(
                     entity = %self.entity_id,
-                    scope = %scope.display(),
+                    scope = %display_path.display(),
                     error = %err,
                     "scoped capture (before/after) failed; sampling marked incomplete"
                 );
@@ -320,9 +390,10 @@ impl ScopeCapture {
         }
     }
 
-    fn apply_scoped_diff(
+    fn apply_scoped_diff_list(
         &self,
-        scope: &Path,
+        display_path: &Path,
+        capture_scopes: &[String],
         before: &HashMap<PathBuf, String>,
         execution_id: &str,
     ) -> Result<usize, checkpoint_base::error::CheckpointError> {
@@ -331,7 +402,7 @@ impl ScopeCapture {
                 reason: "no workspace root for scoped diff".to_string(),
             });
         };
-        let collector = match self.collector_for(scope) {
+        let collector = match self.collector_for_list(capture_scopes) {
             Some(c) => c,
             None => {
                 return Err(checkpoint_base::error::CheckpointError::Validation {
@@ -345,7 +416,7 @@ impl ScopeCapture {
                 tracing::warn!(
                     entity = %self.entity_id,
                     execution = %execution_id,
-                    scope = %scope.display(),
+                    scope = %display_path.display(),
                     stage = "after",
                     error = %err,
                     "scoped after-capture failed"
@@ -369,7 +440,7 @@ impl ScopeCapture {
                 tracing::debug!(
                     entity = %self.entity_id,
                     execution = %execution_id,
-                    scope = %scope.display(),
+                    scope = %display_path.display(),
                     applied,
                     total = changes.len(),
                     "scoped shell diff applied into agent partition"
@@ -380,7 +451,7 @@ impl ScopeCapture {
                 tracing::warn!(
                     entity = %self.entity_id,
                     execution = %execution_id,
-                    scope = %scope.display(),
+                    scope = %display_path.display(),
                     error = %err,
                     "scoped shell diff apply failed"
                 );

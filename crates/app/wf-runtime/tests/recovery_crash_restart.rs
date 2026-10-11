@@ -152,6 +152,7 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
             .unwrap();
         let ctx = make_api_ctx(storage, db).await;
         let mut options = wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope: None,
             input: None,
             max_steps: None,
             timeout: None,
@@ -303,6 +304,7 @@ async fn kill_restart_child_without_checkpoint_points_at_parent() {
             .unwrap();
         let ctx = make_api_ctx(storage, db).await;
         let mut options = wf_types::workflow_execution::WorkflowExecutionOptions {
+            file_scope: None,
             input: None,
             max_steps: None,
             timeout: None,

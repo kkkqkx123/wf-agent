@@ -210,13 +210,40 @@ impl AgentLoopCoordinator {
         // streaming, retry and nested executions share this observer
         // contract through the tool context.
         if let Some(ref manager) = self.file_checkpoint_manager {
-            let parent = entity.parent_execution_id().map(|id| id.to_string());
-            let session = checkpoint_file::session::CheckpointSession::new(
-                manager.clone(),
-                &entity.id().to_string(),
-                parent.as_deref(),
-            )?;
-            coordinator = coordinator.with_checkpoint_session(Some(session));
+            let global = manager.default_scope().cloned();
+            let workspace = manager
+                .workspace_root()
+                .map(|p| p.to_string_lossy().to_string());
+            let resolved = wf_checkpoint::resolve_execution_scope_checked(
+                global.as_ref(),
+                None,
+                None,
+                config.file_scope.as_ref(),
+                workspace.as_deref(),
+            )
+            .map_err(|e| {
+                crate::error::AgentError::Validation(format!("invalid execution file scope: {e}"))
+            })?;
+            coordinator = coordinator.with_file_scope(Some(resolved.clone()));
+            if resolved.enabled {
+                let parent = entity.parent_execution_id().map(|id| id.to_string());
+                let session = wf_checkpoint::CheckpointSession::new_with_scope(
+                    manager.clone(),
+                    &entity.id().to_string(),
+                    parent.as_deref(),
+                    Some(resolved),
+                )?;
+                coordinator = coordinator.with_checkpoint_session(Some(session));
+            }
+        } else if let Some(scope) = config.file_scope.as_ref() {
+            let resolved =
+                wf_checkpoint::resolve_execution_scope_checked(None, None, None, Some(scope), None)
+                    .map_err(|e| {
+                        crate::error::AgentError::Validation(format!(
+                            "invalid execution file scope: {e}"
+                        ))
+                    })?;
+            coordinator = coordinator.with_file_scope(Some(resolved));
         }
         if let Some(ref bus) = self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());

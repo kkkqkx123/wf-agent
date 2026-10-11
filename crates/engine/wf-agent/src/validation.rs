@@ -380,6 +380,7 @@ mod tests {
 
     fn base_config() -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from("agent-1".to_string()),
             model: "mock".to_string(),
             max_iterations: Some(10),
@@ -413,6 +414,7 @@ mod tests {
     fn test_empty_agent_id_fails() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from("".to_string()),
             ..base_config()
         };
@@ -426,6 +428,7 @@ mod tests {
     fn test_empty_model_fails() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             model: "".to_string(),
             ..base_config()
         };
@@ -439,6 +442,7 @@ mod tests {
     fn test_unknown_tool_rejected() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             available_tool_names: vec!["nope_tool".to_string()],
             discoverable_tool_names: Vec::new(),
             hidden_tool_names: Vec::new(),
@@ -454,6 +458,7 @@ mod tests {
     fn test_zero_iterations_rejected() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             max_iterations: Some(0),
             ..base_config()
         };
@@ -467,6 +472,7 @@ mod tests {
     fn test_unknown_hook_errors() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             hooks: vec![HookConfig {
                 hook_type: "NOPE_HOOK".to_string(),
                 condition: None,
@@ -548,6 +554,7 @@ mod tests {
         assert!(AgentLoopValidator::validate_or_fail(&base_config(), &registry).is_ok());
 
         let bad = AgentLoopConfig {
+            file_scope: None,
             agent_id: Id::from("".to_string()),
             ..base_config()
         };
@@ -574,6 +581,7 @@ mod tests {
     fn test_token_limit_zero_warns() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             token_limit: Some(0),
             ..base_config()
         };
@@ -587,6 +595,7 @@ mod tests {
     fn test_token_limit_positive_accepted() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             token_limit: Some(100000),
             ..base_config()
         };
@@ -598,6 +607,7 @@ mod tests {
     fn test_token_warning_threshold_exceeds_100_rejected() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             token_warning_threshold: Some(150),
             ..base_config()
         };
@@ -611,6 +621,7 @@ mod tests {
     fn test_token_warning_threshold_valid_accepted() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
+            file_scope: None,
             token_warning_threshold: Some(80),
             ..base_config()
         };

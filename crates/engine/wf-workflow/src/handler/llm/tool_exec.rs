@@ -128,7 +128,7 @@ pub fn pending_queue_for(
 pub async fn execute_tool_call(
     ctx: &NodeExecutionContext,
     call: &wf_types::message::LlmToolCall,
-    file_checkpoint: Option<&checkpoint_file::file::FileCheckpointManager>,
+    file_checkpoint: Option<&wf_checkpoint::FileCheckpointManager>,
     batch: Option<&LlmToolCallBatch>,
 ) -> Message {
     let tool_name = call.function.name.clone();
@@ -175,29 +175,35 @@ pub async fn execute_tool_call(
     // children under this workflow instead of re-resolving its id.
     tool_ctx = tool_ctx.with_parent_link(ctx.hierarchy_manager.clone().map(|manager| {
         wf_tools::callback::ParentLink {
+            file_scope: ctx.file_scope.clone(),
             execution_id: ctx.execution_id.clone(),
             manager,
             cancellation: ctx.cancellation.clone(),
         }
     }));
+    tool_ctx = tool_ctx.with_file_scope(ctx.file_scope.clone());
     if let Some(manager) = file_checkpoint {
-        let parent = ctx.parent_id().map(|id| id.to_string());
-        // A write-capable tool must not run untracked: when the session
-        // cannot be built the call fails visibly instead of executing
-        // without file-checkpoint attribution.
-        match checkpoint_file::session::CheckpointSession::new(
-            manager.clone(),
-            &ctx.execution_id.to_string(),
-            parent.as_deref(),
-        ) {
-            Ok(session) => tool_ctx = tool_ctx.with_checkpoint_session(Some(session)),
-            Err(e) => {
-                return tool_result_message(
-                    &call.id,
-                    &tool_name,
-                    format!("failed to build checkpoint session: {e}"),
-                    true,
-                )
+        let closed = ctx.file_scope.as_ref().is_some_and(|s| !s.enabled);
+        if !closed {
+            let parent = ctx.parent_id().map(|id| id.to_string());
+            // A write-capable tool must not run untracked: when the session
+            // cannot be built the call fails visibly instead of executing
+            // without file-checkpoint attribution.
+            match wf_checkpoint::CheckpointSession::new_with_scope(
+                manager.clone(),
+                &ctx.execution_id.to_string(),
+                parent.as_deref(),
+                ctx.file_scope.clone(),
+            ) {
+                Ok(session) => tool_ctx = tool_ctx.with_checkpoint_session(Some(session)),
+                Err(e) => {
+                    return tool_result_message(
+                        &call.id,
+                        &tool_name,
+                        format!("failed to build checkpoint session: {e}"),
+                        true,
+                    )
+                }
             }
         }
     }

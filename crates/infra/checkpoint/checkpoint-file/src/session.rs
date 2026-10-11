@@ -24,6 +24,7 @@ pub struct CheckpointSession {
     entity_id: String,
     workspace_root: Option<PathBuf>,
     capture: Arc<ScopeCapture>,
+    scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
 }
 
 impl Clone for CheckpointSession {
@@ -34,6 +35,7 @@ impl Clone for CheckpointSession {
             entity_id: self.entity_id.clone(),
             workspace_root: self.workspace_root.clone(),
             capture: self.capture.clone(),
+            scope: self.scope.clone(),
         }
     }
 }
@@ -46,15 +48,30 @@ impl CheckpointSession {
         entity_id: &str,
         parent_execution_id: Option<&str>,
     ) -> Result<Self, checkpoint_base::CheckpointError> {
+        Self::new_with_scope(manager, entity_id, parent_execution_id, None)
+    }
+
+    /// Build a session snapshotting the execution scope. Precise reports
+    /// outside the checkpoint prefixes are filtered before reaching the
+    /// object store; scope captures intersect the request with the same
+    /// prefixes and skip when the intersection is empty.
+    pub fn new_with_scope(
+        manager: FileCheckpointManager,
+        entity_id: &str,
+        parent_execution_id: Option<&str>,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Result<Self, checkpoint_base::CheckpointError> {
         let actor = manager.resolve_actor(entity_id, parent_execution_id);
         let workspace_root = manager.workspace_root().map(|p| p.to_path_buf());
-        let capture = ScopeCapture::new(manager.clone(), actor.clone(), entity_id)?;
+        let capture =
+            ScopeCapture::new_with_scope(manager.clone(), actor.clone(), entity_id, scope.clone())?;
         Ok(Self {
             manager,
             actor,
             entity_id: entity_id.to_string(),
             workspace_root,
             capture: Arc::new(capture),
+            scope,
         })
     }
 
@@ -65,15 +82,32 @@ impl CheckpointSession {
         actor: ActorId,
         entity_id: &str,
     ) -> Result<Self, checkpoint_base::CheckpointError> {
+        Self::with_actor_and_scope(manager, actor, entity_id, None)
+    }
+
+    /// Build a scoped session with a pre-resolved actor.
+    pub fn with_actor_and_scope(
+        manager: FileCheckpointManager,
+        actor: ActorId,
+        entity_id: &str,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Result<Self, checkpoint_base::CheckpointError> {
         let workspace_root = manager.workspace_root().map(|p| p.to_path_buf());
-        let capture = ScopeCapture::new(manager.clone(), actor.clone(), entity_id)?;
+        let capture =
+            ScopeCapture::new_with_scope(manager.clone(), actor.clone(), entity_id, scope.clone())?;
         Ok(Self {
             manager,
             actor,
             entity_id: entity_id.to_string(),
             workspace_root,
             capture: Arc::new(capture),
+            scope,
         })
+    }
+
+    /// Snapshotted execution scope, if the session was built scoped.
+    pub fn scope(&self) -> Option<&wf_types::config::file_scope::ResolvedFileScope> {
+        self.scope.as_ref()
     }
 
     /// The resolved actor partition.
@@ -105,6 +139,34 @@ impl CheckpointSession {
         execution_id: &str,
         mutation: FileMutation,
     ) -> crate::PreciseApplyStats {
+        if let Some(scope) = self.scope.as_ref() {
+            if !scope.enabled {
+                return crate::PreciseApplyStats {
+                    applied: 0,
+                    failed: Vec::new(),
+                    out_of_scope: vec![mutation.path.display().to_string()],
+                };
+            }
+            if !scope.checkpoint_prefixes.is_empty() {
+                let path_str = mutation.path.to_string_lossy().to_string();
+                let inside = scope.checkpoint_prefixes.iter().any(|bound| {
+                    wf_types::config::file_scope::scope_path_contains(bound, &path_str)
+                });
+                if !inside {
+                    tracing::warn!(
+                        entity = %self.entity_id,
+                        execution = %execution_id,
+                        path = %mutation.path.display(),
+                        "record_file_mutation filtered: outside checkpoint prefixes"
+                    );
+                    return crate::PreciseApplyStats {
+                        applied: 0,
+                        failed: Vec::new(),
+                        out_of_scope: vec![mutation.path.display().to_string()],
+                    };
+                }
+            }
+        }
         let Some(root) = self.workspace_root.clone() else {
             tracing::debug!(
                 entity = %self.entity_id,
@@ -286,5 +348,54 @@ mod tests {
         assert!(session
             .begin_scope("exec-1", std::path::Path::new("/proc"))
             .is_none());
+    }
+
+    #[test]
+    fn precise_outside_checkpoint_prefix_is_filtered() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager.set_workspace_root(Some(dir.path().to_path_buf()));
+        let frontend = dir.path().join("frontend");
+        std::fs::create_dir_all(&frontend).unwrap();
+        let scope = wf_types::config::file_scope::ResolvedFileScope {
+            enabled: true,
+            read_prefixes: vec![dir.path().to_string_lossy().to_string()],
+            write_prefixes: vec![frontend.to_string_lossy().to_string()],
+            checkpoint_prefixes: vec![frontend.to_string_lossy().to_string()],
+            workdir: None,
+        };
+        let session =
+            CheckpointSession::new_with_scope(manager, "agent-1", None, Some(scope)).unwrap();
+        let outside = dir.path().join("backend/out.txt");
+        let stats = session.record_file_mutation(
+            "exec-1",
+            FileMutation::new(outside.clone(), FileOperation::Created),
+        );
+        assert_eq!(stats.applied, 0);
+        assert_eq!(stats.out_of_scope.len(), 1);
+    }
+
+    #[test]
+    fn scoped_begin_scope_skips_when_intersection_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager.set_workspace_root(Some(dir.path().to_path_buf()));
+        std::fs::create_dir_all(dir.path().join("frontend")).unwrap();
+        std::fs::create_dir_all(dir.path().join("backend")).unwrap();
+        let scope = wf_types::config::file_scope::ResolvedFileScope {
+            enabled: true,
+            read_prefixes: vec![dir.path().to_string_lossy().to_string()],
+            write_prefixes: vec![dir.path().join("frontend").to_string_lossy().to_string()],
+            checkpoint_prefixes: vec![dir.path().join("frontend").to_string_lossy().to_string()],
+            workdir: None,
+        };
+        let session =
+            CheckpointSession::new_with_scope(manager, "agent-1", None, Some(scope)).unwrap();
+        assert!(session
+            .begin_scope("exec-1", &dir.path().join("backend"))
+            .is_none());
+        assert!(session
+            .begin_scope("exec-1", &dir.path().join("frontend"))
+            .is_some());
     }
 }

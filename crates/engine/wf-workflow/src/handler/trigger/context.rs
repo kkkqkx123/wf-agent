@@ -64,6 +64,7 @@ pub struct TriggerContext {
     /// [`wf_execution_shared::CheckpointScope`]).
     pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
     pub parent_checkpoints_enabled: Option<bool>,
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
 }
 
 impl TriggerContext {
@@ -88,6 +89,7 @@ impl TriggerContext {
             hierarchy_manager: None,
             checkpoint_scope: None,
             parent_checkpoints_enabled: None,
+            file_scope: None,
         }
     }
 
@@ -181,6 +183,14 @@ impl TriggerContext {
 
     pub fn with_checkpoint_scope(mut self, scope: wf_execution_shared::CheckpointScope) -> Self {
         self.checkpoint_scope = Some(scope);
+        self
+    }
+
+    pub fn with_file_scope(
+        mut self,
+        scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    ) -> Self {
+        self.file_scope = scope;
         self
     }
 

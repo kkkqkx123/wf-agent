@@ -207,6 +207,7 @@ async fn run_triggered_subworkflow(
     }
 
     let options = WorkflowExecutionOptions {
+        file_scope: None,
         input: Some(Value::Object(
             run.input_mapping.clone().into_iter().collect(),
         )),
@@ -264,7 +265,8 @@ async fn run_triggered_subworkflow(
         run.tool_registry,
         options,
     )
-    .with_hierarchy_manager(child_manager);
+    .with_hierarchy_manager(child_manager)
+    .with_file_scope(ctx.file_scope.clone());
     if let Some(scope) = child_scope.clone() {
         exec_ctx = exec_ctx.with_checkpoint_scope(scope);
     }

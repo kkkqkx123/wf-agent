@@ -11,6 +11,7 @@ use wf_tools::registry::ToolRegistry;
 
 fn base_config() -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: "agent-1".to_string(),
         model: "mock".to_string(),
         max_iterations: Some(5),
@@ -61,6 +62,7 @@ fn valid_config_passes_without_issues() {
 fn empty_agent_id_is_an_error() {
     let registry = ToolRegistry::new();
     let cfg = AgentLoopConfig {
+        file_scope: None,
         agent_id: "".to_string(),
         ..base_config()
     };
@@ -74,6 +76,7 @@ fn empty_agent_id_is_an_error() {
 fn unknown_tool_is_rejected() {
     let registry = ToolRegistry::new();
     let cfg = AgentLoopConfig {
+        file_scope: None,
         available_tool_names: vec!["nope_tool".to_string()],
         ..base_config()
     };
@@ -87,6 +90,7 @@ fn unknown_tool_is_rejected() {
 fn zero_iterations_rejected_and_over_cap_rejected() {
     let registry = ToolRegistry::new();
     let zero = AgentLoopConfig {
+        file_scope: None,
         max_iterations: Some(0),
         ..base_config()
     };
@@ -95,6 +99,7 @@ fn zero_iterations_rejected_and_over_cap_rejected() {
         .any(|i| i.field == "max_iterations"));
 
     let over = AgentLoopConfig {
+        file_scope: None,
         max_iterations: Some(10),
         ..base_config()
     };
@@ -109,6 +114,7 @@ fn zero_iterations_rejected_and_over_cap_rejected() {
 fn unknown_hook_type_is_rejected() {
     let registry = ToolRegistry::new();
     let cfg = AgentLoopConfig {
+        file_scope: None,
         hooks: vec![HookConfig {
             hook_type: "NOPE_HOOK".to_string(),
             condition: None,
@@ -131,6 +137,7 @@ fn unknown_hook_type_is_rejected() {
 async fn executor_rejects_invalid_config_before_running() {
     let exec = executor();
     let bad = AgentLoopConfig {
+        file_scope: None,
         agent_id: "".to_string(),
         ..base_config()
     };
@@ -145,6 +152,7 @@ async fn executor_rejects_invalid_config_before_running() {
 async fn executor_rejects_unknown_tool_before_running() {
     let exec = executor();
     let bad = AgentLoopConfig {
+        file_scope: None,
         available_tool_names: vec!["nope_tool".to_string()],
         ..base_config()
     };
@@ -159,6 +167,7 @@ async fn executor_rejects_unknown_tool_before_running() {
 async fn executor_enforces_max_iterations_cap() {
     let exec = executor().with_max_iterations_cap(3);
     let bad = AgentLoopConfig {
+        file_scope: None,
         max_iterations: Some(10),
         ..base_config()
     };

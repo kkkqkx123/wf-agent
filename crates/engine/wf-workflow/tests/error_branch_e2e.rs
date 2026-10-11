@@ -81,6 +81,7 @@ fn graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>) -> WorkflowGraphStr
 
 fn options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,
@@ -622,6 +623,7 @@ async fn suspend_parks_and_resumes_from_branch_target() {
         workflow_id: wf_types::Id::from("wf-suspend-1".to_string()),
         graph: mk_graph(),
         options: WorkflowExecutionOptions {
+            file_scope: None,
             input: None,
             max_steps: None,
             timeout: None,

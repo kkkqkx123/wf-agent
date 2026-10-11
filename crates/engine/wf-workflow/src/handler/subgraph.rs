@@ -124,6 +124,7 @@ pub(crate) async fn execute_subgraph(
         .map_err(|e| WorkflowError::SubgraphError(e.to_string()))?;
 
     let options = WorkflowExecutionOptions {
+        file_scope: None,
         input: Some(ctx.input.clone()),
         max_steps: None,
         timeout: None,
@@ -190,7 +191,8 @@ pub(crate) async fn execute_subgraph(
         tool_registry,
         options,
     )
-    .with_hierarchy_manager(child_manager);
+    .with_hierarchy_manager(child_manager)
+    .with_file_scope(ctx.file_scope.clone());
     if let Some(scope) = child_scope.clone() {
         exec_ctx = exec_ctx.with_checkpoint_scope(scope);
     }

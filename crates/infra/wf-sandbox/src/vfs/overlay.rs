@@ -42,7 +42,7 @@ impl OverlayVfs {
             .path_policy
             .allowed_read
             .iter()
-            .any(|p| path_str.starts_with(p))
+            .any(|p| wf_types::config::file_scope::scope_path_contains(p, &path_str))
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -164,7 +164,11 @@ impl OverlayVfs {
         allowed: &[String],
         action: &str,
     ) -> Result<(), std::io::Error> {
-        if allowed.iter().any(|p| path.starts_with(p)) {
+        let normalized = wf_types::config::file_scope::normalize_scope_path(path);
+        if allowed
+            .iter()
+            .any(|p| wf_types::config::file_scope::scope_path_contains(p, &normalized))
+        {
             Ok(())
         } else {
             Err(std::io::Error::new(

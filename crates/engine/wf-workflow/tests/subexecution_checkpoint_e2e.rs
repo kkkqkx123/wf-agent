@@ -82,6 +82,7 @@ fn graph(
 
 fn checkpoint_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

@@ -27,6 +27,7 @@ pub struct BranchContext {
     pub event_bus: Option<Arc<EventBus>>,
     pub tool_registry: Option<Arc<ToolRegistry>>,
     pub resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     pub parent_variables: Arc<dashmap::DashMap<String, Value>>,
     pub tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     pub tool_approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
@@ -45,6 +46,7 @@ pub struct BranchRunContext {
     pub parent_execution_id: wf_types::Id,
     pub parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     pub checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     pub parent_checkpoints_enabled: Option<bool>,
     pub node_id: String,
     pub graph: Option<WorkflowGraphStructure>,
@@ -188,6 +190,7 @@ async fn run_branch_inner(
                                 execution_id: branch_execution_id.clone(),
                                 parent_manager: ctx.parent_manager.clone(),
                                 checkpoint_scope: ctx.checkpoint_scope.clone(),
+                                file_scope: ctx.file_scope.clone(),
                                 parent_checkpoints_enabled: ctx.parent_checkpoints_enabled,
                                 fork_node_id: ctx.node_id.clone(),
                             },
@@ -218,6 +221,7 @@ struct BranchHierarchy {
     execution_id: wf_types::Id,
     parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
+    file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     parent_checkpoints_enabled: Option<bool>,
     fork_node_id: String,
 }
@@ -234,12 +238,14 @@ async fn execute_branch(
         execution_id,
         parent_manager,
         checkpoint_scope,
+        file_scope,
         parent_checkpoints_enabled,
         fork_node_id,
     } = hierarchy;
     let workflow_id = wf_common::generate_id();
 
     let options = WorkflowExecutionOptions {
+        file_scope: None,
         input: Some(input),
         max_steps: None,
         timeout: None,
@@ -275,7 +281,8 @@ async fn execute_branch(
         tool_registry,
         options,
     )
-    .with_hierarchy_manager(child_manager.clone());
+    .with_hierarchy_manager(child_manager.clone())
+    .with_file_scope(file_scope.clone().or_else(|| branch_ctx.file_scope.clone()));
     if checkpoints_on {
         if let Some(scope) = checkpoint_scope.as_ref() {
             exec_ctx = exec_ctx.with_checkpoint_scope(scope.clone());

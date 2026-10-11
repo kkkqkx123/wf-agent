@@ -63,6 +63,8 @@ impl From<&crate::agent::AgentHookConfig> for HookConfig {
 pub struct AgentLoopConfig {
     pub agent_id: Id,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_scope: Option<crate::config::file_scope::ExecutionFileScope>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_iterations: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -20,6 +20,7 @@ fn parent() -> Arc<AgentLoopEntity> {
 
 fn child_config(id: &str) -> AgentLoopConfig {
     AgentLoopConfig {
+        file_scope: None,
         agent_id: Id::from(id.to_string()),
         model: "mock".to_string(),
         max_iterations: Some(5),

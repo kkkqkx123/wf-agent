@@ -21,6 +21,9 @@ pub struct ParentLink {
     /// Abort signal of the parent execution; stopping the parent stops the
     /// child. `None` keeps plain behavior with no cross-execution cancel.
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
+    /// Resolved filesystem scope of the parent execution. Child executions
+    /// derive their scope from it; `None` means the parent carried no scope.
+    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
 }
 
 impl std::fmt::Debug for ParentLink {
@@ -28,6 +31,7 @@ impl std::fmt::Debug for ParentLink {
         f.debug_struct("ParentLink")
             .field("execution_id", &self.execution_id)
             .field("cancellation", &self.cancellation.is_some())
+            .field("file_scope", &self.file_scope.is_some())
             .finish()
     }
 }
@@ -78,6 +82,7 @@ pub struct AgentLoopOutput {
 #[derive(Debug, Clone)]
 pub struct WorkflowInput {
     pub variables: HashMap<String, Value>,
+    pub file_scope: Option<wf_types::config::file_scope::ExecutionFileScope>,
 }
 
 #[derive(Debug, Clone)]

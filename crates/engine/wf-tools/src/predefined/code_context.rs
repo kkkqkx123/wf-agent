@@ -356,11 +356,11 @@ pub fn read_file_folded_handler(
 ) -> StatelessAsyncHandler {
     let fs = fs.clone();
     let config = config.clone();
-    Arc::new(move |parameters: Value, _ctx| {
+    Arc::new(move |parameters: Value, ctx| {
         let fs = fs.clone();
         let config = config.clone();
         Box::pin(async move {
-            let content = fs.read_file(&parameters)?;
+            let content = fs.read_file(&parameters, &ctx)?;
             let text = content.as_str().unwrap_or("").to_string();
             let fold_requested = parameters
                 .get("fold")

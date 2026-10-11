@@ -31,6 +31,7 @@ pub fn apply_workflow_config_defaults(
 /// is applied after the merge.
 pub fn empty_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,
@@ -134,6 +135,7 @@ mod tests {
     fn caller_fields_win_over_stored_defaults() {
         let definition = definition_with(Some(1000), Some(9), Some(false));
         let caller = WorkflowExecutionOptions {
+            file_scope: None,
             timeout: Some(5),
             ..empty_options()
         };

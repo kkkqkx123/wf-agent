@@ -134,6 +134,20 @@ impl FileCheckpointManager {
         self.materialize_commit(checkpoint_id, base_dir, opts)
     }
 
+    /// Range restore: only touches files inside `checkpoint_prefixes`.
+    /// Files outside the range are preserved, ignored names are never
+    /// deleted, and repeating the same restore skips identical content.
+    pub fn restore_workspace_scoped(
+        &self,
+        _entity_id: &str,
+        checkpoint_id: &str,
+        base_dir: &Path,
+        opts: &FileCheckpointOptions,
+        checkpoint_prefixes: Option<&[String]>,
+    ) -> Result<WorkspaceRestoreResult, CheckpointError> {
+        self.materialize_commit_scoped(checkpoint_id, base_dir, opts, checkpoint_prefixes)
+    }
+
     /// Workspace-aligned restore to the latest checkpoint of an entity, if
     /// any.
     pub fn restore_latest_workspace(

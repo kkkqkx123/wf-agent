@@ -87,6 +87,7 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
 
 fn workflow_options() -> WorkflowExecutionOptions {
     WorkflowExecutionOptions {
+        file_scope: None,
         input: None,
         max_steps: None,
         timeout: None,

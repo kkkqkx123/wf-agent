@@ -61,6 +61,7 @@ pub(crate) fn params_from_body(
         body.agent_id
     };
     let config = wf_api::AgentLoopConfig {
+        file_scope: None,
         agent_id: wf_api::Id::from(agent_id),
         model: body.model,
         max_iterations: body.max_iterations,

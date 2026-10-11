@@ -104,6 +104,15 @@ impl AgentLoopHandler {
         );
 
         let loop_config = AgentLoopConfig {
+            file_scope: ctx.file_scope.as_ref().map(|s| {
+                wf_types::config::file_scope::ExecutionFileScope {
+                    enabled: Some(s.enabled),
+                    read_prefixes: Some(s.read_prefixes.clone()),
+                    write_prefixes: Some(s.write_prefixes.clone()),
+                    checkpoint_prefixes: Some(s.checkpoint_prefixes.clone()),
+                    workdir: s.workdir.clone(),
+                }
+            }),
             agent_id: ctx.node_id.clone(),
             model: settings.model,
             available_tool_names: settings.available_tool_names,

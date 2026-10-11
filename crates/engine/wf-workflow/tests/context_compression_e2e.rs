@@ -137,6 +137,7 @@ impl SubworkflowRunner for SummaryRunner {
         };
 
         let options = WorkflowExecutionOptions {
+            file_scope: None,
             input: Some(input),
             max_steps: None,
             timeout: None,

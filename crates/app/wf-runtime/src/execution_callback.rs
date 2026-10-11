@@ -201,6 +201,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = rt.block_on(composite.execute_agent_loop(
             AgentLoopConfig {
+                file_scope: None,
                 agent_id: Id::from("a".to_string()),
                 model: "m".to_string(),
                 max_iterations: None,

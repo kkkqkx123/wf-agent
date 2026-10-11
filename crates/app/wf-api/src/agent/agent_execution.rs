@@ -532,6 +532,7 @@ mod tests {
             &ctx,
             RunAgentLoopParams::new(
                 AgentLoopConfig {
+                    file_scope: None,
                     agent_id: wf_types::Id::from("agent-1".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -612,6 +613,7 @@ mod tests {
             &ctx1,
             RunAgentLoopParams::new(
                 AgentLoopConfig {
+                    file_scope: None,
                     agent_id: wf_types::Id::from("agent-persist".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -679,6 +681,7 @@ mod tests {
             &ctx,
             RunAgentLoopParams::new(
                 AgentLoopConfig {
+                    file_scope: None,
                     agent_id: wf_types::Id::from("agent-2".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -741,6 +744,7 @@ mod tests {
 
     fn resume_config() -> AgentLoopConfig {
         AgentLoopConfig {
+            file_scope: None,
             agent_id: wf_types::Id::from("agent-resume".to_string()),
             model: "mock".to_string(),
             max_iterations: Some(3),

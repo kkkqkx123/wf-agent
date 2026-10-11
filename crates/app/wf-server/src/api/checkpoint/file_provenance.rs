@@ -16,7 +16,10 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .route("/file-checkpoint/checkpoints", post(handle_create_checkpoint))
+        .route(
+            "/file-checkpoint/checkpoints",
+            post(handle_create_checkpoint),
+        )
         .route("/file-checkpoint/restore", post(handle_restore_checkpoint))
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
         .route("/file-checkpoint/changes", get(handle_list_changes_paged))
@@ -98,8 +101,11 @@ pub(crate) async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
     axum::Json(body): axum::Json<RestoreCheckpointRequest>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::restore_workspace(&state.ctx, &body.entity, &body.checkpoint)
-    {
+    match wf_api::checkpoint::provenance::restore_workspace(
+        &state.ctx,
+        &body.entity,
+        &body.checkpoint,
+    ) {
         Ok(restored) => ok(RestoreCheckpointResponse { restored }).into_response(),
         Err(err) => error_response(err),
     }

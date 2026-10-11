@@ -242,6 +242,56 @@ db_path = "./layer-test.db"
     std::env::remove_var("XDG_CONFIG_HOME");
 }
 
+/// An explicitly closed file channel delivered through programmatic
+/// overrides keeps its value even though it reads identical to the type
+/// default, and overrides outrank a non-default programmatic value.
+#[test]
+fn test_resolve_infra_config_explicit_close_survives() {
+    use wf_types::config::file_checkpoint::FileCheckpointConfig;
+    std::env::remove_var("WF_FILE_CHECKPOINT_ENABLED");
+    std::env::remove_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS");
+
+    let project_dir = tempfile::tempdir().unwrap();
+    let infra_dir = project_dir.path().join("configs").join("infrastructure");
+    std::fs::create_dir_all(&infra_dir).unwrap();
+    std::fs::write(
+        infra_dir.join("file-checkpoint.toml"),
+        "enabled = true\nworkspace_root = \"/repo\"\n",
+    )
+    .unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let closed_source = || InfraSourceConfig {
+        project_root: Some(project_dir.path().to_path_buf()),
+        overrides: wf_config::orchestrator::ConfigOverrides {
+            file_checkpoint: Some(FileCheckpointConfig::default()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let config = runtime
+        .block_on(resolve_infra_config(
+            RuntimeConfig::default(),
+            &closed_source(),
+            None,
+        ))
+        .unwrap();
+    assert!(!config.file_checkpoint.enabled);
+
+    let programmatic = RuntimeConfig {
+        file_checkpoint: FileCheckpointConfig {
+            enabled: true,
+            workspace_root: Some("/repo".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let config = runtime
+        .block_on(resolve_infra_config(programmatic, &closed_source(), None))
+        .unwrap();
+    assert!(!config.file_checkpoint.enabled);
+}
+
 #[tokio::test]
 async fn test_runtime_bootstrap_memory() {
     clear_env_vars();
@@ -880,6 +930,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
         stream_options: None,
         context_window_size: None,
         proxy: None,
+        no_proxy: None,
         circuit_breaker: None,
     }];
     let gateway = init_llm_gateway(
@@ -918,6 +969,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
                 stream_options: None,
                 context_window_size: None,
                 proxy: None,
+                no_proxy: None,
                 circuit_breaker: None,
             }],
             provider_definitions: Vec::new(),

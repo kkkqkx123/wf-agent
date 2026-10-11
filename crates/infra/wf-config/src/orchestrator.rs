@@ -26,7 +26,7 @@ use crate::processor::infrastructure::{
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
-use crate::processor::sandbox_global::validate_sandbox_global;
+use crate::processor::sandbox_global::{merge_sandbox_global_config, validate_sandbox_global};
 use crate::processor::tools::{
     transform_code_context_config, transform_glob_config, transform_list_files_config,
     transform_read_file_config, CodeContextConfigInput, GlobConfig, GlobConfigInput,
@@ -41,7 +41,7 @@ use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
 use wf_types::config::tool_approval::ToolApprovalConfig;
-use wf_types::script::sandbox::SandboxGlobalConfig;
+use wf_types::script::sandbox::{SandboxGlobalConfig, SandboxMode};
 
 /// Default infrastructure preset used when no explicit preset is provided.
 pub const DEFAULT_INFRA_PRESET: &str = "development";
@@ -515,10 +515,72 @@ impl ConfigOrchestratorLoaded {
                         }
                     }
                 }
+                "file_checkpoint_enabled" => {
+                    if let Some(enabled) = value.as_bool() {
+                        config.file_checkpoint.enabled = enabled;
+                    }
+                }
+                "file_checkpoint_workspace_root" => {
+                    if let Some(root) = value.as_string() {
+                        if !root.is_empty() {
+                            config.file_checkpoint.workspace_root = Some(root.to_string());
+                        }
+                    }
+                }
+                "file_checkpoint_manual_watch" => {
+                    if let Some(watch) = value.as_bool() {
+                        config.file_checkpoint.manual_watch = watch;
+                    }
+                }
+                "file_checkpoint_manual_poll_ms" => {
+                    if let Some(v) = value.as_int() {
+                        if let Ok(poll_ms) = u64::try_from(v) {
+                            config.file_checkpoint.manual_poll_ms = Some(poll_ms);
+                        }
+                    }
+                }
+                "file_checkpoint_gc_interval_secs" => {
+                    if let Some(v) = value.as_int() {
+                        if let Ok(interval) = u64::try_from(v) {
+                            config.file_checkpoint.gc_interval_secs = Some(interval);
+                        }
+                    }
+                }
+                "sandbox_mode" => {
+                    if let Some(mode) = value.as_string() {
+                        // Only the canonical spellings arrive here; the
+                        // mapping parser rejects everything else.
+                        let mode = match mode {
+                            "Disabled" => Some(SandboxMode::Disabled),
+                            "Lenient" => Some(SandboxMode::Lenient),
+                            "Strict" => Some(SandboxMode::Strict),
+                            _ => None,
+                        };
+                        if let Some(mode) = mode {
+                            match config.sandbox.as_mut() {
+                                Some(global) => global.mode = Some(mode),
+                                None => {
+                                    config.sandbox = Some(SandboxGlobalConfig {
+                                        mode: Some(mode),
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {}
             },
             &mapping,
-        )
+        )?;
+        // Environment overrides participate in the same fail-fast contract
+        // as file values: a zero poll interval or an out-of-bounds default
+        // scope introduced here aborts startup.
+        validate_file_checkpoint_config(&config.file_checkpoint)?;
+        if let Some(sandbox) = config.sandbox.as_ref() {
+            validate_sandbox_global(sandbox)?;
+        }
+        Ok(())
     }
 
     fn apply_overrides(
@@ -535,7 +597,10 @@ impl ConfigOrchestratorLoaded {
             config.output = merge_output_with_defaults(&output);
         }
         if let Some(sandbox) = overrides.sandbox {
-            config.sandbox = Some(sandbox);
+            let base = config.sandbox.clone().unwrap_or_default();
+            let merged = merge_sandbox_global_config(&base, &sandbox);
+            validate_sandbox_global(&merged)?;
+            config.sandbox = Some(merged);
         }
         if let Some(file_checkpoint) = overrides.file_checkpoint {
             config.file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);

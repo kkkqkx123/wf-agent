@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::file_scope::ExecutionFileScope;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileCheckpointStorageType {
@@ -100,4 +102,10 @@ pub struct FileCheckpointConfig {
     /// set).
     #[serde(default)]
     pub gc_retention: Option<FileCheckpointGcRetention>,
+    /// Default execution scope applied when an execution carries no explicit
+    /// scope. Missing means the built-in default (enabled, workspace root
+    /// range); every field inside follows the same missing-inherits versus
+    /// explicit-empty-denies convention.
+    #[serde(default)]
+    pub default_scope: Option<ExecutionFileScope>,
 }

@@ -35,3 +35,22 @@ conflict_behavior = "marker"
 
 # Enable manual file watcher (only when both enabled and workspace_root are set).
 manual_watch = false
+
+# Manual watcher poll interval in milliseconds (unset = built-in default).
+# Raise this on large workspaces to trade detection latency for scan cost.
+# Zero is rejected at startup.
+# manual_poll_ms = 10000
+
+# Physical GC auto-run interval in seconds (unset = explicit runs only).
+# gc_interval_secs = 3600
+
+# Default execution file scope, applied when an execution carries no explicit
+# scope. Every field is optional: a missing field inherits the built-in
+# default (enabled, workspace root range), while an explicit empty list
+# denies everything. Checkpoint prefixes must stay inside the write prefixes.
+# [default_scope]
+# enabled = true
+# read_prefixes = ["/workspace"]
+# write_prefixes = ["/workspace"]
+# checkpoint_prefixes = ["/workspace"]
+# workdir = "/workspace"

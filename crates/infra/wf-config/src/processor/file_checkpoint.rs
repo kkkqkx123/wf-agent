@@ -1,16 +1,26 @@
 use crate::error::{ConfigError, ConfigResult};
+use crate::processor::file_scope::{
+    expand_file_scope, validate_file_scope, validate_optional_scope_path,
+    validate_resolved_file_scope,
+};
 use wf_types::config::file_checkpoint::{
     FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType,
 };
 
+/// Treat blank optional paths as unset so empty-string placeholders in
+/// example files inherit instead of failing validation.
+fn normalize_optional_path(value: Option<String>) -> Option<String> {
+    value.filter(|path| !path.trim().is_empty())
+}
+
 pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileCheckpointConfig {
     FileCheckpointConfig {
         enabled: user.enabled,
-        workspace_root: user.workspace_root.clone(),
+        workspace_root: normalize_optional_path(user.workspace_root.clone()),
         custom_ignore_patterns: user.custom_ignore_patterns.clone(),
         storage: user.storage.as_ref().map(|s| FileCheckpointStorageConfig {
             storage_type: FileCheckpointStorageType::Sqlite,
-            db_path: s.db_path.clone(),
+            db_path: normalize_optional_path(s.db_path.clone()),
         }),
         failure_behavior: user.failure_behavior,
         approval_policy: user.approval_policy,
@@ -19,21 +29,20 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         manual_poll_ms: user.manual_poll_ms,
         gc_interval_secs: user.gc_interval_secs,
         gc_retention: user.gc_retention,
+        // A missing default scope stays missing; it is never materialized
+        // into an empty (deny-all) scope here.
+        default_scope: user.default_scope.clone(),
     }
 }
 
-/// Fail-fast validation for the file-checkpoint config: reject empty
+/// Fail-fast validation for the file-checkpoint config: reject blank
 /// workspace roots and database paths, illegal ignore patterns, and a
 /// manual watcher without a workspace to watch. Value ranges that carry
 /// an explicit disabled meaning (`gc_interval_secs = 0`) are accepted so
 /// the bootstrap keeps a single interpretation of them.
 pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigResult<()> {
     if let Some(root) = config.workspace_root.as_deref() {
-        if root.trim().is_empty() {
-            return Err(ConfigError::Validation(
-                "file_checkpoint.workspace_root must not be empty".to_string(),
-            ));
-        }
+        validate_optional_scope_path(Some(root), "file_checkpoint.workspace_root")?;
     }
     if config.enabled
         && config.manual_watch
@@ -59,6 +68,11 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
                         .to_string(),
                 ));
             }
+            if let Err(e) = glob::Pattern::new(pattern) {
+                return Err(ConfigError::Validation(format!(
+                    "file_checkpoint.custom_ignore_patterns entry '{pattern}' is not a valid glob: {e}"
+                )));
+            }
         }
     }
     if let Some(storage) = config.storage.as_ref() {
@@ -77,6 +91,12 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
             ));
         }
     }
+    if let Some(scope) = config.default_scope.as_ref() {
+        validate_file_scope(scope)?;
+        let expanded = expand_file_scope(scope, None, config.workspace_root.as_deref());
+        validate_resolved_file_scope(&expanded)
+            .map_err(|e| ConfigError::Validation(format!("file_checkpoint.default_scope: {e}")))?;
+    }
     Ok(())
 }
 
@@ -84,10 +104,10 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
 mod tests {
     use super::*;
     use wf_types::config::file_checkpoint::FailureBehavior;
+    use wf_types::config::file_scope::ExecutionFileScope;
 
-    #[test]
-    fn test_merge_file_checkpoint_with_defaults() {
-        let user = FileCheckpointConfig {
+    fn base_config() -> FileCheckpointConfig {
+        FileCheckpointConfig {
             enabled: true,
             workspace_root: Some("/workspace".to_string()),
             custom_ignore_patterns: Some(vec!["*.log".to_string()]),
@@ -99,7 +119,13 @@ mod tests {
             manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
-        };
+            default_scope: None,
+        }
+    }
+
+    #[test]
+    fn test_merge_file_checkpoint_with_defaults() {
+        let user = base_config();
         let merged = merge_file_checkpoint_with_defaults(&user);
         assert!(merged.enabled);
         assert_eq!(merged.workspace_root, Some("/workspace".to_string()));
@@ -113,6 +139,36 @@ mod tests {
             wf_types::config::file_checkpoint::ConflictBehavior::Fail
         );
         assert!(merged.manual_watch);
+        assert!(merged.default_scope.is_none());
+    }
+
+    #[test]
+    fn test_merge_normalizes_blank_paths_to_unset() {
+        let mut user = base_config();
+        user.workspace_root = Some("   ".to_string());
+        user.storage = Some(FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some(String::new()),
+        });
+        let merged = merge_file_checkpoint_with_defaults(&user);
+        assert!(merged.workspace_root.is_none());
+        assert!(merged.storage.as_ref().unwrap().db_path.is_none());
+    }
+
+    #[test]
+    fn test_merge_passes_default_scope_through() {
+        let mut user = base_config();
+        user.default_scope = Some(ExecutionFileScope {
+            enabled: Some(false),
+            read_prefixes: None,
+            write_prefixes: Some(vec![]),
+            checkpoint_prefixes: Some(vec![]),
+            workdir: None,
+        });
+        let merged = merge_file_checkpoint_with_defaults(&user);
+        let scope = merged.default_scope.expect("scope survives merge");
+        assert_eq!(scope.enabled, Some(false));
+        assert_eq!(scope.write_prefixes, Some(vec![]));
     }
 
     #[test]
@@ -129,6 +185,7 @@ mod tests {
             manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
+            default_scope: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
     }
@@ -146,12 +203,20 @@ mod tests {
             manual_poll_ms: None,
             gc_interval_secs: None,
             gc_retention: None,
+            default_scope: None,
         }
     }
 
     #[test]
     fn test_validate_accepts_enabled_config() {
         assert!(validate_file_checkpoint_config(&enabled_config()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_relative_workspace_root() {
+        let mut config = enabled_config();
+        config.workspace_root = Some("work/alias".to_string());
+        assert!(validate_file_checkpoint_config(&config).is_ok());
     }
 
     #[test]
@@ -179,11 +244,56 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_rejects_invalid_glob_pattern() {
+        let mut config = enabled_config();
+        config.custom_ignore_patterns = Some(vec!["[unclosed".to_string()]);
+        let err = validate_file_checkpoint_config(&config).expect_err("bad glob must fail");
+        assert!(err.to_string().contains("[unclosed"), "error: {err}");
+    }
+
+    #[test]
+    fn test_validate_accepts_recursive_globs() {
+        let mut config = enabled_config();
+        config.custom_ignore_patterns = Some(vec![
+            "node_modules/**".to_string(),
+            ".git/**".to_string(),
+            "dist/**".to_string(),
+        ]);
+        assert!(validate_file_checkpoint_config(&config).is_ok());
+    }
+
+    #[test]
     fn test_validate_rejects_empty_db_path() {
         let mut config = enabled_config();
         config.storage = Some(FileCheckpointStorageConfig {
             storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
             db_path: Some("  ".to_string()),
+        });
+        assert!(validate_file_checkpoint_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_explicitly_closed_default_scope() {
+        let mut config = enabled_config();
+        config.default_scope = Some(ExecutionFileScope {
+            enabled: Some(false),
+            read_prefixes: Some(vec![]),
+            write_prefixes: Some(vec![]),
+            checkpoint_prefixes: Some(vec![]),
+            workdir: None,
+        });
+        assert!(validate_file_checkpoint_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_out_of_bounds_default_scope() {
+        let mut config = enabled_config();
+        config.default_scope = Some(ExecutionFileScope {
+            enabled: Some(true),
+            read_prefixes: Some(vec!["/workspace".to_string()]),
+            write_prefixes: Some(vec!["/workspace/app".to_string()]),
+            checkpoint_prefixes: Some(vec!["/workspace/other".to_string()]),
+            workdir: None,
         });
         assert!(validate_file_checkpoint_config(&config).is_err());
     }

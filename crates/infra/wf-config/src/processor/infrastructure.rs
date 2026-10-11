@@ -1,4 +1,7 @@
 use crate::error::{ConfigError, ConfigResult};
+use crate::processor::file_scope::{
+    validate_optional_scope_path, validate_optional_scope_path_list, validate_scope_path_list,
+};
 use crate::validator::validate_min;
 
 use wf_types::config::metrics::{AnomalyThresholdsConfig, MetricCollectorConfig, MetricsConfig};
@@ -193,6 +196,55 @@ pub fn validate_sandbox_config(config: &SandboxConfig) -> ConfigResult<()> {
                 "Invalid sandbox workdir '{workdir}': not an existing directory"
             )));
         }
+    }
+    validate_sandbox_paths(&config.policy, &config.vfs, "sandbox")?;
+    Ok(())
+}
+
+/// Lexically check the filesystem allow lists and the virtual filesystem
+/// path policy without changing any merge semantics. Unknown policy chain
+/// identifiers stay a runtime concern; the config layer never copies the
+/// allow lists.
+pub fn validate_sandbox_paths(
+    policy: &Option<wf_types::script::sandbox::SandboxPolicy>,
+    vfs: &Option<wf_types::script::sandbox::VfsConfig>,
+    field: &str,
+) -> ConfigResult<()> {
+    if let Some(policy) = policy.as_ref() {
+        if let Some(filesystem) = policy.filesystem.as_ref() {
+            validate_optional_scope_path_list(
+                filesystem.allowed_read_paths.as_deref(),
+                &format!("{field}.policy.filesystem.allowed_read_paths"),
+            )?;
+            validate_optional_scope_path_list(
+                filesystem.allowed_write_paths.as_deref(),
+                &format!("{field}.policy.filesystem.allowed_write_paths"),
+            )?;
+            validate_optional_scope_path_list(
+                filesystem.allowed_remove_paths.as_deref(),
+                &format!("{field}.policy.filesystem.allowed_remove_paths"),
+            )?;
+            validate_optional_scope_path_list(
+                filesystem.allowed_execute_paths.as_deref(),
+                &format!("{field}.policy.filesystem.allowed_execute_paths"),
+            )?;
+        }
+    }
+    if let Some(vfs) = vfs.as_ref() {
+        if let Some(path_policy) = vfs.path_policy.as_ref() {
+            validate_scope_path_list(
+                &path_policy.allowed_read,
+                &format!("{field}.vfs.path_policy.allowed_read"),
+            )?;
+            validate_scope_path_list(
+                &path_policy.allowed_write,
+                &format!("{field}.vfs.path_policy.allowed_write"),
+            )?;
+        }
+        validate_optional_scope_path(
+            vfs.workspace_root.as_deref(),
+            &format!("{field}.vfs.workspace_root"),
+        )?;
     }
     Ok(())
 }
@@ -468,5 +520,90 @@ mod tests {
         );
         let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
         assert!(!prod_output.enable_log_terminal);
+    }
+
+    #[test]
+    fn test_validate_sandbox_allow_list_paths() {
+        use wf_types::script::sandbox::{FilesystemPolicy, SandboxPolicy};
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: Some(SandboxPolicy {
+                mode: None,
+                shell: None,
+                python: None,
+                javascript: None,
+                lua: None,
+                filesystem: Some(FilesystemPolicy {
+                    allowed_read_paths: Some(vec!["/repo".to_string()]),
+                    allowed_write_paths: Some(vec!["workspace/out".to_string()]),
+                    allowed_remove_paths: None,
+                    allowed_execute_paths: None,
+                    copy_on_write: None,
+                    max_file_size: None,
+                }),
+                process: None,
+                network: None,
+                resource: None,
+            }),
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: None,
+            env: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        };
+        assert!(validate_sandbox_config(&config).is_ok());
+
+        let mut bad = config.clone();
+        bad.policy
+            .as_mut()
+            .unwrap()
+            .filesystem
+            .as_mut()
+            .unwrap()
+            .allowed_write_paths = Some(vec!["../escape".to_string()]);
+        assert!(validate_sandbox_config(&bad).is_err());
+
+        let mut bad = config.clone();
+        bad.policy
+            .as_mut()
+            .unwrap()
+            .filesystem
+            .as_mut()
+            .unwrap()
+            .allowed_read_paths = Some(vec!["ok\0bad".to_string()]);
+        assert!(validate_sandbox_config(&bad).is_err());
+    }
+
+    #[test]
+    fn test_validate_sandbox_vfs_path_policy() {
+        use wf_types::script::sandbox::{PathPolicy, VfsConfig};
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: Some(VfsConfig {
+                enabled: true,
+                storage: None,
+                db_path: None,
+                workspace_root: Some("/repo".to_string()),
+                path_policy: Some(PathPolicy {
+                    allowed_read: vec!["/repo".to_string()],
+                    allowed_write: vec!["   ".to_string()],
+                }),
+            }),
+            workdir: None,
+            env: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        };
+        let err = validate_sandbox_config(&config).expect_err("blank vfs path must fail");
+        assert!(err.to_string().contains("allowed_write"), "error: {err}");
     }
 }

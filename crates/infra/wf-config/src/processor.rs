@@ -14,6 +14,7 @@
 /// - `hook` — validate hook configs (HookPointConfig, AgentHookConfig)
 /// - `checkpoint` — merge/validate checkpoint policies
 /// - `file_checkpoint` — merge/validate file checkpoint configs
+/// - `file_scope` — merge/validate/expand execution file scopes
 /// - `node_template` — validate/transform node templates
 /// - `presets` — merge presets with defaults
 /// - `sandbox_global` — validate/transform global sandbox configs
@@ -26,6 +27,7 @@
 pub mod agent_loop;
 pub mod checkpoint;
 pub mod file_checkpoint;
+pub mod file_scope;
 pub mod hook;
 pub mod infrastructure;
 pub mod limits;

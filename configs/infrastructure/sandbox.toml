@@ -52,6 +52,9 @@ restrict_io_open = true
 allow_dynamic_load = false
 
 [profiles.policy.filesystem]
+# Allow-listed paths must be absolute or relative to the workspace root.
+# Relative entries that escape the workspace (`../...`), blank entries, and
+# NUL bytes are rejected at startup. An explicit empty list denies everything.
 allowed_read_paths = []
 allowed_write_paths = []
 allowed_remove_paths = []

@@ -5,7 +5,10 @@
 //! file is skipped with a warning instead of failing bootstrap. This layer
 //! covers only the small set of host knobs operators expect in a dotfile
 //! (`storage`, `log_level`, `tool_approval`); infrastructure presets stay in
-//! the orchestrator, which applies on top with higher priority.
+//! the orchestrator, which applies on top with higher priority. File
+//! checkpoint and sandbox settings are deliberately excluded here so the
+//! dotfile layer can never shadow the infrastructure preset mapping with a
+//! partial sibling value.
 
 use std::path::{Path, PathBuf};
 

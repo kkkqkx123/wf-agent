@@ -69,6 +69,12 @@ fn clear_wf_env_vars() {
         "WF_WORKFLOW_MAX_NAVIGATION_MULTIPLIER",
         "WF_EXEC_NODE_TIMEOUT_MS",
         "WF_EXEC_MAX_EXECUTION_TIME_MS",
+        "WF_FILE_CHECKPOINT_ENABLED",
+        "WF_FILE_CHECKPOINT_WORKSPACE_ROOT",
+        "WF_FILE_CHECKPOINT_MANUAL_WATCH",
+        "WF_FILE_CHECKPOINT_MANUAL_POLL_MS",
+        "WF_FILE_CHECKPOINT_GC_INTERVAL_SECS",
+        "WF_SANDBOX_MODE",
     ] {
         std::env::remove_var(var);
     }
@@ -365,4 +371,121 @@ fn test_full_bundle_assembly_from_repo_configs() {
         !config.file_checkpoint.enabled,
         "repo file-checkpoint.toml must load"
     );
+}
+
+#[test]
+fn test_assemble_file_checkpoint_env_overrides() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-fc-env-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+
+    std::env::set_var("WF_FILE_CHECKPOINT_ENABLED", "true");
+    std::env::set_var("WF_FILE_CHECKPOINT_WORKSPACE_ROOT", "/data/ws");
+    std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_WATCH", "true");
+    std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS", "5000");
+    std::env::set_var("WF_FILE_CHECKPOINT_GC_INTERVAL_SECS", "3600");
+    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    assert!(config.file_checkpoint.enabled);
+    assert_eq!(
+        config.file_checkpoint.workspace_root.as_deref(),
+        Some("/data/ws")
+    );
+    assert!(config.file_checkpoint.manual_watch);
+    assert_eq!(config.file_checkpoint.manual_poll_ms, Some(5000));
+    assert_eq!(config.file_checkpoint.gc_interval_secs, Some(3600));
+    clear_wf_env_vars();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_assemble_rejects_zero_poll_ms_from_env() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-fc-env-bad-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+
+    std::env::set_var("WF_FILE_CHECKPOINT_MANUAL_POLL_MS", "0");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    std::env::set_var("WF_SANDBOX_MODE", "permissive-typo");
+    assert!(ConfigOrchestrator::assemble(&dir, None).is_err());
+    clear_wf_env_vars();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_assemble_sandbox_mode_env_override() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-sbx-env-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+
+    std::env::set_var("WF_SANDBOX_MODE", "lenient");
+    let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+    let sandbox = config
+        .sandbox
+        .expect("env mode materializes a sandbox config");
+    assert_eq!(
+        sandbox.mode,
+        Some(wf_types::script::sandbox::SandboxMode::Lenient)
+    );
+    clear_wf_env_vars();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_assemble_sandbox_override_merges_and_revalidates() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    clear_wf_env_vars();
+
+    let dir = std::env::temp_dir().join(format!("wf-orch-sbx-override-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    setup_test_project(&dir);
+
+    let overrides = ConfigOverrides {
+        sandbox: Some(wf_types::script::sandbox::SandboxGlobalConfig {
+            mode: Some(wf_types::script::sandbox::SandboxMode::Lenient),
+            profiles: vec![],
+            rules: vec![],
+            default_profile: None,
+            audit_logging: false,
+        }),
+        ..Default::default()
+    };
+    let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
+    let sandbox = config.sandbox.expect("override yields a sandbox config");
+    assert_eq!(
+        sandbox.mode,
+        Some(wf_types::script::sandbox::SandboxMode::Lenient)
+    );
+    assert!(!sandbox.audit_logging);
+
+    let bad = ConfigOverrides {
+        sandbox: Some(wf_types::script::sandbox::SandboxGlobalConfig {
+            mode: None,
+            profiles: vec![],
+            rules: vec![wf_types::script::sandbox::SandboxProfileRule {
+                match_field: wf_types::script::sandbox::SandboxRuleMatchField::Language,
+                match_pattern: "shell".to_string(),
+                profile: "does-not-exist".to_string(),
+            }],
+            default_profile: None,
+            audit_logging: true,
+        }),
+        ..Default::default()
+    };
+    assert!(ConfigOrchestrator::assemble(&dir, Some(bad)).is_err());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

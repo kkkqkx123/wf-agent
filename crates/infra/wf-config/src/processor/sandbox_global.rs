@@ -1,9 +1,39 @@
 use std::collections::HashMap;
 
 use crate::error::{ConfigError, ConfigResult};
+use crate::processor::infrastructure::validate_sandbox_paths;
 use crate::processor::substitute::substitute_in_struct;
 
 use wf_types::script::sandbox::SandboxGlobalConfig;
+
+/// Merge a programmatic sandbox override over an assembled base: set
+/// sections win (non-empty profile and rule lists replace, set scalars
+/// override), missing sections inherit the base. The merged result still
+/// goes through validation so an unchecked allow list can never reach the
+/// runtime.
+pub fn merge_sandbox_global_config(
+    base: &SandboxGlobalConfig,
+    upper: &SandboxGlobalConfig,
+) -> SandboxGlobalConfig {
+    SandboxGlobalConfig {
+        mode: upper.mode.clone().or_else(|| base.mode.clone()),
+        profiles: if upper.profiles.is_empty() {
+            base.profiles.clone()
+        } else {
+            upper.profiles.clone()
+        },
+        rules: if upper.rules.is_empty() {
+            base.rules.clone()
+        } else {
+            upper.rules.clone()
+        },
+        default_profile: upper
+            .default_profile
+            .clone()
+            .or_else(|| base.default_profile.clone()),
+        audit_logging: upper.audit_logging,
+    }
+}
 
 /// Validate a global sandbox configuration (profiles + routing rules).
 ///
@@ -11,11 +41,22 @@ use wf_types::script::sandbox::SandboxGlobalConfig;
 /// `default_profile` exists) is checked by
 /// [`SandboxGlobalConfig::validate`] — the single source of truth shared
 /// with `wf-sandbox`'s runtime compilation, so an invalid config is
-/// rejected here at load time instead of at script execution.
+/// rejected here at load time instead of at script execution. Profile
+/// allow lists and virtual filesystem paths additionally go through the
+/// shared lexical path check; unknown strategy chain identifiers stay a
+/// runtime concern.
 pub fn validate_sandbox_global(config: &SandboxGlobalConfig) -> ConfigResult<()> {
     config
         .validate()
-        .map_err(|e| ConfigError::Validation(e.to_string()))
+        .map_err(|e| ConfigError::Validation(e.to_string()))?;
+    for profile in &config.profiles {
+        validate_sandbox_paths(
+            &profile.policy,
+            &profile.vfs,
+            &format!("sandbox.profiles[{}]", profile.name),
+        )?;
+    }
+    Ok(())
 }
 
 /// Apply `{{parameters.*}}` substitution to every string field of the
@@ -149,5 +190,134 @@ profile = "lenient"
         let err = crate::parser::parse_toml::<SandboxGlobalConfig>(toml)
             .expect_err("unknown match_field must fail deserialization");
         assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_merge_prefers_upper_policy_override() {
+        use wf_types::script::sandbox::{FilesystemPolicy, SandboxPolicy};
+        let base = valid_global();
+        let upper = SandboxGlobalConfig {
+            mode: Some(SandboxMode::Lenient),
+            profiles: vec![],
+            rules: vec![],
+            default_profile: None,
+            audit_logging: false,
+        };
+        let merged = merge_sandbox_global_config(&base, &upper);
+        assert_eq!(merged.mode, Some(SandboxMode::Lenient));
+        assert_eq!(merged.profiles.len(), 2);
+        assert_eq!(merged.rules.len(), 1);
+        assert!(!merged.audit_logging);
+
+        let mut replacing = valid_global();
+        replacing.profiles[0].policy = Some(SandboxPolicy {
+            mode: None,
+            shell: None,
+            python: None,
+            javascript: None,
+            lua: None,
+            filesystem: Some(FilesystemPolicy {
+                allowed_read_paths: Some(vec!["/repo".to_string()]),
+                allowed_write_paths: None,
+                allowed_remove_paths: None,
+                allowed_execute_paths: None,
+                copy_on_write: None,
+                max_file_size: None,
+            }),
+            process: None,
+            network: None,
+            resource: None,
+        });
+        let merged = merge_sandbox_global_config(&base, &replacing);
+        assert_eq!(merged.profiles.len(), 2);
+        assert!(validate_sandbox_global(&merged).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_bad_profile_read_list() {
+        use wf_types::script::sandbox::{FilesystemPolicy, SandboxPolicy};
+        let mut global = valid_global();
+        global.profiles[0].policy = Some(SandboxPolicy {
+            mode: None,
+            shell: None,
+            python: None,
+            javascript: None,
+            lua: None,
+            filesystem: Some(FilesystemPolicy {
+                allowed_read_paths: Some(vec!["../escape".to_string()]),
+                allowed_write_paths: None,
+                allowed_remove_paths: None,
+                allowed_execute_paths: None,
+                copy_on_write: None,
+                max_file_size: None,
+            }),
+            process: None,
+            network: None,
+            resource: None,
+        });
+        let err = validate_sandbox_global(&global).expect_err("escaping path must fail");
+        assert!(
+            err.to_string().contains("allowed_read_paths"),
+            "error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_merge_prefers_upper_sections() {
+        let base = valid_global();
+        let upper = SandboxGlobalConfig {
+            mode: Some(SandboxMode::Lenient),
+            profiles: vec![],
+            rules: vec![],
+            default_profile: None,
+            audit_logging: false,
+        };
+        let merged = merge_sandbox_global_config(&base, &upper);
+        assert_eq!(merged.mode, Some(SandboxMode::Lenient));
+        assert_eq!(merged.profiles.len(), 2);
+        assert_eq!(merged.rules.len(), 1);
+        assert!(!merged.audit_logging);
+
+        let upper = SandboxGlobalConfig {
+            mode: None,
+            profiles: vec![profile("extra")],
+            rules: vec![],
+            default_profile: Some("extra".to_string()),
+            audit_logging: true,
+        };
+        let merged = merge_sandbox_global_config(&base, &upper);
+        assert_eq!(merged.mode, Some(SandboxMode::Strict));
+        assert_eq!(merged.profiles.len(), 1);
+        assert_eq!(merged.profiles[0].name, "extra");
+        assert_eq!(merged.default_profile.as_deref(), Some("extra"));
+    }
+
+    #[test]
+    fn test_validate_rejects_bad_profile_write_list() {
+        use wf_types::script::sandbox::{FilesystemPolicy, SandboxPolicy};
+        let mut global = valid_global();
+        global.profiles[0].policy = Some(SandboxPolicy {
+            mode: None,
+            shell: None,
+            python: None,
+            javascript: None,
+            lua: None,
+            filesystem: Some(FilesystemPolicy {
+                allowed_read_paths: None,
+                allowed_write_paths: Some(vec!["../escape".to_string()]),
+                allowed_remove_paths: None,
+                allowed_execute_paths: None,
+                copy_on_write: None,
+                max_file_size: None,
+            }),
+            process: None,
+            network: None,
+            resource: None,
+        });
+        let err = validate_sandbox_global(&global).expect_err("escaping path must fail");
+        assert!(
+            err.to_string().contains("allowed_write_paths"),
+            "error: {err}"
+        );
     }
 }

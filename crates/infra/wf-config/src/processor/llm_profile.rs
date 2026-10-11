@@ -65,6 +65,7 @@ mod tests {
             stream_options: None,
             context_window_size: None,
             proxy: None,
+            no_proxy: None,
             circuit_breaker: None,
         }
     }

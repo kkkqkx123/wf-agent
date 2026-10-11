@@ -6,6 +6,7 @@ use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
 use wf_config::orchestrator::{
     default_infra_file_mapping, ConfigOrchestratorBuilder, ConfigOverrides,
 };
+use wf_config::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
@@ -233,7 +234,21 @@ pub async fn resolve_infra_config(
     if config.metrics.is_none() {
         config.metrics = Some(assembled.metrics);
     }
-    if config.sandbox.is_none() {
+    // Programmatic overrides already won inside the assembled config, so
+    // they outrank the programmatic runtime values below: an explicitly
+    // closed file channel (`enabled = false`, which reads identical to the
+    // type default) must survive instead of being mistaken for "unset" and
+    // covered by the assembled value.
+    if infra.overrides.file_checkpoint.is_some() {
+        config.file_checkpoint = assembled.file_checkpoint;
+    } else if config.file_checkpoint == FileCheckpointConfig::default() {
+        config.file_checkpoint = assembled.file_checkpoint;
+    } else {
+        config.file_checkpoint = merge_file_checkpoint_with_defaults(&config.file_checkpoint);
+    }
+    if infra.overrides.sandbox.is_some() {
+        config.sandbox = assembled.sandbox;
+    } else if config.sandbox.is_none() {
         config.sandbox = assembled.sandbox;
     }
     if config.presets == wf_types::config::presets::PresetsConfig::default() {
@@ -241,9 +256,6 @@ pub async fn resolve_infra_config(
     }
     if config.tools == wf_config::orchestrator::ToolConfigs::default() {
         config.tools = assembled.tools;
-    }
-    if config.file_checkpoint == FileCheckpointConfig::default() {
-        config.file_checkpoint = assembled.file_checkpoint;
     }
     if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
         config.tool_approval = assembled.tool_approval;

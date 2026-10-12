@@ -16,6 +16,7 @@ pub mod args_observe;
 pub mod args_tooling;
 pub mod args_workflow;
 pub mod cmd;
+pub mod display;
 pub mod domain;
 pub mod error;
 pub mod mode;

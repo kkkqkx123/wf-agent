@@ -22,6 +22,16 @@ pub struct EventSubscriptionOptions {
     pub workflow_id: Option<String>,
     /// Only events of these types; `None` delivers every type.
     pub event_types: Option<Vec<EventType>>,
+    /// Only checkpoint-domain events (`Checkpoint*`). When true, execution
+    /// and agent events are excluded even without an explicit type list.
+    /// Lets the checkpoint page subscribe without mixing execution noise.
+    pub checkpoint_only: bool,
+    /// Only checkpoint events for this file path (matches `file` metadata
+    /// or the comma-separated `conflict_files` list).
+    pub file_path: Option<String>,
+    /// Only checkpoint events for this snapshot or commit id (matches
+    /// `snapshot_id` / `checkpoint_id` metadata).
+    pub snapshot_id: Option<String>,
 }
 
 impl EventSubscriptionOptions {
@@ -33,7 +43,34 @@ impl EventSubscriptionOptions {
         }
     }
 
+    /// Subscribe to checkpoint-domain changes only (file changes, merges,
+    /// GC). Optionally narrowed to one file path.
+    pub fn for_checkpoint(file_path: Option<String>) -> Self {
+        Self {
+            checkpoint_only: true,
+            file_path,
+            ..Default::default()
+        }
+    }
+
+    /// Whether an event type belongs to the checkpoint domain.
+    pub fn is_checkpoint_event(event_type: &EventType) -> bool {
+        matches!(
+            event_type,
+            EventType::CheckpointCreated
+                | EventType::CheckpointRestored
+                | EventType::CheckpointDeleted
+                | EventType::CheckpointFailed
+                | EventType::CheckpointFileChanged
+                | EventType::CheckpointMergeConflicted
+                | EventType::CheckpointGcCompleted
+        )
+    }
+
     pub(crate) fn matches(&self, event: &BaseEvent) -> bool {
+        if self.checkpoint_only && !Self::is_checkpoint_event(&event.r#type) {
+            return false;
+        }
         if let Some(execution_id) = &self.execution_id {
             if event.execution_id.as_deref() != Some(execution_id.as_str()) {
                 return false;
@@ -51,6 +88,38 @@ impl EventSubscriptionOptions {
         }
         if let Some(types) = &self.event_types {
             if !types.contains(&event.r#type) {
+                return false;
+            }
+        }
+        if let Some(path) = &self.file_path {
+            let meta = event.metadata.as_ref();
+            let file_hit = meta
+                .and_then(|m| m.get("file"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|f| f == path.as_str());
+            let conflict_hit =
+                meta.and_then(|m| m.get("conflict_files"))
+                    .is_some_and(|v| match v {
+                        serde_json::Value::String(s) => {
+                            s.split(',').any(|p| p.trim() == path.as_str())
+                        }
+                        serde_json::Value::Array(items) => items
+                            .iter()
+                            .filter_map(|i| i.as_str())
+                            .any(|p| p == path.as_str()),
+                        _ => false,
+                    });
+            if !(file_hit || conflict_hit) {
+                return false;
+            }
+        }
+        if let Some(snapshot) = &self.snapshot_id {
+            let meta = event.metadata.as_ref();
+            let hit = meta
+                .and_then(|m| m.get("snapshot_id").or_else(|| m.get("checkpoint_id")))
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| s == snapshot.as_str());
+            if !hit {
                 return false;
             }
         }
@@ -261,5 +330,78 @@ mod tests {
         .await
         .unwrap();
         assert!(result.is_none());
+    }
+
+    fn checkpoint_event(
+        event_type: EventType,
+        file: Option<&str>,
+        snapshot: Option<&str>,
+    ) -> BaseEvent {
+        let mut metadata = std::collections::HashMap::new();
+        if let Some(file) = file {
+            metadata.insert("file".to_string(), serde_json::json!(file));
+        }
+        if let Some(snapshot) = snapshot {
+            metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot));
+        }
+        BaseEvent {
+            id: generate_id(),
+            r#type: event_type,
+            timestamp: 1,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            event_name: None,
+            metadata: Some(metadata),
+        }
+    }
+
+    #[test]
+    fn checkpoint_only_filter_excludes_execution_noise() {
+        let options = EventSubscriptionOptions::for_checkpoint(None);
+        assert!(options.matches(&checkpoint_event(
+            EventType::CheckpointFileChanged,
+            Some("a.txt"),
+            None
+        )));
+        assert!(options.matches(&checkpoint_event(
+            EventType::CheckpointGcCompleted,
+            None,
+            None
+        )));
+        assert!(!options.matches(&make_event(
+            Some("exec-1"),
+            None,
+            EventType::NodeStarted,
+            100
+        )));
+    }
+
+    #[test]
+    fn checkpoint_file_and_snapshot_narrowing() {
+        let by_file = EventSubscriptionOptions::for_checkpoint(Some("a.txt".to_string()));
+        assert!(by_file.matches(&checkpoint_event(
+            EventType::CheckpointFileChanged,
+            Some("a.txt"),
+            None
+        )));
+        assert!(!by_file.matches(&checkpoint_event(
+            EventType::CheckpointFileChanged,
+            Some("b.txt"),
+            None
+        )));
+
+        let mut by_snapshot = EventSubscriptionOptions::for_checkpoint(None);
+        by_snapshot.snapshot_id = Some("snap-1".to_string());
+        assert!(by_snapshot.matches(&checkpoint_event(
+            EventType::CheckpointFileChanged,
+            Some("a.txt"),
+            Some("snap-1")
+        )));
+        assert!(!by_snapshot.matches(&checkpoint_event(
+            EventType::CheckpointFileChanged,
+            Some("a.txt"),
+            Some("snap-2")
+        )));
     }
 }

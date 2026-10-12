@@ -2,9 +2,12 @@
 //! everything else goes to stderr, via an injectable [`TurnSink`].
 
 use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_cli_shared::display::MarkdownMode;
 
 use super::TurnOutcome;
+use crate::display::DisplayConfig;
 use crate::output::{self, AppendWriter};
+use crate::render::{strip_terminal_escapes, StreamRenderer};
 
 /// A turn that started, with the id used for summaries and persistence.
 pub(super) struct FinishedTurn {
@@ -52,19 +55,31 @@ impl TurnSink for RealSink {
 /// goes to stderr. Terminal events return whether the turn completed; the
 /// full assistant text is kept for the transcript.
 ///
+/// `Raw` markdown streams sanitized text verbatim through the line-buffered
+/// [`AppendWriter`]; `Plain`/`Styled` render through a [`StreamRenderer`]
+/// that emits complete lines only. The transcript always keeps the
+/// sanitized raw text so display choices never leak into model context.
+/// Failures always reach stderr even when their stream is hidden.
+///
 /// The sink is generic so tests can capture every byte without touching
 /// real file descriptors; production uses [`RealSink`].
 pub(super) struct TurnRenderer<S: TurnSink = RealSink> {
     append: AppendWriter,
+    stream: StreamRenderer,
+    display: DisplayConfig,
     line_pending: bool,
     assistant_text: String,
     sink: S,
 }
 
 impl<S: TurnSink + Default> TurnRenderer<S> {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(display: DisplayConfig) -> Self {
+        let mode = display.markdown;
+        let color = display.color;
         Self {
             append: AppendWriter::new(),
+            stream: StreamRenderer::new(mode, color),
+            display,
             line_pending: false,
             assistant_text: String::new(),
             sink: S::default(),
@@ -86,8 +101,12 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::LlmDelta { content } => {
-                self.assistant_text.push_str(content);
-                let ready = self.append.push(content);
+                let clean = strip_terminal_escapes(content);
+                self.assistant_text.push_str(&clean);
+                let ready = match self.display.markdown {
+                    MarkdownMode::Raw => self.append.push(&clean),
+                    MarkdownMode::Plain | MarkdownMode::Styled => self.stream.push(&clean),
+                };
                 if !ready.is_empty() {
                     self.sink.stdout_text(&ready);
                     self.line_pending = !ready.ends_with('\n');
@@ -95,6 +114,9 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::ToolStart { tool_name, .. } => {
+                if !self.display.show_tools {
+                    return None;
+                }
                 self.end_stdout_line();
                 self.sink.stderr_line(&format!("tool start: {tool_name}"));
                 None
@@ -102,17 +124,24 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             ExecutionStreamEvent::ToolEnd {
                 tool_name, success, ..
             } => {
-                self.end_stdout_line();
-                if *success {
-                    self.sink.stderr_line(&format!("tool ok: {tool_name}"));
-                } else {
+                if !*success {
+                    self.end_stdout_line();
                     self.sink.stderr_line(&format!("tool failed: {tool_name}"));
+                    return None;
                 }
+                if !self.display.show_tools {
+                    return None;
+                }
+                self.end_stdout_line();
+                self.sink.stderr_line(&format!("tool ok: {tool_name}"));
                 None
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
+                if !self.display.show_reasoning {
+                    return None;
+                }
                 self.end_stdout_line();
-                self.sink.stderr_text(content);
+                self.sink.stderr_text(&strip_terminal_escapes(content));
                 None
             }
             ExecutionStreamEvent::Usage {
@@ -120,6 +149,9 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 completion_tokens,
                 cost,
             } => {
+                if !self.display.show_usage {
+                    return None;
+                }
                 self.end_stdout_line();
                 match cost {
                     Some(value) => self.sink.stderr_line(&format!(
@@ -132,40 +164,54 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::SubAgentStarted { name, .. } => {
+                if !self.display.show_tools {
+                    return None;
+                }
                 self.end_stdout_line();
                 self.sink.stderr_line(&format!("subagent started: {name}"));
                 None
             }
             ExecutionStreamEvent::SubAgentEnded { name, success, .. } => {
-                self.end_stdout_line();
-                if *success {
-                    self.sink.stderr_line(&format!("subagent done: {name}"));
-                } else {
+                if !*success {
+                    self.end_stdout_line();
                     self.sink.stderr_line(&format!("subagent failed: {name}"));
+                    return None;
                 }
+                if !self.display.show_tools {
+                    return None;
+                }
+                self.end_stdout_line();
+                self.sink.stderr_line(&format!("subagent done: {name}"));
                 None
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
                 self.flush_stdout();
-                self.sink
-                    .stderr_line(&format!("completed in {iterations} iterations"));
+                if self.display.show_tools {
+                    self.sink
+                        .stderr_line(&format!("completed in {iterations} iterations"));
+                }
                 Some(true)
             }
             ExecutionStreamEvent::Failed { error } => {
                 self.flush_stdout();
-                self.sink.stderr_line(&format!("failed: {error}"));
+                self.sink
+                    .stderr_line(&format!("failed: {}", strip_terminal_escapes(error)));
                 Some(false)
             }
             ExecutionStreamEvent::Interrupted { reason } => {
                 self.flush_stdout();
-                self.sink.stderr_line(&format!("interrupted: {reason}"));
+                self.sink
+                    .stderr_line(&format!("interrupted: {}", strip_terminal_escapes(reason)));
                 Some(false)
             }
         }
     }
 
     fn flush_stdout(&mut self) {
-        let remaining = self.append.take_remaining();
+        let remaining = match self.display.markdown {
+            MarkdownMode::Raw => self.append.take_remaining(),
+            MarkdownMode::Plain | MarkdownMode::Styled => self.stream.flush(),
+        };
         if !remaining.is_empty() {
             self.sink.stdout_text(&remaining);
             self.line_pending = !remaining.ends_with('\n');
@@ -277,7 +323,14 @@ mod tests {
     /// Feed events through a capturing renderer to completion: returns
     /// (terminal outcome, stdout, stderr, assistant text).
     fn render(events: Vec<ExecutionStreamEvent>) -> (Option<bool>, String, String, String) {
-        let mut renderer = TurnRenderer::<TestSink>::new();
+        render_with(DisplayConfig::default(), events)
+    }
+
+    fn render_with(
+        display: DisplayConfig,
+        events: Vec<ExecutionStreamEvent>,
+    ) -> (Option<bool>, String, String, String) {
+        let mut renderer = TurnRenderer::<TestSink>::new(display);
         let mut terminal = None;
         for event in &events {
             if let Some(done) = renderer.on_event(event) {
@@ -418,5 +471,81 @@ mod tests {
         assert_eq!(stdout, "");
         assert_eq!(stderr, "completed in 2 iterations\n");
         assert_eq!(text, "");
+    }
+
+    #[test]
+    fn plain_mode_strips_markup_but_keeps_transcript_raw() {
+        let display = DisplayConfig {
+            markdown: MarkdownMode::Plain,
+            ..DisplayConfig::default()
+        };
+        let (terminal, stdout, stderr, text) = render_with(
+            display,
+            vec![delta("**hello** world\n"), delta("tail"), completed()],
+        );
+        assert_eq!(terminal, Some(true));
+        assert_eq!(stdout, "hello world\ntail\n");
+        assert_eq!(stderr, "completed in 2 iterations\n");
+        assert_eq!(text, "**hello** world\ntail");
+    }
+
+    #[test]
+    fn styled_mode_without_color_degrades_to_plain() {
+        let display = DisplayConfig {
+            markdown: MarkdownMode::Styled,
+            color: false,
+            ..DisplayConfig::default()
+        };
+        let (_, stdout, _, _) = render_with(display, vec![delta("**hi**\n"), completed()]);
+        assert_eq!(stdout, "hi\n");
+        assert!(!stdout.contains('\x1b'));
+    }
+
+    #[test]
+    fn styled_mode_with_color_emits_sgr() {
+        let display = DisplayConfig {
+            markdown: MarkdownMode::Styled,
+            color: true,
+            ..DisplayConfig::default()
+        };
+        let (_, stdout, _, _) = render_with(display, vec![delta("**hi**\n"), completed()]);
+        assert!(stdout.contains("\x1b[1m"), "{stdout:?}");
+        assert!(stdout.contains("\x1b[0m"), "{stdout:?}");
+    }
+
+    #[test]
+    fn model_escapes_never_reach_stdout() {
+        let (_, stdout, _, text) = render(vec![delta("\x1b[2Jhi\x1b[0m\n"), completed()]);
+        assert_eq!(stdout, "hi\n");
+        assert_eq!(text, "hi\n");
+    }
+
+    #[test]
+    fn hidden_streams_stay_silent_but_failures_show() {
+        let display = DisplayConfig {
+            show_reasoning: false,
+            show_usage: false,
+            show_tools: false,
+            ..DisplayConfig::default()
+        };
+        let (_, stdout, stderr, _) = render_with(
+            display,
+            vec![
+                delta("abc"),
+                ExecutionStreamEvent::ReasoningDelta {
+                    content: "thinking".to_string(),
+                },
+                ExecutionStreamEvent::Usage {
+                    prompt_tokens: 1,
+                    completion_tokens: 2,
+                    cost: None,
+                },
+                tool_start(),
+                tool_end(true),
+                tool_end(false),
+            ],
+        );
+        assert_eq!(stdout, "abc\n");
+        assert_eq!(stderr, "tool failed: write_file\n");
     }
 }

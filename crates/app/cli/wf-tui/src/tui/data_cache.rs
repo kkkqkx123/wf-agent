@@ -42,6 +42,16 @@ pub(super) enum DataResult {
         earlier: bool,
         result: crate::error::CliResult<crate::replay::ReplayPage>,
     },
+    /// Rendered checkpoint detail text for the read-only viewer modal.
+    CheckpointDetail {
+        title: String,
+        result: crate::error::CliResult<String>,
+    },
+    /// Rendered checkpoint chain text for the read-only viewer modal.
+    CheckpointChain {
+        title: String,
+        result: crate::error::CliResult<String>,
+    },
 }
 
 impl TuiApp {
@@ -110,6 +120,19 @@ impl TuiApp {
                     match result {
                         Ok(page) => self.history.land(page, earlier),
                         Err(err) => self.history.fail(format!("{err}")),
+                    }
+                    changed = true;
+                }
+                DataResult::CheckpointDetail { title, result }
+                | DataResult::CheckpointChain { title, result } => {
+                    match result {
+                        Ok(text) => {
+                            self.modals
+                                .push(Box::new(crate::file_viewer::FileViewer::new(title, &text)));
+                        }
+                        Err(err) => {
+                            self.app.notice.set(format!("{title}: {err}"));
+                        }
                     }
                     changed = true;
                 }

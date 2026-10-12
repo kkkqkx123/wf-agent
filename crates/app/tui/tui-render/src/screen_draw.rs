@@ -238,12 +238,22 @@ pub fn draw_checkpoints(
     let rows = match data {
         ScreenData::Checkpoints(rows) => rows
             .iter()
-            .map(|r| format!("{} · {} · {}", short_id(&r.id), r.entity, r.timestamp))
+            .map(|r| {
+                format!(
+                    "{} · {} · {} · {} · {} · {}",
+                    short_id(&r.id),
+                    r.entity,
+                    r.entity_type,
+                    r.checkpoint_type,
+                    r.status,
+                    r.timestamp
+                )
+            })
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
     let block = titled_block(
-        "Checkpoints (r restore, Esc back)",
+        "Checkpoints (r refresh, R restore, Enter detail, t chain, d delete, Esc back)",
         ColorRole::Highlight,
         theme,
     );
@@ -320,7 +330,7 @@ pub fn draw_settings(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &T
 }
 
 pub fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / push screen\n  f          - cycle execution status filter\n  d          - delete selected workflow\n  r          - restore selected checkpoint\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
+    let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / checkpoint detail\n  f          - cycle execution status filter\n  d          - delete selected workflow / checkpoint\n  r          - refresh current screen\n  R          - restore selected checkpoint (confirm)\n  t          - checkpoint chain of selected row\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
     let block = titled_block("Help", ColorRole::Warning, theme);
     frame.render_widget(Paragraph::new(text).block(block), area);
 }

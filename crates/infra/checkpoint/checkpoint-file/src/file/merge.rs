@@ -13,7 +13,7 @@ use checkpoint_base::error::CheckpointError;
 
 /// Result of a merge commit: the Git merge outcome plus the multi-parent
 /// commit id recording the merge in the DAG.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MergeCommitResult {
     pub merge_result: GitMergeOutcome,
     pub checkpoint_id: String,

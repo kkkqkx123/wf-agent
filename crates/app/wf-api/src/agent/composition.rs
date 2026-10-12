@@ -446,8 +446,9 @@ mod tests {
     fn unset_tool_list_falls_back_to_template() {
         let regs = registries();
         let env = env_for(&regs);
-        let (config, _) = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
-            .expect("apply");
+        let (config, _) =
+            resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+                .expect("apply");
         assert!(config
             .available_tool_names
             .as_ref()

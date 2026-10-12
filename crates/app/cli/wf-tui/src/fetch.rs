@@ -224,9 +224,77 @@ async fn fetch_checkpoints(ctx: &ApiContext) -> CliResult<ScreenData> {
             id: c.id,
             entity: c.entity_id,
             timestamp: format_ts(c.timestamp),
+            entity_type: c.entity_type,
+            checkpoint_type: format!("{:?}", c.checkpoint_type),
+            status: format!("{:?}", c.status),
         })
         .collect();
     Ok(ScreenData::Checkpoints(rows))
+}
+
+/// Render one execution checkpoint record as human-readable detail lines.
+pub fn format_checkpoint_detail(checkpoint: &wf_types::storage::checkpoint::Checkpoint) -> String {
+    let mut out = vec![
+        format!("id: {}", checkpoint.id),
+        format!(
+            "entity: {} ({})",
+            checkpoint.entity_id, checkpoint.entity_type
+        ),
+        format!(
+            "type: {:?} · status: {:?}",
+            checkpoint.checkpoint_type, checkpoint.status
+        ),
+        format!("timestamp: {}", format_ts(checkpoint.timestamp)),
+    ];
+    if let Some(position) = checkpoint.chain_position {
+        out.push(format!("chain position: {position}"));
+    }
+    if let Some(size) = checkpoint.blob_size {
+        out.push(format!("blob size: {size} bytes"));
+    }
+    if let Some(previous) = checkpoint.previous_checkpoint_id.as_ref() {
+        out.push(format!("previous: {previous}"));
+    }
+    if let Some(base) = checkpoint.base_checkpoint_id.as_ref() {
+        out.push(format!("base: {base}"));
+    }
+    if let Some(root) = checkpoint.chain_root_id.as_ref() {
+        out.push(format!("chain root: {root}"));
+    }
+    if let Some(tags) = checkpoint.tags.as_ref() {
+        out.push(format!("tags: {}", tags.join(", ")));
+    }
+    out.join("\n")
+}
+
+/// Render a checkpoint chain analysis as one line per checkpoint plus the
+/// transition summary, for the read-only chain viewer.
+pub fn format_checkpoint_chain(
+    chain: &wf_api::checkpoint::record::CheckpointChainAnalysisView,
+) -> String {
+    let mut out = vec![
+        format!("execution: {}", chain.execution_id),
+        format!(
+            "checkpoints: {} · total elapsed: {}ms",
+            chain.checkpoint_count, chain.total_elapsed
+        ),
+    ];
+    for checkpoint in &chain.checkpoints {
+        out.push(format!(
+            "{} · {} · {:?} · {:?}",
+            checkpoint.id, checkpoint.entity_id, checkpoint.checkpoint_type, checkpoint.status
+        ));
+    }
+    for transition in &chain.transitions {
+        out.push(format!(
+            "{} -> {} · {}ms · {}",
+            transition.from_checkpoint_id,
+            transition.to_checkpoint_id,
+            transition.elapsed,
+            transition.r#type
+        ));
+    }
+    out.join("\n")
 }
 
 async fn fetch_search(ctx: &ApiContext, query: &str) -> CliResult<ScreenData> {
@@ -307,5 +375,49 @@ mod tests {
         // Seconds and milliseconds of the same instant must agree.
         let secs = 1_700_000_000_i64;
         assert_eq!(format_ts(secs), format_ts(secs * 1000));
+    }
+
+    fn sample_checkpoint() -> wf_types::storage::checkpoint::Checkpoint {
+        wf_types::storage::checkpoint::Checkpoint {
+            id: "cp-1".to_string(),
+            entity_type: "agent_loop".to_string(),
+            entity_id: "loop-1".to_string(),
+            parent_entity_id: None,
+            checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
+            timestamp: 1_700_000_000,
+            status: wf_types::checkpoint::CheckpointStatus::Completed,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: Some(2),
+            blob_size: Some(128),
+            tags: Some(vec!["t".to_string()]),
+            custom_fields: None,
+        }
+    }
+
+    #[test]
+    fn checkpoint_detail_renders_identity_and_chain_links() {
+        let text = format_checkpoint_detail(&sample_checkpoint());
+        assert!(text.contains("cp-1"));
+        assert!(text.contains("loop-1"));
+        assert!(text.contains("agent_loop"));
+        assert!(text.contains("chain position: 2"));
+        assert!(text.contains("blob size: 128 bytes"));
+    }
+
+    #[test]
+    fn checkpoint_chain_renders_counts_and_transitions() {
+        let chain = wf_api::checkpoint::record::CheckpointChainAnalysisView {
+            execution_id: "loop-1".to_string(),
+            checkpoints: vec![sample_checkpoint()],
+            transitions: vec![],
+            total_elapsed: 0,
+            checkpoint_count: 1,
+            time_range: wf_api::checkpoint::record::CheckpointTimeRangeView { start: 0, end: 0 },
+        };
+        let text = format_checkpoint_chain(&chain);
+        assert!(text.contains("execution: loop-1"));
+        assert!(text.contains("cp-1"));
     }
 }

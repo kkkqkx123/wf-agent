@@ -441,7 +441,7 @@
 				<Button
 					variant="outline"
 					size="sm"
-					href={appPath(`/agent-loops/${selectedId}`)}
+					href={appPath(`/executions/${selectedId}`)}
 				>
 					<Icon name="arrow-right" size={13} />
 					Full detail

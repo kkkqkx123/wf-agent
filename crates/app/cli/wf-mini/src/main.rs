@@ -1,8 +1,10 @@
 //! wf-mini binary entry point: native terminal session without raw mode.
 
 mod approval;
+mod display;
 mod input;
 mod output;
+mod render;
 mod session;
 mod transcript;
 

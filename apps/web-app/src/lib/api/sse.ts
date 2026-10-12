@@ -33,6 +33,12 @@ export interface EventStreamOptions {
 	executionId?: string;
 	agentLoopId?: string;
 	workflowId?: string;
+	/** Only checkpoint-domain events (excludes execution noise). */
+	checkpointOnly?: boolean;
+	/** Narrow checkpoint events to one file path. */
+	filePath?: string;
+	/** Narrow checkpoint events to one snapshot or commit id. */
+	snapshotId?: string;
 	onEvent: (event: EventRecord) => void;
 	onState: (state: StreamState) => void;
 }
@@ -56,6 +62,9 @@ export function openEventStream(options: EventStreamOptions): () => void {
 		if (options.executionId) params.set('execution_id', options.executionId);
 		if (options.agentLoopId) params.set('agent_loop_id', options.agentLoopId);
 		if (options.workflowId) params.set('workflow_id', options.workflowId);
+		if (options.checkpointOnly) params.set('checkpoint_only', 'true');
+		if (options.filePath) params.set('file_path', options.filePath);
+		if (options.snapshotId) params.set('snapshot_id', options.snapshotId);
 		if (since !== null) params.set('since', String(since));
 		const key = resolveApiKey();
 		if (key) params.set('api_key', key);

@@ -73,8 +73,7 @@ mod tests {
 
     #[test]
     fn missing_file_inside_prefix_is_inside() {
-        let verdict =
-            check_path_bounds(Path::new("/repo/does/not/exist.txt"), &bounds(&["/repo"]));
+        let verdict = check_path_bounds(Path::new("/repo/does/not/exist.txt"), &bounds(&["/repo"]));
         assert!(matches!(verdict, PathVerdict::Inside(_)));
     }
 

@@ -117,6 +117,90 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-file-gc", data),
             )
         }
+        CheckpointSub::FileSubmit { actor, session } => {
+            let review_commit =
+                wf_api::checkpoint::provenance::submit_for_review(ctx, actor, session.as_deref())?;
+            let data = serde_json::json!({"actor": actor, "reviewCommit": review_commit});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-submit", data).with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileMergeToFeature {
+            actor,
+            feature,
+            session,
+        } => {
+            let outcome = wf_api::checkpoint::provenance::merge_to_feature(
+                ctx,
+                actor,
+                feature,
+                session.as_deref(),
+            )?;
+            let data = serde_json::to_value(&outcome)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-merge-to-feature", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileMergeToMain {
+            actor,
+            features,
+            session,
+        } => {
+            if features.is_empty() {
+                return Err(crate::error::CliError::Business(
+                    "at least one FEATURE is required".to_string(),
+                ));
+            }
+            let result = wf_api::checkpoint::provenance::merge_to_main(
+                ctx,
+                actor,
+                features,
+                session.as_deref(),
+            )?;
+            let data = serde_json::to_value(&result)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-merge-to-main", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileRollbackFeature {
+            actor,
+            feature_head,
+            session,
+        } => {
+            let revert_commit = wf_api::checkpoint::provenance::rollback_feature(
+                ctx,
+                actor,
+                feature_head,
+                session.as_deref(),
+            )?;
+            let data = serde_json::json!({"actor": actor, "featureHead": feature_head, "revertCommit": revert_commit});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-rollback-feature", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileIndexRebuild => {
+            let indexed = wf_api::checkpoint::provenance::rebuild_source_index(ctx)?;
+            let data = serde_json::json!({"indexedCommits": indexed});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-index-rebuild", data),
+            )
+        }
+        CheckpointSub::FileIndexStatus => {
+            let status = wf_api::checkpoint::provenance::index_status(ctx)?;
+            let data = serde_json::to_value(&status)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-index-status", data),
+            )
+        }
         CheckpointSub::FileCreate { id, path } => {
             let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
                 crate::error::CliError::Business(

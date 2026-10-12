@@ -62,7 +62,26 @@ impl FileCheckpointManager {
     /// Files with unresolved merge conflicts across the main and feature
     /// partitions, with re-derived conflict regions (see
     /// [`crate::provenance::list_conflicts`]).
+    ///
+    /// Enumerated from unresolved merge commits carrying
+    /// `Wf-State: conflict-unresolved`, never by workspace scanning.
     pub fn list_conflicts(&self) -> Result<Vec<crate::provenance::ConflictFile>, CheckpointError> {
         self.reader()?.list_conflicts()
+    }
+
+    /// Source-index health for the ops channel: indexed rows versus
+    /// reachable commits. `needs_rebuild` is true when the index is empty
+    /// while the graph is non-empty, or when counts diverge.
+    pub fn index_status(&self) -> Result<crate::provenance::IndexStatus, CheckpointError> {
+        use crate::file::git_write::map_git_error;
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let total_commits = git.all_commits().map_err(map_git_error)?.len();
+        let indexed_commits = storage.count_source_index()?;
+        Ok(crate::provenance::IndexStatus {
+            indexed_commits,
+            total_commits,
+            needs_rebuild: total_commits > 0 && indexed_commits != total_commits,
+        })
     }
 }

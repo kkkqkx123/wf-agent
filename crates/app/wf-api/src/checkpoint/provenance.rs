@@ -269,29 +269,66 @@ pub struct FileTreeEntry {
 
 /// Validate a workspace-relative path against sandbox escape.
 pub fn validate_workspace_path(path: &str) -> ApiResult<()> {
+    validate_workspace_path_for_actor(None, path)
+}
+
+/// Validate a workspace-relative path with structured audit on rejection.
+/// `actor` identifies the caller for the audit record; `None` logs as
+/// `unknown`. Every rejection emits a structured `tracing::warn!` with
+/// actor, path and reason so out-of-bound writes stay observable.
+pub fn validate_workspace_path_for_actor(actor: Option<&str>, path: &str) -> ApiResult<()> {
+    let who = actor.unwrap_or("unknown");
+    let reject = |reason: &str| {
+        tracing::warn!(
+            actor = %who,
+            path = %path,
+            reason = %reason,
+            "file checkpoint path rejected"
+        );
+        ApiError::Validation(reason.to_string())
+    };
     if path.is_empty() || path.len() > 1024 {
-        return Err(ApiError::Validation(
-            "path must be 1..=1024 chars".to_string(),
-        ));
+        return Err(reject("path must be 1..=1024 chars"));
     }
     if path.starts_with('/') || path.starts_with('\\') {
-        return Err(ApiError::Validation(
-            "absolute paths are rejected".to_string(),
-        ));
+        return Err(reject("absolute paths are rejected"));
     }
     for component in path.split('/') {
         if component == ".." {
-            return Err(ApiError::Validation(
-                "path escapes the workspace".to_string(),
-            ));
+            return Err(reject("path escapes the workspace"));
         }
     }
     if path.contains('\\') || path.contains('\0') {
-        return Err(ApiError::Validation(
-            "path contains illegal characters".to_string(),
-        ));
+        return Err(reject("path contains illegal characters"));
     }
     Ok(())
+}
+
+/// Structured audit record for silently ignored or rejected file writes.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScopeAuditEntry {
+    pub actor: String,
+    pub path: String,
+    pub reason: String,
+    pub timestamp: i64,
+}
+
+/// Emit a structured audit for an ignored write (ignore-rule hit or
+/// out-of-scope path). Callers in the watcher and poll paths use this so
+/// every silent skip carries actor, path and reason.
+pub fn audit_ignored_write(actor: &str, path: &str, reason: &str) -> ScopeAuditEntry {
+    tracing::warn!(
+        actor = %actor,
+        path = %path,
+        reason = %reason,
+        "file checkpoint write ignored"
+    );
+    ScopeAuditEntry {
+        actor: actor.to_string(),
+        path: path.to_string(),
+        reason: reason.to_string(),
+        timestamp: wf_common::now(),
+    }
 }
 
 fn is_binary_bytes(content: &[u8]) -> bool {
@@ -346,7 +383,7 @@ pub fn read_file_content_at(
     path: &str,
     version: &str,
 ) -> ApiResult<FileContentView> {
-    validate_workspace_path(path)?;
+    validate_workspace_path_for_actor(Some(actor), path)?;
     if version.trim().is_empty() {
         return Err(ApiError::Validation(
             "version must not be empty".to_string(),
@@ -367,7 +404,7 @@ pub fn read_file_content_at(
 
 /// Read the current workspace content of one file with sandbox checks.
 pub fn read_file_content(ctx: &ApiContext, actor: &str, path: &str) -> ApiResult<FileContentView> {
-    validate_workspace_path(path)?;
+    validate_workspace_path_for_actor(Some(actor), path)?;
     let files = get_actor_workspace(ctx, actor)?;
     let Some(file) = files.into_iter().find(|f| f.path == path) else {
         return Err(ApiError::not_found("file", path));
@@ -407,7 +444,10 @@ pub fn list_tree_capped(
 ) -> ApiResult<FileTreeView> {
     if let Some(prefix) = prefix {
         if !prefix.is_empty() {
-            validate_workspace_path(prefix)?;
+            if let Err(err) = validate_workspace_path_for_actor(Some(actor), prefix) {
+                audit_ignored_write(actor, prefix, &err.to_string());
+                return Err(err);
+            }
         }
     }
     let files = get_actor_workspace(ctx, actor)?;
@@ -436,6 +476,140 @@ pub fn list_tree_capped(
     })
 }
 
+/// Rebuild the source index from the commit graph (ops channel).
+/// Used after index loss; queries fall back to bounded graph scans until
+/// then. Returns the number of indexed commits.
+pub fn rebuild_source_index(ctx: &ApiContext) -> ApiResult<usize> {
+    manager(ctx)?
+        .rebuild_source_index()
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Source-index health for the ops channel (indexed rows versus
+/// reachable commits, plus a rebuild hint).
+pub fn index_status(ctx: &ApiContext) -> ApiResult<wf_checkpoint::provenance::IndexStatus> {
+    manager(ctx)?
+        .index_status()
+        .map_err(ApiError::execution_with_source)
+}
+
+fn require_attribution(actor: &str, session: Option<&str>) -> ApiResult<()> {
+    if actor.trim().is_empty() {
+        return Err(ApiError::Validation("actor must not be empty".to_string()));
+    }
+    if let Some(session) = session {
+        if session.trim().is_empty() {
+            return Err(ApiError::Validation(
+                "session must not be empty when provided".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Submit an actor edit line for review (edit ref copy, no merge).
+/// Requires actor attribution; session is optional but recorded when given.
+pub fn submit_for_review(
+    ctx: &ApiContext,
+    actor: &str,
+    session: Option<&str>,
+) -> ApiResult<String> {
+    require_attribution(actor, session)?;
+    manager(ctx)?
+        .move_agent_to_approval(actor)
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Merge an actor submission into a feature ref via three-way merge.
+/// Requires actor attribution.
+pub fn merge_to_feature(
+    ctx: &ApiContext,
+    actor: &str,
+    feature: &str,
+    session: Option<&str>,
+) -> ApiResult<wf_checkpoint::file::git_merge::GitMergeOutcome> {
+    require_attribution(actor, session)?;
+    if feature.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "feature must not be empty".to_string(),
+        ));
+    }
+    manager(ctx)?
+        .merge_agent_to_feature(actor, feature)
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Merge named features into main in input order, one merge commit per
+/// feature. Requires actor attribution; a conflicted feature aborts the
+/// sequence while earlier merges stay individually revertable.
+pub fn merge_to_main(
+    ctx: &ApiContext,
+    actor: &str,
+    features: &[String],
+    session: Option<&str>,
+) -> ApiResult<wf_checkpoint::MergeCommitResult> {
+    require_attribution(actor, session)?;
+    if features.is_empty() {
+        return Err(ApiError::Validation(
+            "features must not be empty".to_string(),
+        ));
+    }
+    let refs: Vec<&str> = features.iter().map(String::as_str).collect();
+    manager(ctx)?
+        .merge_features_to_main(&refs)
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Roll back one merged feature from main by appending a revert commit.
+/// Other merged features are untouched. Requires actor attribution.
+pub fn rollback_feature(
+    ctx: &ApiContext,
+    actor: &str,
+    feature_head: &str,
+    session: Option<&str>,
+) -> ApiResult<String> {
+    require_attribution(actor, session)?;
+    if feature_head.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "feature_head must not be empty".to_string(),
+        ));
+    }
+    manager(ctx)?
+        .rollback_feature_from_main(feature_head, actor)
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Resolve conflicts on a feature ref by committing resolved content.
+/// Returns remaining unresolved files (0 means fully resolved).
+/// Requires actor attribution.
+pub fn resolve_feature_conflicts(
+    ctx: &ApiContext,
+    actor: &str,
+    feature: &str,
+    resolutions: Vec<(String, Vec<u8>)>,
+    session: Option<&str>,
+) -> ApiResult<usize> {
+    require_attribution(actor, session)?;
+    if feature.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "feature must not be empty".to_string(),
+        ));
+    }
+    if resolutions.is_empty() {
+        return Err(ApiError::Validation(
+            "resolutions must not be empty".to_string(),
+        ));
+    }
+    for (path, _) in &resolutions {
+        validate_workspace_path_for_actor(Some(actor), path)?;
+    }
+    let owned: Vec<(String, Vec<u8>)> = resolutions;
+    let refs: Vec<(String, Vec<u8>)> = owned;
+    manager(ctx)?
+        .resolve_conflicts(actor, feature, &refs)
+        .map_err(ApiError::execution_with_source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,5 +622,22 @@ mod tests {
         assert!(validate_workspace_path("../secret").is_err());
         assert!(validate_workspace_path("a/../../b").is_err());
         assert!(validate_workspace_path("a\\b").is_err());
+    }
+
+    #[test]
+    fn attributed_path_validation_rejects_anonymous_and_bad_paths() {
+        assert!(validate_workspace_path_for_actor(Some("exec-1"), "src/main.rs").is_ok());
+        assert!(validate_workspace_path_for_actor(Some("exec-1"), "../secret").is_err());
+        assert!(validate_workspace_path_for_actor(Some("exec-1"), "/etc/passwd").is_err());
+        assert!(validate_workspace_path_for_actor(None, "src/main.rs").is_ok());
+    }
+
+    #[test]
+    fn ignored_write_audit_carries_actor_path_and_reason() {
+        let entry = audit_ignored_write("exec-1", "dist/bundle.js", "ignore-rule hit");
+        assert_eq!(entry.actor, "exec-1");
+        assert_eq!(entry.path, "dist/bundle.js");
+        assert_eq!(entry.reason, "ignore-rule hit");
+        assert!(entry.timestamp > 0);
     }
 }

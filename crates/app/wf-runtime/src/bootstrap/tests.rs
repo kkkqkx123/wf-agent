@@ -150,7 +150,12 @@ fn test_resolve_infra_config_from_repo_configs() {
     assert!(config.sandbox.is_some());
     assert!(config.tools.read_file.is_some());
     assert!(
-        config.file_checkpoint.as_ref().unwrap().custom_ignore_patterns.is_some(),
+        config
+            .file_checkpoint
+            .as_ref()
+            .unwrap()
+            .custom_ignore_patterns
+            .is_some(),
         "file_checkpoint must load from the file layer"
     );
 

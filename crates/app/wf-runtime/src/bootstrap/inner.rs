@@ -381,7 +381,10 @@ impl Runtime {
         // agent executions create and restore file snapshots through it and
         // script handlers capture workspace changes.
         let checkpoint_stack = init_file_checkpoint_stack(
-            config.file_checkpoint.as_ref().unwrap_or(&FileCheckpointConfig::default()),
+            config
+                .file_checkpoint
+                .as_ref()
+                .unwrap_or(&FileCheckpointConfig::default()),
             event_bus.clone(),
         )?;
         let file_checkpoint_manager = checkpoint_stack.manager;

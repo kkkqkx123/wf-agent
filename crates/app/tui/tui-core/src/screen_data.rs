@@ -130,12 +130,17 @@ impl ExecStatusFilter {
     }
 }
 
-/// One checkpoint row rendered on the checkpoints screen.
+/// One checkpoint row rendered on the checkpoints screen: the execution
+/// record identity plus its domain, kind and lifecycle status so parallel
+/// agent and workflow lines are distinguishable at a glance.
 #[derive(Debug, Clone)]
 pub struct CheckpointRow {
     pub id: String,
     pub entity: String,
     pub timestamp: String,
+    pub entity_type: String,
+    pub checkpoint_type: String,
+    pub status: String,
 }
 
 /// One search hit rendered on the search screen.

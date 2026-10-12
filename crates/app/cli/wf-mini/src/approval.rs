@@ -13,9 +13,6 @@ use wf_runtime::tool_approval::{ApprovalDecision, ApprovalPolicy};
 use crate::input::LineReader;
 use crate::output::diag_line;
 
-/// Seconds before an unanswered approval prompt is denied.
-const APPROVAL_TIMEOUT_SECS: u64 = 120;
-
 /// Approval handler for the native session. Answers come from the shared
 /// stdin reader (the only stdin reader in the process), so a timed-out or
 /// interrupted prompt leaves its late lines in the channel where the
@@ -23,6 +20,7 @@ const APPROVAL_TIMEOUT_SECS: u64 = 120;
 pub struct NativeApprovalHandler {
     policy: ApprovalPolicy,
     auto_approve: bool,
+    timeout_secs: u64,
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     /// Turn-cancel flag shared with the session pump. The handler sets it
     /// when the user presses Ctrl-C during a prompt; the pump treats the
@@ -35,12 +33,14 @@ impl NativeApprovalHandler {
     pub fn new(
         approve_prefixes: Vec<String>,
         auto_approve: bool,
+        timeout_secs: u64,
         lines: Arc<tokio::sync::Mutex<LineReader>>,
         cancel: tokio::sync::watch::Sender<bool>,
     ) -> Self {
         Self {
             policy: ApprovalPolicy::new(approve_prefixes),
             auto_approve,
+            timeout_secs: timeout_secs.max(1),
             lines,
             cancel,
         }
@@ -78,8 +78,8 @@ impl NativeApprovalHandler {
                 .unwrap_or_default();
             let _ = writeln!(
                 err,
-                "Allow tool '{}{risk}'? [y/N] (default N, {APPROVAL_TIMEOUT_SECS}s timeout)",
-                request.tool_name
+                "Allow tool '{}{risk}'? [y/N] (default N, {}s timeout)",
+                request.tool_name, self.timeout_secs
             );
             let _ = err.flush();
         }
@@ -113,7 +113,7 @@ impl NativeApprovalHandler {
     /// behind in the terminal: any late line stays queued for the session
     /// drain.
     async fn read_answer_line(&self) -> Result<Option<String>, tokio::time::error::Elapsed> {
-        tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), async {
+        tokio::time::timeout(Duration::from_secs(self.timeout_secs), async {
             self.lines.lock().await.next_line().await
         })
         .await
@@ -128,6 +128,7 @@ fn is_affirmative(answer: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::DEFAULT_APPROVAL_TIMEOUT_SECS;
 
     #[test]
     fn accepts_yes_variants() {
@@ -174,7 +175,13 @@ mod tests {
 
     #[tokio::test]
     async fn auto_approve_allows_sensitive_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), true, test_lines(), test_cancel());
+        let handler = NativeApprovalHandler::new(
+            Vec::new(),
+            true,
+            DEFAULT_APPROVAL_TIMEOUT_SECS,
+            test_lines(),
+            test_cancel(),
+        );
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -183,7 +190,13 @@ mod tests {
 
     #[tokio::test]
     async fn manual_mode_allows_low_risk_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines(), test_cancel());
+        let handler = NativeApprovalHandler::new(
+            Vec::new(),
+            false,
+            DEFAULT_APPROVAL_TIMEOUT_SECS,
+            test_lines(),
+            test_cancel(),
+        );
         let result = handler
             .request_approval(&approval_request("read_file"))
             .await;
@@ -194,7 +207,13 @@ mod tests {
     async fn approval_consumes_one_shared_line() {
         let (lines, tx) = test_channel();
         tx.send("yes\n".to_string()).unwrap();
-        let handler = NativeApprovalHandler::new(Vec::new(), false, lines, test_cancel());
+        let handler = NativeApprovalHandler::new(
+            Vec::new(),
+            false,
+            DEFAULT_APPROVAL_TIMEOUT_SECS,
+            lines,
+            test_cancel(),
+        );
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -205,7 +224,13 @@ mod tests {
     async fn closed_input_denies_approval() {
         let (lines, tx) = test_channel();
         drop(tx);
-        let handler = NativeApprovalHandler::new(Vec::new(), false, lines, test_cancel());
+        let handler = NativeApprovalHandler::new(
+            Vec::new(),
+            false,
+            DEFAULT_APPROVAL_TIMEOUT_SECS,
+            lines,
+            test_cancel(),
+        );
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -218,7 +243,13 @@ mod tests {
         // verify the handler exposes a working cancel sender that a pump
         // receiver can observe.
         let (cancel, mut cancel_rx) = tokio::sync::watch::channel(false);
-        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines(), cancel);
+        let handler = NativeApprovalHandler::new(
+            Vec::new(),
+            false,
+            DEFAULT_APPROVAL_TIMEOUT_SECS,
+            test_lines(),
+            cancel,
+        );
         handler.cancel.send(true).expect("receiver alive");
         assert!(*cancel_rx.borrow_and_update());
     }

@@ -1,8 +1,9 @@
 //! Native terminal session: line-discipline REPL over an append-only
-//! terminal. stdout carries assistant text verbatim, stderr carries tool
-//! lifecycle, summaries and errors, stdin reads one line per prompt. No raw
-//! mode, no fullscreen redraw, no markdown re-rendering.
+//! terminal. stdout carries assistant text (verbatim, plain or styled per
+//! display config), stderr carries tool lifecycle, summaries and errors,
+//! stdin reads one line per prompt. No raw mode, no fullscreen redraw.
 
+use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,11 +12,13 @@ use futures::StreamExt;
 use wf_api::infra::stream::ExecutionStreamEvent;
 use wf_api::ToolApprovalHandler;
 
+use wf_cli_shared::display::{parse_toggle, MarkdownMode};
 use wf_cli_shared::domain::DomainHandle;
 use wf_cli_shared::error::{CliError, CliResult};
 use wf_cli_shared::turn::{stream_agent_turn, TurnKind, TurnParams};
 
 use crate::approval::NativeApprovalHandler;
+use crate::display::DisplayConfig;
 use crate::input::{self, History, LineReader, SlashCommand};
 use crate::output::{self};
 use crate::transcript::Transcript;
@@ -62,6 +65,8 @@ pub struct NativeSession {
     model: Option<String>,
     auto_approve: bool,
     approval_llm: bool,
+    approval_timeout_secs: u64,
+    display: DisplayConfig,
     history: History,
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     transcript: Transcript,
@@ -102,6 +107,8 @@ impl NativeSession {
             Some(path) => History::load(path),
             None => History::new(),
         };
+        let stdout_tty = std::io::stdout().is_terminal();
+        let display = DisplayConfig::resolve(cli, stdout_tty);
         Ok(Self {
             domain,
             agent: cli.agent.clone(),
@@ -114,6 +121,8 @@ impl NativeSession {
                 .approval
                 .as_deref()
                 .is_some_and(|mode| mode.eq_ignore_ascii_case("llm")),
+            approval_timeout_secs: display.approval_timeout_secs,
+            display,
             history,
             lines: Arc::new(tokio::sync::Mutex::new(LineReader::for_stdin())),
             transcript,
@@ -128,6 +137,7 @@ impl NativeSession {
         output::diag_line(
             "native mini — type a prompt, /help for commands, Ctrl-D to quit; remembers the full history",
         );
+        output::diag_line(&format!("display: {}", self.display.describe()));
         output::diag_line(&format!(
             "session {}; resume later with --session {} --storage sqlite:<path>",
             self.anchor, self.anchor
@@ -197,6 +207,7 @@ impl NativeSession {
             SlashCommand::Help => {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history list recent prompts, /rerun [n] re-ask prompt n (default: last)");
+                output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("keys: Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
@@ -243,6 +254,76 @@ impl NativeSession {
                     }
                 }
             }
+            SlashCommand::Markdown(mode) => {
+                match mode {
+                    None => output::diag_line(&format!(
+                        "markdown: {} (raw|plain|styled)",
+                        self.display.markdown.as_str()
+                    )),
+                    Some(raw) => match MarkdownMode::parse_opt(&raw) {
+                        Some(parsed) => {
+                            self.display.markdown = parsed;
+                            output::diag_line(&format!(
+                                "markdown: {}",
+                                self.display.markdown.as_str()
+                            ));
+                        }
+                        None => output::diag_line(&format!(
+                            "unknown markdown mode '{raw}' (raw|plain|styled)"
+                        )),
+                    },
+                }
+                CommandAction::Continue
+            }
+            SlashCommand::Reasoning(toggle) => {
+                self.apply_toggle("reasoning", toggle, |config, show| {
+                    config.show_reasoning = show;
+                });
+                CommandAction::Continue
+            }
+            SlashCommand::Usage(toggle) => {
+                self.apply_toggle("usage", toggle, |config, show| {
+                    config.show_usage = show;
+                });
+                CommandAction::Continue
+            }
+            SlashCommand::Tools(toggle) => {
+                self.apply_toggle("tools", toggle, |config, show| {
+                    config.show_tools = show;
+                });
+                CommandAction::Continue
+            }
+            SlashCommand::Display => {
+                output::diag_line(&format!("display: {}", self.display.describe()));
+                CommandAction::Continue
+            }
+        }
+    }
+
+    /// Apply an `on`/`off` toggle to one stderr stream, or report its state
+    /// when no value was given.
+    fn apply_toggle(
+        &mut self,
+        name: &str,
+        toggle: Option<String>,
+        apply: impl FnOnce(&mut DisplayConfig, bool),
+    ) {
+        match toggle {
+            None => {
+                let show = match name {
+                    "reasoning" => self.display.show_reasoning,
+                    "usage" => self.display.show_usage,
+                    _ => self.display.show_tools,
+                };
+                output::diag_line(&format!("{name}: {}", if show { "on" } else { "off" }));
+            }
+            Some(raw) => match parse_toggle(&raw) {
+                Some(show) => {
+                    apply(&mut self.display, show);
+                    output::diag_line(&format!("{name}: {}", if show { "on" } else { "off" }));
+                }
+                None => output::diag_line(&format!("unknown value '{raw}' (on|off)")),
+            },
         }
     }
 
@@ -405,6 +486,7 @@ impl NativeSession {
                     Arc::new(NativeApprovalHandler::new(
                         Vec::new(),
                         self.auto_approve,
+                        self.approval_timeout_secs,
                         Arc::clone(&self.lines),
                         self.cancel_tx.clone(),
                     ))
@@ -474,7 +556,7 @@ impl NativeSession {
             > + Unpin,
     {
         let started = Instant::now();
-        let mut renderer = TurnRenderer::<RealSink>::new();
+        let mut renderer = TurnRenderer::<RealSink>::new(self.display);
         // The cancel receiver needs `&mut` for poll; keep a local clone so
         // the pump can hold `&self` like every other session method.
         let mut cancel = self.cancel_rx.clone();

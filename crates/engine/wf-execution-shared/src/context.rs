@@ -215,9 +215,7 @@ impl ExecutorContext {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
-            inner: scope,
-        };
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope { inner: scope };
         self
     }
 }
@@ -456,9 +454,7 @@ impl NodeExecutionContext {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
-            inner: scope,
-        };
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope { inner: scope };
         self
     }
 

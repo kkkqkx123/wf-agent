@@ -87,3 +87,16 @@ pub struct ConflictFile {
     /// Conflict regions re-derived from the standard markers on disk.
     pub conflicts: Vec<ConflictView>,
 }
+
+/// Source-index health for the ops channel (rebuilt via
+/// `rebuild_source_index` after loss; queries fall back to graph scans).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IndexStatus {
+    /// Rows present in the source index.
+    pub indexed_commits: usize,
+    /// Commits reachable in the object store.
+    pub total_commits: usize,
+    /// True when the index is empty while the graph is non-empty, or
+    /// when counts diverge.
+    pub needs_rebuild: bool,
+}

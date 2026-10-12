@@ -73,13 +73,14 @@ pub enum CheckpointSub {
         #[arg(value_name = "ACTOR")]
         actor: String,
     },
-    /// Show the version timeline of a file path.
+    /// Show the version timeline of a file path, following renames.
     FileTimeline {
         /// Workspace-relative file path.
         #[arg(value_name = "PATH")]
         path: String,
     },
-    /// Restore the bound workspace from a file checkpoint.
+    /// Restore the bound workspace from a file checkpoint as new content
+    /// writes; commit history is not rewritten.
     FileRestore {
         /// Execution or entity id owning the checkpoint.
         #[arg(value_name = "ENTITY")]
@@ -95,6 +96,58 @@ pub enum CheckpointSub {
         #[arg(long, value_name = "N", default_value_t = 0)]
         keep_recent_heads: usize,
     },
+    /// Submit an actor edit line for review (edit ref copy, no merge).
+    FileSubmit {
+        /// Actor the edit line is attributed to (required, no anonymous writes).
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Optional session attribution recorded alongside the actor.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+    /// Merge an actor submission into a feature ref via three-way merge.
+    FileMergeToFeature {
+        /// Actor the submission is attributed to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Feature name for `refs/wf/feat/<name>`.
+        #[arg(value_name = "FEATURE")]
+        feature: String,
+        /// Optional session attribution recorded alongside the actor.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+    /// Merge named features into main in input order, one merge commit
+    /// per feature. A conflicted feature aborts the sequence while
+    /// earlier merges stay individually revertable.
+    FileMergeToMain {
+        /// Actor the merge is attributed to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Feature names merged in input order.
+        #[arg(value_name = "FEATURE")]
+        features: Vec<String>,
+        /// Optional session attribution recorded alongside the actor.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+    /// Roll back one merged feature from main by appending a revert
+    /// commit. Other merged features are untouched.
+    FileRollbackFeature {
+        /// Actor the rollback is attributed to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Merged feature head commit to revert.
+        #[arg(value_name = "HEAD")]
+        feature_head: String,
+        /// Optional session attribution recorded alongside the actor.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+    /// Rebuild the source index from the commit graph (ops channel).
+    FileIndexRebuild,
+    /// Show source-index health: indexed rows versus reachable commits.
+    FileIndexStatus,
     /// List checkpoints of an execution (domain auto-resolved).
     List {
         /// Execution id.
@@ -116,7 +169,8 @@ pub enum CheckpointSub {
         #[arg(value_name = "ID")]
         id: String,
     },
-    /// Restore a workflow checkpoint.
+    /// Restore a workflow checkpoint as a new execution branch; history
+    /// is not rewritten and other branches are untouched.
     Restore {
         /// Checkpoint id.
         #[arg(value_name = "ID")]
@@ -125,7 +179,8 @@ pub enum CheckpointSub {
         #[arg(long)]
         resume: bool,
     },
-    /// Restore an agent-loop checkpoint.
+    /// Restore an agent-loop checkpoint as a new execution branch;
+    /// history is not rewritten.
     RestoreAgent {
         /// Agent loop id.
         #[arg(value_name = "ID")]
@@ -304,6 +359,81 @@ mod tests {
             panic!("expected file-gc");
         };
         assert_eq!(keep_recent_heads, 3);
+    }
+
+    #[test]
+    fn checkpoint_file_review_merge_parses() {
+        let cli = parse(&["checkpoint", "file-submit", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileSubmit { actor, session } = sub else {
+            panic!("expected file-submit");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(session, None);
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-merge-to-feature",
+            "agent-1",
+            "demo",
+            "--session",
+            "sess-1",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileMergeToFeature {
+            actor,
+            feature,
+            session,
+        } = sub
+        else {
+            panic!("expected file-merge-to-feature");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(feature, "demo");
+        assert_eq!(session.as_deref(), Some("sess-1"));
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-merge-to-main",
+            "agent-1",
+            "demo",
+            "next",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileMergeToMain {
+            actor, features, ..
+        } = sub
+        else {
+            panic!("expected file-merge-to-main");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(features, vec!["demo".to_string(), "next".to_string()]);
+
+        let cli = parse(&["checkpoint", "file-rollback-feature", "agent-1", "abc123"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileRollbackFeature { .. }));
+
+        let cli = parse(&["checkpoint", "file-index-rebuild"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileIndexRebuild));
+
+        let cli = parse(&["checkpoint", "file-index-status"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileIndexStatus));
     }
 
     #[test]

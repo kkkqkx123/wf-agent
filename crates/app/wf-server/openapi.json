@@ -10327,6 +10327,33 @@
             }
           },
           {
+            "name": "checkpoint_only",
+            "in": "query",
+            "description": "Only checkpoint-domain events when true (independent subscription\ndimension for the checkpoint page; excludes execution noise).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "file_path",
+            "in": "query",
+            "description": "Narrow checkpoint events to one file path.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "description": "Narrow checkpoint events to one snapshot or commit id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "since",
             "in": "query",
             "description": "Opaque reconnect cursor (same hex token as the websocket `cursor`);\nraw timestamps stay accepted for compat but are not documented.",
@@ -18447,11 +18474,81 @@
         "operationId": "handle_list_conflicts",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Files with unresolved merge commits (Wf-State conflict-unresolved)",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/conflicts/resolve": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_resolve_conflicts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveConflictsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Conflicts resolved on the feature ref; remaining counts unresolved files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ResolveConflictsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -18515,7 +18612,7 @@
           {
             "name": "version",
             "in": "query",
-            "description": "Optional commit id from the file timeline: when present the bytes are\nread at that commit without touching the workspace.",
+            "description": "Commit id from the file timeline (hex): when present the bytes are\nread at that commit without touching the workspace. Named `version`\nfor history but always a commit id, never a snapshot label.\nReads are capped at 1 MiB with `truncated: true`; binaries report\nmetadata only (`content: None`, `is_binary: true`).",
             "required": false,
             "schema": {
               "type": "string"
@@ -18744,6 +18841,246 @@
         "responses": {
           "200": {
             "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/index/rebuild": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_rebuild_index",
+        "responses": {
+          "200": {
+            "description": "Source index rebuilt from the commit graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RebuildIndexResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/index/status": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_index_status",
+        "responses": {
+          "200": {
+            "description": "Source index health: indexed rows versus reachable commits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/merge-to-feature": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_merge_to_feature",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeToFeatureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Actor submission merged into the feature ref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/merge-to-main": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_merge_to_main",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeToMainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Features merged into main, one merge commit per feature",
             "content": {
               "application/json": {
                 "schema": {
@@ -19045,6 +19382,76 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/rollback-feature": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_rollback_feature",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackFeatureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Revert commit appended; other features untouched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_RollbackFeatureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/sessions": {
       "get": {
         "tags": [
@@ -19226,6 +19633,76 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/submit": {
+      "post": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_submit_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Edit line copied to a review ref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_SubmitReviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -38045,6 +38522,40 @@
           }
         }
       },
+      "ApiEnvelope_RebuildIndexResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Rebuild response: number of indexed commits.",
+            "required": [
+              "indexed_commits"
+            ],
+            "properties": {
+              "indexed_commits": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_RejectResponse": {
         "type": "object",
         "required": [
@@ -38059,6 +38570,39 @@
             "properties": {
               "baseline_snapshot_id": {
                 "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_ResolveConflictsResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "remaining"
+            ],
+            "properties": {
+              "remaining": {
+                "type": "integer",
+                "minimum": 0
               }
             }
           },
@@ -38110,6 +38654,38 @@
           }
         }
       },
+      "ApiEnvelope_RollbackFeatureResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "revert_commit"
+            ],
+            "properties": {
+              "revert_commit": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_String": {
         "type": "object",
         "required": [
@@ -38118,6 +38694,38 @@
         "properties": {
           "data": {
             "type": "string"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_SubmitReviewResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "review_commit"
+            ],
+            "properties": {
+              "review_commit": {
+                "type": "string"
+              }
+            }
           },
           "error": {
             "oneOf": [
@@ -40239,6 +40847,51 @@
           }
         }
       },
+      "MergeToFeatureRequest": {
+        "type": "object",
+        "required": [
+          "actor",
+          "feature"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "feature": {
+            "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "MergeToMainRequest": {
+        "type": "object",
+        "required": [
+          "actor",
+          "features"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "NodeExecutionDoc": {
         "type": "object",
         "description": "One workflow node execution attempt.",
@@ -40454,6 +41107,19 @@
           }
         }
       },
+      "RebuildIndexResponse": {
+        "type": "object",
+        "description": "Rebuild response: number of indexed commits.",
+        "required": [
+          "indexed_commits"
+        ],
+        "properties": {
+          "indexed_commits": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "RejectRequest": {
         "type": "object",
         "properties": {
@@ -40527,6 +41193,50 @@
           }
         }
       },
+      "ResolveConflictsRequest": {
+        "type": "object",
+        "required": [
+          "actor",
+          "feature",
+          "resolutions"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "feature": {
+            "type": "string"
+          },
+          "resolutions": {
+            "type": "object",
+            "description": "Resolved file contents keyed by workspace-relative path (base64\ncallers decode before sending; transport carries raw JSON strings).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ResolveConflictsResponse": {
+        "type": "object",
+        "required": [
+          "remaining"
+        ],
+        "properties": {
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
       "RespondBody": {
         "type": "object",
         "properties": {
@@ -40585,6 +41295,38 @@
         ],
         "properties": {
           "version": {
+            "type": "string"
+          }
+        }
+      },
+      "RollbackFeatureRequest": {
+        "type": "object",
+        "required": [
+          "actor",
+          "feature_head"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "feature_head": {
+            "type": "string"
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RollbackFeatureResponse": {
+        "type": "object",
+        "required": [
+          "revert_commit"
+        ],
+        "properties": {
+          "revert_commit": {
             "type": "string"
           }
         }
@@ -40854,6 +41596,36 @@
             "format": "int64"
           },
           "to": {
+            "type": "string"
+          }
+        }
+      },
+      "SubmitReviewRequest": {
+        "type": "object",
+        "required": [
+          "actor"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Actor the edit line is attributed to (required, no anonymous writes)."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional session attribution recorded alongside the actor."
+          }
+        }
+      },
+      "SubmitReviewResponse": {
+        "type": "object",
+        "required": [
+          "review_commit"
+        ],
+        "properties": {
+          "review_commit": {
             "type": "string"
           }
         }

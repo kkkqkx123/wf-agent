@@ -14,6 +14,7 @@ pub(crate) fn filter_events(events: Vec<BaseEvent>, options: &EventQueryOptions)
         agent_loop_id: options.agent_loop_id.clone(),
         workflow_id: options.workflow_id.clone(),
         event_types: options.event_types.clone(),
+        ..Default::default()
     };
     let mut out = Vec::new();
     for event in events {

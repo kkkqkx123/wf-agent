@@ -1,0 +1,26 @@
+[package]
+name = "wf-client"
+version.workspace = true
+edition.workspace = true
+description = "Generated HTTP client for wf-server (progenitor codegen, shared by CLI and desktop)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+uuid.workspace = true
+reqwest.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
+progenitor-client.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+progenitor.workspace = true
+openapiv3.workspace = true
+syn.workspace = true
+prettyplease.workspace = true

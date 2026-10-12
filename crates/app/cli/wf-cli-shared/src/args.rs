@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::display::MarkdownMode;
 use crate::output::OutputFormat;
 
 pub use crate::args_checkpoint::{ApprovalSub, CheckpointDomain, CheckpointSub};
@@ -72,6 +73,20 @@ pub struct Cli {
     /// Disable mini prompt history persistence. Mini only.
     #[arg(long, global = true)]
     pub no_history: bool,
+    /// Assistant markdown presentation on stdout. Mini only; ignored by
+    /// other forms. Overrides `WF_MINI_MARKDOWN` and the config file.
+    #[arg(long, value_enum, global = true)]
+    pub markdown: Option<MarkdownMode>,
+    /// Suppress reasoning deltas on stderr. Mini only.
+    #[arg(long = "no-reasoning", global = true)]
+    pub no_reasoning: bool,
+    /// Suppress usage lines on stderr. Mini only.
+    #[arg(long = "no-usage", global = true)]
+    pub no_usage: bool,
+    /// Suppress tool lifecycle lines on stderr (failures still show).
+    /// Mini only.
+    #[arg(long = "quiet-tools", global = true)]
+    pub quiet_tools: bool,
     /// Remote server URL (e.g. http://localhost:3000). Overrides WF_REMOTE env.
     #[arg(long, global = true)]
     pub remote: Option<String>,
@@ -581,6 +596,30 @@ mod tests {
 
         let cli = parse(&["--no-history"]).unwrap();
         assert!(cli.validate().is_ok());
+    }
+
+    #[test]
+    fn mini_display_flags_parse() {
+        let cli = parse(&[
+            "--markdown",
+            "plain",
+            "--no-reasoning",
+            "--no-usage",
+            "--quiet-tools",
+        ])
+        .unwrap();
+        assert_eq!(cli.markdown, Some(MarkdownMode::Plain));
+        assert!(cli.no_reasoning);
+        assert!(cli.no_usage);
+        assert!(cli.quiet_tools);
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["--markdown", "styled"]).unwrap();
+        assert_eq!(cli.markdown, Some(MarkdownMode::Styled));
+
+        let cli = parse(&[]).unwrap();
+        assert!(cli.markdown.is_none());
+        assert!(!cli.no_reasoning);
     }
 
     #[test]

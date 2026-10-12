@@ -23,6 +23,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/file-checkpoint/restore", post(handle_restore_checkpoint))
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
         .route("/file-checkpoint/conflicts", get(handle_list_conflicts))
+        .route(
+            "/file-checkpoint/conflicts/resolve",
+            post(handle_resolve_conflicts),
+        )
         .route("/file-checkpoint/changes", get(handle_list_changes_paged))
         .route("/file-checkpoint/content", get(handle_read_content))
         .route("/file-checkpoint/tree/{id}", get(handle_list_tree))
@@ -39,6 +43,18 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_diff_against_main),
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
+        .route("/file-checkpoint/index/rebuild", post(handle_rebuild_index))
+        .route("/file-checkpoint/index/status", get(handle_index_status))
+        .route("/file-checkpoint/submit", post(handle_submit_review))
+        .route(
+            "/file-checkpoint/merge-to-feature",
+            post(handle_merge_to_feature),
+        )
+        .route("/file-checkpoint/merge-to-main", post(handle_merge_to_main))
+        .route(
+            "/file-checkpoint/rollback-feature",
+            post(handle_rollback_feature),
+        )
         .route("/file-checkpoint/timeline/{id}", get(handle_file_timeline))
         .route(
             "/file-checkpoint/sessions",
@@ -130,7 +146,7 @@ pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> imp
     get,
     path = "/api/v1/file-checkpoint/conflicts",
     tag = "checkpoint",
-    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    responses((status = 200, description = "Files with unresolved merge commits (Wf-State conflict-unresolved)", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_conflicts(State(state): State<ApiState>) -> impl IntoResponse {
@@ -230,8 +246,11 @@ pub(crate) async fn handle_file_timeline(
 pub(crate) struct ContentQuery {
     actor: String,
     path: String,
-    /// Optional commit id from the file timeline: when present the bytes are
-    /// read at that commit without touching the workspace.
+    /// Commit id from the file timeline (hex): when present the bytes are
+    /// read at that commit without touching the workspace. Named `version`
+    /// for history but always a commit id, never a snapshot label.
+    /// Reads are capped at 1 MiB with `truncated: true`; binaries report
+    /// metadata only (`content: None`, `is_binary: true`).
     version: Option<String>,
 }
 
@@ -534,6 +553,219 @@ pub(crate) async fn handle_run_gc(
 ) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::run_gc(&state.ctx, query.keep_recent_heads) {
         Ok(stats) => ok(stats).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+/// Rebuild response: number of indexed commits.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct RebuildIndexResponse {
+    indexed_commits: usize,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/index/rebuild",
+    tag = "checkpoint",
+    responses((status = 200, description = "Source index rebuilt from the commit graph", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::RebuildIndexResponse>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rebuild_index(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::rebuild_source_index(&state.ctx) {
+        Ok(indexed_commits) => ok(RebuildIndexResponse { indexed_commits }).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/file-checkpoint/index/status",
+    tag = "checkpoint",
+    responses((status = 200, description = "Source index health: indexed rows versus reachable commits", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_index_status(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::index_status(&state.ctx) {
+        Ok(status) => ok(status).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct SubmitReviewRequest {
+    /// Actor the edit line is attributed to (required, no anonymous writes).
+    actor: String,
+    /// Optional session attribution recorded alongside the actor.
+    #[serde(default)]
+    session: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct SubmitReviewResponse {
+    review_commit: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/submit",
+    tag = "checkpoint",
+    request_body = SubmitReviewRequest,
+    responses((status = 200, description = "Edit line copied to a review ref", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::SubmitReviewResponse>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_submit_review(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<SubmitReviewRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::submit_for_review(
+        &state.ctx,
+        &body.actor,
+        body.session.as_deref(),
+    ) {
+        Ok(review_commit) => ok(SubmitReviewResponse { review_commit }).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct MergeToFeatureRequest {
+    actor: String,
+    feature: String,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/merge-to-feature",
+    tag = "checkpoint",
+    request_body = MergeToFeatureRequest,
+    responses((status = 200, description = "Actor submission merged into the feature ref", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_merge_to_feature(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<MergeToFeatureRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::merge_to_feature(
+        &state.ctx,
+        &body.actor,
+        &body.feature,
+        body.session.as_deref(),
+    ) {
+        Ok(outcome) => ok(outcome).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct MergeToMainRequest {
+    actor: String,
+    features: Vec<String>,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/merge-to-main",
+    tag = "checkpoint",
+    request_body = MergeToMainRequest,
+    responses((status = 200, description = "Features merged into main, one merge commit per feature", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_merge_to_main(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<MergeToMainRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::merge_to_main(
+        &state.ctx,
+        &body.actor,
+        &body.features,
+        body.session.as_deref(),
+    ) {
+        Ok(result) => ok(result).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct RollbackFeatureRequest {
+    actor: String,
+    feature_head: String,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct RollbackFeatureResponse {
+    revert_commit: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/rollback-feature",
+    tag = "checkpoint",
+    request_body = RollbackFeatureRequest,
+    responses((status = 200, description = "Revert commit appended; other features untouched", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::RollbackFeatureResponse>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_rollback_feature(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<RollbackFeatureRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::rollback_feature(
+        &state.ctx,
+        &body.actor,
+        &body.feature_head,
+        body.session.as_deref(),
+    ) {
+        Ok(revert_commit) => ok(RollbackFeatureResponse { revert_commit }).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct ResolveConflictsRequest {
+    actor: String,
+    feature: String,
+    /// Resolved file contents keyed by workspace-relative path (base64
+    /// callers decode before sending; transport carries raw JSON strings).
+    resolutions: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct ResolveConflictsResponse {
+    remaining: usize,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/file-checkpoint/conflicts/resolve",
+    tag = "checkpoint",
+    request_body = ResolveConflictsRequest,
+    responses((status = 200, description = "Conflicts resolved on the feature ref; remaining counts unresolved files", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_provenance::ResolveConflictsResponse>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_resolve_conflicts(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<ResolveConflictsRequest>,
+) -> impl IntoResponse {
+    let resolutions: Vec<(String, Vec<u8>)> = body
+        .resolutions
+        .into_iter()
+        .map(|(path, content)| (path, content.into_bytes()))
+        .collect();
+    match wf_api::checkpoint::provenance::resolve_feature_conflicts(
+        &state.ctx,
+        &body.actor,
+        &body.feature,
+        resolutions,
+        body.session.as_deref(),
+    ) {
+        Ok(remaining) => ok(ResolveConflictsResponse { remaining }).into_response(),
         Err(err) => error_response(err),
     }
 }

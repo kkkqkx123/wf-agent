@@ -17,6 +17,11 @@ pub enum SlashCommand {
     New,
     History,
     Rerun(Option<usize>),
+    Markdown(Option<String>),
+    Reasoning(Option<String>),
+    Usage(Option<String>),
+    Tools(Option<String>),
+    Display,
 }
 
 /// Parse a trimmed input line into a slash command, if it is one.
@@ -38,6 +43,35 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
                 _ => None,
             },
         },
+        "/markdown" => match tokens.next() {
+            None => Some(SlashCommand::Markdown(None)),
+            Some(mode) if tokens.next().is_none() => {
+                Some(SlashCommand::Markdown(Some(mode.to_string())))
+            }
+            _ => None,
+        },
+        "/reasoning" => match tokens.next() {
+            None => Some(SlashCommand::Reasoning(None)),
+            Some(toggle) if tokens.next().is_none() => {
+                Some(SlashCommand::Reasoning(Some(toggle.to_string())))
+            }
+            _ => None,
+        },
+        "/usage" => match tokens.next() {
+            None => Some(SlashCommand::Usage(None)),
+            Some(toggle) if tokens.next().is_none() => {
+                Some(SlashCommand::Usage(Some(toggle.to_string())))
+            }
+            _ => None,
+        },
+        "/tools" => match tokens.next() {
+            None => Some(SlashCommand::Tools(None)),
+            Some(toggle) if tokens.next().is_none() => {
+                Some(SlashCommand::Tools(Some(toggle.to_string())))
+            }
+            _ => None,
+        },
+        "/display" if tokens.next().is_none() => Some(SlashCommand::Display),
         _ => None,
     }
 }
@@ -319,6 +353,30 @@ mod tests {
         assert_eq!(parse_command("/quit now"), None);
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command("/unknown"), None);
+    }
+
+    #[test]
+    fn parses_display_commands() {
+        assert_eq!(
+            parse_command("/markdown"),
+            Some(SlashCommand::Markdown(None))
+        );
+        assert_eq!(
+            parse_command("/markdown plain"),
+            Some(SlashCommand::Markdown(Some("plain".to_string())))
+        );
+        assert_eq!(parse_command("/markdown a b"), None);
+        assert_eq!(
+            parse_command("/reasoning off"),
+            Some(SlashCommand::Reasoning(Some("off".to_string())))
+        );
+        assert_eq!(parse_command("/usage"), Some(SlashCommand::Usage(None)));
+        assert_eq!(
+            parse_command("/tools on"),
+            Some(SlashCommand::Tools(Some("on".to_string())))
+        );
+        assert_eq!(parse_command("/display"), Some(SlashCommand::Display));
+        assert_eq!(parse_command("/display x"), None);
     }
 
     #[test]

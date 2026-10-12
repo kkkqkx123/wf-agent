@@ -5,11 +5,172 @@ use std::sync::Arc;
 
 use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
 use crate::overlay::Feedback;
-use crate::screens::{ScreenData, ScreenKind};
+use crate::screens::{short_id, CheckpointRow, ScreenData, ScreenKind};
 
+use super::data_cache::DataResult;
 use super::TuiApp;
 
 impl TuiApp {
+    /// Currently selected checkpoint row, or `None` off the screen.
+    fn selected_checkpoint_row(&self) -> Option<CheckpointRow> {
+        let ScreenData::Checkpoints(rows) = self.current_data() else {
+            return None;
+        };
+        let idx = self
+            .app
+            .screen
+            .navigation
+            .selected()
+            .min(rows.len().saturating_sub(1));
+        rows.get(idx).cloned()
+    }
+
+    /// Open the read-only detail viewer for the selected checkpoint.
+    pub(super) fn open_selected_checkpoint_detail(&mut self) {
+        let Some(row) = self.selected_checkpoint_row() else {
+            return;
+        };
+        let id = row.id.clone();
+        let task_id = id.clone();
+        let adapter = Arc::clone(&self.adapter);
+        let tx = self.data_tx.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let result = wf_api::checkpoint::record::get_checkpoint(&ctx.storage, &task_id)
+                .await
+                .map(|checkpoint| crate::fetch::format_checkpoint_detail(&checkpoint))
+                .map_err(Into::into);
+            let _ = tx.send(DataResult::CheckpointDetail {
+                title: format!("Checkpoint {}", short_id(&task_id)),
+                result,
+            });
+        }));
+        self.app
+            .notice
+            .set(format!("Loading checkpoint {}...", short_id(&id)));
+    }
+
+    /// Open the read-only chain viewer for the selected row's execution.
+    pub(super) fn open_selected_checkpoint_chain(&mut self) {
+        let Some(row) = self.selected_checkpoint_row() else {
+            return;
+        };
+        let entity = row.entity.clone();
+        let task_entity = entity.clone();
+        let adapter = Arc::clone(&self.adapter);
+        let tx = self.data_tx.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let result = wf_api::checkpoint::record::chain_for_execution(ctx, &task_entity, None)
+                .await
+                .map(|chain| crate::fetch::format_checkpoint_chain(&chain))
+                .map_err(Into::into);
+            let _ = tx.send(DataResult::CheckpointChain {
+                title: format!("Chain {}", short_id(&task_entity)),
+                result,
+            });
+        }));
+        self.app
+            .notice
+            .set(format!("Loading chain {}...", short_id(&entity)));
+    }
+
+    /// Restore the selected checkpoint after confirmation. Restore lands as
+    /// a new commit under a new execution; history is never rewritten.
+    /// Agent-loop rows restore through the loop endpoint, workflow rows
+    /// through the executions endpoint.
+    pub(super) fn restore_selected_checkpoint(&mut self) {
+        let Some(row) = self.selected_checkpoint_row() else {
+            return;
+        };
+        let id = row.id.clone();
+        let entity = row.entity.clone();
+        let is_loop = row.entity_type == "agent_loop";
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Restore checkpoint",
+            format!(
+                "Restore {} as a new commit? History is not rewritten.",
+                short_id(&id)
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let adapter = Arc::clone(&self.adapter);
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let ctx = adapter.api_context();
+                    let result = if is_loop {
+                        wf_api::agent::agent_checkpoint::restore(ctx, &entity, &id)
+                            .await
+                            .map(|checkpoint| checkpoint.id)
+                            .map_err(|err| err.to_string())
+                    } else {
+                        wf_api::workflow::workflow_execution::restore_checkpoint(ctx, &id)
+                            .await
+                            .map(|restored| restored.execution_id)
+                            .map_err(|err| err.to_string())
+                    };
+                    match result {
+                        Ok(new_id) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Dashboard));
+                            format!("Restored {} as {new_id}", short_id(&id))
+                        }
+                        Err(err) => format!("Restore failed: {err}"),
+                    }
+                }
+                _ => "Restore cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Delete the selected checkpoint after confirmation.
+    pub(super) fn delete_selected_checkpoint(&mut self) {
+        let Some(row) = self.selected_checkpoint_row() else {
+            return;
+        };
+        let id = row.id.clone();
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Delete checkpoint",
+            format!(
+                "Delete checkpoint {}? This cannot be undone.",
+                short_id(&id)
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let adapter = Arc::clone(&self.adapter);
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let ctx = adapter.api_context();
+                    match wf_api::checkpoint::record::delete_checkpoint(&ctx.storage, &id).await {
+                        Ok(true) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Dashboard));
+                            let _ = tx.send(Feedback::Notice(format!(
+                                "Deleted checkpoint {}",
+                                short_id(&id)
+                            )));
+                        }
+                        Ok(false) => {
+                            let _ = tx.send(Feedback::Notice(format!(
+                                "Checkpoint {} not found",
+                                short_id(&id)
+                            )));
+                        }
+                        Err(err) => {
+                            let _ = tx.send(Feedback::Notice(format!("Delete failed: {err}")));
+                        }
+                    }
+                    return;
+                }
+                _ => "Delete cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
     /// Spawn a delete after the user confirms the currently selected workflow.
     pub(super) fn delete_selected_workflow(&mut self) {
         let rows = match self.current_data() {

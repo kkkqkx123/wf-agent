@@ -289,6 +289,38 @@ fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
             event_type: "notification",
         });
     }
+    if message
+        .get("checkpoint")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        let file_path = message
+            .get("filePath")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let snapshot_id = message
+            .get("snapshotId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let key = match (&file_path, &snapshot_id) {
+            (Some(p), Some(s)) => format!("checkpoint:{p}:{s}"),
+            (Some(p), None) => format!("checkpoint:{p}"),
+            (None, Some(s)) => format!("checkpoint:snapshot:{s}"),
+            (None, None) => "checkpoint".to_string(),
+        };
+        return Some(SubscriptionTarget {
+            key,
+            options: EventSubscriptionOptions {
+                checkpoint_only: true,
+                file_path,
+                snapshot_id,
+                ..Default::default()
+            },
+            id_field: "checkpoint",
+            id_value: "all".to_string(),
+            event_type: "checkpoint_event",
+        });
+    }
     None
 }
 
@@ -356,7 +388,7 @@ async fn handle_incoming(
             None => {
                 send_error(
                     out_tx,
-                    "subscribe requires one of executionId, agentLoopId, workflowId, global, notifications",
+                    "subscribe requires one of executionId, agentLoopId, workflowId, global, notifications, checkpoint",
                 )
                 .await;
             }

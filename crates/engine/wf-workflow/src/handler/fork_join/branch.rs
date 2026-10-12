@@ -283,7 +283,10 @@ async fn execute_branch(
     )
     .with_hierarchy_manager(child_manager.clone())
     .with_file_scope(
-        file_scope.inner.clone().or(branch_ctx.file_scope.inner.clone()),
+        file_scope
+            .inner
+            .clone()
+            .or(branch_ctx.file_scope.inner.clone()),
     );
     if checkpoints_on {
         if let Some(scope) = checkpoint_scope.as_ref() {

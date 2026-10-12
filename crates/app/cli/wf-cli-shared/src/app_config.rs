@@ -9,12 +9,17 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::display::MarkdownMode;
+
 /// Application configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Behavioral settings.
     #[serde(default)]
     pub behavior: BehaviorConfig,
+    /// Mini interactive-form display settings.
+    #[serde(default)]
+    pub mini: MiniConfig,
 }
 
 /// Behavioral configuration.
@@ -25,6 +30,29 @@ pub struct BehaviorConfig {
     /// alternate scroll without capture.
     #[serde(default)]
     pub mouse_capture: bool,
+}
+
+/// Mini display settings from the config file. Every field is optional so a
+/// missing file or missing key falls back to the built-in default; the
+/// resolution order is CLI flag, environment, config file, default.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MiniConfig {
+    /// Assistant markdown presentation (`raw`, `plain`, `styled`).
+    #[serde(default)]
+    pub markdown: Option<MarkdownMode>,
+    /// Show reasoning deltas on stderr. Defaults to shown.
+    #[serde(default)]
+    pub show_reasoning: Option<bool>,
+    /// Show usage lines on stderr. Defaults to shown.
+    #[serde(default)]
+    pub show_usage: Option<bool>,
+    /// Show tool lifecycle lines on stderr. Defaults to shown; failures
+    /// are always shown regardless of this setting.
+    #[serde(default)]
+    pub show_tools: Option<bool>,
+    /// Approval prompt timeout in seconds. Defaults to 120 when unset.
+    #[serde(default)]
+    pub approval_timeout_secs: Option<u64>,
 }
 
 /// Configuration load error.
@@ -98,5 +126,20 @@ mod tests {
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: AppConfig = toml::from_str(&toml_str).unwrap();
         assert!(!parsed.behavior.mouse_capture);
+    }
+
+    #[test]
+    fn mini_display_roundtrip_via_toml() {
+        let parsed: AppConfig = toml::from_str(
+            "[mini]\nmarkdown = \"plain\"\nshow_reasoning = false\napproval_timeout_secs = 30\n",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.mini.markdown,
+            Some(crate::display::MarkdownMode::Plain)
+        );
+        assert_eq!(parsed.mini.show_reasoning, Some(false));
+        assert_eq!(parsed.mini.approval_timeout_secs, Some(30));
+        assert_eq!(parsed.mini.show_usage, None);
     }
 }

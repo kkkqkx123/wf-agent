@@ -36,6 +36,7 @@ members = [
     "crates/app/wf-api",
     "crates/app/wf-server",
     "crates/app/wf-runtime",
+    "crates/app/wf-client",
     "crates/app/cli/wf-cli-shared",
     "crates/app/cli/wf-headless",
     "crates/app/cli/wf-mini",
@@ -178,6 +179,12 @@ http = "1.1"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "handshake"] }
 # Version only: the OpenAPI document belongs to the transport crate alone.
 utoipa = "5"
+# Generated HTTP client (wf-client): OpenAPI -> progenitor codegen.
+progenitor = "0.15"
+progenitor-client = "0.15"
+openapiv3 = "2.2"
+prettyplease = "0.2"
+syn = { version = "2", features = ["full"] }
 
 # Dev / test only
 tempfile = "3"

@@ -245,6 +245,15 @@ impl SqliteStorage {
         })
     }
 
+    pub fn count_source_index(&self) -> StorageResult<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM source_index", [], |row| row.get(0))
+                .map_err(db_err)?;
+            Ok(count.max(0) as usize)
+        })
+    }
+
     pub fn clear_source_index(&self) -> StorageResult<usize> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(db_err)?;

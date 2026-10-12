@@ -210,11 +210,90 @@ export const approvals: Approval[] = [
 		id: 'apr-4',
 		title: 'Retry failed publish step',
 		kind: 'retry',
-		requester: 'wf-release-train',
+		requester: 'loop-3c1f8ab2',
 		requestedAt: minutesAgo(300),
 		status: 'rejected',
 		detail:
 			'Operator declined a retry until the registry incident is resolved.',
 		executionId: 'exec-2f8b1170',
+	},
+];
+
+export interface PreviewPartition {
+	partition_id: string;
+	name: string;
+	kind: string;
+	actor: string | null;
+	current_snapshot: string;
+	history_len: number;
+	created_at: number;
+	updated_at: number;
+}
+
+export const partitions: PreviewPartition[] = [
+	{
+		partition_id: 'main',
+		name: 'refs/wf/main',
+		kind: 'main',
+		actor: null,
+		current_snapshot: 'preview-main-head',
+		history_len: 42,
+		created_at: Date.parse(minutesAgo(880)),
+		updated_at: Date.parse(minutesAgo(4)),
+	},
+	{
+		partition_id: 'agent',
+		name: 'refs/wf/edit/agent',
+		kind: 'agent',
+		actor: 'agent',
+		current_snapshot: 'preview-agent-head',
+		history_len: 7,
+		created_at: Date.parse(minutesAgo(28)),
+		updated_at: Date.parse(minutesAgo(1)),
+	},
+	{
+		partition_id: 'approval',
+		name: 'refs/wf/review/agent',
+		kind: 'approval',
+		actor: 'agent',
+		current_snapshot: 'preview-review-head',
+		history_len: 2,
+		created_at: Date.parse(minutesAgo(11)),
+		updated_at: Date.parse(minutesAgo(2)),
+	},
+];
+
+export interface PreviewConflict {
+	path: string;
+	snapshot_id: string;
+	partition: string;
+	conflicts: Array<{ start_line: number; end_line: number }>;
+}
+
+export const conflicts: PreviewConflict[] = [
+	{
+		path: 'crates/checkpoint/src/restore_coordinator.rs',
+		snapshot_id: 'preview-conflict-snap',
+		partition: 'refs/wf/feat/preview-feature',
+		conflicts: [{ start_line: 12, end_line: 19 }],
+	},
+];
+
+export interface PreviewEditSession {
+	id: string;
+	label: string | null;
+	created_at: number;
+}
+
+export const editSessions: PreviewEditSession[] = [
+	{
+		id: 'sess-a3',
+		label: 'retry coverage batch',
+		created_at: Date.parse(minutesAgo(8)),
+	},
+	{
+		id: 'sess-h2',
+		label: 'manual permission audit',
+		created_at: Date.parse(minutesAgo(20)),
 	},
 ];

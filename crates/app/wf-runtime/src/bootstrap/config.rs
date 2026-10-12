@@ -244,7 +244,10 @@ pub async fn resolve_infra_config(
     // mistaken for "unset" and covered by the assembled value. An explicit
     // infra override still wins over an explicit programmatic value.
     config.file_checkpoint = Some(
-        match (config.file_checkpoint, infra.overrides.file_checkpoint.as_ref()) {
+        match (
+            config.file_checkpoint,
+            infra.overrides.file_checkpoint.as_ref(),
+        ) {
             (_, Some(_)) => assembled.file_checkpoint,
             (Some(explicit), None) => explicit,
             (None, None) => assembled.file_checkpoint,

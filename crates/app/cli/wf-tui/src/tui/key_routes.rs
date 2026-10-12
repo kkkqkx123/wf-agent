@@ -143,6 +143,9 @@ impl TuiApp {
                         self.pending_replay = Some(id);
                     }
                 }
+                ScreenKind::Checkpoints => {
+                    self.open_selected_checkpoint_detail();
+                }
                 _ => {}
             },
             CKey::Char('f')
@@ -162,6 +165,16 @@ impl TuiApp {
                     .notice
                     .set(format!("Refreshing {}...", kind.title()));
             }
+            CKey::Char('R')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.restore_selected_checkpoint();
+            }
+            CKey::Char('t')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.open_selected_checkpoint_chain();
+            }
             CKey::Char('p')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>
             {
@@ -176,6 +189,11 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Workflow =>
             {
                 self.delete_selected_workflow();
+            }
+            CKey::Char('d')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.delete_selected_checkpoint();
             }
             CKey::Char('m')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>

@@ -537,6 +537,13 @@ pub(crate) struct StreamEventsQuery {
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
+    /// Only checkpoint-domain events when true (independent subscription
+    /// dimension for the checkpoint page; excludes execution noise).
+    checkpoint_only: Option<bool>,
+    /// Narrow checkpoint events to one file path.
+    file_path: Option<String>,
+    /// Narrow checkpoint events to one snapshot or commit id.
+    snapshot_id: Option<String>,
     /// Opaque reconnect cursor (same hex token as the websocket `cursor`);
     /// raw timestamps stay accepted for compat but are not documented.
     since: Option<String>,
@@ -573,6 +580,9 @@ pub(crate) async fn handle_event_stream(
         agent_loop_id: query.agent_loop_id.clone(),
         workflow_id: query.workflow_id.clone(),
         event_types: None,
+        checkpoint_only: query.checkpoint_only.unwrap_or(false),
+        file_path: query.file_path.clone(),
+        snapshot_id: query.snapshot_id.clone(),
     };
     let replay_query = wf_api::EventQueryOptions {
         execution_id: query.execution_id,

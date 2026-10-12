@@ -24,7 +24,8 @@ pub use queries::{list_changes_by_actor, list_changes_by_path, list_partitions};
 pub use reader::ProvenanceReader;
 pub use timeline::{file_timeline, FileTimeline, FileTimelineEntry, RENAME_SIMILARITY_THRESHOLD};
 pub use types::{
-    ConflictFile, DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
+    ConflictFile, DeltaSummary, FileDiffKind, FileDiffView, IndexStatus, PartitionView,
+    WorkspaceFile,
 };
 pub use workspace::{
     get_actor_workspace, get_feature_workspace, get_main_workspace, workspace_entries,

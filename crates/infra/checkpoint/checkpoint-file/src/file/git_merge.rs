@@ -30,7 +30,7 @@ use checkpoint_base::error::CheckpointError;
 /// One conflict region inside a merged file, parsed back from the diff3
 /// markers the merge driver embeds. Line numbers are 0-indexed into the
 /// merged output; `end_line` is exclusive.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitConflictRegion {
     pub start_line: usize,
     pub end_line: usize,
@@ -42,7 +42,7 @@ pub struct GitConflictRegion {
 /// One conflicted file captured during a merge: the true marker regions
 /// plus a binary flag. Binary conflicts carry no regions (their bytes hold
 /// no markers) and stay file-level only.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitConflictDetail {
     pub file: String,
     pub binary: bool,
@@ -126,7 +126,7 @@ pub fn conflict_details(
 }
 
 /// Outcome of a Git merge: the merge commit plus per-file conflicts.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GitMergeOutcome {
     pub commit_id: String,
     pub parents: Vec<String>,

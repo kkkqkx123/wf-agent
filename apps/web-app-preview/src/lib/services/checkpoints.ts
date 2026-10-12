@@ -538,3 +538,371 @@ export async function rejectApproval(
 		}),
 	);
 }
+
+/** Delete an execution checkpoint by id. */
+export async function deleteCheckpoint(id: string): Promise<void> {
+	await call<unknown>(
+		client.DELETE('/api/v1/checkpoints/{id}', {
+			params: { path: { id } },
+		}),
+	);
+}
+
+export interface PartitionView {
+	partitionId: string;
+	name: string;
+	kind: string;
+	actor: string | null;
+	currentSnapshot: string;
+	historyLen: number;
+	createdAt: number;
+	updatedAt: number;
+}
+
+interface PartitionDto {
+	partition_id?: string;
+	partitionId?: string;
+	name?: string;
+	kind?: string;
+	actor?: string | null;
+	current_snapshot?: string;
+	currentSnapshot?: string;
+	history_len?: number;
+	historyLen?: number;
+	created_at?: number;
+	createdAt?: number;
+	updated_at?: number;
+	updatedAt?: number;
+}
+
+/** All partitions of the file-checkpoint store. */
+export async function listPartitions(): Promise<PartitionView[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/partitions'),
+	);
+	const rows = Array.isArray(data)
+		? (data as PartitionDto[])
+		: extractPage<PartitionDto>(data).items;
+	return rows.map((d) => ({
+		partitionId: d.partition_id ?? d.partitionId ?? '',
+		name: d.name ?? '',
+		kind: d.kind ?? '',
+		actor: d.actor ?? null,
+		currentSnapshot: d.current_snapshot ?? d.currentSnapshot ?? '',
+		historyLen: d.history_len ?? d.historyLen ?? 0,
+		createdAt: d.created_at ?? d.createdAt ?? 0,
+		updatedAt: d.updated_at ?? d.updatedAt ?? 0,
+	}));
+}
+
+export interface ConflictRegion {
+	startLine: number;
+	endLine: number;
+}
+
+export interface ConflictFile {
+	path: string;
+	snapshotId: string;
+	partition: string;
+	conflictCount: number;
+}
+
+interface ConflictDto {
+	path?: string;
+	snapshot_id?: string;
+	snapshotId?: string;
+	partition?: string;
+	conflicts?: unknown[];
+}
+
+/** Files with unresolved merge conflicts, enumerated from unresolved merge commits. */
+export async function listConflicts(): Promise<ConflictFile[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/conflicts'),
+	);
+	const rows = Array.isArray(data)
+		? (data as ConflictDto[])
+		: extractPage<ConflictDto>(data).items;
+	return rows.map((d) => ({
+		path: d.path ?? '',
+		snapshotId: d.snapshot_id ?? d.snapshotId ?? '',
+		partition: d.partition ?? '',
+		conflictCount: Array.isArray(d.conflicts) ? d.conflicts.length : 0,
+	}));
+}
+
+/** Resolve conflicts on a feature ref with full-file resolved contents. */
+export async function resolveConflicts(
+	actor: string,
+	feature: string,
+	resolutions: Record<string, string>,
+	session?: string,
+): Promise<{ remaining: number }> {
+	const data = await call<{ remaining?: number }>(
+		client.POST('/api/v1/file-checkpoint/conflicts/resolve', {
+			body: { actor, feature, resolutions, session: session ?? null },
+		}),
+	);
+	const view = requireData(data, 'Conflict resolution');
+	return { remaining: view.remaining ?? 0 };
+}
+
+export interface EditSession {
+	id: string;
+	label: string | null;
+	createdAt: number;
+}
+
+interface EditSessionDto {
+	id?: string;
+	label?: string | null;
+	created_at?: number;
+	createdAt?: number;
+}
+
+function toEditSession(d: EditSessionDto): EditSession {
+	return {
+		id: typeof d.id === 'string' ? d.id : String(d.id ?? ''),
+		label: d.label ?? null,
+		createdAt: d.created_at ?? d.createdAt ?? 0,
+	};
+}
+
+/** Staged edit sessions (newest first). */
+export async function listEditSessions(): Promise<EditSession[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/sessions'),
+	);
+	const rows = Array.isArray(data)
+		? (data as EditSessionDto[])
+		: extractPage<EditSessionDto>(data).items;
+	return rows.map(toEditSession);
+}
+
+/** Begin a new edit session with an optional label. */
+export async function beginEditSession(label?: string): Promise<string> {
+	const data = await call<unknown>(
+		client.POST('/api/v1/file-checkpoint/sessions', {
+			body: { label: label ?? null },
+		}),
+	);
+	return String(requireData(data, 'Edit session'));
+}
+
+/** Roll back an entire edit session on an actor partition. */
+export async function rollbackEditSession(
+	sessionId: string,
+	actor: string,
+): Promise<string> {
+	const data = await call<unknown>(
+		client.POST('/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', {
+			params: { path: { id: sessionId, actor } },
+		}),
+	);
+	return String(requireData(data, 'Session rollback'));
+}
+
+/** Undo the last edit on an actor partition. */
+export async function undoEdit(actor: string): Promise<string> {
+	const data = await call<unknown>(
+		client.POST('/api/v1/file-checkpoint/undo/{id}', {
+			params: { path: { id: actor } },
+		}),
+	);
+	return String(requireData(data, 'Undo'));
+}
+
+/** Redo the most recently undone edit on an actor partition. */
+export async function redoEdit(actor: string): Promise<string> {
+	const data = await call<unknown>(
+		client.POST('/api/v1/file-checkpoint/redo/{id}', {
+			params: { path: { id: actor } },
+		}),
+	);
+	return String(requireData(data, 'Redo'));
+}
+
+export interface WorkspaceFile {
+	path: string;
+	hash: string;
+	timestamp: number;
+}
+
+/** Reconstructed file set of an actor partition (metadata only). */
+export async function getActorWorkspace(
+	actor: string,
+): Promise<WorkspaceFile[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/file-checkpoint/workspace/{id}', {
+			params: { path: { id: actor } },
+		}),
+	);
+	const rows = Array.isArray(data)
+		? (data as Array<{ path?: string; hash?: string; timestamp?: number }>)
+		: extractPage<{ path?: string; hash?: string; timestamp?: number }>(data)
+				.items;
+	return rows.map((f) => ({
+		path: f.path ?? '',
+		hash: f.hash ?? '',
+		timestamp: f.timestamp ?? 0,
+	}));
+}
+
+export interface IndexStatus {
+	indexedCommits: number;
+	totalCommits: number;
+	needsRebuild: boolean;
+}
+
+/** Source-index health: indexed rows versus reachable commits. */
+export async function getIndexStatus(): Promise<IndexStatus> {
+	const data = await call<{
+		indexed_commits?: number;
+		total_commits?: number;
+		needs_rebuild?: boolean;
+	}>(client.GET('/api/v1/file-checkpoint/index/status'));
+	const view = requireData(data, 'Index status');
+	return {
+		indexedCommits: view.indexed_commits ?? 0,
+		totalCommits: view.total_commits ?? 0,
+		needsRebuild: view.needs_rebuild ?? false,
+	};
+}
+
+/** Rebuild the source index from the commit graph. */
+export async function rebuildIndex(): Promise<{ indexedCommits: number }> {
+	const data = await call<{ indexed_commits?: number }>(
+		client.POST('/api/v1/file-checkpoint/index/rebuild'),
+	);
+	const view = requireData(data, 'Index rebuild');
+	return { indexedCommits: view.indexed_commits ?? 0 };
+}
+
+/** Create a full workspace file checkpoint for an actor. */
+export async function createFileCheckpoint(actor: string): Promise<{
+	id: string;
+	timestamp: number;
+	fileCount: number;
+}> {
+	const data = await call<{
+		id?: string;
+		timestamp?: number;
+		file_count?: number;
+	}>(
+		client.POST('/api/v1/file-checkpoint/checkpoints', {
+			body: { actor },
+		}),
+	);
+	const view = requireData(data, 'File checkpoint');
+	return {
+		id: view.id ?? '',
+		timestamp: view.timestamp ?? 0,
+		fileCount: view.file_count ?? 0,
+	};
+}
+
+/** Restore the bound workspace from a file checkpoint. */
+export async function restoreFileCheckpoint(
+	entity: string,
+	checkpoint: string,
+): Promise<{ restored: number }> {
+	const data = await call<{ restored?: number }>(
+		client.POST('/api/v1/file-checkpoint/restore', {
+			body: { entity, checkpoint },
+		}),
+	);
+	const view = requireData(data, 'File restore');
+	return { restored: view.restored ?? 0 };
+}
+
+/** Submit an actor edit line for review (edit ref copy, no merge). */
+export async function submitForReview(
+	actor: string,
+	session?: string,
+): Promise<{ reviewCommit: string }> {
+	const data = await call<{ review_commit?: string }>(
+		client.POST('/api/v1/file-checkpoint/submit', {
+			body: { actor, session: session ?? null },
+		}),
+	);
+	const view = requireData(data, 'Review submit');
+	return { reviewCommit: view.review_commit ?? '' };
+}
+
+export interface MergeToFeatureOutcome {
+	commitId: string;
+	conflictFiles: string[];
+}
+
+interface MergeToFeatureDto {
+	commit_id?: string;
+	commitId?: string;
+	conflict_files?: string[];
+	conflictFiles?: string[];
+}
+
+/** Merge an actor submission into a feature ref via three-way merge. */
+export async function mergeToFeature(
+	actor: string,
+	feature: string,
+	session?: string,
+): Promise<MergeToFeatureOutcome> {
+	const data = await call<MergeToFeatureDto>(
+		client.POST('/api/v1/file-checkpoint/merge-to-feature', {
+			body: { actor, feature, session: session ?? null },
+		}),
+	);
+	const view = requireData(data, 'Merge to feature');
+	return {
+		commitId: view.commit_id ?? view.commitId ?? '',
+		conflictFiles: view.conflict_files ?? view.conflictFiles ?? [],
+	};
+}
+
+export interface MergeToMainOutcome {
+	checkpointId: string;
+	commitId: string;
+	conflictFiles: string[];
+}
+
+interface MergeToMainDto {
+	checkpoint_id?: string;
+	checkpointId?: string;
+	merge_result?: MergeToFeatureDto | null;
+	mergeResult?: MergeToFeatureDto | null;
+}
+
+/** Merge named features into main in input order, one merge commit per feature. */
+export async function mergeToMain(
+	actor: string,
+	features: string[],
+	session?: string,
+): Promise<MergeToMainOutcome> {
+	const data = await call<MergeToMainDto>(
+		client.POST('/api/v1/file-checkpoint/merge-to-main', {
+			body: { actor, features, session: session ?? null },
+		}),
+	);
+	const view = requireData(data, 'Merge to main');
+	const nested = view.merge_result ?? view.mergeResult ?? null;
+	return {
+		checkpointId: view.checkpoint_id ?? view.checkpointId ?? '',
+		commitId: nested?.commit_id ?? nested?.commitId ?? '',
+		conflictFiles: nested?.conflict_files ?? nested?.conflictFiles ?? [],
+	};
+}
+
+/** Roll back one merged feature from main by appending a revert commit. */
+export async function rollbackFeature(
+	actor: string,
+	featureHead: string,
+	session?: string,
+): Promise<{ revertCommit: string }> {
+	const data = await call<{ revert_commit?: string }>(
+		client.POST('/api/v1/file-checkpoint/rollback-feature', {
+			body: { actor, feature_head: featureHead, session: session ?? null },
+		}),
+	);
+	const view = requireData(data, 'Feature rollback');
+	return { revertCommit: view.revert_commit ?? '' };
+}

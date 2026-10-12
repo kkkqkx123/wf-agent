@@ -18,7 +18,7 @@ import {
         loopVariables,
         loopDetail,
 } from '$lib/fixtures/agentLoops';
-import { checkpoints, fileChanges, approvals } from '$lib/fixtures/checkpoints';
+import { checkpoints, fileChanges, approvals, partitions, conflicts, editSessions } from '$lib/fixtures/checkpoints';
 import {
 	executions,
 	executionDetail,
@@ -720,6 +720,36 @@ router.on('GET', '/api/v1/file-checkpoint/timeline/{id}', (params) => ({
 }));
 router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/approve', () => ({ ok: true }));
 router.on('POST', '/api/v1/file-checkpoint/approvals/{id}/reject', () => ({ ok: true }));
+router.on('GET', '/api/v1/file-checkpoint/partitions', () => partitions);
+router.on('GET', '/api/v1/file-checkpoint/conflicts', () => conflicts);
+router.on('POST', '/api/v1/file-checkpoint/conflicts/resolve', () => ({ remaining: 0 }));
+router.on('GET', '/api/v1/file-checkpoint/sessions', () => editSessions);
+router.on('POST', '/api/v1/file-checkpoint/sessions', () => 'sess-preview-1');
+router.on('POST', '/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', () => 'preview-rollback-snap');
+router.on('POST', '/api/v1/file-checkpoint/undo/{id}', () => 'preview-undo-snap');
+router.on('POST', '/api/v1/file-checkpoint/redo/{id}', () => 'preview-redo-snap');
+router.on('GET', '/api/v1/file-checkpoint/workspace/{id}', () =>
+        fileChanges.map((change) => ({
+                path: change.path,
+                content: '',
+                hash: 'preview',
+                timestamp: FIXTURE_EPOCH,
+        })),
+);
+router.on('GET', '/api/v1/file-checkpoint/index/status', () => ({
+        indexed_commits: 42,
+        total_commits: 42,
+        needs_rebuild: false,
+}));
+router.on('POST', '/api/v1/file-checkpoint/index/rebuild', () => ({ indexed_commits: 42 }));
+router.on('POST', '/api/v1/file-checkpoint/checkpoints', () => ({
+        id: 'preview-file-ckpt',
+        timestamp: FIXTURE_EPOCH,
+        file_count: fileChanges.length,
+}));
+router.on('POST', '/api/v1/file-checkpoint/restore', () => ({ restored: 3 }));
+router.on('POST', '/api/v1/file-checkpoint/submit', () => ({ review_commit: 'preview-review-commit' }));
+router.on('DELETE', '/api/v1/checkpoints/{id}', () => ({ ok: true }));
 // Preview has no concurrent editors, so the workflow lock is always free.
 router.on('GET', '/api/v1/workflows/{id}/lock', () => null);
 router.on('POST', '/api/v1/workflows/{id}/lock/acquire', (_p, _q, body) => ({

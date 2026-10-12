@@ -1,16 +1,17 @@
-//! wf-tui: full ratatui TUI over the wf-agent runtime.
+//! wf-tui: full ratatui TUI over `wf-server`.
+//!
+//! The TUI is a pure HTTP client: screens fetch through `wf-client`, turns
+//! stream server-sent events, and approvals answer through the interaction
+//! API. There is no embedded runtime.
 
 // Re-export shared modules from wf-cli-shared.
-#[cfg(feature = "embedded")]
-pub use wf_cli_shared::default_runtime_config;
 pub use wf_cli_shared::run as shared_run;
 pub use wf_cli_shared::{
-    app_config, args, cmd, domain, error, mode, output, remote, sanitize, turn, Cli, CliError,
-    CliResult, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat, OutputMessage,
-    RunIo, RunOptions, RunOutcome, TeeSink,
+    app_config, args, cmd, connection, error, mode, output, sanitize, turn, Cli, CliError,
+    CliResult, ClientHandle, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat,
+    OutputMessage, RunIo, RunOptions, RunOutcome, TeeSink,
 };
 
-// TUI-specific modules (ratatui-dependent).
 // TUI-specific modules now live in dedicated low-level crates under `crates/app/tui/`.
 // Re-export them so existing `crate::<module>` paths and `wf_tui::<module>`
 // external references keep working after the split.
@@ -42,9 +43,6 @@ pub mod size;
 pub mod state;
 pub mod tui;
 
-use std::sync::Arc;
-
-use wf_cli_shared::domain::DomainAdapter;
 use wf_cli_shared::mode::{CliMode, ModeResolver};
 
 /// CLI entry point: resolve the interactive form and dispatch.
@@ -92,8 +90,11 @@ async fn run_interactive(
     }
     match resolved.cli_mode {
         CliMode::Tui => {
-            let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Tui).await?;
-            let app = crate::tui::TuiApp::new(Arc::new(adapter));
+            let handle = ClientHandle::from_cli(cli).await?;
+            let mut app = crate::tui::TuiApp::new(handle.into_client());
+            if cli.session.is_some() || cli.resume {
+                app.queue_session_restore(cli.session.clone(), cli.resume).await;
+            }
             app.run().await
         }
         CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),

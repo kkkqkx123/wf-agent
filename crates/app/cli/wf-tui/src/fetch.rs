@@ -1,13 +1,10 @@
 //! Background data fetching for the TUI screens.
 //!
 //! Each screen kind maps to an async fetch function that produces a
-//! [`ScreenData`] model. The fetch runs on a background task; the draw
-//! path only sees the cached result.
+//! [`ScreenData`] model. The fetch runs on a background task against
+//! `wf-server`; the draw path only sees the cached result.
 
-use std::str::FromStr;
-
-use wf_api::agent::agent_execution_registry::AgentExecutionFilter;
-use wf_api::ApiContext;
+use wf_client::WfClient;
 
 use crate::error::CliResult;
 use crate::screens::{
@@ -17,61 +14,74 @@ use crate::screens::{
 
 /// Fetch data for the given screen kind.
 pub async fn fetch_for(
-    ctx: &ApiContext,
+    client: &WfClient,
     kind: ScreenKind,
     query: &str,
     filter: ExecStatusFilter,
 ) -> CliResult<ScreenData> {
     match kind {
-        ScreenKind::Dashboard => fetch_dashboard(ctx).await,
-        ScreenKind::Workflow => fetch_workflows(ctx).await,
-        ScreenKind::Executions => fetch_executions(ctx, filter).await,
-        ScreenKind::AgentLoops => fetch_agent_loops(ctx).await,
-        ScreenKind::Insights => fetch_insights(ctx).await,
-        ScreenKind::Checkpoints => fetch_checkpoints(ctx).await,
-        ScreenKind::Search => fetch_search(ctx, query).await,
-        ScreenKind::Settings => fetch_settings(ctx).await,
+        ScreenKind::Dashboard => fetch_dashboard(client).await,
+        ScreenKind::Workflow => fetch_workflows(client).await,
+        ScreenKind::Executions => fetch_executions(client, filter).await,
+        ScreenKind::AgentLoops => fetch_agent_loops(client).await,
+        ScreenKind::Insights => fetch_insights(client).await,
+        ScreenKind::Checkpoints => fetch_checkpoints(client).await,
+        ScreenKind::Search => fetch_search(client, query).await,
+        ScreenKind::Settings => fetch_settings(client).await,
         ScreenKind::Interactive | ScreenKind::Help => Ok(ScreenData::None),
     }
 }
 
-async fn fetch_dashboard(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let workflows = wf_api::workflow::summary::workflow_summaries(ctx, None).await?;
-    let executions = wf_api::agent::agent_execution_registry::summaries(ctx, None).await?;
-    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
-    let checkpoints = wf_api::checkpoint::record::list_checkpoints(&ctx.storage, None).await?;
+fn items_of(data: &serde_json::Value) -> Vec<serde_json::Value> {
+    data.get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| data.as_array().cloned())
+        .unwrap_or_default()
+}
+
+async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> {
+    let (workflows, executions, sessions, checkpoints) = tokio::join!(
+        client.get_json::<serde_json::Value>("/api/v1/workflows/summaries"),
+        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
+        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
+        client.get_json::<serde_json::Value>("/api/v1/checkpoints"),
+    );
+    let workflows = items_of(&workflows.unwrap_or_default());
+    let mut executions = items_of(&executions.unwrap_or_default());
+    let sessions = items_of(&sessions.unwrap_or_default());
+    let checkpoints = items_of(&checkpoints.unwrap_or_default());
 
     let workflow_count = workflows.len();
-    let execution_count = executions.len() + sessions.len();
+    executions.extend(sessions.iter().cloned());
+    let execution_count = executions.len();
     let running_count = executions
         .iter()
-        .filter(|e| e.status.as_str().eq_ignore_ascii_case("running"))
-        .count()
-        + sessions
-            .iter()
-            .filter(|s| s.status.as_str().eq_ignore_ascii_case("running"))
-            .count();
+        .filter(|e| {
+            e.get("status")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case("running"))
+        })
+        .count();
     let checkpoint_count = checkpoints.len();
 
     let mut recent: Vec<String> = executions
         .iter()
+        .take(5)
         .map(|e| {
-            format!(
-                "exec {} · {} · iter {}",
-                short_id(&e.execution_id),
-                e.status.as_str(),
-                e.current_iteration
-            )
+            let id = e
+                .get("execution_id")
+                .or_else(|| e.get("id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let status = e.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+            let iteration = e
+                .get("current_iteration")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            format!("exec {} · {} · iter {}", short_id(id), status, iteration)
         })
         .collect();
-    recent.extend(sessions.iter().map(|s| {
-        format!(
-            "session {} · {} · iter {}",
-            short_id(&s.id),
-            s.status.as_str(),
-            s.current_iteration
-        )
-    }));
     recent.truncate(5);
 
     Ok(ScreenData::Dashboard(DashboardData {
@@ -83,83 +93,97 @@ async fn fetch_dashboard(ctx: &ApiContext) -> CliResult<ScreenData> {
     }))
 }
 
-async fn fetch_workflows(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let workflows = wf_api::workflow::summary::workflow_summaries(ctx, None).await?;
-    let rows = workflows
+async fn fetch_workflows(client: &WfClient) -> CliResult<ScreenData> {
+    let data: serde_json::Value = client.get_json("/api/v1/workflows/summaries").await?;
+    let rows = items_of(&data)
         .into_iter()
-        .map(|w| WorkflowRow {
-            id: w.id,
-            name: w.name,
-            description: w.description,
-            node_count: w.node_count,
+        .filter_map(|w| {
+            Some(WorkflowRow {
+                id: w.get("id")?.as_str()?.to_string(),
+                name: w.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                description: w
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                node_count: w.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+            })
         })
         .collect();
     Ok(ScreenData::Workflow(rows))
 }
 
-async fn fetch_executions(ctx: &ApiContext, filter: ExecStatusFilter) -> CliResult<ScreenData> {
-    let status = match filter {
-        ExecStatusFilter::All => None,
-        other => wf_types::ExecutionStatus::from_str(other.label()).ok(),
-    };
-    let query = AgentExecutionFilter {
-        status,
-        agent_id: None,
-        ..AgentExecutionFilter::default()
-    };
-    let mut rows: Vec<ExecRow> =
-        wf_api::agent::agent_execution_registry::summaries(ctx, Some(&query))
-            .await?
-            .into_iter()
-            .map(|e| ExecRow {
-                id: e.execution_id,
-                status: e.status.as_str().to_string(),
-                iteration: e.current_iteration,
-                tool_calls: e.tool_call_count,
-                started: format_ts(e.start_time),
+async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliResult<ScreenData> {
+    let (executions, sessions) = tokio::join!(
+        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
+        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
+    );
+    let mut rows: Vec<ExecRow> = items_of(&executions.unwrap_or_default())
+        .into_iter()
+        .filter_map(|e| {
+            let status = e.get("status").and_then(|v| v.as_str())?.to_string();
+            if !filter.matches(&status) {
+                return None;
+            }
+            Some(ExecRow {
+                id: e
+                    .get("execution_id")
+                    .or_else(|| e.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                status,
+                iteration: e.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                tool_calls: e.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                started: format_ts(e.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
             })
-            .filter(|row| filter.matches(&row.status))
-            .collect();
+        })
+        .collect();
 
     // Agent-loop (session) executions live in a second registry; merge them so
     // the screen shows one unified timeline.
-    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
-    rows.extend(sessions.into_iter().filter_map(|s| {
-        let status = s.status.as_str().to_string();
+    rows.extend(items_of(&sessions.unwrap_or_default()).into_iter().filter_map(|s| {
+        let status = s.get("status").and_then(|v| v.as_str())?.to_string();
         if !filter.matches(&status) {
             return None;
         }
         Some(ExecRow {
-            id: s.id,
+            id: s.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             status,
-            iteration: s.current_iteration,
-            tool_calls: s.tool_call_count,
-            started: format_ts(s.start_time.unwrap_or(0)),
+            iteration: s.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            tool_calls: s.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
         })
     }));
 
     Ok(ScreenData::Executions(rows))
 }
 
-async fn fetch_agent_loops(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
-    let rows: Vec<LoopRow> = sessions
+async fn fetch_agent_loops(client: &WfClient) -> CliResult<ScreenData> {
+    let data: serde_json::Value = client.get_json("/api/v1/agent-loops/summaries").await?;
+    let rows: Vec<LoopRow> = items_of(&data)
         .into_iter()
-        .map(|s| LoopRow {
-            id: s.id,
-            status: s.status.as_str().to_string(),
-            iteration: s.current_iteration,
-            tool_calls: s.tool_call_count,
-            started: format_ts(s.start_time.unwrap_or(0)),
+        .filter_map(|s| {
+            Some(LoopRow {
+                id: s.get("id")?.as_str()?.to_string(),
+                status: s.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                iteration: s.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                tool_calls: s.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
+            })
         })
         .collect();
     Ok(ScreenData::AgentLoops(rows))
 }
 
-async fn fetch_insights(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let workflows = wf_api::workflow::summary::workflow_summaries(ctx, None).await?;
-    let executions = wf_api::agent::agent_execution_registry::summaries(ctx, None).await?;
-    let sessions = wf_api::agent::agent_loop_registry::summaries(ctx, None).await?;
+async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
+    let (workflows, executions, sessions) = tokio::join!(
+        client.get_json::<serde_json::Value>("/api/v1/workflows/summaries"),
+        client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
+        client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
+    );
+    let workflows = items_of(&workflows.unwrap_or_default());
+    let executions = items_of(&executions.unwrap_or_default());
+    let sessions = items_of(&sessions.unwrap_or_default());
 
     // Status breakdown across both registries.
     let mut status_counts: Vec<(String, usize)> = Vec::new();
@@ -175,15 +199,12 @@ async fn fetch_insights(ctx: &ApiContext) -> CliResult<ScreenData> {
     };
     let mut total_tool_calls = 0u64;
     let mut total_iterations = 0u64;
-    for e in &executions {
-        record(e.status.as_str());
-        total_tool_calls += u64::from(e.tool_call_count);
-        total_iterations += u64::from(e.current_iteration);
-    }
-    for s in &sessions {
-        record(s.status.as_str());
-        total_tool_calls += u64::from(s.tool_call_count);
-        total_iterations += u64::from(s.current_iteration);
+    for e in executions.iter().chain(sessions.iter()) {
+        if let Some(status) = e.get("status").and_then(|v| v.as_str()) {
+            record(status);
+        }
+        total_tool_calls += e.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        total_iterations += e.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0);
     }
     status_counts.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
 
@@ -216,17 +237,27 @@ async fn fetch_insights(ctx: &ApiContext) -> CliResult<ScreenData> {
     }))
 }
 
-async fn fetch_checkpoints(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let rows = wf_api::checkpoint::record::list_checkpoints(&ctx.storage, None)
-        .await?
+async fn fetch_checkpoints(client: &WfClient) -> CliResult<ScreenData> {
+    let data: serde_json::Value = client.get_json("/api/v1/checkpoints").await?;
+    let rows = items_of(&data)
         .into_iter()
-        .map(|c| CheckpointRow {
-            id: c.id,
-            entity: c.entity_id,
-            timestamp: format_ts(c.timestamp),
-            entity_type: c.entity_type,
-            checkpoint_type: format!("{:?}", c.checkpoint_type),
-            status: format!("{:?}", c.status),
+        .filter_map(|c| {
+            Some(CheckpointRow {
+                id: c.get("id")?.as_str()?.to_string(),
+                entity: c.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                timestamp: format_ts(c.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0)),
+                entity_type: c
+                    .get("entity_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                checkpoint_type: c
+                    .get("checkpoint_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                status: c.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            })
         })
         .collect();
     Ok(ScreenData::Checkpoints(rows))
@@ -269,78 +300,96 @@ pub fn format_checkpoint_detail(checkpoint: &wf_types::storage::checkpoint::Chec
 
 /// Render a checkpoint chain analysis as one line per checkpoint plus the
 /// transition summary, for the read-only chain viewer.
-pub fn format_checkpoint_chain(
-    chain: &wf_api::checkpoint::record::CheckpointChainAnalysisView,
-) -> String {
+pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
+    let execution_id = chain.get("execution_id").and_then(|v| v.as_str()).unwrap_or("?");
     let mut out = vec![
-        format!("execution: {}", chain.execution_id),
+        format!("execution: {execution_id}"),
         format!(
             "checkpoints: {} · total elapsed: {}ms",
-            chain.checkpoint_count, chain.total_elapsed
+            chain.get("checkpoint_count").and_then(|v| v.as_u64()).unwrap_or(0),
+            chain.get("total_elapsed").and_then(|v| v.as_u64()).unwrap_or(0)
         ),
     ];
-    for checkpoint in &chain.checkpoints {
+    for checkpoint in chain
+        .get("checkpoints")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+    {
         out.push(format!(
-            "{} · {} · {:?} · {:?}",
-            checkpoint.id, checkpoint.entity_id, checkpoint.checkpoint_type, checkpoint.status
+            "{} · {} · {} · {}",
+            checkpoint.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
+            checkpoint.get("entity_id").and_then(|v| v.as_str()).unwrap_or("?"),
+            checkpoint.get("checkpoint_type").and_then(|v| v.as_str()).unwrap_or("?"),
+            checkpoint.get("status").and_then(|v| v.as_str()).unwrap_or("?")
         ));
     }
-    for transition in &chain.transitions {
+    for transition in chain
+        .get("transitions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+    {
         out.push(format!(
             "{} -> {} · {}ms · {}",
-            transition.from_checkpoint_id,
-            transition.to_checkpoint_id,
-            transition.elapsed,
-            transition.r#type
+            transition.get("from_checkpoint_id").and_then(|v| v.as_str()).unwrap_or("?"),
+            transition.get("to_checkpoint_id").and_then(|v| v.as_str()).unwrap_or("?"),
+            transition.get("elapsed").and_then(|v| v.as_u64()).unwrap_or(0),
+            transition.get("type").and_then(|v| v.as_str()).unwrap_or("?")
         ));
     }
     out.join("\n")
 }
 
-async fn fetch_search(ctx: &ApiContext, query: &str) -> CliResult<ScreenData> {
-    let options = wf_api::analysis::search::SearchOptions {
-        types: None,
-        limit_per_type: Some(20),
-        limit_total: Some(100),
-        cursor: None,
-    };
-    let result = wf_api::analysis::search::search(ctx, query, &options).await?;
-    let rows = result
-        .items
+async fn fetch_search(client: &WfClient, query: &str) -> CliResult<ScreenData> {
+    let data: serde_json::Value = client
+        .get_json(&format!("/api/v1/search?q={query}&limit_per_type=20&limit=100"))
+        .await?;
+    let rows = items_of(&data)
         .into_iter()
-        .map(|item| SearchRow {
-            id: item.id,
-            kind: item.r#type,
-            label: item.label,
-            score: item.score,
+        .filter_map(|item| {
+            Some(SearchRow {
+                id: item.get("id")?.as_str()?.to_string(),
+                kind: item.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                label: item.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                score: item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32,
+            })
         })
         .collect();
     Ok(ScreenData::Search(SearchData {
         query: query.to_string(),
         results: rows,
-        total: result.total,
-        truncated: result.truncated,
+        total: data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        truncated: data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false),
         running: false,
     }))
 }
 
-async fn fetch_settings(ctx: &ApiContext) -> CliResult<ScreenData> {
-    let profiles = wf_api::llm::llm_profile::list(ctx).await?;
-    let default_profile = wf_api::llm::llm_profile::get_default_id(ctx).await?;
+async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
+    let (profiles, default_profile) = tokio::join!(
+        client.get_json::<serde_json::Value>("/api/v1/llm/profiles"),
+        client.get_json::<serde_json::Value>("/api/v1/llm/profiles/default"),
+    );
+    let default_id = default_profile
+        .ok()
+        .and_then(|v| v.get("id").and_then(|id| id.as_str()).map(str::to_string))
+        .unwrap_or_default();
     let theme = crate::theme::load_theme_cache()
         .map(|t| format!("{:?}", t.kind))
         .unwrap_or_else(|| "unknown (not probed)".to_string());
-    let rows = profiles
+    let rows = items_of(&profiles.unwrap_or_default())
         .into_iter()
-        .map(|p| ProfileRow {
-            id: p.id,
-            name: p.name,
-            model: p.model,
+        .filter_map(|p| {
+            Some(ProfileRow {
+                id: p.get("id")?.as_str()?.to_string(),
+                name: p.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                model: p.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            })
         })
         .collect();
     Ok(ScreenData::Settings(SettingsData {
         profiles: rows,
-        default_profile,
+        default_profile: Some(default_id),
         theme,
     }))
 }
@@ -408,14 +457,13 @@ mod tests {
 
     #[test]
     fn checkpoint_chain_renders_counts_and_transitions() {
-        let chain = wf_api::checkpoint::record::CheckpointChainAnalysisView {
-            execution_id: "loop-1".to_string(),
-            checkpoints: vec![sample_checkpoint()],
-            transitions: vec![],
-            total_elapsed: 0,
-            checkpoint_count: 1,
-            time_range: wf_api::checkpoint::record::CheckpointTimeRangeView { start: 0, end: 0 },
-        };
+        let chain = serde_json::json!({
+            "execution_id": "loop-1",
+            "checkpoints": [{"id": "cp-1", "entity_id": "loop-1"}],
+            "transitions": [],
+            "total_elapsed": 0,
+            "checkpoint_count": 1,
+        });
         let text = format_checkpoint_chain(&chain);
         assert!(text.contains("execution: loop-1"));
         assert!(text.contains("cp-1"));

@@ -28,7 +28,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use serde_json::json;
-use wf_api::ToolApprovalRequest;
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 use wf_tui::keymap::{CKey, Key};
 use wf_tui::modal::{
     centered_rect, ConfirmModal, DiffRow, DiffSign, DiffViewer, FileEntry, FileSelectionDialog,
@@ -368,19 +368,18 @@ fn draw_stateful_previews(
     );
 }
 
-/// Build a synthetic `ToolApprovalRequest` for the ApprovalView preview.
-fn approval_request() -> ToolApprovalRequest {
-    ToolApprovalRequest {
+/// Build a synthetic approval request for the ApprovalView preview.
+fn approval_request() -> ToolApprovalRequestData {
+    ToolApprovalRequestData {
         tool_call_id: "call-1".into(),
         tool_name: "write_file".into(),
-        arguments: json!({ "path": "src/demo.rs", "content": "fn main() {}" }),
-        interaction_id: "ia-1".into(),
-        risk_level: Some("low".into()),
         tool_description: Some("Write a file into the workspace".into()),
+        parameters: json!({ "path": "src/demo.rs", "content": "fn main() {}" }),
+        risk_level: Some("low".into()),
+        pending_queue: None,
         batch_id: None,
         tool_index: None,
         total_tools: None,
-        pending_queue: None,
     }
 }
 

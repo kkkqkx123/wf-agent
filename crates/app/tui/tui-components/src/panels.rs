@@ -30,7 +30,7 @@ pub use mention::MentionPanel;
 pub use model::ModelPanel;
 pub use queued::QueuedPanel;
 pub use skill::SkillPanel;
-pub use workflow::WorkflowPanel;
+pub use workflow::{WorkflowPanel, WorkflowSummaryRow};
 
 #[cfg(test)]
 mod tests {
@@ -164,23 +164,19 @@ mod tests {
     #[test]
     fn workflow_panel_lists_and_moves() {
         let summaries = vec![
-            wf_api::workflow::summary::WorkflowSummary {
+            super::workflow::WorkflowSummaryRow {
                 id: "wf-1".to_string(),
                 name: "First".to_string(),
                 description: Some("desc".to_string()),
-                version: None,
                 node_count: 3,
                 edge_count: 2,
-                updated_at: 0,
             },
-            wf_api::workflow::summary::WorkflowSummary {
+            super::workflow::WorkflowSummaryRow {
                 id: "wf-2".to_string(),
                 name: "Second".to_string(),
                 description: None,
-                version: None,
                 node_count: 2,
                 edge_count: 1,
-                updated_at: 0,
             },
         ];
         let mut panel = WorkflowPanel::new(&summaries);

@@ -3,6 +3,51 @@
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use tui_core::keymap::KeyAction;
 
+/// Display row for one workflow summary. The server owns the typed
+/// summary; panels only need the display fields, converted from the
+/// summaries response at the call site.
+#[derive(Debug, Clone)]
+pub struct WorkflowSummaryRow {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub node_count: usize,
+    pub edge_count: usize,
+}
+
+impl WorkflowSummaryRow {
+    /// Build a row from a summaries-list item, tolerating page shells.
+    pub fn from_value(value: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            id: value.get("id")?.as_str()?.to_string(),
+            name: value.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            description: value
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            node_count: value.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+            edge_count: value.get("edge_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        })
+    }
+
+    /// Rows for a summaries response (bare array or `PageView` shell).
+    pub fn rows_for(value: &serde_json::Value) -> Vec<Self> {
+        value
+            .as_array()
+            .cloned()
+            .or_else(|| {
+                value
+                    .get("items")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+            })
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Self::from_value)
+            .collect()
+    }
+}
+
 /// The workflow panel.
 #[derive(Debug, Clone)]
 pub struct WorkflowPanel {
@@ -11,7 +56,7 @@ pub struct WorkflowPanel {
 
 impl WorkflowPanel {
     /// Build the panel from workflow summaries.
-    pub fn new(workflows: &[wf_api::workflow::summary::WorkflowSummary]) -> Self {
+    pub fn new(workflows: &[WorkflowSummaryRow]) -> Self {
         let mut group = Group::new(Some("workflows"));
         for wf in workflows {
             let label = if let Some(desc) = &wf.description {

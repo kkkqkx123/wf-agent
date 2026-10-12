@@ -14,6 +14,7 @@ pub mod model_picker;
 pub mod overlay;
 pub mod panels;
 pub mod password_modal;
+pub mod prompt_modal;
 pub mod question_overlay;
 pub mod queue;
 pub mod select;

@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::error::CliResult;
 use crate::output::{OutputFormat, OutputMessage, OutputSink};
 use crate::run_diag::DiagWriter;
-use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_types::events::ExecutionStreamEvent;
 
 // ── delta line buffering ──────────────────────────────────────────
 

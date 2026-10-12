@@ -16,9 +16,4 @@ default = []
 [dev-dependencies]
 wf-common = { workspace = true }
 wf-types = { workspace = true }
-wf-api = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
-wf-cli-shared = { path = "../../cli/wf-cli-shared" }
-wf-llm = { path = "../../../infra/wf-llm", features = ["mock"] }

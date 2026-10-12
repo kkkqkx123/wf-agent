@@ -1,28 +1,22 @@
 use std::path::Path;
 
-use wf_api::llm::tool;
-
 use crate::args::{Cli, ToolSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "tool")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         ToolSub::List => {
-            let tools = tool::list(ctx).await?;
-            let data = serde_json::to_value(&tools)?;
+            let data: serde_json::Value = client.get_json("/api/v1/tools").await?;
             render_envelope(cli.output, OutputEnvelope::success("tool-list", data))
         }
         ToolSub::Show { id } => {
-            let t = tool::get(ctx, id).await?;
-            let data = serde_json::to_value(&t)?;
+            let data: serde_json::Value =
+                client.get_json(&format!("/api/v1/tools/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-show", data).with_entity(id.clone()),
@@ -30,8 +24,10 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
         }
         ToolSub::Validate { id, params } => {
             let value: serde_json::Value = serde_json::from_str(params)?;
-            let v = tool::validate_parameters(ctx, id, &value).await?;
-            let data = serde_json::to_value(&v)?;
+            let body = serde_json::json!({"tool_id": id, "parameters": value});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/tools/validate-params", &body)
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-validate", data).with_entity(id.clone()),
@@ -46,42 +42,35 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             let exec_id = execution_id
                 .clone()
                 .unwrap_or_else(|| "cli-tool-exec".to_string());
-            let result = tool::execute(ctx, id, &value, None, &exec_id).await?;
-            let data = serde_json::to_value(&result)?;
+            let body = serde_json::json!({
+                "tool_id": id,
+                "parameters": value,
+                "execution_id": exec_id,
+            });
+            let data: serde_json::Value =
+                client.post_json("/api/v1/tools/execute", &body).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-execute", data).with_entity(id.clone()),
             )
         }
         ToolSub::Save { file } => {
-            let meta = load_tool(Path::new(file))?;
-            tool::save_tool(&ctx.storage, &meta).await?;
-            let data = serde_json::json!({"saved": meta.id});
+            let meta = load_json(Path::new(file), "tool")?;
+            let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            client.post_json::<_, serde_json::Value>("/api/v1/tool-registry", &meta).await?;
+            let data = serde_json::json!({"saved": id});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("tool-save", data).with_entity(meta.id.clone()),
+                OutputEnvelope::success("tool-save", data).with_entity(id),
             )
         }
         ToolSub::Delete { id, force } => {
-            if !*force {
-                let refs = tool::check_delete_references(&ctx.storage, id).await?;
-                if !refs.is_empty() {
-                    let list = refs
-                        .iter()
-                        .map(|r| format!("{}#{}", r.workflow_id, r.node_id))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let msg = format!(
-                        "tool '{}' is referenced by: {list} (use --force to cascade)",
-                        id
-                    );
-                    return render_envelope(
-                        cli.output,
-                        OutputEnvelope::failure("tool-delete", msg),
-                    );
-                }
-            }
-            let deleted = tool::delete_tool(&ctx.storage, id).await?;
+            // Reference protection lives server-side: without --force the
+            // server rejects referenced tools instead of cascading.
+            let data: serde_json::Value = client
+                .delete_json(&format!("/api/v1/tool-registry/{id}?force={force}"))
+                .await?;
+            let deleted = data.as_bool().unwrap_or(true);
             if deleted {
                 let data = serde_json::json!({"deleted": id});
                 render_envelope(
@@ -96,7 +85,12 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             }
         }
         ToolSub::Enable { id } => {
-            tool::enable(ctx, id).await?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/tools/{id}/enable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"enabled": id});
             render_envelope(
                 cli.output,
@@ -104,7 +98,12 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             )
         }
         ToolSub::Disable { id } => {
-            tool::disable(ctx, id).await?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/tools/{id}/disable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"disabled": id});
             render_envelope(
                 cli.output,
@@ -112,19 +111,18 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             )
         }
         ToolSub::Search { query } => {
-            let list = tool::search_tools(ctx, query).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/tools/search?q={query}"))
+                .await?;
             render_envelope(cli.output, OutputEnvelope::success("tool-search", data))
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }
 
-fn load_tool(path: &Path) -> CliResult<wf_types::ToolStorageMetadata> {
+fn load_json(path: &Path, kind: &str) -> CliResult<serde_json::Value> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;
     serde_json::from_str(&content)
-        .map_err(|e| CliError::Arguments(format!("invalid tool JSON in {}: {e}", path.display())))
+        .map_err(|e| CliError::Arguments(format!("invalid {kind} JSON in {}: {e}", path.display())))
 }

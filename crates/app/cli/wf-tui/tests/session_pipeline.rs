@@ -5,8 +5,8 @@
 
 use serde_json::json;
 
-use wf_api::infra::stream::ExecutionStreamEvent;
-use wf_api::ToolApprovalRequest;
+use wf_types::events::ExecutionStreamEvent;
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 use wf_tui::approval_overlay::ApprovalView;
 use wf_tui::footer::{Footer, FooterView};
 use wf_tui::keymap::KeymapContext;
@@ -131,17 +131,16 @@ fn footer_reflects_reducer_state_and_routes_keys_by_view() {
 
 #[test]
 fn approval_and_question_requests_render_views() {
-    let approval = ApprovalView::new(ToolApprovalRequest {
+    let approval = ApprovalView::new(ToolApprovalRequestData {
         tool_call_id: "call-1".to_string(),
         tool_name: "execute_command".to_string(),
-        arguments: json!({ "command": "echo test" }),
-        interaction_id: "ui-1".to_string(),
-        risk_level: None,
         tool_description: None,
+        parameters: json!({ "command": "echo test" }),
+        risk_level: None,
+        pending_queue: None,
         batch_id: None,
         tool_index: None,
         total_tools: None,
-        pending_queue: None,
     });
     assert!(approval.title().contains("execute_command"));
     assert!(!approval.arguments_preview(80).is_empty());

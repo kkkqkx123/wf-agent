@@ -83,6 +83,12 @@ export const NAV_GROUPS: NavGroup[] = [
 				icon: 'archive',
 				description: 'Execution chains, file workspace and approvals',
 			},
+			{
+				href: '/git',
+				label: 'Git',
+				icon: 'archive',
+				description: 'User repository workbench: status, files, branches and terminal',
+			},
 		],
 	},
 	{

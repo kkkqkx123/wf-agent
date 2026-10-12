@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod checkpoint;
 pub mod entity;
+pub mod git;
 pub mod llm;
 pub mod observation;
 pub mod system;

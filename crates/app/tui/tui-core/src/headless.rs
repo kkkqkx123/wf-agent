@@ -31,7 +31,7 @@
 
 use crate::reducer::{FooterState, SessionReducer};
 use tui_markdown::markdown::{ends_with_blank_line, render_plain_text, MarkdownStream};
-use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_types::events::ExecutionStreamEvent;
 
 /// One output delta from the headless renderer.
 #[derive(Debug, Clone, PartialEq, Eq)]

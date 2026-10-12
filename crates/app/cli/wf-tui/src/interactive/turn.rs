@@ -1,24 +1,48 @@
 //! Turn lifecycle and streaming settlement for the interactive controller:
-//! starting agent turns, pumping domain events, and feeding the markdown
+//! starting agent turns, pumping server events, and feeding the markdown
 //! stream / pacer into the scrollback.
-
-use std::sync::Arc;
 
 use futures::StreamExt;
 
-use wf_api::infra::stream::ExecutionStreamEvent;
-use wf_api::ToolApprovalResult;
+use wf_types::events::ExecutionStreamEvent;
 
 use crate::reducer::Phase;
 use crate::stream_pacer::PacerOp;
 use crate::transcript::{HistoryLine, LineState, Role};
-use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
+use crate::turn::{TurnKind, TurnParams};
 
-use super::{InteractiveController, InteractiveEvent, TuiApprovalHandler};
+use super::{InteractiveController, InteractiveEvent};
+
+/// Adapt server SSE frames into execution stream events, skipping the
+/// stream metadata frame and unparsable frames.
+pub(crate) fn cmd_stream_frames(
+    stream: impl futures::Stream<Item = Result<wf_client::SseFrame, wf_client::ClientError>>
+        + Send
+        + 'static,
+) -> impl futures::Stream<Item = Result<ExecutionStreamEvent, wf_client::ClientError>> + Unpin {
+    use futures::StreamExt;
+    Box::pin(stream)
+        .filter_map(|item| async move {
+            match item {
+                Err(e) => Some(Err(e)),
+                Ok(frame) => {
+                    if frame.event == "metadata" {
+                        return None;
+                    }
+                    match serde_json::from_value::<ExecutionStreamEvent>(frame.data) {
+                        Ok(event) => Some(Ok(event)),
+                        Err(_) => None,
+                    }
+                }
+            }
+        })
+        .boxed()
+}
 
 impl InteractiveController {
     /// Start an agent turn with the given prompt, seeded with the full
-    /// session history.
+    /// session history. Streams server events into the session channel and
+    /// polls pending interactions (approvals/questions) for the turn.
     pub(super) fn start_turn(
         &mut self,
         prompt: String,
@@ -33,35 +57,45 @@ impl InteractiveController {
         self.pacer.clear();
 
         let tx = self.tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let params = TurnParams {
             agent,
             model,
             approve_prefixes: Vec::new(),
+            timeout_ms: None,
             conversation: self.history.clone(),
             kind: TurnKind::Agent { prompt },
         };
-        let handler = Arc::new(TuiApprovalHandler::new(self.tx.clone()));
-        let options =
-            wf_runtime::tool_approval::headless_approval_options(Some(adapter.api_context()));
+        let body = params.agent_request_body();
 
         let task = tokio::spawn(async move {
-            match stream_agent_turn(adapter.api_context(), &params, Some(options), Some(handler))
-                .await
-            {
-                Ok((_, mut stream)) => {
-                    while let Some(event) = stream.next().await {
-                        let terminal = matches!(
-                            event,
-                            ExecutionStreamEvent::Completed { .. }
-                                | ExecutionStreamEvent::Failed { .. }
-                                | ExecutionStreamEvent::Interrupted { .. }
-                        );
-                        if tx.send(InteractiveEvent::TurnEvent(event)).is_err() {
-                            break;
-                        }
-                        if terminal {
-                            break;
+            match client.post_stream("/api/v1/agent-loops/cli/stream", &body).await {
+                Ok(stream) => {
+                    let mut stream = cmd_stream_frames(stream);
+                    while let Some(item) = stream.next().await {
+                        match item {
+                            Ok(event) => {
+                                let terminal = matches!(
+                                    event,
+                                    ExecutionStreamEvent::Completed { .. }
+                                        | ExecutionStreamEvent::Failed { .. }
+                                        | ExecutionStreamEvent::Interrupted { .. }
+                                );
+                                if tx.send(InteractiveEvent::TurnEvent(event)).is_err() {
+                                    break;
+                                }
+                                if terminal {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                let _ = tx.send(InteractiveEvent::TurnEvent(
+                                    ExecutionStreamEvent::Failed {
+                                        error: err.to_string(),
+                                    },
+                                ));
+                                break;
+                            }
                         }
                     }
                 }
@@ -73,28 +107,109 @@ impl InteractiveController {
             }
         });
         self.turn_task = Some(task);
+        self.poll_task = Some(Self::spawn_interaction_poll(
+            self.client.clone(),
+            self.tx.clone(),
+        ));
     }
 
-    /// Drain pending domain events and update the UI state.
+    /// Poll pending server interactions for the active turn and forward
+    /// approvals/questions into the session channel. Seen records answer at
+    /// most once; aborted with the turn.
+    fn spawn_interaction_poll(
+        client: wf_client::WfClient,
+        tx: tokio::sync::mpsc::UnboundedSender<InteractiveEvent>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut seen = std::collections::HashSet::new();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if tx.is_closed() {
+                    break;
+                }
+                let pending: serde_json::Value = match client
+                    .get_json("/api/v1/interactions/by-status/pending")
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                let items = pending
+                    .get("items")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .or_else(|| pending.as_array().cloned())
+                    .unwrap_or_default();
+                for item in items {
+                    let id = item
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    if id.is_empty() || !seen.insert(id.clone()) {
+                        continue;
+                    }
+                    let kind = item
+                        .get("interaction_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    if kind == "tool_approval" {
+                        let request_data =
+                            item.get("request_data").cloned().unwrap_or_default();
+                        match serde_json::from_value(request_data) {
+                            Ok(request) => {
+                                if tx
+                                    .send(InteractiveEvent::ApprovalRequested {
+                                        interaction_id: id,
+                                        request,
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    } else {
+                        let request =
+                            item.get("request_data").cloned().unwrap_or(item.clone());
+                        if tx
+                            .send(InteractiveEvent::QuestionRequested {
+                                interaction_id: id,
+                                request,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /// Drain pending session events and update the UI state.
     pub(crate) fn handle_events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
-                InteractiveEvent::ApprovalRequested { request, reply } => {
+                InteractiveEvent::ApprovalRequested {
+                    interaction_id,
+                    request,
+                } => {
                     if let Some(decision) = self.remembered.decision_for(&request.tool_name) {
-                        let result = if decision {
-                            ToolApprovalResult::approved(request.tool_call_id.clone())
+                        let answer = if decision {
+                            crate::approval_overlay::ApprovalAnswer::approved()
                         } else {
-                            ToolApprovalResult::rejected(
-                                request.tool_call_id.clone(),
+                            crate::approval_overlay::ApprovalAnswer::rejected(
                                 "denied by the user (session)",
                             )
                         };
-                        let _ = reply.send(result);
+                        self.post_approval_answer(&interaction_id, answer);
                         continue;
                     }
                     self.footer.approval =
                         Some(crate::approval_overlay::ApprovalView::new(request));
-                    self.approval_reply = Some(reply);
+                    self.pending_approval = Some(interaction_id);
                     self.footer.present(crate::footer::FooterView::Permission);
                 }
                 InteractiveEvent::QuestionRequested {
@@ -163,7 +278,7 @@ impl InteractiveController {
                                 .max(1);
                             for line in &mut self.scrollback {
                                 if line.seq_no() != 0 {
-                                    line.set_seq_no(line.seq_no().wrapping_add(shift_fix).max(1));
+                                    line.set_seq_no(line.seq_no().wrapping_add(1).max(1));
                                 }
                             }
                             self.next_seq = self
@@ -194,6 +309,31 @@ impl InteractiveController {
         }
         self.poll_stream_frame(false);
         self.settle_scrollback();
+    }
+
+    /// Post one approval answer to the server; failures surface as a notice.
+    pub(crate) fn post_approval_answer(
+        &self,
+        interaction_id: &str,
+        answer: crate::approval_overlay::ApprovalAnswer,
+    ) {
+        if interaction_id.is_empty() {
+            return;
+        }
+        let client = self.client.clone();
+        let id = interaction_id.to_string();
+        let body = serde_json::json!({"response_data": answer.into_response_value()});
+        tokio::spawn(async move {
+            if let Err(err) = client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/interactions/{id}/respond"),
+                    &body,
+                )
+                .await
+            {
+                tracing::warn!(target: "wf_cli", error = %err, "approval respond failed");
+            }
+        });
     }
 
     fn handle_turn_event(&mut self, event: ExecutionStreamEvent) {

@@ -83,6 +83,7 @@ pub struct Runtime {
     pub presets: wf_types::config::presets::PresetsConfig,
     pub tools: wf_config::orchestrator::ToolConfigs,
     pub limits: wf_types::config::limits::LimitsConfig,
+    pub user_git: Option<wf_types::config::user_git::UserGitConfig>,
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
     /// file checkpointing is enabled with a workspace root and `manual_watch`.

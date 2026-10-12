@@ -12,7 +12,7 @@ use ratatui::Frame;
 
 use super::layout::split_management;
 use tui_components::transcript::HistoryLine;
-use tui_core::screen_data::{short_id, ScreenData};
+use tui_core::screen_data::{screen_digit, short_id, ScreenData, ScreenKind};
 use tui_style::theme::{ColorRole, Theme};
 
 fn titled_block<'a>(title: &'a str, role: ColorRole, theme: &Theme) -> Block<'a> {
@@ -330,7 +330,7 @@ pub fn draw_settings(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &T
 }
 
 pub fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / checkpoint detail\n  f          - cycle execution status filter\n  d          - delete selected workflow / checkpoint\n  r          - refresh current screen\n  R          - restore selected checkpoint (confirm)\n  t          - checkpoint chain of selected row\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
+    let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-9        - switch screens (1 Workflow, 2 Executions, 3 Loops, 4 Insights, 5 Interactive, 6 Checkpoints, 7 Search, 8 Settings, 9 Help; Dashboard via sidebar)\n  j/k / Up/Down - navigate\n  Enter      - select / checkpoint detail\n  f          - cycle execution status filter\n  d          - delete selected workflow / checkpoint\n  r          - refresh current screen\n  R          - restore selected checkpoint (confirm)\n  t          - checkpoint chain of selected row\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
     let block = titled_block("Help", ColorRole::Warning, theme);
     frame.render_widget(Paragraph::new(text).block(block), area);
 }
@@ -338,7 +338,7 @@ pub fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
 /// Sidebar overlay: screen list taking 30% of the width. Moved here from the
 /// application shell so management drawing lives in the screen module; the
 /// shell only decides when the overlay is active.
-pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, selected: usize) {
+pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, entries: &[ScreenKind], selected: usize) {
     use ratatui::widgets::Clear;
     let sidebar_width = (f32::from(area.width) * 0.3) as u16;
     let sidebar_area = Rect {
@@ -352,16 +352,14 @@ pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, selected: usize) {
         .title(" Screens ")
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::Cyan));
-    let screens = [
-        "1. Workflow",
-        "2. Executions",
-        "3. Checkpoints",
-        "4. Search",
-        "5. Settings",
-        "6. Dashboard",
-        "7. Help",
-    ];
-    let items: Vec<ListItem> = screens.iter().map(|name| ListItem::new(*name)).collect();
+    let screens: Vec<String> = entries
+        .iter()
+        .map(|kind| match screen_digit(*kind) {
+            Some(digit) => format!("{digit}. {}", kind.title()),
+            None => format!("· {}", kind.title()),
+        })
+        .collect();
+    let items: Vec<ListItem> = screens.iter().map(|name| ListItem::new(name.as_str())).collect();
     let mut state = ListState::default();
     state.select(Some(selected.min(screens.len().saturating_sub(1))));
     let list = List::new(items)

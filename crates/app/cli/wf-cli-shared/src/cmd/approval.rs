@@ -1,27 +1,23 @@
-//! Change-approval management over `wf_api::checkpoint::approval`.
+//! Change-approval management over the file-checkpoint approval API.
 //!
 //! This is the checkpoint domain's approval surface (pending file-change
-//! approvals). Runtime tool-call approvals during a session are a separate
-//! concern: decided by the runtime policy in `run` / `turn`, optionally
-//! advised by `wf_runtime::tool_approval::LlmApprovalHandler`.
-use wf_api::checkpoint::approval;
+//! approvals). Runtime tool-call approvals during a session are answered by
+//! the run interaction poller instead.
 
 use crate::args::{ApprovalSub, Cli};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "approval")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         ApprovalSub::List => {
-            let pending = approval::list_pending_approvals(ctx)?;
-            let data = serde_json::to_value(&pending)?;
+            let data: serde_json::Value = client
+                .get_json("/api/v1/file-checkpoint/approvals/pending")
+                .await?;
             render_envelope(cli.output, OutputEnvelope::success("approval-list", data))
         }
         ApprovalSub::Approve {
@@ -36,22 +32,32 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
                     .filter(|v| !v.is_empty())
                     .collect::<Vec<_>>()
             });
-            let outcome = approval::approve_changes(ctx, instance, feature_name, path_vec)?;
-            let data = serde_json::to_value(&outcome)?;
+            let body = serde_json::json!({"feature": feature_name, "paths": path_vec});
+            let data: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/file-checkpoint/approvals/{instance}/approve"),
+                    &body,
+                )
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("approval-approve", data).with_entity(instance.clone()),
             )
         }
         ApprovalSub::Reject { instance, reason } => {
-            let snapshot = approval::reject_changes(ctx, instance, reason.as_deref())?;
+            let body = serde_json::json!({"reason": reason});
+            let data: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/file-checkpoint/approvals/{instance}/reject"),
+                    &body,
+                )
+                .await?;
+            let snapshot = data.get("baseline_snapshot_id").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"instance": instance, "rejected": true, "snapshot": snapshot, "reason": reason});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("approval-reject", data).with_entity(instance.clone()),
             )
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }

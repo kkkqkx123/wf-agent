@@ -117,6 +117,9 @@ pub struct RuntimeConfig {
     /// carries an explicit programmatic value (including `enabled = false`,
     /// which must not be mistaken for "unset") and wins per the merge rules.
     pub file_checkpoint: Option<FileCheckpointConfig>,
+    /// User repository Git configuration. `None` leaves the domain unset and
+    /// the assembled infrastructure value fills it; `Some` is explicit.
+    pub user_git: Option<wf_types::config::user_git::UserGitConfig>,
     /// Host default tool approval configuration. The type-level default is
     /// disabled (library contract: auto-approve); hosts enable it in their
     /// infrastructure config as a product decision.
@@ -264,6 +267,12 @@ pub async fn resolve_infra_config(
     }
     if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
         config.tool_approval = assembled.tool_approval;
+    }
+    // User git has no dedicated infrastructure preset file yet; the
+    // programmatic value wins when present, otherwise a disabled default
+    // keeps the domain off until the host configures a repo root.
+    if config.user_git.is_none() {
+        config.user_git = Some(wf_types::config::user_git::UserGitConfig::default());
     }
     if config.limits == wf_types::config::limits::LimitsConfig::default() {
         config.limits = assembled.limits;

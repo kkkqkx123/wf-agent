@@ -1,7 +1,6 @@
 //! Per-screen data cache plumbing for the TUI shell: TTL policy, background
 //! fetch bookkeeping and the result channel folding.
 
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::fetch::fetch_for;
@@ -68,13 +67,12 @@ impl TuiApp {
         }
 
         self.app.screen.inflight.insert(kind, Instant::now());
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let tx = self.data_tx.clone();
         let query = self.app.screen.search_input.clone();
         let filter = self.app.screen.exec_filter;
         let handle = tokio::spawn(async move {
-            let ctx = adapter.api_context();
-            let result = fetch_for(ctx, kind, &query, filter).await;
+            let result = fetch_for(&client, kind, &query, filter).await;
             let _ = tx.send(DataResult::Screen(kind, result));
         });
         self.tasks.push(handle);
@@ -181,13 +179,12 @@ impl TuiApp {
         let Some(session_id) = self.history.session_id().map(str::to_owned) else {
             return;
         };
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let tx = self.data_tx.clone();
         let earlier = before.is_some();
         let handle = tokio::spawn(async move {
-            let ctx = adapter.api_context();
             let result = crate::replay::replay_scrollack_page(
-                ctx,
+                &client,
                 &session_id,
                 before,
                 crate::replay::REPLAY_PAGE_LIMIT,

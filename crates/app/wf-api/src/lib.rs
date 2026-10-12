@@ -8,6 +8,7 @@ pub mod execution_hierarchy;
 pub mod execution_history;
 pub mod execution_listing;
 pub mod execution_logs;
+pub mod git;
 pub mod infra;
 pub mod llm;
 pub mod query;

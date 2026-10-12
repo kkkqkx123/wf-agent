@@ -1,33 +1,19 @@
-use wf_api::entity::variable;
-
 use crate::args::{Cli, VariableSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "variable")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         VariableSub::List { execution, scope } => {
-            let vars = if let Some(scope) = scope {
-                variable::list(
-                    ctx,
-                    &wf_api::VariableListOptions {
-                        execution_id_filter: Some(execution.clone()),
-                        scope_filter: Some(scope.clone()),
-                        ..Default::default()
-                    },
-                )
-                .await?
-            } else {
-                variable::list_by_execution(ctx, execution).await?
-            };
-            let data = serde_json::to_value(&vars)?;
+            let mut path = format!("/api/v1/variables?execution_id={execution}");
+            if let Some(scope) = scope {
+                path.push_str(&format!("&scope={scope}"));
+            }
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("variable-list", data).with_entity(execution.clone()),
@@ -38,8 +24,11 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             scope,
             name,
         } => {
-            let v = variable::get(ctx, name, scope, Some(execution)).await?;
-            let data = serde_json::to_value(&v)?;
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/variables/{name}?scope={scope}&execution_id={execution}"
+                ))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("variable-get", data)
@@ -54,7 +43,13 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
         } => {
             let val: serde_json::Value =
                 serde_json::from_str(value).unwrap_or(serde_json::Value::String(value.clone()));
-            variable::set(ctx, name, scope, Some(execution), val).await?;
+            let body = serde_json::json!({
+                "name": name,
+                "value": val,
+                "scope": scope,
+                "execution_id": execution,
+            });
+            client.post_json::<_, serde_json::Value>("/api/v1/variables", &body).await?;
             let data = serde_json::json!({"execution": execution, "scope": scope, "name": name, "set": true});
             render_envelope(
                 cli.output,
@@ -67,7 +62,11 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             scope,
             name,
         } => {
-            let deleted = variable::delete(ctx, name, scope, Some(execution)).await?;
+            let deleted: bool = client
+                .delete_json(&format!(
+                    "/api/v1/variables/{name}?scope={scope}&execution_id={execution}"
+                ))
+                .await?;
             let data = serde_json::json!({"deleted": deleted, "name": name});
             if deleted {
                 render_envelope(
@@ -85,7 +84,5 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
                 )
             }
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }

@@ -6,7 +6,6 @@ description = "Shared logic for wf-cli targets (headless, mini, full TUI)"
 
 [dependencies]
 clap.workspace = true
-async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
@@ -14,29 +13,9 @@ chrono.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
-reqwest.workspace = true
-eventsource-stream.workspace = true
-tokio-util.workspace = true
+futures.workspace = true
 regex.workspace = true
 globset.workspace = true
-futures.workspace = true
 wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
-wf-core = { path = "../../../foundation/wf-core" }
-wf-api = { path = "../../wf-api" }
-wf-config = { path = "../../../infra/wf-config", optional = true }
-wf-runtime = { path = "../../wf-runtime", optional = true }
-wf-execution-shared = { path = "../../../engine/wf-execution-shared" }
-
-[features]
-default = ["embedded"]
-embedded = ["dep:wf-runtime", "dep:wf-config"]
-remote = ["reqwest/json", "reqwest/stream"]
-lua = ["wf-runtime/lua"]
-native = ["wf-runtime/native"]
-
-[dev-dependencies]
-tempfile.workspace = true
-insta.workspace = true
-wf-llm = { path = "../../../infra/wf-llm", features = ["mock"] }
-wf-storage = { path = "../../../infra/wf-storage" }
+wf-client = { path = "../../wf-client" }

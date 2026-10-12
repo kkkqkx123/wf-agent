@@ -1,60 +1,60 @@
-use wf_api::entity::task;
-use wf_api::TaskListOptions;
-
 use crate::args::{Cli, TaskSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &TaskSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "task")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         TaskSub::List {
             status,
             task_type,
             limit,
         } => {
-            let opts = if status.is_some() || task_type.is_some() || limit.is_some() {
-                Some(TaskListOptions {
-                    status_filter: status.clone(),
-                    task_type_filter: task_type.clone(),
-                    limit: limit.map(|v| v as u64),
-                    offset: None,
-                })
+            let mut params: Vec<String> = Vec::new();
+            if let Some(s) = status {
+                params.push(format!("status={s}"));
+            }
+            if let Some(t) = task_type {
+                params.push(format!("task_type={t}"));
+            }
+            if let Some(l) = limit {
+                params.push(format!("limit={l}"));
+            }
+            let path = if params.is_empty() {
+                "/api/v1/tasks".to_string()
             } else {
-                None
+                format!("/api/v1/tasks?{}", params.join("&"))
             };
-            let list = task::list_tasks(&ctx.storage, opts).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(cli.output, OutputEnvelope::success("task-list", data))
         }
         TaskSub::Show { id } => {
-            let t = task::get_task(&ctx.storage, id).await?;
-            let data = serde_json::to_value(&t)?;
+            let data: serde_json::Value =
+                client.get_json(&format!("/api/v1/tasks/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("task-show", data).with_entity(id.clone()),
             )
         }
         TaskSub::Stats => {
-            let stats = task::get_task_stats(&ctx.storage).await?;
-            let data = serde_json::to_value(&stats)?;
+            let data: serde_json::Value = client.get_json("/api/v1/tasks/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("task-stats", data))
         }
         TaskSub::Cancel { id } => {
-            task::cancel_task(&ctx.storage, id).await?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/tasks/{id}/cancel"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"cancelled": id});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("task-cancel", data).with_entity(id.clone()),
             )
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }

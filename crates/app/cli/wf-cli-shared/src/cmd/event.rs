@@ -1,18 +1,16 @@
-use wf_api::infra::events::{self, EventQueryOptions};
+use futures::StreamExt;
 
 use crate::args::{Cli, EventSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
+use wf_client::WfClient;
 
 pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "event")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         EventSub::List {
             execution,
             workflow,
@@ -20,30 +18,49 @@ pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
             types,
             limit,
         } => {
-            let event_types = types.as_deref().map(|s| {
-                s.split(',')
-                    .filter_map(|v| parse_event_type(v.trim()))
-                    .collect::<Vec<_>>()
-            });
-            let opts = EventQueryOptions {
-                execution_id: execution.clone(),
-                agent_loop_id: agent_loop.clone(),
-                workflow_id: workflow.clone(),
-                event_types,
-                limit: *limit,
+            let mut params: Vec<String> = Vec::new();
+            if let Some(id) = execution {
+                params.push(format!("execution_id={id}"));
+            }
+            if let Some(id) = workflow {
+                params.push(format!("workflow_id={id}"));
+            }
+            if let Some(id) = agent_loop {
+                params.push(format!("agent_loop_id={id}"));
+            }
+            if let Some(l) = limit {
+                params.push(format!("limit={l}"));
+            }
+            let path = if params.is_empty() {
+                "/api/v1/events".to_string()
+            } else {
+                format!("/api/v1/events?{}", params.join("&"))
             };
-            let events = events::history(ctx, &opts).await?;
-            let data = serde_json::to_value(&events)?;
+            let mut data: serde_json::Value = client.get_json(&path).await?;
+            if let Some(filter) = types {
+                let wanted: Vec<String> =
+                    filter.split(',').map(|v| v.trim().to_string()).collect();
+                if let Some(items) = data
+                    .get_mut("items")
+                    .and_then(|v| v.as_array_mut())
+                {
+                    items.retain(|item| {
+                        item.get("type")
+                            .and_then(|t| t.as_str())
+                            .is_some_and(|t| wanted.iter().any(|w| w == t))
+                    });
+                }
+            }
             render_envelope(cli.output, OutputEnvelope::success("event-list", data))
         }
         EventSub::Stats => {
-            let stats = events::stats(ctx).await?;
-            let data = serde_json::to_value(&stats)?;
+            let data: serde_json::Value = client.get_json("/api/v1/events/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("event-stats", data))
         }
         EventSub::Timeline { id } => {
-            let timeline = events::timeline(ctx, id).await?;
-            let data = serde_json::to_value(&timeline)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/events/timeline/{id}"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("event-timeline", data).with_entity(id.clone()),
@@ -51,128 +68,109 @@ pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
         }
         EventSub::Follow {
             id,
-            types,
+            types: _,
             workflow,
-            interval,
+            interval: _,
             once,
         } => {
             if *once {
-                let timeline = events::timeline(ctx, id).await?;
-                let data = serde_json::to_value(&timeline)?;
+                let data: serde_json::Value = client
+                    .get_json(&format!("/api/v1/events/timeline/{id}"))
+                    .await?;
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("event-follow", data).with_entity(id.clone()),
                 )
             } else {
-                // True streaming via subscription; fall back to polling when needed.
-                let event_types = types.as_deref().map(|s| {
-                    s.split(',')
-                        .filter_map(|v| parse_event_type(v.trim()))
-                        .collect::<Vec<_>>()
-                });
-                let filter = wf_api::infra::subscription::EventSubscriptionOptions {
-                    execution_id: Some(id.clone()),
-                    workflow_id: workflow.clone(),
-                    event_types,
-                    ..Default::default()
-                };
-                // Try subscription path; if no events arrive quickly, degrade to
-                // one-shot history so CI/run without a live execution does not hang.
-                let mut sub = wf_api::infra::subscription::spawn_event_subscription(
-                    ctx.event_bus.clone(),
-                    &filter,
-                );
-                // In TTY mode, stream until Ctrl-C or terminal event; in non-TTY
-                // or when --once is implied, we want to avoid hanging. Detect
-                // that by attempting a short wait for at least one event.
-                // For now, emit history first then stream live deltas.
-                let history = events::timeline(ctx, id).await.unwrap_or_default();
-                if cli.output == crate::output::OutputFormat::Text {
-                    for ev in &history {
-                        println!(
-                            "[{}] {} {}",
-                            ev.timestamp,
-                            ev.r#type.as_str(),
-                            ev.execution_id.as_deref().unwrap_or("-")
-                        );
-                    }
-                } else if !history.is_empty() {
-                    let data = serde_json::to_value(&history)?;
-                    render_envelope(
-                        cli.output,
-                        OutputEnvelope::success("event-follow-history", data)
-                            .with_entity(id.clone()),
-                    )?;
-                }
-
-                // Stream live events until Ctrl-C or terminal event or interval timeout fallback.
-                let interval_ms = *interval;
-                let mut live_count = 0usize;
-                loop {
-                    tokio::select! {
-                        event = sub.next() => {
-                            match event {
-                                Some(ev) => {
-                                    live_count += 1;
-                                    if cli.output == crate::output::OutputFormat::Text {
-                                        println!("[{}] {} {}", ev.timestamp, ev.r#type.as_str(), ev.execution_id.as_deref().unwrap_or("-"));
-                                    } else {
-                                        let data = serde_json::to_value(&ev)?;
-                                        render_envelope(
-                                            crate::output::OutputFormat::JsonLines,
-                                            OutputEnvelope::success("event-follow", data).with_entity(id.clone()),
-                                        )?;
-                                    }
-                                    if is_terminal_event(&ev) {
-                                        break;
-                                    }
-                                }
-                                None => break,
-                            }
-                        }
-                        _ = tokio::signal::ctrl_c() => break,
-                        _ = tokio::time::sleep(std::time::Duration::from_millis(interval_ms)) => {
-                            // Polling fallback tick: when subscription is quiet, re-query history
-                            // for new events since last seen. For bounded CLI runs, exit after
-                            // one idle interval when no live events were observed.
-                            if live_count == 0 && history.is_empty() {
-                                break;
-                            }
-                            // If we saw history or live events, keep waiting for terminal/Ctrl-C.
-                            // To avoid infinite hang in tests, break after idle.
-                            if live_count == 0 {
-                                break;
-                            }
-                        }
-                    }
-                }
-                // Final summary.
-                let data = serde_json::json!({"executionId": id, "followed": true, "liveEvents": live_count});
-                render_envelope(
-                    cli.output,
-                    OutputEnvelope::success("event-follow", data).with_entity(id.clone()),
-                )
+                follow_stream(cli, client, id, workflow.as_deref()).await
             }
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }
 
-fn parse_event_type(s: &str) -> Option<wf_types::events::EventType> {
-    serde_json::from_value(serde_json::Value::String(s.to_string()))
-        .ok()
-        .or_else(|| serde_json::from_str(&format!("\"{s}\"")).ok())
-}
+/// Stream live events over SSE, printing history first like the follower
+/// did, then live deltas until Ctrl-C or a terminal event.
+async fn follow_stream(
+    cli: &Cli,
+    client: &WfClient,
+    id: &str,
+    workflow: Option<&str>,
+) -> CliResult<()> {
+    let history: serde_json::Value = client
+        .get_json(&format!("/api/v1/events/timeline/{id}"))
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    let history_items = history
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| history.as_array().cloned())
+        .unwrap_or_default();
+    if cli.output == crate::output::OutputFormat::Text {
+        for ev in &history_items {
+            println!(
+                "[{}] {} {}",
+                ev.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
+                ev.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
+                ev.get("execution_id").and_then(|v| v.as_str()).unwrap_or("-")
+            );
+        }
+    } else if !history_items.is_empty() {
+        render_envelope(
+            cli.output,
+            OutputEnvelope::success("event-follow-history", history.clone())
+                .with_entity(id.to_string()),
+        )?;
+    }
 
-fn is_terminal_event(event: &wf_types::events::BaseEvent) -> bool {
-    matches!(
-        event.r#type,
-        wf_types::events::EventType::WorkflowExecutionCompleted
-            | wf_types::events::EventType::WorkflowExecutionFailed
-            | wf_types::events::EventType::WorkflowExecutionCancelled
-            | wf_types::events::EventType::AgentCompleted
-            | wf_types::events::EventType::AgentFailed
-            | wf_types::events::EventType::AgentCancelled
+    let mut path = format!("/api/v1/events/stream?execution_id={id}");
+    if let Some(wf) = workflow {
+        path.push_str(&format!("&workflow_id={wf}"));
+    }
+    let mut stream = client.get_stream(&path).await?;
+    let mut live_count = 0usize;
+    loop {
+        tokio::select! {
+            item = stream.next() => {
+                match item {
+                    Some(Ok(frame)) => {
+                        if frame.event == "connected" {
+                            continue;
+                        }
+                        live_count += 1;
+                        if cli.output == crate::output::OutputFormat::Text {
+                            println!(
+                                "[{}] {} {}",
+                                frame.data.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
+                                frame.data.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
+                                frame.data.get("execution_id").and_then(|v| v.as_str()).unwrap_or("-")
+                            );
+                        } else {
+                            render_envelope(
+                                crate::output::OutputFormat::JsonLines,
+                                OutputEnvelope::success("event-follow", frame.data.clone())
+                                    .with_entity(id.to_string()),
+                            )?;
+                        }
+                        if is_terminal_type(frame.data.get("type").and_then(|v| v.as_str()).unwrap_or("")) {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => return Err(crate::error::CliError::from(e)),
+                    None => break,
+                }
+            }
+            _ = tokio::signal::ctrl_c() => break,
+        }
+    }
+    let data = serde_json::json!({"executionId": id, "followed": true, "liveEvents": live_count});
+    render_envelope(
+        cli.output,
+        OutputEnvelope::success("event-follow", data).with_entity(id.to_string()),
     )
+}
+
+fn is_terminal_type(event_type: &str) -> bool {
+    let upper = event_type.to_ascii_uppercase();
+    upper.ends_with("COMPLETED") || upper.ends_with("FAILED") || upper.ends_with("CANCELLED")
 }

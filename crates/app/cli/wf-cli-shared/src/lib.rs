@@ -1,12 +1,13 @@
 //! wf-cli-shared: headless and shared logic for wf-cli targets.
 //!
-//! This crate contains the CLI argument parsing, output formatting, runtime
-//! domain adapter, session runner, and all management subcommand handlers.
-//! It has zero TUI/ratatui dependencies, enabling lightweight compilation
-//! targets (headless, mini) without pulling in the full TUI dependency tree.
+//! This crate contains the CLI argument parsing, output formatting, server
+//! connection, session runner, and all management subcommand handlers. Every
+//! command and session talks to a running `wf-server` over HTTP through
+//! `wf-client`; there is no embedded runtime. It has zero TUI/ratatui
+//! dependencies, enabling lightweight compilation targets (headless, mini)
+//! without pulling in the full TUI dependency tree.
 
 pub mod app_config;
-pub mod approval;
 pub mod args;
 pub mod args_checkpoint;
 pub mod args_entity;
@@ -16,17 +17,14 @@ pub mod args_observe;
 pub mod args_tooling;
 pub mod args_workflow;
 pub mod cmd;
+pub mod connection;
 pub mod display;
-pub mod domain;
 pub mod error;
 pub mod mode;
 pub mod output;
-pub mod remote;
 pub mod run;
 pub mod run_diag;
-pub mod run_embedded;
 pub mod run_interaction;
-pub mod run_remote;
 pub mod run_render;
 pub mod run_stream;
 pub mod run_summary;
@@ -35,13 +33,13 @@ pub mod stdio_prompt;
 pub mod turn;
 
 pub use args::{Cli, Command};
+pub use connection::ClientHandle;
 pub use error::{CliError, CliResult};
 pub use output::{
     HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
 };
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 
-use crate::domain::DomainHandle;
 use crate::mode::{CliMode, ModeResolver, ResolvedMode};
 use crate::output::OutputSink;
 
@@ -261,21 +259,17 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         approval_timeout_secs: approval_timeout
             .unwrap_or(crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS),
         assume_yes,
+        timeout_ms: cli.timeout,
     };
 
-    let domain = DomainHandle::from_cli(cli, CliMode::Run).await?;
+    let handle = ClientHandle::from_cli(cli).await?;
     let io = RunIo {
         sink,
         diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
         format,
     };
 
-    let session = match &domain {
-        DomainHandle::Embedded(adapter) => run::run_session(adapter, opts, io).await,
-        DomainHandle::Remote(remote) => run::run_session_remote(remote.client(), opts, io).await,
-    };
-    domain.shutdown().await?;
-    session.map(|_| ())
+    run::run_session(&handle, opts, io).await.map(|_| ())
 }
 
 /// Diagnostics for the `debug-mode` subcommand.
@@ -300,10 +294,4 @@ pub async fn debug_mode(cli: &Cli) -> CliResult<()> {
     }
     sink.flush()?;
     Ok(())
-}
-
-/// Construct a runtime config with CLI defaults.
-#[cfg(feature = "embedded")]
-pub fn default_runtime_config() -> wf_runtime::bootstrap::RuntimeConfig {
-    wf_runtime::bootstrap::RuntimeConfig::default()
 }

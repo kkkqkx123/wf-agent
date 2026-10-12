@@ -2,6 +2,11 @@
 //! terminal. stdout carries assistant text (verbatim, plain or styled per
 //! display config), stderr carries tool lifecycle, summaries and errors,
 //! stdin reads one line per prompt. No raw mode, no fullscreen redraw.
+//!
+//! Every turn runs against `wf-server`: the transcript seeds the request,
+//! the server streams execution events back, and the transcript keeps the
+//! assistant answers in memory. Session restore reads the server-side
+//! conversation ledger (`--session` id or the newest loop for `--resume`).
 
 use std::io::IsTerminal;
 use std::sync::Arc;
@@ -9,15 +14,14 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 
-use wf_api::infra::stream::ExecutionStreamEvent;
-use wf_api::ToolApprovalHandler;
+use wf_client::WfClient;
+use wf_types::events::ExecutionStreamEvent;
 
 use wf_cli_shared::display::{parse_toggle, MarkdownMode};
-use wf_cli_shared::domain::DomainHandle;
 use wf_cli_shared::error::{CliError, CliResult};
-use wf_cli_shared::turn::{stream_agent_turn, TurnKind, TurnParams};
+use wf_cli_shared::turn::{TurnKind, TurnParams};
 
-use crate::approval::NativeApprovalHandler;
+use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
 use crate::input::{self, History, LineReader, SlashCommand};
 use crate::output::{self};
@@ -54,24 +58,23 @@ impl QuitArmer {
     }
 }
 
-/// Interactive session owning the domain handle until shutdown.
+/// Interactive session over one server connection.
 ///
 /// Turns share one transcript: every completed round seeds the next run, so
 /// the model remembers earlier rounds. Workflows run through the headless
 /// `run --workflow` form and the management subcommands, not here.
 pub struct NativeSession {
-    domain: DomainHandle,
+    client: WfClient,
+    timeout_ms: Option<u64>,
     agent: Option<String>,
     model: Option<String>,
-    auto_approve: bool,
-    approval_llm: bool,
     approval_timeout_secs: u64,
     display: DisplayConfig,
     history: History,
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     transcript: Transcript,
     anchor: String,
-    /// Turn-cancel flag: the approval handler sets it when Ctrl-C is
+    /// Turn-cancel flag: the approval prompter sets it when Ctrl-C is
     /// pressed during a prompt; the pump loop watches it and treats the
     /// turn as interrupted.
     cancel_tx: tokio::sync::watch::Sender<bool>,
@@ -92,16 +95,18 @@ impl NativeSession {
         self.history.push(&question);
         output::diag_line(&format!("user: {question}"));
         if let Some(finished) = self.run_turn(question.clone()).await {
-            self.record_completed_turn(&question, &finished).await;
+            self.record_completed_turn(&question, &finished);
         }
         self.discard_stale_lines().await;
     }
-    /// Bootstrap the domain in interactive mode and snapshot the CLI-level
-    /// agent and model overrides for every turn. Resolves the session anchor
-    /// (`--session`, `--resume`, or fresh) and restores its transcript.
+    /// Connect to the server and snapshot the CLI-level agent and model
+    /// overrides for every turn. Resolves the session anchor (`--session`,
+    /// `--resume`, or fresh) and restores its transcript from the
+    /// server-side conversation ledger.
     pub async fn new(cli: &wf_cli_shared::args::Cli) -> CliResult<Self> {
-        let domain = DomainHandle::from_cli(cli, wf_cli_shared::mode::CliMode::Tui).await?;
-        let (anchor, transcript) = Self::restore_session(&domain, cli).await;
+        let handle = wf_cli_shared::ClientHandle::from_cli(cli).await?;
+        let client = handle.into_client();
+        let (anchor, transcript) = Self::restore_session(&client, cli).await;
         let history = match input::resolve_history_path(cli.history_file.as_deref(), cli.no_history)
         {
             Some(path) => History::load(path),
@@ -110,17 +115,10 @@ impl NativeSession {
         let stdout_tty = std::io::stdout().is_terminal();
         let display = DisplayConfig::resolve(cli, stdout_tty);
         Ok(Self {
-            domain,
+            client,
+            timeout_ms: cli.timeout,
             agent: cli.agent.clone(),
             model: cli.model.clone(),
-            auto_approve: cli
-                .approval
-                .as_deref()
-                .is_some_and(|mode| mode.eq_ignore_ascii_case("auto")),
-            approval_llm: cli
-                .approval
-                .as_deref()
-                .is_some_and(|mode| mode.eq_ignore_ascii_case("llm")),
             approval_timeout_secs: display.approval_timeout_secs,
             display,
             history,
@@ -139,7 +137,7 @@ impl NativeSession {
         );
         output::diag_line(&format!("display: {}", self.display.describe()));
         output::diag_line(&format!(
-            "session {}; resume later with --session {} --storage sqlite:<path>",
+            "session {}; resume later with --session {}",
             self.anchor, self.anchor
         ));
         if !self.transcript.is_empty() {
@@ -183,7 +181,6 @@ impl NativeSession {
             }
             self.ask(trimmed).await;
         }
-        self.domain.shutdown().await?;
         Ok(())
     }
 
@@ -332,12 +329,12 @@ impl NativeSession {
     /// session, otherwise a fresh anchor starts empty. Restore problems
     /// fall back to an empty transcript without failing startup.
     async fn restore_session(
-        domain: &DomainHandle,
+        client: &WfClient,
         cli: &wf_cli_shared::args::Cli,
     ) -> (String, Transcript) {
         let mut transcript = Transcript::new();
         if let Some(id) = cli.session.clone() {
-            let stored = Self::load_history(domain, &id).await;
+            let stored = Self::load_history(client, &id).await;
             let restored = transcript.restore(stored);
             if restored > 0 {
                 output::diag_line(&format!("resumed session {id} ({restored} messages)"));
@@ -349,7 +346,7 @@ impl NativeSession {
             return (id, transcript);
         }
         if cli.resume {
-            match Self::load_latest(domain).await {
+            match Self::load_latest(client).await {
                 Some((id, stored)) => {
                     let restored = transcript.restore(stored);
                     if restored > 0 {
@@ -367,99 +364,69 @@ impl NativeSession {
     }
 
     /// Stored messages of one session, oldest first. Empty on any failure.
-    async fn load_history(domain: &DomainHandle, id: &str) -> Vec<wf_types::message::Message> {
-        match domain {
-            DomainHandle::Embedded(adapter) => {
-                wf_api::agent::agent_message::conversation_history(adapter.api_context(), id, None)
-                    .await
-                    .unwrap_or_default()
-            }
-            DomainHandle::Remote(remote) => remote.client().get_conversation(id).await,
-        }
+    async fn load_history(client: &WfClient, id: &str) -> Vec<wf_types::message::Message> {
+        let value: Result<serde_json::Value, _> = client
+            .get_json(&format!("/api/v1/agent-loops/{id}/conversation"))
+            .await;
+        value
+            .ok()
+            .and_then(|v| {
+                v.get("items")
+                    .and_then(|items| serde_json::from_value(items.clone()).ok())
+                    .or_else(|| serde_json::from_value(v).ok())
+            })
+            .unwrap_or_default()
     }
 
-    /// Most recently active stored session and its messages. Embedded mode
-    /// asks the storage layer for the session anchor with the newest stored
-    /// message (mini persists every turn under its anchor); remote mode picks
-    /// the newest loop summary. Returns `None` when nothing resumable exists.
-    async fn load_latest(
-        domain: &DomainHandle,
-    ) -> Option<(String, Vec<wf_types::message::Message>)> {
-        match domain {
-            DomainHandle::Embedded(adapter) => {
-                let anchor = wf_api::entity::message::latest_session_anchor(adapter.api_context())
-                    .await
-                    .ok()
-                    .flatten()?;
-                let stored = Self::load_history(domain, &anchor).await;
-                if stored.is_empty() {
-                    return None;
-                }
-                Some((anchor, stored))
+    /// Most recently active stored session and its messages. Picks the
+    /// newest loop summary and reads its conversation. Returns `None` when
+    /// nothing resumable exists.
+    async fn load_latest(client: &WfClient) -> Option<(String, Vec<wf_types::message::Message>)> {
+        let summaries: serde_json::Value =
+            client.get_json("/api/v1/agent-loops/summaries").await.ok()?;
+        let items = summaries
+            .get("items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .or_else(|| summaries.as_array().cloned())
+            .unwrap_or_default();
+        let mut newest: Option<(i64, String)> = None;
+        for summary in &items {
+            let id = summary
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let start = summary
+                .get("start_time")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            if id.is_empty() {
+                continue;
             }
-            DomainHandle::Remote(remote) => {
-                let mut newest: Option<(i64, String)> = None;
-                for summary in remote.client().list_loop_summaries().await {
-                    let id = summary
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    let start = summary
-                        .get("start_time")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    if id.is_empty() {
-                        continue;
-                    }
-                    if newest.as_ref().is_none_or(|(ts, _)| start > *ts) {
-                        newest = Some((start, id));
-                    }
-                }
-                let (_, id) = newest?;
-                let stored = remote.client().get_conversation(&id).await;
-                if stored.is_empty() {
-                    return None;
-                }
-                Some((id, stored))
+            if newest.as_ref().is_none_or(|(ts, _)| start > *ts) {
+                newest = Some((start, id));
             }
         }
+        let (_, id) = newest?;
+        let stored = Self::load_history(client, &id).await;
+        if stored.is_empty() {
+            return None;
+        }
+        Some((id, stored))
     }
 
-    /// File a completed turn into the transcript and persist it under the
-    /// session anchor so `--session`/`--resume` can restore it later.
+    /// File a completed turn into the transcript. The server persists the
+    /// run ledger; the transcript only keeps memory for follow-up turns.
     /// Interrupted and failed turns never enter memory.
-    async fn record_completed_turn(&mut self, question: &str, finished: &FinishedTurn) {
+    fn record_completed_turn(&mut self, question: &str, finished: &FinishedTurn) {
         if !finished.outcome.completed {
             return;
         }
-        let created = self
-            .transcript
+        self.transcript
             .push_pair(question, &finished.outcome.assistant_text);
-        self.persist_turn(&finished.execution_id, &created).await;
     }
 
-    /// Best-effort per-turn persist under the session anchor. Embedded mode
-    /// only (remote has no message write surface); failures warn and never
-    /// break the session.
-    async fn persist_turn(&self, execution_id: &str, messages: &[wf_types::message::Message]) {
-        let DomainHandle::Embedded(adapter) = &self.domain else {
-            return;
-        };
-        for message in messages {
-            if let Err(err) = wf_api::entity::message::add_message(
-                adapter.api_context(),
-                execution_id,
-                Some(&self.anchor),
-                message.clone(),
-            )
-            .await
-            {
-                output::diag_line(&format!("warning: session persist failed: {err}"));
-                break;
-            }
-        }
-    }
     /// Run one turn seeded with the session transcript. Returns `None`
     /// when the turn never started; the outcome tells whether the round
     /// counts as memory.
@@ -468,92 +435,51 @@ impl NativeSession {
             agent: self.agent.clone(),
             model: self.model.clone(),
             approve_prefixes: Vec::new(),
+            timeout_ms: self.timeout_ms,
             conversation: self.transcript.messages().to_vec(),
             kind: TurnKind::Agent { prompt },
         };
-        match &self.domain {
-            DomainHandle::Embedded(adapter) => {
-                let handler: Arc<dyn ToolApprovalHandler> = if self.approval_llm {
-                    // `--approval llm`: the shared fail-closed LLM reviewer
-                    // answers the engine's Ask decisions.
-                    Arc::new(wf_runtime::tool_approval::LlmApprovalHandler::new(
-                        Arc::clone(&adapter.api_context_arc().llm_gateway),
-                        self.model
-                            .clone()
-                            .unwrap_or_else(|| wf_api::DEFAULT_MODEL.to_string()),
-                    ))
-                } else {
-                    Arc::new(NativeApprovalHandler::new(
-                        Vec::new(),
-                        self.auto_approve,
-                        self.approval_timeout_secs,
-                        Arc::clone(&self.lines),
-                        self.cancel_tx.clone(),
-                    ))
-                };
-                let options = wf_runtime::tool_approval::headless_approval_options(Some(
-                    adapter.api_context(),
-                ));
-                match stream_agent_turn(
-                    adapter.api_context(),
-                    &params,
-                    Some(options),
-                    Some(handler),
-                )
-                .await
-                {
-                    Ok((execution_id, stream)) => {
-                        // The embedded stream yields plain events; normalize
-                        // to the shared pump's Result shape.
-                        let outcome = self.pump_stream(&execution_id, stream.map(Ok)).await;
-                        Some(FinishedTurn {
-                            execution_id,
-                            outcome,
-                        })
-                    }
-                    Err(err) => {
-                        output::diag_line(&format!("failed to start turn: {err}"));
-                        None
-                    }
-                }
+        let body = params.agent_request_body();
+        // The stream carries no execution id, so mint a local correlation
+        // id for this turn's summary line. It identifies the local turn,
+        // not a server-side execution.
+        let correlation_id = wf_common::generate_id();
+        let execution_id = format!("remote:{correlation_id}");
+        match self
+            .client
+            .post_stream("/api/v1/agent-loops/cli/stream", &body)
+            .await
+        {
+            Ok(stream) => {
+                let stop = Arc::new(self.cancel_tx.subscribe());
+                let approver = MiniApprover::new(
+                    &self.client,
+                    self.approval_timeout_secs,
+                    Arc::clone(&self.lines),
+                    self.cancel_tx.clone(),
+                );
+                let approver_task = tokio::spawn(async move { approver.watch(stop).await });
+                let normalized = map_frames(stream);
+                let outcome = self.pump_stream(&execution_id, normalized).await;
+                approver_task.abort();
+                Some(FinishedTurn { outcome })
             }
-            DomainHandle::Remote(remote) => {
-                // The remote stream carries no execution id, so mint a local
-                // correlation id for this turn's summary line. It identifies
-                // the local turn, not a server-side execution.
-                let correlation_id = wf_common::generate_id();
-                match remote.client().stream_agent_execution(params).await {
-                    Ok(stream) => {
-                        // Wrap transport errors as `Some(..)`; the shared
-                        // pump uses `Err(None)` only for premature end.
-                        let normalized = stream.map(|item| item.map_err(Some));
-                        let outcome = self
-                            .pump_stream(&format!("remote:{correlation_id}"), normalized)
-                            .await;
-                        Some(FinishedTurn {
-                            execution_id: format!("remote:{correlation_id}"),
-                            outcome,
-                        })
-                    }
-                    Err(err) => {
-                        output::diag_line(&format!("failed to start turn: {err}"));
-                        None
-                    }
-                }
+            Err(err) => {
+                output::diag_line(&format!("failed to start turn: {err}"));
+                None
             }
         }
     }
 
-    /// One pump loop shared by both domains. `Stream::Item` is normalized to
+    /// One pump loop shared by every turn. `Stream::Item` is normalized to
     /// `Result<event, Option<error>>`: `Err(None)` is a stream that ended
     /// without a terminal event, `Err(Some(..))` a transport failure. Both
     /// interrupt handling and terminal-event detection are written exactly
     /// once here.
     async fn pump_stream<S>(&self, execution_id: &str, mut stream: S) -> TurnOutcome
     where
-        S: futures::Stream<
-                Item = Result<ExecutionStreamEvent, Option<wf_cli_shared::remote::RemoteError>>,
-            > + Unpin,
+        S: futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_client::ClientError>>>
+            + Unpin,
     {
         let started = Instant::now();
         let mut renderer = TurnRenderer::<RealSink>::new(self.display);
@@ -610,6 +536,33 @@ impl NativeSession {
             started.elapsed().as_millis()
         ));
     }
+}
+
+/// Adapt server SSE frames into execution stream events, skipping the
+/// stream metadata frame. Transport failures surface as `Some(..)`; the
+/// pump treats them as turn-ending errors.
+fn map_frames(
+    stream: impl futures::Stream<Item = Result<wf_client::SseFrame, wf_client::ClientError>>
+        + Send
+        + 'static,
+) -> impl futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_client::ClientError>>> + Unpin {
+    use futures::StreamExt;
+    Box::pin(stream)
+        .filter_map(|item| async move {
+            match item {
+                Err(e) => Some(Err(Some(e))),
+                Ok(frame) => {
+                    if frame.event == "metadata" {
+                        return None;
+                    }
+                    match serde_json::from_value::<ExecutionStreamEvent>(frame.data) {
+                        Ok(event) => Some(Ok(event)),
+                        Err(_) => None,
+                    }
+                }
+            }
+        })
+        .boxed()
 }
 
 /// What one turn produced: whether it counts as memory and the full

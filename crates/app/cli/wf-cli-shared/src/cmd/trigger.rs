@@ -1,24 +1,15 @@
 //! Trigger domain commands: template registry plus the firing ledger.
-//!
-//! Thin transport over `wf_api::trigger::{template, execution}`, mirroring
-//! the `wf-server` trigger routes. Template arms manage the registry;
-//! history/execution arms read the event-driven listener ledger.
-
-use wf_api::trigger::{execution as trigger_execution, template as trigger_template};
 
 use crate::args::{Cli, TriggerSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "trigger")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         TriggerSub::List {
             trigger_type,
             category,
@@ -26,41 +17,92 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
             enabled,
             name,
         } => {
-            let filter = trigger_template::AgentTriggerTemplateFilter {
-                trigger_type: trigger_type.clone(),
-                category: category.clone(),
-                tags: tags.as_deref().map(|s| {
+            let mut params: Vec<String> = Vec::new();
+            if let Some(t) = trigger_type {
+                params.push(format!("trigger_type={t}"));
+            }
+            let path = if params.is_empty() {
+                "/api/v1/templates/trigger".to_string()
+            } else {
+                format!("/api/v1/templates/trigger?{}", params.join("&"))
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
+            let items = data
+                .get("items")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .or_else(|| data.as_array().cloned())
+                .unwrap_or_default();
+            let wanted_tags: Vec<String> = tags
+                .as_deref()
+                .map(|s| {
                     s.split(',')
                         .map(|v| v.trim().to_string())
                         .filter(|v| !v.is_empty())
                         .collect()
-                }),
-                enabled: *enabled,
-                name: name.clone(),
-            };
-            let list = trigger_template::summaries(ctx, Some(&filter)).await?;
-            let data = serde_json::to_value(&list)?;
+                })
+                .unwrap_or_default();
+            let filtered: Vec<_> = items
+                .into_iter()
+                .filter(|item| {
+                    if let Some(cat) = category {
+                        if item.get("category").and_then(|v| v.as_str()) != Some(cat.as_str()) {
+                            return false;
+                        }
+                    }
+                    if !wanted_tags.is_empty() {
+                        let item_tags: Vec<String> = item
+                            .get("tags")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                            })
+                            .unwrap_or_default();
+                        if !wanted_tags.iter().any(|w| item_tags.contains(w)) {
+                            return false;
+                        }
+                    }
+                    if let Some(en) = enabled {
+                        if item.get("enabled").and_then(|v| v.as_bool()) != Some(*en) {
+                            return false;
+                        }
+                    }
+                    if let Some(n) = name {
+                        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                        let nm = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        if id != n && nm != n {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .collect();
+            let data = serde_json::Value::Array(filtered);
             render_envelope(cli.output, OutputEnvelope::success("trigger-list", data))
         }
         TriggerSub::Show { id } => {
-            let template = trigger_template::get(ctx, id).await?;
-            let data = serde_json::to_value(&template)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/templates/trigger/{id}"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("trigger-show", data).with_entity(id.clone()),
             )
         }
         TriggerSub::Save { file } => {
-            let meta = load_trigger_template(std::path::Path::new(file))?;
-            trigger_template::save(ctx, &meta).await?;
-            let data = serde_json::json!({"saved": meta.id});
+            let meta = load_json(std::path::Path::new(file))?;
+            let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            client.post_json::<_, serde_json::Value>("/api/v1/templates/trigger", &meta).await?;
+            let data = serde_json::json!({"saved": id});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("trigger-save", data).with_entity(meta.id.clone()),
+                OutputEnvelope::success("trigger-save", data).with_entity(id),
             )
         }
         TriggerSub::Delete { id } => {
-            let deleted = trigger_template::delete(ctx, id).await?;
+            let deleted: bool = client
+                .delete_json(&format!("/api/v1/templates/trigger/{id}"))
+                .await?;
             if deleted {
                 let data = serde_json::json!({"deleted": id});
                 render_envelope(
@@ -75,10 +117,11 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
             }
         }
         TriggerSub::History { execution, trigger } => {
-            let history =
-                trigger_execution::execution_history(&ctx.storage, execution, trigger.as_deref())
-                    .await?;
-            let data = serde_json::to_value(&history)?;
+            let mut path = format!("/api/v1/triggers/history?execution_id={execution}");
+            if let Some(t) = trigger {
+                path.push_str(&format!("&trigger_name={t}"));
+            }
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("trigger-history", data).with_entity(execution.clone()),
@@ -92,60 +135,64 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
             limit,
             offset,
         } => {
-            let outcome_filter = match outcome.as_deref() {
-                None => None,
-                Some(raw) => Some(
-                    raw.parse::<wf_types::TriggerExecutionOutcome>()
-                        .map_err(|e| CliError::Arguments(e.to_string()))?,
-                ),
+            let mut params: Vec<String> = Vec::new();
+            if let Some(t) = trigger {
+                params.push(format!("trigger_name={t}"));
+            }
+            if let Some(e) = execution {
+                params.push(format!("execution_id={e}"));
+            }
+            if let Some(w) = workflow {
+                params.push(format!("workflow_id={w}"));
+            }
+            if let Some(o) = outcome {
+                params.push(format!("outcome={o}"));
+            }
+            if let Some(l) = limit {
+                params.push(format!("limit={l}"));
+            }
+            if let Some(o) = offset {
+                params.push(format!("offset={o}"));
+            }
+            let path = if params.is_empty() {
+                "/api/v1/trigger-executions".to_string()
+            } else {
+                format!("/api/v1/trigger-executions?{}", params.join("&"))
             };
-            let options = wf_api::TriggerExecutionListOptions {
-                offset: *offset,
-                limit: *limit,
-                trigger_name_filter: trigger.clone(),
-                execution_id_filter: execution.clone(),
-                workflow_id_filter: workflow.clone(),
-                outcome_filter,
-            };
-            let list =
-                trigger_execution::list_trigger_executions(&ctx.storage, Some(options)).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("trigger-executions", data),
             )
         }
         TriggerSub::ExecutionShow { id } => {
-            let record = trigger_execution::get_trigger_execution(&ctx.storage, id).await?;
-            let data = serde_json::to_value(&record)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/trigger-executions/{id}"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("trigger-execution-show", data).with_entity(id.clone()),
             )
         }
         TriggerSub::Stats => {
-            let stats = trigger_execution::get_trigger_execution_stats(&ctx.storage).await?;
-            let data = serde_json::to_value(&stats)?;
+            let data: serde_json::Value = client
+                .get_json("/api/v1/trigger-executions/stats")
+                .await?;
             render_envelope(cli.output, OutputEnvelope::success("trigger-stats", data))
         }
         TriggerSub::Cleanup { older_than } => {
-            let cutoff = match older_than {
-                Some(v) => *v,
-                None => wf_api::now(),
-            };
-            let removed =
-                trigger_execution::cleanup_old_trigger_executions(&ctx.storage, cutoff).await?;
+            let cutoff = older_than.unwrap_or_else(wf_common::now);
+            let body = serde_json::json!({"older_than": cutoff});
+            let removed: usize = client
+                .post_json("/api/v1/trigger-executions/cleanup", &body)
+                .await?;
             let data = serde_json::json!({"removed": removed, "olderThan": cutoff});
             render_envelope(cli.output, OutputEnvelope::success("trigger-cleanup", data))
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }
 
-fn load_trigger_template(
-    path: &std::path::Path,
-) -> CliResult<wf_api::TriggerTemplateStorageMetadata> {
+fn load_json(path: &std::path::Path) -> CliResult<serde_json::Value> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;

@@ -8,6 +8,7 @@ pub mod presets;
 pub mod schemas;
 pub mod storage;
 pub mod tool_approval;
+pub mod user_git;
 
 pub use config_index::*;
 pub use file_checkpoint::*;
@@ -19,3 +20,4 @@ pub use presets::*;
 pub use schemas::*;
 pub use storage::*;
 pub use tool_approval::*;
+pub use user_git::*;

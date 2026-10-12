@@ -7,27 +7,17 @@ description = "wf-agent lightweight native-terminal interactive agent (line disc
 [dependencies]
 clap.workspace = true
 tokio = { workspace = true, features = ["io-std", "io-util"] }
-async-trait.workspace = true
 futures.workspace = true
 serde_json.workspace = true
 pulldown-cmark.workspace = true
 wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
-wf-api = { path = "../../wf-api" }
+wf-client = { path = "../../wf-client" }
 wf-cli-shared = { path = "../wf-cli-shared" }
-wf-config = { path = "../../../infra/wf-config" }
-wf-runtime = { path = "../../wf-runtime" }
 # Low-level TUI implementation crates can be referenced by the lightweight
 # frontends too (e.g. terminal backend + clock), keeping `cli/` lean.
 tui-terminal = { path = "../../tui/tui-terminal" }
 tui-clock = { path = "../../tui/tui-clock" }
-
-[features]
-default = ["embedded"]
-embedded = ["wf-cli-shared/embedded"]
-remote = ["wf-cli-shared/remote"]
-lua = ["wf-cli-shared/lua"]
-native = ["wf-cli-shared/native"]
 
 [[bin]]
 name = "wf-mini"

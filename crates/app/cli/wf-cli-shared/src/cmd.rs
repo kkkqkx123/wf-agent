@@ -1,4 +1,4 @@
-//! Management command handlers, grouped by `wf-api` domain.
+//! Management command handlers, grouped by domain.
 //!
 //! - agent / workflow execution: `execution` (UX facade resolving both),
 //!   `workflow`
@@ -7,15 +7,14 @@
 //! - llm: `llm` (profiles / providers), `tool`, `script`
 //! - entity: `message`, `variable`, `task`, `skill`
 //! - checkpoint: `checkpoint` (records / files / agent loops), `approval`
-//!   (change approvals over `wf_api::checkpoint::approval`)
+//!   (change approvals over the file-checkpoint approval API)
 //! - observation: `analysis` (plus the shared data builders reused by the
 //!   `execution` convenience arms), `audit`, `query`, `search`
 //! - system: `event`, `metrics`, `diagnostics`
 //!
-//! Every handler resolves its domain through
-//! [`DomainHandle`](crate::domain::DomainHandle): `workflow` / `execution`
-//! serve remote via `run_remote`, the rest require embedded and fail loudly
-//! on `--remote` instead of silently running locally.
+//! Every handler resolves a [`ClientHandle`](crate::connection::ClientHandle)
+//! and serves through `wf-server` HTTP; output rendering stays local so
+//! established envelope names and text layouts do not change.
 pub mod analysis;
 pub mod approval;
 pub mod audit;
@@ -23,9 +22,7 @@ pub mod checkpoint;
 pub mod diagnostics;
 pub mod event;
 pub mod execution;
-pub mod execution_local;
 pub mod execution_logs;
-pub mod execution_remote;
 pub mod execution_stream;
 pub mod execution_view;
 pub mod llm;

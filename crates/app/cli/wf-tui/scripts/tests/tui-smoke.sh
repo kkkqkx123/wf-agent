@@ -75,7 +75,7 @@ launch() {
     tmux new-session -d -s "$SESS" -x 160 -y 40 \
         || { skip "harness" "cannot create tmux session"; exit 0; }
     tmux send-keys -t "$SESS" \
-        "cd '$ROOT' && sh -c 'echo \$\$ > $TMP/pid; exec env XDG_CACHE_HOME=$TMP TERM=xterm-256color $BIN --tui --storage memory'" \
+        "cd '$ROOT' && sh -c 'echo \$\$ > $TMP/pid; exec env XDG_CACHE_HOME=$TMP TERM=xterm-256color $BIN --tui'" \
         Enter
 }
 

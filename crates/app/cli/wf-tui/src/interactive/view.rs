@@ -54,7 +54,7 @@ impl crate::render_model::LayoutView for InteractiveController {
         self.last_layout_height
     }
     fn overlay_active(&self) -> bool {
-        self.approval_reply.is_some()
+        self.pending_approval.is_some()
     }
     fn side_panel_visible(&self) -> bool {
         false

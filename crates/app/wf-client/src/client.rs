@@ -202,28 +202,34 @@ impl WfClient {
     }
 
     /// Untyped GET returning the unwrapped `data` payload as JSON.
-    pub async fn get_json(&self, path: &str) -> ClientResult<serde_json::Value> {
+    pub async fn get_json<T>(&self, path: &str) -> ClientResult<T>
+    where
+        T: DeserializeOwned,
+    {
         self.get(path).await
     }
 
     /// Untyped POST returning the unwrapped `data` payload as JSON.
-    pub async fn post_json(
-        &self,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> ClientResult<serde_json::Value> {
+    pub async fn post_json<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    where
+        B: Serialize + ?Sized,
+        T: DeserializeOwned,
+    {
         self.post(path, body).await
     }
 
-    pub async fn put_json(
-        &self,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> ClientResult<serde_json::Value> {
+    pub async fn put_json<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
+    where
+        B: Serialize + ?Sized,
+        T: DeserializeOwned,
+    {
         self.put(path, body).await
     }
 
-    pub async fn delete_json(&self, path: &str) -> ClientResult<serde_json::Value> {
+    pub async fn delete_json<T>(&self, path: &str) -> ClientResult<T>
+    where
+        T: DeserializeOwned,
+    {
         self.delete(path).await
     }
 }

@@ -1,31 +1,49 @@
-//! Checkpoint management across the checkpoint domain: unified records
-//! (`wf_api::checkpoint::record`), file checkpoints, and agent-loop
-//! checkpoints. Change approvals live in the sibling `approval` command
-//! over `wf_api::checkpoint::approval`.
-use wf_api::checkpoint::record as checkpoint;
-use wf_api::workflow::workflow_execution;
+//! Checkpoint management across the checkpoint domain: unified records,
+//! file checkpoints, and agent-loop checkpoints. Change approvals live in
+//! the sibling `approval` command.
 
-use crate::args::{CheckpointSub, Cli};
+use crate::args::{CheckpointDomain, CheckpointSub, Cli};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
-fn domain_override(
-    domain: Option<crate::args::CheckpointDomain>,
-) -> Option<wf_api::ExecutionDomain> {
-    domain.map(wf_api::ExecutionDomain::from)
+fn entity_type(domain: Option<CheckpointDomain>) -> Option<&'static str> {
+    match domain {
+        Some(CheckpointDomain::Workflow) => Some("workflow"),
+        Some(CheckpointDomain::Agent) => Some("agent_loop"),
+        None => None,
+    }
+}
+
+/// Percent-encode a file path for single-segment `{id}` routes.
+fn encode_segment(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "checkpoint")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         CheckpointSub::Create { id } => {
-            let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
+            let checkpoint_id: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/executions/{id}/checkpoints"),
+                    &serde_json::json!({}),
+                )
+                .await?;
+            let checkpoint_id = checkpoint_id
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| checkpoint_id.to_string());
             let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
             render_envelope(
                 cli.output,
@@ -34,16 +52,24 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::CreateAgent { id, name } => {
-            let created = wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
-            let data = serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
+            let body = serde_json::json!({"description": name});
+            let created: serde_json::Value = client
+                .post_json(&format!("/api/v1/agent-loops/{id}/checkpoints"), &body)
+                .await?;
+            let checkpoint_id = created
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let data = serde_json::json!({"agentLoopId": id, "checkpointId": checkpoint_id});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-create", data).with_entity(created.id.clone()),
+                OutputEnvelope::success("checkpoint-create", data).with_entity(checkpoint_id),
             )
         }
         CheckpointSub::FilePartitions => {
-            let partitions = wf_api::checkpoint::provenance::list_partitions(ctx)?;
-            let data = serde_json::to_value(&partitions)?;
+            let data: serde_json::Value =
+                client.get_json("/api/v1/file-checkpoint/partitions").await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-partitions", data),
@@ -55,53 +81,59 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             start,
             end,
         } => {
-            let time_range = match (start, end) {
-                (None, None) => None,
-                (start, end) => {
-                    let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
-                    let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
-                    Some((start_ms, end_ms))
-                }
-            };
-            let changes = if let Some(actor) = actor {
-                wf_api::checkpoint::provenance::list_changes_by_actor(
-                    ctx,
-                    actor,
-                    path.as_deref(),
-                    time_range,
-                )?
+            let mut params: Vec<String> = Vec::new();
+            if let Some(actor) = actor {
+                params.push(format!("actor={actor}"));
             } else if let Some(path) = path {
-                wf_api::checkpoint::provenance::list_changes_by_path(ctx, path, time_range)?
+                params.push(format!("path={path}"));
             } else {
                 return Err(crate::error::CliError::Business(
                     "one of --actor or --path is required".to_string(),
                 ));
-            };
-            let data = serde_json::to_value(&changes)?;
+            }
+            match (start, end) {
+                (None, None) => {}
+                (start, end) => {
+                    let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
+                    let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
+                    params.push(format!("start={start_ms}&end={end_ms}"));
+                }
+            }
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/file-checkpoint/changes?{}", params.join("&")))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-changes", data),
             )
         }
         CheckpointSub::FileDiffMain { actor } => {
-            let diffs = wf_api::checkpoint::provenance::diff_against_main(ctx, actor)?;
-            let data = serde_json::to_value(&diffs)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/file-checkpoint/diff/main/{actor}"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-diff", data).with_entity(actor.clone()),
             )
         }
         CheckpointSub::FileTimeline { path } => {
-            let timeline = wf_api::checkpoint::provenance::file_timeline_capped(ctx, path)?;
-            let data = serde_json::to_value(&timeline)?;
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/file-checkpoint/timeline/{}",
+                    encode_segment(path)
+                ))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-timeline", data).with_entity(path.clone()),
             )
         }
         CheckpointSub::FileRestore { entity, checkpoint } => {
-            let restored =
-                wf_api::checkpoint::provenance::restore_workspace(ctx, entity, checkpoint)?;
+            let body = serde_json::json!({"entity": entity, "checkpoint": checkpoint});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/restore", &body)
+                .await?;
+            let restored = data.get("restored").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"entity": entity, "checkpoint": checkpoint, "restored": restored});
             render_envelope(
                 cli.output,
@@ -110,16 +142,26 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::FileGc { keep_recent_heads } => {
-            let stats = wf_api::checkpoint::provenance::run_gc(ctx, *keep_recent_heads)?;
-            let data = serde_json::to_value(&stats)?;
+            let data: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/file-checkpoint/gc?keep_recent_heads={keep_recent_heads}"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-gc", data),
             )
         }
         CheckpointSub::FileSubmit { actor, session } => {
-            let review_commit =
-                wf_api::checkpoint::provenance::submit_for_review(ctx, actor, session.as_deref())?;
+            let body = serde_json::json!({"actor": actor, "session": session});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/submit", &body)
+                .await?;
+            let review_commit = data
+                .get("review_commit")
+                .cloned()
+                .unwrap_or(data.clone());
             let data = serde_json::json!({"actor": actor, "reviewCommit": review_commit});
             render_envelope(
                 cli.output,
@@ -131,13 +173,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             feature,
             session,
         } => {
-            let outcome = wf_api::checkpoint::provenance::merge_to_feature(
-                ctx,
-                actor,
-                feature,
-                session.as_deref(),
-            )?;
-            let data = serde_json::to_value(&outcome)?;
+            let body = serde_json::json!({"actor": actor, "feature": feature, "session": session});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/merge-to-feature", &body)
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-merge-to-feature", data)
@@ -154,13 +193,11 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     "at least one FEATURE is required".to_string(),
                 ));
             }
-            let result = wf_api::checkpoint::provenance::merge_to_main(
-                ctx,
-                actor,
-                features,
-                session.as_deref(),
-            )?;
-            let data = serde_json::to_value(&result)?;
+            let body =
+                serde_json::json!({"actor": actor, "features": features, "session": session});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/merge-to-main", &body)
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-merge-to-main", data)
@@ -172,12 +209,18 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             feature_head,
             session,
         } => {
-            let revert_commit = wf_api::checkpoint::provenance::rollback_feature(
-                ctx,
-                actor,
-                feature_head,
-                session.as_deref(),
-            )?;
+            let body = serde_json::json!({
+                "actor": actor,
+                "feature_head": feature_head,
+                "session": session,
+            });
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/rollback-feature", &body)
+                .await?;
+            let revert_commit = data
+                .get("revert_commit")
+                .cloned()
+                .unwrap_or(data.clone());
             let data = serde_json::json!({"actor": actor, "featureHead": feature_head, "revertCommit": revert_commit});
             render_envelope(
                 cli.output,
@@ -186,7 +229,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::FileIndexRebuild => {
-            let indexed = wf_api::checkpoint::provenance::rebuild_source_index(ctx)?;
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/index/rebuild", &serde_json::json!({}))
+                .await?;
+            let indexed = data.get("indexed_commits").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"indexedCommits": indexed});
             render_envelope(
                 cli.output,
@@ -194,26 +240,21 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::FileIndexStatus => {
-            let status = wf_api::checkpoint::provenance::index_status(ctx)?;
-            let data = serde_json::to_value(&status)?;
+            let data: serde_json::Value = client
+                .get_json("/api/v1/file-checkpoint/index/status")
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-index-status", data),
             )
         }
-        CheckpointSub::FileCreate { id, path } => {
-            let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
-                crate::error::CliError::Business(
-                    "file checkpointing is not enabled; set file_checkpoint.enabled=true"
-                        .to_string(),
-                )
-            })?;
-            let summary = wf_api::checkpoint::file::create_file_checkpoint(
-                manager,
-                id,
-                std::path::Path::new(path),
-            )?;
-            let data = serde_json::to_value(&summary)?;
+        CheckpointSub::FileCreate { id, path: _ } => {
+            // The server attributes workspace checkpoints to an actor; the
+            // CLI id names that actor.
+            let body = serde_json::json!({"actor": id});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/checkpoints", &body)
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-create", data).with_entity(id.clone()),
@@ -225,80 +266,131 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             offset,
             domain,
         } => {
-            let mut list =
-                checkpoint::list_for_execution(ctx, id, domain_override(*domain)).await?;
-            list.sort_by_key(|c| c.timestamp);
+            let mut params: Vec<String> = Vec::new();
+            if let Some(entity) = entity_type(*domain) {
+                params.push(format!("entity_type={entity}"));
+            }
+            let path = if params.is_empty() {
+                format!("/api/v1/checkpoints/entity/{id}")
+            } else {
+                format!("/api/v1/checkpoints/entity/{id}?{}", params.join("&"))
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
+            let mut list = data
+                .get("items")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .or_else(|| data.as_array().cloned())
+                .unwrap_or_default();
+            list.sort_by_key(|c| c.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
             let off = offset.unwrap_or(0);
             let lim = limit.unwrap_or(usize::MAX);
             let paged: Vec<_> = list.into_iter().skip(off).take(lim).collect();
-            let data = serde_json::to_value(&paged)?;
+            let data = serde_json::Value::Array(paged);
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-list", data).with_entity(id.clone()),
             )
         }
         CheckpointSub::Show { id } => {
-            let cp = checkpoint::get_checkpoint(&ctx.storage, id).await?;
-            let data = serde_json::to_value(&cp)?;
+            let data: serde_json::Value =
+                client.get_json(&format!("/api/v1/checkpoints/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-show", data).with_entity(id.clone()),
             )
         }
         CheckpointSub::Restore { id, resume } => {
-            let restored = workflow_execution::restore_checkpoint(ctx, id).await?;
             if *resume {
-                let output = workflow_execution::resume(ctx, &restored.execution_id).await?;
-                let data = serde_json::json!({"restored": id, "executionId": restored.execution_id, "result": output.result});
+                let data: serde_json::Value = client
+                    .post_json(
+                        &format!("/api/v1/executions/checkpoints/{id}/resume"),
+                        &serde_json::json!({}),
+                    )
+                    .await?;
+                let execution_id = data
+                    .get("execution_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("checkpoint-restore-resume", data)
-                        .with_entity(restored.execution_id.clone()),
+                        .with_entity(execution_id),
                 )
             } else {
-                let data = serde_json::to_value(&restored)?;
+                let data: serde_json::Value = client
+                    .post_json(
+                        &format!("/api/v1/executions/checkpoints/{id}/restore"),
+                        &serde_json::json!({}),
+                    )
+                    .await?;
+                let execution_id = data
+                    .get("execution_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("checkpoint-restore", data)
-                        .with_entity(restored.execution_id.clone()),
+                        .with_entity(execution_id),
                 )
             }
         }
         CheckpointSub::RestoreAgent { id, checkpoint } => {
-            let restored = wf_api::agent::agent_checkpoint::restore(ctx, id, checkpoint).await?;
-            let data = serde_json::to_value(&restored)?;
+            let data: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/agent-loops/{id}/checkpoints/{checkpoint}/restore"),
+                    &serde_json::json!({}),
+                )
+                .await?;
+            let entity = data
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(id.as_str())
+                .to_string();
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-restore", data)
-                    .with_entity(restored.id.clone()),
+                OutputEnvelope::success("checkpoint-restore", data).with_entity(entity),
             )
         }
         CheckpointSub::Delete { id } => {
-            let deleted = checkpoint::delete_checkpoint(&ctx.storage, id).await?;
+            let deleted: serde_json::Value = client
+                .delete_json(&format!("/api/v1/checkpoints/{id}"))
+                .await?;
+            let deleted = deleted.as_bool().unwrap_or(true);
             let data = serde_json::json!({"deleted": id, "ok": deleted});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-delete", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Chain { id, domain } => {
-            let chain = checkpoint::chain_for_execution(ctx, id, domain_override(*domain)).await?;
-            let data = serde_json::to_value(&chain)?;
+        CheckpointSub::Chain { id, domain: _ } => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/checkpoints/chain"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),
             )
         }
         CheckpointSub::Gc { id, before, domain } => {
-            let deleted =
-                checkpoint::gc_for_execution(ctx, id, *before, domain_override(*domain)).await?;
+            let mut path = match before {
+                Some(ts) => format!("/api/v1/executions/{id}/checkpoints/gc?before={ts}"),
+                None => format!("/api/v1/executions/{id}/checkpoints/gc"),
+            };
+            if let Some(entity) = entity_type(*domain) {
+                path.push_str(&format!("&domain={entity}"));
+            }
+            let deleted: serde_json::Value = client
+                .post_json(&path, &serde_json::json!({}))
+                .await?;
+            let deleted = deleted.as_u64().unwrap_or(0) as usize;
             let data = serde_json::json!({"executionId": id, "deleted": deleted});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-gc", data).with_entity(id.clone()),
             )
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }

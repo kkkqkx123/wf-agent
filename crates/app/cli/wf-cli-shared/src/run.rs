@@ -1,25 +1,33 @@
 //! Headless session driver: `wf run "<prompt>"` end to end.
 //!
-//! Pipeline: preset the execution id → register the headless interaction
-//! guard → stream the agent loop through [`wf_api`] → render the agent
-//! events (LLM text to the main sink, tool lifecycle to the diagnostics
-//! channel) → terminate with a summary line / envelope and an exit code.
+//! Pipeline: resolve the request body → stream the run through `wf-server`
+//! (SSE first, blocking POST fallback) → render events (LLM text to the main
+//! sink, tool lifecycle to the diagnostics channel) → terminate with a
+//! summary line / envelope and an exit code.
 //!
-//! Output discipline: business output (LLM text,
-//! message records, summary envelope) goes through the [`OutputSink`]
-//! (stdout); diagnostics (tool lines `▲/✓/✗`, approval rejections,
-//! interrupt notices) go to stderr through [`DiagWriter`], so
-//! `wf run | jq` keeps working.
+//! Output discipline: business output (LLM text, message records, summary
+//! envelope) goes through the [`OutputSink`] (stdout); diagnostics (tool
+//! lines `▲/✓/✗`, approval rejections, interrupt notices) go to stderr
+//! through [`DiagWriter`], so `wf run | jq` keeps working.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use wf_client::WfClient;
+
+use crate::connection::ClientHandle;
+use crate::error::{CliError, CliResult};
 use crate::output::{OutputFormat, OutputSink};
 pub use crate::run_diag::DiagWriter;
+use crate::run_interaction::{AnswerPolicy, InteractionPoller};
+use crate::run_stream::{drive_stream, finish_agent_stream_terminal, finish_workflow_stream_terminal};
+use crate::cmd::execution_stream::map_frames;
+use crate::run_summary::{
+    had_output_for_result, render_value_text, write_summary, SummaryParams,
+};
 use crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS;
 use crate::turn::{TurnKind, TurnParams};
-
-pub use crate::run_embedded::run_session;
-pub use crate::run_remote::run_session_remote;
 pub use crate::run_render::DeltaBuffer;
 
 /// Options for one headless session.
@@ -27,7 +35,7 @@ pub use crate::run_render::DeltaBuffer;
 pub struct RunOptions {
     /// Initial user message (required, non-empty for agent turns).
     pub prompt: String,
-    /// Agent definition id (defaults to `cli`).
+    /// Agent definition id (defaults to the built-in agent, server-side).
     pub agent_id: Option<String>,
     /// LLM profile id (defaults to `default`).
     pub model: Option<String>,
@@ -43,6 +51,8 @@ pub struct RunOptions {
     pub approval_timeout_secs: u64,
     /// Approve every routed tool call without prompting (`--assume-yes`).
     pub assume_yes: bool,
+    /// Server-side run budget in milliseconds (`--timeout`).
+    pub timeout_ms: Option<u64>,
 }
 
 impl Default for RunOptions {
@@ -57,14 +67,15 @@ impl Default for RunOptions {
             interactive: false,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             assume_yes: false,
+            timeout_ms: None,
         }
     }
 }
 
 impl RunOptions {
     /// Single conversion into the shared [`TurnParams`] abstraction so the
-    /// headless driver and the interactive forms assemble agent config in
-    /// exactly one place (`turn::build_agent_loop_params`).
+    /// headless driver and the interactive forms assemble request bodies in
+    /// exactly one place.
     pub fn as_turn_params(&self) -> TurnParams {
         let kind = match self.workflow.clone() {
             Some(workflow_id) => {
@@ -80,8 +91,19 @@ impl RunOptions {
             agent: self.agent_id.clone(),
             model: self.model.clone(),
             approve_prefixes: self.approve_prefixes.clone(),
+            timeout_ms: self.timeout_ms,
             conversation: Vec::new(),
             kind,
+        }
+    }
+
+    fn answer_policy(&self, json: bool) -> AnswerPolicy {
+        AnswerPolicy {
+            interactive: self.interactive,
+            assume_yes: self.assume_yes,
+            approve_prefixes: self.approve_prefixes.clone(),
+            approval_timeout: Duration::from_secs(self.approval_timeout_secs),
+            json,
         }
     }
 }
@@ -101,4 +123,210 @@ pub struct RunIo {
     pub sink: Box<dyn OutputSink + Send>,
     pub diag: Arc<Mutex<DiagWriter>>,
     pub format: OutputFormat,
+}
+
+/// Drive one headless session against `wf-server` to its terminal event.
+///
+/// Returns the outcome on success; business failures map to
+/// [`CliError::Business`] (exit 1) and interruptions (SIGINT or a server
+/// `Interrupted` event) to [`CliError::Interrupted`] (exit 4).
+pub async fn run_session(
+    handle: &ClientHandle,
+    opts: RunOptions,
+    mut io: RunIo,
+) -> CliResult<RunOutcome> {
+    if let Some(workflow_id) = opts.workflow.clone() {
+        return run_workflow(handle, opts, &mut io, &workflow_id).await;
+    }
+    run_agent(handle, opts, &mut io).await
+}
+
+async fn run_workflow(
+    handle: &ClientHandle,
+    opts: RunOptions,
+    io: &mut RunIo,
+    workflow_id: &str,
+) -> CliResult<RunOutcome> {
+    use std::time::Instant;
+    let started = Instant::now();
+    let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())
+        .map_err(CliError::Arguments)?;
+    if !io.format.is_silent() {
+        io.sink.write_message(&crate::output::OutputMessage::new(
+            "user",
+            format!("workflow:{workflow_id}"),
+        ))?;
+    }
+    let client = handle.client().clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let poller = spawn_poller(
+        &client,
+        &opts,
+        io,
+        stop.clone(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let body = TurnParams::workflow_request_body(input.as_ref());
+    let outcome = if let Ok(stream) = client
+        .post_stream(
+            &format!("/api/v1/workflows/{workflow_id}/execute/stream"),
+            &body,
+        )
+        .await
+    {
+        let execution_id = wf_common::generate_id();
+        let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
+        let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
+        renderer.finish()?;
+        let had_output = renderer.had_output;
+        drop(renderer);
+        io.sink.flush()?;
+        finish_workflow_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
+    } else {
+        let resp: serde_json::Value = client
+            .post_json(&format!("/api/v1/workflows/{workflow_id}/execute"), &body)
+            .await?;
+        let execution_id = resp
+            .get("execution_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("remote-exec")
+            .to_string();
+        let result = resp.get("result").cloned().unwrap_or(resp.clone());
+        blocking_outcome(io, &opts, &execution_id, &result, 1, started).await
+    };
+    stop.store(true, Ordering::SeqCst);
+    if let Some(task) = poller {
+        let _ = task.await;
+    }
+    outcome
+}
+
+async fn run_agent(
+    handle: &ClientHandle,
+    opts: RunOptions,
+    io: &mut RunIo,
+) -> CliResult<RunOutcome> {
+    use std::time::Instant;
+    if opts.prompt.trim().is_empty() {
+        return Err(CliError::Arguments(
+            "no prompt given: pass a positional argument or pipe stdin".into(),
+        ));
+    }
+    let started = Instant::now();
+    if !io.format.is_silent() {
+        io.sink.write_message(&crate::output::OutputMessage::new(
+            "user",
+            &opts.prompt,
+        ))?;
+    }
+    let client = handle.client().clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let followup_requested = Arc::new(AtomicBool::new(false));
+    let poller = spawn_poller(&client, &opts, io, stop.clone(), followup_requested.clone());
+    let body = opts.as_turn_params().agent_request_body();
+    let outcome = if let Ok(stream) = client.post_stream("/api/v1/agent-loops/cli/stream", &body).await
+    {
+        let execution_id = wf_common::generate_id();
+        let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
+        let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
+        renderer.finish()?;
+        let had_output = renderer.had_output;
+        drop(renderer);
+        io.sink.flush()?;
+        finish_agent_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
+    } else {
+        let resp: serde_json::Value = client
+            .post_json("/api/v1/agent-loops/cli/run", &body)
+            .await?;
+        let execution_id = resp
+            .get("agent_loop_id")
+            .or_else(|| resp.get("execution_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("remote-agent")
+            .to_string();
+        let result = resp
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let iterations = resp.get("iterations").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+        blocking_outcome(io, &opts, &execution_id, &result, iterations, started).await
+    };
+    stop.store(true, Ordering::SeqCst);
+    if let Some(task) = poller {
+        let _ = task.await;
+    }
+    let outcome = outcome?;
+    if followup_requested.load(Ordering::SeqCst) {
+        return Err(CliError::Business(
+            "follow-up question requested in headless mode; \
+             re-run interactively (wf --tui) to answer it"
+                .into(),
+        ));
+    }
+    Ok(outcome)
+}
+
+async fn blocking_outcome(
+    io: &mut RunIo,
+    opts: &RunOptions,
+    execution_id: &str,
+    result: &serde_json::Value,
+    iterations: u32,
+    started: std::time::Instant,
+) -> CliResult<RunOutcome> {
+    let had_output = had_output_for_result(result);
+    if !io.format.is_silent() && io.format == OutputFormat::Text {
+        render_value_text(io.sink.as_mut(), result)?;
+    }
+    io.sink.flush()?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    write_summary(SummaryParams {
+        sink: io.sink.as_mut(),
+        format: io.format,
+        execution_id,
+        iterations,
+        duration_ms,
+        had_output,
+        opts,
+        result: Some(result),
+    })?;
+    io.sink.flush()?;
+    Ok(RunOutcome {
+        execution_id: execution_id.to_string(),
+        iterations,
+        duration_ms,
+        had_output,
+    })
+}
+
+fn spawn_poller(
+    client: &WfClient,
+    opts: &RunOptions,
+    io: &RunIo,
+    stop: Arc<AtomicBool>,
+    followup_requested: Arc<AtomicBool>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let json = matches!(
+        io.format,
+        OutputFormat::Json | OutputFormat::JsonLines
+    );
+    let policy = opts.answer_policy(json);
+    if !policy.needs_poller() {
+        return None;
+    }
+    let prompt = if opts.interactive {
+        Some(crate::stdio_prompt::StdioPromptSource::spawn().0)
+    } else {
+        None
+    };
+    let mut poller = InteractionPoller::new(
+        client,
+        policy,
+        prompt,
+        io.diag.clone(),
+        followup_requested,
+    );
+    Some(tokio::spawn(async move {
+        poller.run_until(stop).await;
+    }))
 }

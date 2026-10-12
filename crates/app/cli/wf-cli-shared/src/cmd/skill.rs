@@ -1,46 +1,40 @@
-use wf_api::entity::skill;
-
 use crate::args::{Cli, SkillSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &SkillSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "skill")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         SkillSub::List => {
-            let skills = skill::list_skills(ctx)?;
-            let data = serde_json::to_value(&skills)?;
+            let data: serde_json::Value = client.get_json("/api/v1/skills").await?;
             render_envelope(cli.output, OutputEnvelope::success("skill-list", data))
         }
         SkillSub::Query { filter } => {
-            let all = skill::list_skills(ctx)?;
-            let filtered: Vec<_> = if let Some(q) = filter {
-                all.into_iter()
-                    .filter(|s| s.name.contains(q.as_str()))
-                    .collect()
-            } else {
-                all
+            let path = match filter {
+                Some(q) => format!("/api/v1/skills/query?filter={q}"),
+                None => "/api/v1/skills/query".to_string(),
             };
-            let data = serde_json::to_value(&filtered)?;
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(cli.output, OutputEnvelope::success("skill-query", data))
         }
         SkillSub::Show { name } => {
-            let s = skill::get_skill(ctx, name)?;
-            let data = serde_json::to_value(&s)?;
+            let data: serde_json::Value =
+                client.get_json(&format!("/api/v1/skills/{name}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("skill-show", data).with_entity(name.clone()),
             )
         }
         SkillSub::Enable { name } => {
-            skill::enable(ctx, name)?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/skills/{name}/enable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"enabled": name});
             render_envelope(
                 cli.output,
@@ -48,7 +42,12 @@ pub async fn run(cli: &Cli, sub: &SkillSub) -> CliResult<()> {
             )
         }
         SkillSub::Disable { name } => {
-            skill::disable(ctx, name)?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/skills/{name}/disable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"disabled": name});
             render_envelope(
                 cli.output,
@@ -56,25 +55,33 @@ pub async fn run(cli: &Cli, sub: &SkillSub) -> CliResult<()> {
             )
         }
         SkillSub::Scan => {
-            let list = skill::scan_skills(ctx, ".")?;
-            let data = serde_json::json!({"scanned": list.len()});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/skills/scan", &serde_json::json!({}))
+                .await?;
+            let count = data.as_array().map(|a| a.len()).unwrap_or(0);
+            let data = serde_json::json!({"scanned": count});
             render_envelope(cli.output, OutputEnvelope::success("skill-scan", data))
         }
         SkillSub::Reload => {
-            let list = skill::reload(ctx, ".")?;
-            let data = serde_json::json!({"reloaded": list.len()});
+            let data: serde_json::Value = client
+                .post_json("/api/v1/skills/reload", &serde_json::json!({}))
+                .await?;
+            let count = data.as_array().map(|a| a.len()).unwrap_or(0);
+            let data = serde_json::json!({"reloaded": count});
             render_envelope(cli.output, OutputEnvelope::success("skill-reload", data))
         }
         SkillSub::ClearCache => {
-            skill::clear_cache(ctx)?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    "/api/v1/skills/cache/clear",
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"cleared": true});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("skill-clear-cache", data),
             )
         }
-    };
-
-    domain.shutdown().await?;
-    result
+    }
 }

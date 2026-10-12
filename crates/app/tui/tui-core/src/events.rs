@@ -1,20 +1,10 @@
 //! Unified event stream feeding the CLI output/render pipeline.
 //!
-//! Defines the unified event shape and the conversions from the agent
-//! streaming events; the shared `EventBus` subscription helper lets the
-//! interactive forms (inline / full-screen, both inside this crate) consume
-//! lifecycle events as a `Stream`.
-//! Full
-//! execution lifecycle events (`ExecutionEvent`) travel on the checkpoint
-//! `ExecutionEventBus`; the `Execution` variant keeps the door open for that
-//! adapter.
+//! Defines the unified event shape and the conversion from execution
+//! stream events; lifecycle events travel over server SSE and are adapted
+//! by the frontends before entering this shape.
 
-use std::sync::Arc;
-
-use wf_api::infra::subscription::EventSubscriptionOptions;
-use wf_api::infra::subscription::{spawn_event_subscription, EventSubscription};
-use wf_api::AgentStreamEvent;
-use wf_core::event::EventBus;
+use wf_types::events::ExecutionStreamEvent;
 use wf_types::execution::events::ExecutionEvent;
 
 /// Normalized event consumed by the output layers of every CLI form.
@@ -32,7 +22,7 @@ pub enum UnifiedEvent {
         tool_name: String,
     },
     /// Tool invocation finished. `duration_ms` is `None` when the source
-    /// event carries no timing (e.g. the agent stream events).
+    /// event carries no timing.
     ToolEnd {
         tool_call_id: String,
         tool_name: String,
@@ -97,75 +87,46 @@ impl UnifiedEvent {
     }
 }
 
-/// Convert an agent stream event into the unified shape.
-impl From<AgentStreamEvent> for UnifiedEvent {
-    fn from(event: AgentStreamEvent) -> Self {
-        match event {
-            AgentStreamEvent::IterationStart { iteration, .. } => {
-                Self::IterationStarted { index: iteration }
-            }
-            AgentStreamEvent::IterationEnd { iteration, .. } => {
-                Self::IterationEnded { index: iteration }
-            }
-            AgentStreamEvent::LlmDelta { content } => Self::TextDelta { content },
-            AgentStreamEvent::ToolStart {
-                tool_call_id,
-                tool_name,
-            } => Self::ToolStart {
-                tool_call_id,
-                tool_name,
-            },
-            AgentStreamEvent::ToolEnd {
-                tool_call_id,
-                tool_name,
-                success,
-                ..
-            } => Self::ToolEnd {
-                tool_call_id,
-                tool_name,
-                success,
-                duration_ms: None,
-            },
-            AgentStreamEvent::Completed { result, iterations } => {
-                Self::Completed { result, iterations }
-            }
-            AgentStreamEvent::Failed { error, .. } => Self::Failed { error },
-            AgentStreamEvent::Interrupted { reason } => Self::Interrupted { reason },
-            AgentStreamEvent::ReasoningDelta { content } => Self::ReasoningDelta { content },
-            AgentStreamEvent::Usage {
-                prompt_tokens,
-                completion_tokens,
-                cost,
-            } => Self::Usage {
-                prompt_tokens,
-                completion_tokens,
-                cost,
-            },
-            AgentStreamEvent::SubAgentStarted { id, name } => Self::SubAgentStarted { id, name },
-            AgentStreamEvent::SubAgentEnded { id, name, success } => {
-                Self::SubAgentEnded { id, name, success }
-            }
-        }
-    }
-}
-
-/// Convert an execution stream event (the wf-api unified stream) into the
-/// CLI unified shape. Engine lifecycle events carry no agent-loop payload
-/// for a headless run and are filtered out (`None`).
-pub fn unified_from_execution_stream(
-    event: wf_api::infra::stream::ExecutionStreamEvent,
-) -> Option<UnifiedEvent> {
+/// Convert an execution stream event (the wire protocol shared with the
+/// server) into the CLI unified shape. Engine lifecycle events carry no
+/// agent-loop payload for a run and are filtered out (`None`).
+pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<UnifiedEvent> {
     match event {
-        wf_api::infra::stream::ExecutionStreamEvent::Completed { result, iterations } => {
+        ExecutionStreamEvent::IterationStart { iteration, .. } => {
+            Some(UnifiedEvent::IterationStarted { index: iteration })
+        }
+        ExecutionStreamEvent::IterationEnd { iteration, .. } => {
+            Some(UnifiedEvent::IterationEnded { index: iteration })
+        }
+        ExecutionStreamEvent::ToolStart {
+            tool_call_id,
+            tool_name,
+        } => Some(UnifiedEvent::ToolStart {
+            tool_call_id,
+            tool_name,
+        }),
+        ExecutionStreamEvent::ToolEnd {
+            tool_call_id,
+            tool_name,
+            success,
+            ..
+        } => Some(UnifiedEvent::ToolEnd {
+            tool_call_id,
+            tool_name,
+            success,
+            duration_ms: None,
+        }),
+        ExecutionStreamEvent::Completed { result, iterations } => {
             Some(UnifiedEvent::Completed { result, iterations })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::Failed { error } => {
-            Some(UnifiedEvent::Failed { error })
+        ExecutionStreamEvent::Failed { error } => Some(UnifiedEvent::Failed { error }),
+        ExecutionStreamEvent::Interrupted { reason } => {
+            Some(UnifiedEvent::Interrupted { reason })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::ReasoningDelta { content } => {
+        ExecutionStreamEvent::ReasoningDelta { content } => {
             Some(UnifiedEvent::ReasoningDelta { content })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::Usage {
+        ExecutionStreamEvent::Usage {
             prompt_tokens,
             completion_tokens,
             cost,
@@ -174,126 +135,22 @@ pub fn unified_from_execution_stream(
             completion_tokens,
             cost,
         }),
-        wf_api::infra::stream::ExecutionStreamEvent::SubAgentStarted { id, name } => {
+        ExecutionStreamEvent::SubAgentStarted { id, name } => {
             Some(UnifiedEvent::SubAgentStarted { id, name })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
+        ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
             Some(UnifiedEvent::SubAgentEnded { id, name, success })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::LlmDelta { content } => {
+        ExecutionStreamEvent::LlmDelta { content } => {
             Some(UnifiedEvent::TextDelta { content })
         }
-        wf_api::infra::stream::ExecutionStreamEvent::Engine(_) => None,
-        _ => None,
+        ExecutionStreamEvent::Engine(_) => None,
     }
-}
-
-/// Subscribe to lifecycle events on the shared runtime `EventBus`.
-///
-/// The returned subscription is a `Stream<Item = BaseEvent>` and can be
-/// consumed directly or filtered further by the caller.
-pub fn subscribe_event_bus(
-    bus: Arc<EventBus>,
-    options: &EventSubscriptionOptions,
-) -> EventSubscription {
-    spawn_event_subscription(bus, options)
-}
-
-/// Convenience: subscribe to every lifecycle event without filtering.
-pub fn subscribe_all(bus: Arc<EventBus>) -> EventSubscription {
-    subscribe_event_bus(bus, &EventSubscriptionOptions::default())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn agent_events_map_into_unified_events() {
-        let cases = [
-            (
-                AgentStreamEvent::IterationStart {
-                    iteration: 3,
-                    message_count: 10,
-                    array_version: 5,
-                },
-                UnifiedEvent::IterationStarted { index: 3 },
-            ),
-            (
-                AgentStreamEvent::IterationEnd {
-                    iteration: 3,
-                    message_count: 12,
-                    array_version: 6,
-                },
-                UnifiedEvent::IterationEnded { index: 3 },
-            ),
-            (
-                AgentStreamEvent::LlmDelta {
-                    content: "hi".to_string(),
-                },
-                UnifiedEvent::TextDelta {
-                    content: "hi".to_string(),
-                },
-            ),
-            (
-                AgentStreamEvent::ToolStart {
-                    tool_call_id: "t1".to_string(),
-                    tool_name: "bash".to_string(),
-                },
-                UnifiedEvent::ToolStart {
-                    tool_call_id: "t1".to_string(),
-                    tool_name: "bash".to_string(),
-                },
-            ),
-            (
-                AgentStreamEvent::ToolEnd {
-                    tool_call_id: "t1".to_string(),
-                    tool_name: "bash".to_string(),
-                    success: true,
-                    result: "ok".to_string(),
-                    error: None,
-                },
-                UnifiedEvent::ToolEnd {
-                    tool_call_id: "t1".to_string(),
-                    tool_name: "bash".to_string(),
-                    success: true,
-                    duration_ms: None,
-                },
-            ),
-            (
-                AgentStreamEvent::Completed {
-                    result: serde_json::Value::Null,
-                    iterations: 2,
-                },
-                UnifiedEvent::Completed {
-                    result: serde_json::Value::Null,
-                    iterations: 2,
-                },
-            ),
-            (
-                AgentStreamEvent::Failed {
-                    error: "boom".to_string(),
-                    error_type: wf_types::errors::ErrorType::LlmError,
-                    permanently_failed_tools: Vec::new(),
-                },
-                UnifiedEvent::Failed {
-                    error: "boom".to_string(),
-                },
-            ),
-            (
-                AgentStreamEvent::Interrupted {
-                    reason: "user".to_string(),
-                },
-                UnifiedEvent::Interrupted {
-                    reason: "user".to_string(),
-                },
-            ),
-        ];
-        for (source, expected) in cases {
-            let unified: UnifiedEvent = source.into();
-            assert_eq!(unified, expected, "kind mismatch: {}", expected.kind());
-        }
-    }
 
     #[test]
     fn execution_event_passthrough_preserves_payload() {
@@ -312,9 +169,6 @@ mod tests {
 
     #[test]
     fn execution_stream_events_map_and_engine_filters_out() {
-        use wf_api::infra::stream::ExecutionStreamEvent;
-
-        // Agent variant no longer exists; LlmDelta is now a top-level variant
         let llm_delta = ExecutionStreamEvent::LlmDelta {
             content: "hi".into(),
         };

@@ -4,21 +4,19 @@
 //!   0 - success
 //!   1 - business failure (agent session failed)
 //!   2 - invalid arguments (also used by clap for parse errors)
-//!   3 - configuration error (bootstrap / config load failure)
+//!   3 - configuration error (server unreachable / bad flags)
 //!   4 - interrupted (SIGINT during a session)
 
 use std::fmt;
 
-use wf_api::ApiError;
 use wf_common::CommonError;
-use wf_runtime::error::RuntimeError;
 
 /// Errors surfaced by the CLI layer.
 #[derive(Debug)]
 pub enum CliError {
     /// Invalid command line arguments or incompatible option combination.
     Arguments(String),
-    /// Configuration or runtime bootstrap failure.
+    /// Bad flags or unreachable / misconfigured server.
     Configuration(String),
     /// Terminal backend failure (init, draw, poll, event read).
     Terminal(String),
@@ -28,10 +26,6 @@ pub enum CliError {
     Interrupted(String),
     /// Underlying IO error while writing output.
     Io(std::io::Error),
-    /// Underlying infrastructure error forwarded unchanged.
-    Runtime(RuntimeError),
-    /// Underlying API error forwarded unchanged.
-    Api(ApiError),
     /// Underlying common error forwarded unchanged.
     Common(CommonError),
 }
@@ -46,8 +40,6 @@ impl CliError {
             Self::Business(_) => 1,
             Self::Interrupted(_) => 4,
             Self::Io(_) => 1,
-            Self::Runtime(_) => 1,
-            Self::Api(_) => 1,
             Self::Common(_) => 1,
         }
     }
@@ -62,8 +54,6 @@ impl fmt::Display for CliError {
             Self::Business(msg) => write!(f, "command failed: {msg}"),
             Self::Interrupted(msg) => write!(f, "interrupted: {msg}"),
             Self::Io(err) => write!(f, "io error: {err}"),
-            Self::Runtime(err) => write!(f, "runtime error: {err}"),
-            Self::Api(err) => write!(f, "api error: {err}"),
             Self::Common(err) => write!(f, "error: {err}"),
         }
     }
@@ -74,18 +64,6 @@ impl std::error::Error for CliError {}
 impl From<std::io::Error> for CliError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
-    }
-}
-
-impl From<RuntimeError> for CliError {
-    fn from(err: RuntimeError) -> Self {
-        Self::Runtime(err)
-    }
-}
-
-impl From<ApiError> for CliError {
-    fn from(err: ApiError) -> Self {
-        Self::Api(err)
     }
 }
 
@@ -101,6 +79,26 @@ impl From<serde_json::Error> for CliError {
         // building) is operational, not user configuration: file-parse
         // call sites already map to `Arguments` explicitly.
         Self::Business(format!("serialization error: {err}"))
+    }
+}
+
+impl From<wf_client::ClientError> for CliError {
+    fn from(err: wf_client::ClientError) -> Self {
+        use wf_client::ClientError as C;
+        match err {
+            C::Remote { code, message } => Self::Business(format!("remote {code}: {message}")),
+            // Transport failures (connection refused, timeout, ...) are
+            // operational, not configuration: exit 1 instead of 3 so
+            // scripts can distinguish "server down" from "bad flags".
+            C::Http(msg) => Self::Business(format!("remote http: {msg}")),
+            C::Stream(msg) => Self::Business(format!("stream error: {msg}")),
+            C::Invalid(msg) => Self::Configuration(format!("remote invalid: {msg}")),
+            C::NotFound(what) => Self::Business(format!("not found: {what}")),
+            C::Unauthorized => Self::Configuration(
+                "server rejected the credentials; set --api-key / WF_API_KEY".to_string(),
+            ),
+            C::NotConfigured(msg) => Self::Configuration(msg),
+        }
     }
 }
 

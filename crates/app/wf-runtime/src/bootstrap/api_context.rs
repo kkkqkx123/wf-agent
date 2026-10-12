@@ -61,6 +61,12 @@ impl Runtime {
             // Apply the resolved limits so executions launched through this
             // context seed node/total budgets from `execution_defaults`.
             ctx = ctx.with_execution_limits(self.limits.clone());
+            // Attach the user git domain config when enabled with a repo root.
+            if let Some(user_git) = &self.user_git {
+                if user_git.enabled {
+                    ctx = ctx.with_user_git(user_git.clone());
+                }
+            }
             std::sync::Arc::new(ctx)
         })
     }

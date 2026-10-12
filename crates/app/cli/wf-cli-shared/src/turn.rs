@@ -1,20 +1,16 @@
-use std::sync::Arc;
+//! Turn parameters and server request bodies shared by the CLI forms.
+//!
+//! A turn executes either an agent message or a workflow. This module owns
+//! the UI-facing shape plus its translation into the `wf-server` wire bodies;
+//! (`RunAgentLoopBody` / `ExecuteBody`); the server re-runs template
+//! resolution and defaults, so the client only fills what the flags provide.
 
 use serde_json::Value;
-use wf_api::infra::context::ApiContext;
-use wf_api::infra::error::ApiError;
-use wf_api::infra::stream::ExecutionEventStream;
-use wf_api::AgentLoopInput;
-use wf_types::Id;
-
-use wf_api::build_agent_loop_config;
 
 /// What a turn executes.
 #[derive(Debug, Clone)]
 pub enum TurnKind {
-    Agent {
-        prompt: String,
-    },
+    Agent { prompt: String },
     Workflow {
         workflow_id: String,
         input: Option<Value>,
@@ -27,9 +23,10 @@ pub struct TurnParams {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub approve_prefixes: Vec<String>,
-    /// Prior conversation seeding the run. Headless and fullscreen forms
-    /// leave this empty (single-shot turns); the mini session fills it from
-    /// its transcript.
+    /// Server-side run budget in milliseconds (`--timeout`).
+    pub timeout_ms: Option<u64>,
+    /// Prior conversation seeding the run. Headless single-shot turns leave
+    /// this empty; the mini session fills it from its transcript.
     pub conversation: Vec<wf_types::message::Message>,
     pub kind: TurnKind,
 }
@@ -41,76 +38,33 @@ impl TurnParams {
             TurnKind::Workflow { .. } => None,
         }
     }
-}
 
-/// Build agent loop params from turn params with approval wiring. The
-/// engine evaluates `approval_options` first (denials are terminal) and
-/// routes only `Ask` decisions to `approval_handler`. Centralizes the
-/// config assembly so future fields only change here.
-pub fn build_agent_loop_params(
-    params: &TurnParams,
-    approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
-    approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
-) -> wf_api::agent::agent_execution::RunAgentLoopParams {
-    let prompt = match &params.kind {
-        TurnKind::Agent { prompt } => prompt.clone(),
-        TurnKind::Workflow { .. } => String::new(),
-    };
-    let sanitized = crate::sanitize::sanitize_user_text(&prompt);
-    wf_api::agent::agent_execution::RunAgentLoopParams {
-        agent_loop_id: Some(Id::from(wf_common::generate_id())),
-        approval_options,
-        approval_handler,
-        config: build_agent_loop_config(params.agent.clone(), params.model.clone(), None),
-        input: AgentLoopInput {
-            message: sanitized,
-            context: std::collections::HashMap::new(),
-            conversation: params.conversation.clone(),
-        },
+    /// Translate into the `POST /api/v1/agent-loops/{id}/run|stream` body.
+    /// The server defaults empty ids to the built-in agent, so `None` stays
+    /// empty rather than baking the default in here.
+    pub fn agent_request_body(&self) -> Value {
+        let prompt = self.prompt().unwrap_or_default();
+        let sanitized = crate::sanitize::sanitize_user_text(prompt);
+        let conversation =
+            serde_json::to_value(&self.conversation).unwrap_or(Value::Null);
+        let mut body = serde_json::json!({
+            "agent_id": self.agent.clone().unwrap_or_default(),
+            "model": self.model.clone().unwrap_or_else(|| wf_client::DEFAULT_MODEL.to_string()),
+            "message": sanitized,
+            "max_iterations": 50,
+            "context": {},
+            "conversation": conversation,
+        });
+        if let Some(timeout) = self.timeout_ms {
+            body["max_execution_time"] = timeout.into();
+        }
+        body
     }
-}
 
-/// Stream an agent turn. Returns the execution id and the event stream.
-pub async fn stream_agent_turn(
-    ctx: &ApiContext,
-    params: &TurnParams,
-    approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
-    approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
-) -> Result<(String, ExecutionEventStream), ApiError> {
-    // Composition boundary: resolve the agent template (built-in
-    // `@standard/main` default, user overrides first) before execution. The
-    // shared prompt module renders header, tail and exposure from full context.
-    let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
-        Some(ctx.registries.as_ref()),
-        Some(ctx.tool_registry.as_ref()),
-        ctx.metrics.as_deref(),
-    );
-    let run_params = wf_api::agent::composition::resolve_run_params(
-        &env,
-        build_agent_loop_params(params, approval_options, approval_handler),
-    )?;
-    let execution_id = run_params
-        .agent_loop_id
-        .as_ref()
-        .map(|id| id.to_string())
-        .unwrap_or_else(wf_common::generate_id);
-    let stream = wf_api::agent::agent_execution::stream(ctx, run_params).await?;
-    Ok((execution_id, stream))
-}
-
-/// Stream a workflow turn. Returns the execution id and the event stream.
-pub async fn stream_workflow_turn(
-    ctx: Arc<ApiContext>,
-    workflow_id: &str,
-    input: Option<Value>,
-) -> Result<(String, ExecutionEventStream), ApiError> {
-    let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
-        workflow_id: workflow_id.to_string(),
-        input,
-        options: None,
-    };
-    let (id, stream) = wf_api::workflow::workflow_execution::stream(ctx, params).await?;
-    Ok((id.to_string(), stream))
+    /// Translate into the `POST /api/v1/workflows/{id}/execute*` body.
+    pub fn workflow_request_body(input: Option<&Value>) -> Value {
+        serde_json::json!({ "input": input })
+    }
 }
 
 /// Helper to parse workflow input JSON string.
@@ -147,64 +101,38 @@ mod tests {
     }
 
     #[test]
-    fn build_agent_loop_params_uses_defaults() {
+    fn agent_body_carries_prompt_and_conversation() {
         let params = TurnParams {
-            agent: None,
-            model: None,
+            agent: Some("ag".into()),
+            model: Some("m".into()),
             approve_prefixes: vec![],
+            timeout_ms: Some(5000),
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
             },
         };
-        let run = build_agent_loop_params(&params, None, None);
-        assert_eq!(run.config.model, wf_api::DEFAULT_MODEL);
-        assert_eq!(run.input.message, "hi");
-        assert!(run.input.conversation.is_empty());
+        let body = params.agent_request_body();
+        assert_eq!(body["agent_id"], "ag");
+        assert_eq!(body["model"], "m");
+        assert_eq!(body["message"], "hi");
+        assert_eq!(body["max_execution_time"], 5000);
     }
 
     #[test]
-    fn build_agent_loop_params_carries_conversation() {
-        let history = vec![wf_types::message::Message {
-            id: wf_types::Id::from("m1".to_string()),
-            role: wf_types::message::MessageRole::User,
-            content: wf_types::message::MessageContentValue::Text("earlier".to_string()),
-            timestamp: 1,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            thinking_signature: None,
-            metadata: None,
-        }];
+    fn agent_body_sanitizes_input() {
         let params = TurnParams {
             agent: None,
             model: None,
             approve_prefixes: vec![],
-            conversation: history,
-            kind: TurnKind::Agent {
-                prompt: "follow-up".to_string(),
-            },
-        };
-        let run = build_agent_loop_params(&params, None, None);
-        assert_eq!(run.input.conversation.len(), 1);
-        assert_eq!(run.input.message, "follow-up");
-    }
-
-    #[test]
-    fn build_agent_loop_params_sanitizes_input() {
-        let params = TurnParams {
-            agent: Some("ag".into()),
-            model: Some("m".into()),
-            approve_prefixes: vec![],
+            timeout_ms: None,
             conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
             },
         };
-        let run = build_agent_loop_params(&params, None, None);
-        assert_eq!(run.input.message, "hi");
-        assert_eq!(run.config.agent_id.to_string(), "ag");
-        assert_eq!(run.config.model, "m");
+        let body = params.agent_request_body();
+        assert_eq!(body["message"], "hi");
+        assert_eq!(body["model"], wf_client::DEFAULT_MODEL);
     }
 }

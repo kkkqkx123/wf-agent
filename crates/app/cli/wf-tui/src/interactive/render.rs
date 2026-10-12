@@ -187,7 +187,7 @@ impl InteractiveController {
             image_signature: self.image_signature,
             expanded_version: self.expanded_version,
             aspect_bucket: crate::layout::aspect_bucket(width, height),
-            force_full: self.approval_reply.is_some(),
+            force_full: self.pending_approval.is_some(),
         }
     }
 

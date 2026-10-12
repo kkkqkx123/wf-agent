@@ -8,8 +8,6 @@
 //! this module, with the replay pagination state machine shared with the
 //! history overlay at [`crate::pager`]:
 //!
-//! * [`handlers`] — domain-side approval/interaction adapters that post into
-//!   the session event channel.
 //! * [`keys`] — keyboard input handling (prompt, approval, question, scroll).
 //! * [`render`] — the draw path (scrollback viewport, footer, prompt line).
 //!
@@ -17,28 +15,25 @@
 //! [`InteractiveController`] struct, its lifecycle, the event pump, and the
 //! turn/streaming settlement that feeds the scrollback.
 
-pub mod handlers;
 pub(crate) mod keys;
 mod render;
 mod turn;
 mod view;
 
 use crate::pager::ReplayPager;
-pub use handlers::{TuiApprovalHandler, TuiInteractionHandler};
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use wf_api::infra::stream::ExecutionStreamEvent;
-use wf_api::{ToolApprovalRequest, ToolApprovalResult};
+use wf_client::WfClient;
+use wf_types::events::ExecutionStreamEvent;
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 use crate::animation::AnimationController;
 use crate::approval_overlay::ApprovalRemembered;
-use crate::domain::DomainAdapter;
 use crate::footer::Footer;
 use crate::prep_cache::PreparedScrollback;
 use crate::reducer::Phase;
@@ -47,13 +42,13 @@ use crate::stream_pacer::SegmentedPacer;
 use crate::terminal::{DoublePressTracker, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::transcript::{HistoryLine, Role};
 
-/// Events from the domain side into the interactive event loop.
+/// Events from the server side into the interactive event loop.
 #[derive(Debug)]
 pub enum InteractiveEvent {
     /// A tool call awaits the user's approval.
     ApprovalRequested {
-        request: ToolApprovalRequest,
-        reply: oneshot::Sender<ToolApprovalResult>,
+        interaction_id: String,
+        request: ToolApprovalRequestData,
     },
     /// A follow-up question awaits the user's answer.
     QuestionRequested {
@@ -92,7 +87,7 @@ pub enum InteractiveAction {
 
 /// State machine for one interactive session in the full TUI.
 pub struct InteractiveController {
-    adapter: Arc<DomainAdapter>,
+    client: WfClient,
     execution_id: String,
     tx: mpsc::UnboundedSender<InteractiveEvent>,
     rx: mpsc::UnboundedReceiver<InteractiveEvent>,
@@ -115,7 +110,11 @@ pub struct InteractiveController {
     /// the scrollback area until it settles — the "streaming tail line" rule).
     streaming: Option<HistoryLine>,
     turn_task: Option<JoinHandle<()>>,
-    approval_reply: Option<oneshot::Sender<ToolApprovalResult>>,
+    /// Interaction poll task watching pending server approvals/questions
+    /// for the active turn; aborted with the turn.
+    poll_task: Option<JoinHandle<()>>,
+    /// Interaction id behind the visible approval overlay, if any.
+    pending_approval: Option<String>,
     remembered: ApprovalRemembered,
     scroll_cover: usize,
     tool_started_at: HashMap<String, u64>,
@@ -255,21 +254,18 @@ impl InteractiveController {
         crate::clock::now_ms()
     }
 
-    /// Register the interaction handler and prepare an empty session.
-    pub async fn start(adapter: Arc<DomainAdapter>, execution_id: String) -> Self {
+    /// Prepare an empty session over one server connection. Approvals and
+    /// follow-up questions arrive by polling pending interactions while a
+    /// turn runs; nothing registers in-process.
+    pub async fn start(client: WfClient, execution_id: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        wf_api::entity::user_interaction::register_handler(
-            adapter.api_context(),
-            Arc::new(TuiInteractionHandler::new(tx.clone())),
-        )
-        .await;
 
         let mut footer = Footer::new();
         footer.state.execution_id = Some(execution_id.clone());
         footer.state.phase = Phase::Idle;
 
         Self {
-            adapter,
+            client,
             execution_id: execution_id.clone(),
             tx,
             rx,
@@ -284,7 +280,8 @@ impl InteractiveController {
             last_layout_height: 24,
             streaming: None,
             turn_task: None,
-            approval_reply: None,
+            poll_task: None,
+            pending_approval: None,
             remembered: ApprovalRemembered::default(),
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
@@ -312,17 +309,23 @@ impl InteractiveController {
         }
     }
 
-    /// Tear down the turn task and clear the domain handler.
+    /// Tear down the turn task and the interaction poll task.
     pub async fn shutdown(mut self) {
         if let Some(task) = self.turn_task.take() {
             task.abort();
             let _ = task.await;
         }
-        wf_api::entity::user_interaction::clear_handler(self.adapter.api_context()).await;
+        if let Some(task) = self.poll_task.take() {
+            task.abort();
+            let _ = task.await;
+        }
     }
 
     fn abort_turn(&mut self) {
         if let Some(task) = self.turn_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.poll_task.take() {
             task.abort();
         }
     }
@@ -356,13 +359,12 @@ impl InteractiveController {
         self.scrollback = scrollback;
         self.footer.state.execution_id = Some(session_id.to_string());
 
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let session_id = session_id.to_string();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let ctx = adapter.api_context();
             let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
-                ctx,
+                &client,
                 &session_id,
                 None,
                 crate::replay::REPLAY_PAGE_LIMIT,
@@ -399,13 +401,12 @@ impl InteractiveController {
         let before = self.pager.cursor.expect("Partial pager holds a cursor");
         self.pager.start_earlier();
 
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let session_id = self.footer.state.execution_id.clone().unwrap_or_default();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let ctx = adapter.api_context();
             let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
-                ctx,
+                &client,
                 &session_id,
                 Some(before),
                 crate::replay::REPLAY_PAGE_LIMIT,
@@ -454,7 +455,7 @@ impl InteractiveController {
                 self.last_layout_width,
                 self.last_layout_height,
             ),
-            force_full: self.approval_reply.is_some(),
+            force_full: self.footer.approval.is_some(),
         }
     }
 
@@ -532,7 +533,7 @@ impl InteractiveController {
         view.streaming = self.stream.streaming_text().to_string();
         view.scroll = self.view_scroll;
         view.height = self.last_layout_height.max(1);
-        view.overlay = self.approval_reply.is_some();
+        view.overlay = self.footer.approval.is_some();
         view.now_ms = self.now_ms();
         view.footer = crate::redraw::footer_digest(&self.footer.state);
         view

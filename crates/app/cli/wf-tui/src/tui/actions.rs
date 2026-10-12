@@ -1,11 +1,11 @@
 //! Destructive / mutating actions dispatched from key routes: delete
-//! workflow, pause/resume and cancel executions, default model selection.
-
-use std::sync::Arc;
+//! workflow, pause/resume and cancel executions, default model selection,
+//! checkpoint detail/chain/restore/delete.
 
 use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
 use crate::overlay::Feedback;
 use crate::screens::{short_id, CheckpointRow, ScreenData, ScreenKind};
+use wf_client::WfClient;
 
 use super::data_cache::DataResult;
 use super::TuiApp;
@@ -32,14 +32,20 @@ impl TuiApp {
         };
         let id = row.id.clone();
         let task_id = id.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let tx = self.data_tx.clone();
         self.tasks.push(tokio::spawn(async move {
-            let ctx = adapter.api_context();
-            let result = wf_api::checkpoint::record::get_checkpoint(&ctx.storage, &task_id)
+            let result = client
+                .get_json::<serde_json::Value>(&format!("/api/v1/checkpoints/{task_id}"))
                 .await
+                .and_then(|value| {
+                    serde_json::from_value::<wf_types::storage::checkpoint::Checkpoint>(value)
+                        .map_err(|e| {
+                            wf_client::ClientError::Invalid(format!("checkpoint decode: {e}"))
+                        })
+                })
                 .map(|checkpoint| crate::fetch::format_checkpoint_detail(&checkpoint))
-                .map_err(Into::into);
+                .map_err(crate::error::CliError::from);
             let _ = tx.send(DataResult::CheckpointDetail {
                 title: format!("Checkpoint {}", short_id(&task_id)),
                 result,
@@ -57,14 +63,16 @@ impl TuiApp {
         };
         let entity = row.entity.clone();
         let task_entity = entity.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         let tx = self.data_tx.clone();
         self.tasks.push(tokio::spawn(async move {
-            let ctx = adapter.api_context();
-            let result = wf_api::checkpoint::record::chain_for_execution(ctx, &task_entity, None)
+            let result = client
+                .get_json::<serde_json::Value>(&format!(
+                    "/api/v1/executions/{task_entity}/checkpoints/chain"
+                ))
                 .await
                 .map(|chain| crate::fetch::format_checkpoint_chain(&chain))
-                .map_err(Into::into);
+                .map_err(crate::error::CliError::from);
             let _ = tx.send(DataResult::CheckpointChain {
                 title: format!("Chain {}", short_id(&task_entity)),
                 result,
@@ -94,20 +102,41 @@ impl TuiApp {
             ),
         )));
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let outcome = match rx.await {
                 Ok(ModalResult::Confirmed) => {
-                    let ctx = adapter.api_context();
-                    let result = if is_loop {
-                        wf_api::agent::agent_checkpoint::restore(ctx, &entity, &id)
+                    let result: Result<String, String> = if is_loop {
+                        client
+                            .post_json::<_, serde_json::Value>(
+                                &format!(
+                                    "/api/v1/agent-loops/{entity}/checkpoints/{id}/restore"
+                                ),
+                                &serde_json::json!({}),
+                            )
                             .await
-                            .map(|checkpoint| checkpoint.id)
+                            .map(|value| {
+                                value
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(&id)
+                                    .to_string()
+                            })
                             .map_err(|err| err.to_string())
                     } else {
-                        wf_api::workflow::workflow_execution::restore_checkpoint(ctx, &id)
+                        client
+                            .post_json::<_, serde_json::Value>(
+                                &format!("/api/v1/executions/checkpoints/{id}/restore"),
+                                &serde_json::json!({}),
+                            )
                             .await
-                            .map(|restored| restored.execution_id)
+                            .map(|value| {
+                                value
+                                    .get("execution_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(&id)
+                                    .to_string()
+                            })
                             .map_err(|err| err.to_string())
                     };
                     match result {
@@ -139,12 +168,14 @@ impl TuiApp {
             ),
         )));
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let outcome = match rx.await {
                 Ok(ModalResult::Confirmed) => {
-                    let ctx = adapter.api_context();
-                    match wf_api::checkpoint::record::delete_checkpoint(&ctx.storage, &id).await {
+                    match client
+                        .delete_json::<bool>(&format!("/api/v1/checkpoints/{id}"))
+                        .await
+                    {
                         Ok(true) => {
                             let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
                             let _ = tx.send(Feedback::Refresh(ScreenKind::Dashboard));
@@ -191,12 +222,14 @@ impl TuiApp {
             format!("Delete \"{name}\"? This cannot be undone."),
         )));
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let outcome = match rx.await {
                 Ok(ModalResult::Confirmed) => {
-                    let ctx = adapter.api_context();
-                    match wf_api::workflow::definition::delete_workflow(ctx, &id).await {
+                    match client
+                        .delete_json::<bool>(&format!("/api/v1/workflows/{id}"))
+                        .await
+                    {
                         Ok(true) => {
                             let _ = tx.send(Feedback::Notice(format!("Deleted workflow {id}")));
                             let _ = tx.send(Feedback::Refresh(ScreenKind::Workflow));
@@ -234,14 +267,9 @@ impl TuiApp {
         let paused = row.status.eq_ignore_ascii_case("paused");
         let action = if paused { "resume" } else { "pause" };
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
-            let ctx = adapter.api_context();
-            let result = if paused {
-                ctx.resume_execution(&id).await
-            } else {
-                ctx.pause_execution(&id).await
-            };
+            let result = toggle_execution(&client, &id, paused).await;
             let notice = match result {
                 Ok(()) => {
                     let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
@@ -272,12 +300,11 @@ impl TuiApp {
             format!("Cancel execution {id}? This cannot be undone."),
         )));
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let outcome = match rx.await {
                 Ok(ModalResult::Confirmed) => {
-                    let ctx = adapter.api_context();
-                    match ctx.cancel_execution(&id).await {
+                    match cancel_execution(&client, &id).await {
                         Ok(()) => {
                             let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
                             format!("Cancelled execution {id}")
@@ -323,13 +350,18 @@ impl TuiApp {
             .modals
             .push_with_result(Box::new(ModelPicker::new(choices)));
         let tx = self.feedback_tx.clone();
-        let adapter = Arc::clone(&self.adapter);
+        let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let result = match rx.await {
                 Ok(ModalResult::Value(id)) => {
-                    let ctx = adapter.api_context();
-                    match wf_api::llm::llm_profile::set_default(ctx, &id).await {
-                        Ok(()) => {
+                    match client
+                        .post_json::<_, serde_json::Value>(
+                            &format!("/api/v1/llm/profiles/{id}/default"),
+                            &serde_json::json!({}),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
                             let _ = tx.send(Feedback::Notice(format!("Default model set to {id}")));
                             let _ = tx.send(Feedback::Refresh(ScreenKind::Settings));
                         }
@@ -345,4 +377,49 @@ impl TuiApp {
             let _ = tx.send(Feedback::Notice(result));
         }));
     }
+}
+
+async fn toggle_execution(
+    client: &WfClient,
+    id: &str,
+    paused: bool,
+) -> Result<(), wf_client::ClientError> {
+    let action = if paused { "resume" } else { "pause" };
+    if client
+        .post_json::<_, serde_json::Value>(
+            &format!("/api/v1/executions/{id}/{action}"),
+            &serde_json::json!({}),
+        )
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+    client
+        .post_json::<_, serde_json::Value>(
+            &format!("/api/v1/agent-loops/{id}/{action}"),
+            &serde_json::json!({}),
+        )
+        .await
+        .map(|_| ())
+}
+
+async fn cancel_execution(client: &WfClient, id: &str) -> Result<(), wf_client::ClientError> {
+    if client
+        .post_json::<_, serde_json::Value>(
+            &format!("/api/v1/executions/{id}/cancel"),
+            &serde_json::json!({}),
+        )
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+    client
+        .post_json::<_, serde_json::Value>(
+            &format!("/api/v1/agent-loops/{id}/cancel"),
+            &serde_json::json!({}),
+        )
+        .await
+        .map(|_| ())
 }

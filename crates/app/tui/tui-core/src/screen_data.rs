@@ -60,6 +60,31 @@ impl ScreenKind {
     }
 }
 
+/// Digit that selects each screen in the shell's key map. Dashboard has no
+/// digit and stays reachable through the sidebar only.
+pub fn screen_digit(kind: ScreenKind) -> Option<char> {
+    match kind {
+        ScreenKind::Workflow => Some('1'),
+        ScreenKind::Executions => Some('2'),
+        ScreenKind::AgentLoops => Some('3'),
+        ScreenKind::Insights => Some('4'),
+        ScreenKind::Interactive => Some('5'),
+        ScreenKind::Checkpoints => Some('6'),
+        ScreenKind::Search => Some('7'),
+        ScreenKind::Settings => Some('8'),
+        ScreenKind::Help => Some('9'),
+        ScreenKind::Dashboard => None,
+    }
+}
+
+/// Screen the digit selects, the inverse of [`screen_digit`].
+pub fn screen_for_digit(c: char) -> Option<ScreenKind> {
+    ScreenKind::all()
+        .iter()
+        .copied()
+        .find(|kind| screen_digit(*kind) == Some(c))
+}
+
 /// Aggregate counters rendered on the dashboard.
 #[derive(Debug, Clone, Default)]
 pub struct DashboardData {

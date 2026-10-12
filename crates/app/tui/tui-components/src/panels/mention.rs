@@ -17,7 +17,7 @@ impl MentionPanel {
     pub fn new(
         files: &[String],
         skills: &[SkillMetadata],
-        workflows: &[wf_api::workflow::summary::WorkflowSummary],
+        workflows: &[super::workflow::WorkflowSummaryRow],
         filter: Option<&str>,
     ) -> Self {
         let mut groups: Vec<Group<String>> = Vec::new();

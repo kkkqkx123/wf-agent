@@ -9,13 +9,6 @@ clap.workspace = true
 tokio.workspace = true
 wf-cli-shared = { path = "../wf-cli-shared" }
 
-[features]
-default = ["embedded"]
-embedded = ["wf-cli-shared/embedded"]
-remote = ["wf-cli-shared/remote"]
-lua = ["wf-cli-shared/lua"]
-native = ["wf-cli-shared/native"]
-
 [[bin]]
 name = "wf-headless"
 path = "src/main.rs"

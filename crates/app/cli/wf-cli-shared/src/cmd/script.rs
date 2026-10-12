@@ -1,41 +1,31 @@
 use std::path::Path;
 
-use wf_api::llm::script;
-
 use crate::args::{Cli, ScriptSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "script")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         ScriptSub::List => {
-            let list = script::list_scripts(&ctx.storage, None).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client.get_json("/api/v1/scripts").await?;
             render_envelope(cli.output, OutputEnvelope::success("script-list", data))
         }
         ScriptSub::Show { id } => {
-            let s = script::get_script(&ctx.storage, id).await?;
-            let data = serde_json::to_value(&s)?;
+            let data: serde_json::Value =
+                client.get_json(&format!("/api/v1/scripts/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("script-show", data).with_entity(id.clone()),
             )
         }
         ScriptSub::Validate { name, code } => {
-            let params = script::ScriptExecuteParams {
-                name: name.clone(),
-                code: code.clone(),
-                ..Default::default()
-            };
-            let v = script::validate(ctx, &params).await?;
-            let data = serde_json::to_value(&v)?;
+            let body = serde_json::json!({"name": name, "code": code, "args": {}});
+            let data: serde_json::Value =
+                client.post_json("/api/v1/scripts/validate", &body).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("script-validate", data).with_entity(name.clone()),
@@ -47,55 +37,41 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             template,
             args,
         } => {
-            let args_map = if let Some(json) = args {
-                serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(json)
-                    .unwrap_or_default()
+            let args_map: serde_json::Value = if let Some(json) = args {
+                serde_json::from_str(json).unwrap_or(serde_json::json!({}))
             } else {
-                std::collections::HashMap::new()
+                serde_json::json!({})
             };
-            let params = script::ScriptExecuteParams {
-                name: name.clone(),
-                code: code.clone(),
-                template: template.clone(),
-                args: args_map,
-                ..Default::default()
-            };
-            let result = script::execute(ctx, &params).await?;
-            let data = serde_json::to_value(&result)?;
+            let body = serde_json::json!({
+                "name": name,
+                "code": code,
+                "template": template,
+                "args": args_map,
+            });
+            let data: serde_json::Value =
+                client.post_json("/api/v1/scripts/execute", &body).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("script-execute", data).with_entity(name.clone()),
             )
         }
         ScriptSub::Save { file } => {
-            let meta = load_script(Path::new(file))?;
-            script::save_script(&ctx.storage, &meta).await?;
-            let data = serde_json::json!({"saved": meta.id});
+            let meta = load_json(Path::new(file), "script")?;
+            let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            client.post_json::<_, serde_json::Value>("/api/v1/scripts", &meta).await?;
+            let data = serde_json::json!({"saved": id});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("script-save", data).with_entity(meta.id.clone()),
+                OutputEnvelope::success("script-save", data).with_entity(id),
             )
         }
         ScriptSub::Delete { id, force } => {
-            if !*force {
-                let refs = script::check_script_delete_references(&ctx.storage, id).await?;
-                if !refs.is_empty() {
-                    let list = refs
-                        .iter()
-                        .map(|r| format!("{}#{}", r.workflow_id, r.node_id))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let msg = format!(
-                        "script '{}' is referenced by: {list} (use --force to cascade)",
-                        id
-                    );
-                    return render_envelope(
-                        cli.output,
-                        OutputEnvelope::failure("script-delete", msg),
-                    );
-                }
-            }
-            let deleted = script::delete_script(&ctx.storage, id).await?;
+            // Reference protection lives server-side: without --force the
+            // server rejects referenced scripts instead of cascading.
+            let data: serde_json::Value = client
+                .delete_json(&format!("/api/v1/scripts/{id}?force={force}"))
+                .await?;
+            let deleted = data.as_bool().unwrap_or(true);
             if deleted {
                 let data = serde_json::json!({"deleted": id});
                 render_envelope(
@@ -110,7 +86,12 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             }
         }
         ScriptSub::Enable { id } => {
-            script::enable_script(&ctx.storage, id).await?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/scripts/{id}/enable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"enabled": id});
             render_envelope(
                 cli.output,
@@ -118,7 +99,12 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             )
         }
         ScriptSub::Disable { id } => {
-            script::disable_script(&ctx.storage, id).await?;
+            client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/scripts/{id}/disable"),
+                    &serde_json::json!({}),
+                )
+                .await?;
             let data = serde_json::json!({"disabled": id});
             render_envelope(
                 cli.output,
@@ -126,19 +112,18 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             )
         }
         ScriptSub::Search { query } => {
-            let list = script::search_scripts(&ctx.storage, query).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/scripts/search?q={query}"))
+                .await?;
             render_envelope(cli.output, OutputEnvelope::success("script-search", data))
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }
 
-fn load_script(path: &Path) -> CliResult<wf_types::ScriptStorageMetadata> {
+fn load_json(path: &Path, kind: &str) -> CliResult<serde_json::Value> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;
     serde_json::from_str(&content)
-        .map_err(|e| CliError::Arguments(format!("invalid script JSON in {}: {e}", path.display())))
+        .map_err(|e| CliError::Arguments(format!("invalid {kind} JSON in {}: {e}", path.display())))
 }

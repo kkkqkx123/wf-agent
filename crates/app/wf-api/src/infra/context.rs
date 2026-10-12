@@ -113,6 +113,9 @@ pub struct ApiContext {
     /// failed revalidation after an update. Cleared when the workflow is
     /// re-saved formally. Phase three persists this as a lifecycle state.
     pub stale_workflows: Arc<dashmap::DashSet<String>>,
+    /// User repository Git configuration (repo root + timeouts). `None`
+    /// keeps the user git domain disabled.
+    user_git: Option<wf_types::config::user_git::UserGitConfig>,
 }
 
 impl ApiContext {
@@ -147,6 +150,7 @@ impl ApiContext {
             tool_approval: None,
             execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
+            user_git: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -191,6 +195,7 @@ impl ApiContext {
             tool_approval: None,
             execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
+            user_git: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -295,6 +300,20 @@ impl ApiContext {
     /// The attached file checkpoint manager, if any.
     pub fn file_checkpoint_manager(&self) -> Option<&wf_checkpoint::FileCheckpointManager> {
         self.file_checkpoint_manager.as_ref()
+    }
+
+    /// Attach the user git configuration. `None` keeps the domain disabled.
+    pub fn with_user_git(
+        mut self,
+        config: wf_types::config::user_git::UserGitConfig,
+    ) -> Self {
+        self.user_git = Some(config);
+        self
+    }
+
+    /// The configured user git domain, if any.
+    pub fn user_git_config(&self) -> Option<&wf_types::config::user_git::UserGitConfig> {
+        self.user_git.as_ref()
     }
 
     pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {

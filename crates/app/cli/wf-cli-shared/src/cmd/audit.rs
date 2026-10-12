@@ -1,34 +1,37 @@
-use wf_api::audit;
-
 use crate::args::{AuditSub, Cli};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &AuditSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "audit")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         AuditSub::Summary { id } => {
-            let s = audit::audit_summary(ctx, id).await?;
-            let data = serde_json::to_value(&s)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/summary"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-summary", data).with_entity(id.clone()),
             )
         }
         AuditSub::Report { id } => {
-            let r = audit::audit_report(ctx, id).await?;
+            let report: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/report"))
+                .await?;
             // Inject explicit source string alongside the report so consumers can
             // tell live/persisted/checkpoint without parsing the summary.
-            let source_str = format!("{:?}", r.summary.source);
+            let source_str = report
+                .get("summary")
+                .and_then(|s| s.get("source"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown")
+                .to_string();
             let data = serde_json::json!({
                 "source": source_str,
-                "report": r,
+                "report": report,
             });
             render_envelope(
                 cli.output,
@@ -36,46 +39,49 @@ pub async fn run(cli: &Cli, sub: &AuditSub) -> CliResult<()> {
             )
         }
         AuditSub::Timeline { id } => {
-            let t = audit::audit_timeline(ctx, id).await?;
-            let data = serde_json::to_value(&t)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/timeline"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-timeline", data).with_entity(id.clone()),
             )
         }
         AuditSub::Iterations { id } => {
-            let list = audit::list_iterations(ctx, id).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/iterations"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-iterations", data).with_entity(id.clone()),
             )
         }
         AuditSub::ToolCalls { id } => {
-            let list = audit::list_tool_calls(ctx, id).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/tool-calls"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-tool-calls", data).with_entity(id.clone()),
             )
         }
         AuditSub::LlmCalls { id } => {
-            let list = audit::list_llm_calls(ctx, id).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/llm-calls"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-llm-calls", data).with_entity(id.clone()),
             )
         }
         AuditSub::NodeExecutions { id } => {
-            let list = audit::list_node_executions(ctx, id).await?;
-            let data = serde_json::to_value(&list)?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{id}/audit/node-executions"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-node-executions", data).with_entity(id.clone()),
             )
         }
-    };
-    domain.shutdown().await?;
-    result
+    }
 }

@@ -14,15 +14,6 @@ pub enum CheckpointDomain {
     Agent,
 }
 
-impl From<CheckpointDomain> for wf_api::ExecutionDomain {
-    fn from(domain: CheckpointDomain) -> Self {
-        match domain {
-            CheckpointDomain::Workflow => wf_api::ExecutionDomain::Workflow,
-            CheckpointDomain::Agent => wf_api::ExecutionDomain::AgentLoop,
-        }
-    }
-}
-
 /// Checkpoint subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum CheckpointSub {

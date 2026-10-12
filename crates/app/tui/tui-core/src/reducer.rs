@@ -24,7 +24,7 @@
 //! snapshot the resulting commits. Engine lifecycle events carry no
 //! agent-loop payload for a run and are ignored at the consume site.
 
-use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_types::events::ExecutionStreamEvent;
 
 /// Grouping key for a commit: `execution_id + iteration + tool_call_id`.
 ///

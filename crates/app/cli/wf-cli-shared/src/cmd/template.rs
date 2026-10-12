@@ -1,75 +1,77 @@
 use std::path::Path;
 
-use wf_api::template::template_library;
-
 use crate::args::{Cli, TemplateSub};
 use crate::cmd::render::render_envelope;
+use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "template")
-            .await?;
-    let ctx = domain
-        .api_context()
-        .expect("embedded mode must have api_context");
-    let result = match sub {
+    let handle = ClientHandle::from_cli(cli).await?;
+    let client = handle.client();
+    match sub {
         TemplateSub::List {
             kind,
             category,
             tags,
             author,
         } => {
-            let mut filter = template_library::TemplateFilter::default();
+            let mut params: Vec<String> = Vec::new();
             if let Some(k) = kind {
                 match k.to_ascii_lowercase().as_str() {
-                    "workflow" => filter.kind = Some(template_library::TemplateKind::Workflow),
-                    "agent" => filter.kind = Some(template_library::TemplateKind::Agent),
+                    "workflow" | "agent" => params.push(format!("kind={k}")),
                     _ => {}
                 }
             }
             if let Some(cat) = category {
-                filter.category = Some(cat.clone());
+                params.push(format!("category={cat}"));
             }
             if let Some(t) = tags {
-                filter.tags = Some(
-                    t.split(',')
-                        .map(|v| v.trim().to_string())
-                        .filter(|v| !v.is_empty())
-                        .collect(),
-                );
+                params.push(format!("tags={t}"));
             }
             if let Some(a) = author {
-                filter.author = Some(a.clone());
+                params.push(format!("author={a}"));
             }
-            let list = template_library::query(ctx, &filter).await?;
-            let data = serde_json::to_value(&list)?;
+            let path = if params.is_empty() {
+                "/api/v1/templates/library".to_string()
+            } else {
+                format!("/api/v1/templates/library?{}", params.join("&"))
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(cli.output, OutputEnvelope::success("template-list", data))
         }
         TemplateSub::Show { id, kind: _ } => {
-            let filter = template_library::TemplateFilter {
-                name: Some(id.clone()),
-                ..Default::default()
-            };
-            let list = template_library::query(ctx, &filter).await?;
-            if let Some(t) = list.into_iter().find(|t| t.id == *id || t.name == *id) {
-                let data = serde_json::to_value(&t)?;
-                render_envelope(
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/templates/library?name={id}"))
+                .await?;
+            let found = data
+                .as_array()
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find(|t| {
+                            t.get("id").and_then(|v| v.as_str()) == Some(id.as_str())
+                                || t.get("name").and_then(|v| v.as_str()) == Some(id.as_str())
+                        })
+                        .cloned()
+                });
+            match found {
+                Some(t) => render_envelope(
                     cli.output,
-                    OutputEnvelope::success("template-show", data).with_entity(id.clone()),
-                )
-            } else {
-                render_envelope(
+                    OutputEnvelope::success("template-show", t).with_entity(id.clone()),
+                ),
+                None => render_envelope(
                     cli.output,
                     OutputEnvelope::failure("template-show", format!("template not found: {id}")),
-                )
+                ),
             }
         }
         TemplateSub::Clone { id } => {
             let new_name = format!("{id}-clone");
-            let cloned = template_library::clone_workflow_template(ctx, id, &new_name)?;
-            let data = serde_json::to_value(&cloned)?;
+            let body = serde_json::json!({"kind": "workflow", "new_name": new_name});
+            let data: serde_json::Value = client
+                .post_json(&format!("/api/v1/templates/library/{id}/clone"), &body)
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("template-clone", data).with_entity(id.clone()),
@@ -81,29 +83,43 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             match kind.to_ascii_lowercase().as_str() {
                 "agent" => {
                     let template = load_agent_template(path, &fmt)?;
-                    template_library::register_agent_template(ctx, &template).await?;
-                    let data = serde_json::json!({"registered": template.id, "kind": "agent"});
+                    let id = template
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    client
+                        .post_json::<_, serde_json::Value>("/api/v1/templates/library/agents", &template)
+                        .await?;
+                    let data = serde_json::json!({"registered": id, "kind": "agent"});
                     render_envelope(
                         cli.output,
-                        OutputEnvelope::success("template-register", data)
-                            .with_entity(template.id.to_string()),
+                        OutputEnvelope::success("template-register", data).with_entity(id),
                     )
                 }
                 _ => {
                     let template = load_workflow_template(path, &fmt)?;
-                    template_library::register_workflow_template(ctx, &template)?;
-                    let data = serde_json::json!({"registered": template.id, "kind": "workflow"});
+                    let id = template
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    client
+                        .post_json::<_, serde_json::Value>("/api/v1/templates/library/workflows", &template)
+                        .await?;
+                    let data = serde_json::json!({"registered": id, "kind": "workflow"});
                     render_envelope(
                         cli.output,
-                        OutputEnvelope::success("template-register", data)
-                            .with_entity(template.id.to_string()),
+                        OutputEnvelope::success("template-register", data).with_entity(id),
                     )
                 }
             }
         }
         TemplateSub::Delete { id, kind } => match kind.to_ascii_lowercase().as_str() {
             "agent" => {
-                template_library::delete_agent_template(ctx, id).await?;
+                client
+                    .delete_json::<serde_json::Value>(&format!("/api/v1/templates/library/agents/{id}"))
+                    .await?;
                 let data = serde_json::json!({"deleted": id, "kind": "agent"});
                 render_envelope(
                     cli.output,
@@ -111,7 +127,9 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
             _ => {
-                template_library::delete_workflow_template(ctx, id).await?;
+                client
+                    .delete_json::<serde_json::Value>(&format!("/api/v1/templates/library/workflows/{id}"))
+                    .await?;
                 let data = serde_json::json!({"deleted": id, "kind": "workflow"});
                 render_envelope(
                     cli.output,
@@ -119,9 +137,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
         },
-    };
-    domain.shutdown().await?;
-    result
+    }
 }
 
 fn resolve_format(path: &Path, format: &str) -> String {
@@ -134,88 +150,72 @@ fn resolve_format(path: &Path, format: &str) -> String {
     }
 }
 
-fn load_workflow_template(
-    path: &Path,
-    fmt: &str,
-) -> CliResult<wf_types::workflow::WorkflowTemplate> {
+fn load_workflow_template(path: &Path, fmt: &str) -> CliResult<serde_json::Value> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;
     if fmt == "toml" {
-        if let Ok(t) = toml::from_str::<wf_types::workflow::WorkflowTemplate>(&content) {
-            return Ok(t);
+        if let Ok(t) = toml::from_str::<serde_json::Value>(&content) {
+            if t.get("definition").is_some() {
+                return Ok(t);
+            }
         }
         let def: wf_types::WorkflowDefinition = toml::from_str(&content)
             .map_err(|e| CliError::Arguments(format!("invalid TOML in {}: {e}", path.display())))?;
-        Ok(wf_types::workflow::WorkflowTemplate {
-            id: def.id.clone(),
-            name: def.name.clone(),
-            description: def.description.clone().unwrap_or_default(),
-            definition: def,
-            template_category: None,
-            template_tags: None,
-            is_public: None,
-            enabled: None,
-        })
+        Ok(serde_json::json!({
+            "id": def.id.clone(),
+            "name": def.name.clone(),
+            "description": def.description.clone().unwrap_or_default(),
+            "definition": def,
+        }))
     } else {
         let value: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| CliError::Arguments(format!("invalid JSON in {}: {e}", path.display())))?;
-        if let Ok(t) = serde_json::from_value::<wf_types::workflow::WorkflowTemplate>(value.clone())
-        {
-            return Ok(t);
+        if value.get("definition").is_some() {
+            return Ok(value);
         }
         let def: wf_types::WorkflowDefinition = serde_json::from_value(value)
             .map_err(|e| CliError::Arguments(format!("workflow parse failed: {e}")))?;
-        Ok(wf_types::workflow::WorkflowTemplate {
-            id: def.id.clone(),
-            name: def.name.clone(),
-            description: def.description.clone().unwrap_or_default(),
-            definition: def,
-            template_category: None,
-            template_tags: None,
-            is_public: None,
-            enabled: None,
-        })
+        Ok(serde_json::json!({
+            "id": def.id.clone(),
+            "name": def.name.clone(),
+            "description": def.description.clone().unwrap_or_default(),
+            "definition": def,
+        }))
     }
 }
 
-fn load_agent_template(path: &Path, fmt: &str) -> CliResult<wf_types::agent::AgentTemplate> {
+fn load_agent_template(path: &Path, fmt: &str) -> CliResult<serde_json::Value> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;
     if fmt == "toml" {
-        if let Ok(t) = toml::from_str::<wf_types::agent::AgentTemplate>(&content) {
-            return Ok(t);
+        if let Ok(t) = toml::from_str::<serde_json::Value>(&content) {
+            if t.get("definition").is_some() {
+                return Ok(t);
+            }
         }
         let def: wf_types::agent::AgentDefinition = toml::from_str(&content)
             .map_err(|e| CliError::Arguments(format!("invalid TOML in {}: {e}", path.display())))?;
-        Ok(wf_types::agent::AgentTemplate {
-            id: def.id.clone(),
-            name: def.name.clone(),
-            description: def.description.clone().unwrap_or_default(),
-            definition: def,
-            template_category: None,
-            template_tags: None,
-            is_public: None,
-            enabled: None,
-        })
+        Ok(serde_json::json!({
+            "id": def.id.clone(),
+            "name": def.name.clone(),
+            "description": def.description.clone().unwrap_or_default(),
+            "definition": def,
+        }))
     } else {
         let value: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| CliError::Arguments(format!("invalid JSON in {}: {e}", path.display())))?;
-        if let Ok(t) = serde_json::from_value::<wf_types::agent::AgentTemplate>(value.clone()) {
-            return Ok(t);
+        if value.get("definition").is_some() {
+            return Ok(value);
         }
         let def: wf_types::agent::AgentDefinition = serde_json::from_value(value)
             .map_err(|e| CliError::Arguments(format!("agent parse failed: {e}")))?;
-        Ok(wf_types::agent::AgentTemplate {
-            id: def.id.clone(),
-            name: def.name.clone(),
-            description: def.description.clone().unwrap_or_default(),
-            definition: def,
-            template_category: None,
-            template_tags: None,
-            is_public: None,
-            enabled: None,
-        })
+        Ok(serde_json::json!({
+            "id": def.id.clone(),
+            "name": def.name.clone(),
+            "description": def.description.clone().unwrap_or_default(),
+            "definition": def,
+        }))
     }
 }

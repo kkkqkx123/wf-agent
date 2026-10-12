@@ -1,7 +1,7 @@
 //! Turn rendering for the mini session: assistant deltas append to stdout,
 //! everything else goes to stderr, via an injectable [`TurnSink`].
 
-use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_types::events::ExecutionStreamEvent;
 use wf_cli_shared::display::MarkdownMode;
 
 use super::TurnOutcome;
@@ -9,9 +9,8 @@ use crate::display::DisplayConfig;
 use crate::output::{self, AppendWriter};
 use crate::render::{strip_terminal_escapes, StreamRenderer};
 
-/// A turn that started, with the id used for summaries and persistence.
+/// A turn that ran to completion of its stream.
 pub(super) struct FinishedTurn {
-    pub(super) execution_id: String,
     pub(super) outcome: TurnOutcome,
 }
 
@@ -237,7 +236,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shortens_embedded_execution_id() {
+    fn shortens_execution_id() {
         assert_eq!(short_execution_id("abcdef123456"), "abcdef12");
     }
 

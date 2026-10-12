@@ -3,17 +3,15 @@
 //!
 //! [`ApprovalView`] renders the tool name, its risk level and description,
 //! the batch context, an arguments preview and the key hints, and maps a
-//! keymap action (y/a/d/n/c) onto a [`ToolApprovalResult`]. "Allow all" /
+//! keymap action (y/a/d/n/c) onto an [`ApprovalAnswer`]. "Allow all" /
 //! "deny" are session-scoped remembers — the session event loop consults
 //! [`ApprovalRemembered`] to auto-answer later requests for the same tool.
-//! The domain-side approval handler lives with the interactive controller
-//! (`crate::interactive::TuiApprovalHandler`); the headless policy lives in
-//! `wf-runtime::tool_approval`. Each form registers its own handler and
-//! never mixes.
+//! The request shape is the wire `ToolApprovalRequestData` shared with the
+//! server; answers post to the interaction respond endpoint.
 
 use std::time::Duration;
 
-use wf_api::{ToolApprovalRequest, ToolApprovalResult};
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 use tui_core::keymap::KeyAction;
 
@@ -104,16 +102,16 @@ impl ApprovalChoice {
 /// is active.
 #[derive(Debug, Clone)]
 pub struct ApprovalView {
-    request: ToolApprovalRequest,
+    request: ToolApprovalRequestData,
 }
 
 impl ApprovalView {
-    pub fn new(request: ToolApprovalRequest) -> Self {
+    pub fn new(request: ToolApprovalRequestData) -> Self {
         Self { request }
     }
 
     /// The pending request.
-    pub fn request(&self) -> &ToolApprovalRequest {
+    pub fn request(&self) -> &ToolApprovalRequestData {
         &self.request
     }
 
@@ -149,7 +147,7 @@ impl ApprovalView {
     /// Compact single-line arguments preview (pretty JSON truncated).
     pub fn arguments_preview(&self, width: usize) -> String {
         let pretty =
-            serde_json::to_string(&self.request.arguments).unwrap_or_else(|_| "{}".to_string());
+            serde_json::to_string(&self.request.parameters).unwrap_or_else(|_| "{}".to_string());
         truncate_graphemes(&pretty, width)
     }
 
@@ -159,23 +157,46 @@ impl ApprovalView {
     }
 
     /// Apply a choice to the pending request.
-    pub fn apply(&self, choice: ApprovalChoice) -> ToolApprovalResult {
+    pub fn apply(&self, choice: ApprovalChoice) -> ApprovalAnswer {
         match choice {
-            ApprovalChoice::Approve | ApprovalChoice::ApproveAll => {
-                ToolApprovalResult::approved(self.request.tool_call_id.clone())
+            ApprovalChoice::Approve | ApprovalChoice::ApproveAll => ApprovalAnswer::approved(),
+            ApprovalChoice::DenyOnce => {
+                ApprovalAnswer::rejected("denied by the user (this call only)")
             }
-            ApprovalChoice::DenyOnce => ToolApprovalResult::rejected(
-                self.request.tool_call_id.clone(),
-                "denied by the user (this call only)",
-            ),
-            ApprovalChoice::Deny => ToolApprovalResult::rejected(
-                self.request.tool_call_id.clone(),
-                "denied by the user (session)",
-            ),
-            ApprovalChoice::Cancel => ToolApprovalResult::rejected(
-                self.request.tool_call_id.clone(),
-                "cancelled by the user",
-            ),
+            ApprovalChoice::Deny => ApprovalAnswer::rejected("denied by the user (session)"),
+            ApprovalChoice::Cancel => ApprovalAnswer::rejected("cancelled by the user"),
+        }
+    }
+}
+
+/// The user's answer to one approval request: posts as the interaction
+/// `response_data` body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApprovalAnswer {
+    pub approved: bool,
+    pub rejection_reason: Option<String>,
+}
+
+impl ApprovalAnswer {
+    pub fn approved() -> Self {
+        Self {
+            approved: true,
+            rejection_reason: None,
+        }
+    }
+
+    pub fn rejected(reason: impl Into<String>) -> Self {
+        Self {
+            approved: false,
+            rejection_reason: Some(reason.into()),
+        }
+    }
+
+    /// Wire body for the interaction respond endpoint.
+    pub fn into_response_value(self) -> serde_json::Value {
+        match self.rejection_reason {
+            Some(reason) => serde_json::json!({"approved": false, "rejection_reason": reason}),
+            None => serde_json::json!({"approved": self.approved}),
         }
     }
 }
@@ -248,18 +269,17 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn request(tool: &str) -> ToolApprovalRequest {
-        ToolApprovalRequest {
+    fn request(tool: &str) -> ToolApprovalRequestData {
+        ToolApprovalRequestData {
             tool_call_id: "call-1".to_string(),
             tool_name: tool.to_string(),
-            arguments: json!({ "command": "rm -rf /tmp/x" }),
-            interaction_id: "ui-1".to_string(),
-            risk_level: None,
             tool_description: None,
+            parameters: json!({ "command": "rm -rf /tmp/x" }),
+            risk_level: None,
+            pending_queue: None,
             batch_id: None,
             tool_index: None,
             total_tools: None,
-            pending_queue: None,
         }
     }
 

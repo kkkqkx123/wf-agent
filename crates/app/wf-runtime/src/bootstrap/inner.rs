@@ -440,6 +440,7 @@ impl Runtime {
             presets: config.presets.clone(),
             tools: config.tools.clone(),
             limits: config.limits.clone(),
+            user_git: config.user_git.clone(),
         })
     }
 }

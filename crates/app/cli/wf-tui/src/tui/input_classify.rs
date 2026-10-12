@@ -145,7 +145,7 @@ pub(super) fn digit_to_screen(c: char) -> Option<ScreenKind> {
         '6' => Some(ScreenKind::Checkpoints),
         '7' => Some(ScreenKind::Search),
         '8' => Some(ScreenKind::Settings),
-        '9' => Some(ScreenKind::Dashboard),
+        '9' => Some(ScreenKind::Help),
         '0' => Some(ScreenKind::Help),
         _ => None,
     }
@@ -176,7 +176,9 @@ mod tests {
             .collect();
         assert_eq!(mapped.len(), 10);
         assert_eq!(mapped[0], ScreenKind::Workflow);
-        assert_eq!(mapped[7], ScreenKind::Settings);
+        assert_eq!(mapped[5], ScreenKind::Checkpoints);
+        assert_eq!(mapped[6], ScreenKind::Search);
+        assert_eq!(mapped[8], ScreenKind::Help);
         assert_eq!(mapped[9], ScreenKind::Help);
         assert!(digit_to_screen('z').is_none());
     }

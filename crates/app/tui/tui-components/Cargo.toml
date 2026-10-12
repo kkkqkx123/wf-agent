@@ -7,8 +7,6 @@ description = "Low-level TUI implementation crate (tui-components)"
 [dependencies]
 wf-common = { workspace = true }
 wf-types = { workspace = true }
-wf-core = { workspace = true }
-wf-api = { workspace = true }
 ratatui = { workspace = true }
 serde_json = { workspace = true }
 unicode-width = { workspace = true }

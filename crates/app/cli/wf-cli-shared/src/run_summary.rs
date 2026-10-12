@@ -4,7 +4,7 @@ use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputSink};
 use crate::run::RunOptions;
 use serde_json::Value;
-use wf_api::{DEFAULT_AGENT, DEFAULT_MODEL};
+use wf_client::{DEFAULT_AGENT, DEFAULT_MODEL};
 
 pub(crate) fn had_output_for_result(result: &Value) -> bool {
     !result.is_null()

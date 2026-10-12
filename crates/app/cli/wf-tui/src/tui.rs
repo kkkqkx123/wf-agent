@@ -1,8 +1,8 @@
 //! Full-screen TUI shell: event loop, screen data cache and key routing.
 //!
-//! The shell owns the [`DomainAdapter`] and turns domain reads into plain
+//! The shell owns the server client and turns server reads into plain
 //! display models ([`ScreenData`]) on a background task, so the draw path
-//! stays synchronous. Screens never touch the domain layer: they only render
+//! stays synchronous. Screens never touch the network layer: they only render
 //! what the cache hands them.
 
 mod actions;
@@ -13,7 +13,6 @@ mod signals;
 
 use std::io;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use libc;
@@ -28,7 +27,7 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::domain::DomainAdapter;
+use wf_client::WfClient;
 use crate::error::{CliError, CliResult};
 use crate::framer::FrameRequester;
 use crate::interactive::InteractiveController;
@@ -62,10 +61,10 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Help,
 ];
 
-/// Full-screen TUI application shell: owns the domain adapter, the screen
+/// Full-screen TUI application shell: owns the server client, the screen
 /// data cache and the interactive controller, and drives the event loop.
 pub struct TuiApp {
-    adapter: Arc<DomainAdapter>,
+    client: WfClient,
     /// Unified application state: navigation data, interface notices and
     /// client focus (see `state::AppState`). Session content itself lives in
     /// the interactive controller.
@@ -133,7 +132,7 @@ pub struct TuiApp {
 }
 
 impl TuiApp {
-    pub fn new(adapter: Arc<DomainAdapter>) -> Self {
+    pub fn new(client: WfClient) -> Self {
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         // Capability-driven policy, built once: components render the
@@ -164,7 +163,7 @@ impl TuiApp {
         let mut frame = FrameRequester::new(0);
         frame.set_min_interval_ms(perf_policy.redraw_interval_ms());
         Self {
-            adapter,
+            client,
             app: AppState::new(),
             modals: ModalStack::new(),
             overlay: OverlayMode::None,
@@ -247,10 +246,10 @@ impl TuiApp {
         let _ = terminal.clear();
         guard.restore()?;
 
-        // Abort and join every fetch so no task keeps the runtime alive;
-        // `Arc::try_unwrap` below then succeeds and shutdown can run. Mark the
-        // teardown graceful first so the final interactive drain never renders a
-        // spurious `Failed` row while the runtime closes underneath it.
+        // Abort and join every fetch so no task keeps the runtime alive.
+        // Mark the teardown graceful first so the final interactive drain
+        // never renders a spurious `Failed` row while tasks close underneath
+        // it.
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task.abort();
@@ -261,12 +260,6 @@ impl TuiApp {
         }
         if let Some(session) = self.interactive.take() {
             session.shutdown().await;
-        }
-        match Arc::try_unwrap(self.adapter) {
-            Ok(adapter) => {
-                let _ = adapter.shutdown().await;
-            }
-            Err(_) => tracing::warn!("TUI: runtime still referenced, skipping shutdown"),
         }
         result
     }
@@ -490,10 +483,6 @@ impl TuiApp {
                 }
             }
 
-            // External signal (SIGINT/SIGTERM) routed through the runtime.
-            if self.adapter.is_shutting_down() {
-                break;
-            }
             // Orphaned client with no live session exits instead of idling.
             let sample = crate::liveness::LivenessSample {
                 input_eof: false,
@@ -736,7 +725,8 @@ impl TuiApp {
             (true, false) => {
                 let id = wf_common::generate_id();
                 self.held_session.hold(id.clone());
-                let mut session = InteractiveController::start(Arc::clone(&self.adapter), id).await;
+                let mut session =
+                    InteractiveController::start(self.client.clone(), id).await;
                 session.set_perf_tier(self.perf_tier.marker());
                 session.apply_perf_policy(self.perf_policy);
                 self.interactive = Some(session);
@@ -753,6 +743,20 @@ impl TuiApp {
             _ => {}
         }
         Ok(())
+    }
+
+    /// Queue a session restore from `--session` / `--resume`: the replay
+    /// loads once the interactive controller attaches.
+    pub async fn queue_session_restore(&mut self, session: Option<String>, resume: bool) {
+        if let Some(id) = session {
+            self.pending_replay = Some(id);
+        } else if resume {
+            match crate::replay::latest_session_id(&self.client).await {
+                Ok(Some(id)) => self.pending_replay = Some(id),
+                Ok(None) => self.app.notice.set("no previous session found".to_string()),
+                Err(err) => self.app.notice.set(format!("resume failed: {err}")),
+            }
+        }
     }
 
     /// Leave the interactive screen when the interactive controller requests it.

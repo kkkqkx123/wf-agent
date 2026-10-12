@@ -1,0 +1,235 @@
+import { client } from '$lib/api/client';
+import { call, requireData } from '$lib/api/envelope';
+
+export interface RepoMeta {
+	name: string;
+	root: string;
+	branch: string;
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	head: string;
+	bare: boolean;
+	mergeHead: boolean;
+	rebaseHead: boolean;
+	cherryPickHead: boolean;
+}
+
+export interface GitFile {
+	path: string;
+	staged: string;
+	unstaged: string;
+	kind: string;
+	renamedFrom: string | null;
+}
+
+export interface DiffHunk {
+	header: string;
+	lines: string[];
+}
+
+export interface DiffFile {
+	path: string;
+	hunks: DiffHunk[];
+	additions: number;
+	deletions: number;
+}
+
+export interface CommitEntry {
+	id: string;
+	shortId: string;
+	author: string;
+	email: string;
+	timestamp: number;
+	subject: string;
+	body: string;
+	parents: string[];
+	refs: string[];
+}
+
+export interface BranchEntry {
+	name: string;
+	current: boolean;
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	commit: string;
+	subject: string;
+}
+
+export interface StashEntry {
+	index: number;
+	name: string;
+	message: string;
+}
+
+export interface RegistryEntry {
+	id: string;
+	danger: string;
+	params: string[];
+	available: boolean;
+	reason: string | null;
+}
+
+export interface Fingerprint {
+	statusHash: string;
+	head: string;
+	branchSummary: string;
+}
+
+function snake<T>(data: T): T {
+	return data;
+}
+
+export async function getMeta(): Promise<RepoMeta> {
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/meta'));
+	const v = requireData(data, 'Git meta') as Record<string, unknown>;
+	return {
+		name: String(v.name ?? ''),
+		root: String(v.root ?? ''),
+		branch: String(v.branch ?? ''),
+		upstream: (v.upstream as string | null) ?? null,
+		ahead: Number(v.ahead ?? 0),
+		behind: Number(v.behind ?? 0),
+		head: String(v.head ?? ''),
+		bare: Boolean(v.bare ?? false),
+		mergeHead: Boolean(v.merge_head ?? v.mergeHead ?? false),
+		rebaseHead: Boolean(v.rebase_head ?? v.rebaseHead ?? false),
+		cherryPickHead: Boolean(v.cherry_pick_head ?? v.cherryPickHead ?? false),
+	};
+}
+
+export async function getStatus(): Promise<{
+	branch: string;
+	staged: number;
+	unstaged: number;
+	untracked: number;
+	conflicted: number;
+}> {
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/status'));
+	const v = requireData(data, 'Git status') as Record<string, unknown>;
+	return {
+		branch: String(v.branch ?? ''),
+		staged: Number(v.staged ?? 0),
+		unstaged: Number(v.unstaged ?? 0),
+		untracked: Number(v.untracked ?? 0),
+		conflicted: Number(v.conflicted ?? 0),
+	};
+}
+
+export async function listFiles(): Promise<GitFile[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/files'));
+	const rows = requireData(data, 'Git files') as Array<Record<string, unknown>>;
+	return (Array.isArray(rows) ? rows : []).map((f) => ({
+		path: String(f.path ?? ''),
+		staged: String(f.staged ?? ''),
+		unstaged: String(f.unstaged ?? ''),
+		kind: String(f.kind ?? ''),
+		renamedFrom: (f.renamed_from as string | null) ?? (f.renamedFrom as string | null) ?? null,
+	}));
+}
+
+export async function getDiff(path?: string): Promise<DiffFile[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/diff', { params: { query: { path } } }),
+	);
+	const rows = requireData(data, 'Git diff') as DiffFile[];
+	return snake(Array.isArray(rows) ? rows : []);
+}
+
+export async function listCommits(params?: {
+	limit?: number;
+	offset?: number;
+	branch?: string;
+}): Promise<CommitEntry[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/commits', {
+			params: {
+				query: { limit: params?.limit, offset: params?.offset, branch: params?.branch },
+			},
+		}),
+	);
+	const rows = requireData(data, 'Git commits') as Array<Record<string, unknown>>;
+	return (Array.isArray(rows) ? rows : []).map((c) => ({
+		id: String(c.id ?? ''),
+		shortId: String(c.short_id ?? c.shortId ?? String(c.id ?? '').slice(0, 7)),
+		author: String(c.author ?? ''),
+		email: String(c.email ?? ''),
+		timestamp: Number(c.timestamp ?? 0),
+		subject: String(c.subject ?? ''),
+		body: String(c.body ?? ''),
+		parents: (c.parents as string[]) ?? [],
+		refs: (c.refs as string[]) ?? [],
+	}));
+}
+
+export async function listBranches(): Promise<BranchEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/branches'));
+	const rows = requireData(data, 'Git branches') as BranchEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function listStash(): Promise<StashEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/stash'));
+	const rows = requireData(data, 'Git stash') as StashEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function getRegistry(): Promise<RegistryEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/registry'));
+	const rows = requireData(data, 'Git registry') as RegistryEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function getFingerprint(): Promise<Fingerprint> {
+	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/fingerprint'));
+	const v = requireData(data, 'Git fingerprint') as Record<string, unknown>;
+	return {
+		statusHash: String(v.status_hash ?? v.statusHash ?? ''),
+		head: String(v.head ?? ''),
+		branchSummary: String(v.branch_summary ?? v.branchSummary ?? ''),
+	};
+}
+
+export async function runAction(
+	action: string,
+	params: Record<string, string>,
+	confirm?: string,
+): Promise<{ message: string; echo: string }> {
+	const data = await call<{ message?: string; echo?: string }>(
+		client.POST('/api/v1/git/action', { body: { action, params, confirm } }),
+	);
+	const v = requireData(data, `Git action ${action}`);
+	return { message: v.message ?? '', echo: v.echo ?? '' };
+}
+
+export async function createTerminal(): Promise<{ id: string }> {
+	const data = await call<{ id?: string }>(client.POST('/api/v1/git/terminal'));
+	const v = requireData(data, 'Terminal session');
+	return { id: v.id ?? '' };
+}
+
+export async function sendTerminalInput(id: string, input: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/git/terminal/{id}/input', {
+			params: { path: { id } },
+			body: { input },
+		}),
+	);
+}
+
+export async function readTerminalOutput(id: string, offset: number): Promise<string> {
+	const data = await call<{ output?: string }>(
+		client.GET('/api/v1/git/terminal/{id}/output', {
+			params: { path: { id }, query: { offset } },
+		}),
+	);
+	const v = requireData(data, 'Terminal output');
+	return v.output ?? '';
+}
+
+export async function closeTerminal(id: string): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/git/terminal/{id}/close', { params: { path: { id } } }),
+	);
+}

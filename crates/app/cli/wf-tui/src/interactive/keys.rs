@@ -8,8 +8,6 @@
 
 use serde_json::Value;
 
-use wf_api::ToolApprovalResult;
-
 use crate::approval_overlay::ApprovalChoice;
 use crate::footer::FooterView;
 use crate::interactive::{InteractiveAction, InteractiveController};
@@ -103,9 +101,9 @@ impl InteractiveController {
             _ => None,
         };
         if let Some(choice) = choice {
-            let result = self.resolve_approval(choice);
-            if let Some(tx) = self.approval_reply.take() {
-                let _ = tx.send(result);
+            let answer = self.resolve_approval(choice);
+            if let Some(id) = self.pending_approval.take() {
+                self.post_approval_answer(&id, answer);
             }
             if let Some(remembered) = choice.remembered() {
                 if let Some(view) = self.footer.approval.take() {
@@ -118,12 +116,12 @@ impl InteractiveController {
         InteractiveAction::Continue
     }
 
-    fn resolve_approval(&self, choice: ApprovalChoice) -> ToolApprovalResult {
+    fn resolve_approval(&self, choice: ApprovalChoice) -> crate::approval_overlay::ApprovalAnswer {
         self.footer
             .approval
             .as_ref()
             .map(|view| view.apply(choice))
-            .unwrap_or_else(|| ToolApprovalResult::rejected("", "no approval view"))
+            .unwrap_or_else(|| crate::approval_overlay::ApprovalAnswer::rejected("no approval view"))
     }
 
     fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
@@ -165,16 +163,16 @@ impl InteractiveController {
         if interaction_id.is_empty() {
             return;
         }
-        let storage = self.adapter.api_context().storage.clone();
+        let client = self.client.clone();
         let id = interaction_id.to_string();
+        let body = serde_json::json!({"response_data": response});
         tokio::spawn(async move {
-            if let Err(err) = wf_api::entity::user_interaction::respond_interaction(
-                &storage,
-                &id,
-                Some(response),
-                None,
-            )
-            .await
+            if let Err(err) = client
+                .post_json::<_, serde_json::Value>(
+                    &format!("/api/v1/interactions/{id}/respond"),
+                    &body,
+                )
+                .await
             {
                 tracing::warn!(target: "wf_cli", error = %err, "question respond failed");
             }

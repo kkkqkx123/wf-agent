@@ -77,7 +77,7 @@ pub(crate) fn params_from_body(
             .into_iter()
             .filter_map(|h| serde_json::from_value(h).ok())
             .collect(),
-        available_tool_names: body.available_tool_names.unwrap_or_default(),
+        available_tool_names: body.available_tool_names,
         initial_tool_names: body.initial_tool_names.unwrap_or_default(),
         discoverable_tool_names: body.discoverable_tool_names.unwrap_or_default(),
         enable_general_tool: body.enable_general_tool,

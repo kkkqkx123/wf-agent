@@ -135,7 +135,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             max_iterations: params.max_iterations,
             max_execution_time: params.max_execution_time,
             hooks: params.hooks,
-            available_tool_names: params.available_tool_names,
+            available_tool_names: Some(params.available_tool_names),
             tool_call_protocol: params
                 .tool_call_protocol
                 .as_deref()

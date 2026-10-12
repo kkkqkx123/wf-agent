@@ -62,7 +62,7 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
     }
     tctx = tctx.with_parent_timeouts(ctx.parent_node_timeout_ms, ctx.parent_max_execution_time_ms);
     tctx = tctx.with_parent_checkpoints(ctx.parent_checkpoints_enabled);
-    tctx = tctx.with_file_scope(ctx.file_scope.clone());
+    tctx = tctx.with_file_scope(ctx.file_scope.inner.clone());
     if let Some(manager) = ctx.hierarchy_manager.clone() {
         tctx = tctx.with_hierarchy_manager(manager);
     }

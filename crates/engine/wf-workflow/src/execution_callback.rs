@@ -405,7 +405,7 @@ fn inherit_workflow_scope(
     call: Option<wf_types::config::file_scope::ExecutionFileScope>,
     parent: Option<&ParentLink>,
 ) -> Result<Option<wf_types::config::file_scope::ExecutionFileScope>, String> {
-    let parent_scope = parent.and_then(|link| link.file_scope.clone());
+    let parent_scope = parent.and_then(|link| link.file_scope.inner.clone());
     let Some(parent_scope) = parent_scope else {
         return Ok(call);
     };

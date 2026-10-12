@@ -61,7 +61,7 @@ pub struct ToolExecutionCoordinator {
     /// execution-state `checkpoint_handler` above.
     checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
     /// Resolved execution filesystem scope gating tool paths.
-    file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     /// Strategy-gated checkpoint handle for hook `create_checkpoint` opt-ins
     /// (`BEFORE_TOOL_CALL` / `AFTER_TOOL_CALL`). Shared (Arc) so coordinator
     /// rebuilds stay cheap; `None` keeps hook fires checkpoint-free.
@@ -87,7 +87,7 @@ impl ToolExecutionCoordinator {
             general_invoker: Arc::new(std::sync::Mutex::new(None)),
             retry_budget: None,
             checkpoint_session: None,
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             agent_checkpoint: None,
         }
     }
@@ -179,13 +179,15 @@ impl ToolExecutionCoordinator {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = scope;
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
+            inner: scope,
+        };
         self
     }
 
     /// Current filesystem scope wiring.
     pub fn file_scope_config(&self) -> Option<wf_types::config::file_scope::ResolvedFileScope> {
-        self.file_scope.clone()
+        self.file_scope.inner.clone()
     }
 
     /// Enable failure protection: tools are blocked after a configurable

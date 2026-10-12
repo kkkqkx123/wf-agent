@@ -79,7 +79,7 @@ fn ensure_shell_path_in_scope(
     execution: &str,
     mode: Option<&wf_types::script::sandbox::SandboxMode>,
 ) -> Result<(), ToolError> {
-    use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
+    use crate::scope_gate::{check_path_bounds, PathVerdict};
     // Writes stay fail-closed in every mode: a lenient write would execute
     // while sampling drops it as out of scope, leaving an unrestorable
     // side effect behind a success message.
@@ -103,53 +103,40 @@ fn ensure_shell_path_in_scope(
             execution,
         );
     }
-    let lexical = normalize_scope_path(&path.to_string_lossy());
     let bounds = if want_write {
         &scope.write_prefixes
     } else {
         &scope.read_prefixes
     };
-    if !bounds
-        .iter()
-        .any(|bound| scope_path_contains(bound, &lexical))
-    {
-        tracing::warn!(
-            execution = %execution,
-            path = %path.display(),
-            want_write = want_write,
-            "shell scope violation: command path outside allowed prefixes"
-        );
-        return scope_violation(
-            tool,
-            format!(
-                "command path '{}' outside allowed {} prefixes.{}",
-                path.display(),
-                kind,
-                scope_guidance(scope, kind)
-            ),
-            effective_mode,
-            execution,
-        );
-    }
-    let physical = path.canonicalize().ok().or_else(|| {
-        path.parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .and_then(|parent| parent.canonicalize().ok())
-            .and_then(|pp| path.file_name().map(|name| pp.join(name)))
-    });
-    if let Some(physical) = physical {
-        let physical_str = physical.to_string_lossy().to_string();
-        if !bounds
-            .iter()
-            .any(|bound| scope_path_contains(bound, &physical_str))
-        {
+    match check_path_bounds(path, bounds) {
+        PathVerdict::Inside(_) => Ok(()),
+        PathVerdict::Outside(_) => {
+            tracing::warn!(
+                execution = %execution,
+                path = %path.display(),
+                want_write = want_write,
+                "shell scope violation: command path outside allowed prefixes"
+            );
+            scope_violation(
+                tool,
+                format!(
+                    "command path '{}' outside allowed {} prefixes.{}",
+                    path.display(),
+                    kind,
+                    scope_guidance(scope, kind)
+                ),
+                effective_mode,
+                execution,
+            )
+        }
+        PathVerdict::Escaped(physical) => {
             tracing::warn!(
                 execution = %execution,
                 path = %path.display(),
                 physical = %physical.display(),
                 "shell scope violation: command path escapes through symlink"
             );
-            return scope_violation(
+            scope_violation(
                 tool,
                 format!(
                     "command path '{}' escapes allowed {} prefixes through symlink.{}",
@@ -159,10 +146,9 @@ fn ensure_shell_path_in_scope(
                 ),
                 effective_mode,
                 execution,
-            );
+            )
         }
     }
-    Ok(())
 }
 
 fn resolve_command_path(

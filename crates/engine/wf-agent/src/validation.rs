@@ -329,8 +329,12 @@ fn validate_tool_lists(
             disabled.insert(tool.id.to_string());
         }
     }
+    let empty_tools: Vec<String> = Vec::new();
     let lists: [(&str, &Vec<String>); 5] = [
-        ("available_tool_names", &config.available_tool_names),
+        (
+            "available_tool_names",
+            config.available_tool_names.as_ref().unwrap_or(&empty_tools),
+        ),
         ("initial_tool_names", &config.initial_tool_names),
         ("discoverable_tool_names", &config.discoverable_tool_names),
         ("hidden_tool_names", &config.hidden_tool_names),

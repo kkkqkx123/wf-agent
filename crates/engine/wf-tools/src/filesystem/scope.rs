@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::trait_def::ToolExecutionContext;
-use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
 
 use super::FsToolHandlers;
 
@@ -128,42 +127,39 @@ impl FsToolHandlers {
                 want_write,
             );
         }
-        let lexical = normalize_scope_path(&resolved.to_string_lossy());
         let bounds = if want_write {
             &scope.write_prefixes
         } else {
             &scope.read_prefixes
         };
-        let lexically_inside = bounds
-            .iter()
-            .any(|bound| scope_path_contains(bound, &lexical));
-        if !lexically_inside {
-            tracing::warn!(
-                execution = %ctx.execution_id,
-                path = %resolved.display(),
-                want_write = want_write,
-                "filesystem scope violation: outside allowed prefixes"
-            );
-            let guidance = self.scope_guidance(ctx, kind);
-            return self.scope_violation(
-                tool,
-                ctx,
-                format!(
-                    "path '{}' outside allowed {} prefixes.{}",
-                    resolved.display(),
-                    kind,
-                    guidance
-                ),
-                PathBuf::from(&lexical),
-                want_write,
-            );
-        }
-        if let Ok(physical) = resolved.canonicalize() {
-            let physical_str = physical.to_string_lossy().to_string();
-            let physically_inside = bounds
-                .iter()
-                .any(|bound| scope_path_contains(bound, &physical_str));
-            if !physically_inside {
+        use crate::scope_gate::{check_path_bounds, PathVerdict};
+        match check_path_bounds(resolved, bounds) {
+            PathVerdict::Inside(physical) => {
+                let lexical = physical.to_string_lossy().to_string();
+                return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
+            }
+            PathVerdict::Outside(_) => {
+                tracing::warn!(
+                    execution = %ctx.execution_id,
+                    path = %resolved.display(),
+                    want_write = want_write,
+                    "filesystem scope violation: outside allowed prefixes"
+                );
+                let guidance = self.scope_guidance(ctx, kind);
+                return self.scope_violation(
+                    tool,
+                    ctx,
+                    format!(
+                        "path '{}' outside allowed {} prefixes.{}",
+                        resolved.display(),
+                        kind,
+                        guidance
+                    ),
+                    resolved.to_path_buf(),
+                    want_write,
+                );
+            }
+            PathVerdict::Escaped(physical) => {
                 tracing::warn!(
                     execution = %ctx.execution_id,
                     path = %resolved.display(),
@@ -180,48 +176,11 @@ impl FsToolHandlers {
                         kind,
                         guidance
                     ),
-                    physical.clone(),
+                    physical,
                     want_write,
                 );
             }
-            return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
         }
-        if let Some(parent) = resolved.parent() {
-            if !parent.as_os_str().is_empty() {
-                if let Ok(physical_parent) = parent.canonicalize() {
-                    if let Some(name) = resolved.file_name() {
-                        let physical = physical_parent.join(name);
-                        let physical_str = physical.to_string_lossy().to_string();
-                        let physically_inside = bounds
-                            .iter()
-                            .any(|bound| scope_path_contains(bound, &physical_str));
-                        if !physically_inside {
-                            tracing::warn!(
-                                execution = %ctx.execution_id,
-                                path = %resolved.display(),
-                                physical = %physical.display(),
-                                "filesystem scope violation: parent symlink escapes prefixes"
-                            );
-                            let guidance = self.scope_guidance(ctx, kind);
-                            return self.scope_violation(
-                                tool,
-                                ctx,
-                                format!(
-                                    "path '{}' escapes allowed {} prefixes through symlink.{}",
-                                    resolved.display(),
-                                    kind,
-                                    guidance
-                                ),
-                                physical.clone(),
-                                want_write,
-                            );
-                        }
-                        return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
-                    }
-                }
-            }
-        }
-        self.finish_write_gate(tool, &PathBuf::from(&lexical), ctx, want_write, &lexical)
     }
 
     // Instance scope, global protection and ignore rules intersect as a

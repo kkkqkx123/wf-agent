@@ -516,7 +516,7 @@ pub struct AgentLoopConfigBuilder<S> {
     max_iterations: Option<u32>,
     max_execution_time: Option<u64>,
     hooks: Vec<HookConfig>,
-    available_tool_names: Vec<String>,
+    available_tool_names: Option<Vec<String>>,
     initial_tool_names: Vec<String>,
     discoverable_tool_names: Vec<String>,
     enable_general_tool: Option<bool>,
@@ -539,7 +539,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             max_iterations: None,
             max_execution_time: None,
             hooks: Vec::new(),
-            available_tool_names: Vec::new(),
+            available_tool_names: None,
             initial_tool_names: Vec::new(),
             discoverable_tool_names: Vec::new(),
             enable_general_tool: None,
@@ -594,7 +594,9 @@ impl<S> AgentLoopConfigBuilder<S> {
 
     /// Allow the loop to reference the given tool by name.
     pub fn add_tool(mut self, tool_name: impl Into<String>) -> Self {
-        self.available_tool_names.push(tool_name.into());
+        self.available_tool_names
+            .get_or_insert_with(Vec::new)
+            .push(tool_name.into());
         self
     }
 
@@ -882,7 +884,10 @@ mod tests {
             .build();
         assert_eq!(config.model, "mock");
         assert_eq!(config.max_iterations, Some(5));
-        assert_eq!(config.available_tool_names, vec!["web_search".to_string()]);
+        assert_eq!(
+            config.available_tool_names,
+            Some(vec!["web_search".to_string()])
+        );
         assert_eq!(config.hooks.len(), 1);
         assert_eq!(config.hooks[0].hook_type, "AFTER_ITERATION");
         assert!(!config.hooks[0].enabled);

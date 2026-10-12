@@ -23,7 +23,7 @@ pub struct ParentLink {
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
     /// Resolved filesystem scope of the parent execution. Child executions
     /// derive their scope from it; `None` means the parent carried no scope.
-    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
 }
 
 impl std::fmt::Debug for ParentLink {

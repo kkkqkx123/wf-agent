@@ -196,7 +196,7 @@ impl AgentLoopExecutor {
         mut config: AgentLoopConfig,
         parent: Option<&ParentLink>,
     ) -> AgentResult<AgentLoopConfig> {
-        let parent_scope = parent.and_then(|link| link.file_scope.clone());
+        let parent_scope = parent.and_then(|link| link.file_scope.inner.clone());
         let Some(parent_scope) = parent_scope else {
             return Ok(config);
         };
@@ -554,7 +554,7 @@ mod tests {
 
     fn parent_link_for(entity: &Arc<AgentLoopEntity>) -> ParentLink {
         ParentLink {
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             execution_id: entity.id().clone(),
             // `as_ref` reaches the concrete entity so the inherent handle
             // is used: the blanket trait impl on `Arc` would only lend an
@@ -1191,7 +1191,7 @@ mod tests {
             ExecutionType::Workflow,
         ));
         let link = ParentLink {
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             execution_id: Id::from("wf-parent".to_string()),
             manager: parent_manager,
             cancellation: None,
@@ -1248,7 +1248,7 @@ mod tests {
 
         let parent_token = tokio_util::sync::CancellationToken::new();
         let link = ParentLink {
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             execution_id: Id::from("foreign-parent".to_string()),
             manager: Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
                 Id::from("foreign-parent".to_string()),
@@ -1347,7 +1347,7 @@ mod tests {
             wf_types::execution::ExecutionType::AgentLoop,
         );
         let parent = ParentLink {
-            file_scope: Some(parent_scope),
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::some(parent_scope),
             execution_id: wf_types::Id::from("p".to_string()),
             manager: std::sync::Arc::new(manager),
             cancellation: None,

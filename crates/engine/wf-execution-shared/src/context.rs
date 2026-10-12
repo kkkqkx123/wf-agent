@@ -33,7 +33,7 @@ pub struct ExecutorContext {
     pub checkpoint_scope: Option<crate::checkpoint_scope::CheckpointScope>,
     /// Resolved execution filesystem scope. `None` keeps the legacy global
     /// workspace behavior; `Some` gates tool paths and checkpoint capture.
-    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     pub metrics: Option<Arc<MetricsRegistry>>,
     /// Execution-scoped token usage tracker shared by LLM nodes.
     pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
@@ -81,7 +81,7 @@ impl ExecutorContext {
             variables: Arc::new(DashMap::new()),
             options,
             checkpoint_scope: None,
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
             hook_handler_registry: None,
@@ -215,7 +215,9 @@ impl ExecutorContext {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = scope;
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
+            inner: scope,
+        };
         self
     }
 }
@@ -328,7 +330,7 @@ pub struct NodeExecutionContext {
     /// Resolved execution filesystem scope inherited from the parent
     /// execution. Branch and sub-workflow children derive their own scope
     /// from it; `None` keeps legacy global behavior.
-    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
 }
 
 impl NodeExecutionContext {
@@ -369,7 +371,7 @@ impl NodeExecutionContext {
             parent_node_timeout_ms: None,
             parent_max_execution_time_ms: None,
             parent_checkpoints_enabled: None,
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
         }
     }
 
@@ -454,7 +456,9 @@ impl NodeExecutionContext {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = scope;
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
+            inner: scope,
+        };
         self
     }
 

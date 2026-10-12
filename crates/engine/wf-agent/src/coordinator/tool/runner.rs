@@ -184,7 +184,7 @@ pub(crate) async fn run_tool(
         if let Some(cp_sess) = &ctx.checkpoint_session {
             tool_ctx = tool_ctx.with_checkpoint_session(Some(cp_sess.clone()));
         }
-        if let Some(scope) = &ctx.file_scope {
+        if let Some(scope) = ctx.file_scope.as_ref() {
             tool_ctx = tool_ctx.with_file_scope(Some(scope.clone()));
         }
         if let Some(token) = &ctx.cancellation {

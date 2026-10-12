@@ -104,7 +104,7 @@ impl WorkflowCoordinator {
         if let Some(scope) = self.ctx.checkpoint_scope.clone() {
             ctx = ctx.with_checkpoint_scope(scope);
         }
-        ctx = ctx.with_file_scope(self.ctx.file_scope.clone());
+        ctx = ctx.with_file_scope(self.ctx.file_scope.inner.clone());
         ctx.event_bus = self.ctx.event_bus.clone();
         ctx.handler_registry = Some(self.handlers.clone());
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));

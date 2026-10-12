@@ -115,7 +115,13 @@ impl AgentLoopHandler {
             }),
             agent_id: ctx.node_id.clone(),
             model: settings.model,
-            available_tool_names: settings.available_tool_names,
+            // An empty node-level list keeps the "unset" semantics and falls
+            // back to the definition layer; a non-empty list is explicit.
+            available_tool_names: if settings.available_tool_names.is_empty() {
+                None
+            } else {
+                Some(settings.available_tool_names)
+            },
             initial_tool_names: settings.initial_tool_names,
             discoverable_tool_names: settings.discoverable_tool_names,
             enable_general_tool: settings.enable_general_tool,

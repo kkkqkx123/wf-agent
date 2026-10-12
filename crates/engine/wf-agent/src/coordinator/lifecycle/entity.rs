@@ -34,9 +34,10 @@ impl AgentLoopCoordinator {
         // wires `with_exposure_overrides` yet), so both read the same empty
         // source and cannot drift. Thread a real overrides source through both
         // sites when one appears.
+        let empty_tools: Vec<String> = Vec::new();
         let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
             registry,
-            available_names: &config.available_tool_names,
+            available_names: config.available_tool_names.as_ref().unwrap_or(&empty_tools),
             initial_names: &config.initial_tool_names,
             discoverable_names: &config.discoverable_tool_names,
             hidden_names: &config.hidden_tool_names,
@@ -131,8 +132,8 @@ impl AgentLoopCoordinator {
         }
         entity = entity.with_effective_config(config.clone());
 
-        if !config.available_tool_names.is_empty() {
-            entity = entity.with_available_tool_names(config.available_tool_names.clone());
+        if let Some(tools) = config.available_tool_names.clone() {
+            entity = entity.with_available_tool_names(tools);
         }
 
         if !config.initial_tool_names.is_empty() {

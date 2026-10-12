@@ -8,6 +8,7 @@ use wf_core::registry::{MutableRegistry, Registry};
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::config::file_checkpoint::FileCheckpointConfig;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::shutdown_channel;
@@ -379,8 +380,10 @@ impl Runtime {
         // timer). The manager is attached to the API context so workflow /
         // agent executions create and restore file snapshots through it and
         // script handlers capture workspace changes.
-        let checkpoint_stack =
-            init_file_checkpoint_stack(&config.file_checkpoint, event_bus.clone())?;
+        let checkpoint_stack = init_file_checkpoint_stack(
+            config.file_checkpoint.as_ref().unwrap_or(&FileCheckpointConfig::default()),
+            event_bus.clone(),
+        )?;
         let file_checkpoint_manager = checkpoint_stack.manager;
         let checkpoint_event_bridge_handle = checkpoint_stack.event_bridge_handle;
         let manual_change_service = checkpoint_stack.manual_change_service;

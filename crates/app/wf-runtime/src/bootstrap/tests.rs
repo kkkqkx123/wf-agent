@@ -150,7 +150,7 @@ fn test_resolve_infra_config_from_repo_configs() {
     assert!(config.sandbox.is_some());
     assert!(config.tools.read_file.is_some());
     assert!(
-        config.file_checkpoint.custom_ignore_patterns.is_some(),
+        config.file_checkpoint.as_ref().unwrap().custom_ignore_patterns.is_some(),
         "file_checkpoint must load from the file layer"
     );
 
@@ -276,20 +276,20 @@ fn test_resolve_infra_config_explicit_close_survives() {
             None,
         ))
         .unwrap();
-    assert!(!config.file_checkpoint.enabled);
+    assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
 
     let programmatic = RuntimeConfig {
-        file_checkpoint: FileCheckpointConfig {
+        file_checkpoint: Some(FileCheckpointConfig {
             enabled: true,
             workspace_root: Some("/repo".to_string()),
             ..Default::default()
-        },
+        }),
         ..Default::default()
     };
     let config = runtime
         .block_on(resolve_infra_config(programmatic, &closed_source(), None))
         .unwrap();
-    assert!(!config.file_checkpoint.enabled);
+    assert!(!config.file_checkpoint.as_ref().unwrap().enabled);
 }
 
 #[tokio::test]

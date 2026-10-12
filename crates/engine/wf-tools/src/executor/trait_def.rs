@@ -34,7 +34,7 @@ pub struct ToolExecutionContext {
     /// Resolved per-execution filesystem scope injected by the engine.
     /// `None` means no instance scoping; tools fall back to the global
     /// workspace base without range gating.
-    pub file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     /// Abort signal of the owning execution; `None` keeps plain tool
     /// behavior. Engines race tool execution against it so a stop lands
     /// promptly instead of waiting out the tool.
@@ -65,7 +65,7 @@ impl ToolExecutionContext {
             parent_link: None,
             general_invoker: None,
             checkpoint_session: None,
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             cancellation: None,
         }
     }
@@ -103,7 +103,9 @@ impl ToolExecutionContext {
         mut self,
         scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
     ) -> Self {
-        self.file_scope = scope;
+        self.file_scope = wf_types::config::file_scope::ResolvedExecutionScope {
+            inner: scope,
+        };
         self
     }
 

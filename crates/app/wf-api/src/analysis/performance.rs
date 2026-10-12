@@ -589,8 +589,12 @@ mod tests {
             wf_types::Id::from("exec-perf-1".to_string()),
             wf_types::Id::from("wf-perf-1".to_string()),
         ));
-        let now = wf_common::now();
         let _ = entity.state.write().await.start();
+        // Sample after `start()` so the node timestamps sit at or after
+        // the state's start_time; a wall-clock tick between the samples
+        // would otherwise push the start boundary past the nodes and make
+        // the derived total flaky.
+        let now = wf_common::now();
         entity
             .state
             .write()

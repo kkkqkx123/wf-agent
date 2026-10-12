@@ -122,8 +122,10 @@ fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) 
 }
 
 fn apply_tool_defaults(config: &mut AgentLoopConfig, tools: &AvailableTools) {
-    if config.available_tool_names.is_empty() {
-        config.available_tool_names = tools.available.clone();
+    // `None` = unset, falls back to the definition layer; `Some(vec![])` =
+    // explicit empty set, disabling every tool.
+    if config.available_tool_names.is_none() {
+        config.available_tool_names = Some(tools.available.clone());
     }
     if config.initial_tool_names.is_empty() {
         config.initial_tool_names = tools.initial.clone().unwrap_or_default();
@@ -156,10 +158,13 @@ fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
 /// templated and untemplated configs so the direct path never falls back to
 /// the builtin generation while the workflow path uses custom resources.
 fn attach_exposure_artifacts(env: &PromptEnvironment, config: &mut AgentLoopConfig) {
+    // `None` = unset: exposure blocks render against the definition-layer
+    // fallback applied earlier, so the empty slice is the right view here.
+    let available_tools = config.available_tool_names.clone().unwrap_or_default();
     let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
         env,
         config.tool_call_protocol.as_ref(),
-        &config.available_tool_names,
+        &available_tools,
         &config.initial_tool_names,
         &config.discoverable_tool_names,
         &config.hidden_tool_names,
@@ -191,7 +196,7 @@ fn attach_prompt_assembly(
         agent_config,
         &input.context,
         env,
-        &config.available_tool_names,
+        &config.available_tool_names.clone().unwrap_or_default(),
     );
     apply_assembled_prompt(
         &mut input.conversation,
@@ -332,7 +337,7 @@ mod tests {
             max_iterations: None,
             max_execution_time: None,
             hooks: Vec::new(),
-            available_tool_names: Vec::new(),
+            available_tool_names: None,
             initial_tool_names: Vec::new(),
             discoverable_tool_names: Vec::new(),
             enable_general_tool: None,
@@ -382,7 +387,7 @@ mod tests {
         let env = env_for(&regs);
         let (config, _) = resolve_and_apply(&env, empty_config("unknown-agent"), input_with("hi"))
             .expect("explicit id without template is untouched");
-        assert!(config.available_tool_names.is_empty());
+        assert!(config.available_tool_names.is_none());
     }
 
     #[test]
@@ -413,7 +418,8 @@ mod tests {
         // Unset fields fall back to the template.
         assert!(config
             .available_tool_names
-            .contains(&"read_file".to_string()));
+            .as_ref()
+            .is_some_and(|names| names.contains(&"read_file".to_string())));
         assert_eq!(
             config
                 .tool_call_protocol
@@ -422,6 +428,30 @@ mod tests {
                 .as_deref(),
             Some("native")
         );
+    }
+
+    #[test]
+    fn explicit_empty_tool_list_disables_all_tools() {
+        let regs = registries();
+        let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
+        config.available_tool_names = Some(Vec::new());
+        let env = env_for(&regs);
+        let (config, _) = resolve_and_apply(&env, config, input_with("hi")).expect("apply");
+        // `Some(vec![])` is an explicit empty set: the template default must
+        // not refill it.
+        assert_eq!(config.available_tool_names, Some(Vec::new()));
+    }
+
+    #[test]
+    fn unset_tool_list_falls_back_to_template() {
+        let regs = registries();
+        let env = env_for(&regs);
+        let (config, _) = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+            .expect("apply");
+        assert!(config
+            .available_tool_names
+            .as_ref()
+            .is_some_and(|names| !names.is_empty()));
     }
 
     #[test]

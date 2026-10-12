@@ -7,7 +7,6 @@ use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use crate::mcp::analytics::McpUsageAnalytics;
-use wf_types::config::file_scope::{normalize_scope_path, scope_path_contains};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
@@ -67,6 +66,7 @@ fn ensure_mcp_uri_in_scope(
     uri: &str,
     context: &ToolExecutionContext,
 ) -> Result<(), ToolError> {
+    use crate::scope_gate::{check_path_bounds, PathVerdict};
     let Some(scope) = context.file_scope.as_ref() else {
         return Ok(());
     };
@@ -97,52 +97,17 @@ fn ensure_mcp_uri_in_scope(
             ),
         ));
     }
-    let lexical = normalize_scope_path(&resolved.to_string_lossy());
-    let lexically_inside = scope
-        .read_prefixes
-        .iter()
-        .any(|bound| scope_path_contains(bound, &lexical));
-    if !lexically_inside {
-        return Err(ToolError::scope_violation(
+    match check_path_bounds(&resolved, &scope.read_prefixes) {
+        PathVerdict::Inside(_) => Ok(()),
+        PathVerdict::Outside(_) => Err(ToolError::scope_violation(
             tool_name,
             format!("resource '{uri}' outside allowed read prefixes."),
-        ));
+        )),
+        PathVerdict::Escaped(_) => Err(ToolError::scope_violation(
+            tool_name,
+            format!("resource '{uri}' escapes allowed read prefixes through symlink."),
+        )),
     }
-    if let Ok(physical) = resolved.canonicalize() {
-        let physical_str = physical.to_string_lossy().to_string();
-        let physically_inside = scope
-            .read_prefixes
-            .iter()
-            .any(|bound| scope_path_contains(bound, &physical_str));
-        if !physically_inside {
-            return Err(ToolError::scope_violation(
-                tool_name,
-                format!("resource '{uri}' escapes allowed read prefixes through symlink."),
-            ));
-        }
-    } else if let Some(parent) = resolved.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Ok(physical_parent) = parent.canonicalize() {
-                if let Some(name) = resolved.file_name() {
-                    let physical = physical_parent.join(name);
-                    let physical_str = physical.to_string_lossy().to_string();
-                    let physically_inside = scope
-                        .read_prefixes
-                        .iter()
-                        .any(|bound| scope_path_contains(bound, &physical_str));
-                    if !physically_inside {
-                        return Err(ToolError::scope_violation(
-                            tool_name,
-                            format!(
-                                "resource '{uri}' escapes allowed read prefixes through symlink."
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 fn process_tool_result(result: &Value) -> String {

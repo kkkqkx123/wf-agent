@@ -96,7 +96,7 @@ pub(crate) struct ToolRunCtx {
     pub(crate) checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
     /// Resolved execution filesystem scope. Tools gate paths through it;
     /// `None` keeps legacy global behavior.
-    pub(crate) file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    pub(crate) file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     /// Live parent link of the owning execution, forwarded into the tool
     /// context so dispatch tools (`call_agent` / `execute_workflow`) link
     /// their children under this execution. Set per execution before

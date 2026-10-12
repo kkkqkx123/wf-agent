@@ -13,6 +13,7 @@ pub mod patch;
 pub mod predefined;
 pub mod protect;
 pub mod registry;
+pub mod scope_gate;
 pub mod sequence_matcher;
 pub mod shell;
 pub mod skill;

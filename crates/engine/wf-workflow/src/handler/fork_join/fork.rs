@@ -110,7 +110,7 @@ struct ForkRuntime {
     execution_id: wf_types::Id,
     parent_manager: Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>,
     checkpoint_scope: Option<wf_execution_shared::CheckpointScope>,
-    file_scope: Option<wf_types::config::file_scope::ResolvedFileScope>,
+    file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
     parent_checkpoints_enabled: Option<bool>,
     node_id: String,
 }

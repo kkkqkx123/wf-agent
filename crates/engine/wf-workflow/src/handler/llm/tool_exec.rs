@@ -181,7 +181,7 @@ pub async fn execute_tool_call(
             cancellation: ctx.cancellation.clone(),
         }
     }));
-    tool_ctx = tool_ctx.with_file_scope(ctx.file_scope.clone());
+    tool_ctx = tool_ctx.with_file_scope(ctx.file_scope.inner.clone());
     if let Some(manager) = file_checkpoint {
         let closed = ctx.file_scope.as_ref().is_some_and(|s| !s.enabled);
         if !closed {
@@ -193,7 +193,7 @@ pub async fn execute_tool_call(
                 manager.clone(),
                 &ctx.execution_id.to_string(),
                 parent.as_deref(),
-                ctx.file_scope.clone(),
+                ctx.file_scope.inner.clone(),
             ) {
                 Ok(session) => tool_ctx = tool_ctx.with_checkpoint_session(Some(session)),
                 Err(e) => {

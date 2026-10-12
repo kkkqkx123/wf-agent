@@ -157,7 +157,7 @@ impl NodeHandler for TemplateSubgraphHandler {
         ctx: &mut wf_execution_shared::context::NodeExecutionContext,
     ) -> ExecutionSharedResult<NodeHandlerResult> {
         let options = WorkflowExecutionOptions {
-            file_scope: ctx.file_scope.clone().map(|resolved| {
+            file_scope: ctx.file_scope.inner.clone().map(|resolved| {
                 wf_types::config::file_scope::ExecutionFileScope {
                     enabled: Some(resolved.enabled),
                     read_prefixes: Some(resolved.read_prefixes.clone()),

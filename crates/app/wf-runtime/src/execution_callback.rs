@@ -207,7 +207,7 @@ mod tests {
                 max_iterations: None,
                 max_execution_time: None,
                 hooks: Vec::new(),
-                available_tool_names: Vec::new(),
+                available_tool_names: None,
                 initial_tool_names: Vec::new(),
                 discoverable_tool_names: Vec::new(),
                 enable_general_tool: None,

@@ -71,8 +71,8 @@ pub struct AgentLoopConfig {
     pub max_execution_time: Option<u64>,
     #[serde(default)]
     pub hooks: Vec<HookConfig>,
-    #[serde(default)]
-    pub available_tool_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_tool_names: Option<Vec<String>>,
     #[serde(default)]
     pub initial_tool_names: Vec<String>,
     #[serde(default)]

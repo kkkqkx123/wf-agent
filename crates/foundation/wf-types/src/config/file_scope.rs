@@ -31,6 +31,46 @@ pub struct ResolvedFileScope {
     pub workdir: Option<String>,
 }
 
+/// Execution-scoped wrapper around [`ResolvedFileScope`] carried through the
+/// execution context chain (`NodeExecutionContext`, coordinator tool state,
+/// fork/branch structures, `ParentLink`). New execution-scope attributes are
+/// added here instead of as parallel `Option<...>` fields on every context
+/// struct.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ResolvedExecutionScope {
+    pub inner: Option<ResolvedFileScope>,
+}
+
+impl ResolvedExecutionScope {
+    /// A scope-less execution: tools fall back to global behavior.
+    pub fn none() -> Self {
+        Self { inner: None }
+    }
+
+    /// Wrap a resolved scope.
+    pub fn some(scope: ResolvedFileScope) -> Self {
+        Self { inner: Some(scope) }
+    }
+
+    /// The resolved scope, if the execution carries one.
+    pub fn as_ref(&self) -> Option<&ResolvedFileScope> {
+        self.inner.as_ref()
+    }
+
+    /// True when no scope is attached (`None` = legacy global behavior).
+    pub fn is_none(&self) -> bool {
+        self.inner.is_none()
+    }
+}
+
+impl std::ops::Deref for ResolvedExecutionScope {
+    type Target = Option<ResolvedFileScope>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 /// Lexically normalize a path without touching the filesystem: collapse
 /// duplicate separators and single-dot segments, resolve double-dot segments
 /// against the preceding segment, and strip trailing separators.

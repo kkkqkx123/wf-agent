@@ -266,7 +266,7 @@ async fn run_triggered_subworkflow(
         options,
     )
     .with_hierarchy_manager(child_manager)
-    .with_file_scope(ctx.file_scope.clone());
+    .with_file_scope(ctx.file_scope.inner.clone());
     if let Some(scope) = child_scope.clone() {
         exec_ctx = exec_ctx.with_checkpoint_scope(scope);
     }

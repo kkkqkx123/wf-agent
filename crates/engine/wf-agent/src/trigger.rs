@@ -161,7 +161,7 @@ impl TriggeredAgentExecutionManager {
         // travels as a typed link carrying the parent manager and abort
         // signal. No bare id is written into the input context.
         let parent_link = ParentLink {
-            file_scope: None,
+            file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             execution_id: parent.id().clone(),
             // `as_ref` reaches the concrete entity so the inherent handle
             // is used: the blanket trait impl on `Arc` would only lend an

@@ -6,7 +6,6 @@ use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
 use wf_config::orchestrator::{
     default_infra_file_mapping, ConfigOrchestratorBuilder, ConfigOverrides,
 };
-use wf_config::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
@@ -113,8 +112,11 @@ pub struct RuntimeConfig {
     /// Tool-specific configuration sections (read_file / glob / list_files
     /// and raw pass-through sections).
     pub tools: wf_config::orchestrator::ToolConfigs,
-    /// File checkpoint configuration.
-    pub file_checkpoint: FileCheckpointConfig,
+    /// File checkpoint configuration. `None` means the caller did not set it
+    /// explicitly, so the assembled infrastructure value fills it; `Some`
+    /// carries an explicit programmatic value (including `enabled = false`,
+    /// which must not be mistaken for "unset") and wins per the merge rules.
+    pub file_checkpoint: Option<FileCheckpointConfig>,
     /// Host default tool approval configuration. The type-level default is
     /// disabled (library contract: auto-approve); hosts enable it in their
     /// infrastructure config as a product decision.
@@ -235,17 +237,19 @@ pub async fn resolve_infra_config(
         config.metrics = Some(assembled.metrics);
     }
     // Programmatic overrides already won inside the assembled config, so
-    // they outrank the programmatic runtime values below: an explicitly
-    // closed file channel (`enabled = false`, which reads identical to the
-    // type default) must survive instead of being mistaken for "unset" and
-    // covered by the assembled value.
-    if infra.overrides.file_checkpoint.is_some()
-        || config.file_checkpoint == FileCheckpointConfig::default()
-    {
-        config.file_checkpoint = assembled.file_checkpoint;
-    } else {
-        config.file_checkpoint = merge_file_checkpoint_with_defaults(&config.file_checkpoint);
-    }
+    // they outrank the programmatic runtime values below. Explicitness is
+    // carried by `Option`: `None` means the caller left file checkpoint
+    // unset and the assembled value fills it; `Some` survives verbatim so
+    // an explicitly closed file channel (`enabled = false`) cannot be
+    // mistaken for "unset" and covered by the assembled value. An explicit
+    // infra override still wins over an explicit programmatic value.
+    config.file_checkpoint = Some(
+        match (config.file_checkpoint, infra.overrides.file_checkpoint.as_ref()) {
+            (_, Some(_)) => assembled.file_checkpoint,
+            (Some(explicit), None) => explicit,
+            (None, None) => assembled.file_checkpoint,
+        },
+    );
     if infra.overrides.sandbox.is_some() || config.sandbox.is_none() {
         config.sandbox = assembled.sandbox;
     }

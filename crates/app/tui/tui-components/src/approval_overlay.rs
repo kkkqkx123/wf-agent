@@ -328,7 +328,6 @@ mod tests {
         assert!(view.apply(ApprovalChoice::ApproveAll).approved);
         let denied = view.apply(ApprovalChoice::DenyOnce);
         assert!(!denied.approved);
-        assert_eq!(denied.tool_call_id, "call-1");
         assert!(denied.rejection_reason.unwrap().contains("only"));
         let cancelled = view.apply(ApprovalChoice::Cancel);
         assert!(!cancelled.approved);

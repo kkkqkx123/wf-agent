@@ -27,7 +27,7 @@ impl Modal for HelpModal {
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let help_text = "Keys:\n  q / Esc - quit / close\n  1-8 - switch screens\n  ? - help\n  j/k - navigate\n  Enter - select\n  y/n - confirm/cancel\n  Ctrl-Z - suspend (fg to resume)";
+        let help_text = "Keys:\n  q / Esc - quit / close\n  1-9 - switch screens\n  ? - help\n  j/k - navigate\n  Enter - select\n  y/n - confirm/cancel\n  Ctrl-Z - suspend (fg to resume)";
         let block = Block::default()
             .title(" Help (?) ")
             .borders(Borders::ALL)

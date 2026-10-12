@@ -8,6 +8,27 @@ export interface TokenResult {
 	candidates?: string[];
 }
 
+/** Actions that only touch client view state; they never reach the server. */
+export const CLIENT_ONLY_ACTIONS: ReadonlySet<string> = new Set(['focus', 'filter']);
+
+/**
+ * Confirmation token the server expects for guarded actions: the client must
+ * echo the exact target the backend will compare against.
+ */
+export function confirmTarget(action: string, params: Record<string, string>): string {
+	const value = (key: string): string => (params[key] ?? '').trim();
+	switch (action) {
+		case 'push':
+			return [value('remote') || 'origin', value('branch')].filter(Boolean).join(' ');
+		case 'stash.drop':
+			return `stash@{${value('index') || '0'}}`;
+		case 'commit.amend':
+			return 'amend';
+		default:
+			return value('branch') || value('path') || value('commit') || value('base') || value('onto');
+	}
+}
+
 export function parseToken(input: string, context: string): TokenResult {
 	const text = input.trim();
 	if (!text) {

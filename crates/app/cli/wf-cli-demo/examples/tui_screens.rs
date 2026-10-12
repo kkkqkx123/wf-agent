@@ -109,21 +109,33 @@ fn synthetic_checkpoints() -> ScreenData {
             id: "cp-001-aabb".into(),
             entity: "exec-a1b2c3d4".into(),
             timestamp: "2026-09-07 10:30:00".into(),
+            entity_type: "execution".into(),
+            checkpoint_type: "turn".into(),
+            status: "completed".into(),
         },
         CheckpointRow {
             id: "cp-002-ccdd".into(),
             entity: "exec-e5f6g7h8".into(),
             timestamp: "2026-09-07 10:25:00".into(),
+            entity_type: "execution".into(),
+            checkpoint_type: "turn".into(),
+            status: "running".into(),
         },
         CheckpointRow {
             id: "cp-003-eeff".into(),
             entity: "wf-code-review".into(),
             timestamp: "2026-09-07 10:20:00".into(),
+            entity_type: "workflow".into(),
+            checkpoint_type: "manual".into(),
+            status: "completed".into(),
         },
         CheckpointRow {
             id: "cp-004-gghh".into(),
             entity: "exec-i9j0k1l2".into(),
             timestamp: "2026-09-07 10:15:00".into(),
+            entity_type: "execution".into(),
+            checkpoint_type: "turn".into(),
+            status: "failed".into(),
         },
     ])
 }

@@ -9,13 +9,10 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
-chrono.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 futures.workspace = true
-regex.workspace = true
-globset.workspace = true
 wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-client = { path = "../../wf-client" }

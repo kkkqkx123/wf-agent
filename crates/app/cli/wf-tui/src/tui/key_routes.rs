@@ -8,9 +8,10 @@ use crate::modal::HelpModal;
 use crate::overlay::{LoopAction, OverlayMode};
 use crate::screens::{ScreenData, ScreenKind};
 
-use super::input_classify::{digit_to_screen, next_filter};
+use super::input_classify::next_filter;
 use super::signals::SUSPEND_PENDING;
 use super::{TuiApp, DASHBOARD_ENTRIES};
+use tui_core::screen_data::screen_for_digit;
 
 impl TuiApp {
     pub(super) fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
@@ -104,7 +105,7 @@ impl TuiApp {
                 }
             }
             CKey::Char(c) if c.is_ascii_digit() => {
-                if let Some(kind) = digit_to_screen(c) {
+                if let Some(kind) = screen_for_digit(c) {
                     self.goto(kind);
                 }
             }
@@ -227,7 +228,7 @@ impl TuiApp {
             }
             // Number keys: navigate to screen (sidebar mode)
             CKey::Char(c) if c.is_ascii_digit() && self.overlay == OverlayMode::Sidebar => {
-                if let Some(kind) = digit_to_screen(c) {
+                if let Some(kind) = screen_for_digit(c) {
                     self.overlay = OverlayMode::None;
                     self.goto(kind);
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -310,7 +311,7 @@ impl TuiApp {
                 self.modals.push(Box::new(HelpModal));
             }
             CKey::Char(c) if c.is_ascii_digit() && key.alt => {
-                if let Some(kind) = digit_to_screen(c) {
+                if let Some(kind) = screen_for_digit(c) {
                     self.goto(kind);
                 }
             }

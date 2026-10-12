@@ -390,7 +390,7 @@ mod tests {
             max_iterations: Some(10),
             max_execution_time: Some(1000),
             hooks: Vec::new(),
-            available_tool_names: Vec::new(),
+            available_tool_names: Some(Vec::new()),
             initial_tool_names: Vec::new(),
             discoverable_tool_names: Vec::new(),
             enable_general_tool: None,
@@ -447,7 +447,7 @@ mod tests {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
             file_scope: None,
-            available_tool_names: vec!["nope_tool".to_string()],
+            available_tool_names: Some(vec!["nope_tool".to_string()]),
             discoverable_tool_names: Vec::new(),
             hidden_tool_names: Vec::new(),
             ..base_config()

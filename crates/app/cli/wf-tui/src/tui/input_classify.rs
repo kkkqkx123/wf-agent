@@ -135,22 +135,6 @@ pub(super) fn map_key(key: crossterm::event::KeyEvent) -> Key {
     )
 }
 
-pub(super) fn digit_to_screen(c: char) -> Option<ScreenKind> {
-    match c {
-        '1' => Some(ScreenKind::Workflow),
-        '2' => Some(ScreenKind::Executions),
-        '3' => Some(ScreenKind::AgentLoops),
-        '4' => Some(ScreenKind::Insights),
-        '5' => Some(ScreenKind::Interactive),
-        '6' => Some(ScreenKind::Checkpoints),
-        '7' => Some(ScreenKind::Search),
-        '8' => Some(ScreenKind::Settings),
-        '9' => Some(ScreenKind::Help),
-        '0' => Some(ScreenKind::Help),
-        _ => None,
-    }
-}
-
 /// Cycle the executions screen status filter.
 pub(super) fn next_filter(current: ExecStatusFilter) -> ExecStatusFilter {
     let all = ExecStatusFilter::ALL;
@@ -167,20 +151,29 @@ mod tests {
     use super::*;
     use crate::screens::ScreenKind;
     use crossterm::event::MouseButton;
+    use tui_core::screen_data::{screen_digit, screen_for_digit};
 
     #[test]
-    fn digit_to_screen_maps_all_screens() {
-        let mapped: Vec<_> = ('1'..='9')
-            .chain(std::iter::once('0'))
-            .filter_map(digit_to_screen)
-            .collect();
-        assert_eq!(mapped.len(), 10);
-        assert_eq!(mapped[0], ScreenKind::Workflow);
-        assert_eq!(mapped[5], ScreenKind::Checkpoints);
-        assert_eq!(mapped[6], ScreenKind::Search);
-        assert_eq!(mapped[8], ScreenKind::Help);
-        assert_eq!(mapped[9], ScreenKind::Help);
-        assert!(digit_to_screen('z').is_none());
+    fn digit_to_screen_follows_the_canonical_map() {
+        let mapped: Vec<_> = ('1'..='9').filter_map(screen_for_digit).collect();
+        assert_eq!(
+            mapped,
+            vec![
+                ScreenKind::Workflow,
+                ScreenKind::Executions,
+                ScreenKind::AgentLoops,
+                ScreenKind::Insights,
+                ScreenKind::Interactive,
+                ScreenKind::Checkpoints,
+                ScreenKind::Search,
+                ScreenKind::Settings,
+                ScreenKind::Help,
+            ]
+        );
+        // The dashboard has no digit: it stays reachable via the sidebar only.
+        assert!(screen_for_digit('0').is_none());
+        assert!(screen_digit(ScreenKind::Dashboard).is_none());
+        assert!(screen_for_digit('z').is_none());
     }
 
     #[test]

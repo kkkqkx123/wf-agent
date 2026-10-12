@@ -184,14 +184,6 @@
 	const selected = $derived(detail);
 	const compared = $derived(compareDetail);
 
-	// Detail is unified: both engines resolve through getExecutionDetail.
-	const selectedItem = $derived(
-		filtered.find((execution) => execution.id === selectedId) ?? null,
-	);
-	const comparedItem = $derived(
-		filtered.find((execution) => execution.id === compareId) ?? null,
-	);
-
 	// Compare candidates exclude the primary selection so A/B never render
 	// the same run twice. Labels stay short: the full id remains in detail.
 	const compareOptions = $derived(

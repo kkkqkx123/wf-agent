@@ -47,7 +47,9 @@ use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Dashboard entry order: index `i` is what `1..=0` / `j-k` selects.
+/// Sidebar entry order: index `i` is the row `j-k` moves and `Enter` opens.
+/// Digit keys follow the canonical map in `tui-core` instead, where the
+/// dashboard has no digit and stays reachable through this list only.
 pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,
     ScreenKind::Executions,
@@ -843,6 +845,7 @@ impl TuiApp {
                 crate::screen_draw::draw_sidebar_overlay(
                     frame,
                     area,
+                    DASHBOARD_ENTRIES,
                     self.app.screen.navigation.selected(),
                 );
             }

@@ -17,7 +17,7 @@ fn base_config() -> AgentLoopConfig {
         max_iterations: Some(5),
         max_execution_time: None,
         hooks: Vec::new(),
-        available_tool_names: Vec::new(),
+        available_tool_names: Some(Vec::new()),
         initial_tool_names: Vec::new(),
         discoverable_tool_names: Vec::new(),
         enable_general_tool: None,
@@ -77,7 +77,7 @@ fn unknown_tool_is_rejected() {
     let registry = ToolRegistry::new();
     let cfg = AgentLoopConfig {
         file_scope: None,
-        available_tool_names: vec!["nope_tool".to_string()],
+        available_tool_names: Some(vec!["nope_tool".to_string()]),
         ..base_config()
     };
     let issues = AgentLoopValidator::validate_config(&cfg, &registry);
@@ -153,7 +153,7 @@ async fn executor_rejects_unknown_tool_before_running() {
     let exec = executor();
     let bad = AgentLoopConfig {
         file_scope: None,
-        available_tool_names: vec!["nope_tool".to_string()],
+        available_tool_names: Some(vec!["nope_tool".to_string()]),
         ..base_config()
     };
     let err = exec.execute(bad, input()).await.unwrap_err();

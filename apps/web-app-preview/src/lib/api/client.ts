@@ -32,8 +32,6 @@ import {
         overviewMetrics,
         templates,
         queryResult,
-        auditReports,
-        errorAnalyses,
         perfNodes,
         events,
         dependencies,
@@ -48,7 +46,6 @@ import {
 } from '$lib/fixtures/resources';
 import {
         triggerRecords,
-        hooks,
         executionTimeline,
 } from '$lib/fixtures/triggers';
 import { workflows, workflowDetail } from '$lib/fixtures/workflows';
@@ -885,7 +882,6 @@ export const client: AnyClient = {
         async GET(path: string, opts?: any): Promise<any> {
                 await delay(30); // simulate a tiny network latency
                 const query = queryOf(opts?.params);
-                const paramsObj = opts?.params?.path ?? {};
                 const data = router.dispatch('GET', path, query, undefined);
                 if (data === undefined) return missingRoute('GET', path);
                 return okEnvelope(data);
@@ -895,7 +891,6 @@ export const client: AnyClient = {
         async POST(path: string, opts?: any): Promise<any> {
                 await delay(30);
                 const query = queryOf(opts?.params);
-                const paramsObj = opts?.params?.path ?? {};
                 const body = opts?.body;
                 const data = router.dispatch('POST', path, query, body);
                 if (data === undefined) return missingRoute('POST', path);
@@ -906,7 +901,6 @@ export const client: AnyClient = {
         async PUT(path: string, opts?: any): Promise<any> {
                 await delay(30);
                 const query = queryOf(opts?.params);
-                const paramsObj = opts?.params?.path ?? {};
                 const body = opts?.body;
                 const data = router.dispatch('PUT', path, query, body);
                 if (data === undefined) return missingRoute('PUT', path);
@@ -917,7 +911,6 @@ export const client: AnyClient = {
         async DELETE(path: string, opts?: any): Promise<any> {
                 await delay(30);
                 const query = queryOf(opts?.params);
-                const paramsObj = opts?.params?.path ?? {};
                 const data = router.dispatch('DELETE', path, query, undefined);
                 if (data === undefined) return missingRoute('DELETE', path);
                 return okEnvelope(data);

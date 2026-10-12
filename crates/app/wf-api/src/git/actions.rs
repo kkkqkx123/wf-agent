@@ -65,18 +65,6 @@ fn echo_of(action: &str, argv: &[String]) -> String {
     parts.join(" ")
 }
 
-fn run_argv(
-    ctx: &ApiContext,
-    argv: Vec<String>,
-    remote: bool,
-) -> GitResult<(String, String)> {
-    let root = repo_root(ctx)?;
-    let timeout = command_timeout_ms(ctx, remote);
-    let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let out = run_git(&root, &refs, timeout)?;
-    Ok((out.stdout.trim().to_string(), echo_of("", &argv)))
-}
-
 pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<ActionOutcome> {
     let action = request.action.trim();
     if action.is_empty() {
@@ -318,28 +306,6 @@ fn dispatch_write(
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
             Ok(finish(format!("fast-forwarded {branch}"), echo))
         }
-        "commit.reword" => {
-            let commit = param(request, "commit")?;
-            let message = param(request, "message")?;
-            require_confirm(request, &commit, action)?;
-            let _ = run_argv(ctx, vec!["rev-parse".to_string(), "--verify".to_string(), commit.clone()], false)?;
-            let _ = message;
-            return Err(GitError::Precondition(
-                "commit.reword needs an interactive rebase; use the terminal".to_string(),
-            ));
-        }
-        "commit.squash" | "commit.fixup" | "commit.drop" => {
-            let base = optional_param(request, "base")
-                .or_else(|| optional_param(request, "commit"))
-                .unwrap_or_default();
-            if base.is_empty() {
-                return Err(GitError::Precondition("missing param 'base'".to_string()));
-            }
-            require_confirm(request, &base, action)?;
-            return Err(GitError::Precondition(format!(
-                "{action} needs an interactive rebase; use the terminal"
-            )));
-        }
         "commit.revert" => {
             let commit = param(request, "commit")?;
             let argv = vec!["revert".to_string(), "--no-edit".to_string(), commit.clone()];
@@ -404,22 +370,12 @@ fn dispatch_write(
             run_git(&root, &refs, command_timeout_ms(ctx, true))?;
             Ok(finish("pulled".to_string(), echo))
         }
-        "fetch" => {
-            return Err(GitError::Precondition(
-                "fetch is read-only; use the terminal or wait for remote refresh".to_string(),
-            ));
-        }
         "undo" => {
             let argv = vec!["stash".to_string(), "push".to_string(), "-m".to_string(), "undo".to_string()];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
             Ok(finish("stashed for undo".to_string(), echo))
-        }
-        "focus" | "filter" => {
-            return Err(GitError::Precondition(format!(
-                "'{action}' is a client-side view op without a server write"
-            )));
         }
         _ => {
             let _ = spec;

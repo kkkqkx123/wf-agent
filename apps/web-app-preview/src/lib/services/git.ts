@@ -63,6 +63,37 @@ export interface StashEntry {
 	message: string;
 }
 
+export interface CommitFileEntry {
+	path: string;
+	status: string;
+	renamedFrom: string | null;
+}
+
+export interface RemoteEntry {
+	name: string;
+	url: string;
+	branches: string[];
+}
+
+export interface TagEntry {
+	name: string;
+	commit: string;
+	message: string;
+}
+
+export interface SubmoduleEntry {
+	path: string;
+	commit: string;
+	status: string;
+}
+
+export interface WorktreeEntry {
+	path: string;
+	branch: string;
+	commit: string;
+	bare: boolean;
+}
+
 export interface RegistryEntry {
 	id: string;
 	danger: string;
@@ -99,13 +130,15 @@ export async function getMeta(): Promise<RepoMeta> {
 	};
 }
 
-export async function getStatus(): Promise<{
+export interface StatusCounts {
 	branch: string;
 	staged: number;
 	unstaged: number;
 	untracked: number;
 	conflicted: number;
-}> {
+}
+
+export async function getStatus(): Promise<StatusCounts> {
 	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/status'));
 	const v = requireData(data, 'Git status') as Record<string, unknown>;
 	return {
@@ -175,6 +208,50 @@ export async function listStash(): Promise<StashEntry[]> {
 	return Array.isArray(rows) ? rows : [];
 }
 
+export async function getCommitFiles(commit: string): Promise<CommitFileEntry[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/commits/files', { params: { query: { commit } } }),
+	);
+	const rows = requireData(data, 'Git commit files') as Array<Record<string, unknown>>;
+	return (Array.isArray(rows) ? rows : []).map((f) => ({
+		path: String(f.path ?? ''),
+		status: String(f.status ?? ''),
+		renamedFrom: (f.renamed_from as string | null) ?? (f.renamedFrom as string | null) ?? null,
+	}));
+}
+
+export async function getDiffRange(from: string, to: string, path?: string): Promise<DiffFile[]> {
+	const data = await call<unknown>(
+		client.GET('/api/v1/git/diff/range', { params: { query: { from, to, path } } }),
+	);
+	const rows = requireData(data, 'Git diff range') as DiffFile[];
+	return snake(Array.isArray(rows) ? rows : []);
+}
+
+export async function listRemotes(): Promise<RemoteEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/remotes'));
+	const rows = requireData(data, 'Git remotes') as RemoteEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function listTags(): Promise<TagEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/tags'));
+	const rows = requireData(data, 'Git tags') as TagEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function listSubmodules(): Promise<SubmoduleEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/submodules'));
+	const rows = requireData(data, 'Git submodules') as SubmoduleEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+export async function listWorktrees(): Promise<WorktreeEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/worktrees'));
+	const rows = requireData(data, 'Git worktrees') as WorktreeEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
 export async function getRegistry(): Promise<RegistryEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/registry'));
 	const rows = requireData(data, 'Git registry') as RegistryEntry[];
@@ -231,5 +308,14 @@ export async function readTerminalOutput(id: string, offset: number): Promise<st
 export async function closeTerminal(id: string): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/git/terminal/{id}/close', { params: { path: { id } } }),
+	);
+}
+
+export async function resizeTerminal(id: string, rows: number, cols: number): Promise<void> {
+	await call<unknown>(
+		client.POST('/api/v1/git/terminal/{id}/resize', {
+			params: { path: { id } },
+			body: { rows, cols },
+		}),
 	);
 }

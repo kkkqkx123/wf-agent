@@ -71,7 +71,7 @@ fn discovery_config_with_general(
         max_iterations: Some(5),
         max_execution_time: None,
         hooks: Vec::new(),
-        available_tool_names: vec!["web_search".to_string(), "write_file".to_string()],
+        available_tool_names: Some(vec!["web_search".to_string(), "write_file".to_string()]),
         initial_tool_names: vec!["web_search".to_string()],
         discoverable_tool_names: vec!["web_search".to_string()],
         enable_general_tool: None,

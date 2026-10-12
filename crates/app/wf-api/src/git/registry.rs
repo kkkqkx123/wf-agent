@@ -34,17 +34,13 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
     ActionSpec { id: "branch.merge", danger: DangerLevel::Recoverable, params: &["branch"], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "branch.rebase", danger: DangerLevel::HistoryRewrite, params: &["onto"], available: true, unavailable_reason: None, needs_confirm: true },
     ActionSpec { id: "branch.fast-forward", danger: DangerLevel::Recoverable, params: &["branch"], available: true, unavailable_reason: None, needs_confirm: false },
-    ActionSpec { id: "commit.reword", danger: DangerLevel::HistoryRewrite, params: &["commit", "message"], available: true, unavailable_reason: None, needs_confirm: true },
-    ActionSpec { id: "commit.squash", danger: DangerLevel::HistoryRewrite, params: &["base"], available: true, unavailable_reason: None, needs_confirm: true },
-    ActionSpec { id: "commit.fixup", danger: DangerLevel::HistoryRewrite, params: &["commit"], available: true, unavailable_reason: None, needs_confirm: true },
-    ActionSpec { id: "commit.drop", danger: DangerLevel::HistoryRewrite, params: &["commit"], available: true, unavailable_reason: None, needs_confirm: true },
     ActionSpec { id: "commit.revert", danger: DangerLevel::Recoverable, params: &["commit"], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "commit.cherry-pick", danger: DangerLevel::Recoverable, params: &["commit"], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "commit.to-branch", danger: DangerLevel::Recoverable, params: &["commit", "branch"], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "commit.to-tag", danger: DangerLevel::Recoverable, params: &["commit", "tag"], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "push", danger: DangerLevel::HistoryRewrite, params: &["remote", "branch"], available: true, unavailable_reason: None, needs_confirm: true },
     ActionSpec { id: "pull", danger: DangerLevel::Recoverable, params: &["remote", "branch"], available: true, unavailable_reason: None, needs_confirm: false },
-    ActionSpec { id: "fetch", danger: DangerLevel::Readonly, params: &["remote"], available: true, unavailable_reason: None, needs_confirm: false },
+    ActionSpec { id: "fetch", danger: DangerLevel::Readonly, params: &["remote"], available: false, unavailable_reason: Some("fetch runs from the terminal or a scheduled refresh"), needs_confirm: false },
     ActionSpec { id: "undo", danger: DangerLevel::Recoverable, params: &[], available: true, unavailable_reason: None, needs_confirm: false },
     ActionSpec { id: "redo", danger: DangerLevel::Recoverable, params: &[], available: false, unavailable_reason: Some("redo is not tracked for user git"), needs_confirm: false },
     ActionSpec { id: "focus", danger: DangerLevel::Readonly, params: &["path"], available: true, unavailable_reason: None, needs_confirm: false },
@@ -52,6 +48,10 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
     ActionSpec { id: "extern.difftool", danger: DangerLevel::Readonly, params: &[], available: false, unavailable_reason: Some("external diff tools are not launched from the server"), needs_confirm: false },
     ActionSpec { id: "hosting", danger: DangerLevel::Readonly, params: &[], available: false, unavailable_reason: Some("hosting integrations are out of scope"), needs_confirm: false },
     ActionSpec { id: "rebase.interactive", danger: DangerLevel::HistoryRewrite, params: &[], available: false, unavailable_reason: Some("interactive rebase editor is terminal-only"), needs_confirm: true },
+    ActionSpec { id: "commit.reword", danger: DangerLevel::HistoryRewrite, params: &["commit", "message"], available: false, unavailable_reason: Some("commit reword needs an interactive rebase; use the terminal"), needs_confirm: true },
+    ActionSpec { id: "commit.squash", danger: DangerLevel::HistoryRewrite, params: &["base"], available: false, unavailable_reason: Some("commit squash needs an interactive rebase; use the terminal"), needs_confirm: true },
+    ActionSpec { id: "commit.fixup", danger: DangerLevel::HistoryRewrite, params: &["commit"], available: false, unavailable_reason: Some("commit fixup needs an interactive rebase; use the terminal"), needs_confirm: true },
+    ActionSpec { id: "commit.drop", danger: DangerLevel::HistoryRewrite, params: &["commit"], available: false, unavailable_reason: Some("commit drop needs an interactive rebase; use the terminal"), needs_confirm: true },
     ActionSpec { id: "patch.build", danger: DangerLevel::Readonly, params: &[], available: false, unavailable_reason: Some("patch building is terminal-only"), needs_confirm: false },
     ActionSpec { id: "bisect", danger: DangerLevel::Readonly, params: &[], available: false, unavailable_reason: Some("bisect is terminal-only"), needs_confirm: false },
     ActionSpec { id: "workspace.write", danger: DangerLevel::Destructive, params: &[], available: false, unavailable_reason: Some("worktree writes are unavailable"), needs_confirm: true },
@@ -119,5 +119,17 @@ mod tests {
         assert!(!redo.available);
         let ws = action_spec("workspace.write").unwrap();
         assert!(!ws.available);
+    }
+
+    #[test]
+    fn history_rewrites_that_need_an_editor_are_marked_unavailable() {
+        // The registry is the single source of availability the workbench
+        // gates on: anything dispatch cannot honour must read unavailable
+        // here instead of failing at call time.
+        for id in ["commit.reword", "commit.squash", "commit.fixup", "commit.drop", "fetch"] {
+            let spec = action_spec(id).unwrap();
+            assert!(!spec.available, "{id} must be marked unavailable");
+            assert!(spec.unavailable_reason.is_some(), "{id} needs a reason");
+        }
     }
 }

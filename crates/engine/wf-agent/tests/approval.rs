@@ -63,7 +63,7 @@ fn config() -> AgentLoopConfig {
         max_iterations: Some(5),
         max_execution_time: None,
         hooks: Vec::new(),
-        available_tool_names: vec!["echo".to_string()],
+        available_tool_names: Some(vec!["echo".to_string()]),
         initial_tool_names: Vec::new(),
         discoverable_tool_names: Vec::new(),
         enable_general_tool: None,

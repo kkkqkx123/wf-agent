@@ -7,7 +7,7 @@
 
 use tui_components::transcript::{lines_to_string, HistoryLine};
 use tui_core::headless::HeadlessRenderer;
-use tui_core::reducer::{fold, MiniCommit, Phase};
+use tui_core::reducer::{fold, MiniCommit};
 use wf_types::events::ExecutionStreamEvent;
 
 fn delta(text: &str) -> ExecutionStreamEvent {

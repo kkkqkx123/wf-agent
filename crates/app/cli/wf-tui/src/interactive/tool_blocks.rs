@@ -12,8 +12,8 @@
 //! truncation; per-tool presentation knowledge lives in `wf-tools`.
 
 use tui_core::tool_output::{
-    Collapsed, DetailLevel, ToolOutputConfig, cap_block_bytes, collapse_output, collapse_shell_tail,
-    infer_kind, summarize_activity,
+    cap_block_bytes, collapse_output, collapse_shell_tail, infer_kind, summarize_activity,
+    Collapsed, DetailLevel, ToolOutputConfig,
 };
 use wf_types::tool::{DisplayKind, DisplayPayload};
 
@@ -72,18 +72,12 @@ impl ToolBlock {
                 .as_deref()
                 .is_some_and(|error| !error.trim().is_empty());
         if error_first {
-            return collapse_output(
-                source,
-                config.error_preview_lines,
-                config.preview_max_chars,
-            );
+            return collapse_output(source, config.error_preview_lines, config.preview_max_chars);
         }
         match self.kind {
-            DisplayKind::ShellTail => collapse_shell_tail(
-                source,
-                config.shell_preview_lines,
-                config.preview_max_chars,
-            ),
+            DisplayKind::ShellTail => {
+                collapse_shell_tail(source, config.shell_preview_lines, config.preview_max_chars)
+            }
             DisplayKind::Diff | DisplayKind::Count | DisplayKind::Text => {
                 collapse_output(source, config.preview_max_lines, config.preview_max_chars)
             }
@@ -229,9 +223,9 @@ impl InteractiveController {
     /// collapse them all. Grouped (unrendered) blocks stay grouped.
     pub(crate) fn toggle_all_tool_blocks(&mut self) {
         let any_collapsed = self.tool_order.iter().any(|id| {
-            self.tool_blocks.get(id).is_some_and(|block| {
-                block.expandable && !block.expanded && block.summary_seq != 0
-            })
+            self.tool_blocks
+                .get(id)
+                .is_some_and(|block| block.expandable && !block.expanded && block.summary_seq != 0)
         });
         self.set_all_tool_blocks(any_collapsed);
     }
@@ -258,14 +252,17 @@ impl InteractiveController {
             (false, _) => format!("✗ {tool_name}"),
         };
         if !self.tool_config.enabled {
-            self.pending_scroll.push(HistoryLine::new_role(summary, role));
+            self.pending_scroll
+                .push(HistoryLine::new_role(summary, role));
             return;
         }
         let (output, output_capped) = cap_block_bytes(result, self.tool_config.block_max_bytes);
         let error_text = error
             .map(str::to_string)
             .filter(|text| !text.trim().is_empty());
-        let kind = display.map(|payload| payload.kind).unwrap_or_else(|| infer_kind(tool_name));
+        let kind = display
+            .map(|payload| payload.kind)
+            .unwrap_or_else(|| infer_kind(tool_name));
         let (mut block, preview) = build_block(
             tool_call_id,
             tool_name,
@@ -287,8 +284,9 @@ impl InteractiveController {
         }
         self.flush_activity();
         // High level renders retrieval blocks expanded by default.
-        block.expanded =
-            self.tool_config.level == DetailLevel::High && block.kind == DisplayKind::Count && success;
+        block.expanded = self.tool_config.level == DetailLevel::High
+            && block.kind == DisplayKind::Count
+            && success;
         let summary = if block.hides_body() {
             // The count suffix stays even when expanded: it names the body.
             if block.expandable {
@@ -435,18 +433,14 @@ impl InteractiveController {
     /// Replace the body rows after the summary row carrying `summary_seq`.
     /// The drain range is clamped so concurrent trims cannot panic; a lost
     /// summary drops its bookkeeping instead.
-    fn splice_block_rows(
-        &mut self,
-        summary_seq: u64,
-        old_len: usize,
-        new_rows: Vec<HistoryLine>,
-    ) {
+    fn splice_block_rows(&mut self, summary_seq: u64, old_len: usize, new_rows: Vec<HistoryLine>) {
         let Some(summary) = self
             .scrollback
             .iter()
             .position(|row| row.seq_no() == summary_seq)
         else {
-            self.tool_blocks.retain(|_, block| block.summary_seq != summary_seq);
+            self.tool_blocks
+                .retain(|_, block| block.summary_seq != summary_seq);
             self.tool_order.retain(|id| {
                 self.tool_blocks
                     .get(id)

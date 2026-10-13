@@ -132,7 +132,10 @@ mod tests {
 
     #[test]
     fn shell_tools_keep_the_tail() {
-        let result = (0..50).map(|i| format!("out {i}")).collect::<Vec<_>>().join("\n");
+        let result = (0..50)
+            .map(|i| format!("out {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let payload = display_for(Some("execute_command"), &result);
         assert_eq!(payload.kind, DisplayKind::ShellTail);
         assert!(payload.truncated);
@@ -153,7 +156,9 @@ mod tests {
     fn edit_tools_keep_diff_markers() {
         let mut result = String::new();
         for i in 0..200 {
-            result.push_str(&format!("context line {i} with filler padding 0123456789\n"));
+            result.push_str(&format!(
+                "context line {i} with filler padding 0123456789\n"
+            ));
             if i % 10 == 0 {
                 result.push_str(&format!("@@ -{i},5 +{i},5 @@ hunk header\n"));
             }
@@ -166,7 +171,10 @@ mod tests {
 
     #[test]
     fn read_tools_collapse_to_a_count_summary() {
-        let result = (0..100).map(|i| format!("file line {i}")).collect::<Vec<_>>().join("\n");
+        let result = (0..100)
+            .map(|i| format!("file line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let payload = display_for(Some("read_file"), &result);
         assert_eq!(payload.kind, DisplayKind::Count);
         assert!(payload.truncated);
@@ -183,7 +191,10 @@ mod tests {
 
     #[test]
     fn unknown_tools_fall_back_to_head_text() {
-        let result = (0..50).map(|i| format!("row {i}")).collect::<Vec<_>>().join("\n");
+        let result = (0..50)
+            .map(|i| format!("row {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let payload = display_for(Some("mystery_tool"), &result);
         assert_eq!(payload.kind, DisplayKind::Text);
         assert!(payload.truncated);

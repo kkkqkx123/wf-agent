@@ -165,7 +165,9 @@ pub async fn replay_scrollack_page(
         if let Some(s) = summary.as_ref() {
             lines.push(summary_history_line(
                 s.get("id").and_then(|v| v.as_str()).unwrap_or(session_id),
-                s.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                s.get("current_iteration")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
                 s.get("start_time").and_then(|v| v.as_i64()),
                 s.get("end_time").and_then(|v| v.as_i64()),
             ));
@@ -203,10 +205,7 @@ pub async fn latest_session_id(client: &WfClient) -> CliResult<Option<String>> {
             "completed" | "failed" | "Completed" | "Failed"
         )
     }) {
-        return Ok(found
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string));
+        return Ok(found.get("id").and_then(|v| v.as_str()).map(str::to_string));
     }
     Ok(summaries
         .first()
@@ -257,7 +256,9 @@ fn conversation_items(data: Result<serde_json::Value, wf_client::ClientError>) -
 
 async fn iteration_details(client: &WfClient, session_id: &str) -> Vec<serde_json::Value> {
     let data: Result<serde_json::Value, _> = client
-        .get_json(&format!("/api/v1/agent-loops/{session_id}/iteration-history"))
+        .get_json(&format!(
+            "/api/v1/agent-loops/{session_id}/iteration-history"
+        ))
         .await;
     data.ok()
         .and_then(|v| {
@@ -286,7 +287,10 @@ fn push_iteration_tool_calls(lines: &mut Vec<HistoryLine>, detail: &serde_json::
     for call in &calls {
         let name = call.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
         lines.push(HistoryLine::new_role(format!("▲ {name}"), Role::Muted));
-        let success = call.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+        let success = call
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         let result = if success {
             format!("✓ {name}")
         } else {
@@ -536,7 +540,10 @@ mod tests {
 
     #[test]
     fn tool_messages_collapse_with_hidden_line_hint() {
-        let body = (0..50).map(|i| format!("output line {i}")).collect::<Vec<_>>().join("\n");
+        let body = (0..50)
+            .map(|i| format!("output line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let message = Message {
             id: "t1".into(),
             role: MessageRole::Tool,
@@ -552,13 +559,22 @@ mod tests {
         let lines = records_to_lines(std::slice::from_ref(&message));
         let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
         assert!(texts.iter().any(|t| t.contains("+40 lines")), "{texts:?}");
-        assert!(texts.iter().any(|t| t.contains("output line 49")), "{texts:?}");
-        assert!(!texts.iter().any(|t| t.contains("output line 0\n")), "{texts:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("output line 49")),
+            "{texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("output line 0\n")),
+            "{texts:?}"
+        );
     }
 
     #[test]
     fn retrieval_tool_messages_hide_their_body() {
-        let body = (0..50).map(|i| format!("file line {i}")).collect::<Vec<_>>().join("\n");
+        let body = (0..50)
+            .map(|i| format!("file line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let message = Message {
             id: "t2".into(),
             role: MessageRole::Tool,
@@ -600,7 +616,10 @@ mod tests {
         };
         let lines = records_to_lines(std::slice::from_ref(&message));
         let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
-        assert!(texts.iter().any(|t| t.contains("▲ grep_search")), "{texts:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("▲ grep_search")),
+            "{texts:?}"
+        );
     }
 
     #[test]

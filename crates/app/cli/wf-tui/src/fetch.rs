@@ -100,7 +100,11 @@ async fn fetch_workflows(client: &WfClient) -> CliResult<ScreenData> {
         .filter_map(|w| {
             Some(WorkflowRow {
                 id: w.get("id")?.as_str()?.to_string(),
-                name: w.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                name: w
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 description: w
                     .get("description")
                     .and_then(|v| v.as_str())
@@ -132,8 +136,14 @@ async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliRes
                     .unwrap_or("")
                     .to_string(),
                 status,
-                iteration: e.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                tool_calls: e.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                iteration: e
+                    .get("current_iteration")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                tool_calls: e
+                    .get("tool_call_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
                 started: format_ts(e.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
             })
         })
@@ -141,19 +151,33 @@ async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliRes
 
     // Agent-loop (session) executions live in a second registry; merge them so
     // the screen shows one unified timeline.
-    rows.extend(items_of(&sessions.unwrap_or_default()).into_iter().filter_map(|s| {
-        let status = s.get("status").and_then(|v| v.as_str())?.to_string();
-        if !filter.matches(&status) {
-            return None;
-        }
-        Some(ExecRow {
-            id: s.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            status,
-            iteration: s.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            tool_calls: s.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
-        })
-    }));
+    rows.extend(
+        items_of(&sessions.unwrap_or_default())
+            .into_iter()
+            .filter_map(|s| {
+                let status = s.get("status").and_then(|v| v.as_str())?.to_string();
+                if !filter.matches(&status) {
+                    return None;
+                }
+                Some(ExecRow {
+                    id: s
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    status,
+                    iteration: s
+                        .get("current_iteration")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                    tool_calls: s
+                        .get("tool_call_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32,
+                    started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
+                })
+            }),
+    );
 
     Ok(ScreenData::Executions(rows))
 }
@@ -165,9 +189,19 @@ async fn fetch_agent_loops(client: &WfClient) -> CliResult<ScreenData> {
         .filter_map(|s| {
             Some(LoopRow {
                 id: s.get("id")?.as_str()?.to_string(),
-                status: s.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                iteration: s.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                tool_calls: s.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                status: s
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                iteration: s
+                    .get("current_iteration")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                tool_calls: s
+                    .get("tool_call_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
                 started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
             })
         })
@@ -203,8 +237,14 @@ async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
         if let Some(status) = e.get("status").and_then(|v| v.as_str()) {
             record(status);
         }
-        total_tool_calls += e.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0);
-        total_iterations += e.get("current_iteration").and_then(|v| v.as_u64()).unwrap_or(0);
+        total_tool_calls += e
+            .get("tool_call_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        total_iterations += e
+            .get("current_iteration")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
     }
     status_counts.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
 
@@ -244,7 +284,11 @@ async fn fetch_checkpoints(client: &WfClient) -> CliResult<ScreenData> {
         .filter_map(|c| {
             Some(CheckpointRow {
                 id: c.get("id")?.as_str()?.to_string(),
-                entity: c.get("entity_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                entity: c
+                    .get("entity_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 timestamp: format_ts(c.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0)),
                 entity_type: c
                     .get("entity_type")
@@ -256,7 +300,11 @@ async fn fetch_checkpoints(client: &WfClient) -> CliResult<ScreenData> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
-                status: c.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                status: c
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             })
         })
         .collect();
@@ -301,13 +349,22 @@ pub fn format_checkpoint_detail(checkpoint: &wf_types::storage::checkpoint::Chec
 /// Render a checkpoint chain analysis as one line per checkpoint plus the
 /// transition summary, for the read-only chain viewer.
 pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
-    let execution_id = chain.get("execution_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let execution_id = chain
+        .get("execution_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
     let mut out = vec![
         format!("execution: {execution_id}"),
         format!(
             "checkpoints: {} · total elapsed: {}ms",
-            chain.get("checkpoint_count").and_then(|v| v.as_u64()).unwrap_or(0),
-            chain.get("total_elapsed").and_then(|v| v.as_u64()).unwrap_or(0)
+            chain
+                .get("checkpoint_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            chain
+                .get("total_elapsed")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
         ),
     ];
     for checkpoint in chain
@@ -319,9 +376,18 @@ pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
         out.push(format!(
             "{} · {} · {} · {}",
             checkpoint.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
-            checkpoint.get("entity_id").and_then(|v| v.as_str()).unwrap_or("?"),
-            checkpoint.get("checkpoint_type").and_then(|v| v.as_str()).unwrap_or("?"),
-            checkpoint.get("status").and_then(|v| v.as_str()).unwrap_or("?")
+            checkpoint
+                .get("entity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?"),
+            checkpoint
+                .get("checkpoint_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?"),
+            checkpoint
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
         ));
     }
     for transition in chain
@@ -332,10 +398,22 @@ pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
     {
         out.push(format!(
             "{} -> {} · {}ms · {}",
-            transition.get("from_checkpoint_id").and_then(|v| v.as_str()).unwrap_or("?"),
-            transition.get("to_checkpoint_id").and_then(|v| v.as_str()).unwrap_or("?"),
-            transition.get("elapsed").and_then(|v| v.as_u64()).unwrap_or(0),
-            transition.get("type").and_then(|v| v.as_str()).unwrap_or("?")
+            transition
+                .get("from_checkpoint_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?"),
+            transition
+                .get("to_checkpoint_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?"),
+            transition
+                .get("elapsed")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            transition
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
         ));
     }
     out.join("\n")
@@ -343,15 +421,25 @@ pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
 
 async fn fetch_search(client: &WfClient, query: &str) -> CliResult<ScreenData> {
     let data: serde_json::Value = client
-        .get_json(&format!("/api/v1/search?q={query}&limit_per_type=20&limit=100"))
+        .get_json(&format!(
+            "/api/v1/search?q={query}&limit_per_type=20&limit=100"
+        ))
         .await?;
     let rows = items_of(&data)
         .into_iter()
         .filter_map(|item| {
             Some(SearchRow {
                 id: item.get("id")?.as_str()?.to_string(),
-                kind: item.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                label: item.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                kind: item
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                label: item
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 score: item.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32,
             })
         })
@@ -360,7 +448,10 @@ async fn fetch_search(client: &WfClient, query: &str) -> CliResult<ScreenData> {
         query: query.to_string(),
         results: rows,
         total: data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-        truncated: data.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false),
+        truncated: data
+            .get("truncated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         running: false,
     }))
 }
@@ -382,8 +473,16 @@ async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
         .filter_map(|p| {
             Some(ProfileRow {
                 id: p.get("id")?.as_str()?.to_string(),
-                name: p.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                model: p.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                name: p
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                model: p
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             })
         })
         .collect();

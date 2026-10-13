@@ -140,7 +140,9 @@ impl InteractiveController {
             .approval
             .as_ref()
             .map(|view| view.apply(choice))
-            .unwrap_or_else(|| crate::approval_overlay::ApprovalAnswer::rejected("no approval view"))
+            .unwrap_or_else(|| {
+                crate::approval_overlay::ApprovalAnswer::rejected("no approval view")
+            })
     }
 
     fn handle_question_key(&mut self, key: Key) -> InteractiveAction {

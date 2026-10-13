@@ -127,9 +127,7 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
             Some(UnifiedEvent::Completed { result, iterations })
         }
         ExecutionStreamEvent::Failed { error } => Some(UnifiedEvent::Failed { error }),
-        ExecutionStreamEvent::Interrupted { reason } => {
-            Some(UnifiedEvent::Interrupted { reason })
-        }
+        ExecutionStreamEvent::Interrupted { reason } => Some(UnifiedEvent::Interrupted { reason }),
         ExecutionStreamEvent::ReasoningDelta { content } => {
             Some(UnifiedEvent::ReasoningDelta { content })
         }
@@ -148,9 +146,7 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
         ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
             Some(UnifiedEvent::SubAgentEnded { id, name, success })
         }
-        ExecutionStreamEvent::LlmDelta { content } => {
-            Some(UnifiedEvent::TextDelta { content })
-        }
+        ExecutionStreamEvent::LlmDelta { content } => Some(UnifiedEvent::TextDelta { content }),
         ExecutionStreamEvent::Engine(_) => None,
     }
 }

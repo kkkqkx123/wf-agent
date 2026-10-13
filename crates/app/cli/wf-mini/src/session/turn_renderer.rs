@@ -1,8 +1,8 @@
 //! Turn rendering for the mini session: assistant deltas append to stdout,
 //! everything else goes to stderr, via an injectable [`TurnSink`].
 
-use wf_types::events::ExecutionStreamEvent;
 use wf_cli_shared::display::MarkdownMode;
+use wf_types::events::ExecutionStreamEvent;
 
 use super::TurnOutcome;
 use crate::display::DisplayConfig;

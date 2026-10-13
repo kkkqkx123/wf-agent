@@ -5,13 +5,13 @@
 
 use serde_json::json;
 
-use wf_types::events::ExecutionStreamEvent;
-use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 use wf_tui::approval_overlay::ApprovalView;
 use wf_tui::footer::{Footer, FooterView};
 use wf_tui::keymap::KeymapContext;
 use wf_tui::question_overlay::QuestionView;
 use wf_tui::reducer::{MiniCommit, Phase, SessionReducer};
+use wf_types::events::ExecutionStreamEvent;
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 /// One iteration of markdown streaming that completes.
 fn markdown_script() -> Vec<ExecutionStreamEvent> {

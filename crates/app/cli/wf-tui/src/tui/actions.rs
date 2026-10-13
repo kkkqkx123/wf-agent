@@ -109,9 +109,7 @@ impl TuiApp {
                     let result: Result<String, String> = if is_loop {
                         client
                             .post_json::<_, serde_json::Value>(
-                                &format!(
-                                    "/api/v1/agent-loops/{entity}/checkpoints/{id}/restore"
-                                ),
+                                &format!("/api/v1/agent-loops/{entity}/checkpoints/{id}/restore"),
                                 &serde_json::json!({}),
                             )
                             .await
@@ -303,15 +301,13 @@ impl TuiApp {
         let client = self.client.clone();
         self.tasks.push(tokio::spawn(async move {
             let outcome = match rx.await {
-                Ok(ModalResult::Confirmed) => {
-                    match cancel_execution(&client, &id).await {
-                        Ok(()) => {
-                            let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
-                            format!("Cancelled execution {id}")
-                        }
-                        Err(err) => format!("Cancel failed: {err}"),
+                Ok(ModalResult::Confirmed) => match cancel_execution(&client, &id).await {
+                    Ok(()) => {
+                        let _ = tx.send(Feedback::Refresh(ScreenKind::Executions));
+                        format!("Cancelled execution {id}")
                     }
-                }
+                    Err(err) => format!("Cancel failed: {err}"),
+                },
                 _ => "Cancel dismissed".to_string(),
             };
             let _ = tx.send(Feedback::Notice(outcome));

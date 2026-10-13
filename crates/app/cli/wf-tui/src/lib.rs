@@ -93,7 +93,8 @@ async fn run_interactive(
             let handle = ClientHandle::from_cli(cli).await?;
             let mut app = crate::tui::TuiApp::new(handle.into_client());
             if cli.session.is_some() || cli.resume {
-                app.queue_session_restore(cli.session.clone(), cli.resume).await;
+                app.queue_session_restore(cli.session.clone(), cli.resume)
+                    .await;
             }
             app.run().await
         }

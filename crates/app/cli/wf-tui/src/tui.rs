@@ -27,7 +27,6 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use wf_client::WfClient;
 use crate::error::{CliError, CliResult};
 use crate::framer::FrameRequester;
 use crate::interactive::InteractiveController;
@@ -38,9 +37,12 @@ use crate::size::{ResizeDebouncer, Size};
 use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
+use wf_client::WfClient;
 
 use data_cache::DataResult;
-use input_classify::{classify_mouse, classify_paste, load_mouse_opt_in, load_tool_output_config, map_key};
+use input_classify::{
+    classify_mouse, classify_paste, load_mouse_opt_in, load_tool_output_config, map_key,
+};
 use input_classify::{focus_transition, FocusInput, MouseAction, PasteTarget};
 use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
 
@@ -727,8 +729,7 @@ impl TuiApp {
             (true, false) => {
                 let id = wf_common::generate_id();
                 self.held_session.hold(id.clone());
-                let mut session =
-                    InteractiveController::start(self.client.clone(), id).await;
+                let mut session = InteractiveController::start(self.client.clone(), id).await;
                 session.set_perf_tier(self.perf_tier.marker());
                 session.apply_perf_policy(self.perf_policy);
                 session.set_tool_config(load_tool_output_config());

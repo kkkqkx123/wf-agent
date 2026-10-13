@@ -179,7 +179,11 @@ pub fn collapse_output(text: &str, max_lines: usize, max_chars: usize) -> Collap
         };
     }
     let hidden_lines = lines.len().saturating_sub(capped_lines);
-    let mut visible: Vec<String> = lines.into_iter().take(capped_lines).map(str::to_string).collect();
+    let mut visible: Vec<String> = lines
+        .into_iter()
+        .take(capped_lines)
+        .map(str::to_string)
+        .collect();
     if hidden_lines > 0 {
         if let Some(last) = visible.last_mut() {
             last.push('…');
@@ -207,7 +211,14 @@ pub fn collapse_shell_tail(text: &str, max_lines: usize, max_chars: usize) -> Co
         };
     }
     let hidden_lines = lines.len().saturating_sub(capped_lines);
-    let tail: Vec<&str> = lines.into_iter().rev().take(capped_lines).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: Vec<&str> = lines
+        .into_iter()
+        .rev()
+        .take(capped_lines)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     let composed = if hidden_lines > 0 {
         format!("({hidden_lines} earlier lines)\n{}", tail.join("\n"))
     } else {
@@ -231,7 +242,10 @@ pub fn cap_block_bytes(text: &str, max_bytes: usize) -> (String, bool) {
     while start < text.len() && !text.is_char_boundary(start) {
         start += 1;
     }
-    (format!("[earlier output omitted]\n{}", &text[start..]), true)
+    (
+        format!("[earlier output omitted]\n{}", &text[start..]),
+        true,
+    )
 }
 
 /// Summarize consecutive tool activity for the low detail level, e.g.
@@ -269,7 +283,11 @@ pub fn summarize_activity(items: &[(String, bool)]) -> String {
 }
 
 fn plural(count: usize) -> &'static str {
-    if count == 1 { "" } else { "s" }
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 #[cfg(test)]
@@ -293,11 +311,19 @@ mod tests {
 
     #[test]
     fn head_collapse_marks_last_line_and_counts_hidden() {
-        let text = (0..25).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..25)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let collapsed = collapse_output(&text, 10, 10_000);
         assert!(collapsed.overflow);
         assert_eq!(collapsed.hidden_lines, 15);
-        assert!(collapsed.text.lines().next().expect("first line").contains("line 0"));
+        assert!(collapsed
+            .text
+            .lines()
+            .next()
+            .expect("first line")
+            .contains("line 0"));
         assert!(collapsed.text.contains('…'));
     }
 
@@ -312,7 +338,10 @@ mod tests {
 
     #[test]
     fn shell_tail_keeps_recent_lines_with_head_marker() {
-        let text = (0..30).map(|i| format!("out {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..30)
+            .map(|i| format!("out {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let collapsed = collapse_shell_tail(&text, 10, 10_000);
         assert!(collapsed.overflow);
         assert_eq!(collapsed.hidden_lines, 20);

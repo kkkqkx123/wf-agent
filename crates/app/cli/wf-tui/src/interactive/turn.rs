@@ -161,8 +161,7 @@ impl InteractiveController {
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     if kind == "tool_approval" {
-                        let request_data =
-                            item.get("request_data").cloned().unwrap_or_default();
+                        let request_data = item.get("request_data").cloned().unwrap_or_default();
                         match serde_json::from_value(request_data) {
                             Ok(request) => {
                                 if tx
@@ -178,8 +177,7 @@ impl InteractiveController {
                             Err(_) => continue,
                         }
                     } else {
-                        let request =
-                            item.get("request_data").cloned().unwrap_or(item.clone());
+                        let request = item.get("request_data").cloned().unwrap_or(item.clone());
                         if tx
                             .send(InteractiveEvent::QuestionRequested {
                                 interaction_id: id,

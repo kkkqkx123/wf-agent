@@ -20,13 +20,23 @@ impl WorkflowSummaryRow {
     pub fn from_value(value: &serde_json::Value) -> Option<Self> {
         Some(Self {
             id: value.get("id")?.as_str()?.to_string(),
-            name: value.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            name: value
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             description: value
                 .get("description")
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
-            node_count: value.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-            edge_count: value.get("edge_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+            node_count: value
+                .get("node_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            edge_count: value
+                .get("edge_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
         })
     }
 
@@ -35,12 +45,7 @@ impl WorkflowSummaryRow {
         value
             .as_array()
             .cloned()
-            .or_else(|| {
-                value
-                    .get("items")
-                    .and_then(|v| v.as_array())
-                    .cloned()
-            })
+            .or_else(|| value.get("items").and_then(|v| v.as_array()).cloned())
             .unwrap_or_default()
             .iter()
             .filter_map(Self::from_value)

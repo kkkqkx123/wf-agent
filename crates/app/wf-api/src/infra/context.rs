@@ -303,10 +303,7 @@ impl ApiContext {
     }
 
     /// Attach the user git configuration. `None` keeps the domain disabled.
-    pub fn with_user_git(
-        mut self,
-        config: wf_types::config::user_git::UserGitConfig,
-    ) -> Self {
+    pub fn with_user_git(mut self, config: wf_types::config::user_git::UserGitConfig) -> Self {
         self.user_git = Some(config);
         self
     }

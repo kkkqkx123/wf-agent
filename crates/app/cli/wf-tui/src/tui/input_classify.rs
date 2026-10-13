@@ -43,21 +43,19 @@ pub(super) enum PasteTarget {
     Swallowed,
     /// The session screen composer.
     Session,
-    /// The search screen draft.
-    Search,
     /// No text entry on this screen; the paste is dropped.
     Ignored,
 }
 
 /// Route a paste body: modals swallow everything, the session screen feeds
-/// the composer, the search screen feeds the draft, other screens drop it.
+/// the composer, other screens drop it. The search palette is handled by the
+/// shell before this classification runs.
 pub(super) fn classify_paste(modal_open: bool, screen: ScreenKind) -> PasteTarget {
     if modal_open {
         return PasteTarget::Swallowed;
     }
     match screen {
         ScreenKind::Interactive => PasteTarget::Session,
-        ScreenKind::Search => PasteTarget::Search,
         _ => PasteTarget::Ignored,
     }
 }
@@ -91,7 +89,7 @@ pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
 /// Best-effort tool-output thresholds from the user config file. A missing
 /// or unreadable config means built-in defaults; individual keys fall back
 /// independently so a partial `[tool_output]` section still applies.
-pub(super) fn load_tool_output_config() -> crate::tool_output::ToolOutputConfig {
+pub(crate) fn load_tool_output_config() -> crate::tool_output::ToolOutputConfig {
     use crate::app_config::ToolDetailLevelName;
     use crate::tool_output::{DetailLevel, ToolOutputConfig};
     let mut config = ToolOutputConfig::default();
@@ -135,7 +133,7 @@ pub(super) fn load_tool_output_config() -> crate::tool_output::ToolOutputConfig 
 /// Best-effort mouse opt-in from the user config file. A missing or
 /// unreadable config means off: mouse capture stays disabled and the
 /// terminal keeps native text selection.
-pub(super) fn load_mouse_opt_in() -> bool {
+pub(crate) fn load_mouse_opt_in() -> bool {
     let path = match crate::app_config::config_file_path() {
         Some(path) => path,
         None => return false,
@@ -149,7 +147,7 @@ pub(super) fn load_mouse_opt_in() -> bool {
 /// Best-effort default copy target from `[terminal] copy_target`. A
 /// missing or unreadable config (or an unknown value, which fails the
 /// whole file parse and falls back here) means the message default.
-pub(super) fn load_copy_target() -> crate::copy::CopyDefaultTarget {
+pub(crate) fn load_copy_target() -> crate::copy::CopyDefaultTarget {
     use crate::app_config::CopyTargetName;
     let path = match crate::app_config::config_file_path() {
         Some(path) => path,
@@ -218,24 +216,22 @@ mod tests {
 
     #[test]
     fn digit_to_screen_follows_the_canonical_map() {
-        let mapped: Vec<_> = ('1'..='9').filter_map(screen_for_digit).collect();
+        let mapped: Vec<_> = ('0'..='9').filter_map(screen_for_digit).collect();
         assert_eq!(
             mapped,
             vec![
+                ScreenKind::Dashboard,
                 ScreenKind::Workflow,
                 ScreenKind::Executions,
-                ScreenKind::AgentLoops,
                 ScreenKind::Insights,
                 ScreenKind::Interactive,
                 ScreenKind::Checkpoints,
-                ScreenKind::Search,
                 ScreenKind::Settings,
-                ScreenKind::Help,
             ]
         );
-        // The dashboard has no digit: it stays reachable via the sidebar only.
-        assert!(screen_for_digit('0').is_none());
-        assert!(screen_digit(ScreenKind::Dashboard).is_none());
+        assert!(screen_for_digit('7').is_none());
+        assert!(screen_for_digit('8').is_none());
+        assert!(screen_for_digit('9').is_none());
         assert!(screen_for_digit('z').is_none());
     }
 
@@ -253,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn paste_routes_to_session_search_or_swallow() {
+    fn paste_routes_to_session_or_swallow() {
         // Modals swallow every paste regardless of the screen.
         for screen in ScreenKind::all() {
             assert_eq!(classify_paste(true, *screen), PasteTarget::Swallowed);
@@ -262,18 +258,14 @@ mod tests {
             classify_paste(false, ScreenKind::Interactive),
             PasteTarget::Session
         );
-        assert_eq!(
-            classify_paste(false, ScreenKind::Search),
-            PasteTarget::Search
-        );
         // Screens without text entry drop the paste.
         for screen in [
             ScreenKind::Dashboard,
             ScreenKind::Workflow,
             ScreenKind::Executions,
+            ScreenKind::Insights,
             ScreenKind::Checkpoints,
             ScreenKind::Settings,
-            ScreenKind::Help,
         ] {
             assert_eq!(classify_paste(false, screen), PasteTarget::Ignored);
         }

@@ -105,9 +105,7 @@ where
 
 /// Map a typed progenitor error carrying `ErrorResponse` while preserving
 /// the server-sent code and message.
-pub fn map_typed_error(
-    err: progenitor_client::Error<crate::models::ErrorResponse>,
-) -> ClientError {
+pub fn map_typed_error(err: progenitor_client::Error<crate::models::ErrorResponse>) -> ClientError {
     use progenitor_client::Error as P;
     match err {
         P::ErrorResponse(rv) => {
@@ -170,8 +168,6 @@ mod tests {
         let err = from_status_body(404, &body);
         assert!(matches!(err, ClientError::NotFound(m) if m == "missing"));
         let err = from_status_body(500, &body);
-        assert!(
-            matches!(err, ClientError::Remote { code, .. } if code == "NOT_FOUND")
-        );
+        assert!(matches!(err, ClientError::Remote { code, .. } if code == "NOT_FOUND"));
     }
 }

@@ -144,13 +144,14 @@ fn drop_contentless_responses(value: &mut Value) {
             let Some(op) = obj.get_mut(method) else {
                 continue;
             };
-            let Some(responses) = op.get_mut("responses").and_then(|r| r.as_object_mut())
-            else {
+            let Some(responses) = op.get_mut("responses").and_then(|r| r.as_object_mut()) else {
                 continue;
             };
-            let has_body = responses
-                .values()
-                .any(|r| r.get("content").and_then(|c| c.as_object()).is_some_and(|c| !c.is_empty()));
+            let has_body = responses.values().any(|r| {
+                r.get("content")
+                    .and_then(|c| c.as_object())
+                    .is_some_and(|c| !c.is_empty())
+            });
             if !has_body {
                 continue;
             }
@@ -216,8 +217,14 @@ mod tests {
             }
         });
         normalize_document(&mut doc);
-        assert_eq!(doc["components"]["schemas"]["Row"]["properties"]["name"], json!({"type": "string", "nullable": true}));
-        assert_eq!(doc["components"]["schemas"]["Row"]["properties"]["count"], json!({"type": "integer", "nullable": true}));
+        assert_eq!(
+            doc["components"]["schemas"]["Row"]["properties"]["name"],
+            json!({"type": "string", "nullable": true})
+        );
+        assert_eq!(
+            doc["components"]["schemas"]["Row"]["properties"]["count"],
+            json!({"type": "integer", "nullable": true})
+        );
     }
 
     #[test]
@@ -228,7 +235,10 @@ mod tests {
             }
         });
         normalize_schema_node(&mut doc);
-        assert_eq!(doc["error"]["oneOf"], json!([{"$ref": "#/components/schemas/ApiErrorBody"}]));
+        assert_eq!(
+            doc["error"]["oneOf"],
+            json!([{"$ref": "#/components/schemas/ApiErrorBody"}])
+        );
         assert_eq!(doc["error"]["nullable"], true);
     }
 

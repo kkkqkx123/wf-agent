@@ -462,8 +462,7 @@ mod tests {
             (ApprovalDecision::Approved, "approved"),
             (ApprovalDecision::Rejected, "rejected"),
         ] {
-            let event =
-                CheckpointEventBus::approval_resolved("agent:x", decision, "snap-1");
+            let event = CheckpointEventBus::approval_resolved("agent:x", decision, "snap-1");
             match &event {
                 CheckpointEvent::ApprovalResolved {
                     base,

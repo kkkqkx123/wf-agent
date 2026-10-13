@@ -52,7 +52,10 @@ pub(crate) async fn run_with_client(
             let summaries: serde_json::Value = client
                 .get_json(&format!("/api/v1/workflows/search{query}"))
                 .await?;
-            render_envelope(cli.output, OutputEnvelope::success("workflow-list", summaries))
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("workflow-list", summaries),
+            )
         }
         WorkflowSub::Show { id } => {
             let data: serde_json::Value =
@@ -79,8 +82,7 @@ pub(crate) async fn run_with_client(
                     .map_err(wf_client::client::into_typed_client_error)?;
                 let view: wf_client::models::GraphSummaryDoc =
                     wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-                let data =
-                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+                let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-summary", data).with_entity(id.clone()),
@@ -125,9 +127,8 @@ pub(crate) async fn run_with_client(
                     .handle_graph(id)
                     .await
                     .map_err(wf_client::client::into_typed_client_error)?;
-                let graph: serde_json::Value = wf_client::client::unwrap_generated_envelope(
-                    graph_envelope.into_inner(),
-                )?;
+                let graph: serde_json::Value =
+                    wf_client::client::unwrap_generated_envelope(graph_envelope.into_inner())?;
                 let reach_envelope = client
                     .generated()
                     .handle_graph_reachability(id)
@@ -156,8 +157,7 @@ pub(crate) async fn run_with_client(
                     .map_err(wf_client::client::into_typed_client_error)?;
                 let view: wf_client::models::GraphNeighborsDoc =
                     wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-                let data =
-                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+                let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-neighbors", data)
@@ -171,8 +171,7 @@ pub(crate) async fn run_with_client(
                     .map_err(wf_client::client::into_typed_client_error)?;
                 let nodes: Vec<wf_client::models::GraphNodeDoc> =
                     wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-                let data =
-                    serde_json::to_value(&nodes).unwrap_or(serde_json::Value::Null);
+                let data = serde_json::to_value(&nodes).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-nodes-by-type", data)
@@ -257,7 +256,8 @@ pub(crate) async fn run_with_client(
                         let data = serde_json::json!({"deleted": id});
                         render_envelope(
                             cli.output,
-                            OutputEnvelope::success("workflow-delete", data).with_entity(id.clone()),
+                            OutputEnvelope::success("workflow-delete", data)
+                                .with_entity(id.clone()),
                         )
                     } else {
                         render_envelope(
@@ -278,9 +278,7 @@ pub(crate) async fn run_with_client(
                     .handle_get_workflow(new_id)
                     .await
                     .map_err(wf_client::client::into_typed_client_error)
-                    .and_then(|e| {
-                        wf_client::client::unwrap_generated_envelope(e.into_inner())
-                    });
+                    .and_then(|e| wf_client::client::unwrap_generated_envelope(e.into_inner()));
                 if check.is_ok() {
                     return Err(CliError::Arguments(format!(
                         "workflow already exists: {new_id}"
@@ -316,8 +314,7 @@ pub(crate) async fn run_with_client(
                     wf_client::client::unwrap_generated_envelope::<_, serde_json::Value>(
                         e.into_inner(),
                     )
-                })
-            {
+                }) {
                 Ok(_) => {
                     let data = serde_json::json!({"valid": true, "id": def.id});
                     render_envelope(
@@ -333,7 +330,8 @@ pub(crate) async fn run_with_client(
                             OutputEnvelope::failure("workflow-validate", msg),
                         )
                     } else {
-                        let data = serde_json::json!({"valid": false, "id": def.id, "errors": [msg]});
+                        let data =
+                            serde_json::json!({"valid": false, "id": def.id, "errors": [msg]});
                         render_envelope(
                             cli.output,
                             OutputEnvelope::success("workflow-validate", data),
@@ -458,9 +456,7 @@ pub(crate) async fn run_with_client(
                 });
                 let new_version: String = client
                     .post_json(
-                        &format!(
-                            "/api/v1/workflows/{id}/versions/increment?level={level}"
-                        ),
+                        &format!("/api/v1/workflows/{id}/versions/increment?level={level}"),
                         &body,
                     )
                     .await?;
@@ -569,17 +565,13 @@ pub(crate) async fn run_with_client(
                 }
                 if *path_probability {
                     let prob: serde_json::Value = client
-                        .get_json(&format!(
-                            "/api/v1/executions/{id}/analysis/probabilities"
-                        ))
+                        .get_json(&format!("/api/v1/executions/{id}/analysis/probabilities"))
                         .await?;
                     out.insert("pathProbability".into(), prob);
                 }
                 if *alternative_paths {
                     let alt: serde_json::Value = client
-                        .get_json(&format!(
-                            "/api/v1/executions/{id}/analysis/alternatives"
-                        ))
+                        .get_json(&format!("/api/v1/executions/{id}/analysis/alternatives"))
                         .await?;
                     out.insert("alternativePaths".into(), alt);
                 }
@@ -623,10 +615,19 @@ fn reachable_nodes(graph: &serde_json::Value, start: &str) -> Vec<String> {
         .unwrap_or_default();
     let mut adjacency: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for edge in &edges {
-        let source = edge.get("source_node_id").and_then(|v| v.as_str()).unwrap_or("");
-        let target = edge.get("target_node_id").and_then(|v| v.as_str()).unwrap_or("");
+        let source = edge
+            .get("source_node_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let target = edge
+            .get("target_node_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if !source.is_empty() && !target.is_empty() {
-            adjacency.entry(source.to_string()).or_default().push(target.to_string());
+            adjacency
+                .entry(source.to_string())
+                .or_default()
+                .push(target.to_string());
         }
     }
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -685,9 +686,22 @@ struct WorkflowDiff {
 /// Presentation-only diff of two server-fetched version documents for the
 /// read-only version viewer; versioning itself lives server-side.
 fn diff_workflow_values(a: &serde_json::Value, b: &serde_json::Value) -> WorkflowDiff {
-    let a_nodes = a.get("nodes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let b_nodes = b.get("nodes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let id_of = |v: &serde_json::Value| v.get("id").and_then(|id| id.as_str()).unwrap_or("").to_string();
+    let a_nodes = a
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let b_nodes = b
+        .get("nodes")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let id_of = |v: &serde_json::Value| {
+        v.get("id")
+            .and_then(|id| id.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
     let a_ids: BTreeSet<String> = a_nodes.iter().map(id_of).collect();
     let b_ids: BTreeSet<String> = b_nodes.iter().map(id_of).collect();
     let added_node_ids: Vec<String> = b_ids.difference(&a_ids).cloned().collect();
@@ -702,8 +716,16 @@ fn diff_workflow_values(a: &serde_json::Value, b: &serde_json::Value) -> Workflo
             modified += 1;
         }
     }
-    let a_edges = a.get("edges").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let b_edges = b.get("edges").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let a_edges = a
+        .get("edges")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let b_edges = b
+        .get("edges")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     let a_eids: BTreeSet<String> = a_edges.iter().map(id_of).collect();
     let b_eids: BTreeSet<String> = b_edges.iter().map(id_of).collect();
     let added_edge_ids: Vec<String> = b_eids.difference(&a_eids).cloned().collect();

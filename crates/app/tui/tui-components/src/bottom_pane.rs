@@ -52,6 +52,18 @@ impl BottomPaneLayout {
         }
     }
 
+    /// Calculate layout with a measured composer height (multiline input).
+    pub fn for_composer_height(composer_rows: u16) -> Self {
+        let main = composer_rows.clamp(COMPOSER_MAIN_HEIGHT, crate::footer::MAX_COMPOSER_HEIGHT);
+        Self {
+            total_height: FOOTER_BASE_HEIGHT + main,
+            top_decoration: 1,
+            main_height: main,
+            status_line: 1,
+            bottom_decoration: 1,
+        }
+    }
+
     /// Split an area into [top_decoration, main, status_line, bottom_decoration].
     pub fn split_area(&self, area: Rect) -> [Rect; 4] {
         let height = self.total_height.min(area.height);

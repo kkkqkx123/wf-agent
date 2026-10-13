@@ -24,6 +24,6 @@ pub enum OverlayMode {
     Sidebar,
     /// History overlay showing full conversation history
     History,
-    /// Command palette for quick actions
-    CommandPalette,
+    /// Search palette for global search
+    SearchPalette,
 }

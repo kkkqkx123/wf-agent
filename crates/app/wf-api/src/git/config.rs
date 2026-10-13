@@ -14,10 +14,9 @@ pub fn git_config(ctx: &ApiContext) -> GitResult<UserGitConfig> {
 
 pub fn repo_root(ctx: &ApiContext) -> GitResult<PathBuf> {
     let config = git_config(ctx)?;
-    let root = config
-        .repo_root
-        .clone()
-        .ok_or_else(|| GitError::NotInitialized("user_git.repo_root is not configured".to_string()))?;
+    let root = config.repo_root.clone().ok_or_else(|| {
+        GitError::NotInitialized("user_git.repo_root is not configured".to_string())
+    })?;
     let path = PathBuf::from(&root);
     if !path.join(".git").exists() && !path.join("HEAD").exists() {
         return Err(GitError::NotInitialized(format!(
@@ -43,10 +42,14 @@ pub fn command_timeout_ms(ctx: &ApiContext, remote: bool) -> u64 {
 
 pub fn validate_repo_path(root: &Path, path: &str) -> GitResult<PathBuf> {
     if path.is_empty() || path.len() > 1024 {
-        return Err(GitError::PathEscape("path must be 1..=1024 chars".to_string()));
+        return Err(GitError::PathEscape(
+            "path must be 1..=1024 chars".to_string(),
+        ));
     }
     if path.starts_with('/') || path.starts_with('\\') {
-        return Err(GitError::PathEscape("absolute paths are rejected".to_string()));
+        return Err(GitError::PathEscape(
+            "absolute paths are rejected".to_string(),
+        ));
     }
     for component in path.split('/') {
         if component == ".." {
@@ -57,7 +60,9 @@ pub fn validate_repo_path(root: &Path, path: &str) -> GitResult<PathBuf> {
         }
     }
     if path.contains('\\') || path.contains('\0') {
-        return Err(GitError::PathEscape("path contains illegal characters".to_string()));
+        return Err(GitError::PathEscape(
+            "path contains illegal characters".to_string(),
+        ));
     }
     let joined = root.join(path);
     let normalized = normalize_join(root, &joined);

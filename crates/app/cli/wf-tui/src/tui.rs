@@ -7,7 +7,7 @@
 
 mod actions;
 mod data_cache;
-mod input_classify;
+pub(crate) mod input_classify;
 mod key_routes;
 mod signals;
 
@@ -51,19 +51,15 @@ use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Sidebar entry order: index `i` is the row `j-k` moves and `Enter` opens.
-/// Digit keys follow the canonical map in `tui-core` instead, where the
-/// dashboard has no digit and stays reachable through this list only.
+/// Digit keys follow the canonical map in `tui-core` and match this order.
 pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
+    ScreenKind::Dashboard,
     ScreenKind::Workflow,
     ScreenKind::Executions,
-    ScreenKind::AgentLoops,
     ScreenKind::Insights,
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
-    ScreenKind::Search,
     ScreenKind::Settings,
-    ScreenKind::Dashboard,
-    ScreenKind::Help,
 ];
 
 /// Full-screen TUI application shell: owns the server client, the screen
@@ -79,6 +75,8 @@ pub struct TuiApp {
     overlay: OverlayMode,
     /// Paged scrollback the history overlay paints.
     history: crate::history_overlay::HistoryOverlay,
+    /// Transient global search state backing the search palette overlay.
+    search_palette: crate::search_palette::SearchPalette,
     data_tx: mpsc::UnboundedSender<DataResult>,
     data_rx: mpsc::UnboundedReceiver<DataResult>,
     feedback_tx: mpsc::UnboundedSender<crate::overlay::Feedback>,
@@ -184,6 +182,7 @@ impl TuiApp {
             modals: ModalStack::new(),
             overlay: OverlayMode::None,
             history: crate::history_overlay::HistoryOverlay::default(),
+            search_palette: crate::search_palette::SearchPalette::new(),
             data_tx,
             data_rx,
             feedback_tx,
@@ -664,10 +663,18 @@ impl TuiApp {
     /// whole string: no shortcut semantics fire on pasted content. Returns
     /// whether the paste landed somewhere visible.
     fn handle_paste(&mut self, text: &str) -> bool {
-        match classify_paste(
-            !self.modals.is_empty(),
-            self.app.screen.navigation.current_kind(),
-        ) {
+        if !self.modals.is_empty() {
+            return false;
+        }
+        if self.overlay == OverlayMode::SearchPalette {
+            let normalized = crate::interactive::keys::normalize_paste(text);
+            if normalized.is_empty() {
+                return false;
+            }
+            self.search_palette.append_paste(&normalized);
+            return true;
+        }
+        match classify_paste(false, self.app.screen.navigation.current_kind()) {
             PasteTarget::Swallowed | PasteTarget::Ignored => false,
             PasteTarget::Session => {
                 if let Some(session) = &mut self.interactive {
@@ -675,14 +682,6 @@ impl TuiApp {
                 } else {
                     false
                 }
-            }
-            PasteTarget::Search => {
-                let normalized = crate::interactive::keys::normalize_paste(text);
-                if normalized.is_empty() {
-                    return false;
-                }
-                self.app.screen.search_input.push_str(&normalized);
-                true
             }
         }
     }
@@ -871,10 +870,13 @@ impl TuiApp {
             session.draw(frame, chunks[0], &self.theme);
         } else {
             // Fallback to screens if no interactive controller is active
-            self.app
-                .screen
-                .navigation
-                .draw(frame, chunks[0], data, &self.theme);
+            self.app.screen.navigation.draw_with_settings_scroll(
+                frame,
+                chunks[0],
+                data,
+                &self.theme,
+                self.app.screen.settings_scroll,
+            );
         }
 
         if let Some(diagram) = panes.diagram {
@@ -906,8 +908,19 @@ impl TuiApp {
                 );
                 self.history.set_viewport(view.scroll, at_top);
             }
-            OverlayMode::CommandPalette => {
-                // Command palette is handled by modals
+            OverlayMode::SearchPalette => {
+                crate::screen_draw::draw_search_palette(
+                    frame,
+                    area,
+                    self.search_palette.input(),
+                    self.search_palette.query(),
+                    self.search_palette.results(),
+                    self.search_palette.truncated(),
+                    self.search_palette.running(),
+                    self.search_palette.selected(),
+                    self.search_palette.error(),
+                    &self.theme,
+                );
             }
             OverlayMode::None => {}
         }

@@ -137,10 +137,7 @@ impl MiniApprover {
         };
         let _ = self
             .client
-            .post_json::<_, serde_json::Value>(
-                &format!("/api/v1/interactions/{id}/respond"),
-                &body,
-            )
+            .post_json::<_, serde_json::Value>(&format!("/api/v1/interactions/{id}/respond"), &body)
             .await;
     }
 

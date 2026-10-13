@@ -15,11 +15,12 @@ pub async fn run(cli: &Cli, sub: &MetricsSub) -> CliResult<()> {
             if let Some(fmt) = export {
                 return export_metrics(cli, client, fmt, "metrics-show").await;
             }
-            let data: serde_json::Value =
-                client.get_json("/api/v1/analysis/stats").await?;
+            let data: serde_json::Value = client.get_json("/api/v1/analysis/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("metrics-show", data))
         }
-        MetricsSub::Export { format } => export_metrics(cli, client, format, "metrics-export").await,
+        MetricsSub::Export { format } => {
+            export_metrics(cli, client, format, "metrics-export").await
+        }
     }
 }
 

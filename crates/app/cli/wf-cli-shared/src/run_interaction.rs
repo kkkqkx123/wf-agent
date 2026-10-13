@@ -18,8 +18,8 @@ use wf_client::WfClient;
 use crate::error::CliResult;
 use crate::run_diag::DiagWriter;
 use crate::stdio_prompt::{
-    extract_followup_options, extract_followup_prompt, parse_approval_answer, parse_followup_answer,
-    render_approval_prompt, render_followup_prompt, StdioPromptSource,
+    extract_followup_options, extract_followup_prompt, parse_approval_answer,
+    parse_followup_answer, render_approval_prompt, render_followup_prompt, StdioPromptSource,
 };
 
 /// How pending interactions are answered during a run.
@@ -140,7 +140,9 @@ impl InteractionPoller {
                 let mut diag = wf_common::lock::lock_ok(self.diag.lock());
                 let _ = diag.ok(&format!("▲ {tool_name} (pre-authorized)"));
             }
-            let _ = self.respond(id, serde_json::json!({"approved": true})).await;
+            let _ = self
+                .respond(id, serde_json::json!({"approved": true}))
+                .await;
             return;
         }
         if !self.policy.interactive {
@@ -220,9 +222,7 @@ impl InteractionPoller {
             .post_interactions_id_respond(id, &body)
             .await
             .map_err(wf_client::client::into_typed_client_error)
-            .and_then(|e| {
-                wf_client::client::unwrap_generated_envelope::<_, Value>(e.into_inner())
-            })
+            .and_then(|e| wf_client::client::unwrap_generated_envelope::<_, Value>(e.into_inner()))
             .map(|_| ())
             .map_err(crate::error::CliError::from)
     }

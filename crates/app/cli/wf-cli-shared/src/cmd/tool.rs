@@ -15,8 +15,7 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("tool-list", data))
         }
         ToolSub::Show { id } => {
-            let data: serde_json::Value =
-                client.get_json(&format!("/api/v1/tools/{id}")).await?;
+            let data: serde_json::Value = client.get_json(&format!("/api/v1/tools/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-show", data).with_entity(id.clone()),
@@ -71,8 +70,14 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
         }
         ToolSub::Save { file } => {
             let meta = load_json(Path::new(file), "tool")?;
-            let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            client.post_json::<_, serde_json::Value>("/api/v1/tool-registry", &meta).await?;
+            let id = meta
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            client
+                .post_json::<_, serde_json::Value>("/api/v1/tool-registry", &meta)
+                .await?;
             let data = serde_json::json!({"saved": id});
             render_envelope(
                 cli.output,

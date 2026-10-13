@@ -192,7 +192,9 @@ pub enum GitError {
     Unavailable(String),
     #[error("git precondition failed: {0}")]
     Precondition(String),
-    #[error("confirmation required for destructive action '{0}'; pass confirm matching the target")]
+    #[error(
+        "confirmation required for destructive action '{0}'; pass confirm matching the target"
+    )]
     ConfirmRequired(String),
     #[error("git command failed: {0}")]
     Command(String),
@@ -210,12 +212,10 @@ impl From<GitError> for crate::ApiError {
             GitError::UnknownAction(_) | GitError::PathEscape(_) | GitError::Precondition(_) => {
                 crate::ApiError::Validation(err.to_string())
             }
-            GitError::NotInitialized(_) | GitError::NoSession(_) => {
-                crate::ApiError::NotFound {
-                    entity_type: "user-git".to_string(),
-                    id: err.to_string(),
-                }
-            }
+            GitError::NotInitialized(_) | GitError::NoSession(_) => crate::ApiError::NotFound {
+                entity_type: "user-git".to_string(),
+                id: err.to_string(),
+            },
             GitError::NotEnabled | GitError::Unavailable(_) | GitError::ConfirmRequired(_) => {
                 crate::ApiError::Conflict(err.to_string())
             }

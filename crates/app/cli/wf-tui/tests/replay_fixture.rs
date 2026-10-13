@@ -60,7 +60,9 @@ fn summary() -> serde_json::Value {
 fn not_found() -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::NOT_FOUND,
-        Json(serde_json::json!({"success": false, "data": null, "error": {"code": "NOT_FOUND", "message": "missing"}})),
+        Json(
+            serde_json::json!({"success": false, "data": null, "error": {"code": "NOT_FOUND", "message": "missing"}}),
+        ),
     )
 }
 
@@ -161,16 +163,15 @@ async fn stub_server_replay_pages_newest_first() {
     assert!(first.has_more);
     let texts: Vec<String> = first.lines.iter().flat_map(|l| l.raw_lines(200)).collect();
     let joined = texts.join("\n");
-    assert!(joined.contains("assistant reply 219"), "tail page holds newest");
+    assert!(
+        joined.contains("assistant reply 219"),
+        "tail page holds newest"
+    );
 
     let older = replay_scrollack_page(&client, SESSION_ID, first.next_before, 2)
         .await
         .unwrap();
-    let older_texts: Vec<String> = older
-        .lines
-        .iter()
-        .flat_map(|l| l.raw_lines(200))
-        .collect();
+    let older_texts: Vec<String> = older.lines.iter().flat_map(|l| l.raw_lines(200)).collect();
     assert!(
         older_texts.iter().any(|t| t.contains("user message")),
         "older page holds earlier history"
@@ -184,6 +185,8 @@ async fn stub_server_replay_missing_session_fails_cleanly() {
 
     // The error branch that renders "✗ replay failed" in the session screen
     // instead of leaving the loading placeholder up forever.
-    let err = replay_scrollack(&client, "ghost-session").await.unwrap_err();
+    let err = replay_scrollack(&client, "ghost-session")
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("ghost-session"), "{err}");
 }

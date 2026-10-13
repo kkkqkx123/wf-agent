@@ -28,7 +28,6 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use serde_json::json;
-use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 use wf_tui::keymap::{CKey, Key};
 use wf_tui::modal::{
     centered_rect, ConfirmModal, DiffRow, DiffSign, DiffViewer, FileEntry, FileSelectionDialog,
@@ -37,6 +36,7 @@ use wf_tui::modal::{
 use wf_tui::panels::CommandPalette;
 use wf_tui::question_overlay::QuestionView;
 use wf_tui::theme::Theme;
+use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 /// Menu entry describing one demo component.
 struct Entry {

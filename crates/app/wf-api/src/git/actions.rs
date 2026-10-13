@@ -50,7 +50,9 @@ fn require_confirm(request: &ActionRequest, expected: &str, action: &str) -> Git
 
 fn validate_branch_name(name: &str) -> GitResult<()> {
     if name.is_empty() || name.len() > 256 {
-        return Err(GitError::Precondition("branch must be 1..=256 chars".to_string()));
+        return Err(GitError::Precondition(
+            "branch must be 1..=256 chars".to_string(),
+        ));
     }
     if name.contains('\0') || name.contains("..") || name.contains(' ') || name.starts_with('-') {
         return Err(GitError::Precondition(format!("invalid branch '{name}'")));
@@ -73,7 +75,9 @@ pub fn execute_action(ctx: &ApiContext, request: &ActionRequest) -> GitResult<Ac
     let spec = action_spec(action)?;
     if !spec.available {
         return Err(GitError::Unavailable(
-            spec.unavailable_reason.unwrap_or("action unavailable").to_string(),
+            spec.unavailable_reason
+                .unwrap_or("action unavailable")
+                .to_string(),
         ));
     }
     if spec.danger == DangerLevel::Readonly && action == "refresh" {
@@ -120,7 +124,12 @@ fn dispatch_write(
                 command_timeout_ms(ctx, false),
             )?;
             let argv = if staged_check.stdout.lines().any(|l| l.trim() == path) {
-                vec!["restore".to_string(), "--staged".to_string(), "--".to_string(), path.clone()]
+                vec![
+                    "restore".to_string(),
+                    "--staged".to_string(),
+                    "--".to_string(),
+                    path.clone(),
+                ]
             } else {
                 vec!["add".to_string(), "--".to_string(), path.clone()]
             };
@@ -137,7 +146,11 @@ fn dispatch_write(
             Ok(finish("staged all".to_string(), echo))
         }
         "unstage.all" => {
-            let argv = vec!["restore".to_string(), "--staged".to_string(), ".".to_string()];
+            let argv = vec![
+                "restore".to_string(),
+                "--staged".to_string(),
+                ".".to_string(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -156,7 +169,11 @@ fn dispatch_write(
         }
         "commit.amend" => {
             require_confirm(request, "amend", action)?;
-            let argv = vec!["commit".to_string(), "--amend".to_string(), "--no-edit".to_string()];
+            let argv = vec![
+                "commit".to_string(),
+                "--amend".to_string(),
+                "--no-edit".to_string(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -194,7 +211,11 @@ fn dispatch_write(
         "stash.pop" | "stash.apply" => {
             let index = optional_param(request, "index").unwrap_or_else(|| "0".to_string());
             let target = format!("stash@{{{}}}", index.trim().parse::<usize>().unwrap_or(0));
-            let sub = if action == "stash.pop" { "pop" } else { "apply" };
+            let sub = if action == "stash.pop" {
+                "pop"
+            } else {
+                "apply"
+            };
             let argv = vec!["stash".to_string(), sub.to_string(), target.clone()];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -216,7 +237,12 @@ fn dispatch_write(
             validate_branch_name(&branch)?;
             let index = optional_param(request, "index").unwrap_or_else(|| "0".to_string());
             let target = format!("stash@{{{}}}", index.trim().parse::<usize>().unwrap_or(0));
-            let argv = vec!["stash".to_string(), "branch".to_string(), branch.clone(), target.clone()];
+            let argv = vec![
+                "stash".to_string(),
+                "branch".to_string(),
+                branch.clone(),
+                target.clone(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -272,7 +298,12 @@ fn dispatch_write(
             let to = param(request, "to")?;
             validate_branch_name(&from)?;
             validate_branch_name(&to)?;
-            let argv = vec!["branch".to_string(), "-m".to_string(), from.clone(), to.clone()];
+            let argv = vec![
+                "branch".to_string(),
+                "-m".to_string(),
+                from.clone(),
+                to.clone(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -308,7 +339,11 @@ fn dispatch_write(
         }
         "commit.revert" => {
             let commit = param(request, "commit")?;
-            let argv = vec!["revert".to_string(), "--no-edit".to_string(), commit.clone()];
+            let argv = vec![
+                "revert".to_string(),
+                "--no-edit".to_string(),
+                commit.clone(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -347,7 +382,11 @@ fn dispatch_write(
         "push" => {
             let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
             let branch = optional_param(request, "branch").unwrap_or_default();
-            let target = if branch.is_empty() { remote.clone() } else { format!("{remote} {branch}") };
+            let target = if branch.is_empty() {
+                remote.clone()
+            } else {
+                format!("{remote} {branch}")
+            };
             require_confirm(request, &target, action)?;
             let mut argv = vec!["push".to_string(), remote.clone()];
             if !branch.is_empty() {
@@ -371,7 +410,12 @@ fn dispatch_write(
             Ok(finish("pulled".to_string(), echo))
         }
         "undo" => {
-            let argv = vec!["stash".to_string(), "push".to_string(), "-m".to_string(), "undo".to_string()];
+            let argv = vec![
+                "stash".to_string(),
+                "push".to_string(),
+                "-m".to_string(),
+                "undo".to_string(),
+            ];
             let echo = echo_of(action, &argv);
             let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
@@ -413,6 +457,9 @@ mod tests {
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
         );
         let err = execute_action(&ctx, &request("branch.delete")).unwrap_err();
-        assert!(matches!(err, GitError::NotEnabled | GitError::Precondition(_) | GitError::ConfirmRequired(_)));
+        assert!(matches!(
+            err,
+            GitError::NotEnabled | GitError::Precondition(_) | GitError::ConfirmRequired(_)
+        ));
     }
 }

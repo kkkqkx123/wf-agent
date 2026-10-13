@@ -11,13 +11,10 @@ pub enum ScreenKind {
     Dashboard,
     Workflow,
     Executions,
-    AgentLoops,
     Insights,
     Interactive,
     Checkpoints,
-    Search,
     Settings,
-    Help,
 }
 
 impl ScreenKind {
@@ -26,13 +23,10 @@ impl ScreenKind {
             Self::Dashboard => "Dashboard",
             Self::Workflow => "Workflows",
             Self::Executions => "Executions",
-            Self::AgentLoops => "Agent Loops",
             Self::Insights => "Insights",
             Self::Interactive => "Interactive",
             Self::Checkpoints => "Checkpoints",
-            Self::Search => "Search",
             Self::Settings => "Settings",
-            Self::Help => "Help",
         }
     }
 
@@ -41,39 +35,32 @@ impl ScreenKind {
             Self::Dashboard,
             Self::Workflow,
             Self::Executions,
-            Self::AgentLoops,
             Self::Insights,
             Self::Interactive,
             Self::Checkpoints,
-            Self::Search,
             Self::Settings,
-            Self::Help,
         ]
     }
 
     /// Whether this screen renders from a fetched [`ScreenData`] model.
     ///
-    /// Session and Help are self-contained: Session owns its own streaming
-    /// state (wired separately) and Help is static text.
+    /// Session is self-contained: it owns its own streaming state and is
+    /// wired separately.
     pub fn has_data(self) -> bool {
-        !matches!(self, Self::Interactive | Self::Help)
+        !matches!(self, Self::Interactive)
     }
 }
 
-/// Digit that selects each screen in the shell's key map. Dashboard has no
-/// digit and stays reachable through the sidebar only.
+/// Digit that selects each screen in the shell's key map.
 pub fn screen_digit(kind: ScreenKind) -> Option<char> {
     match kind {
+        ScreenKind::Dashboard => Some('0'),
         ScreenKind::Workflow => Some('1'),
         ScreenKind::Executions => Some('2'),
-        ScreenKind::AgentLoops => Some('3'),
-        ScreenKind::Insights => Some('4'),
-        ScreenKind::Interactive => Some('5'),
-        ScreenKind::Checkpoints => Some('6'),
-        ScreenKind::Search => Some('7'),
-        ScreenKind::Settings => Some('8'),
-        ScreenKind::Help => Some('9'),
-        ScreenKind::Dashboard => None,
+        ScreenKind::Insights => Some('3'),
+        ScreenKind::Interactive => Some('4'),
+        ScreenKind::Checkpoints => Some('5'),
+        ScreenKind::Settings => Some('6'),
     }
 }
 
@@ -168,23 +155,13 @@ pub struct CheckpointRow {
     pub status: String,
 }
 
-/// One search hit rendered on the search screen.
+/// One search hit rendered in the search palette overlay.
 #[derive(Debug, Clone)]
 pub struct SearchRow {
     pub id: String,
     pub kind: String,
     pub label: String,
     pub score: u32,
-}
-
-/// Search screen state: the submitted query plus its result rows.
-#[derive(Debug, Clone, Default)]
-pub struct SearchData {
-    pub query: String,
-    pub results: Vec<SearchRow>,
-    pub total: usize,
-    pub truncated: bool,
-    pub running: bool,
 }
 
 /// One LLM profile row rendered on the settings screen.
@@ -195,22 +172,25 @@ pub struct ProfileRow {
     pub model: String,
 }
 
+/// Local configuration snapshot shown on the settings screen.
+#[derive(Debug, Clone, Default)]
+pub struct LocalSettings {
+    pub config_path: String,
+    pub mouse_capture: bool,
+    pub copy_target: String,
+    pub tool_output_enabled: bool,
+    pub tool_output_level: String,
+    pub preview_max_lines: usize,
+    pub preview_max_chars: usize,
+}
+
 /// Settings screen state.
 #[derive(Debug, Clone, Default)]
 pub struct SettingsData {
     pub profiles: Vec<ProfileRow>,
     pub default_profile: Option<String>,
     pub theme: String,
-}
-
-/// One agent-loop session row rendered on the agent loops screen.
-#[derive(Debug, Clone)]
-pub struct LoopRow {
-    pub id: String,
-    pub status: String,
-    pub iteration: u32,
-    pub tool_calls: u32,
-    pub started: String,
+    pub local: LocalSettings,
 }
 
 /// One pre-aggregated metrics table rendered on the insights screen.
@@ -235,10 +215,8 @@ pub enum ScreenData {
     Dashboard(DashboardData),
     Workflow(Vec<WorkflowRow>),
     Executions(Vec<ExecRow>),
-    AgentLoops(Vec<LoopRow>),
     Insights(InsightsData),
     Checkpoints(Vec<CheckpointRow>),
-    Search(SearchData),
     Settings(SettingsData),
 }
 
@@ -249,9 +227,7 @@ impl ScreenData {
             Self::None | Self::Dashboard(_) | Self::Insights(_) => 0,
             Self::Workflow(rows) => rows.len(),
             Self::Executions(rows) => rows.len(),
-            Self::AgentLoops(rows) => rows.len(),
             Self::Checkpoints(rows) => rows.len(),
-            Self::Search(data) => data.results.len(),
             Self::Settings(data) => data.profiles.len(),
         }
     }

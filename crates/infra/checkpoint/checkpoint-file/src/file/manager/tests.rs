@@ -830,7 +830,9 @@ fn partition_history_lists_merges_newest_first() {
     assert!(!head.has_conflicts);
 
     // Unknown refs are rejected instead of walking arbitrary ids.
-    assert!(manager.partition_history("refs/wf/feat/nope", 50, 0).is_err());
+    assert!(manager
+        .partition_history("refs/wf/feat/nope", 50, 0)
+        .is_err());
     assert!(manager.partition_history("refs/heads/main", 50, 0).is_err());
 
     // Paging past the end yields nothing.
@@ -853,13 +855,7 @@ fn partition_history_lists_merges_newest_first() {
         .create_checkpoint("exec-9", &[entry("b.txt", b"v1")])
         .unwrap();
     manager
-        .approve_changes(
-            "exec-9",
-            "feature-9",
-            None,
-            ConflictBehavior::Marker,
-            None,
-        )
+        .approve_changes("exec-9", "feature-9", None, ConflictBehavior::Marker, None)
         .unwrap();
     let first = rx.try_recv().expect("submit must publish");
     assert!(

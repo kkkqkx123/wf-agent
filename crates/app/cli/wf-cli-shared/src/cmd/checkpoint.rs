@@ -72,8 +72,9 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::FilePartitions => {
-            let data: serde_json::Value =
-                client.get_json("/api/v1/file-checkpoint/partitions").await?;
+            let data: serde_json::Value = client
+                .get_json("/api/v1/file-checkpoint/partitions")
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-partitions", data),
@@ -104,7 +105,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 }
             }
             let data: serde_json::Value = client
-                .get_json(&format!("/api/v1/file-checkpoint/changes?{}", params.join("&")))
+                .get_json(&format!(
+                    "/api/v1/file-checkpoint/changes?{}",
+                    params.join("&")
+                ))
                 .await?;
             render_envelope(
                 cli.output,
@@ -162,10 +166,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             let data: serde_json::Value = client
                 .post_json("/api/v1/file-checkpoint/submit", &body)
                 .await?;
-            let review_commit = data
-                .get("review_commit")
-                .cloned()
-                .unwrap_or(data.clone());
+            let review_commit = data.get("review_commit").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"actor": actor, "reviewCommit": review_commit});
             render_envelope(
                 cli.output,
@@ -221,10 +222,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             let data: serde_json::Value = client
                 .post_json("/api/v1/file-checkpoint/rollback-feature", &body)
                 .await?;
-            let revert_commit = data
-                .get("revert_commit")
-                .cloned()
-                .unwrap_or(data.clone());
+            let revert_commit = data.get("revert_commit").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"actor": actor, "featureHead": feature_head, "revertCommit": revert_commit});
             render_envelope(
                 cli.output,
@@ -234,7 +232,10 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
         }
         CheckpointSub::FileIndexRebuild => {
             let data: serde_json::Value = client
-                .post_json("/api/v1/file-checkpoint/index/rebuild", &serde_json::json!({}))
+                .post_json(
+                    "/api/v1/file-checkpoint/index/rebuild",
+                    &serde_json::json!({}),
+                )
                 .await?;
             let indexed = data.get("indexed_commits").cloned().unwrap_or(data.clone());
             let data = serde_json::json!({"indexedCommits": indexed});
@@ -344,8 +345,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     .to_string();
                 render_envelope(
                     cli.output,
-                    OutputEnvelope::success("checkpoint-restore", data)
-                        .with_entity(execution_id),
+                    OutputEnvelope::success("checkpoint-restore", data).with_entity(execution_id),
                 )
             }
         }
@@ -398,9 +398,8 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             if let Some(entity) = entity_type(*domain) {
                 path.push_str(&format!("&domain={entity}"));
             }
-            let deleted: serde_json::Value = client
-                .post_json(&path, &serde_json::json!({}))
-                .await?;
+            let deleted: serde_json::Value =
+                client.post_json(&path, &serde_json::json!({})).await?;
             let deleted = deleted.as_u64().unwrap_or(0) as usize;
             let data = serde_json::json!({"executionId": id, "deleted": deleted});
             render_envelope(

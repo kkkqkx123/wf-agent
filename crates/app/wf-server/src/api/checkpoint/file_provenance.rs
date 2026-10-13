@@ -175,10 +175,7 @@ pub(crate) async fn handle_partition_history(
         offset as usize,
     ) {
         Ok(all) => {
-            let window = all
-                .into_iter()
-                .take(fetch_size(limit) as usize)
-                .collect();
+            let window = all.into_iter().take(fetch_size(limit) as usize).collect();
             ok_page(window, limit, offset).into_response()
         }
         Err(err) => error_response(err),

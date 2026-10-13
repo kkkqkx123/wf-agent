@@ -54,7 +54,9 @@ impl ClientConfig {
             .filter(|u| !u.trim().is_empty())
             .or_else(env_remote_url)
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-        let key = api_key.filter(|k| !k.trim().is_empty()).or_else(env_api_key);
+        let key = api_key
+            .filter(|k| !k.trim().is_empty())
+            .or_else(env_api_key);
         Self::new(base_url).with_api_key(key)
     }
 }
@@ -139,7 +141,11 @@ impl WfClient {
 
     /// Typed server info probe.
     pub async fn info_typed(&self) -> ClientResult<crate::models::InfoView> {
-        let envelope = self.generated.handle_info().await.map_err(map_typed_error)?;
+        let envelope = self
+            .generated
+            .handle_info()
+            .await
+            .map_err(map_typed_error)?;
         unwrap_generated_envelope(envelope.into_inner())
     }
 

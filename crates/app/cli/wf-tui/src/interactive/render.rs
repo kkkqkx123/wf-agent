@@ -30,13 +30,29 @@ impl InteractiveController {
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         self.footer.set_now(self.now_ms());
 
+        // Bottom grows with the composer: footer frame plus a mirrored
+        // prompt line of the same height. The scrollback keeps at least a
+        // small viewport; oversized input is windowed around the cursor.
+        let width = area.width.max(1);
+        let mut composer_rows = self.footer.composer_height_for_width(width);
+        let min_scroll: u16 = 3;
+        let available = area.height.saturating_sub(min_scroll);
+        let need = crate::footer::FOOTER_BASE_HEIGHT
+            .saturating_add(composer_rows)
+            .saturating_add(composer_rows);
+        if need > available && available > crate::footer::FOOTER_BASE_HEIGHT + 2 {
+            let fit = available.saturating_sub(crate::footer::FOOTER_BASE_HEIGHT) / 2;
+            composer_rows = fit.max(1).min(composer_rows);
+        }
+        let footer_h = crate::footer::FOOTER_BASE_HEIGHT.saturating_add(composer_rows);
+        let input_h = composer_rows;
         // Top: scrollback. Middle: footer. Bottom: prompt line.
         let [scroll_area, footer_area, input_area] = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),
-                Constraint::Length(4),
-                Constraint::Length(1),
+                Constraint::Min(min_scroll),
+                Constraint::Length(footer_h),
+                Constraint::Length(input_h),
             ])
             .areas(area);
 
@@ -317,14 +333,71 @@ impl InteractiveController {
             frame.render_widget(Paragraph::new(Line::from(spans)), area);
             return;
         }
-        let content = composer.content();
-        let mut spans = vec![Span::raw(format!("> {content}"))];
-        if let Some(ghost) = composer.ghost() {
-            spans.push(Span::styled(
-                ghost,
-                ratatui::style::Style::default().add_modifier(Modifier::DIM),
-            ));
+        if area.height == 0 {
+            return;
         }
-        frame.render_widget(Paragraph::new(Line::from(spans)), area);
+        let available = area.width.saturating_sub(2).max(1);
+        let mut rows = composer.visual_text_rows(available);
+        if rows.is_empty() {
+            rows.push(String::new());
+        }
+        let cursor_row = composer.cursor_visual_row(available).min(rows.len() - 1);
+        let visible = usize::from(area.height);
+        let start = if rows.len() <= visible {
+            0
+        } else {
+            (cursor_row + 1)
+                .saturating_sub(visible)
+                .min(rows.len() - visible)
+        };
+        let ghost = if composer.is_at_end() {
+            composer
+                .ghost()
+                .map(|suffix| suffix.split('\n').next().unwrap_or("").to_string())
+                .filter(|line| !line.is_empty())
+        } else {
+            None
+        };
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        for (slot, text) in rows.iter().skip(start).take(visible).enumerate() {
+            let prefix = if start + slot == 0 { "> " } else { "  " };
+            let is_last = start + slot + 1 >= rows.len();
+            if is_last {
+                if let Some(ref suffix) = ghost {
+                    use unicode_width::UnicodeWidthStr;
+                    let used = text.width() as u16;
+                    let remain = available.saturating_sub(used);
+                    let clipped = truncate_echo(suffix, remain);
+                    lines.push(Line::from(vec![
+                        Span::raw(format!("{prefix}{text}")),
+                        Span::styled(
+                            clipped,
+                            ratatui::style::Style::default().add_modifier(Modifier::DIM),
+                        ),
+                    ]));
+                } else {
+                    lines.push(Line::from(vec![Span::raw(format!("{prefix}{text}"))]));
+                }
+            } else {
+                lines.push(Line::from(vec![Span::raw(format!("{prefix}{text}"))]));
+            }
+        }
+        frame.render_widget(Paragraph::new(lines), area);
     }
+}
+
+fn truncate_echo(text: &str, width: u16) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+    let mut out = String::new();
+    let mut w = 0u16;
+    for grapheme in text.graphemes(true) {
+        let gw = grapheme.width() as u16;
+        if w + gw > width {
+            break;
+        }
+        out.push_str(grapheme);
+        w += gw;
+    }
+    out
 }

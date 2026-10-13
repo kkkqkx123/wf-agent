@@ -16,19 +16,19 @@ use std::time::Duration;
 
 use wf_client::WfClient;
 
+use crate::cmd::execution_stream::map_frames;
 use crate::connection::ClientHandle;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputFormat, OutputSink};
 pub use crate::run_diag::DiagWriter;
 use crate::run_interaction::{AnswerPolicy, InteractionPoller};
-use crate::run_stream::{drive_stream, finish_agent_stream_terminal, finish_workflow_stream_terminal};
-use crate::cmd::execution_stream::map_frames;
-use crate::run_summary::{
-    had_output_for_result, render_value_text, write_summary, SummaryParams,
+pub use crate::run_render::DeltaBuffer;
+use crate::run_stream::{
+    drive_stream, finish_agent_stream_terminal, finish_workflow_stream_terminal,
 };
+use crate::run_summary::{had_output_for_result, render_value_text, write_summary, SummaryParams};
 use crate::stdio_prompt::DEFAULT_APPROVAL_TIMEOUT_SECS;
 use crate::turn::{TurnKind, TurnParams};
-pub use crate::run_render::DeltaBuffer;
 
 /// Options for one headless session.
 #[derive(Debug, Clone)]
@@ -207,10 +207,8 @@ async fn run_agent(
     }
     let started = Instant::now();
     if !io.format.is_silent() {
-        io.sink.write_message(&crate::output::OutputMessage::new(
-            "user",
-            &opts.prompt,
-        ))?;
+        io.sink
+            .write_message(&crate::output::OutputMessage::new("user", &opts.prompt))?;
     }
     let client = handle.client().clone();
     let stop = Arc::new(AtomicBool::new(false));
@@ -240,8 +238,15 @@ async fn run_agent(
         let typed = opts.as_turn_params().agent_typed_body();
         let view = client.run_agent_loop("cli", &typed).await?;
         let iterations = view.iterations.max(0) as u32;
-        blocking_outcome(io, &opts, &view.agent_loop_id, &view.result, iterations, started)
-            .await
+        blocking_outcome(
+            io,
+            &opts,
+            &view.agent_loop_id,
+            &view.result,
+            iterations,
+            started,
+        )
+        .await
     };
     stop.store(true, Ordering::SeqCst);
     if let Some(task) = poller {
@@ -298,10 +303,7 @@ fn spawn_poller(
     stop: Arc<AtomicBool>,
     followup_requested: Arc<AtomicBool>,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let json = matches!(
-        io.format,
-        OutputFormat::Json | OutputFormat::JsonLines
-    );
+    let json = matches!(io.format, OutputFormat::Json | OutputFormat::JsonLines);
     let policy = opts.answer_policy(json);
     if !policy.needs_poller() {
         return None;
@@ -311,13 +313,8 @@ fn spawn_poller(
     } else {
         None
     };
-    let mut poller = InteractionPoller::new(
-        client,
-        policy,
-        prompt,
-        io.diag.clone(),
-        followup_requested,
-    );
+    let mut poller =
+        InteractionPoller::new(client, policy, prompt, io.diag.clone(), followup_requested);
     Some(tokio::spawn(async move {
         poller.run_until(stop).await;
     }))

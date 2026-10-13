@@ -7,12 +7,12 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use super::layout::split_management;
 use tui_components::transcript::HistoryLine;
-use tui_core::screen_data::{screen_digit, short_id, ScreenData, ScreenKind};
+use tui_core::screen_data::{screen_digit, short_id, ScreenData, ScreenKind, SearchRow};
 use tui_style::theme::{ColorRole, Theme};
 
 fn titled_block<'a>(title: &'a str, role: ColorRole, theme: &Theme) -> Block<'a> {
@@ -83,7 +83,7 @@ pub fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &
         _ => "Loading...".to_string(),
     };
     let block = titled_block(
-        "Dashboard (q quit, 1-8 switch, ? help)",
+        "Dashboard (q quit, 0-6 switch, ? help)",
         ColorRole::Accent,
         theme,
     );
@@ -147,37 +147,6 @@ pub fn draw_executions(
 
     let block = titled_block("Executions", ColorRole::Warning, theme);
     render_rows(frame, body_area, block, &rows, selected, theme);
-}
-
-pub fn draw_agent_loops(
-    frame: &mut Frame,
-    area: Rect,
-    data: &ScreenData,
-    selected: usize,
-    theme: &Theme,
-) {
-    let rows = match data {
-        ScreenData::AgentLoops(rows) => rows
-            .iter()
-            .map(|r| {
-                format!(
-                    "{} · {} · iter {} · {} tools · {}",
-                    short_id(&r.id),
-                    r.status,
-                    r.iteration,
-                    r.tool_calls,
-                    r.started
-                )
-            })
-            .collect::<Vec<_>>(),
-        _ => Vec::new(),
-    };
-    let block = titled_block(
-        "Agent Loops (Enter open session, Esc back)",
-        ColorRole::Add,
-        theme,
-    );
-    render_rows(frame, area, block, &rows, selected, theme);
 }
 
 pub fn draw_insights(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
@@ -260,55 +229,22 @@ pub fn draw_checkpoints(
     render_rows(frame, area, block, &rows, selected, theme);
 }
 
-pub fn draw_search(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
-    let (text, query) = match data {
-        ScreenData::Search(d) => {
-            let mut out = String::new();
-            if d.running {
-                out.push_str("Searching...\n\n");
-            }
-            if d.results.is_empty() && !d.query.is_empty() && !d.running {
-                out.push_str(&format!("No results for \"{}\"\n", d.query));
-            }
-            for row in &d.results {
-                out.push_str(&format!(
-                    "[{}] {} · {} (score {})\n",
-                    row.kind,
-                    row.label,
-                    short_id(&row.id),
-                    row.score
-                ));
-            }
-            if d.truncated {
-                out.push_str("\n(results truncated)");
-            }
-            if out.is_empty() {
-                out.push_str("Type a query and press Enter to search.\n");
-            }
-            (out, d.query.clone())
-        }
-        _ => (
-            "Type a query and press Enter to search.\n".to_string(),
-            String::new(),
-        ),
-    };
-
-    let (input_area, results_area) = split_management(area, 3);
-    let input_block = titled_block("Search (Enter run, Esc back)", ColorRole::Accent, theme);
-    let input = Paragraph::new(format!("> {query}")).block(input_block);
-    frame.render_widget(input, input_area);
-    frame.render_widget(
-        Paragraph::new(text).block(titled_block("Results", ColorRole::Accent, theme)),
-        results_area,
-    );
-}
-
-pub fn draw_settings(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
-    let text = match data {
+pub fn draw_settings(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    scroll: usize,
+    theme: &Theme,
+) {
+    let lines: Vec<String> = match data {
         ScreenData::Settings(d) => {
-            let mut out = format!("Theme: {}\n\nLLM profiles:\n", d.theme);
+            let mut out = vec![
+                format!("Theme: {}", d.theme),
+                String::new(),
+                "LLM profiles (m to change default):".to_string(),
+            ];
             if d.profiles.is_empty() {
-                out.push_str("  (none configured)\n");
+                out.push("  (none configured)".to_string());
             }
             for p in &d.profiles {
                 let marker = if d.default_profile.as_deref() == Some(p.id.as_str()) {
@@ -316,29 +252,121 @@ pub fn draw_settings(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &T
                 } else {
                     ""
                 };
-                out.push_str(&format!(
-                    "  {} · {} · {}{}\n",
-                    p.id, p.name, p.model, marker
-                ));
+                out.push(format!("  {} · {} · {}{}", p.id, p.name, p.model, marker));
             }
+            out.push(String::new());
+            out.push(format!("Local config ({}):", d.local.config_path));
+            out.push(format!(
+                "  mouse_capture: {}",
+                if d.local.mouse_capture { "on" } else { "off" }
+            ));
+            out.push(format!("  copy_target: {}", d.local.copy_target));
+            out.push(format!(
+                "  tool_output: {} · level {}",
+                if d.local.tool_output_enabled {
+                    "on"
+                } else {
+                    "off"
+                },
+                d.local.tool_output_level
+            ));
+            out.push(format!(
+                "  preview: {} lines · {} chars",
+                d.local.preview_max_lines, d.local.preview_max_chars
+            ));
+            out.push(String::new());
+            out.push("Edit the config file in a terminal to change local values.".to_string());
             out
         }
-        _ => "Loading...".to_string(),
+        _ => vec!["Loading...".to_string()],
     };
-    let block = titled_block("Settings (Esc back)", ColorRole::Default, theme);
+    let capacity = usize::from(area.height.saturating_sub(2)).max(1);
+    let max_scroll = lines.len().saturating_sub(capacity);
+    let scroll = scroll.min(max_scroll);
+    let end = (scroll + capacity).min(lines.len());
+    let text = lines[scroll..end].join("\n");
+    let block = titled_block(
+        "Settings (j/k scroll, PgUp/PgDn page, m model, Esc back)",
+        ColorRole::Default,
+        theme,
+    );
     frame.render_widget(Paragraph::new(text).block(block), area);
 }
 
-pub fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-9        - switch screens (1 Workflow, 2 Executions, 3 Loops, 4 Insights, 5 Interactive, 6 Checkpoints, 7 Search, 8 Settings, 9 Help; Dashboard via sidebar)\n  j/k / Up/Down - navigate\n  Enter      - select / checkpoint detail\n  f          - cycle execution status filter\n  d          - delete selected workflow / checkpoint\n  r          - refresh current screen\n  R          - restore selected checkpoint (confirm)\n  t          - checkpoint chain of selected row\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
-    let block = titled_block("Help", ColorRole::Warning, theme);
-    frame.render_widget(Paragraph::new(text).block(block), area);
+/// Search palette overlay: centered floating input plus result list.
+pub fn draw_search_palette(
+    frame: &mut Frame,
+    area: Rect,
+    input: &str,
+    query: &str,
+    results: &[SearchRow],
+    truncated: bool,
+    running: bool,
+    selected: usize,
+    error: Option<&str>,
+    theme: &Theme,
+) {
+    use ratatui::layout::{Constraint, Direction, Layout};
+    let popup = tui_components::modal::centered_rect(70, 60, area);
+    frame.render_widget(Clear, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .split(popup);
+    let input_block = titled_block("Search (Enter run, Esc close)", ColorRole::Accent, theme);
+    frame.render_widget(
+        Paragraph::new(format!("> {input}")).block(input_block),
+        chunks[0],
+    );
+    let mut rows: Vec<String> = Vec::new();
+    if running {
+        rows.push("Searching...".to_string());
+    } else if let Some(message) = error {
+        rows.push(format!("error: {message}"));
+    } else {
+        if results.is_empty() && !query.is_empty() {
+            rows.push(format!("No results for \"{query}\""));
+        }
+        for row in results {
+            rows.push(format!(
+                "[{}] {} · {} (score {})",
+                row.kind,
+                row.label,
+                short_id(&row.id),
+                row.score
+            ));
+        }
+        if truncated {
+            rows.push("(results truncated)".to_string());
+        }
+        if rows.is_empty() {
+            rows.push("Type a query and press Enter to search.".to_string());
+        }
+    }
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, text)| {
+            ListItem::new(text.as_str()).style(selected_style(idx == selected, theme))
+        })
+        .collect();
+    let mut state = ListState::default();
+    if !rows.is_empty() {
+        state.select(Some(selected.min(rows.len() - 1)));
+    }
+    let list = List::new(items).block(titled_block("Results", ColorRole::Accent, theme));
+    frame.render_stateful_widget(list, chunks[1], &mut state);
 }
 
 /// Sidebar overlay: screen list taking 30% of the width. Moved here from the
 /// application shell so management drawing lives in the screen module; the
 /// shell only decides when the overlay is active.
-pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, entries: &[ScreenKind], selected: usize) {
+pub fn draw_sidebar_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[ScreenKind],
+    selected: usize,
+) {
     use ratatui::widgets::Clear;
     let sidebar_width = (f32::from(area.width) * 0.3) as u16;
     let sidebar_area = Rect {
@@ -359,7 +387,10 @@ pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, entries: &[ScreenKind
             None => format!("· {}", kind.title()),
         })
         .collect();
-    let items: Vec<ListItem> = screens.iter().map(|name| ListItem::new(name.as_str())).collect();
+    let items: Vec<ListItem> = screens
+        .iter()
+        .map(|name| ListItem::new(name.as_str()))
+        .collect();
     let mut state = ListState::default();
     state.select(Some(selected.min(screens.len().saturating_sub(1))));
     let list = List::new(items)

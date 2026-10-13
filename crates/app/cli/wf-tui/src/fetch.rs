@@ -9,26 +9,23 @@ use wf_client::WfClient;
 use crate::error::CliResult;
 use crate::screens::{
     short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, InsightTable, InsightsData,
-    LoopRow, ProfileRow, ScreenData, ScreenKind, SearchData, SearchRow, SettingsData, WorkflowRow,
+    LocalSettings, ProfileRow, ScreenData, ScreenKind, SearchRow, SettingsData, WorkflowRow,
 };
 
 /// Fetch data for the given screen kind.
 pub async fn fetch_for(
     client: &WfClient,
     kind: ScreenKind,
-    query: &str,
     filter: ExecStatusFilter,
 ) -> CliResult<ScreenData> {
     match kind {
         ScreenKind::Dashboard => fetch_dashboard(client).await,
         ScreenKind::Workflow => fetch_workflows(client).await,
         ScreenKind::Executions => fetch_executions(client, filter).await,
-        ScreenKind::AgentLoops => fetch_agent_loops(client).await,
         ScreenKind::Insights => fetch_insights(client).await,
         ScreenKind::Checkpoints => fetch_checkpoints(client).await,
-        ScreenKind::Search => fetch_search(client, query).await,
         ScreenKind::Settings => fetch_settings(client).await,
-        ScreenKind::Interactive | ScreenKind::Help => Ok(ScreenData::None),
+        ScreenKind::Interactive => Ok(ScreenData::None),
     }
 }
 
@@ -180,33 +177,6 @@ async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliRes
     );
 
     Ok(ScreenData::Executions(rows))
-}
-
-async fn fetch_agent_loops(client: &WfClient) -> CliResult<ScreenData> {
-    let data: serde_json::Value = client.get_json("/api/v1/agent-loops/summaries").await?;
-    let rows: Vec<LoopRow> = items_of(&data)
-        .into_iter()
-        .filter_map(|s| {
-            Some(LoopRow {
-                id: s.get("id")?.as_str()?.to_string(),
-                status: s
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                iteration: s
-                    .get("current_iteration")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
-                tool_calls: s
-                    .get("tool_call_count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
-                started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
-            })
-        })
-        .collect();
-    Ok(ScreenData::AgentLoops(rows))
 }
 
 async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
@@ -419,7 +389,11 @@ pub fn format_checkpoint_chain(chain: &serde_json::Value) -> String {
     out.join("\n")
 }
 
-async fn fetch_search(client: &WfClient, query: &str) -> CliResult<ScreenData> {
+/// Fetch one page of global search hits for the search palette overlay.
+pub(crate) async fn fetch_search_rows(
+    client: &WfClient,
+    query: &str,
+) -> CliResult<(Vec<SearchRow>, usize, bool)> {
     let data: serde_json::Value = client
         .get_json(&format!(
             "/api/v1/search?q={query}&limit_per_type=20&limit=100"
@@ -444,16 +418,12 @@ async fn fetch_search(client: &WfClient, query: &str) -> CliResult<ScreenData> {
             })
         })
         .collect();
-    Ok(ScreenData::Search(SearchData {
-        query: query.to_string(),
-        results: rows,
-        total: data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
-        truncated: data
-            .get("truncated")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        running: false,
-    }))
+    let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let truncated = data
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Ok((rows, total, truncated))
 }
 
 async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
@@ -490,7 +460,25 @@ async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
         profiles: rows,
         default_profile: Some(default_id),
         theme,
+        local: load_local_settings(),
     }))
+}
+
+/// Snapshot the local config file values shown on the settings screen.
+fn load_local_settings() -> LocalSettings {
+    let path = crate::app_config::config_file_path().map(|p| p.display().to_string());
+    let tool_config = crate::tui::input_classify::load_tool_output_config();
+    let copy_target = crate::tui::input_classify::load_copy_target();
+    let mouse_capture = crate::tui::input_classify::load_mouse_opt_in();
+    LocalSettings {
+        config_path: path.unwrap_or_else(|| "unavailable".to_string()),
+        mouse_capture,
+        copy_target: format!("{copy_target:?}").to_lowercase(),
+        tool_output_enabled: tool_config.enabled,
+        tool_output_level: tool_config.level.label().to_string(),
+        preview_max_lines: tool_config.preview_max_lines,
+        preview_max_chars: tool_config.preview_max_chars,
+    }
 }
 
 /// Render an epoch timestamp; accepts seconds or milliseconds.

@@ -24,9 +24,7 @@ pub fn parse_branch_header(line: &str) -> (String, Option<String>, u32, u32) {
     (branch, upstream, ahead, behind)
 }
 
-pub fn parse_porcelain_v2_branch_info(
-    output: &str,
-) -> (String, Option<String>, u32, u32) {
+pub fn parse_porcelain_v2_branch_info(output: &str) -> (String, Option<String>, u32, u32) {
     let mut branch = String::new();
     let mut upstream: Option<String> = None;
     let mut ahead = 0u32;
@@ -272,10 +270,7 @@ pub fn parse_log_entries(output: &str) -> Vec<CommitEntry> {
         let parents = if fields[1].trim().is_empty() {
             Vec::new()
         } else {
-            fields[1]
-                .split_whitespace()
-                .map(str::to_string)
-                .collect()
+            fields[1].split_whitespace().map(str::to_string).collect()
         };
         let author = fields[2].to_string();
         let email = fields[3].to_string();
@@ -348,7 +343,12 @@ pub fn parse_branches(output: &str) -> Vec<BranchEntry> {
             ahead,
             behind,
             commit: fields[commit_idx].trim().to_string(),
-            subject: fields.get(subject_idx).cloned().unwrap_or("").trim().to_string(),
+            subject: fields
+                .get(subject_idx)
+                .cloned()
+                .unwrap_or("")
+                .trim()
+                .to_string(),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -375,7 +375,10 @@ pub fn parse_tags(output: &str) -> Vec<TagEntry> {
         out.push(TagEntry {
             name: fields[0].trim().to_string(),
             commit,
-            message: fields.get(3).map(|s| s.trim().to_string()).unwrap_or_default(),
+            message: fields
+                .get(3)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default(),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -454,18 +457,21 @@ mod tests {
 
     #[test]
     fn porcelain_v2_covers_empty_detached_and_conflict() {
-        let (branch, upstream, ahead, behind) = parse_porcelain_v2_branch_info("# branch.head (unknown)\n");
+        let (branch, upstream, ahead, behind) =
+            parse_porcelain_v2_branch_info("# branch.head (unknown)\n");
         assert!(branch.is_empty());
         assert!(upstream.is_none());
         assert_eq!((ahead, behind), (0, 0));
-        let files = parse_porcelain_v2_files("u UU N... 100644 100644 100644 100644 a b src/x.rs\n");
+        let files =
+            parse_porcelain_v2_files("u UU N... 100644 100644 100644 100644 a b src/x.rs\n");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].kind, FileKind::Conflicted);
     }
 
     #[test]
     fn diff_parses_hunks_with_counts() {
-        let output = "diff --git a/src/a.rs b/src/a.rs\n@@ -1,2 +1,3 @@\n-old\n+new\n+extra\n context\n";
+        let output =
+            "diff --git a/src/a.rs b/src/a.rs\n@@ -1,2 +1,3 @@\n-old\n+new\n+extra\n context\n";
         let files = parse_diff_unified(output);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "src/a.rs");
@@ -492,7 +498,8 @@ mod tests {
 
     #[test]
     fn diff_marks_binary_and_truncates_long_hunks() {
-        let binary = "diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n";
+        let binary =
+            "diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n";
         let files = parse_diff_unified(binary);
         assert_eq!(files.len(), 1);
         assert!(files[0].binary);
@@ -537,7 +544,9 @@ mod tests {
         let tags = parse_tags(&format!("v1{LOG_SEP}abc{LOG_SEP}{LOG_SEP}msg{LOG_END}"));
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].commit, "abc");
-        let peeled = parse_tags(&format!("v2{LOG_SEP}tagobj{LOG_SEP}commit123{LOG_SEP}msg{LOG_END}"));
+        let peeled = parse_tags(&format!(
+            "v2{LOG_SEP}tagobj{LOG_SEP}commit123{LOG_SEP}msg{LOG_END}"
+        ));
         assert_eq!(peeled[0].commit, "commit123");
         let stash = parse_stash_list("stash@{0}: WIP on main: abc first\n");
         assert_eq!(stash.len(), 1);

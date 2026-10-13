@@ -92,9 +92,7 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
             }
             (EventType::CheckpointReviewSubmitted, metadata)
         }
-        CheckpointEvent::ApprovalResolved {
-            data, decision, ..
-        } => {
+        CheckpointEvent::ApprovalResolved { data, decision, .. } => {
             let mut metadata = HashMap::new();
             if let Some(snapshot_id) = &data.checkpoint_id {
                 metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot_id));
@@ -102,10 +100,7 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
             if let Some(actor) = &data.reason {
                 metadata.insert("actor".to_string(), serde_json::json!(actor));
             }
-            metadata.insert(
-                "decision".to_string(),
-                serde_json::json!(decision.as_str()),
-            );
+            metadata.insert("decision".to_string(), serde_json::json!(decision.as_str()));
             (EventType::CheckpointApprovalResolved, metadata)
         }
         // Checkpoint lifecycle events are published by the coordinators

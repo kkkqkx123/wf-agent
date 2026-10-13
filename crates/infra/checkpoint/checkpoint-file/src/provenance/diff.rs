@@ -96,8 +96,7 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
 /// Structured diff of two byte slices: hunk rows plus stats for text,
 /// a binary marker when either side is not valid UTF-8.
 fn structured_view(path: &str, before: &[u8], after: &[u8]) -> FileDiffView {
-    let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after))
-    else {
+    let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
         let mut view = empty_view(path, FileDiffKind::Modified);
         view.binary = true;
         return view;

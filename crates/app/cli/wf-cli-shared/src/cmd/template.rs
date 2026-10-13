@@ -16,10 +16,12 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             tags,
             author,
         } => {
-            let kind_param = kind.as_deref().and_then(|k| match k.to_ascii_lowercase().as_str() {
-                "workflow" | "agent" => Some(k),
-                _ => None,
-            });
+            let kind_param = kind
+                .as_deref()
+                .and_then(|k| match k.to_ascii_lowercase().as_str() {
+                    "workflow" | "agent" => Some(k),
+                    _ => None,
+                });
             let envelope = client
                 .generated()
                 .handle_query_library(
@@ -43,17 +45,15 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =
                 wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
-            let found = data
-                .as_array()
-                .and_then(|items| {
-                    items
-                        .iter()
-                        .find(|t| {
-                            t.get("id").and_then(|v| v.as_str()) == Some(id.as_str())
-                                || t.get("name").and_then(|v| v.as_str()) == Some(id.as_str())
-                        })
-                        .cloned()
-                });
+            let found = data.as_array().and_then(|items| {
+                items
+                    .iter()
+                    .find(|t| {
+                        t.get("id").and_then(|v| v.as_str()) == Some(id.as_str())
+                            || t.get("name").and_then(|v| v.as_str()) == Some(id.as_str())
+                    })
+                    .cloned()
+            });
             match found {
                 Some(t) => render_envelope(
                     cli.output,
@@ -95,7 +95,10 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                         .unwrap_or("")
                         .to_string();
                     client
-                        .post_json::<_, serde_json::Value>("/api/v1/templates/library/agents", &template)
+                        .post_json::<_, serde_json::Value>(
+                            "/api/v1/templates/library/agents",
+                            &template,
+                        )
                         .await?;
                     let data = serde_json::json!({"registered": id, "kind": "agent"});
                     render_envelope(
@@ -111,7 +114,10 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                         .unwrap_or("")
                         .to_string();
                     client
-                        .post_json::<_, serde_json::Value>("/api/v1/templates/library/workflows", &template)
+                        .post_json::<_, serde_json::Value>(
+                            "/api/v1/templates/library/workflows",
+                            &template,
+                        )
                         .await?;
                     let data = serde_json::json!({"registered": id, "kind": "workflow"});
                     render_envelope(

@@ -38,6 +38,7 @@ pub mod interactive;
 pub mod pager;
 pub mod replay;
 pub mod screens;
+pub mod search_palette;
 pub mod session_holder;
 pub mod size;
 pub mod state;

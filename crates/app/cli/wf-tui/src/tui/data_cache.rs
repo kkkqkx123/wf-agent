@@ -14,19 +14,16 @@ const DEFAULT_DATA_TTL: Duration = Duration::from_secs(5);
 /// A fetch that never reports back is retried after this duration.
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Per-screen cache TTL: aggregation screens refresh slowly, live lists more
-/// eagerly, and the search screen is essentially per-keystroke.
+/// Per-screen cache TTL: aggregation screens refresh slowly and live lists
+/// refresh more eagerly.
 pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
     match kind {
         ScreenKind::Dashboard => Duration::from_secs(10),
         ScreenKind::Workflow => Duration::from_secs(5),
-        ScreenKind::Executions | ScreenKind::Checkpoints | ScreenKind::AgentLoops => {
-            Duration::from_secs(3)
-        }
+        ScreenKind::Executions | ScreenKind::Checkpoints => Duration::from_secs(3),
         ScreenKind::Insights => Duration::from_secs(10),
-        ScreenKind::Search => Duration::from_millis(500),
         ScreenKind::Settings => DEFAULT_DATA_TTL,
-        ScreenKind::Interactive | ScreenKind::Help => DEFAULT_DATA_TTL,
+        ScreenKind::Interactive => DEFAULT_DATA_TTL,
     }
 }
 
@@ -34,6 +31,11 @@ pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
 pub(super) enum DataResult {
     /// One screen's cached model.
     Screen(ScreenKind, crate::error::CliResult<ScreenData>),
+    /// Search palette results for the submitted query.
+    SearchPalette {
+        query: String,
+        result: crate::error::CliResult<(Vec<crate::screens::SearchRow>, usize, bool)>,
+    },
     /// One page of the history overlay's scrollback, tagged with the session
     /// it belongs to and whether it is the page behind the loaded window.
     History {
@@ -69,11 +71,21 @@ impl TuiApp {
         self.app.screen.inflight.insert(kind, Instant::now());
         let client = self.client.clone();
         let tx = self.data_tx.clone();
-        let query = self.app.screen.search_input.clone();
         let filter = self.app.screen.exec_filter;
         let handle = tokio::spawn(async move {
-            let result = fetch_for(&client, kind, &query, filter).await;
+            let result = fetch_for(&client, kind, filter).await;
             let _ = tx.send(DataResult::Screen(kind, result));
+        });
+        self.tasks.push(handle);
+    }
+
+    /// Fetch search hits for the palette's submitted query.
+    pub(super) fn request_search_palette(&mut self, query: String) {
+        let client = self.client.clone();
+        let tx = self.data_tx.clone();
+        let handle = tokio::spawn(async move {
+            let result = crate::fetch::fetch_search_rows(&client, &query).await;
+            let _ = tx.send(DataResult::SearchPalette { query, result });
         });
         self.tasks.push(handle);
     }
@@ -81,6 +93,12 @@ impl TuiApp {
     /// Drop cached data for `kind` so the next request refetches.
     pub(super) fn invalidate(&mut self, kind: ScreenKind) {
         self.app.screen.invalidate(kind);
+    }
+
+    /// Reset the settings scroll when fresh settings land so the view
+    /// returns to the top instead of pointing past the new content.
+    fn clamp_settings_scroll(&mut self) {
+        self.app.screen.settings_scroll = 0;
     }
 
     /// Reap finished fetches and fold them into the cache. Returns whether the
@@ -97,6 +115,9 @@ impl TuiApp {
                                 .screen
                                 .data_cache
                                 .insert(kind, (data, Instant::now()));
+                            if kind == ScreenKind::Settings {
+                                self.clamp_settings_scroll();
+                            }
                             changed = true;
                         }
                         Err(err) => {
@@ -104,6 +125,17 @@ impl TuiApp {
                             changed = true;
                         }
                     }
+                }
+                DataResult::SearchPalette { query, result } => {
+                    match result {
+                        Ok((rows, total, truncated)) => {
+                            self.search_palette.land(&query, rows, total, truncated);
+                        }
+                        Err(err) => {
+                            self.search_palette.fail(&query, format!("{err}"));
+                        }
+                    }
+                    changed = true;
                 }
                 DataResult::History {
                     session_id,
@@ -153,7 +185,8 @@ impl TuiApp {
     }
 
     /// Session whose scrollback the history overlay opens: the live session
-    /// while one is attached, otherwise the row selected on a list screen.
+    /// while one is attached, otherwise the row selected on the executions
+    /// screen.
     pub(super) fn history_session_id(&self) -> Option<String> {
         if let Some(session) = &self.interactive {
             if let Some(id) = session.session_id() {
@@ -163,9 +196,6 @@ impl TuiApp {
         let selected = self.app.screen.navigation.selected();
         match self.current_data() {
             ScreenData::Executions(rows) => rows
-                .get(selected.min(rows.len().saturating_sub(1)))
-                .map(|row| row.id.clone()),
-            ScreenData::AgentLoops(rows) => rows
                 .get(selected.min(rows.len().saturating_sub(1)))
                 .map(|row| row.id.clone()),
             _ => None,

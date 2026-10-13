@@ -74,11 +74,28 @@ pub(crate) async fn run_with_client(
                 }
                 page
             } else if let Some(agent_id) = agent {
-                list_agent_executions(client, *limit, *offset, status.as_deref(), agent_id, order.as_deref()).await?
+                list_agent_executions(
+                    client,
+                    *limit,
+                    *offset,
+                    status.as_deref(),
+                    agent_id,
+                    order.as_deref(),
+                )
+                .await?
             } else if let Some(wf) = workflow {
-                list_workflow_executions(client, *limit, *offset, status.as_deref(), wf, order.as_deref()).await?
+                list_workflow_executions(
+                    client,
+                    *limit,
+                    *offset,
+                    status.as_deref(),
+                    wf,
+                    order.as_deref(),
+                )
+                .await?
             } else {
-                list_loop_summaries(client, *limit, *offset, status.as_deref(), order.as_deref()).await?
+                list_loop_summaries(client, *limit, *offset, status.as_deref(), order.as_deref())
+                    .await?
             };
             render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
         }
@@ -136,8 +153,7 @@ pub(crate) async fn run_with_client(
                     file_scope: None,
                 };
                 let view = client.execute_workflow(workflow, &typed).await?;
-                let data =
-                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+                let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("execution-run", data).with_entity(workflow.clone()),
@@ -156,7 +172,16 @@ pub(crate) async fn run_with_client(
         } => {
             let validated = super::execution_logs::parse_log_types(types.as_deref())?;
             let _ = validated;
-            show_execution_logs(cli, client, id, *follow, *limit, types.as_deref(), *interval).await
+            show_execution_logs(
+                cli,
+                client,
+                id,
+                *follow,
+                *limit,
+                types.as_deref(),
+                *interval,
+            )
+            .await
         }
         ExecutionSub::Cancel { id, .. } => {
             let data = cancel_execution(client, id).await?;
@@ -179,9 +204,7 @@ pub(crate) async fn run_with_client(
                 OutputEnvelope::success("execution-resume", data).with_entity(id.clone()),
             )
         }
-        ExecutionSub::Status { id } => {
-            status_execution(client, cli, id).await
-        }
+        ExecutionSub::Status { id } => status_execution(client, cli, id).await,
         ExecutionSub::Hierarchy { id } => {
             let envelope = client
                 .generated()
@@ -204,11 +227,7 @@ pub(crate) async fn run_with_client(
         ExecutionSub::Subtree { id, limit, cursor } => {
             let envelope = client
                 .generated()
-                .get_executions_id_subtree(
-                    id,
-                    cursor.as_deref(),
-                    limit.map(|v| v as i64),
-                )
+                .get_executions_id_subtree(id, cursor.as_deref(), limit.map(|v| v as i64))
                 .await
                 .map_err(wf_client::client::into_typed_client_error)?;
             let view: wf_client::models::SubtreeDoc =
@@ -254,11 +273,17 @@ pub(crate) async fn run_with_client(
         }
         ExecutionSub::Cleanup { before: _ } => {
             let removed: serde_json::Value = client
-                .post_json("/api/v1/agent-loops/cleanup-completed", &serde_json::json!({}))
+                .post_json(
+                    "/api/v1/agent-loops/cleanup-completed",
+                    &serde_json::json!({}),
+                )
                 .await?;
             let removed = removed.as_u64().unwrap_or(0);
             let data = serde_json::json!({"removed": removed});
-            render_envelope(cli.output, OutputEnvelope::success("execution-cleanup", data))
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-cleanup", data),
+            )
         }
         ExecutionSub::Inspect {
             id,
@@ -309,7 +334,8 @@ pub(crate) async fn run_with_client(
             recovery,
         } => {
             let data =
-                crate::cmd::analysis::errors_data(client, id, *chain, *root_cause, *recovery).await?;
+                crate::cmd::analysis::errors_data(client, id, *chain, *root_cause, *recovery)
+                    .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-errors", data).with_entity(id.clone()),
@@ -525,7 +551,10 @@ async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()>
 async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
     if let Ok(status) = client.execution_status(id).await {
         let text = status.as_str().unwrap_or(
-            status.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
+            status
+                .get("status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown"),
         );
         let data = serde_json::json!({"executionId": id, "status": text, "source": "live"});
         return render_envelope(
@@ -546,7 +575,10 @@ async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<(
     }
     match client.execution_detail(id).await {
         Ok(exec) => {
-            let status = exec.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
+            let status = exec
+                .get("status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown");
             let data = serde_json::json!({"executionId": id, "status": status, "source": "persisted", "execution": exec});
             render_envelope(
                 cli.output,
@@ -641,9 +673,7 @@ async fn inspect_execution(
         } else {
             out.insert(
                 "variableHistory".into(),
-                serde_json::Value::String(
-                    "missing --var-name for --variable-history".to_string(),
-                ),
+                serde_json::Value::String("missing --var-name for --variable-history".to_string()),
             );
         }
     }

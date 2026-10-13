@@ -38,7 +38,12 @@ pub(crate) fn print_hierarchy(view: &serde_json::Value) {
         Some(parent) if !parent.is_null() => println!(
             "  parent: {} ({})",
             str_field(parent, "execution_id"),
-            execution_type_label(parent.get("execution_type").and_then(|v| v.as_str()).unwrap_or(""))
+            execution_type_label(
+                parent
+                    .get("execution_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            )
         ),
         _ => println!("  parent: -"),
     }
@@ -46,7 +51,11 @@ pub(crate) fn print_hierarchy(view: &serde_json::Value) {
         println!(
             "  root: {} ({})",
             str_field(root, "execution_id"),
-            execution_type_label(root.get("execution_type").and_then(|v| v.as_str()).unwrap_or(""))
+            execution_type_label(
+                root.get("execution_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+            )
         );
     }
     match view.get("ancestors").and_then(|v| v.as_array()) {
@@ -74,7 +83,10 @@ pub(crate) fn print_subtree(tree: &serde_json::Value) {
         let depth = node.get("depth").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let marker = if depth == 0 { "" } else { "  " };
         let status = node.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-        let execution_type = node.get("execution_type").and_then(|v| v.as_str()).unwrap_or("");
+        let execution_type = node
+            .get("execution_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         println!(
             "{}{} {} [{}] {}",
             marker.repeat(depth),
@@ -84,7 +96,11 @@ pub(crate) fn print_subtree(tree: &serde_json::Value) {
             tree_label(depth as u32)
         );
     }
-    if tree.get("truncated").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if tree
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let omitted = tree.get("omitted").and_then(|v| v.as_u64()).unwrap_or(0);
         match tree.get("next_offset").and_then(|v| v.as_u64()) {
             Some(next) => println!(
@@ -118,7 +134,11 @@ pub(crate) fn print_history(view: &serde_json::Value) {
         .get("execution_type")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    println!("{} ({})", execution_id, execution_type_label(execution_type));
+    println!(
+        "{} ({})",
+        execution_id,
+        execution_type_label(execution_type)
+    );
 
     if let Some(timeline) = view.get("timeline").and_then(|v| v.as_array()) {
         if !timeline.is_empty() {
@@ -141,7 +161,9 @@ pub(crate) fn print_history(view: &serde_json::Value) {
                     "  {} {} {}ms",
                     str_field(node, "node_id"),
                     str_field(node, "node_type"),
-                    node.get("duration_ms").and_then(|v| v.as_i64()).unwrap_or(0)
+                    node.get("duration_ms")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0)
                 );
             }
         }
@@ -153,9 +175,18 @@ pub(crate) fn print_history(view: &serde_json::Value) {
             for iteration in iterations {
                 println!(
                     "  #{} {}ms {} tools",
-                    iteration.get("iteration").and_then(|v| v.as_u64()).unwrap_or(0),
-                    iteration.get("duration").and_then(|v| v.as_i64()).unwrap_or(0),
-                    iteration.get("tool_call_count").and_then(|v| v.as_u64()).unwrap_or(0)
+                    iteration
+                        .get("iteration")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0),
+                    iteration
+                        .get("duration")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                    iteration
+                        .get("tool_call_count")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0)
                 );
             }
         }
@@ -178,7 +209,10 @@ pub(crate) fn print_history(view: &serde_json::Value) {
                     "  [{}] #{} {}",
                     entry.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
                     entry.get("iteration").and_then(|v| v.as_u64()).unwrap_or(0),
-                    entry.get("description").and_then(|v| v.as_str()).unwrap_or("")
+                    entry
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
                 );
             }
         }
@@ -190,8 +224,14 @@ pub(crate) fn print_history(view: &serde_json::Value) {
             for transition in transitions {
                 println!(
                     "  [{}] {} -> {}",
-                    transition.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
-                    transition.get("from").and_then(|v| v.as_str()).unwrap_or("?"),
+                    transition
+                        .get("timestamp")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                    transition
+                        .get("from")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?"),
                     transition.get("to").and_then(|v| v.as_str()).unwrap_or("?")
                 );
             }

@@ -32,7 +32,7 @@ impl Screen {
     }
 }
 
-/// Navigation stack managing the 8 TUI screens.
+/// Navigation stack managing the 7 TUI screens.
 #[derive(Debug)]
 pub struct Screens {
     stack: Vec<Screen>,
@@ -113,6 +113,19 @@ impl Screens {
 
     /// Render the current screen into the frame using the supplied data model.
     pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
+        self.draw_with_settings_scroll(frame, area, data, theme, 0)
+    }
+
+    /// Render with an explicit settings scroll offset so the settings page
+    /// can scroll without using the shared selection index.
+    pub fn draw_with_settings_scroll(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        data: &ScreenData,
+        theme: &Theme,
+        settings_scroll: usize,
+    ) {
         match self.current_kind() {
             ScreenKind::Dashboard => screen_draw::draw_dashboard(frame, area, data, theme),
             ScreenKind::Workflow => {
@@ -120,9 +133,6 @@ impl Screens {
             }
             ScreenKind::Executions => {
                 screen_draw::draw_executions(frame, area, data, self.selected, theme)
-            }
-            ScreenKind::AgentLoops => {
-                screen_draw::draw_agent_loops(frame, area, data, self.selected, theme)
             }
             ScreenKind::Insights => screen_draw::draw_insights(frame, area, data, theme),
             // The Interactive screen is rendered by `InteractiveController::draw`
@@ -132,9 +142,9 @@ impl Screens {
             ScreenKind::Checkpoints => {
                 screen_draw::draw_checkpoints(frame, area, data, self.selected, theme)
             }
-            ScreenKind::Search => screen_draw::draw_search(frame, area, data, theme),
-            ScreenKind::Settings => screen_draw::draw_settings(frame, area, data, theme),
-            ScreenKind::Help => screen_draw::draw_help(frame, area, theme),
+            ScreenKind::Settings => {
+                screen_draw::draw_settings(frame, area, data, settings_scroll, theme)
+            }
         }
     }
 }

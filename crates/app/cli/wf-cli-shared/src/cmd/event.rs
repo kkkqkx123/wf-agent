@@ -38,12 +38,8 @@ pub async fn run(cli: &Cli, sub: &EventSub) -> CliResult<()> {
             };
             let mut data: serde_json::Value = client.get_json(&path).await?;
             if let Some(filter) = types {
-                let wanted: Vec<String> =
-                    filter.split(',').map(|v| v.trim().to_string()).collect();
-                if let Some(items) = data
-                    .get_mut("items")
-                    .and_then(|v| v.as_array_mut())
-                {
+                let wanted: Vec<String> = filter.split(',').map(|v| v.trim().to_string()).collect();
+                if let Some(items) = data.get_mut("items").and_then(|v| v.as_array_mut()) {
                     items.retain(|item| {
                         item.get("type")
                             .and_then(|t| t.as_str())
@@ -112,7 +108,9 @@ async fn follow_stream(
                 "[{}] {} {}",
                 ev.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
                 ev.get("type").and_then(|v| v.as_str()).unwrap_or("?"),
-                ev.get("execution_id").and_then(|v| v.as_str()).unwrap_or("-")
+                ev.get("execution_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-")
             );
         }
     } else if !history_items.is_empty() {

@@ -50,8 +50,8 @@ pub struct ScreenState {
     pub navigation: Screens,
     pub data_cache: HashMap<ScreenKind, (ScreenData, Instant)>,
     pub inflight: HashMap<ScreenKind, Instant>,
-    pub search_input: String,
     pub exec_filter: ExecStatusFilter,
+    pub settings_scroll: usize,
 }
 
 impl ScreenState {
@@ -60,8 +60,8 @@ impl ScreenState {
             navigation: Screens::new(),
             data_cache: HashMap::new(),
             inflight: HashMap::new(),
-            search_input: String::new(),
             exec_filter: ExecStatusFilter::All,
+            settings_scroll: 0,
         }
     }
 

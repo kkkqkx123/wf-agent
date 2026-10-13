@@ -17,7 +17,9 @@ pub const DEFAULT_MODEL: &str = "default";
 /// What a turn executes.
 #[derive(Debug, Clone)]
 pub enum TurnKind {
-    Agent { prompt: String },
+    Agent {
+        prompt: String,
+    },
     Workflow {
         workflow_id: String,
         input: Option<Value>,
@@ -97,9 +99,7 @@ impl TurnParams {
     }
 
     /// Typed `POST /api/v1/workflows/{id}/execute*` body.
-    pub fn workflow_typed_body(
-        input: Option<&Value>,
-    ) -> wf_client::models::ExecuteBody {
+    pub fn workflow_typed_body(input: Option<&Value>) -> wf_client::models::ExecuteBody {
         wf_client::models::ExecuteBody {
             input: input.cloned(),
             file_scope: None,

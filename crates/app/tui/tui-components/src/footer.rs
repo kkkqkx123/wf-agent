@@ -47,6 +47,11 @@ pub const PANEL_MAIN_HEIGHT: u16 = 16;
 pub const PERMISSION_MAIN_HEIGHT: u16 = 12;
 pub const QUESTION_MAIN_HEIGHT: u16 = 14;
 
+/// Upper bound for the growing composer main area, so a large paste never
+/// squeezes the scrollback away. Rendering shows a cursor-following window
+/// once content exceeds this height.
+pub const MAX_COMPOSER_HEIGHT: u16 = 8;
+
 /// Notice lifetime (3 s), aligned with the opencode statusline notice.
 pub const NOTICE_TTL_MS: u64 = 3_000;
 
@@ -79,7 +84,7 @@ pub enum FooterView {
 /// Route inside the prompt view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FooterRoute {
-    /// Single-line prompt composer.
+    /// Prompt composer.
     #[default]
     Composer,
     /// `/` command palette.
@@ -196,17 +201,34 @@ impl Footer {
     }
 
     /// Required viewport height for the current view x route, using the
-    /// given terminal width to compute streaming tail row count. Pass 0 to
-    /// skip streaming row estimation (the streaming row always occupies at
-    /// least 1 row when present).
-    pub fn apply_height_with_width(&self, _width: u16) -> u16 {
+    /// given terminal width to size the growing composer. Width 0 keeps
+    /// the single-row baseline for tests without geometry.
+    pub fn apply_height_with_width(&self, width: u16) -> u16 {
         let main = match (self.view, self.route) {
-            (FooterView::Prompt, FooterRoute::Composer) => COMPOSER_MAIN_HEIGHT,
+            (FooterView::Prompt, FooterRoute::Composer) => {
+                if width == 0 {
+                    COMPOSER_MAIN_HEIGHT
+                } else {
+                    self.composer
+                        .visual_row_count(width)
+                        .clamp(1, MAX_COMPOSER_HEIGHT as usize) as u16
+                }
+            }
             (FooterView::Prompt, _) => PANEL_MAIN_HEIGHT,
             (FooterView::Permission, _) => PERMISSION_MAIN_HEIGHT,
             (FooterView::Question, _) => QUESTION_MAIN_HEIGHT,
         };
         FOOTER_BASE_HEIGHT + main
+    }
+
+    /// Composer main-area rows for `width`, capped for layout.
+    pub fn composer_height_for_width(&self, width: u16) -> u16 {
+        if width == 0 {
+            return COMPOSER_MAIN_HEIGHT;
+        }
+        self.composer
+            .visual_row_count(width)
+            .clamp(1, MAX_COMPOSER_HEIGHT as usize) as u16
     }
 
     /// The keymap context the footer currently routes keys to.
@@ -652,6 +674,16 @@ mod tests {
             footer.apply_height(),
             FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT
         );
+    }
+
+    #[test]
+    fn composer_height_grows_with_wrapped_rows_and_caps() {
+        let mut footer = Footer::new();
+        footer.composer.set_text("ab\ncd\nef");
+        assert_eq!(footer.composer_height_for_width(80), 3);
+        assert_eq!(footer.apply_height_with_width(80), FOOTER_BASE_HEIGHT + 3);
+        footer.composer.set_text("a\n".repeat(20));
+        assert_eq!(footer.composer_height_for_width(80), MAX_COMPOSER_HEIGHT);
     }
 
     #[test]

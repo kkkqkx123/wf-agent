@@ -11,12 +11,7 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
         VariableSub::List { execution, scope } => {
             let envelope = client
                 .generated()
-                .get_variables(
-                    Some(execution.as_str()),
-                    None,
-                    None,
-                    scope.as_deref(),
-                )
+                .get_variables(Some(execution.as_str()), None, None, scope.as_deref())
                 .await
                 .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =

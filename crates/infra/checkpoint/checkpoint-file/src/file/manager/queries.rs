@@ -1,6 +1,8 @@
 //! Read-only provenance queries delegated to `ProvenanceReader`.
 
-use crate::provenance::{DeltaSummary, FileDiffView, PartitionCommitView, PartitionView, WorkspaceFile};
+use crate::provenance::{
+    DeltaSummary, FileDiffView, PartitionCommitView, PartitionView, WorkspaceFile,
+};
 use checkpoint_base::error::CheckpointError;
 
 use super::FileCheckpointManager;

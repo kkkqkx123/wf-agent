@@ -22,16 +22,12 @@ pub(crate) fn is_terminal_status(status: &str) -> bool {
 /// reporting never disagree.
 pub(crate) async fn fetch_execution_status(client: &WfClient, id: &str) -> CliResult<String> {
     if let Ok(value) = client.execution_status(id).await {
-        if let Some(status) = value
-            .as_str()
-            .map(str::to_string)
-            .or_else(|| {
-                value
-                    .get("status")
-                    .and_then(|s| s.as_str())
-                    .map(str::to_string)
-            })
-        {
+        if let Some(status) = value.as_str().map(str::to_string).or_else(|| {
+            value
+                .get("status")
+                .and_then(|s| s.as_str())
+                .map(str::to_string)
+        }) {
             return Ok(status);
         }
     }
@@ -170,8 +166,7 @@ pub(crate) async fn run_stream(
     // and the execution id once an engine event names it.
     let mut announced = false;
     while let Some(item) = stream.next().await {
-        let event =
-            item.map_err(|e| CliError::Configuration(format!("stream failed: {e}")))?;
+        let event = item.map_err(|e| CliError::Configuration(format!("stream failed: {e}")))?;
         if !announced {
             announced = true;
             if text {

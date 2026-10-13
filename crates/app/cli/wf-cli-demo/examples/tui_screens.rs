@@ -1,6 +1,6 @@
 //! Full-TUI screens showcase: renders every screen (Dashboard, Workflow,
-//! Executions, Checkpoints, Search, Settings, Help) with synthetic data
-//! in a full-screen TUI. Navigate between screens with `1`-`8` / `j`/`k`,
+//! Executions, Insights, Checkpoints, Settings) with synthetic data
+//! in a full-screen TUI. Navigate between screens with `0`-`6` / `j`/`k`,
 //! select items with Enter, and press `q` to quit.
 //!
 //! Run with: `cargo run -p wf-cli-demo --example tui_screens`
@@ -16,20 +16,19 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use wf_tui::screens::{
-    CheckpointRow, DashboardData, ExecRow, ProfileRow, ScreenData, ScreenKind, Screens, SearchData,
-    SearchRow, SettingsData, WorkflowRow,
+    CheckpointRow, DashboardData, ExecRow, InsightTable, InsightsData, LocalSettings, ProfileRow,
+    ScreenData, ScreenKind, Screens, SettingsData, WorkflowRow,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
+    ScreenKind::Dashboard,
     ScreenKind::Workflow,
     ScreenKind::Executions,
+    ScreenKind::Insights,
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
-    ScreenKind::Search,
     ScreenKind::Settings,
-    ScreenKind::Dashboard,
-    ScreenKind::Help,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -140,32 +139,26 @@ fn synthetic_checkpoints() -> ScreenData {
     ])
 }
 
-fn synthetic_search_results() -> ScreenData {
-    ScreenData::Search(SearchData {
-        query: "code review".into(),
-        results: vec![
-            SearchRow {
-                id: "wf-code-review".into(),
-                kind: "workflow".into(),
-                label: "Code Review Pipeline".into(),
-                score: 95,
+fn synthetic_insights() -> ScreenData {
+    ScreenData::Insights(InsightsData {
+        tables: vec![
+            InsightTable {
+                title: "Overview".into(),
+                rows: vec![
+                    vec!["Metric".into(), "Value".into()],
+                    vec!["Workflows".into(), "5".into()],
+                    vec!["Executions".into(), "7".into()],
+                ],
             },
-            SearchRow {
-                id: "exec-a1b2c3d4".into(),
-                kind: "execution".into(),
-                label: "Code review run #1".into(),
-                score: 82,
-            },
-            SearchRow {
-                id: "skill:code-review".into(),
-                kind: "skill".into(),
-                label: "Code Review Skill".into(),
-                score: 78,
+            InsightTable {
+                title: "Executions by status".into(),
+                rows: vec![
+                    vec!["Status".into(), "Count".into()],
+                    vec!["Completed".into(), "4".into()],
+                    vec!["Running".into(), "2".into()],
+                ],
             },
         ],
-        total: 3,
-        truncated: false,
-        running: false,
     })
 }
 
@@ -190,36 +183,39 @@ fn synthetic_settings() -> ScreenData {
         ],
         default_profile: Some("default".into()),
         theme: "dark".into(),
+        local: LocalSettings {
+            config_path: "~/.config/wf/config.toml".into(),
+            mouse_capture: false,
+            copy_target: "message".into(),
+            tool_output_enabled: true,
+            tool_output_level: "medium".into(),
+            preview_max_lines: 10,
+            preview_max_chars: 320,
+        },
     })
 }
 
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
+        ScreenKind::Dashboard => "Dashboard",
         ScreenKind::Workflow => "Workflows",
         ScreenKind::Executions => "Executions",
+        ScreenKind::Insights => "Insights",
         ScreenKind::Interactive => "Interactive (live)",
         ScreenKind::Checkpoints => "Checkpoints",
-        ScreenKind::Search => "Search",
         ScreenKind::Settings => "Settings",
-        ScreenKind::Dashboard => "Dashboard",
-        ScreenKind::Help => "Help",
-        ScreenKind::AgentLoops => "Agent Loops",
-        ScreenKind::Insights => "Insights",
     }
 }
 
 fn dashboard_entry_color(kind: ScreenKind) -> Color {
     match kind {
+        ScreenKind::Dashboard => Color::Cyan,
         ScreenKind::Workflow => Color::Green,
         ScreenKind::Executions => Color::Yellow,
+        ScreenKind::Insights => Color::LightBlue,
         ScreenKind::Interactive => Color::Cyan,
         ScreenKind::Checkpoints => Color::Blue,
-        ScreenKind::Search => Color::Magenta,
         ScreenKind::Settings => Color::White,
-        ScreenKind::Dashboard => Color::Cyan,
-        ScreenKind::Help => Color::DarkGray,
-        ScreenKind::AgentLoops => Color::LightGreen,
-        ScreenKind::Insights => Color::LightBlue,
     }
 }
 
@@ -235,12 +231,7 @@ fn draw_dashboard_selector(frame: &mut ratatui::Frame, area: Rect, selected: usi
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     for (i, &kind) in DASHBOARD_ENTRIES.iter().enumerate() {
-        let idx = i + 1;
-        let key = if idx == 10 {
-            "0".to_string()
-        } else {
-            idx.to_string()
-        };
+        let key = i.to_string();
         let color = if i == selected {
             Color::Black
         } else {
@@ -287,7 +278,7 @@ fn draw_dashboard_selector(frame: &mut ratatui::Frame, area: Rect, selected: usi
 
     let help = Paragraph::new(Line::from(vec![
         Span::styled(
-            " 1-8: jump to screen  ",
+            " 0-6: jump to screen  ",
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled("q/Esc: quit", Style::default().fg(Color::DarkGray)),
@@ -327,12 +318,10 @@ impl DemoState {
             ScreenKind::Dashboard => synthetic_dashboard(),
             ScreenKind::Workflow => synthetic_workflows(),
             ScreenKind::Executions => synthetic_executions(),
+            ScreenKind::Insights => synthetic_insights(),
             ScreenKind::Interactive => ScreenData::None,
             ScreenKind::Checkpoints => synthetic_checkpoints(),
-            ScreenKind::Search => synthetic_search_results(),
             ScreenKind::Settings => synthetic_settings(),
-            ScreenKind::Help => ScreenData::None,
-            ScreenKind::AgentLoops | ScreenKind::Insights => ScreenData::None,
         };
         self.screen_selected = 0;
     }
@@ -366,15 +355,8 @@ impl DemoState {
                     self.load_screen_data(kind);
                 }
             }
-            KeyCode::Char(c @ '1'..='8') => {
-                let idx = (c as usize) - ('1' as usize);
-                if let Some(kind) = index_to_screen_kind(idx) {
-                    self.screens.push(kind);
-                    self.load_screen_data(kind);
-                }
-            }
-            KeyCode::Char('0') => {
-                let idx = 9;
+            KeyCode::Char(c @ '0'..='6') => {
+                let idx = (c as usize) - ('0' as usize);
                 if let Some(kind) = index_to_screen_kind(idx) {
                     self.screens.push(kind);
                     self.load_screen_data(kind);

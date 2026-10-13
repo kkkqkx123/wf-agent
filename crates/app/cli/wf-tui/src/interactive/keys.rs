@@ -218,7 +218,7 @@ impl InteractiveController {
                 return InteractiveAction::Continue;
             }
             match key.code {
-                CKey::Up if !key.ctrl && !key.alt => {
+                CKey::Up if !key.ctrl && !key.alt && !key.shift => {
                     if self.footer.composer.search_match_count() > 0 {
                         self.footer.composer.search_older();
                     } else {
@@ -227,7 +227,7 @@ impl InteractiveController {
                     }
                     return InteractiveAction::Continue;
                 }
-                CKey::Down if !key.ctrl && !key.alt => {
+                CKey::Down if !key.ctrl && !key.alt && !key.shift => {
                     if self.footer.composer.search_match_count() > 0 {
                         self.footer.composer.search_newer();
                     } else {
@@ -284,14 +284,14 @@ impl InteractiveController {
                     self.start_turn(text.trim().to_string(), None, None);
                 }
             }
-            CKey::Up if !key.ctrl && !key.alt => {
+            CKey::Up if !key.ctrl && !key.alt && !key.shift => {
                 if composing {
-                    self.footer.composer.history_prev();
+                    self.move_composer_up();
                 }
             }
-            CKey::Down if !key.ctrl && !key.alt => {
+            CKey::Down if !key.ctrl && !key.alt && !key.shift => {
                 if composing {
-                    self.footer.composer.history_next();
+                    self.move_composer_down();
                 }
             }
             CKey::Right if !key.ctrl && !key.alt => {
@@ -325,6 +325,44 @@ impl InteractiveController {
             _ => {}
         }
         InteractiveAction::Continue
+    }
+
+    /// Shared Up semantics: single-row input keeps legacy pure history;
+    /// multiline input moves the cursor until the first visual row, jumps
+    /// to the buffer start, then walks history.
+    fn move_composer_up(&mut self) {
+        let width = self.last_layout_width.max(1);
+        if self.footer.composer.visual_row_count(width) <= 1 {
+            self.footer.composer.history_prev();
+            return;
+        }
+        if !self.footer.composer.is_on_first_visual_row(width) {
+            self.footer.composer.move_up(width);
+            return;
+        }
+        if !self.footer.composer.is_at_start() {
+            self.footer.composer.home();
+            return;
+        }
+        self.footer.composer.history_prev();
+    }
+
+    /// Shared Down semantics, symmetric to [`Self::move_composer_up`].
+    fn move_composer_down(&mut self) {
+        let width = self.last_layout_width.max(1);
+        if self.footer.composer.visual_row_count(width) <= 1 {
+            self.footer.composer.history_next();
+            return;
+        }
+        if !self.footer.composer.is_on_last_visual_row(width) {
+            self.footer.composer.move_down(width);
+            return;
+        }
+        if !self.footer.composer.is_at_end() {
+            self.footer.composer.end();
+            return;
+        }
+        self.footer.composer.history_next();
     }
 }
 

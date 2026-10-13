@@ -34,8 +34,7 @@ pub async fn run(cli: &Cli, sub: &TaskSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("task-list", data))
         }
         TaskSub::Show { id } => {
-            let data: serde_json::Value =
-                client.get_json(&format!("/api/v1/tasks/{id}")).await?;
+            let data: serde_json::Value = client.get_json(&format!("/api/v1/tasks/{id}")).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("task-show", data).with_entity(id.clone()),

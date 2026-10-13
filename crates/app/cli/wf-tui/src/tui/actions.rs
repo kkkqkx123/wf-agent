@@ -320,15 +320,10 @@ impl TuiApp {
             ScreenData::Settings(d) => d,
             _ => return,
         };
-        let idx = self
-            .app
-            .screen
-            .navigation
-            .selected()
-            .min(data.profiles.len().saturating_sub(1));
-        let Some(_profile) = data.profiles.get(idx) else {
+        if data.profiles.is_empty() {
+            self.app.notice.set("No LLM profiles configured.");
             return;
-        };
+        }
         let current_default = data.default_profile.clone();
         let choices: Vec<(String, String)> = data
             .profiles

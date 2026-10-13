@@ -55,7 +55,9 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
                             .get("tags")
                             .and_then(|v| v.as_array())
                             .map(|arr| {
-                                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
                             })
                             .unwrap_or_default();
                         if !wanted_tags.iter().any(|w| item_tags.contains(w)) {
@@ -91,8 +93,14 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
         }
         TriggerSub::Save { file } => {
             let meta = load_json(std::path::Path::new(file))?;
-            let id = meta.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            client.post_json::<_, serde_json::Value>("/api/v1/templates/trigger", &meta).await?;
+            let id = meta
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            client
+                .post_json::<_, serde_json::Value>("/api/v1/templates/trigger", &meta)
+                .await?;
             let data = serde_json::json!({"saved": id});
             render_envelope(
                 cli.output,
@@ -175,9 +183,8 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
             )
         }
         TriggerSub::Stats => {
-            let data: serde_json::Value = client
-                .get_json("/api/v1/trigger-executions/stats")
-                .await?;
+            let data: serde_json::Value =
+                client.get_json("/api/v1/trigger-executions/stats").await?;
             render_envelope(cli.output, OutputEnvelope::success("trigger-stats", data))
         }
         TriggerSub::Cleanup { older_than } => {

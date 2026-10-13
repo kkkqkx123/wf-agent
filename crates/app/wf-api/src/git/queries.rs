@@ -26,7 +26,12 @@ fn status_output(ctx: &ApiContext) -> GitResult<(std::path::PathBuf, String)> {
     let timeout = command_timeout_ms(ctx, false);
     let out = run_git(
         &root,
-        &["status", "--porcelain=v2", "--branch", "--untracked-files=all"],
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ],
         timeout,
     )?;
     Ok((root, out.stdout))
@@ -79,12 +84,13 @@ pub fn meta(ctx: &ApiContext) -> GitResult<RepoMeta> {
     let git_dir = run_git(&root, &["rev-parse", "--absolute-git-dir"], timeout)
         .map(|o| o.stdout.trim().to_string())
         .unwrap_or_default();
-    let merge_head = !git_dir.is_empty() && std::path::Path::new(&format!("{git_dir}/MERGE_HEAD")).exists();
+    let merge_head =
+        !git_dir.is_empty() && std::path::Path::new(&format!("{git_dir}/MERGE_HEAD")).exists();
     let rebase_head = !git_dir.is_empty()
         && (std::path::Path::new(&format!("{git_dir}/rebase-merge")).exists()
             || std::path::Path::new(&format!("{git_dir}/rebase-apply")).exists());
-    let cherry_pick_head =
-        !git_dir.is_empty() && std::path::Path::new(&format!("{git_dir}/CHERRY_PICK_HEAD")).exists();
+    let cherry_pick_head = !git_dir.is_empty()
+        && std::path::Path::new(&format!("{git_dir}/CHERRY_PICK_HEAD")).exists();
     let branch = if branch.is_empty() {
         run_git(&root, &["branch", "--show-current"], timeout)
             .map(|o| o.stdout.trim().to_string())
@@ -166,7 +172,9 @@ pub fn diff_refs(
     path: Option<&str>,
 ) -> GitResult<Vec<DiffFileView>> {
     if from.trim().is_empty() || to.trim().is_empty() {
-        return Err(GitError::Precondition("diff refs must not be empty".to_string()));
+        return Err(GitError::Precondition(
+            "diff refs must not be empty".to_string(),
+        ));
     }
     if from.contains('\0') || to.contains('\0') || from.contains("....") {
         return Err(GitError::Precondition("invalid diff ref".to_string()));
@@ -190,7 +198,12 @@ pub fn diff_refs(
     Ok(parse_diff_unified(&out.stdout))
 }
 
-pub fn commits(ctx: &ApiContext, limit: u32, offset: u32, branch: Option<&str>) -> GitResult<Vec<CommitEntry>> {
+pub fn commits(
+    ctx: &ApiContext,
+    limit: u32,
+    offset: u32,
+    branch: Option<&str>,
+) -> GitResult<Vec<CommitEntry>> {
     let root = repo_root(ctx)?;
     let timeout = command_timeout_ms(ctx, false);
     let limit = limit.clamp(1, 200).to_string();
@@ -215,7 +228,9 @@ pub fn commits(ctx: &ApiContext, limit: u32, offset: u32, branch: Option<&str>) 
 
 pub fn commit_files(ctx: &ApiContext, commit: &str) -> GitResult<Vec<CommitFileEntry>> {
     if commit.trim().is_empty() || commit.contains('\0') {
-        return Err(GitError::Precondition("commit must not be empty".to_string()));
+        return Err(GitError::Precondition(
+            "commit must not be empty".to_string(),
+        ));
     }
     let root = repo_root(ctx)?;
     let timeout = command_timeout_ms(ctx, false);
@@ -230,14 +245,11 @@ pub fn commit_files(ctx: &ApiContext, commit: &str) -> GitResult<Vec<CommitFileE
 pub fn branches(ctx: &ApiContext) -> GitResult<Vec<BranchEntry>> {
     let root = repo_root(ctx)?;
     let timeout = command_timeout_ms(ctx, false);
-    let format = "%(refname:short)%1f%(HEAD)%1f%(upstream:short)%1f%(objectname:short)%1f%(subject)%1e";
+    let format =
+        "%(refname:short)%1f%(HEAD)%1f%(upstream:short)%1f%(objectname:short)%1f%(subject)%1e";
     let out = run_git(
         &root,
-        &[
-            "for-each-ref",
-            &format!("--format={format}"),
-            "refs/heads",
-        ],
+        &["for-each-ref", &format!("--format={format}"), "refs/heads"],
         timeout,
     )?;
     let current = run_git(&root, &["branch", "--show-current"], timeout)
@@ -294,7 +306,8 @@ pub fn remotes(ctx: &ApiContext) -> GitResult<Vec<RemoteEntry>> {
     )
     .map(|o| o.stdout)
     .unwrap_or_default();
-    let mut branches_by_remote: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut branches_by_remote: std::collections::BTreeMap<String, Vec<String>> =
+        Default::default();
     for line in branch_out.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -325,7 +338,7 @@ pub fn tags(ctx: &ApiContext) -> GitResult<Vec<TagEntry>> {
     let format = "%(refname:short)%1f%(objectname:short)%1f%(*objectname:short)%1f%(subject)%1e";
     let out = run_git(
         &root,
-        &[ "for-each-ref", &format!("--format={format}"), "refs/tags"],
+        &["for-each-ref", &format!("--format={format}"), "refs/tags"],
         timeout,
     )?;
     Ok(parse_tags(&out.stdout))
@@ -353,7 +366,11 @@ pub fn submodule_status(ctx: &ApiContext) -> GitResult<Vec<SubmoduleEntry>> {
             continue;
         }
         let mut parts = line.split_whitespace();
-        let commit = parts.next().unwrap_or("").trim_start_matches([' ', '-', '+', 'U']).to_string();
+        let commit = parts
+            .next()
+            .unwrap_or("")
+            .trim_start_matches([' ', '-', '+', 'U'])
+            .to_string();
         let path = parts.next().unwrap_or("").to_string();
         if path.is_empty() {
             continue;
@@ -381,7 +398,11 @@ pub fn worktrees(ctx: &ApiContext) -> GitResult<Vec<WorktreeEntry>> {
     let mut branch = String::new();
     let mut commit = String::new();
     let mut bare = false;
-    let flush = |path: &mut String, branch: &mut String, commit: &mut String, bare: &mut bool, entries: &mut Vec<WorktreeEntry>| {
+    let flush = |path: &mut String,
+                 branch: &mut String,
+                 commit: &mut String,
+                 bare: &mut bool,
+                 entries: &mut Vec<WorktreeEntry>| {
         if path.is_empty() {
             return;
         }

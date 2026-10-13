@@ -223,8 +223,8 @@ pub fn partition_history(
         .into_iter()
         .skip(offset)
         .map(|commit| {
-            let has_conflicts = commit.trailer(TRAILER_STATE).as_deref()
-                == Some(STATE_CONFLICT_UNRESOLVED);
+            let has_conflicts =
+                commit.trailer(TRAILER_STATE).as_deref() == Some(STATE_CONFLICT_UNRESOLVED);
             PartitionCommitView {
                 snapshot_id: commit.id.clone(),
                 parents: commit.parents.clone(),

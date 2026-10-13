@@ -27,4 +27,4 @@ pub use sse::{endpoints, SseFrame};
 
 /// The fully-typed progenitor client and its model namespace, for call sites
 /// that want builder-style operations instead of the JSON escape hatch.
-pub use generated::{Client as GeneratedClient, types as models};
+pub use generated::{types as models, Client as GeneratedClient};

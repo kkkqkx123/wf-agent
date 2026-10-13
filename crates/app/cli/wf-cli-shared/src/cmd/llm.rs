@@ -19,8 +19,9 @@ pub async fn run(cli: &Cli, sub: &LlmProfileSub) -> CliResult<()> {
             )
         }
         LlmProfileSub::Show { id } => {
-            let data: serde_json::Value =
-                client.get_json(&format!("/api/v1/llm/profiles/{id}")).await?;
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/llm/profiles/{id}"))
+                .await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("llm-profile-show", data).with_entity(id.clone()),
@@ -33,7 +34,9 @@ pub async fn run(cli: &Cli, sub: &LlmProfileSub) -> CliResult<()> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            client.post_json::<_, serde_json::Value>("/api/v1/llm/profiles", &profile).await?;
+            client
+                .post_json::<_, serde_json::Value>("/api/v1/llm/profiles", &profile)
+                .await?;
             let data = serde_json::json!({"id": id, "created": true});
             render_envelope(
                 cli.output,

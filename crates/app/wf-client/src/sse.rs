@@ -109,10 +109,7 @@ async fn stream_response(
         return Err(ClientError::Unauthorized);
     }
     if !(200..300).contains(&status) {
-        let body = resp
-            .text()
-            .await
-            .unwrap_or_default();
+        let body = resp.text().await.unwrap_or_default();
         let value: serde_json::Value =
             serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
         return Err(from_status_body(status, &value));
@@ -126,9 +123,9 @@ fn byte_stream(
     use eventsource_stream::Eventsource;
     use tokio_util::io::StreamReader;
 
-    let bytes = resp.bytes_stream().map(|r| {
-        r.map_err(|e| std::io::Error::other(e.to_string()))
-    });
+    let bytes = resp
+        .bytes_stream()
+        .map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
     let reader = StreamReader::new(bytes);
     tokio_util::io::ReaderStream::new(reader)
         .eventsource()
@@ -164,7 +161,10 @@ mod tests {
             endpoints::error_chain_stream("e1"),
             "/api/v1/executions/e1/error-analysis/stream"
         );
-        assert_eq!(endpoints::LLM_GENERATE_STREAM, "/api/v1/llm/generate-stream");
+        assert_eq!(
+            endpoints::LLM_GENERATE_STREAM,
+            "/api/v1/llm/generate-stream"
+        );
         assert_eq!(endpoints::EVENTS_STREAM, "/api/v1/events/stream");
     }
 
@@ -232,9 +232,6 @@ mod tests {
                 "streaming table path missing from snapshot: {path}"
             );
         }
-        assert!(
-            !snapshot.is_empty(),
-            "snapshot SSE set must not be empty"
-        );
+        assert!(!snapshot.is_empty(), "snapshot SSE set must not be empty");
     }
 }

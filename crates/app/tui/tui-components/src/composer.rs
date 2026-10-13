@@ -1,16 +1,17 @@
-//! Single-line prompt composer.
+//! Multiline prompt composer.
 //!
 //! [`Composer`] is the TUI footer prompt view's text entry (inline form,
-//! unrelated to the `wf-mini` binary): a one-line buffer with a
-//! grapheme-aware cursor, horizontal scrolling so the cursor stays visible,
-//! a bounded history (200 entries, oldest-first) with linear recall (Up stops
-//! at the oldest entry, Down past the newest restores the stashed draft), a
-//! history ghost suffix for non-empty prefixes (newest match wins, suppressed
-//! after deletions and while browsing or reverse-searching), an inline
-//! `Ctrl+R` reverse search (case-insensitive substring, newest first,
-//! Enter accepts without sending, Esc restores), a placeholder for the empty
-//! state and character-level editing (insert / backspace / delete / home /
-//! end / left / right).
+//! unrelated to the `wf-mini` binary): a multiline buffer with a
+//! grapheme-aware cursor, soft wrapping on grapheme boundaries, vertical
+//! moves keeping the display column, a bounded history (200 entries,
+//! oldest-first) with linear recall (Up stops at the oldest entry, Down
+//! past the newest restores the stashed draft), a history ghost suffix for
+//! non-empty prefixes (newest match wins, suppressed after deletions and
+//! while browsing or reverse-searching), an inline `Ctrl+R` reverse search
+//! (case-insensitive substring, newest first, Enter accepts without
+//! sending, Esc restores), a placeholder for the empty state and
+//! character-level editing (insert / backspace / delete / home / end /
+//! left / right / up / down).
 //!
 //! The composer owns no terminal state: `render` draws into a caller-provided
 //! ratatui [`Buffer`] with a caller-provided style. History seeding (file
@@ -37,14 +38,18 @@ pub const HISTORY_LIMIT: usize = 200;
 /// Placeholder shown while the buffer is empty.
 pub const PLACEHOLDER: &str = "> Type a message…";
 
-/// A one-line prompt buffer.
+/// A multiline prompt buffer.
 #[derive(Debug, Clone)]
 pub struct Composer {
     buf: String,
     /// Byte offset of the cursor into `buf`; always on a grapheme boundary.
     cursor: usize,
-    /// Horizontal scroll offset in columns (kept so the cursor is visible).
+    /// Retained horizontal anchor from the single-line era. Multiline
+    /// rendering wraps instead of scrolling, so this stays at zero.
     scroll_x: Cell<u16>,
+    /// Remembered display column for consecutive vertical moves, so a
+    /// short row does not collapse the goal column.
+    prefer_col: Option<u16>,
     history: VecDeque<String>,
     /// Browse position into `history` while recalling (`None` means the
     /// buffer holds the user's own draft).
@@ -72,6 +77,13 @@ struct ReverseSearch {
     matches: Vec<usize>,
     /// Which match is lit (`0` is the newest).
     sel: usize,
+}
+
+/// One wrapped row as byte offsets into the composer buffer.
+#[derive(Debug, Clone, Copy)]
+struct VisualRow {
+    start: usize,
+    end: usize,
 }
 
 /// Newest-first prefix suffix: the rest of the newest history entry that
@@ -156,6 +168,7 @@ impl Default for Composer {
             buf: String::new(),
             cursor: 0,
             scroll_x: Cell::new(0),
+            prefer_col: None,
             history: VecDeque::new(),
             browse: None,
             stash: None,
@@ -192,6 +205,7 @@ impl Composer {
         self.buf = text.into();
         self.cursor = self.buf.len();
         self.scroll_x.set(0);
+        self.prefer_col = None;
         self.browse = None;
         self.stash = None;
         self.suppressed = false;
@@ -207,6 +221,7 @@ impl Composer {
         }
         self.leave_browsing();
         self.suppressed = false;
+        self.prefer_col = None;
         self.buf.insert(self.cursor, c);
         self.cursor += c.len_utf8();
     }
@@ -221,6 +236,7 @@ impl Composer {
         }
         self.leave_browsing();
         self.suppressed = false;
+        self.prefer_col = None;
         self.buf.insert_str(self.cursor, text);
         self.cursor += text.len();
     }
@@ -234,6 +250,7 @@ impl Composer {
         }
         self.leave_browsing();
         self.suppressed = true;
+        self.prefer_col = None;
         if let Some((len, _)) = self.grapheme_before() {
             self.buf.drain(self.cursor - len..self.cursor);
             self.cursor -= len;
@@ -247,6 +264,7 @@ impl Composer {
         }
         self.leave_browsing();
         self.suppressed = true;
+        self.prefer_col = None;
         if let Some((len, _)) = self.grapheme_after() {
             self.buf.drain(self.cursor..self.cursor + len);
         }
@@ -254,6 +272,7 @@ impl Composer {
 
     /// Move one grapheme left.
     pub fn move_left(&mut self) {
+        self.prefer_col = None;
         if let Some((len, _)) = self.grapheme_before() {
             self.cursor -= len;
         }
@@ -261,6 +280,7 @@ impl Composer {
 
     /// Move one grapheme right.
     pub fn move_right(&mut self) {
+        self.prefer_col = None;
         if let Some((len, _)) = self.grapheme_after() {
             self.cursor += len;
         }
@@ -268,11 +288,13 @@ impl Composer {
 
     /// Move to the start of the buffer.
     pub fn home(&mut self) {
+        self.prefer_col = None;
         self.cursor = 0;
     }
 
     /// Move to the end of the buffer.
     pub fn end(&mut self) {
+        self.prefer_col = None;
         self.cursor = self.buf.len();
     }
 
@@ -486,7 +508,8 @@ impl Composer {
     }
 
     /// Back one entry in the history, stashing the draft on the way in.
-    /// Stops at the oldest entry (linear, never wraps).
+    /// Stops at the oldest entry (linear, never wraps). Restores with the
+    /// cursor at the buffer start so a further Up keeps walking older.
     pub fn history_prev(&mut self) {
         if self.search.is_some() || self.history.is_empty() {
             return;
@@ -500,10 +523,12 @@ impl Composer {
             Some(i) => i - 1,
         };
         self.browse = Some(at);
-        self.show_entry(at);
+        self.show_entry_at_start(at);
     }
 
     /// Forward one entry, and out the far side to the stashed draft.
+    /// Restores entries with the cursor at the buffer end so a further
+    /// Down keeps walking newer.
     pub fn history_next(&mut self) {
         if self.search.is_some() {
             return;
@@ -513,13 +538,14 @@ impl Composer {
         };
         if at + 1 < self.history.len() {
             self.browse = Some(at + 1);
-            self.show_entry(at + 1);
+            self.show_entry_at_end(at + 1);
         } else {
             self.browse = None;
             let draft = self.stash.take().unwrap_or_default();
             self.buf = draft;
             self.cursor = self.buf.len();
             self.scroll_x.set(0);
+            self.prefer_col = None;
         }
     }
 
@@ -551,10 +577,78 @@ impl Composer {
         self.buf.clear();
         self.cursor = 0;
         self.scroll_x.set(0);
+        self.prefer_col = None;
         self.browse = None;
         self.stash = None;
         self.suppressed = false;
         self.search = None;
+    }
+
+    /// Whether the cursor sits at the start of the buffer.
+    pub fn is_at_start(&self) -> bool {
+        self.cursor == 0
+    }
+
+    /// Number of visual rows for `width`, counting logical newlines and
+    /// soft wraps on grapheme boundaries. Empty input still needs one row.
+    pub fn visual_row_count(&self, width: u16) -> usize {
+        self.visual_rows(width).len().max(1)
+    }
+
+    /// Visual row index holding the cursor for `width`.
+    pub fn cursor_visual_row(&self, width: u16) -> usize {
+        self.cursor_visual_index(width)
+    }
+
+    /// Whether the cursor sits on the first visual row.
+    pub fn is_on_first_visual_row(&self, width: u16) -> bool {
+        self.cursor_visual_index(width) == 0
+    }
+
+    /// Whether the cursor sits on the last visual row.
+    pub fn is_on_last_visual_row(&self, width: u16) -> bool {
+        let rows = self.visual_rows(width);
+        self.cursor_visual_index_for_rows(&rows) + 1 >= rows.len().max(1)
+    }
+
+    /// Move one visual row up, keeping the display column across short
+    /// rows. Returns whether the cursor moved.
+    pub fn move_up(&mut self, width: u16) -> bool {
+        let rows = self.visual_rows(width);
+        if rows.len() <= 1 {
+            return false;
+        }
+        let idx = self.cursor_visual_index_for_rows(&rows);
+        if idx == 0 {
+            return false;
+        }
+        let current_col = self.buf[rows[idx].start..self.cursor].width() as u16;
+        let goal = self.prefer_col.unwrap_or(current_col);
+        let target = &rows[idx - 1];
+        self.cursor = Self::byte_for_column(&self.buf, target, goal);
+        self.prefer_col = Some(goal);
+        self.scroll_x.set(0);
+        true
+    }
+
+    /// Move one visual row down, keeping the display column across short
+    /// rows. Returns whether the cursor moved.
+    pub fn move_down(&mut self, width: u16) -> bool {
+        let rows = self.visual_rows(width);
+        if rows.len() <= 1 {
+            return false;
+        }
+        let idx = self.cursor_visual_index_for_rows(&rows);
+        if idx + 1 >= rows.len() {
+            return false;
+        }
+        let current_col = self.buf[rows[idx].start..self.cursor].width() as u16;
+        let goal = self.prefer_col.unwrap_or(current_col);
+        let target = &rows[idx + 1];
+        self.cursor = Self::byte_for_column(&self.buf, target, goal);
+        self.prefer_col = Some(goal);
+        self.scroll_x.set(0);
+        true
     }
 
     /// Column (0-based) at which the cursor is drawn for the given area
@@ -572,13 +666,145 @@ impl Composer {
         self.stash = None;
     }
 
-    /// Show history entry `at` in the buffer (recall navigation only).
-    fn show_entry(&mut self, at: usize) {
+    /// Show history entry `at` with the cursor at the buffer start.
+    fn show_entry_at_start(&mut self, at: usize) {
+        if let Some(entry) = self.history.get(at).cloned() {
+            self.buf = entry;
+            self.cursor = 0;
+            self.scroll_x.set(0);
+            self.prefer_col = None;
+        }
+    }
+
+    /// Show history entry `at` with the cursor at the buffer end.
+    fn show_entry_at_end(&mut self, at: usize) {
         if let Some(entry) = self.history.get(at).cloned() {
             self.buf = entry;
             self.cursor = self.buf.len();
             self.scroll_x.set(0);
+            self.prefer_col = None;
         }
+    }
+
+    /// One visual row as byte offsets into `buf` (newline excluded).
+    fn visual_rows(&self, width: u16) -> Vec<VisualRow> {
+        let width = width.max(1);
+        if self.buf.is_empty() {
+            return vec![VisualRow { start: 0, end: 0 }];
+        }
+        let mut rows = Vec::new();
+        let mut line_start = 0usize;
+        for part in self.buf.split('\n') {
+            let line_end = line_start + part.len();
+            if part.is_empty() {
+                rows.push(VisualRow {
+                    start: line_start,
+                    end: line_start,
+                });
+            } else {
+                let mut chunk_start = line_start;
+                let mut chunk_width: u16 = 0;
+                let mut byte = line_start;
+                for grapheme in part.graphemes(true) {
+                    let gw = grapheme.width() as u16;
+                    if chunk_width + gw > width && chunk_width > 0 {
+                        rows.push(VisualRow {
+                            start: chunk_start,
+                            end: byte,
+                        });
+                        chunk_start = byte;
+                        chunk_width = 0;
+                    }
+                    byte += grapheme.len();
+                    chunk_width = chunk_width.saturating_add(gw);
+                }
+                rows.push(VisualRow {
+                    start: chunk_start,
+                    end: byte,
+                });
+            }
+            line_start = line_end + 1;
+        }
+        if rows.is_empty() {
+            rows.push(VisualRow { start: 0, end: 0 });
+        }
+        rows
+    }
+
+    fn cursor_visual_index(&self, width: u16) -> usize {
+        let rows = self.visual_rows(width);
+        self.cursor_visual_index_for_rows(&rows)
+    }
+
+    fn cursor_visual_index_for_rows(&self, rows: &[VisualRow]) -> usize {
+        if rows.is_empty() {
+            return 0;
+        }
+        for (idx, row) in rows.iter().enumerate() {
+            if self.cursor < row.start {
+                return idx;
+            }
+            if self.cursor < row.end {
+                return idx;
+            }
+            if self.cursor == row.end {
+                let is_last = match rows.get(idx + 1) {
+                    None => true,
+                    Some(next) => next.start != row.end,
+                };
+                if is_last {
+                    return idx;
+                }
+                continue;
+            }
+        }
+        rows.len() - 1
+    }
+
+    fn byte_for_column(buf: &str, row: &VisualRow, goal: u16) -> usize {
+        let mut width: u16 = 0;
+        let mut byte = row.start;
+        let end = row.end.min(buf.len());
+        let start = row.start.min(buf.len());
+        if start >= end {
+            return start;
+        }
+        for grapheme in buf[start..end].graphemes(true) {
+            let gw = grapheme.width() as u16;
+            if width + gw > goal {
+                break;
+            }
+            byte += grapheme.len();
+            width = width.saturating_add(gw);
+        }
+        byte
+    }
+
+    /// Visual cursor position `(col, row)` for `width`.
+    pub fn cursor_visual_pos(&self, width: u16) -> (u16, u16) {
+        let rows = self.visual_rows(width);
+        let idx = self.cursor_visual_index_for_rows(&rows);
+        let row = &rows[idx.min(rows.len().saturating_sub(1))];
+        let start = row.start.min(self.buf.len());
+        let cursor = self.cursor.min(self.buf.len());
+        let col = if cursor >= start && cursor <= row.end.min(self.buf.len()) {
+            self.buf[start..cursor].width() as u16
+        } else {
+            0
+        };
+        (col, idx as u16)
+    }
+
+    /// Wrapped row texts for `width`, one entry per visual row.
+    pub fn visual_text_rows(&self, width: u16) -> Vec<String> {
+        self.visual_rows(width)
+            .iter()
+            .map(|row| {
+                let end = row.end.min(self.buf.len());
+                let begin = row.start.min(end);
+                self.buf[begin..end].to_string()
+            })
+            .collect()
     }
 
     /// Re-match the open search for the buffer as it now stands: newest lit,
@@ -588,6 +814,7 @@ impl Composer {
         search.sel = 0;
         self.cursor = self.buf.len();
         self.scroll_x.set(0);
+        self.prefer_col = None;
     }
 
     /// All mention intervals in the current buffer, as byte ranges.
@@ -621,56 +848,85 @@ impl Composer {
         self.buf.replace_range(at_pos..cursor, &insert);
         self.cursor = at_pos + insert.len();
         self.scroll_x.set(0);
+        self.prefer_col = None;
     }
 
-    /// Render the single line into `area`, applying the horizontal scroll.
+    /// Render wrapped rows into `area`, keeping the cursor row visible.
     /// Mention intervals are highlighted with a reversed style so `@file`
-    /// ranges are visually distinct from plain text.
+    /// ranges are visually distinct from plain text. The ghost suffix only
+    /// shows on the last row while the cursor sits at the buffer end.
     pub fn render(&self, area: Rect, buf: &mut Buffer, style: Style) {
         let width = area.width.max(1);
-        buf.set_string(area.x, area.y, " ".repeat(width.into()), Style::default());
+        for row in 0..area.height {
+            buf.set_string(
+                area.x,
+                area.y + row,
+                " ".repeat(width.into()),
+                Style::default(),
+            );
+        }
+        if area.height == 0 {
+            return;
+        }
         if self.buf.is_empty() {
             let ph = truncate_graphemes(self.placeholder, width);
             buf.set_string(area.x, area.y, &ph, style.add_modifier(Modifier::DIM));
             return;
         }
-        self.update_scroll(width);
+        let rows = self.visual_rows(width);
+        let cursor_idx = self.cursor_visual_index_for_rows(&rows);
+        let visible = usize::from(area.height);
+        let start = if rows.len() <= visible {
+            0
+        } else {
+            (cursor_idx + 1)
+                .saturating_sub(visible)
+                .min(rows.len() - visible)
+        };
         let mention_ranges = self.mention_ranges();
-        let mut col = 0u16;
-        let mut skip = self.scroll_x.get();
-        let mut byte_offset = 0usize;
-        for grapheme in self.buf.graphemes(true) {
-            let w = grapheme.width() as u16;
-            let in_mention = mention_ranges
-                .iter()
-                .any(|(r, _)| byte_offset >= r.start && byte_offset < r.end);
-            let g_style = if in_mention {
-                style.add_modifier(Modifier::REVERSED)
-            } else {
-                style
-            };
-            if skip > 0 {
-                skip = skip.saturating_sub(w);
-                byte_offset += grapheme.len();
-                continue;
-            }
-            if col + w > width {
-                break;
-            }
-            buf.set_string(area.x + col, area.y, grapheme, g_style);
-            col += w;
-            byte_offset += grapheme.len();
-        }
-        // Ghost suffix in dim style after the typed text (never wraps).
-        if let Some(ghost) = self.ghost() {
-            let dim = style.add_modifier(Modifier::DIM);
-            for grapheme in ghost.graphemes(true) {
+        let ghost = if self.is_at_end() {
+            self.ghost()
+                .map(|suffix| suffix.split('\n').next().unwrap_or("").to_string())
+                .filter(|line| !line.is_empty())
+        } else {
+            None
+        };
+        for (slot, row) in rows.iter().skip(start).take(visible).enumerate() {
+            let y = area.y + slot as u16;
+            let mut col: u16 = 0;
+            let end = row.end.min(self.buf.len());
+            let begin = row.start.min(end);
+            let mut byte_offset = begin;
+            for grapheme in self.buf[begin..end].graphemes(true) {
                 let w = grapheme.width() as u16;
                 if col + w > width {
                     break;
                 }
-                buf.set_string(area.x + col, area.y, grapheme, dim);
+                let in_mention = mention_ranges
+                    .iter()
+                    .any(|(r, _)| byte_offset >= r.start && byte_offset < r.end);
+                let g_style = if in_mention {
+                    style.add_modifier(Modifier::REVERSED)
+                } else {
+                    style
+                };
+                buf.set_string(area.x + col, y, grapheme, g_style);
                 col += w;
+                byte_offset += grapheme.len();
+            }
+            let is_last_visible = start + slot + 1 >= rows.len();
+            if is_last_visible {
+                if let Some(ref suffix) = ghost {
+                    let dim = style.add_modifier(Modifier::DIM);
+                    for grapheme in suffix.graphemes(true) {
+                        let w = grapheme.width() as u16;
+                        if col + w > width {
+                            break;
+                        }
+                        buf.set_string(area.x + col, y, grapheme, dim);
+                        col += w;
+                    }
+                }
             }
         }
     }
@@ -715,13 +971,22 @@ impl tui_core::renderable::Renderable for Composer {
         self.render(area, buf, Style::default());
     }
 
-    fn desired_height(&self, _width: u16) -> u16 {
-        1
+    fn desired_height(&self, width: u16) -> u16 {
+        self.visual_row_count(width.max(1)) as u16
     }
 
     fn cursor_pos(&self, area: ratatui::layout::Rect) -> Option<(u16, u16)> {
-        let col = self.cursor_col(area.width);
-        Some((col, 0))
+        let (col, row) = self.cursor_visual_pos(area.width.max(1));
+        let visible = usize::from(area.height.max(1));
+        let total = self.visual_row_count(area.width.max(1));
+        let start = if total <= visible {
+            0
+        } else {
+            (row as usize + 1)
+                .saturating_sub(visible)
+                .min(total - visible)
+        };
+        Some((col, (row as usize).saturating_sub(start) as u16))
     }
 }
 
@@ -822,25 +1087,68 @@ mod tests {
         assert_eq!(c.submit(), Some("second".to_string()));
         assert_eq!(c.history_len(), 2);
 
-        // Fresh draft; Up stashes it and shows the newest entry.
+        // Fresh draft; Up stashes it and shows the newest entry at the start.
         c.set_text("draft");
         c.history_prev();
         assert_eq!(c.content(), "second");
         assert!(c.browsing());
+        assert!(c.is_at_start());
         c.history_prev();
         assert_eq!(c.content(), "first");
+        assert!(c.is_at_start());
         // At the oldest entry Up stops (linear, never wraps).
         c.history_prev();
         assert_eq!(c.content(), "first");
-        // Down moves forward, then out to the stashed draft.
+        // Down moves forward with the cursor at the end, then out to draft.
         c.history_next();
         assert_eq!(c.content(), "second");
+        assert!(c.is_at_end());
         c.history_next();
         assert_eq!(c.content(), "draft");
         assert!(!c.browsing());
         // Past the draft Down is a no-op.
         c.history_next();
         assert_eq!(c.content(), "draft");
+    }
+
+    #[test]
+    fn visual_rows_count_newlines_and_wraps() {
+        let mut c = Composer::new();
+        c.set_text("ab\ncd");
+        assert_eq!(c.visual_row_count(80), 2);
+        c.set_text("abcd");
+        assert_eq!(c.visual_row_count(2), 2);
+        assert_eq!(c.visual_row_count(80), 1);
+        c.set_text("");
+        assert_eq!(c.visual_row_count(80), 1);
+    }
+
+    #[test]
+    fn vertical_moves_keep_column_across_short_rows() {
+        let mut c = Composer::new();
+        c.set_text("12345\n12\n12345");
+        c.home();
+        for _ in 0..4 {
+            c.move_right();
+        }
+        assert!(c.move_down(80));
+        assert_eq!(c.content()[..c.cursor].lines().last().unwrap_or(""), "12");
+        assert!(c.move_down(80));
+        assert!(c.move_up(80));
+        assert!(c.move_up(80));
+        assert!(!c.move_up(80));
+        assert!(c.is_on_first_visual_row(80));
+    }
+
+    #[test]
+    fn single_row_has_no_vertical_move() {
+        let mut c = Composer::new();
+        c.set_text("hello");
+        assert_eq!(c.visual_row_count(80), 1);
+        assert!(!c.move_up(80));
+        assert!(!c.move_down(80));
+        assert!(c.is_on_first_visual_row(80));
+        assert!(c.is_on_last_visual_row(80));
     }
 
     #[test]
@@ -917,9 +1225,10 @@ mod tests {
         c.set_text("draft");
         c.history_prev();
         assert_eq!(c.content(), "second");
+        assert!(c.is_at_start());
         c.insert_char('!');
         assert!(!c.browsing());
-        assert_eq!(c.content(), "second!");
+        assert_eq!(c.content(), "!second");
         // The old draft is gone: recall starts from the edited line.
         c.history_prev();
         assert_eq!(c.content(), "second");

@@ -1,3 +1,5 @@
+//! Retained passthrough: task records are schemaless user content.
+
 use crate::args::{Cli, TaskSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

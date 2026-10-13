@@ -22,12 +22,15 @@ pub enum UnifiedEvent {
         tool_name: String,
     },
     /// Tool invocation finished. `duration_ms` is `None` when the source
-    /// event carries no timing.
+    /// event carries no timing. The result excerpt and error travel with the
+    /// event so renderers can show collapsed previews.
     ToolEnd {
         tool_call_id: String,
         tool_name: String,
         success: bool,
         duration_ms: Option<u64>,
+        result: String,
+        error: Option<String>,
     },
     /// Agent session completed successfully.
     Completed {
@@ -109,12 +112,16 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
             tool_call_id,
             tool_name,
             success,
+            result,
+            error,
             ..
         } => Some(UnifiedEvent::ToolEnd {
             tool_call_id,
             tool_name,
             success,
             duration_ms: None,
+            result,
+            error,
         }),
         ExecutionStreamEvent::Completed { result, iterations } => {
             Some(UnifiedEvent::Completed { result, iterations })
@@ -151,6 +158,29 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_end_conversion_carries_result_and_error() {
+        let end = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".into(),
+            tool_name: "bash".into(),
+            success: false,
+            result: "out".into(),
+            error: Some("boom".into()),
+            display: None,
+        };
+        assert_eq!(
+            unified_from_execution_stream(end),
+            Some(UnifiedEvent::ToolEnd {
+                tool_call_id: "t1".into(),
+                tool_name: "bash".into(),
+                success: false,
+                duration_ms: None,
+                result: "out".into(),
+                error: Some("boom".into()),
+            })
+        );
+    }
 
     #[test]
     fn execution_event_passthrough_preserves_payload() {

@@ -1,3 +1,5 @@
+//! Retained passthrough: analysis search has no fixed record schema.
+
 use crate::args::Cli;
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

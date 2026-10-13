@@ -16,34 +16,33 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             tags,
             author,
         } => {
-            let mut params: Vec<String> = Vec::new();
-            if let Some(k) = kind {
-                match k.to_ascii_lowercase().as_str() {
-                    "workflow" | "agent" => params.push(format!("kind={k}")),
-                    _ => {}
-                }
-            }
-            if let Some(cat) = category {
-                params.push(format!("category={cat}"));
-            }
-            if let Some(t) = tags {
-                params.push(format!("tags={t}"));
-            }
-            if let Some(a) = author {
-                params.push(format!("author={a}"));
-            }
-            let path = if params.is_empty() {
-                "/api/v1/templates/library".to_string()
-            } else {
-                format!("/api/v1/templates/library?{}", params.join("&"))
-            };
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let kind_param = kind.as_deref().and_then(|k| match k.to_ascii_lowercase().as_str() {
+                "workflow" | "agent" => Some(k),
+                _ => None,
+            });
+            let envelope = client
+                .generated()
+                .handle_query_library(
+                    author.as_deref(),
+                    category.as_deref(),
+                    kind_param,
+                    None,
+                    tags.as_deref(),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(cli.output, OutputEnvelope::success("template-list", data))
         }
         TemplateSub::Show { id, kind: _ } => {
-            let data: serde_json::Value = client
-                .get_json(&format!("/api/v1/templates/library?name={id}"))
-                .await?;
+            let envelope = client
+                .generated()
+                .handle_query_library(None, None, None, Some(id.as_str()), None)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let found = data
                 .as_array()
                 .and_then(|items| {
@@ -68,10 +67,17 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
         }
         TemplateSub::Clone { id } => {
             let new_name = format!("{id}-clone");
-            let body = serde_json::json!({"kind": "workflow", "new_name": new_name});
-            let data: serde_json::Value = client
-                .post_json(&format!("/api/v1/templates/library/{id}/clone"), &body)
-                .await?;
+            let body = wf_client::models::CloneTemplateBody {
+                kind: "workflow".to_string(),
+                new_name: Some(new_name),
+            };
+            let envelope = client
+                .generated()
+                .handle_clone_template(id, &body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("template-clone", data).with_entity(id.clone()),
@@ -117,9 +123,13 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
         }
         TemplateSub::Delete { id, kind } => match kind.to_ascii_lowercase().as_str() {
             "agent" => {
-                client
-                    .delete_json::<serde_json::Value>(&format!("/api/v1/templates/library/agents/{id}"))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_delete_agent_template(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let _: serde_json::Value =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 let data = serde_json::json!({"deleted": id, "kind": "agent"});
                 render_envelope(
                     cli.output,
@@ -127,9 +137,13 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
                 )
             }
             _ => {
-                client
-                    .delete_json::<serde_json::Value>(&format!("/api/v1/templates/library/workflows/{id}"))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_delete_workflow_template(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let _: serde_json::Value =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 let data = serde_json::json!({"deleted": id, "kind": "workflow"});
                 render_envelope(
                     cli.output,

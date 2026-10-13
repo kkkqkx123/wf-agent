@@ -81,12 +81,27 @@ impl TuiApp {
         if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
             if let Some(session) = &mut self.interactive {
                 match session.handle_key(key) {
-                    InteractiveAction::Continue => return Ok(LoopAction::Continue),
+                    InteractiveAction::Continue => {}
                     InteractiveAction::Exit => {
                         self.interactive_exit = true;
                         return Ok(LoopAction::Continue);
                     }
                 }
+                // A full-output viewer request becomes a read-only modal.
+                if let Some(request) = session.take_tool_viewer() {
+                    if request.is_diff {
+                        self.modals.push(Box::new(crate::file_viewer::DiffViewer::from_unified(
+                            request.title,
+                            &request.content,
+                        )));
+                    } else {
+                        self.modals.push(Box::new(crate::file_viewer::FileViewer::new(
+                            request.title,
+                            &request.content,
+                        )));
+                    }
+                }
+                return Ok(LoopAction::Continue);
             }
         }
 

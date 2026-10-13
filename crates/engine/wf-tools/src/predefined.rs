@@ -16,6 +16,7 @@
 
 pub mod agent;
 pub mod code_context;
+pub mod display;
 pub mod filesystem;
 pub mod fold;
 pub mod general;

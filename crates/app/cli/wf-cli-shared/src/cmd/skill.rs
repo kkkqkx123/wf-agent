@@ -1,3 +1,5 @@
+//! Retained passthrough: skill records are schemaless user content.
+
 use crate::args::{Cli, SkillSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

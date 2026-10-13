@@ -41,6 +41,9 @@ pub enum AgentStreamEvent {
         /// available.
         #[serde(default)]
         error: Option<String>,
+        /// Frontend-facing summary produced alongside the full result.
+        #[serde(default)]
+        display: Option<wf_types::tool::DisplayPayload>,
     },
     IterationEnd {
         iteration: u32,

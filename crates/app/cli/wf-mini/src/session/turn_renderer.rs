@@ -288,6 +288,7 @@ mod tests {
             success,
             result: String::new(),
             error: None,
+            display: None,
         }
     }
 

@@ -2,7 +2,9 @@ use wf_client::WfClient;
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
 use crate::error::{CliError, CliResult};
+use crate::tool_output::{collapse_output, collapse_shell_tail, infer_kind};
 use crate::transcript::{HistoryLine, Role};
+use wf_types::tool::DisplayKind;
 
 /// Rebuild scrollback lines for a session id (execution or agent loop id).
 ///
@@ -311,6 +313,82 @@ fn message_text(message: &Message) -> String {
     }
 }
 
+/// Tool names carried only as content parts (no `tool_calls` field).
+/// Without this, assistant messages that embed bare `ToolUse` parts lose
+/// their tool rows in replay while the live path shows them.
+fn rich_tool_use_names(message: &Message) -> Vec<String> {
+    match &message.content {
+        MessageContentValue::Rich(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                MessageContent::ToolUse { tool_use } => Some(tool_use.name.clone()),
+                _ => None,
+            })
+            .collect(),
+        MessageContentValue::Text(_) => Vec::new(),
+    }
+}
+
+/// Success signal for a persisted tool message: content-level error flag
+/// first, then explicit metadata, with the keyword scan only as a fallback
+/// for messages written before any marker.
+fn tool_success_from_message(message: &Message, text: &str) -> bool {
+    if let MessageContentValue::Rich(parts) = &message.content {
+        for part in parts {
+            if let MessageContent::ToolResult { tool_result } = part {
+                if let Some(is_error) = tool_result.is_error {
+                    return !is_error;
+                }
+            }
+        }
+    }
+    if let Some(metadata) = message.metadata.as_ref() {
+        if let Some(success) = metadata.get("success").and_then(|value| value.as_bool()) {
+            return success;
+        }
+        if let Some(status) = metadata.get("status").and_then(|value| value.as_str()) {
+            match status.to_ascii_lowercase().as_str() {
+                "success" | "ok" | "completed" => return true,
+                "error" | "failed" | "failure" => return false,
+                _ => {}
+            }
+        }
+    }
+    let lower = text.to_lowercase();
+    !(lower.contains("error") || lower.contains("failed"))
+}
+
+/// Preview budgets shared with the live transcript so replayed rows read
+/// exactly like live rows.
+const REPLAY_PREVIEW_LINES: usize = 10;
+const REPLAY_PREVIEW_CHARS: usize = 320;
+
+/// Summary rows for tool calls declared on the message envelope. Returns
+/// the emitted names so bare content parts can skip duplicates.
+fn push_declared_tool_calls(lines: &mut Vec<HistoryLine>, message: &Message) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(calls) = &message.tool_calls {
+        for call in calls {
+            lines.push(HistoryLine::new_role(
+                format!("▲ {}", call.function.name),
+                Role::Muted,
+            ));
+            names.push(call.function.name.clone());
+        }
+    }
+    names
+}
+
+/// Summary rows for bare `ToolUse` content parts without an envelope entry.
+fn push_rich_tool_uses(lines: &mut Vec<HistoryLine>, message: &Message, skip: &[String]) {
+    for name in rich_tool_use_names(message) {
+        if skip.iter().any(|known| known == &name) {
+            continue;
+        }
+        lines.push(HistoryLine::new_role(format!("▲ {name}"), Role::Muted));
+    }
+}
+
 /// Convert messages (ascending by timestamp) into the same lines the
 /// live session renders. Shared by the full loader ([`replay_scrollack`]) and
 /// the paged loader ([`replay_scrollack_page`]) so a paged replay stays
@@ -321,55 +399,60 @@ fn records_to_lines(records: &[Message]) -> Vec<HistoryLine> {
         let text = message_text(message);
         if text.trim().is_empty() {
             // Still handle tool calls carried on the message.
-            if let Some(calls) = &message.tool_calls {
-                for call in calls {
-                    lines.push(HistoryLine::new_role(
-                        format!("▲ {}", call.function.name),
-                        Role::Muted,
-                    ));
-                }
-            }
+            let declared = push_declared_tool_calls(&mut lines, message);
+            push_rich_tool_uses(&mut lines, message, &declared);
             continue;
         }
         match &message.role {
             MessageRole::User => {
                 lines.push(HistoryLine::new_role(format!("> {text}"), Role::Accent));
-                if let Some(calls) = &message.tool_calls {
-                    for call in calls {
-                        lines.push(HistoryLine::new_role(
-                            format!("▲ {}", call.function.name),
-                            Role::Muted,
-                        ));
-                    }
-                }
+                let declared = push_declared_tool_calls(&mut lines, message);
+                push_rich_tool_uses(&mut lines, message, &declared);
             }
             MessageRole::Assistant => {
                 lines.push(HistoryLine::new_role(text.clone(), Role::Default));
-                if let Some(calls) = &message.tool_calls {
-                    for call in calls {
-                        lines.push(HistoryLine::new_role(
-                            format!("▲ {}", call.function.name),
-                            Role::Muted,
-                        ));
-                    }
-                }
+                let declared = push_declared_tool_calls(&mut lines, message);
+                push_rich_tool_uses(&mut lines, message, &declared);
             }
             MessageRole::Tool => {
                 let name = message
                     .tool_name
                     .clone()
                     .unwrap_or_else(|| "tool".to_string());
-                let is_error =
-                    text.to_lowercase().contains("error") || text.to_lowercase().contains("failed");
-                let prefix = if is_error { "✗" } else { "✓" };
-                let role = if is_error { Role::Error } else { Role::Add };
-                if text.is_empty() {
+                let success = tool_success_from_message(message, &text);
+                let prefix = if success { "✓" } else { "✗" };
+                let role = if success { Role::Add } else { Role::Error };
+                if text.trim().is_empty() {
                     lines.push(HistoryLine::new_role(format!("{prefix} {name}"), role));
+                } else if success && infer_kind(&name) == DisplayKind::Count {
+                    // Retrieval bodies stay hidden like the live transcript:
+                    // the count summary is the whole inline story.
+                    let total = text.lines().count();
+                    let summary = if total == 1 {
+                        format!("{prefix} {name} · 1 line")
+                    } else {
+                        format!("{prefix} {name} · {total} lines")
+                    };
+                    lines.push(HistoryLine::new_role(summary, role));
                 } else {
-                    lines.push(HistoryLine::new_role(
-                        format!("{prefix} {name}: {text}"),
-                        role,
-                    ));
+                    let preview = if infer_kind(&name) == DisplayKind::ShellTail {
+                        collapse_shell_tail(&text, REPLAY_PREVIEW_LINES, REPLAY_PREVIEW_CHARS)
+                    } else {
+                        collapse_output(&text, REPLAY_PREVIEW_LINES, REPLAY_PREVIEW_CHARS)
+                    };
+                    let summary = if preview.overflow {
+                        if preview.hidden_lines > 0 {
+                            format!("{prefix} {name} · +{} lines", preview.hidden_lines)
+                        } else {
+                            format!("{prefix} {name} · +more")
+                        }
+                    } else {
+                        format!("{prefix} {name}")
+                    };
+                    lines.push(HistoryLine::new_role(summary, role));
+                    for row in preview.text.lines() {
+                        lines.push(HistoryLine::new_role(row.to_string(), Role::Muted));
+                    }
                 }
             }
             MessageRole::System => {
@@ -449,6 +532,96 @@ mod tests {
         let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
         assert!(texts.iter().any(|t| t.contains("hello")));
         assert!(texts.iter().any(|t| t.contains("hi there")));
+    }
+
+    #[test]
+    fn tool_messages_collapse_with_hidden_line_hint() {
+        let body = (0..50).map(|i| format!("output line {i}")).collect::<Vec<_>>().join("\n");
+        let message = Message {
+            id: "t1".into(),
+            role: MessageRole::Tool,
+            content: MessageContentValue::Text(body),
+            timestamp: 1003,
+            tool_call_id: Some("call-1".to_string()),
+            tool_name: Some("execute_command".to_string()),
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        };
+        let lines = records_to_lines(std::slice::from_ref(&message));
+        let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
+        assert!(texts.iter().any(|t| t.contains("+40 lines")), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("output line 49")), "{texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("output line 0\n")), "{texts:?}");
+    }
+
+    #[test]
+    fn retrieval_tool_messages_hide_their_body() {
+        let body = (0..50).map(|i| format!("file line {i}")).collect::<Vec<_>>().join("\n");
+        let message = Message {
+            id: "t2".into(),
+            role: MessageRole::Tool,
+            content: MessageContentValue::Text(body),
+            timestamp: 1004,
+            tool_call_id: Some("call-2".to_string()),
+            tool_name: Some("read_file".to_string()),
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        };
+        let lines = records_to_lines(std::slice::from_ref(&message));
+        let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
+        assert_eq!(texts.len(), 1, "{texts:?}");
+        assert!(texts[0].contains("50 lines"), "{texts:?}");
+    }
+
+    #[test]
+    fn bare_tool_use_parts_keep_their_summary_row() {
+        use wf_types::message::{MessageContent, ToolUseContent};
+        let message = Message {
+            id: "a1".into(),
+            role: MessageRole::Assistant,
+            content: MessageContentValue::Rich(vec![MessageContent::ToolUse {
+                tool_use: ToolUseContent {
+                    id: "call-3".to_string(),
+                    name: "grep_search".to_string(),
+                    input: serde_json::json!({}),
+                },
+            }]),
+            timestamp: 1005,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: None,
+        };
+        let lines = records_to_lines(std::slice::from_ref(&message));
+        let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
+        assert!(texts.iter().any(|t| t.contains("▲ grep_search")), "{texts:?}");
+    }
+
+    #[test]
+    fn explicit_metadata_success_beats_keyword_scan() {
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("success".to_string(), serde_json::json!(true));
+        let message = Message {
+            id: "t3".into(),
+            role: MessageRole::Tool,
+            content: MessageContentValue::Text("no error found in scan".to_string()),
+            timestamp: 1006,
+            tool_call_id: Some("call-4".to_string()),
+            tool_name: Some("grep_search".to_string()),
+            tool_calls: None,
+            thinking: None,
+            thinking_signature: None,
+            metadata: Some(metadata),
+        };
+        let lines = records_to_lines(std::slice::from_ref(&message));
+        let texts: Vec<String> = lines.iter().flat_map(|l| l.raw_lines(80)).collect();
+        assert!(texts.iter().any(|t| t.starts_with("✓")), "{texts:?}");
     }
 
     #[test]

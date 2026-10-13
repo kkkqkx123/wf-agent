@@ -24,10 +24,19 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
         }
         ToolSub::Validate { id, params } => {
             let value: serde_json::Value = serde_json::from_str(params)?;
-            let body = serde_json::json!({"tool_id": id, "parameters": value});
-            let data: serde_json::Value = client
-                .post_json("/api/v1/tools/validate-params", &body)
-                .await?;
+            // Named request body; execution results stay passthrough JSON
+            // because tool registries are externally defined.
+            let body = wf_client::models::ValidateToolParamsBody {
+                tool_id: id.clone(),
+                parameters: value,
+            };
+            let envelope = client
+                .generated()
+                .handle_validate_tool_params(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-validate", data).with_entity(id.clone()),
@@ -42,13 +51,19 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             let exec_id = execution_id
                 .clone()
                 .unwrap_or_else(|| "cli-tool-exec".to_string());
-            let body = serde_json::json!({
-                "tool_id": id,
-                "parameters": value,
-                "execution_id": exec_id,
-            });
+            let body = wf_client::models::ExecuteToolBody {
+                tool_id: id.clone(),
+                parameters: value,
+                execution_id: Some(exec_id),
+                options: None,
+            };
+            let envelope = client
+                .generated()
+                .post_tools_execute(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =
-                client.post_json("/api/v1/tools/execute", &body).await?;
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("tool-execute", data).with_entity(id.clone()),

@@ -9,11 +9,18 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
     let client = handle.client();
     match sub {
         VariableSub::List { execution, scope } => {
-            let mut path = format!("/api/v1/variables?execution_id={execution}");
-            if let Some(scope) = scope {
-                path.push_str(&format!("&scope={scope}"));
-            }
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .get_variables(
+                    Some(execution.as_str()),
+                    None,
+                    None,
+                    scope.as_deref(),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("variable-list", data).with_entity(execution.clone()),
@@ -24,11 +31,13 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             scope,
             name,
         } => {
-            let data: serde_json::Value = client
-                .get_json(&format!(
-                    "/api/v1/variables/{name}?scope={scope}&execution_id={execution}"
-                ))
-                .await?;
+            let envelope = client
+                .generated()
+                .get_variables_name(name, Some(execution.as_str()), Some(scope.as_str()))
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("variable-get", data)
@@ -43,13 +52,21 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
         } => {
             let val: serde_json::Value =
                 serde_json::from_str(value).unwrap_or(serde_json::Value::String(value.clone()));
-            let body = serde_json::json!({
-                "name": name,
-                "value": val,
-                "scope": scope,
-                "execution_id": execution,
-            });
-            client.post_json::<_, serde_json::Value>("/api/v1/variables", &body).await?;
+            // Named request body; response stays passthrough JSON.
+            let body = wf_client::models::VariableBody {
+                name: name.clone(),
+                value: val,
+                scope: Some(scope.clone()),
+                execution_id: Some(execution.clone()),
+                define: None,
+            };
+            let envelope = client
+                .generated()
+                .post_variables(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let _: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let data = serde_json::json!({"execution": execution, "scope": scope, "name": name, "set": true});
             render_envelope(
                 cli.output,
@@ -62,11 +79,14 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             scope,
             name,
         } => {
-            let deleted: bool = client
-                .delete_json(&format!(
-                    "/api/v1/variables/{name}?scope={scope}&execution_id={execution}"
-                ))
-                .await?;
+            let envelope = client
+                .generated()
+                .delete_variables_name(name, Some(execution.as_str()), Some(scope.as_str()))
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let deleted: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let deleted = deleted.as_bool().unwrap_or(true);
             let data = serde_json::json!({"deleted": deleted, "name": name});
             if deleted {
                 render_envelope(

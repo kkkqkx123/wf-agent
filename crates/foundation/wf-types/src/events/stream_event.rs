@@ -45,6 +45,11 @@ pub enum ExecutionStreamEvent {
         /// available.
         #[serde(default)]
         error: Option<String>,
+        /// Frontend-facing summary produced alongside the full result.
+        /// `None` on older servers; frontends fall back to name-based
+        /// inference and generic truncation.
+        #[serde(default)]
+        display: Option<crate::tool::DisplayPayload>,
     },
     /// One execution round finished.
     IterationEnd {

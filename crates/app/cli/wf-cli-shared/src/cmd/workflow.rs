@@ -26,58 +26,32 @@ pub(crate) async fn run_with_client(
             category,
             author,
         } => {
-            let mut summaries: serde_json::Value = if tags.is_some() || category.is_some() || author.is_some() {
-                let mut params: Vec<String> = Vec::new();
-                if let Some(q) = keyword {
-                    params.push(format!("q={q}"));
-                }
-                if let Some(t) = tags {
-                    params.push(format!("tags={t}"));
-                }
-                if let Some(cat) = category {
-                    params.push(format!("category={cat}"));
-                }
-                if let Some(a) = author {
-                    params.push(format!("author={a}"));
-                }
-                client
-                    .get_json(&format!("/api/v1/workflows/search?{}", params.join("&")))
-                    .await?
+            // Filtering and paging live server-side: the search endpoint
+            // already supports keyword, tags, category, author and limit.
+            let mut params: Vec<String> = Vec::new();
+            if let Some(q) = keyword {
+                params.push(format!("q={q}"));
+            }
+            if let Some(t) = tags {
+                params.push(format!("tags={t}"));
+            }
+            if let Some(cat) = category {
+                params.push(format!("category={cat}"));
+            }
+            if let Some(a) = author {
+                params.push(format!("author={a}"));
+            }
+            if let Some(lim) = limit {
+                params.push(format!("limit={lim}"));
+            }
+            let query = if params.is_empty() {
+                String::new()
             } else {
-                client.get_json("/api/v1/workflows/summaries").await?
+                format!("?{}", params.join("&"))
             };
-            if let Some(kw) = keyword {
-                let kw_lower = kw.to_lowercase();
-                if let Some(arr) = summaries.as_array().cloned() {
-                    summaries = serde_json::Value::Array(
-                        arr.into_iter()
-                            .filter(|v| {
-                                let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                                let desc = v.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                                name.to_lowercase().contains(&kw_lower)
-                                    || desc.to_lowercase().contains(&kw_lower)
-                            })
-                            .collect(),
-                    );
-                } else if let Some(items) = summaries.get("items").and_then(|v| v.as_array()).cloned() {
-                    let filtered: Vec<_> = items
-                        .into_iter()
-                        .filter(|v| {
-                            let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                            let desc = v.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                            name.to_lowercase().contains(&kw_lower)
-                                || desc.to_lowercase().contains(&kw_lower)
-                        })
-                        .collect();
-                    summaries = serde_json::Value::Array(filtered);
-                }
-            }
-            if let Some(lim) = *limit {
-                if let Some(arr) = summaries.as_array().cloned() {
-                    summaries =
-                        serde_json::Value::Array(arr.into_iter().take(lim as usize).collect());
-                }
-            }
+            let summaries: serde_json::Value = client
+                .get_json(&format!("/api/v1/workflows/search{query}"))
+                .await?;
             render_envelope(cli.output, OutputEnvelope::success("workflow-list", summaries))
         }
         WorkflowSub::Show { id } => {
@@ -98,53 +72,76 @@ pub(crate) async fn run_with_client(
             node_type,
         } => {
             if *show_summary {
-                let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/summary"))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_graph_summary(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let view: wf_client::models::GraphSummaryDoc =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+                let data =
+                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-summary", data).with_entity(id.clone()),
                 )
             } else if *detect_cycles {
-                let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/cycles"))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_graph_cycles(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let view: wf_client::models::CycleDetectionDoc =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 let data = serde_json::json!({
-                    "hasCycle": data.get("has_cycle").cloned().unwrap_or(serde_json::Value::Null),
-                    "cycleNodes": data.get("cycle_nodes").cloned().unwrap_or(serde_json::Value::Null),
-                    "cycleEdges": data.get("cycle_edges").cloned().unwrap_or(serde_json::Value::Null),
+                    "hasCycle": view.has_cycle,
+                    "cycleNodes": view.cycle_nodes,
+                    "cycleEdges": view.cycle_edges,
                 });
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-cycles", data).with_entity(id.clone()),
                 )
             } else if *topo {
-                let data: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/topology"))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_graph_topology(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let view: wf_client::models::TopologicalSortDoc =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 let data = serde_json::json!({
-                    "success": data.get("success").cloned().unwrap_or(serde_json::Value::Null),
-                    "sortedNodes": data.get("sorted_nodes").cloned().unwrap_or(serde_json::Value::Null),
-                    "cycleNodes": data.get("cycle_nodes").cloned().unwrap_or(serde_json::Value::Null),
+                    "success": view.success,
+                    "sortedNodes": view.sorted_nodes,
+                    "cycleNodes": view.cycle_nodes,
                 });
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-topo", data).with_entity(id.clone()),
                 )
             } else if let Some(node) = reachability {
-                let graph: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph"))
-                    .await?;
-                let analysis: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/reachability"))
-                    .await?;
+                let graph_envelope = client
+                    .generated()
+                    .handle_graph(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let graph: serde_json::Value = wf_client::client::unwrap_generated_envelope(
+                    graph_envelope.into_inner(),
+                )?;
+                let reach_envelope = client
+                    .generated()
+                    .handle_graph_reachability(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let analysis: wf_client::models::ReachabilityDoc =
+                    wf_client::client::unwrap_generated_envelope(reach_envelope.into_inner())?;
                 let reachable = reachable_nodes(&graph, node);
                 let data = serde_json::json!({
                     "workflowId": id,
                     "node": node,
                     "reachable": reachable,
-                    "reachableFromStart": analysis.get("reachable_from_start").cloned().unwrap_or(serde_json::Value::Null),
-                    "unreachableNodes": analysis.get("unreachable_nodes").cloned().unwrap_or(serde_json::Value::Null),
+                    "reachableFromStart": analysis.reachable_from_start,
+                    "unreachableNodes": analysis.unreachable_nodes,
                 });
                 render_envelope(
                     cli.output,
@@ -152,36 +149,50 @@ pub(crate) async fn run_with_client(
                         .with_entity(id.clone()),
                 )
             } else if let Some(node) = neighbors {
-                let data: serde_json::Value = client
-                    .get_json(&format!(
-                        "/api/v1/workflows/{id}/graph/neighbors/{node}"
-                    ))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_graph_neighbors(id, node)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let view: wf_client::models::GraphNeighborsDoc =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+                let data =
+                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-neighbors", data)
                         .with_entity(id.clone()),
                 )
             } else if let Some(ty) = node_type {
-                let data: serde_json::Value = client
-                    .get_json(&format!(
-                        "/api/v1/workflows/{id}/graph/nodes?node_type={ty}"
-                    ))
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .handle_graph_nodes(id, Some(ty.as_str()))
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let nodes: Vec<wf_client::models::GraphNodeDoc> =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+                let data =
+                    serde_json::to_value(&nodes).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("workflow-graph-nodes-by-type", data)
                         .with_entity(id.clone()),
                 )
             } else {
-                let nodes: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/nodes"))
+                let nodes_envelope = client
+                    .generated()
+                    .handle_graph_nodes(id, None)
                     .await
-                    .unwrap_or(serde_json::Value::Null);
-                let edges: serde_json::Value = client
-                    .get_json(&format!("/api/v1/workflows/{id}/graph/edges"))
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let nodes: Vec<wf_client::models::GraphNodeDoc> =
+                    wf_client::client::unwrap_generated_envelope(nodes_envelope.into_inner())?;
+                let edges_envelope = client
+                    .generated()
+                    .handle_graph_edges(id)
                     .await
-                    .unwrap_or(serde_json::Value::Null);
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let edges: Vec<wf_client::models::GraphEdgeDoc> =
+                    wf_client::client::unwrap_generated_envelope(edges_envelope.into_inner())?;
                 let data = serde_json::json!({
                     "workflowId": id,
                     "nodes": nodes,
@@ -196,7 +207,13 @@ pub(crate) async fn run_with_client(
         WorkflowSub::Create { file, format } => {
             let def = load_workflow_file(Path::new(file), format)?;
             let body = serde_json::to_value(&def)?;
-            let data: serde_json::Value = client.post_json("/api/v1/workflows", &body).await?;
+            let envelope = client
+                .generated()
+                .handle_create_workflow(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let wf_id = data
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -256,20 +273,31 @@ pub(crate) async fn run_with_client(
         }
         WorkflowSub::Clone { id, as_id } => {
             if let Some(new_id) = as_id {
-                if client
-                    .get_json::<serde_json::Value>(&format!("/api/v1/workflows/{new_id}"))
+                let check: Result<serde_json::Value, _> = client
+                    .generated()
+                    .handle_get_workflow(new_id)
                     .await
-                    .is_ok()
-                {
+                    .map_err(wf_client::client::into_typed_client_error)
+                    .and_then(|e| {
+                        wf_client::client::unwrap_generated_envelope(e.into_inner())
+                    });
+                if check.is_ok() {
                     return Err(CliError::Arguments(format!(
                         "workflow already exists: {new_id}"
                     )));
                 }
             }
-            let body = serde_json::json!({ "new_id": as_id });
-            let new_id: String = client
-                .post_json(&format!("/api/v1/workflows/{id}/clone"), &body)
-                .await?;
+            // Named request body; response stays passthrough JSON.
+            let body = wf_client::models::CloneBody {
+                new_id: as_id.clone(),
+            };
+            let envelope = client
+                .generated()
+                .handle_clone_workflow(id, &body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let new_id: String =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let data = serde_json::json!({"source": id, "cloned": new_id});
             render_envelope(
                 cli.output,
@@ -280,8 +308,15 @@ pub(crate) async fn run_with_client(
             let def = load_workflow_file(Path::new(file), format)?;
             let body = serde_json::to_value(&def)?;
             match client
-                .post_json::<_, serde_json::Value>("/api/v1/workflows/validate", &body)
+                .generated()
+                .handle_validate_workflow(&body)
                 .await
+                .map_err(wf_client::client::into_typed_client_error)
+                .and_then(|e| {
+                    wf_client::client::unwrap_generated_envelope::<_, serde_json::Value>(
+                        e.into_inner(),
+                    )
+                })
             {
                 Ok(_) => {
                     let data = serde_json::json!({"valid": true, "id": def.id});
@@ -357,9 +392,16 @@ pub(crate) async fn run_with_client(
         }
         WorkflowSub::Import { file, format } => {
             let def = load_workflow_file(Path::new(file), format)?;
-            let body = serde_json::to_value(&def)?;
+            // Named request body; response stays passthrough JSON.
+            let json = serde_json::to_string(&def).unwrap_or_default();
+            let body = wf_client::models::ImportBody { json };
+            let envelope = client
+                .generated()
+                .handle_import_workflow(&body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
             let data: serde_json::Value =
-                client.post_json("/api/v1/workflows/import", &body).await?;
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let wf_id = data
                 .get("imported")
                 .and_then(|v| v.as_str())
@@ -570,6 +612,9 @@ pub(crate) async fn run_with_client(
 
 /// Nodes reachable from `start` following directed edges in a workflow
 /// topology document (`{nodes, edges}` with `source_node_id` targets).
+/// Presentation-only traversal over the server-fetched graph for the
+/// per-node view; the server owns global reachability analysis and all
+/// execution semantics.
 fn reachable_nodes(graph: &serde_json::Value, start: &str) -> Vec<String> {
     let edges = graph
         .get("edges")
@@ -637,6 +682,8 @@ struct WorkflowDiff {
     removed_edge_ids: Vec<String>,
 }
 
+/// Presentation-only diff of two server-fetched version documents for the
+/// read-only version viewer; versioning itself lives server-side.
 fn diff_workflow_values(a: &serde_json::Value, b: &serde_json::Value) -> WorkflowDiff {
     let a_nodes = a.get("nodes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let b_nodes = b.get("nodes").and_then(|v| v.as_array()).cloned().unwrap_or_default();

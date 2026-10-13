@@ -20,6 +20,9 @@ pub struct AppConfig {
     /// Mini interactive-form display settings.
     #[serde(default)]
     pub mini: MiniConfig,
+    /// Tool-output detail settings shared by the TUI frontends.
+    #[serde(default)]
+    pub tool_output: ToolOutputFileConfig,
 }
 
 /// Behavioral configuration.
@@ -53,6 +56,44 @@ pub struct MiniConfig {
     /// Approval prompt timeout in seconds. Defaults to 120 when unset.
     #[serde(default)]
     pub approval_timeout_secs: Option<u64>,
+}
+
+/// Detail level name for the config file. Lowercase in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolDetailLevelName {
+    Low,
+    Medium,
+    High,
+}
+
+/// Tool-output detail settings from the config file. Every field is
+/// optional so a missing file or missing key falls back to the built-in
+/// default; the TUI maps these onto its runtime thresholds at startup and
+/// the detail-level key cycles the level at runtime.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolOutputFileConfig {
+    /// Master switch for tool-output previews. Defaults to on.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Generic preview head lines. Defaults to 10.
+    #[serde(default)]
+    pub preview_max_lines: Option<usize>,
+    /// Generic preview grapheme budget. Defaults to 320.
+    #[serde(default)]
+    pub preview_max_chars: Option<usize>,
+    /// Shell preview tail lines. Defaults to 10.
+    #[serde(default)]
+    pub shell_preview_lines: Option<usize>,
+    /// Failure preview head lines of the error text. Defaults to 4.
+    #[serde(default)]
+    pub error_preview_lines: Option<usize>,
+    /// Per-block stored excerpt cap in bytes. Defaults to 32768.
+    #[serde(default)]
+    pub block_max_bytes: Option<usize>,
+    /// Default detail level. Defaults to medium.
+    #[serde(default)]
+    pub level: Option<ToolDetailLevelName>,
 }
 
 /// Configuration load error.
@@ -126,6 +167,21 @@ mod tests {
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: AppConfig = toml::from_str(&toml_str).unwrap();
         assert!(!parsed.behavior.mouse_capture);
+    }
+
+    #[test]
+    fn tool_output_detail_roundtrip_via_toml() {
+        let parsed: AppConfig = toml::from_str(
+            "[tool_output]\nenabled = false\npreview_max_lines = 5\nlevel = \"high\"\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.tool_output.enabled, Some(false));
+        assert_eq!(parsed.tool_output.preview_max_lines, Some(5));
+        assert_eq!(parsed.tool_output.level, Some(ToolDetailLevelName::High));
+        assert_eq!(parsed.tool_output.preview_max_chars, None);
+        let empty: AppConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.tool_output.enabled, None);
+        assert_eq!(empty.tool_output.level, None);
     }
 
     #[test]

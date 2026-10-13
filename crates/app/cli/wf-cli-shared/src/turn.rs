@@ -7,6 +7,13 @@
 
 use serde_json::Value;
 
+/// Built-in agent definition id used when no `--agent` is given. Mirrors the
+/// server default for empty ids.
+pub const DEFAULT_AGENT: &str = "@standard/main";
+
+/// Model profile id used when no `--model` is given.
+pub const DEFAULT_MODEL: &str = "default";
+
 /// What a turn executes.
 #[derive(Debug, Clone)]
 pub enum TurnKind {
@@ -39,31 +46,69 @@ impl TurnParams {
         }
     }
 
-    /// Translate into the `POST /api/v1/agent-loops/{id}/run|stream` body.
-    /// The server defaults empty ids to the built-in agent, so `None` stays
-    /// empty rather than baking the default in here.
-    pub fn agent_request_body(&self) -> Value {
+    /// Translate into the typed `POST /api/v1/agent-loops/{id}/run|stream` body.
+    /// Single source for both the SSE stream (serialized to JSON) and the
+    /// blocking fallback (passed to the generated client directly), so field
+    /// names cannot drift between the two paths.
+    pub fn agent_typed_body(&self) -> wf_client::models::RunAgentLoopBody {
         let prompt = self.prompt().unwrap_or_default();
         let sanitized = crate::sanitize::sanitize_user_text(prompt);
-        let conversation =
-            serde_json::to_value(&self.conversation).unwrap_or(Value::Null);
-        let mut body = serde_json::json!({
-            "agent_id": self.agent.clone().unwrap_or_default(),
-            "model": self.model.clone().unwrap_or_else(|| wf_client::DEFAULT_MODEL.to_string()),
-            "message": sanitized,
-            "max_iterations": 50,
-            "context": {},
-            "conversation": conversation,
-        });
-        if let Some(timeout) = self.timeout_ms {
-            body["max_execution_time"] = timeout.into();
+        let conversation: Vec<serde_json::Value> = self
+            .conversation
+            .iter()
+            .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
+            .collect();
+        wf_client::models::RunAgentLoopBody {
+            agent_id: self.agent.clone(),
+            model: self
+                .model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            message: sanitized,
+            context: Default::default(),
+            conversation: Some(conversation),
+            max_execution_time: self.timeout_ms.map(|v| v as i64),
+            max_iterations: None,
+            tool_call_protocol: Value::Null,
+            available_tool_names: None,
+            checkpoint_message_interval: None,
+            discoverable_tool_names: None,
+            enable_general_tool: None,
+            enable_token_tracking: None,
+            file_scope: None,
+            hidden_tool_names: None,
+            hooks: None,
+            initial_tool_names: None,
+            token_limit: None,
+            token_warning_threshold: None,
         }
-        body
+    }
+
+    /// Translate into the `POST /api/v1/agent-loops/{id}/run|stream` body.
+    /// The server defaults empty ids to the built-in agent, so `None` stays
+    /// empty rather than baking the default in here. `model` uses the shared
+    /// sentinel because the wire body requires the field; the server treats
+    /// the sentinel the same as empty and lets the template win. Iteration
+    /// budget is intentionally omitted: the server applies its default when
+    /// neither the request nor the template sets one, so a hardcoded value
+    /// here would override template configuration.
+    pub fn agent_request_body(&self) -> Value {
+        serde_json::to_value(self.agent_typed_body()).unwrap_or(Value::Null)
+    }
+
+    /// Typed `POST /api/v1/workflows/{id}/execute*` body.
+    pub fn workflow_typed_body(
+        input: Option<&Value>,
+    ) -> wf_client::models::ExecuteBody {
+        wf_client::models::ExecuteBody {
+            input: input.cloned(),
+            file_scope: None,
+        }
     }
 
     /// Translate into the `POST /api/v1/workflows/{id}/execute*` body.
     pub fn workflow_request_body(input: Option<&Value>) -> Value {
-        serde_json::json!({ "input": input })
+        serde_json::to_value(Self::workflow_typed_body(input)).unwrap_or(Value::Null)
     }
 }
 
@@ -117,6 +162,7 @@ mod tests {
         assert_eq!(body["model"], "m");
         assert_eq!(body["message"], "hi");
         assert_eq!(body["max_execution_time"], 5000);
+        assert!(body.get("max_iterations").is_none());
     }
 
     #[test]
@@ -133,6 +179,6 @@ mod tests {
         };
         let body = params.agent_request_body();
         assert_eq!(body["message"], "hi");
-        assert_eq!(body["model"], wf_client::DEFAULT_MODEL);
+        assert_eq!(body["model"], DEFAULT_MODEL);
     }
 }

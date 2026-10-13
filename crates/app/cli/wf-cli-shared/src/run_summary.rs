@@ -3,8 +3,8 @@
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputSink};
 use crate::run::RunOptions;
+use crate::turn::{DEFAULT_AGENT, DEFAULT_MODEL};
 use serde_json::Value;
-use wf_client::{DEFAULT_AGENT, DEFAULT_MODEL};
 
 pub(crate) fn had_output_for_result(result: &Value) -> bool {
     !result.is_null()

@@ -49,22 +49,21 @@ pub(crate) async fn run_with_client(
                         "--unified cannot be combined with --workflow or --agent".to_string(),
                     ));
                 }
-                let mut params: Vec<String> = Vec::new();
-                if let Some(l) = limit {
-                    params.push(format!("limit={l}"));
-                }
-                if let Some(o) = offset {
-                    params.push(format!("cursor={o}"));
-                }
-                if let Some(s) = status {
-                    params.push(format!("status={s}"));
-                }
-                let path = if params.is_empty() {
-                    "/api/v1/unified-executions".to_string()
-                } else {
-                    format!("/api/v1/unified-executions?{}", params.join("&"))
-                };
-                let mut page: serde_json::Value = client.get_json(&path).await?;
+                let cursor = offset.map(|v| v.to_string());
+                let envelope = client
+                    .generated()
+                    .handle_unified_executions(
+                        cursor.as_deref(),
+                        None,
+                        limit.map(|v| v as i64),
+                        None,
+                        None,
+                        status.as_deref(),
+                    )
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let mut page: serde_json::Value =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 if order
                     .as_deref()
                     .is_some_and(|o| o.eq_ignore_ascii_case("asc"))
@@ -132,10 +131,13 @@ pub(crate) async fn run_with_client(
             if *background || *stream {
                 run_workflow_streaming(cli, client, workflow, input_value, *background).await
             } else {
-                let body = serde_json::json!({ "input": input_value });
-                let data: serde_json::Value = client
-                    .post_json(&format!("/api/v1/workflows/{workflow}/execute"), &body)
-                    .await?;
+                let typed = wf_client::models::ExecuteBody {
+                    input: input_value,
+                    file_scope: None,
+                };
+                let view = client.execute_workflow(workflow, &typed).await?;
+                let data =
+                    serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("execution-run", data).with_entity(workflow.clone()),
@@ -181,9 +183,14 @@ pub(crate) async fn run_with_client(
             status_execution(client, cli, id).await
         }
         ExecutionSub::Hierarchy { id } => {
-            let data: serde_json::Value = client
-                .get_json(&format!("/api/v1/executions/{id}/hierarchy"))
-                .await?;
+            let envelope = client
+                .generated()
+                .get_executions_id_hierarchy(id)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let view: wf_client::models::HierarchyDoc =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_hierarchy(&data);
                 Ok(())
@@ -195,19 +202,18 @@ pub(crate) async fn run_with_client(
             }
         }
         ExecutionSub::Subtree { id, limit, cursor } => {
-            let mut params: Vec<String> = Vec::new();
-            if let Some(l) = limit {
-                params.push(format!("limit={l}"));
-            }
-            if let Some(c) = cursor {
-                params.push(format!("cursor={c}"));
-            }
-            let path = if params.is_empty() {
-                format!("/api/v1/executions/{id}/subtree")
-            } else {
-                format!("/api/v1/executions/{id}/subtree?{}", params.join("&"))
-            };
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .get_executions_id_subtree(
+                    id,
+                    cursor.as_deref(),
+                    limit.map(|v| v as i64),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let view: wf_client::models::SubtreeDoc =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_subtree(&data);
                 Ok(())
@@ -219,13 +225,14 @@ pub(crate) async fn run_with_client(
             }
         }
         ExecutionSub::History { id, include } => {
-            let path = match include {
-                Some(sections) => {
-                    format!("/api/v1/executions/{id}/history?include={sections}")
-                }
-                None => format!("/api/v1/executions/{id}/history"),
-            };
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let envelope = client
+                .generated()
+                .get_executions_id_history(id, include.as_deref())
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let view: wf_client::models::HistoryDoc =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             if cli.output == crate::output::OutputFormat::Text {
                 print_history(&data);
                 Ok(())
@@ -497,19 +504,13 @@ async fn show_variables(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()>
 }
 
 async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
-    if let Ok(summary) = client
-        .get_json::<serde_json::Value>(&format!("/api/v1/agent-loops/{id}/summary"))
-        .await
-    {
+    if let Ok(summary) = client.agent_loop_summary(id).await {
         return render_envelope(
             cli.output,
             OutputEnvelope::success("execution-show", summary).with_entity(id.to_string()),
         );
     }
-    match client
-        .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}"))
-        .await
-    {
+    match client.execution_detail(id).await {
         Ok(exec) => render_envelope(
             cli.output,
             OutputEnvelope::success("execution-show", exec).with_entity(id.to_string()),
@@ -522,10 +523,7 @@ async fn show_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()>
 }
 
 async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<()> {
-    if let Ok(status) = client
-        .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}/status"))
-        .await
-    {
+    if let Ok(status) = client.execution_status(id).await {
         let text = status.as_str().unwrap_or(
             status.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
         );
@@ -535,10 +533,7 @@ async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<(
             OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
         );
     }
-    if let Ok(summary) = client
-        .get_json::<serde_json::Value>(&format!("/api/v1/agent-loops/{id}/summary"))
-        .await
-    {
+    if let Ok(summary) = client.agent_loop_summary(id).await {
         let status = summary
             .get("status")
             .and_then(|s| s.as_str())
@@ -549,10 +544,7 @@ async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<(
             OutputEnvelope::success("execution-status", data).with_entity(id.to_string()),
         );
     }
-    match client
-        .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}"))
-        .await
-    {
+    match client.execution_detail(id).await {
         Ok(exec) => {
             let status = exec.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
             let data = serde_json::json!({"executionId": id, "status": status, "source": "persisted", "execution": exec});
@@ -569,60 +561,24 @@ async fn status_execution(client: &WfClient, cli: &Cli, id: &str) -> CliResult<(
 }
 
 async fn cancel_execution(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    if let Ok(data) = client
-        .post_json::<_, serde_json::Value>(
-            &format!("/api/v1/executions/{id}/cancel"),
-            &serde_json::json!({}),
-        )
-        .await
-    {
+    if let Ok(data) = client.cancel_execution(id).await {
         return Ok(data);
     }
-    client
-        .post_json(
-            &format!("/api/v1/agent-loops/{id}/cancel"),
-            &serde_json::json!({}),
-        )
-        .await
-        .map_err(CliError::from)
+    client.cancel_agent_loop(id).await.map_err(CliError::from)
 }
 
 async fn pause_execution(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    if let Ok(data) = client
-        .post_json::<_, serde_json::Value>(
-            &format!("/api/v1/executions/{id}/pause"),
-            &serde_json::json!({}),
-        )
-        .await
-    {
+    if let Ok(data) = client.pause_execution(id).await {
         return Ok(data);
     }
-    client
-        .post_json(
-            &format!("/api/v1/agent-loops/{id}/pause"),
-            &serde_json::json!({}),
-        )
-        .await
-        .map_err(CliError::from)
+    client.pause_agent_loop(id).await.map_err(CliError::from)
 }
 
 async fn resume_execution(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    if let Ok(data) = client
-        .post_json::<_, serde_json::Value>(
-            &format!("/api/v1/executions/{id}/resume"),
-            &serde_json::json!({}),
-        )
-        .await
-    {
+    if let Ok(data) = client.resume_execution(id).await {
         return Ok(data);
     }
-    client
-        .post_json(
-            &format!("/api/v1/agent-loops/{id}/resume"),
-            &serde_json::json!({}),
-        )
-        .await
-        .map_err(CliError::from)
+    client.resume_agent_loop(id).await.map_err(CliError::from)
 }
 
 #[allow(clippy::too_many_arguments)]

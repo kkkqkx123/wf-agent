@@ -46,7 +46,7 @@ impl FoldSpec {
     }
 }
 
-fn is_shell_tool(name: &str) -> bool {
+pub(crate) fn is_shell_tool(name: &str) -> bool {
     matches!(
         name,
         "execute_command"
@@ -63,7 +63,7 @@ fn is_shell_tool(name: &str) -> bool {
     )
 }
 
-fn is_file_edit_tool(name: &str) -> bool {
+pub(crate) fn is_file_edit_tool(name: &str) -> bool {
     matches!(
         name,
         "write_file" | "edit_file" | "apply_diff" | "apply_patch"

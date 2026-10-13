@@ -16,4 +16,5 @@ pub mod renderable;
 pub mod screen_data;
 pub mod status_line;
 pub mod stream_pacer;
+pub mod tool_output;
 pub mod width;

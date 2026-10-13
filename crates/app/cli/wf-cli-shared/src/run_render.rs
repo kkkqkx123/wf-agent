@@ -289,6 +289,7 @@ mod tests {
                         success: true,
                         result: String::new(),
                         error: None,
+                        display: None,
                     },
                     &diag,
                 )
@@ -301,6 +302,7 @@ mod tests {
                         success: false,
                         result: String::new(),
                         error: None,
+                        display: None,
                     },
                     &diag,
                 )

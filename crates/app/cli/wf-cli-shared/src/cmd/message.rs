@@ -1,3 +1,6 @@
+//! Retained passthrough: message records are schemaless user content;
+//! the envelope shell is unwrapped but the payload is rendered verbatim.
+
 use crate::args::{Cli, MessageSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

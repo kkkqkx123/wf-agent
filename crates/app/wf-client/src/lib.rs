@@ -5,22 +5,23 @@
 //! output by hand). Hand-written layers add connection setup, envelope
 //! unwrapping, and SSE streaming:
 //!
-//! - [`WfClient`] / [`ClientConfig`] (`client.rs`)
-//! - [`ClientError`] (`error.rs`)
-//! - [`SseFrame`] (`sse.rs`)
-//! - [`normalize`] (3.1 to 3.0 transform, shared with `build.rs`)
+//! - [`WfClient`] / [`ClientConfig`] (`client.rs`): strong-type-first
+//!   helpers over [`generated`], plus one documented JSON escape hatch.
+//! - [`ClientError`] (`error.rs`): shared status and envelope mapping.
+//! - [`SseFrame`] (`sse.rs`): streaming endpoints the generator skips.
 
 #[allow(clippy::all, clippy::pedantic, clippy::nursery, dead_code)]
-mod generated {
+pub(crate) mod generated {
     include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 }
 
 pub mod client;
 pub mod error;
-pub mod normalize;
+#[allow(dead_code)]
+pub(crate) mod normalize;
 pub mod sse;
 
-pub use client::{ClientConfig, WfClient, DEFAULT_AGENT, DEFAULT_BASE_URL, DEFAULT_MODEL};
+pub use client::{ClientConfig, WfClient, DEFAULT_BASE_URL};
 pub use error::{ClientError, ClientResult};
 pub use sse::{endpoints, SseFrame};
 

@@ -59,14 +59,24 @@ pub async fn run(cli: &Cli, sub: &AnalysisSub) -> CliResult<()> {
 /// `errors` / `compare` / `progress`). Callers wrap the value in their own
 /// envelope so established command names stay stable.
 pub async fn performance_data(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    client.get_json(&format!("/api/v1/executions/{id}/performance")).await.map_err(crate::error::CliError::from)
+    let envelope = client
+        .generated()
+        .get_executions_id_performance(id)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    wf_client::client::unwrap_generated_envelope(envelope.into_inner())
+        .map_err(crate::error::CliError::from)
 }
 
 /// Bottleneck list for one execution.
 pub async fn bottleneck_data(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    client
-        .get_json(&format!("/api/v1/executions/{id}/performance/bottlenecks"))
-        .await.map_err(crate::error::CliError::from)
+    let envelope = client
+        .generated()
+        .handle_performance_bottlenecks(id)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    wf_client::client::unwrap_generated_envelope(envelope.into_inner())
+        .map_err(crate::error::CliError::from)
 }
 
 /// Error diagnostic object: always includes stats, plus the requested
@@ -80,34 +90,52 @@ pub async fn errors_data(
     recovery: bool,
 ) -> CliResult<serde_json::Value> {
     let mut out = serde_json::Map::new();
-    let stats: serde_json::Value = client
-        .get_json(&format!("/api/v1/executions/{id}/error-analysis"))
-        .await?;
+    let stats_envelope = client
+        .generated()
+        .handle_error_analysis(id)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    let stats: serde_json::Value =
+        wf_client::client::unwrap_generated_envelope(stats_envelope.into_inner())?;
     out.insert("stats".into(), stats);
     if chain {
-        let chain_data: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/error-analysis/context"))
-            .await?;
+        let envelope = client
+            .generated()
+            .handle_error_context(id)
+            .await
+            .map_err(wf_client::client::into_typed_client_error)?;
+        let chain_data: serde_json::Value =
+            wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
         out.insert("chain".into(), chain_data);
     }
     if root_cause {
-        let rc: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/error-analysis/root-cause"))
-            .await?;
+        let envelope = client
+            .generated()
+            .handle_error_root_cause(id)
+            .await
+            .map_err(wf_client::client::into_typed_client_error)?;
+        let rc: serde_json::Value =
+            wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
         out.insert("rootCause".into(), rc);
     }
     if recovery {
-        let recs: serde_json::Value = client
-            .get_json(&format!(
-                "/api/v1/executions/{id}/error-analysis/recovery-recommendations"
-            ))
-            .await?;
+        let envelope = client
+            .generated()
+            .handle_error_recovery_recommendations(id)
+            .await
+            .map_err(wf_client::client::into_typed_client_error)?;
+        let recs: serde_json::Value =
+            wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
         out.insert("recovery".into(), recs);
     }
     if !chain && !root_cause && !recovery {
-        let advanced: serde_json::Value = client
-            .get_json(&format!("/api/v1/executions/{id}/error-analysis/advanced"))
-            .await?;
+        let envelope = client
+            .generated()
+            .handle_error_analysis_advanced(id)
+            .await
+            .map_err(wf_client::client::into_typed_client_error)?;
+        let advanced: serde_json::Value =
+            wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
         out.insert("advanced".into(), advanced);
     }
     Ok(serde_json::Value::Object(out))
@@ -119,14 +147,22 @@ pub async fn compare_data(
     baseline: &str,
     compared: &str,
 ) -> CliResult<serde_json::Value> {
-    client
-        .get_json(&format!(
-            "/api/v1/analysis/performance/compare?baseline={baseline}&compared={compared}"
-        ))
-        .await.map_err(crate::error::CliError::from)
+    let envelope = client
+        .generated()
+        .handle_performance_compare(baseline, compared)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    wf_client::client::unwrap_generated_envelope(envelope.into_inner())
+        .map_err(crate::error::CliError::from)
 }
 
 /// Progress metrics for one execution.
 pub async fn progress_data(client: &WfClient, id: &str) -> CliResult<serde_json::Value> {
-    client.get_json(&format!("/api/v1/executions/{id}/progress")).await.map_err(crate::error::CliError::from)
+    let envelope = client
+        .generated()
+        .handle_progress(id)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    wf_client::client::unwrap_generated_envelope(envelope.into_inner())
+        .map_err(crate::error::CliError::from)
 }

@@ -88,6 +88,50 @@ pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
     }
 }
 
+/// Best-effort tool-output thresholds from the user config file. A missing
+/// or unreadable config means built-in defaults; individual keys fall back
+/// independently so a partial `[tool_output]` section still applies.
+pub(super) fn load_tool_output_config() -> crate::tool_output::ToolOutputConfig {
+    use crate::app_config::ToolDetailLevelName;
+    use crate::tool_output::{DetailLevel, ToolOutputConfig};
+    let mut config = ToolOutputConfig::default();
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return config,
+    };
+    let manager = match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager,
+        Err(_) => return config,
+    };
+    let file = &manager.config().tool_output;
+    if let Some(enabled) = file.enabled {
+        config.enabled = enabled;
+    }
+    if let Some(lines) = file.preview_max_lines {
+        config.preview_max_lines = lines;
+    }
+    if let Some(chars) = file.preview_max_chars {
+        config.preview_max_chars = chars;
+    }
+    if let Some(lines) = file.shell_preview_lines {
+        config.shell_preview_lines = lines;
+    }
+    if let Some(lines) = file.error_preview_lines {
+        config.error_preview_lines = lines;
+    }
+    if let Some(bytes) = file.block_max_bytes {
+        config.block_max_bytes = bytes;
+    }
+    if let Some(level) = file.level {
+        config.level = match level {
+            ToolDetailLevelName::Low => DetailLevel::Low,
+            ToolDetailLevelName::Medium => DetailLevel::Medium,
+            ToolDetailLevelName::High => DetailLevel::High,
+        };
+    }
+    config
+}
+
 /// Best-effort mouse opt-in from the user config file. A missing or
 /// unreadable config means off: mouse capture stays disabled and the
 /// terminal keeps native text selection.

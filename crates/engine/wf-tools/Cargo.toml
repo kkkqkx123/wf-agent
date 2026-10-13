@@ -28,6 +28,7 @@ dashmap.workspace = true
 futures.workspace = true
 regex.workspace = true
 globset.workspace = true
+unicode-segmentation.workspace = true
 gix-ignore.workspace = true
 rusqlite = { workspace = true, optional = true }
 

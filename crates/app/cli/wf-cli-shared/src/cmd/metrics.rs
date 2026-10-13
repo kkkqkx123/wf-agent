@@ -1,3 +1,6 @@
+//! Retained passthrough: metrics export switches payload shape by format
+//! and analysis stats are rendered verbatim.
+
 use crate::args::{Cli, MetricsSub};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

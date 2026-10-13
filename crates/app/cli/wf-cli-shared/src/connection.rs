@@ -43,7 +43,7 @@ impl ClientHandle {
     }
 
     async fn check_reachable(&self) -> CliResult<()> {
-        self.client.check_health().await.map(|_| ()).map_err(|e| match e {
+        self.client.health_typed().await.map(|_| ()).map_err(|e| match e {
             wf_client::ClientError::Http(msg) => CliError::Configuration(format!(
                 "cannot reach wf-server at {} ({msg}); start wf-server first",
                 self.client.base_url()

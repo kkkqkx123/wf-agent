@@ -63,12 +63,14 @@ impl ExecutionEventStream {
                         success,
                         result,
                         error,
+                        display,
                     } => ExecutionStreamEvent::ToolEnd {
                         tool_call_id,
                         tool_name,
                         success,
                         result,
                         error,
+                        display,
                     },
                     AgentStreamEvent::IterationEnd {
                         iteration,

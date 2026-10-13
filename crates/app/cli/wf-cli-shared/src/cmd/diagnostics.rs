@@ -1,3 +1,6 @@
+//! Retained passthrough: storage health and diagnose follow backend
+//! internals and are rendered verbatim.
+
 use crate::args::Cli;
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;

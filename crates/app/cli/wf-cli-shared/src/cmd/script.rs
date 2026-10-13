@@ -23,6 +23,9 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             )
         }
         ScriptSub::Validate { name, code } => {
+            // Retained passthrough: the snapshot marks `language`/`sandbox`
+            // as required maps while the server treats them as optional;
+            // typing against the snapshot would send `{}` and break parsing.
             let body = serde_json::json!({"name": name, "code": code, "args": {}});
             let data: serde_json::Value =
                 client.post_json("/api/v1/scripts/validate", &body).await?;
@@ -42,6 +45,8 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             } else {
                 serde_json::json!({})
             };
+            // Retained passthrough for the same snapshot optionality
+            // mismatch as `Validate` above.
             let body = serde_json::json!({
                 "name": name,
                 "code": code,

@@ -21,10 +21,7 @@ pub(crate) fn is_terminal_status(status: &str) -> bool {
 /// detail record. Mirrors the `Status` arm so watch polling and status
 /// reporting never disagree.
 pub(crate) async fn fetch_execution_status(client: &WfClient, id: &str) -> CliResult<String> {
-    if let Ok(value) = client
-        .get_json::<serde_json::Value>(&format!("/api/v1/executions/{id}/status"))
-        .await
-    {
+    if let Ok(value) = client.execution_status(id).await {
         if let Some(status) = value
             .as_str()
             .map(str::to_string)
@@ -39,7 +36,7 @@ pub(crate) async fn fetch_execution_status(client: &WfClient, id: &str) -> CliRe
         }
     }
     let detail: serde_json::Value = client
-        .get_json(&format!("/api/v1/executions/{id}"))
+        .execution_detail(id)
         .await
         .map_err(|e| CliError::Configuration(format!("status query failed: {e}")))?;
     detail
@@ -136,13 +133,12 @@ pub(crate) async fn run_workflow_streaming(
     background: bool,
 ) -> CliResult<()> {
     if background {
-        let body = serde_json::json!({ "input": input });
-        let data: serde_json::Value = client
-            .post_json(
-                &format!("/api/v1/workflows/{workflow}/execute/background"),
-                &body,
-            )
-            .await?;
+        let typed = wf_client::models::ExecuteBody {
+            input,
+            file_scope: None,
+        };
+        let view = client.execute_workflow_background(workflow, &typed).await?;
+        let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
         return render_envelope(
             cli.output,
             OutputEnvelope::success("execution-run", data).with_entity(workflow.to_string()),
@@ -159,12 +155,13 @@ pub(crate) async fn run_stream(
     input: Option<serde_json::Value>,
 ) -> CliResult<()> {
     let text = cli.output == OutputFormat::Text;
-    let body = serde_json::json!({ "input": input });
+    let typed = wf_client::models::ExecuteBody {
+        input,
+        file_scope: None,
+    };
+    let body = serde_json::to_value(&typed).unwrap_or(serde_json::Value::Null);
     let stream = client
-        .post_stream(
-            &format!("/api/v1/workflows/{workflow}/execute/stream"),
-            &body,
-        )
+        .post_stream(&wf_client::endpoints::workflow_execute(workflow), &body)
         .await
         .map_err(|e| CliError::Configuration(format!("stream failed: {e}")))?;
     let mut stream = map_frames(stream);

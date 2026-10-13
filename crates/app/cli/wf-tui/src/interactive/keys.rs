@@ -35,6 +35,9 @@ impl InteractiveController {
 
         // Scrolling belongs to the scrollback regardless of the active footer
         // view (a prompt, an approval or a question all leave history above).
+        // Tool-output keys are transcript context too: Ctrl+O toggles the
+        // most recent expandable block, Ctrl+V opens its full output,
+        // Ctrl+D cycles the detail level and Ctrl+E expands or collapses all.
         match key.code {
             CKey::PageUp => {
                 self.scroll_history_up();
@@ -42,6 +45,22 @@ impl InteractiveController {
             }
             CKey::PageDown => {
                 self.scroll_history_down();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('o') | CKey::Char('O') if key.ctrl && !key.alt => {
+                self.toggle_last_tool_block();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('v') | CKey::Char('V') if key.ctrl && !key.alt => {
+                self.request_last_tool_viewer();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('d') | CKey::Char('D') if key.ctrl && !key.alt => {
+                self.cycle_detail_level();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('e') | CKey::Char('E') if key.ctrl && !key.alt => {
+                self.toggle_all_tool_blocks();
                 return InteractiveAction::Continue;
             }
             _ => {}
@@ -153,6 +172,7 @@ impl InteractiveController {
         let answer = question.answer_text(outcome);
         let response = question.response_value(outcome);
         let interaction_id = question.interaction_id().to_string();
+        self.flush_activity();
         self.pending_scroll
             .push(HistoryLine::new_role(format!("❯ {answer}"), Role::Accent));
         self.send_question_reply(&interaction_id, response);
@@ -192,6 +212,7 @@ impl InteractiveController {
                 }
                 let text = self.footer.composer.submit().unwrap_or_default();
                 if !text.trim().is_empty() {
+                    self.flush_activity();
                     self.pending_scroll
                         .push(HistoryLine::new_role(format!("❯ {text}"), Role::Accent));
                     self.start_turn(text.trim().to_string(), None, None);

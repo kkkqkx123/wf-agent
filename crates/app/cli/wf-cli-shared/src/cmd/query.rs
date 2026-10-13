@@ -35,6 +35,9 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
     }
 
     if let Some(agg) = opts.aggregate {
+        // Retained passthrough: the snapshot declares `operations` as
+        // `Vec<String>` but the server decodes `Vec<AggregationOp>` objects;
+        // typing against the snapshot would send the wrong shape.
         let body = serde_json::json!({
             "filters": filters,
             "expressions": expressions,
@@ -47,6 +50,9 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
     }
 
     if let Some(fmt) = opts.export {
+        // Retained passthrough: `/query/export` answers as a file download
+        // (`text/csv`), not the JSON envelope, so it stays outside the
+        // generated envelope system.
         let format = match fmt.to_ascii_lowercase().as_str() {
             "json" | "csv" | "xml" => fmt.to_ascii_lowercase(),
             _ => return Err(CliError::Arguments(format!("invalid export format {fmt}"))),
@@ -67,21 +73,23 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
         return Ok(());
     }
 
-    let mut body = serde_json::json!({
-        "filters": filters,
-        "expressions": expressions,
-    });
-    if let Some(sort) = opts.sort {
-        body["sort_field"] = sort.into();
-        body["sort_descending"] = opts.desc.into();
-    }
-    if let Some(limit) = opts.limit {
-        body["limit"] = limit.into();
-    }
-    if let Some(offset) = opts.offset {
-        body["offset"] = offset.into();
-    }
-    let data: serde_json::Value = client.post_json("/api/v1/query", &body).await?;
+    // Named request body; response `data` stays generic JSON passthrough
+    // because query records have no fixed schema.
+    let body = wf_client::models::QueryBody {
+        filters: Some(filters),
+        expressions,
+        sort_field: opts.sort.map(str::to_string),
+        sort_descending: opts.sort.map(|_| opts.desc),
+        limit: opts.limit.map(|v| v as u64),
+        offset: opts.offset.map(|v| v as u64),
+    };
+    let envelope = client
+        .generated()
+        .handle_query(&body)
+        .await
+        .map_err(wf_client::client::into_typed_client_error)?;
+    let data: serde_json::Value =
+        wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
     let envelope = OutputEnvelope::success("query-executions", data);
     render_envelope(cli.output, envelope)?;
     Ok(())

@@ -40,7 +40,7 @@ use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
 
 use data_cache::DataResult;
-use input_classify::{classify_mouse, classify_paste, load_mouse_opt_in, map_key};
+use input_classify::{classify_mouse, classify_paste, load_mouse_opt_in, load_tool_output_config, map_key};
 use input_classify::{focus_transition, FocusInput, MouseAction, PasteTarget};
 use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
 
@@ -731,6 +731,7 @@ impl TuiApp {
                     InteractiveController::start(self.client.clone(), id).await;
                 session.set_perf_tier(self.perf_tier.marker());
                 session.apply_perf_policy(self.perf_policy);
+                session.set_tool_config(load_tool_output_config());
                 self.interactive = Some(session);
                 self.held_session.attach();
             }

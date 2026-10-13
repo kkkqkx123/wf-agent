@@ -1,25 +1,26 @@
 //! Hand-written client wrapper over the progenitor-generated API.
 //!
-//! The generated `Client` exposes one builder per operation (487 ops); this
-//! wrapper adds connection setup (`x-api-key` header injection), the
-//! `ApiEnvelope<T>` unwrap shared by every endpoint, a JSON escape hatch for
-//! management commands, and startup health probing.
+//! Strong-type-first: new call sites use [`WfClient::generated`] or the
+//! typed helpers below (named paths, typed bodies, typed envelopes).
+//! The `*_json` methods are the narrow JSON escape hatch. Retained uses
+//! fall into six categories; new uses require a retention reason or they
+//! do not merge:
+//!
+//! - dynamic observation queries (filters, aggregates, exports, searches);
+//! - metrics export and storage health/diagnose passthrough;
+//! - entity payloads (messages, tasks, variables, skills, interactions);
+//! - plugin registries (tools, scripts: externally defined content);
+//! - terminal streams and file downloads (non-envelope transports);
+//! - forward-compatibility and debug probes.
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::error::{map_progenitor, ClientError, ClientResult};
+use crate::error::{from_status_body, map_progenitor, map_typed_error, ClientError, ClientResult};
 use crate::generated;
 
 /// Default local server address when neither `--remote` nor `WF_REMOTE` is set.
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:3000";
-
-/// Built-in agent definition id used when no `--agent` is given. Mirrors the
-/// server default for empty ids.
-pub const DEFAULT_AGENT: &str = "@standard/main";
-
-/// Model profile id used when no `--model` is given.
-pub const DEFAULT_MODEL: &str = "default";
 
 /// Connection settings for one `wf-server` instance.
 #[derive(Debug, Clone)]
@@ -78,6 +79,8 @@ impl WfClient {
         let http = reqwest::Client::builder()
             .user_agent("wf-client/0.1")
             .default_headers(headers)
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(15))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let generated = generated::Client::new_with_client(&config.base_url, http.clone());
@@ -98,7 +101,7 @@ impl WfClient {
     }
 
     /// Access the fully-typed progenitor client for new call sites.
-    pub fn generated(&self) -> &generated::Client {
+    pub fn generated(&self) -> &crate::GeneratedClient {
         &self.generated
     }
 
@@ -115,27 +118,252 @@ impl WfClient {
     /// Probe `GET /health`; maps auth failures explicitly so callers can hint
     /// at `WF_API_KEY` instead of printing a generic connection error.
     pub async fn check_health(&self) -> ClientResult<serde_json::Value> {
-        let url = format!("{}/health", self.config.base_url);
-        let resp = self.http.get(&url).send().await.map_err(|e| {
-            ClientError::Http(format!("cannot reach server at {}: {e}", self.config.base_url))
-        })?;
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(ClientError::Unauthorized);
-        }
-        if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(ClientError::NotFound(url));
-        }
-        if !resp.status().is_success() {
-            return Err(ClientError::Http(format!(
-                "health check failed with HTTP {}",
-                resp.status()
-            )));
-        }
-        let body: serde_json::Value = resp
-            .json()
+        self.get("/health").await.map_err(|e| match e {
+            ClientError::Http(msg) => ClientError::Http(format!(
+                "cannot reach server at {}: {msg}",
+                self.config.base_url
+            )),
+            other => other,
+        })
+    }
+
+    /// Typed health probe returning the named view.
+    pub async fn health_typed(&self) -> ClientResult<crate::models::HealthView> {
+        let envelope = self
+            .generated
+            .handle_health()
             .await
-            .map_err(|e| ClientError::Invalid(format!("health body: {e}")))?;
-        unwrap_envelope(&body)
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed server info probe.
+    pub async fn info_typed(&self) -> ClientResult<crate::models::InfoView> {
+        let envelope = self.generated.handle_info().await.map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed single agent-loop run (`POST /api/v1/agent-loops/{id}/run`).
+    pub async fn run_agent_loop(
+        &self,
+        id: &str,
+        body: &crate::models::RunAgentLoopBody,
+    ) -> ClientResult<crate::models::AgentRunView> {
+        let envelope = self
+            .generated
+            .handle_run_loop(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed single workflow execute (`POST /api/v1/workflows/{id}/execute`).
+    pub async fn execute_workflow(
+        &self,
+        id: &str,
+        body: &crate::models::ExecuteBody,
+    ) -> ClientResult<crate::models::ExecuteView> {
+        let envelope = self
+            .generated
+            .handle_execute_workflow(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed background workflow execute
+    /// (`POST /api/v1/workflows/{id}/execute/background`).
+    pub async fn execute_workflow_background(
+        &self,
+        id: &str,
+        body: &crate::models::ExecuteBody,
+    ) -> ClientResult<crate::models::BackgroundExecuteView> {
+        let envelope = self
+            .generated
+            .handle_execute_background(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed workflow lock acquire (`POST /api/v1/workflows/{id}/lock/acquire`).
+    pub async fn acquire_workflow_lock(
+        &self,
+        id: &str,
+        body: &crate::models::AcquireLockBody,
+    ) -> ClientResult<crate::models::LockView> {
+        let envelope = self
+            .generated
+            .handle_acquire_lock(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed workflow lock heartbeat (`POST /api/v1/workflows/{id}/lock/heartbeat`).
+    pub async fn heartbeat_workflow_lock(
+        &self,
+        id: &str,
+        body: &crate::models::OwnerBody,
+    ) -> ClientResult<crate::models::LockView> {
+        let envelope = self
+            .generated
+            .handle_heartbeat_lock(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed workflow lock release (`POST /api/v1/workflows/{id}/lock/release`).
+    pub async fn release_workflow_lock(
+        &self,
+        id: &str,
+        body: &crate::models::OwnerBody,
+    ) -> ClientResult<Option<crate::models::LockView>> {
+        let envelope = self
+            .generated
+            .handle_release_lock(id, body)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed workflow lock query (`GET /api/v1/workflows/{id}/lock`).
+    pub async fn get_workflow_lock(
+        &self,
+        id: &str,
+    ) -> ClientResult<Option<crate::models::LockView>> {
+        let envelope = self
+            .generated
+            .handle_get_lock(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution pause (`POST /api/v1/executions/{id}/pause`).
+    /// Response `data` stays generic, so the path and envelope are typed
+    /// while the payload keeps passing through as JSON.
+    pub async fn pause_execution(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_pause(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution resume (`POST /api/v1/executions/{id}/resume`).
+    pub async fn resume_execution(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_resume(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution cancel (`POST /api/v1/executions/{id}/cancel`).
+    pub async fn cancel_execution(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_cancel(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution status (`GET /api/v1/executions/{id}/status`).
+    pub async fn execution_status(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_status(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop pause (`POST /api/v1/agent-loops/{id}/pause`).
+    pub async fn pause_agent_loop(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_pause_loop(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop resume (`POST /api/v1/agent-loops/{id}/resume`).
+    pub async fn resume_agent_loop(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_resume_loop(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop cancel (`POST /api/v1/agent-loops/{id}/cancel`).
+    pub async fn cancel_agent_loop(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_cancel_loop(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop status (`GET /api/v1/agent-loops/{id}/status`).
+    pub async fn agent_loop_status(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_loop_status(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed agent-loop summary (`GET /api/v1/agent-loops/{id}/summary`).
+    pub async fn agent_loop_summary(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_loop_summary(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Typed execution detail (`GET /api/v1/executions/{id}`).
+    pub async fn execution_detail(&self, id: &str) -> ClientResult<serde_json::Value> {
+        let envelope = self
+            .generated
+            .handle_get_execution(id)
+            .await
+            .map_err(map_typed_error)?;
+        unwrap_generated_envelope(envelope.into_inner())
+    }
+
+    /// Single-send core for the JSON escape hatch: every verb funnels here
+    /// so envelope handling stays in one place.
+    async fn send<T>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> ClientResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        let url = format!("{}{}", self.config.base_url, path);
+        let mut request = self.http.request(method, &url);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let resp = request
+            .send()
+            .await
+            .map_err(|e| ClientError::Http(e.to_string()))?;
+        read_envelope::<T>(resp).await
     }
 
     /// Typed GET that unwraps the standard `ApiEnvelope<T>` shell.
@@ -143,14 +371,7 @@ impl WfClient {
     where
         T: DeserializeOwned,
     {
-        let url = format!("{}{}", self.config.base_url, path);
-        let resp = self
-            .http
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| ClientError::Http(e.to_string()))?;
-        read_envelope::<T>(resp).await
+        self.send(reqwest::Method::GET, path, None).await
     }
 
     /// Typed POST with JSON body that unwraps `ApiEnvelope<T>`.
@@ -159,49 +380,31 @@ impl WfClient {
         B: Serialize + ?Sized,
         T: DeserializeOwned,
     {
-        let url = format!("{}{}", self.config.base_url, path);
-        let resp = self
-            .http
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| ClientError::Http(e.to_string()))?;
-        read_envelope::<T>(resp).await
+        let body = serde_json::to_value(body)
+            .map_err(|e| ClientError::Invalid(format!("request encode: {e}")))?;
+        self.send(reqwest::Method::POST, path, Some(&body)).await
     }
 
-    /// Typed PUT / DELETE / PATCH helpers for management commands.
+    /// Typed PUT helper for management commands.
     pub async fn put<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
     where
         B: Serialize + ?Sized,
         T: DeserializeOwned,
     {
-        let url = format!("{}{}", self.config.base_url, path);
-        let resp = self
-            .http
-            .put(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| ClientError::Http(e.to_string()))?;
-        read_envelope::<T>(resp).await
+        let body = serde_json::to_value(body)
+            .map_err(|e| ClientError::Invalid(format!("request encode: {e}")))?;
+        self.send(reqwest::Method::PUT, path, Some(&body)).await
     }
 
     pub async fn delete<T>(&self, path: &str) -> ClientResult<T>
     where
         T: DeserializeOwned,
     {
-        let url = format!("{}{}", self.config.base_url, path);
-        let resp = self
-            .http
-            .delete(&url)
-            .send()
-            .await
-            .map_err(|e| ClientError::Http(e.to_string()))?;
-        read_envelope::<T>(resp).await
+        self.send(reqwest::Method::DELETE, path, None).await
     }
 
-    /// Untyped GET returning the unwrapped `data` payload as JSON.
+    /// JSON escape hatch: same unwrap as above, kept for endpoints whose
+    /// `data` is still generic `Value`, dynamic queries, and probes.
     pub async fn get_json<T>(&self, path: &str) -> ClientResult<T>
     where
         T: DeserializeOwned,
@@ -209,7 +412,7 @@ impl WfClient {
         self.get(path).await
     }
 
-    /// Untyped POST returning the unwrapped `data` payload as JSON.
+    /// JSON escape hatch for POST; prefer a typed helper for new call sites.
     pub async fn post_json<B, T>(&self, path: &str, body: &B) -> ClientResult<T>
     where
         B: Serialize + ?Sized,
@@ -234,23 +437,32 @@ impl WfClient {
     }
 }
 
+/// Unwrap a progenitor envelope by round-tripping through JSON so every
+/// generated success type shares one `success`/`data` check.
+pub fn unwrap_generated_envelope<T, D>(envelope: T) -> ClientResult<D>
+where
+    T: Serialize,
+    D: DeserializeOwned,
+{
+    let value = serde_json::to_value(&envelope)
+        .map_err(|e| ClientError::Invalid(format!("envelope encode: {e}")))?;
+    unwrap_envelope(&value)
+}
+
 async fn read_envelope<T>(resp: reqwest::Response) -> ClientResult<T>
 where
     T: DeserializeOwned,
 {
-    let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(ClientError::Unauthorized);
-    }
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Err(ClientError::NotFound(status.to_string()));
-    }
+    let status = resp.status().as_u16();
     let body: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| ClientError::Invalid(format!("response body: {e}")))?;
-    if !status.is_success() {
-        return Err(envelope_error(&body, status.as_u16()));
+    if status == 401 {
+        return Err(ClientError::Unauthorized);
+    }
+    if !(200..300).contains(&status) {
+        return Err(from_status_body(status, &body));
     }
     unwrap_envelope(&body)
 }
@@ -261,33 +473,14 @@ where
     T: DeserializeOwned,
 {
     if body.get("success").and_then(|v| v.as_bool()) == Some(false) {
-        return Err(envelope_error(body, 0));
+        return Err(from_status_body(0, body));
     }
     match body.get("data") {
         None => Err(ClientError::Invalid("missing data field".to_string())),
-        Some(serde_json::Value::Null) => Err(ClientError::Invalid("empty data".to_string())),
+        // `Null` decodes into `Option<T>` as `None`; non-optional targets
+        // fail with a decode error below, which is the correct signal.
         Some(data) => serde_json::from_value(data.clone())
             .map_err(|e| ClientError::Invalid(format!("data decode: {e}"))),
-    }
-}
-
-fn envelope_error(body: &serde_json::Value, status: u16) -> ClientError {
-    let code = body
-        .get("error")
-        .and_then(|e| e.get("code"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("REMOTE_ERROR");
-    let message = body
-        .get("error")
-        .and_then(|e| e.get("message"))
-        .and_then(|m| m.as_str())
-        .unwrap_or("request failed");
-    if status == 401 {
-        return ClientError::Unauthorized;
-    }
-    ClientError::Remote {
-        code: code.to_string(),
-        message: message.to_string(),
     }
 }
 
@@ -309,6 +502,14 @@ where
     E: std::fmt::Debug,
 {
     map_progenitor(err)
+}
+
+/// Adapt a typed progenitor call carrying `ErrorResponse`, preserving the
+/// server-sent code and message.
+pub fn into_typed_client_error(
+    err: progenitor_client::Error<crate::models::ErrorResponse>,
+) -> ClientError {
+    map_typed_error(err)
 }
 
 #[cfg(test)]

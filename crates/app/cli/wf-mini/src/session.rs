@@ -447,7 +447,7 @@ impl NativeSession {
         let execution_id = format!("remote:{correlation_id}");
         match self
             .client
-            .post_stream("/api/v1/agent-loops/cli/stream", &body)
+            .post_stream(&wf_client::endpoints::agent_cli_stream(), &body)
             .await
         {
             Ok(stream) => {

@@ -17,6 +17,7 @@
 
 pub(crate) mod keys;
 mod render;
+mod tool_blocks;
 mod turn;
 mod view;
 
@@ -118,6 +119,19 @@ pub struct InteractiveController {
     remembered: ApprovalRemembered,
     scroll_cover: usize,
     tool_started_at: HashMap<String, u64>,
+    /// Finished tool calls with collapsible output rows, keyed by tool
+    /// call id. The scrollback stays plain history rows; this table owns
+    /// the excerpts and the row bookkeeping for toggling.
+    tool_blocks: HashMap<String, tool_blocks::ToolBlock>,
+    /// Tool call insertion order for most-recent expandable lookup.
+    tool_order: Vec<String>,
+    /// Thresholds for tool-output previews and block storage.
+    tool_config: tui_core::tool_output::ToolOutputConfig,
+    /// Successful tool calls accumulated for the Low detail-level activity
+    /// group. Flushed into one summary row at the next non-tool row.
+    activity: Vec<(String, bool)>,
+    /// Pending full-output viewer request drained by the shell into a modal.
+    viewer_request: Option<tool_blocks::ToolViewerRequest>,
     exit_tracker: DoublePressTracker,
     /// Pagination state machine for replay-history loading (see `load_replay`).
     pager: ReplayPager,
@@ -285,6 +299,11 @@ impl InteractiveController {
             remembered: ApprovalRemembered::default(),
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
+            tool_blocks: HashMap::new(),
+            tool_order: Vec::new(),
+            tool_config: tui_core::tool_output::ToolOutputConfig::default(),
+            activity: Vec::new(),
+            viewer_request: None,
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
             pager: ReplayPager::default(),
             view_scroll: 0,

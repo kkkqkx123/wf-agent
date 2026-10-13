@@ -210,11 +210,19 @@ impl InteractionPoller {
     }
 
     async fn respond(&self, id: &str, response: Value) -> CliResult<()> {
-        let body = serde_json::json!({"response_data": response});
-        let _url = format!("/api/v1/interactions/{id}/respond");
+        // Named request body; response stays passthrough JSON.
+        let body = wf_client::models::RespondBody {
+            response_data: Some(response),
+            result_data: None,
+        };
         self.client
-            .post_json::<_, Value>(&_url, &body)
+            .generated()
+            .post_interactions_id_respond(id, &body)
             .await
+            .map_err(wf_client::client::into_typed_client_error)
+            .and_then(|e| {
+                wf_client::client::unwrap_generated_envelope::<_, Value>(e.into_inner())
+            })
             .map(|_| ())
             .map_err(crate::error::CliError::from)
     }

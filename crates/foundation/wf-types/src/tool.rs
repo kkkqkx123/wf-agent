@@ -9,6 +9,7 @@
 pub mod approval;
 pub mod checkpoint;
 pub mod definition;
+pub mod display;
 pub mod execution;
 pub mod exposure;
 pub mod file_permission;
@@ -22,6 +23,7 @@ pub mod static_config;
 pub use approval::*;
 pub use checkpoint::*;
 pub use definition::*;
+pub use display::*;
 pub use execution::*;
 pub use exposure::*;
 pub use file_permission::*;

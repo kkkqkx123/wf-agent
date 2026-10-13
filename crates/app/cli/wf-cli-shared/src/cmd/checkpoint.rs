@@ -34,16 +34,13 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
     let client = handle.client();
     match sub {
         CheckpointSub::Create { id } => {
-            let checkpoint_id: serde_json::Value = client
-                .post_json(
-                    &format!("/api/v1/executions/{id}/checkpoints"),
-                    &serde_json::json!({}),
-                )
-                .await?;
-            let checkpoint_id = checkpoint_id
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| checkpoint_id.to_string());
+            let envelope = client
+                .generated()
+                .post_executions_id_checkpoints(id)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let checkpoint_id: String =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
             render_envelope(
                 cli.output,
@@ -52,10 +49,17 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::CreateAgent { id, name } => {
-            let body = serde_json::json!({"description": name});
-            let created: serde_json::Value = client
-                .post_json(&format!("/api/v1/agent-loops/{id}/checkpoints"), &body)
-                .await?;
+            // Named request body; response stays passthrough JSON.
+            let body = wf_client::models::CreateCheckpointBody {
+                description: name.clone(),
+            };
+            let envelope = client
+                .generated()
+                .post_agent_loops_id_checkpoints(id, &body)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let created: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let checkpoint_id = created
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -266,16 +270,19 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             offset,
             domain,
         } => {
-            let mut params: Vec<String> = Vec::new();
-            if let Some(entity) = entity_type(*domain) {
-                params.push(format!("entity_type={entity}"));
-            }
-            let path = if params.is_empty() {
-                format!("/api/v1/checkpoints/entity/{id}")
-            } else {
-                format!("/api/v1/checkpoints/entity/{id}?{}", params.join("&"))
-            };
-            let data: serde_json::Value = client.get_json(&path).await?;
+            let entity = entity_type(*domain).map(|s| s.to_string());
+            let envelope = client
+                .generated()
+                .handle_list_checkpoints_by_entity(
+                    id,
+                    entity.as_deref(),
+                    limit.map(|v| v as i64),
+                    offset.map(|v| v as i64),
+                )
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let mut list = data
                 .get("items")
                 .and_then(|v| v.as_array())
@@ -293,8 +300,14 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::Show { id } => {
-            let data: serde_json::Value =
-                client.get_json(&format!("/api/v1/checkpoints/{id}")).await?;
+            let envelope = client
+                .generated()
+                .handle_get_checkpoint(id)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let view: wf_client::models::CheckpointDoc =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+            let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-show", data).with_entity(id.clone()),
@@ -302,29 +315,28 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
         }
         CheckpointSub::Restore { id, resume } => {
             if *resume {
-                let data: serde_json::Value = client
-                    .post_json(
-                        &format!("/api/v1/executions/checkpoints/{id}/resume"),
-                        &serde_json::json!({}),
-                    )
-                    .await?;
-                let execution_id = data
-                    .get("execution_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let envelope = client
+                    .generated()
+                    .handle_restore_and_resume(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let view: wf_client::models::ExecuteView =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
+                let data = serde_json::to_value(&view).unwrap_or(serde_json::Value::Null);
+                let execution_id = view.execution_id.clone();
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("checkpoint-restore-resume", data)
                         .with_entity(execution_id),
                 )
             } else {
-                let data: serde_json::Value = client
-                    .post_json(
-                        &format!("/api/v1/executions/checkpoints/{id}/restore"),
-                        &serde_json::json!({}),
-                    )
-                    .await?;
+                let envelope = client
+                    .generated()
+                    .post_executions_checkpoints_cid_restore(id)
+                    .await
+                    .map_err(wf_client::client::into_typed_client_error)?;
+                let data: serde_json::Value =
+                    wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
                 let execution_id = data
                     .get("execution_id")
                     .and_then(|v| v.as_str())
@@ -338,12 +350,13 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             }
         }
         CheckpointSub::RestoreAgent { id, checkpoint } => {
-            let data: serde_json::Value = client
-                .post_json(
-                    &format!("/api/v1/agent-loops/{id}/checkpoints/{checkpoint}/restore"),
-                    &serde_json::json!({}),
-                )
-                .await?;
+            let envelope = client
+                .generated()
+                .post_agent_loops_id_checkpoints_cid_restore(id, checkpoint)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let data: serde_json::Value =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let entity = data
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -355,10 +368,13 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::Delete { id } => {
-            let deleted: serde_json::Value = client
-                .delete_json(&format!("/api/v1/checkpoints/{id}"))
-                .await?;
-            let deleted = deleted.as_bool().unwrap_or(true);
+            let envelope = client
+                .generated()
+                .handle_delete_checkpoint(id)
+                .await
+                .map_err(wf_client::client::into_typed_client_error)?;
+            let deleted: bool =
+                wf_client::client::unwrap_generated_envelope(envelope.into_inner())?;
             let data = serde_json::json!({"deleted": id, "ok": deleted});
             render_envelope(
                 cli.output,

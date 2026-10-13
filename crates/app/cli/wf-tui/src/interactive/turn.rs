@@ -8,6 +8,7 @@ use wf_types::events::ExecutionStreamEvent;
 
 use crate::reducer::Phase;
 use crate::stream_pacer::PacerOp;
+use crate::tool_output::DetailLevel;
 use crate::transcript::{HistoryLine, LineState, Role};
 use crate::turn::{TurnKind, TurnParams};
 
@@ -55,6 +56,9 @@ impl InteractiveController {
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
         self.pacer.clear();
+        // A new turn breaks any pending activity group so its summary row
+        // lands before the fresh prompt.
+        self.flush_activity();
 
         let tx = self.tx.clone();
         let client = self.client.clone();
@@ -69,7 +73,10 @@ impl InteractiveController {
         let body = params.agent_request_body();
 
         let task = tokio::spawn(async move {
-            match client.post_stream("/api/v1/agent-loops/cli/stream", &body).await {
+            match client
+                .post_stream(&wf_client::endpoints::agent_cli_stream(), &body)
+                .await
+            {
                 Ok(stream) => {
                     let mut stream = cmd_stream_frames(stream);
                     while let Some(item) = stream.next().await {
@@ -322,14 +329,21 @@ impl InteractiveController {
         }
         let client = self.client.clone();
         let id = interaction_id.to_string();
-        let body = serde_json::json!({"response_data": answer.into_response_value()});
+        let body = wf_client::models::RespondBody {
+            response_data: Some(answer.into_response_value()),
+            result_data: None,
+        };
         tokio::spawn(async move {
             if let Err(err) = client
-                .post_json::<_, serde_json::Value>(
-                    &format!("/api/v1/interactions/{id}/respond"),
-                    &body,
-                )
+                .generated()
+                .post_interactions_id_respond(&id, &body)
                 .await
+                .map_err(wf_client::client::into_typed_client_error)
+                .and_then(|e| {
+                    wf_client::client::unwrap_generated_envelope::<_, serde_json::Value>(
+                        e.into_inner(),
+                    )
+                })
             {
                 tracing::warn!(target: "wf_cli", error = %err, "approval respond failed");
             }
@@ -343,6 +357,7 @@ impl InteractiveController {
         match &event {
             ExecutionStreamEvent::Engine(_) => {}
             ExecutionStreamEvent::Completed { iterations, .. } => {
+                self.flush_activity();
                 self.pending_scroll.push(HistoryLine::new_role(
                     format!("✓ completed · {} iterations", iterations),
                     Role::Add,
@@ -351,6 +366,7 @@ impl InteractiveController {
                 self.finish_turn();
             }
             ExecutionStreamEvent::Failed { error } => {
+                self.flush_activity();
                 if Self::should_render_terminal(self.graceful, &event) {
                     self.pending_scroll.push(HistoryLine::new_role(
                         format!("✗ failed: {error}"),
@@ -362,6 +378,7 @@ impl InteractiveController {
                 self.finish_turn();
             }
             ExecutionStreamEvent::Interrupted { reason } => {
+                self.flush_activity();
                 if Self::should_render_terminal(self.graceful, &event) {
                     self.pending_scroll.push(HistoryLine::new_role(
                         format!("■ interrupted: {reason}"),
@@ -391,13 +408,20 @@ impl InteractiveController {
                 self.flush_stream_tail();
                 self.tool_started_at
                     .insert(tool_call_id.clone(), self.now_ms());
-                self.pending_scroll
-                    .push(HistoryLine::new_role(format!("▲ {tool_name}"), Role::Muted));
+                // Low level shows no per-tool start rows; the activity group
+                // summary covers them.
+                if self.tool_config.level != DetailLevel::Low {
+                    self.pending_scroll
+                        .push(HistoryLine::new_role(format!("▲ {tool_name}"), Role::Muted));
+                }
             }
             ExecutionStreamEvent::ToolEnd {
                 tool_call_id,
                 tool_name,
                 success,
+                result,
+                error,
+                display,
                 ..
             } => {
                 self.flush_stream_tail();
@@ -405,13 +429,15 @@ impl InteractiveController {
                     .tool_started_at
                     .remove(tool_call_id)
                     .map(|s| self.now_ms().saturating_sub(s));
-                let line = match (success, elapsed_ms) {
-                    (true, Some(d)) => format!("✓ {tool_name} ({d}ms)"),
-                    (true, None) => format!("✓ {tool_name}"),
-                    (false, _) => format!("✗ {tool_name}"),
-                };
-                let role = if *success { Role::Add } else { Role::Error };
-                self.pending_scroll.push(HistoryLine::new_role(line, role));
+                self.push_tool_end_block(
+                    tool_call_id,
+                    tool_name,
+                    *success,
+                    result,
+                    error.as_deref(),
+                    display.as_ref(),
+                    elapsed_ms,
+                );
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
                 self.pacer.push_reasoning(content);
@@ -511,6 +537,7 @@ impl InteractiveController {
     }
 
     fn flush_stream_tail(&mut self) {
+        let pending_before = self.pending_scroll.len();
         self.poll_stream_frame(true);
         let rest = self
             .stream
@@ -524,6 +551,11 @@ impl InteractiveController {
         self.scroll_cover = 0;
         self.streaming = None;
         self.pacer.clear();
+        // Settled assistant text breaks a pending activity group; tool-only
+        // flushes leave the group open for consecutive tools.
+        if self.pending_scroll.len() != pending_before {
+            self.flush_activity();
+        }
     }
 
     fn finish_turn(&mut self) {
@@ -555,7 +587,7 @@ impl InteractiveController {
 
     /// Move pending rows into the persistent scrollback, trimming history
     /// to a generous ceiling so rendering stays bounded.
-    fn settle_scrollback(&mut self) {
+    pub(crate) fn settle_scrollback(&mut self) {
         const MAX_SCROLLBACK: usize = 10_000;
         if !self.pending_scroll.is_empty() {
             let mut pending = std::mem::take(&mut self.pending_scroll);

@@ -168,13 +168,13 @@ async fn run_workflow(
     );
     let body = TurnParams::workflow_request_body(input.as_ref());
     let outcome = if let Ok(stream) = client
-        .post_stream(
-            &format!("/api/v1/workflows/{workflow_id}/execute/stream"),
-            &body,
-        )
+        .post_stream(&wf_client::endpoints::workflow_execute(workflow_id), &body)
         .await
     {
-        let execution_id = wf_common::generate_id();
+        // The stream protocol carries no execution id upfront, so the
+        // summary uses a stable placeholder instead of a minted id that
+        // could be mistaken for a server-side execution.
+        let execution_id = "remote-stream".to_string();
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
@@ -183,16 +183,9 @@ async fn run_workflow(
         io.sink.flush()?;
         finish_workflow_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
     } else {
-        let resp: serde_json::Value = client
-            .post_json(&format!("/api/v1/workflows/{workflow_id}/execute"), &body)
-            .await?;
-        let execution_id = resp
-            .get("execution_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("remote-exec")
-            .to_string();
-        let result = resp.get("result").cloned().unwrap_or(resp.clone());
-        blocking_outcome(io, &opts, &execution_id, &result, 1, started).await
+        let typed = TurnParams::workflow_typed_body(input.as_ref());
+        let view = client.execute_workflow(workflow_id, &typed).await?;
+        blocking_outcome(io, &opts, &view.execution_id, &view.result, 1, started).await
     };
     stop.store(true, Ordering::SeqCst);
     if let Some(task) = poller {
@@ -224,9 +217,14 @@ async fn run_agent(
     let followup_requested = Arc::new(AtomicBool::new(false));
     let poller = spawn_poller(&client, &opts, io, stop.clone(), followup_requested.clone());
     let body = opts.as_turn_params().agent_request_body();
-    let outcome = if let Ok(stream) = client.post_stream("/api/v1/agent-loops/cli/stream", &body).await
+    let outcome = if let Ok(stream) = client
+        .post_stream(&wf_client::endpoints::agent_cli_stream(), &body)
+        .await
     {
-        let execution_id = wf_common::generate_id();
+        // The stream protocol carries no execution id upfront, so the
+        // summary uses a stable placeholder instead of a minted id that
+        // could be mistaken for a server-side execution.
+        let execution_id = "remote-stream".to_string();
         let mut renderer = crate::run_render::SessionRenderer::new(io.sink.as_mut(), io.format);
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
@@ -235,21 +233,15 @@ async fn run_agent(
         io.sink.flush()?;
         finish_agent_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
     } else {
-        let resp: serde_json::Value = client
-            .post_json("/api/v1/agent-loops/cli/run", &body)
-            .await?;
-        let execution_id = resp
-            .get("agent_loop_id")
-            .or_else(|| resp.get("execution_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("remote-agent")
-            .to_string();
-        let result = resp
-            .get("result")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        let iterations = resp.get("iterations").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-        blocking_outcome(io, &opts, &execution_id, &result, iterations, started).await
+        // Blocking fallback uses the named session shortcut through the
+        // generated client: the `cli` id reuses the `{id}` slot (see
+        // `wf_client::endpoints::agent_cli_run`), so the path template,
+        // request body and response view are all type-checked.
+        let typed = opts.as_turn_params().agent_typed_body();
+        let view = client.run_agent_loop("cli", &typed).await?;
+        let iterations = view.iterations.max(0) as u32;
+        blocking_outcome(io, &opts, &view.agent_loop_id, &view.result, iterations, started)
+            .await
     };
     stop.store(true, Ordering::SeqCst);
     if let Some(task) = poller {

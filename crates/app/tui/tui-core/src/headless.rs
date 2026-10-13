@@ -322,6 +322,7 @@ mod tests {
             success: true,
             result: String::new(),
             error: None,
+            display: None,
         });
         assert_eq!(end.diag, vec!["✓ bash"]);
 
@@ -331,6 +332,7 @@ mod tests {
             success: false,
             result: String::new(),
             error: Some("permission denied".into()),
+            display: None,
         });
         assert_eq!(fail.diag, vec!["✗ write_file: permission denied"]);
     }

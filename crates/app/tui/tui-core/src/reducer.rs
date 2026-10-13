@@ -55,7 +55,14 @@ pub enum MiniCommit {
     ToolStart { tool_name: String },
     /// A tool call ended. The duration is a client-side observation
     /// (the protocol does not carry one) and is attached by the consumer.
-    ToolEnd { tool_name: String, success: bool },
+    /// The result excerpt and error travel with the commit so renderers can
+    /// show collapsed previews without re-reading the event stream.
+    ToolEnd {
+        tool_name: String,
+        success: bool,
+        result: String,
+        error: Option<String>,
+    },
     /// An iteration ended (scrollback flush boundary).
     IterationBoundary,
     /// The agent session completed successfully.
@@ -282,7 +289,11 @@ impl SessionReducer {
                 });
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name, success, ..
+                tool_name,
+                success,
+                result,
+                error,
+                ..
             } => {
                 self.flush_text(commits);
                 if let Some(pos) = self.footer.active_tools.iter().position(|t| t == tool_name) {
@@ -291,6 +302,8 @@ impl SessionReducer {
                 commits.push(MiniCommit::ToolEnd {
                     tool_name: tool_name.clone(),
                     success: *success,
+                    result: result.clone(),
+                    error: error.clone(),
                 });
             }
             ExecutionStreamEvent::Interrupted { reason } => {
@@ -415,6 +428,18 @@ mod tests {
             success: ok,
             result: String::new(),
             error: None,
+            display: None,
+        }
+    }
+
+    fn t_end_with_output(id: &str, name: &str, result: &str) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::ToolEnd {
+            tool_call_id: id.to_string(),
+            tool_name: name.to_string(),
+            success: true,
+            result: result.to_string(),
+            error: None,
+            display: None,
         }
     }
 
@@ -534,10 +559,14 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
+                    result: String::new(),
+                    error: None,
                 },
                 MiniCommit::ToolEnd {
                     tool_name: "read_file".to_string(),
                     success: false,
+                    result: String::new(),
+                    error: None,
                 },
             ]
         );
@@ -572,6 +601,8 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
+                    result: String::new(),
+                    error: None,
                 },
             ]
         );
@@ -587,6 +618,35 @@ mod tests {
         ];
         let (commits, _footer) = fold(&events, "exec-1");
         assert_eq!(commits.len(), 4);
+    }
+
+    #[test]
+    fn tool_end_commit_carries_result_and_error() {
+        let failed = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t9".to_string(),
+            tool_name: "write_file".to_string(),
+            success: false,
+            result: "partial output".to_string(),
+            error: Some("permission denied".to_string()),
+            display: None,
+        };
+        let (commits, _) = fold(&[failed], "exec-1");
+        assert_eq!(
+            commits,
+            vec![MiniCommit::ToolEnd {
+                tool_name: "write_file".to_string(),
+                success: false,
+                result: "partial output".to_string(),
+                error: Some("permission denied".to_string()),
+            }]
+        );
+
+        let ok = t_end_with_output("t1", "bash", "line one\nline two");
+        let (commits, _) = fold(&[ok], "exec-1");
+        assert!(commits.iter().any(|c| matches!(
+            c,
+            MiniCommit::ToolEnd { result, .. } if result == "line one\nline two"
+        )));
     }
 
     #[test]
@@ -702,6 +762,8 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
+                    result: String::new(),
+                    error: None,
                 },
             ]
         );

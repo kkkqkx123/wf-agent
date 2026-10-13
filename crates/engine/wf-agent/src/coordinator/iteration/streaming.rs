@@ -301,8 +301,12 @@ impl AgentIterationCoordinator {
                                 tool_call_id: tc.id.clone(),
                                 tool_name: tc.function.name.clone(),
                                 success: false,
-                                result: result_text,
+                                result: result_text.clone(),
                                 error: failure,
+                                display: Some(wf_tools::predefined::display::display_for(
+                                    Some(tc.function.name.as_str()),
+                                    &result_text,
+                                )),
                             },
                         )
                         .await?;
@@ -350,8 +354,12 @@ impl AgentIterationCoordinator {
                             tool_call_id: effective_tc.id.clone(),
                             tool_name: effective_tc.function.name.clone(),
                             success: false,
-                            result: result_text,
+                            result: result_text.clone(),
                             error: Some(reason),
+                            display: Some(wf_tools::predefined::display::display_for(
+                                Some(effective_tc.function.name.as_str()),
+                                &result_text,
+                            )),
                         },
                     )
                     .await?;
@@ -385,6 +393,10 @@ impl AgentIterationCoordinator {
                         success: failure.is_none(),
                         result: result_text.clone(),
                         error: failure,
+                        display: Some(wf_tools::predefined::display::display_for(
+                            Some(effective_tc.function.name.as_str()),
+                            &result_text,
+                        )),
                     },
                 )
                 .await?;

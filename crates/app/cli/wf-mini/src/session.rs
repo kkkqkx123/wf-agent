@@ -203,7 +203,7 @@ impl NativeSession {
             SlashCommand::Quit => CommandAction::Exit,
             SlashCommand::Help => {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /quit exit (Ctrl-D also exits)");
-                output::diag_line("history: /history list recent prompts, /rerun [n] re-ask prompt n (default: last)");
+                output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
                 output::diag_line("keys: Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
@@ -224,12 +224,32 @@ impl NativeSession {
                 ));
                 CommandAction::Continue
             }
-            SlashCommand::History => {
+            SlashCommand::History(prefix) => {
                 if self.history.is_empty() {
                     output::diag_line("no history yet");
-                } else {
-                    for (number, entry) in self.history.recent(20) {
-                        output::diag_line(&format!("{number}: {entry}"));
+                    return CommandAction::Continue;
+                }
+                match prefix.as_deref() {
+                    None => {
+                        for (number, entry) in self.history.recent(20) {
+                            output::diag_line(&format!("{number}: {entry}"));
+                        }
+                    }
+                    Some(prefix) => {
+                        let shown = self.history.filter_prefix(prefix);
+                        if shown.is_empty() {
+                            output::diag_line(&format!("no match for prefix '{prefix}'"));
+                        } else {
+                            for (number, entry) in shown {
+                                output::diag_line(&format!("{number}: {entry}"));
+                            }
+                            // Cooked mode cannot draw the ghost dim after the
+                            // cursor; print what the raw-mode prediction would
+                            // complete to (same newest-match function).
+                            if let Some(suffix) = self.history.suggest(prefix) {
+                                output::diag_line(&format!("suggestion: {prefix}{suffix}"));
+                            }
+                        }
                     }
                 }
                 CommandAction::Continue
@@ -382,8 +402,10 @@ impl NativeSession {
     /// newest loop summary and reads its conversation. Returns `None` when
     /// nothing resumable exists.
     async fn load_latest(client: &WfClient) -> Option<(String, Vec<wf_types::message::Message>)> {
-        let summaries: serde_json::Value =
-            client.get_json("/api/v1/agent-loops/summaries").await.ok()?;
+        let summaries: serde_json::Value = client
+            .get_json("/api/v1/agent-loops/summaries")
+            .await
+            .ok()?;
         let items = summaries
             .get("items")
             .and_then(|v| v.as_array())
@@ -545,7 +567,8 @@ fn map_frames(
     stream: impl futures::Stream<Item = Result<wf_client::SseFrame, wf_client::ClientError>>
         + Send
         + 'static,
-) -> impl futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_client::ClientError>>> + Unpin {
+) -> impl futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_client::ClientError>>> + Unpin
+{
     use futures::StreamExt;
     Box::pin(stream)
         .filter_map(|item| async move {

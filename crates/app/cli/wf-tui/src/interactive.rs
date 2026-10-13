@@ -277,6 +277,11 @@ impl InteractiveController {
         let mut footer = Footer::new();
         footer.state.execution_id = Some(execution_id.clone());
         footer.state.phase = Phase::Idle;
+        // Cross-process prompt history: best-effort file tail first; replay
+        // user prompts seed older entries later (see `user_prompts_from_lines`).
+        if let Some(path) = crate::composer::default_history_path() {
+            footer.composer.set_history_file(path);
+        }
 
         Self {
             client,

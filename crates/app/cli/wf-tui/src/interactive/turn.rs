@@ -240,6 +240,10 @@ impl InteractiveController {
                     } else {
                         self.pager.land_initial(has_more, next_before);
                     }
+                    let prompts = user_prompts_from_lines(&lines);
+                    if !prompts.is_empty() {
+                        self.footer.composer.seed_older(prompts);
+                    }
                     self.next_seq = 1;
                     self.assign_seq(&mut lines);
                     self.scrollback = lines;
@@ -265,6 +269,10 @@ impl InteractiveController {
                         self.pager.land_earlier(has_more, next_before);
                     }
                     if !lines.is_empty() {
+                        let prompts = user_prompts_from_lines(&lines);
+                        if !prompts.is_empty() {
+                            self.footer.composer.seed_older(prompts);
+                        }
                         let added = lines.len();
                         let first_seq = self.scrollback.first().map(|l| l.seq_no()).unwrap_or(0);
                         if first_seq > added as u64 {
@@ -620,4 +628,24 @@ fn session_message(role: wf_types::message::MessageRole, text: &str) -> wf_types
         thinking_signature: None,
         metadata: None,
     }
+}
+
+/// User prompts carried by replay lines, oldest first: accent-role rows
+/// starting with the live (`❯ `) or replay (`> `) prompt mark. Used to seed
+/// the composer's input history so resumed sessions recall earlier prompts.
+fn user_prompts_from_lines(lines: &[HistoryLine]) -> Vec<String> {
+    lines
+        .iter()
+        .filter(|line| line.role == Role::Accent)
+        .filter_map(|line| {
+            let text = line.raw_lines(1000).join(" ");
+            let stripped = text
+                .strip_prefix("> ")
+                .or_else(|| text.strip_prefix(">"))
+                .or_else(|| text.strip_prefix("❯ "))
+                .or_else(|| text.strip_prefix("❯"))?;
+            let trimmed = stripped.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .collect()
 }

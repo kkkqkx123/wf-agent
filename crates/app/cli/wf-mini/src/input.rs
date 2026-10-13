@@ -15,7 +15,7 @@ pub enum SlashCommand {
     Help,
     Clear,
     New,
-    History,
+    History(Option<String>),
     Rerun(Option<usize>),
     Markdown(Option<String>),
     Reasoning(Option<String>),
@@ -35,7 +35,13 @@ pub fn parse_command(line: &str) -> Option<SlashCommand> {
         "/help" | "/?" if tokens.next().is_none() => Some(SlashCommand::Help),
         "/clear" if tokens.next().is_none() => Some(SlashCommand::Clear),
         "/new" if tokens.next().is_none() => Some(SlashCommand::New),
-        "/history" if tokens.next().is_none() => Some(SlashCommand::History),
+        "/history" => match tokens.next() {
+            None => Some(SlashCommand::History(None)),
+            Some(prefix) if tokens.next().is_none() => {
+                Some(SlashCommand::History(Some(prefix.to_string())))
+            }
+            _ => None,
+        },
         "/rerun" => match tokens.next() {
             None => Some(SlashCommand::Rerun(None)),
             Some(number) => match number.parse::<usize>() {
@@ -137,6 +143,26 @@ impl History {
             .collect()
     }
 
+    /// Inline-prediction suffix for `prefix`: the rest of the newest entry
+    /// starting with `prefix` and strictly longer. Empty for empty prefixes,
+    /// exact repeats and misses. Cooked mode cannot draw it dim after the
+    /// cursor (that needs the raw editor), so `/history [prefix]` lists the
+    /// matches explicitly until the raw path lands; both read this function.
+    pub fn suggest(&self, prefix: &str) -> Option<String> {
+        suggest_suffix(prefix, &self.entries)
+    }
+
+    /// Every entry starting with `prefix` (oldest first), backing
+    /// `/history [prefix]`.
+    pub fn filter_prefix(&self, prefix: &str) -> Vec<(usize, &str)> {
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.starts_with(prefix))
+            .map(|(offset, entry)| (offset + 1, entry.as_str()))
+            .collect()
+    }
+
     pub fn push(&mut self, line: &str) {
         let flattened = line.replace('\n', " ");
         let trimmed = flattened.trim();
@@ -161,6 +187,18 @@ impl History {
             self.entries.pop_front();
         }
     }
+}
+
+/// Newest-first prefix suffix over any oldest-first entry list.
+fn suggest_suffix(prefix: &str, entries: &VecDeque<String>) -> Option<String> {
+    if prefix.is_empty() {
+        return None;
+    }
+    entries
+        .iter()
+        .rev()
+        .find(|entry| entry.starts_with(prefix) && entry.len() > prefix.len())
+        .map(|entry| entry[prefix.len()..].to_string())
 }
 
 /// Append one line plus newline, creating parent dirs on first use.
@@ -216,7 +254,10 @@ fn env_flag_disabled(name: &str) -> bool {
     if raw.trim().is_empty() {
         return false;
     }
-    matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 /// Process-wide single owner of stdin line reads.
@@ -341,7 +382,12 @@ mod tests {
         assert_eq!(parse_command("/help"), Some(SlashCommand::Help));
         assert_eq!(parse_command("/clear"), Some(SlashCommand::Clear));
         assert_eq!(parse_command("/new"), Some(SlashCommand::New));
-        assert_eq!(parse_command("/history"), Some(SlashCommand::History));
+        assert_eq!(parse_command("/history"), Some(SlashCommand::History(None)));
+        assert_eq!(
+            parse_command("/history cargo"),
+            Some(SlashCommand::History(Some("cargo".to_string())))
+        );
+        assert_eq!(parse_command("/history a b"), None);
         assert_eq!(parse_command("/rerun"), Some(SlashCommand::Rerun(None)));
         assert_eq!(
             parse_command("/rerun 3"),
@@ -440,6 +486,32 @@ mod tests {
         drop(tx);
         assert_eq!(reader.drain(), 1);
         assert_eq!(reader.next_line().await, None);
+    }
+
+    #[test]
+    fn history_suggest_prefers_the_newest_prefix_match() {
+        let mut history = History::new();
+        history.push("git status");
+        history.push("cargo test");
+        history.push("cargo nextest run");
+        assert_eq!(history.suggest("cargo "), Some("nextest run".to_string()));
+        assert_eq!(history.suggest("git "), Some("status".to_string()));
+        assert_eq!(history.suggest(""), None);
+        assert_eq!(history.suggest("cargo nextest run"), None);
+        assert_eq!(history.suggest("make"), None);
+    }
+
+    #[test]
+    fn history_filter_lists_prefix_matches_oldest_first() {
+        let mut history = History::new();
+        history.push("cargo test");
+        history.push("git status");
+        history.push("cargo fmt");
+        assert_eq!(
+            history.filter_prefix("cargo"),
+            vec![(1, "cargo test"), (3, "cargo fmt")]
+        );
+        assert!(history.filter_prefix("make").is_empty());
     }
 
     #[test]

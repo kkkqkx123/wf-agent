@@ -294,7 +294,37 @@ impl InteractiveController {
     }
 
     fn draw_input(&self, frame: &mut Frame, area: Rect) {
-        let text = format!("> {}", self.footer.composer.content());
-        frame.render_widget(Paragraph::new(text), area);
+        use ratatui::style::Modifier;
+        use ratatui::text::{Line, Span};
+        let composer = &self.footer.composer;
+        if composer.search_active() {
+            let query = composer.content();
+            let preview = composer.search_selected_text().unwrap_or_default();
+            let count = composer.search_match_count();
+            let position = composer.search_position().map(|(sel, _)| sel).unwrap_or(0);
+            let mut spans = vec![Span::raw(format!("(reverse-i-search) `{query}': "))];
+            if preview.is_empty() {
+                spans.push(Span::raw(query.to_string()));
+            } else {
+                spans.push(Span::raw(preview));
+            }
+            if count > 0 {
+                spans.push(Span::styled(
+                    format!(" [{position}/{count}]"),
+                    ratatui::style::Style::default().add_modifier(Modifier::DIM),
+                ));
+            }
+            frame.render_widget(Paragraph::new(Line::from(spans)), area);
+            return;
+        }
+        let content = composer.content();
+        let mut spans = vec![Span::raw(format!("> {content}"))];
+        if let Some(ghost) = composer.ghost() {
+            spans.push(Span::styled(
+                ghost,
+                ratatui::style::Style::default().add_modifier(Modifier::DIM),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 }

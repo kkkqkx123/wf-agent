@@ -9,7 +9,7 @@
 use serde_json::Value;
 
 use crate::approval_overlay::ApprovalChoice;
-use crate::footer::FooterView;
+use crate::footer::{FooterRoute, FooterView};
 use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 use crate::question_overlay::QuestionOutcome;
@@ -202,6 +202,60 @@ impl InteractiveController {
     }
 
     fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
+        let composing = self.footer.route == FooterRoute::Composer;
+        // An open reverse search owns the prompt keys first (menu/panel
+        // routes keep their own Up/Down; approval/question never reach here).
+        if composing && self.footer.composer.search_active() {
+            if key.ctrl && !key.alt && matches!(key.code, CKey::Char('r') | CKey::Char('R')) {
+                self.footer.composer.search_older();
+                return InteractiveAction::Continue;
+            }
+            match key.code {
+                CKey::Up if !key.ctrl && !key.alt => {
+                    if self.footer.composer.search_match_count() > 0 {
+                        self.footer.composer.search_older();
+                    } else {
+                        self.footer.composer.search_accept();
+                        self.footer.composer.history_prev();
+                    }
+                    return InteractiveAction::Continue;
+                }
+                CKey::Down if !key.ctrl && !key.alt => {
+                    if self.footer.composer.search_match_count() > 0 {
+                        self.footer.composer.search_newer();
+                    } else {
+                        self.footer.composer.search_accept();
+                        self.footer.composer.history_next();
+                    }
+                    return InteractiveAction::Continue;
+                }
+                CKey::Enter if !key.ctrl && !key.alt => {
+                    // Accept only; a second Enter sends.
+                    self.footer.composer.search_accept();
+                    return InteractiveAction::Continue;
+                }
+                CKey::Esc => {
+                    self.footer.composer.search_cancel();
+                    return InteractiveAction::Continue;
+                }
+                CKey::Backspace if !key.ctrl && !key.alt => {
+                    self.footer.composer.search_backspace();
+                    return InteractiveAction::Continue;
+                }
+                CKey::Delete if !key.ctrl && !key.alt => {
+                    return InteractiveAction::Continue;
+                }
+                CKey::Char(c) if !key.ctrl && !key.alt => {
+                    self.footer.composer.search_push_char(c);
+                    return InteractiveAction::Continue;
+                }
+                _ => {
+                    // Any other key takes the lit entry, then does its
+                    // ordinary job against the accepted text.
+                    self.footer.composer.search_accept();
+                }
+            }
+        }
         match key.code {
             CKey::Enter => {
                 // Shift+Enter inserts a newline inside the input; plain Enter
@@ -220,12 +274,43 @@ impl InteractiveController {
                     self.start_turn(text.trim().to_string(), None, None);
                 }
             }
+            CKey::Up if !key.ctrl && !key.alt => {
+                if composing {
+                    self.footer.composer.history_prev();
+                }
+            }
+            CKey::Down if !key.ctrl && !key.alt => {
+                if composing {
+                    self.footer.composer.history_next();
+                }
+            }
+            CKey::Right if !key.ctrl && !key.alt => {
+                if composing {
+                    if !self.footer.composer.accept_ghost() {
+                        self.footer.composer.move_right();
+                    }
+                } else {
+                    self.footer.composer.move_right();
+                }
+            }
+            CKey::End if !key.ctrl && !key.alt => {
+                if composing {
+                    if !self.footer.composer.accept_ghost() {
+                        self.footer.composer.end();
+                    }
+                } else {
+                    self.footer.composer.end();
+                }
+            }
+            CKey::Char('r') | CKey::Char('R') if key.ctrl && !key.alt => {
+                if composing {
+                    self.footer.composer.begin_search();
+                }
+            }
             CKey::Backspace => self.footer.composer.backspace(),
             CKey::Delete => self.footer.composer.delete_forward(),
             CKey::Left => self.footer.composer.move_left(),
-            CKey::Right => self.footer.composer.move_right(),
             CKey::Home => self.footer.composer.home(),
-            CKey::End => self.footer.composer.end(),
             CKey::Char(c) if !key.ctrl && !key.alt => self.footer.composer.insert_char(c),
             _ => {}
         }

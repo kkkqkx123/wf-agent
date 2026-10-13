@@ -13,6 +13,7 @@ pub enum LoopAction {
 pub enum Feedback {
     Notice(String),
     Refresh(ScreenKind),
+    Filter(String),
 }
 
 /// Overlay mode for secondary views.

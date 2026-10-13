@@ -32,7 +32,7 @@ impl Screen {
     }
 }
 
-/// Navigation stack managing the 7 TUI screens.
+/// Navigation stack managing the TUI screens.
 #[derive(Debug)]
 pub struct Screens {
     stack: Vec<Screen>,
@@ -112,8 +112,15 @@ impl Screens {
     }
 
     /// Render the current screen into the frame using the supplied data model.
-    pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
-        self.draw_with_settings_scroll(frame, area, data, theme, 0)
+    pub fn draw(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        data: &ScreenData,
+        theme: &Theme,
+        ctx: &ScreenContext,
+    ) {
+        self.draw_with_settings_scroll(frame, area, data, theme, 0, ctx)
     }
 
     /// Render with an explicit settings scroll offset so the settings page
@@ -125,16 +132,17 @@ impl Screens {
         data: &ScreenData,
         theme: &Theme,
         settings_scroll: usize,
+        ctx: &ScreenContext,
     ) {
         match self.current_kind() {
             ScreenKind::Dashboard => {
                 screen_draw::draw_dashboard(frame, area, data, self.selected, theme)
             }
             ScreenKind::Workflow => {
-                screen_draw::draw_workflow(frame, area, data, self.selected, theme)
+                screen_draw::draw_workflow(frame, area, data, self.selected, theme, ctx)
             }
             ScreenKind::Executions => {
-                screen_draw::draw_executions(frame, area, data, self.selected, theme)
+                screen_draw::draw_executions(frame, area, data, self.selected, theme, ctx)
             }
             ScreenKind::Insights => screen_draw::draw_insights(frame, area, data, theme),
             // The Interactive screen is rendered by `InteractiveController::draw`
@@ -142,8 +150,21 @@ impl Screens {
             // reached here — kept as an explicit no-op for exhaustiveness.
             ScreenKind::Interactive => {}
             ScreenKind::Checkpoints => {
-                screen_draw::draw_checkpoints(frame, area, data, self.selected, theme)
+                screen_draw::draw_checkpoints(frame, area, data, self.selected, theme, ctx)
             }
+            ScreenKind::Templates => {
+                screen_draw::draw_templates(frame, area, data, self.selected, theme, ctx)
+            }
+            ScreenKind::Resources => {
+                screen_draw::draw_resources(frame, area, data, self.selected, theme, ctx)
+            }
+            ScreenKind::Triggers => {
+                screen_draw::draw_triggers(frame, area, data, self.selected, theme, ctx)
+            }
+            ScreenKind::Events => {
+                screen_draw::draw_events(frame, area, data, self.selected, theme, ctx)
+            }
+            ScreenKind::Git => screen_draw::draw_git(frame, area, data, self.selected, theme, ctx),
             ScreenKind::Settings => {
                 screen_draw::draw_settings(frame, area, data, settings_scroll, theme)
             }
@@ -203,6 +224,21 @@ mod tests {
             ScreenKind::all().len()
         );
         assert_eq!(ScreenData::Insights(Default::default()).row_count(), 0);
+        assert_eq!(ScreenData::Templates(vec![]).row_count(), 0);
+        assert_eq!(
+            ScreenData::Templates(vec![TemplateRow {
+                id: "t-1".into(),
+                name: "demo".into(),
+                kind: "workflow".into(),
+                detail: String::new(),
+            }])
+            .row_count(),
+            1
+        );
+        assert_eq!(ScreenData::Resources(vec![]).row_count(), 0);
+        assert_eq!(ScreenData::Triggers(vec![]).row_count(), 0);
+        assert_eq!(ScreenData::Events(vec![]).row_count(), 0);
+        assert_eq!(ScreenData::Git(vec![]).row_count(), 0);
     }
 
     #[test]

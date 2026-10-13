@@ -60,6 +60,11 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Settings,
+    ScreenKind::Templates,
+    ScreenKind::Resources,
+    ScreenKind::Triggers,
+    ScreenKind::Events,
+    ScreenKind::Git,
 ];
 
 /// Full-screen TUI application shell: owns the server client, the screen
@@ -452,7 +457,7 @@ impl TuiApp {
             // terminal supports it so streaming never tears.
             self.frame.set_now(self.now_ms());
             if (interactive || self.pending_scope.is_pending()) && self.frame.deadline().is_none() {
-                let data = self.current_data();
+                let data = self.display_data();
                 let sync_scope = self.grade_frame();
                 let sync = crate::perf::should_sync_output(
                     self.perf_policy,
@@ -870,12 +875,28 @@ impl TuiApp {
             session.draw(frame, chunks[0], &self.theme);
         } else {
             // Fallback to screens if no interactive controller is active
+            let kind = self.app.screen.navigation.current_kind();
+            let detail_key = self.current_detail_key();
+            let detail_lines: &[String] = detail_key
+                .as_ref()
+                .and_then(|(key, _)| self.app.screen.detail_for(key))
+                .map(|cached| cached.lines.as_slice())
+                .unwrap_or(&[]);
+            let ctx = crate::screens::ScreenContext {
+                exec_view: self.app.screen.exec_view,
+                workflow_view: self.app.screen.workflow_view,
+                detail_lines,
+                detail_scroll: self.app.screen.detail_scroll,
+                has_more: self.app.screen.is_truncated(kind),
+                filter: self.app.screen.list_filter.as_str(),
+            };
             self.app.screen.navigation.draw_with_settings_scroll(
                 frame,
                 chunks[0],
                 data,
                 &self.theme,
                 self.app.screen.settings_scroll,
+                &ctx,
             );
         }
 

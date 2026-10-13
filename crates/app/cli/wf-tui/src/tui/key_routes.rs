@@ -166,10 +166,22 @@ impl TuiApp {
             CKey::Char('j') | CKey::Down => {
                 let len = self.nav_len();
                 self.app.screen.navigation.select_next(len);
+                self.request_detail_for_current();
             }
             CKey::Char('k') | CKey::Up => {
                 let len = self.nav_len();
                 self.app.screen.navigation.select_prev(len);
+                self.request_detail_for_current();
+            }
+            CKey::PageUp => {
+                if self.scroll_detail(-10) {
+                    return Ok(LoopAction::Continue);
+                }
+            }
+            CKey::PageDown => {
+                if self.scroll_detail(10) {
+                    return Ok(LoopAction::Continue);
+                }
             }
             CKey::Enter => match self.app.screen.navigation.current_kind() {
                 ScreenKind::Dashboard => {
@@ -179,24 +191,40 @@ impl TuiApp {
                     }
                 }
                 ScreenKind::Executions => {
-                    let rows_len = self.current_data().row_count();
-                    let selected = self
-                        .app
-                        .screen
-                        .navigation
-                        .selected()
-                        .min(rows_len.saturating_sub(1));
-                    let id = match self.current_data() {
-                        ScreenData::Executions(rows) => rows.get(selected).map(|r| r.id.clone()),
-                        _ => None,
-                    };
-                    if let Some(id) = id {
-                        self.goto(ScreenKind::Interactive);
-                        self.pending_replay = Some(id);
+                    if self.app.screen.exec_view == crate::screens::ExecView::Overview {
+                        let rows_len = self.display_data().row_count();
+                        let selected = self
+                            .app
+                            .screen
+                            .navigation
+                            .selected()
+                            .min(rows_len.saturating_sub(1));
+                        let id = match self.display_data() {
+                            ScreenData::Executions(rows) => {
+                                rows.get(selected).map(|r| r.id.clone())
+                            }
+                            _ => None,
+                        };
+                        if let Some(id) = id {
+                            self.goto(ScreenKind::Interactive);
+                            self.pending_replay = Some(id);
+                        }
+                    } else {
+                        self.open_selected_exec_viewer();
                     }
+                }
+                ScreenKind::Workflow => {
+                    self.open_selected_workflow_viewer();
                 }
                 ScreenKind::Checkpoints => {
                     self.open_selected_checkpoint_detail();
+                }
+                ScreenKind::Templates
+                | ScreenKind::Resources
+                | ScreenKind::Triggers
+                | ScreenKind::Events
+                | ScreenKind::Git => {
+                    self.open_selected_cached_detail();
                 }
                 _ => {}
             },
@@ -212,9 +240,47 @@ impl TuiApp {
             CKey::Char('r') => {
                 let kind = self.app.screen.navigation.current_kind();
                 self.invalidate(kind);
+                self.request_detail_for_current();
                 self.app
                     .notice
                     .set(format!("Refreshing {}...", kind.title()));
+            }
+            CKey::Char('[')
+                if matches!(
+                    self.app.screen.navigation.current_kind(),
+                    ScreenKind::Executions | ScreenKind::Workflow
+                ) =>
+            {
+                self.cycle_detail_view(false);
+            }
+            CKey::Char(']')
+                if matches!(
+                    self.app.screen.navigation.current_kind(),
+                    ScreenKind::Executions | ScreenKind::Workflow
+                ) =>
+            {
+                self.cycle_detail_view(true);
+            }
+            CKey::Char('/')
+                if !key.ctrl
+                    && !key.alt
+                    && self.app.screen.navigation.current_kind().has_data() =>
+            {
+                self.prompt_list_filter();
+            }
+            CKey::Char('X')
+                if !key.ctrl
+                    && !key.alt
+                    && self.app.screen.navigation.current_kind().has_data() =>
+            {
+                if self.app.screen.list_filter.is_empty() {
+                    self.app.notice.set("No active filter.".to_string());
+                } else {
+                    self.app.screen.list_filter.clear();
+                    self.app.screen.detail_scroll = 0;
+                    self.request_detail_for_current();
+                    self.app.notice.set("Filter cleared.".to_string());
+                }
             }
             CKey::Char('R')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
@@ -250,6 +316,36 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
             {
                 self.pick_default_model();
+            }
+            CKey::Char('o')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.toggle_mouse_capture();
+            }
+            CKey::Char('c')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.cycle_copy_target();
+            }
+            CKey::Char('e')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.toggle_tool_output();
+            }
+            CKey::Char('l')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.cycle_tool_level();
+            }
+            CKey::Char('+')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.step_preview_budget(true);
+            }
+            CKey::Char('-')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.step_preview_budget(false);
             }
             _ => {}
         }
@@ -321,6 +417,15 @@ impl TuiApp {
             }
             CKey::End if self.overlay == OverlayMode::History && !key.alt => {
                 self.history.jump_to_latest();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return Ok(LoopAction::Continue);
+            }
+            CKey::Home if self.overlay == OverlayMode::History && key.ctrl && !key.alt => {
+                if let Some(before) = self.history.start_earlier() {
+                    self.request_history_page(Some(before));
+                } else {
+                    self.history.jump_to_oldest();
+                }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
@@ -410,10 +515,52 @@ impl TuiApp {
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 
+    /// Scroll the executions/workflow detail pane. Reports whether the
+    /// current screen owns a detail pane so callers can fall through.
+    fn scroll_detail(&mut self, delta: isize) -> bool {
+        if !matches!(
+            self.app.screen.navigation.current_kind(),
+            ScreenKind::Executions | ScreenKind::Workflow
+        ) {
+            return false;
+        }
+        if delta >= 0 {
+            self.app.screen.detail_scroll =
+                self.app.screen.detail_scroll.saturating_add(delta as usize);
+        } else {
+            self.app.screen.detail_scroll = self
+                .app
+                .screen
+                .detail_scroll
+                .saturating_sub(delta.unsigned_abs());
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        true
+    }
+
+    /// Cycle the executions/workflow subview and fetch its detail lines.
+    fn cycle_detail_view(&mut self, forward: bool) {
+        match self.app.screen.navigation.current_kind() {
+            ScreenKind::Executions => {
+                let view = self.app.screen.exec_view;
+                self.app.screen.exec_view = if forward { view.next() } else { view.prev() };
+                self.request_detail_for_current();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            ScreenKind::Workflow => {
+                let view = self.app.screen.workflow_view;
+                self.app.screen.workflow_view = if forward { view.next() } else { view.prev() };
+                self.request_detail_for_current();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            _ => {}
+        }
+    }
+
     /// Number of selectable rows on the current screen.
     pub(super) fn nav_len(&self) -> usize {
         match self.app.screen.navigation.current_kind() {
-            kind if kind.has_data() => self.current_data().row_count().max(1),
+            kind if kind.has_data() => self.display_data().row_count().max(1),
             _ => 1,
         }
     }
@@ -421,14 +568,20 @@ impl TuiApp {
     pub(super) fn goto(&mut self, kind: ScreenKind) {
         self.app.screen.navigation.navigate_to(kind);
         self.app.screen.settings_scroll = 0;
+        self.app.screen.detail_scroll = 0;
+        self.app.screen.list_filter.clear();
         self.request_data(kind);
+        self.request_detail_for_current();
     }
 
     pub(super) fn go_back(&mut self) -> bool {
         if self.app.screen.navigation.go_back() {
             let kind = self.app.screen.navigation.current_kind();
             self.app.screen.settings_scroll = 0;
+            self.app.screen.detail_scroll = 0;
+            self.app.screen.list_filter.clear();
             self.request_data(kind);
+            self.request_detail_for_current();
             true
         } else {
             false

@@ -15,6 +15,11 @@ pub enum ScreenKind {
     Interactive,
     Checkpoints,
     Settings,
+    Templates,
+    Resources,
+    Triggers,
+    Events,
+    Git,
 }
 
 impl ScreenKind {
@@ -27,6 +32,11 @@ impl ScreenKind {
             Self::Interactive => "Chat",
             Self::Checkpoints => "Checkpoints",
             Self::Settings => "Settings",
+            Self::Templates => "Templates",
+            Self::Resources => "Resources",
+            Self::Triggers => "Triggers",
+            Self::Events => "Events",
+            Self::Git => "Git",
         }
     }
 
@@ -39,6 +49,11 @@ impl ScreenKind {
             Self::Interactive,
             Self::Checkpoints,
             Self::Settings,
+            Self::Templates,
+            Self::Resources,
+            Self::Triggers,
+            Self::Events,
+            Self::Git,
         ]
     }
 
@@ -51,7 +66,9 @@ impl ScreenKind {
     }
 }
 
-/// Digit that selects each screen in the shell's key map.
+/// Digit that selects each screen in the shell's key map. Screens added
+/// after the original seven carry no digit and are reached through the
+/// dashboard, the sidebar overlay or the search palette.
 pub fn screen_digit(kind: ScreenKind) -> Option<char> {
     match kind {
         ScreenKind::Dashboard => Some('0'),
@@ -61,6 +78,11 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         ScreenKind::Interactive => Some('4'),
         ScreenKind::Checkpoints => Some('5'),
         ScreenKind::Settings => Some('6'),
+        ScreenKind::Templates
+        | ScreenKind::Resources
+        | ScreenKind::Triggers
+        | ScreenKind::Events
+        | ScreenKind::Git => None,
     }
 }
 
@@ -99,6 +121,103 @@ pub struct ExecRow {
     pub iteration: u32,
     pub tool_calls: u32,
     pub started: String,
+}
+
+/// Subview selected on the executions screen. `Overview` renders from the
+/// cached list row; every other view renders fetched detail lines for the
+/// selected execution while the list keeps its position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecView {
+    Overview,
+    Messages,
+    Tools,
+    Timeline,
+    Variables,
+}
+
+impl ExecView {
+    pub const ALL: &'static [ExecView] = &[
+        Self::Overview,
+        Self::Messages,
+        Self::Tools,
+        Self::Timeline,
+        Self::Variables,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::Messages => "Messages",
+            Self::Tools => "Tools",
+            Self::Timeline => "Timeline",
+            Self::Variables => "Variables",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|v| *v == self).unwrap_or(0)
+    }
+
+    pub fn from_index(idx: usize) -> Self {
+        Self::ALL.get(idx).copied().unwrap_or(Self::Overview)
+    }
+
+    pub fn next(self) -> Self {
+        Self::from_index((self.index() + 1) % Self::ALL.len())
+    }
+
+    pub fn prev(self) -> Self {
+        Self::from_index((self.index() + Self::ALL.len() - 1) % Self::ALL.len())
+    }
+}
+
+/// Subview selected on the workflow screen. `Summary` renders from the
+/// cached list row; `Nodes` and `Runs` render fetched detail lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowView {
+    Summary,
+    Nodes,
+    Runs,
+}
+
+impl WorkflowView {
+    pub const ALL: &'static [WorkflowView] = &[Self::Summary, Self::Nodes, Self::Runs];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Summary => "Summary",
+            Self::Nodes => "Nodes",
+            Self::Runs => "Runs",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|v| *v == self).unwrap_or(0)
+    }
+
+    pub fn from_index(idx: usize) -> Self {
+        Self::ALL.get(idx).copied().unwrap_or(Self::Summary)
+    }
+
+    pub fn next(self) -> Self {
+        Self::from_index((self.index() + 1) % Self::ALL.len())
+    }
+
+    pub fn prev(self) -> Self {
+        Self::from_index((self.index() + Self::ALL.len() - 1) % Self::ALL.len())
+    }
+}
+
+/// Read-only context the shell hands to the management-screen renderers:
+/// active subviews, cached detail lines for the current selection, list
+/// truncation and the active client-side filter.
+pub struct ScreenContext<'a> {
+    pub exec_view: ExecView,
+    pub workflow_view: WorkflowView,
+    pub detail_lines: &'a [String],
+    pub detail_scroll: usize,
+    pub has_more: bool,
+    pub filter: &'a str,
 }
 
 /// Status filter applied to the execution list.
@@ -153,6 +272,51 @@ pub struct CheckpointRow {
     pub entity_type: String,
     pub checkpoint_type: String,
     pub status: String,
+}
+
+/// One template row rendered on the templates screen. `detail` carries the
+/// pre-rendered read-only viewer text so opening it needs no extra fetch.
+#[derive(Debug, Clone)]
+pub struct TemplateRow {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub detail: String,
+}
+
+/// One tool row rendered on the resources screen.
+#[derive(Debug, Clone)]
+pub struct ResourceRow {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub detail: String,
+}
+
+/// One trigger execution row rendered on the triggers screen.
+#[derive(Debug, Clone)]
+pub struct TriggerRow {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub detail: String,
+}
+
+/// One event row rendered on the events screen.
+#[derive(Debug, Clone)]
+pub struct EventRow {
+    pub id: String,
+    pub kind: String,
+    pub summary: String,
+    pub detail: String,
+}
+
+/// One repository file row rendered on the git screen.
+#[derive(Debug, Clone)]
+pub struct GitRow {
+    pub path: String,
+    pub status: String,
+    pub detail: String,
 }
 
 /// One search hit rendered in the search palette overlay.
@@ -218,6 +382,11 @@ pub enum ScreenData {
     Insights(InsightsData),
     Checkpoints(Vec<CheckpointRow>),
     Settings(SettingsData),
+    Templates(Vec<TemplateRow>),
+    Resources(Vec<ResourceRow>),
+    Triggers(Vec<TriggerRow>),
+    Events(Vec<EventRow>),
+    Git(Vec<GitRow>),
 }
 
 impl ScreenData {
@@ -230,7 +399,85 @@ impl ScreenData {
             Self::Executions(rows) => rows.len(),
             Self::Checkpoints(rows) => rows.len(),
             Self::Settings(data) => data.profiles.len(),
+            Self::Templates(rows) => rows.len(),
+            Self::Resources(rows) => rows.len(),
+            Self::Triggers(rows) => rows.len(),
+            Self::Events(rows) => rows.len(),
+            Self::Git(rows) => rows.len(),
         }
+    }
+}
+
+/// Client-side substring filter over a screen's list rows. Matching is
+/// case-insensitive across the row's display fields; screens without rows
+/// pass through unchanged.
+pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
+    let needle = query.to_lowercase();
+    if needle.trim().is_empty() {
+        return data.clone();
+    }
+    let hits = |fields: &[&str]| {
+        let haystack = fields.join(" ").to_lowercase();
+        haystack.contains(&needle)
+    };
+    match data {
+        ScreenData::Workflow(rows) => ScreenData::Workflow(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.name, r.description.as_deref().unwrap_or("")]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Executions(rows) => ScreenData::Executions(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.status]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Checkpoints(rows) => ScreenData::Checkpoints(
+            rows.iter()
+                .filter(|r| {
+                    hits(&[
+                        &r.id,
+                        &r.entity,
+                        &r.entity_type,
+                        &r.checkpoint_type,
+                        &r.status,
+                    ])
+                })
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Templates(rows) => ScreenData::Templates(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.name, &r.kind]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Resources(rows) => ScreenData::Resources(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.name, &r.status]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Triggers(rows) => ScreenData::Triggers(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.name, &r.status]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Events(rows) => ScreenData::Events(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.kind, &r.summary]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Git(rows) => ScreenData::Git(
+            rows.iter()
+                .filter(|r| hits(&[&r.path, &r.status]))
+                .cloned()
+                .collect(),
+        ),
+        _ => data.clone(),
     }
 }
 
@@ -242,5 +489,52 @@ pub fn short_id(id: &str) -> String {
         format!("{head}...")
     } else {
         head
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exec_view_cycles_without_leaving_the_set() {
+        let mut view = ExecView::Overview;
+        for _ in 0..ExecView::ALL.len() {
+            view = view.next();
+        }
+        assert_eq!(view, ExecView::Overview);
+        assert_eq!(ExecView::Overview.prev(), ExecView::Variables);
+        assert_eq!(ExecView::from_index(99), ExecView::Overview);
+    }
+
+    #[test]
+    fn workflow_view_cycles_without_leaving_the_set() {
+        assert_eq!(WorkflowView::Summary.next(), WorkflowView::Nodes);
+        assert_eq!(WorkflowView::Summary.prev(), WorkflowView::Runs);
+        assert_eq!(WorkflowView::from_index(99), WorkflowView::Summary);
+    }
+
+    #[test]
+    fn list_filter_matches_case_insensitively() {
+        let data = ScreenData::Executions(vec![
+            ExecRow {
+                id: "exec-abc".into(),
+                status: "Running".into(),
+                iteration: 1,
+                tool_calls: 0,
+                started: String::new(),
+            },
+            ExecRow {
+                id: "exec-xyz".into(),
+                status: "Completed".into(),
+                iteration: 2,
+                tool_calls: 0,
+                started: String::new(),
+            },
+        ]);
+        assert_eq!(apply_list_filter(&data, "running").row_count(), 1);
+        assert_eq!(apply_list_filter(&data, "EXEC").row_count(), 2);
+        assert_eq!(apply_list_filter(&data, "").row_count(), 2);
+        assert_eq!(apply_list_filter(&data, "nope").row_count(), 0);
     }
 }

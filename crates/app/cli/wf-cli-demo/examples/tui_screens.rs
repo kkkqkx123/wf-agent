@@ -1,5 +1,6 @@
 //! Full-TUI screens showcase: renders every screen (Dashboard, Workflows,
-//! Executions, Insights, Checkpoints, Settings) with synthetic data
+//! Executions, Insights, Checkpoints, Settings, Templates, Resources,
+//! Triggers, Events, Git) with synthetic data
 //! in a full-screen TUI. Navigate between screens with `0`-`6` / `j`/`k`,
 //! select items with Enter, and press `q` to quit.
 //!
@@ -16,8 +17,9 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use wf_tui::screens::{
-    CheckpointRow, DashboardData, ExecRow, InsightTable, InsightsData, LocalSettings, ProfileRow,
-    ScreenData, ScreenKind, Screens, SettingsData, WorkflowRow,
+    CheckpointRow, DashboardData, EventRow, ExecRow, ExecView, GitRow, InsightTable, InsightsData,
+    LocalSettings, ProfileRow, ResourceRow, ScreenContext, ScreenData, ScreenKind, Screens,
+    SettingsData, TemplateRow, TriggerRow, WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -29,6 +31,11 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Settings,
+    ScreenKind::Templates,
+    ScreenKind::Resources,
+    ScreenKind::Triggers,
+    ScreenKind::Events,
+    ScreenKind::Git,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -195,6 +202,66 @@ fn synthetic_settings() -> ScreenData {
     })
 }
 
+fn synthetic_templates() -> ScreenData {
+    ScreenData::Templates(vec![
+        TemplateRow {
+            id: "tmpl-code-review".into(),
+            name: "Code Review".into(),
+            kind: "workflow".into(),
+            detail: "Code Review · workflow".into(),
+        },
+        TemplateRow {
+            id: "tmpl-summarize".into(),
+            name: "Summarize".into(),
+            kind: "agent".into(),
+            detail: "Summarize · agent".into(),
+        },
+    ])
+}
+
+fn synthetic_resources() -> ScreenData {
+    ScreenData::Resources(vec![
+        ResourceRow {
+            id: "tool-read".into(),
+            name: "read".into(),
+            status: "enabled".into(),
+            detail: "read · enabled".into(),
+        },
+        ResourceRow {
+            id: "tool-write".into(),
+            name: "write".into(),
+            status: "disabled".into(),
+            detail: "write · disabled".into(),
+        },
+    ])
+}
+
+fn synthetic_triggers() -> ScreenData {
+    ScreenData::Triggers(vec![TriggerRow {
+        id: "trg-001".into(),
+        name: "nightly-build".into(),
+        status: "completed".into(),
+        detail: "nightly-build · completed".into(),
+    }])
+}
+
+fn synthetic_events() -> ScreenData {
+    ScreenData::Events(vec![EventRow {
+        id: "evt-001".into(),
+        kind: "execution".into(),
+        summary: "execution completed".into(),
+        detail: "execution · execution completed".into(),
+    }])
+}
+
+fn synthetic_git() -> ScreenData {
+    ScreenData::Git(vec![GitRow {
+        path: "src/main.rs".into(),
+        status: "modified".into(),
+        detail: "modified · src/main.rs".into(),
+    }])
+}
+
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Dashboard => "Dashboard",
@@ -204,6 +271,11 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Interactive => "Chat (live)",
         ScreenKind::Checkpoints => "Checkpoints",
         ScreenKind::Settings => "Settings",
+        ScreenKind::Templates => "Templates",
+        ScreenKind::Resources => "Resources",
+        ScreenKind::Triggers => "Triggers",
+        ScreenKind::Events => "Events",
+        ScreenKind::Git => "Git",
     }
 }
 
@@ -216,6 +288,11 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Interactive => Color::Cyan,
         ScreenKind::Checkpoints => Color::Blue,
         ScreenKind::Settings => Color::White,
+        ScreenKind::Templates => Color::Green,
+        ScreenKind::Resources => Color::Green,
+        ScreenKind::Triggers => Color::Yellow,
+        ScreenKind::Events => Color::LightBlue,
+        ScreenKind::Git => Color::Blue,
     }
 }
 
@@ -322,6 +399,11 @@ impl DemoState {
             ScreenKind::Interactive => ScreenData::None,
             ScreenKind::Checkpoints => synthetic_checkpoints(),
             ScreenKind::Settings => synthetic_settings(),
+            ScreenKind::Templates => synthetic_templates(),
+            ScreenKind::Resources => synthetic_resources(),
+            ScreenKind::Triggers => synthetic_triggers(),
+            ScreenKind::Events => synthetic_events(),
+            ScreenKind::Git => synthetic_git(),
         };
         self.screen_selected = 0;
     }
@@ -402,7 +484,20 @@ impl DemoState {
                 .constraints([Constraint::Min(3), Constraint::Length(1)])
                 .split(area);
 
-            self.screens.draw(frame, chunks[0], &self.data, &self.theme);
+            self.screens.draw(
+                frame,
+                chunks[0],
+                &self.data,
+                &self.theme,
+                &ScreenContext {
+                    exec_view: ExecView::Overview,
+                    workflow_view: WorkflowView::Summary,
+                    detail_lines: &[],
+                    detail_scroll: 0,
+                    has_more: false,
+                    filter: "",
+                },
+            );
 
             let footer = Paragraph::new(Line::from(vec![
                 Span::styled(

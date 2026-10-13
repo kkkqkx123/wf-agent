@@ -46,6 +46,10 @@ impl InteractiveController {
                 self.jump_to_latest();
                 return InteractiveAction::Continue;
             }
+            CKey::Home if key.ctrl && !key.alt => {
+                self.jump_to_oldest();
+                return InteractiveAction::Continue;
+            }
             CKey::End if !key.ctrl && !key.alt => {
                 if self.footer.view != FooterView::Prompt
                     || self.footer.route != FooterRoute::Composer
@@ -116,6 +120,19 @@ impl InteractiveController {
     pub fn jump_to_latest(&mut self) {
         self.view_scroll = 0;
         self.scroll_at_top = false;
+    }
+
+    /// Jump to the oldest loaded row. The offset is pinned beyond the top
+    /// and clamped to the laid-out maximum on the next draw, matching the
+    /// `End` sentinel convention on the settings screen. A repeat press
+    /// while pinned pages earlier history when the replay is partial.
+    pub fn jump_to_oldest(&mut self) {
+        let was_at_top = self.scroll_at_top;
+        self.view_scroll = usize::MAX;
+        self.scroll_at_top = true;
+        if was_at_top && self.pager.is_partial() {
+            self.request_earlier_page();
+        }
     }
 
     /// Insert a bracketed-paste body into the prompt composer as one whole

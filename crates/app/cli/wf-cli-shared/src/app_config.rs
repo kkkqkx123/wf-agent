@@ -155,6 +155,17 @@ impl ConfigManager {
         Ok(Self { config })
     }
 
+    /// Persist `config` to `path`, creating parent directories as needed.
+    pub fn save(path: &Path, config: &AppConfig) -> Result<(), ConfigError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(config)
+            .map_err(|e| ConfigError::Parse(format!("{}: {e}", path.display())))?;
+        std::fs::write(path, text)?;
+        Ok(())
+    }
+
     /// The loaded configuration (or defaults when not loaded from a file).
     pub fn config(&self) -> &AppConfig {
         &self.config
@@ -216,6 +227,24 @@ mod tests {
         assert_eq!(empty.terminal.copy_target, None);
         let message: AppConfig = toml::from_str("[terminal]\ncopy_target = \"message\"\n").unwrap();
         assert_eq!(message.terminal.copy_target, Some(CopyTargetName::Message));
+    }
+
+    #[test]
+    fn save_writes_loadable_config() {
+        let dir = std::env::temp_dir().join("wf-config-save-test");
+        let path = dir.join("nested").join("config.toml");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut config = AppConfig::default();
+        config.behavior.mouse_capture = true;
+        config.tool_output.level = Some(ToolDetailLevelName::High);
+        ConfigManager::save(&path, &config).expect("save writes config");
+        let loaded = ConfigManager::load(&path).expect("save output loads");
+        assert!(loaded.config().behavior.mouse_capture);
+        assert_eq!(
+            loaded.config().tool_output.level,
+            Some(ToolDetailLevelName::High)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -101,6 +101,14 @@ impl HistoryOverlay {
         self.at_top = false;
     }
 
+    /// Jump to the oldest loaded row. The offset is pinned beyond the top
+    /// and clamped to the laid-out maximum on the next draw. Paging itself
+    /// stays with the overlay key route, which pages when already pinned.
+    pub fn jump_to_oldest(&mut self) {
+        self.scroll = usize::MAX;
+        self.at_top = true;
+    }
+
     /// Pin the viewport to the window the last draw laid out: the renderer
     /// clamps the offset and reports whether it reached the oldest row.
     pub fn set_viewport(&mut self, scroll: usize, at_top: bool) {
@@ -250,6 +258,16 @@ mod tests {
         overlay.begin("exec-1".into());
         overlay.scroll_up();
         overlay.set_viewport(10, true);
+        overlay.jump_to_latest();
+        assert_eq!(overlay.view().scroll, 0);
+    }
+
+    #[test]
+    fn jump_to_oldest_pins_beyond_the_top_for_draw_clamp() {
+        let mut overlay = HistoryOverlay::default();
+        overlay.begin("exec-1".into());
+        overlay.jump_to_oldest();
+        assert_eq!(overlay.view().scroll, usize::MAX);
         overlay.jump_to_latest();
         assert_eq!(overlay.view().scroll, 0);
     }

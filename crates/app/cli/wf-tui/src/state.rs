@@ -10,7 +10,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind, Screens};
+use crate::screens::{
+    apply_list_filter, ExecStatusFilter, ExecView, ScreenData, ScreenKind, Screens, WorkflowView,
+};
 
 /// Unified application state: navigation data, interface notices and client
 /// focus in one place. Session content itself stays in
@@ -44,6 +46,24 @@ impl Default for AppState {
     }
 }
 
+/// Key identifying one cached detail pane: the owning screen, the selected
+/// row id and the subview index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailKey {
+    pub kind: ScreenKind,
+    pub id: String,
+    pub view: usize,
+}
+
+/// Cached detail lines backing the executions/workflow subview panes.
+#[derive(Debug, Clone)]
+pub struct DetailCache {
+    pub key: DetailKey,
+    pub title: String,
+    pub lines: Vec<String>,
+    pub at: Instant,
+}
+
 /// Screen navigation state.
 #[derive(Debug)]
 pub struct ScreenState {
@@ -52,6 +72,21 @@ pub struct ScreenState {
     pub inflight: HashMap<ScreenKind, Instant>,
     pub exec_filter: ExecStatusFilter,
     pub settings_scroll: usize,
+    /// Active subview on the executions screen.
+    pub exec_view: ExecView,
+    /// Active subview on the workflow screen.
+    pub workflow_view: WorkflowView,
+    /// Client-side substring filter applied to list screens; cleared on
+    /// navigation.
+    pub list_filter: String,
+    /// Scroll offset inside the detail pane.
+    pub detail_scroll: usize,
+    /// Cached detail lines for the current selection.
+    pub detail: Option<DetailCache>,
+    /// In-flight detail fetch marker.
+    pub detail_inflight: Option<(DetailKey, Instant)>,
+    /// Server truncation flags per list screen.
+    pub truncated: HashMap<ScreenKind, bool>,
 }
 
 impl ScreenState {
@@ -62,6 +97,13 @@ impl ScreenState {
             inflight: HashMap::new(),
             exec_filter: ExecStatusFilter::All,
             settings_scroll: 0,
+            exec_view: ExecView::Overview,
+            workflow_view: WorkflowView::Summary,
+            list_filter: String::new(),
+            detail_scroll: 0,
+            detail: None,
+            detail_inflight: None,
+            truncated: HashMap::new(),
         }
     }
 
@@ -99,9 +141,32 @@ impl ScreenState {
             .unwrap_or(ScreenData::None)
     }
 
+    /// Cached data with the client-side filter applied. Selection,
+    /// navigation and detail fetching all use this so indices stay aligned
+    /// with what the screen draws.
+    pub fn display_data(&self) -> ScreenData {
+        let data = self.current_data();
+        if self.list_filter.trim().is_empty() {
+            data
+        } else {
+            apply_list_filter(&data, &self.list_filter)
+        }
+    }
+
+    /// Whether the cached list for `kind` was server-truncated.
+    pub fn is_truncated(&self, kind: ScreenKind) -> bool {
+        self.truncated.get(&kind).copied().unwrap_or(false)
+    }
+
+    /// Cached detail lines when they belong to `key`.
+    pub fn detail_for(&self, key: &DetailKey) -> Option<&DetailCache> {
+        self.detail.as_ref().filter(|cached| cached.key == *key)
+    }
+
     /// Drop cached data for `kind`.
     pub fn invalidate(&mut self, kind: ScreenKind) {
         self.data_cache.remove(&kind);
+        self.truncated.remove(&kind);
     }
 }
 

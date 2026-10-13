@@ -8,24 +8,31 @@ use wf_client::WfClient;
 
 use crate::error::CliResult;
 use crate::screens::{
-    short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, InsightTable, InsightsData,
-    LocalSettings, ProfileRow, ScreenData, ScreenKind, SearchRow, SettingsData, WorkflowRow,
+    short_id, CheckpointRow, DashboardData, EventRow, ExecRow, ExecStatusFilter, ExecView, GitRow,
+    InsightTable, InsightsData, LocalSettings, ProfileRow, ResourceRow, ScreenData, ScreenKind,
+    SearchRow, SettingsData, TemplateRow, TriggerRow, WorkflowRow, WorkflowView,
 };
 
-/// Fetch data for the given screen kind.
+/// Fetch data for the given screen kind. The flag reports server-side
+/// truncation (`has_more`) so list titles stay honest about capped pages.
 pub async fn fetch_for(
     client: &WfClient,
     kind: ScreenKind,
     filter: ExecStatusFilter,
-) -> CliResult<ScreenData> {
+) -> CliResult<(ScreenData, bool)> {
     match kind {
-        ScreenKind::Dashboard => fetch_dashboard(client).await,
+        ScreenKind::Dashboard => Ok((fetch_dashboard(client).await?, false)),
         ScreenKind::Workflow => fetch_workflows(client).await,
         ScreenKind::Executions => fetch_executions(client, filter).await,
-        ScreenKind::Insights => fetch_insights(client).await,
+        ScreenKind::Insights => Ok((fetch_insights(client).await?, false)),
         ScreenKind::Checkpoints => fetch_checkpoints(client).await,
-        ScreenKind::Settings => fetch_settings(client).await,
-        ScreenKind::Interactive => Ok(ScreenData::None),
+        ScreenKind::Settings => Ok((fetch_settings(client).await?, false)),
+        ScreenKind::Templates => fetch_templates(client).await,
+        ScreenKind::Resources => fetch_resources(client).await,
+        ScreenKind::Triggers => fetch_triggers(client).await,
+        ScreenKind::Events => fetch_events(client).await,
+        ScreenKind::Git => fetch_git(client).await,
+        ScreenKind::Interactive => Ok((ScreenData::None, false)),
     }
 }
 
@@ -36,6 +43,28 @@ fn items_of(data: &serde_json::Value) -> Vec<serde_json::Value> {
         .or_else(|| data.as_array().cloned())
         .unwrap_or_default()
 }
+
+/// Split a list response into items plus the server truncation flag.
+/// Page responses carry `has_more`; cursor responses carry a next cursor.
+fn page_of(data: &serde_json::Value) -> (Vec<serde_json::Value>, bool) {
+    let has_more = data
+        .get("has_more")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || data
+            .get("next_cursor")
+            .and_then(|v| v.as_str())
+            .is_some_and(|c| !c.is_empty())
+        || data
+            .get("nextCursor")
+            .and_then(|v| v.as_str())
+            .is_some_and(|c| !c.is_empty());
+    (items_of(data), has_more)
+}
+
+/// Client-side cap for fetched detail lines; the viewer shows the full
+/// cached text and the pane windows into it.
+const DETAIL_LINE_CAP: usize = 300;
 
 async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> {
     let (workflows, executions, sessions, checkpoints) = tokio::join!(
@@ -90,9 +119,10 @@ async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> {
     }))
 }
 
-async fn fetch_workflows(client: &WfClient) -> CliResult<ScreenData> {
+async fn fetch_workflows(client: &WfClient) -> CliResult<(ScreenData, bool)> {
     let data: serde_json::Value = client.get_json("/api/v1/workflows/summaries").await?;
-    let rows = items_of(&data)
+    let (items, has_more) = page_of(&data);
+    let rows = items
         .into_iter()
         .filter_map(|w| {
             Some(WorkflowRow {
@@ -110,15 +140,20 @@ async fn fetch_workflows(client: &WfClient) -> CliResult<ScreenData> {
             })
         })
         .collect();
-    Ok(ScreenData::Workflow(rows))
+    Ok((ScreenData::Workflow(rows), has_more))
 }
 
-async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliResult<ScreenData> {
+async fn fetch_executions(
+    client: &WfClient,
+    filter: ExecStatusFilter,
+) -> CliResult<(ScreenData, bool)> {
     let (executions, sessions) = tokio::join!(
         client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
         client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
     );
-    let mut rows: Vec<ExecRow> = items_of(&executions.unwrap_or_default())
+    let (exec_items, exec_more) = page_of(&executions.unwrap_or_default());
+    let (session_items, session_more) = page_of(&sessions.unwrap_or_default());
+    let mut rows: Vec<ExecRow> = exec_items
         .into_iter()
         .filter_map(|e| {
             let status = e.get("status").and_then(|v| v.as_str())?.to_string();
@@ -148,35 +183,31 @@ async fn fetch_executions(client: &WfClient, filter: ExecStatusFilter) -> CliRes
 
     // Agent-loop (session) executions live in a second registry; merge them so
     // the screen shows one unified timeline.
-    rows.extend(
-        items_of(&sessions.unwrap_or_default())
-            .into_iter()
-            .filter_map(|s| {
-                let status = s.get("status").and_then(|v| v.as_str())?.to_string();
-                if !filter.matches(&status) {
-                    return None;
-                }
-                Some(ExecRow {
-                    id: s
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    status,
-                    iteration: s
-                        .get("current_iteration")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                    tool_calls: s
-                        .get("tool_call_count")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
-                    started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
-                })
-            }),
-    );
+    rows.extend(session_items.into_iter().filter_map(|s| {
+        let status = s.get("status").and_then(|v| v.as_str())?.to_string();
+        if !filter.matches(&status) {
+            return None;
+        }
+        Some(ExecRow {
+            id: s
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            status,
+            iteration: s
+                .get("current_iteration")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
+            tool_calls: s
+                .get("tool_call_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
+            started: format_ts(s.get("start_time").and_then(|v| v.as_i64()).unwrap_or(0)),
+        })
+    }));
 
-    Ok(ScreenData::Executions(rows))
+    Ok((ScreenData::Executions(rows), exec_more || session_more))
 }
 
 async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
@@ -247,9 +278,10 @@ async fn fetch_insights(client: &WfClient) -> CliResult<ScreenData> {
     }))
 }
 
-async fn fetch_checkpoints(client: &WfClient) -> CliResult<ScreenData> {
+async fn fetch_checkpoints(client: &WfClient) -> CliResult<(ScreenData, bool)> {
     let data: serde_json::Value = client.get_json("/api/v1/checkpoints").await?;
-    let rows = items_of(&data)
+    let (items, has_more) = page_of(&data);
+    let rows = items
         .into_iter()
         .filter_map(|c| {
             Some(CheckpointRow {
@@ -278,7 +310,7 @@ async fn fetch_checkpoints(client: &WfClient) -> CliResult<ScreenData> {
             })
         })
         .collect();
-    Ok(ScreenData::Checkpoints(rows))
+    Ok((ScreenData::Checkpoints(rows), has_more))
 }
 
 /// Render one execution checkpoint record as human-readable detail lines.
@@ -462,6 +494,312 @@ async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
         theme,
         local: load_local_settings(),
     }))
+}
+
+/// First non-empty string field under any of `keys`, or empty.
+fn text_of(value: &serde_json::Value, keys: &[&str]) -> String {
+    for key in keys {
+        if let Some(text) = value.get(key).and_then(|v| v.as_str()) {
+            if !text.is_empty() {
+                return text.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Pre-rendered read-only viewer text for a list item.
+fn pretty_detail(value: &serde_json::Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+}
+
+async fn fetch_templates(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let data: serde_json::Value = client.get_json("/api/v1/templates/library").await?;
+    let (items, has_more) = page_of(&data);
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let id = text_of(&item, &["id"]);
+            let name = text_of(&item, &["name", "title"]);
+            let kind = text_of(&item, &["kind", "type", "category"]);
+            TemplateRow {
+                id: if id.is_empty() { name.clone() } else { id },
+                name,
+                kind,
+                detail: pretty_detail(&item),
+            }
+        })
+        .collect();
+    Ok((ScreenData::Templates(rows), has_more))
+}
+
+async fn fetch_resources(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let data: serde_json::Value = client.get_json("/api/v1/tools").await?;
+    let (items, has_more) = page_of(&data);
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let id = text_of(&item, &["id", "name"]);
+            let name = text_of(&item, &["name", "title", "display_name"]);
+            let status = item
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .map(|enabled| {
+                    if enabled {
+                        "enabled".to_string()
+                    } else {
+                        "disabled".to_string()
+                    }
+                })
+                .unwrap_or_else(|| text_of(&item, &["status"]));
+            ResourceRow {
+                id: if id.is_empty() { name.clone() } else { id },
+                name,
+                status,
+                detail: pretty_detail(&item),
+            }
+        })
+        .collect();
+    Ok((ScreenData::Resources(rows), has_more))
+}
+
+async fn fetch_triggers(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let data: serde_json::Value = client.get_json("/api/v1/trigger-executions").await?;
+    let (items, has_more) = page_of(&data);
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let id = text_of(&item, &["id"]);
+            let name = text_of(&item, &["trigger_name", "name", "hook"]);
+            let status = text_of(&item, &["status"]);
+            TriggerRow {
+                id: if id.is_empty() { name.clone() } else { id },
+                name,
+                status,
+                detail: pretty_detail(&item),
+            }
+        })
+        .collect();
+    Ok((ScreenData::Triggers(rows), has_more))
+}
+
+async fn fetch_events(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let data: serde_json::Value = client.get_json("/api/v1/events").await?;
+    let (items, has_more) = page_of(&data);
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let id = text_of(&item, &["id"]);
+            let kind = text_of(&item, &["event_type", "type", "kind"]);
+            let summary = text_of(&item, &["message", "summary", "description"]);
+            EventRow {
+                id,
+                kind,
+                summary,
+                detail: pretty_detail(&item),
+            }
+        })
+        .collect();
+    Ok((ScreenData::Events(rows), has_more))
+}
+
+async fn fetch_git(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let data: serde_json::Value = client.get_json("/api/v1/git/files").await?;
+    let (items, has_more) = page_of(&data);
+    let rows = items
+        .into_iter()
+        .map(|item| {
+            let path = text_of(&item, &["path", "file"]);
+            let status = text_of(&item, &["status", "state"]);
+            GitRow {
+                path,
+                status,
+                detail: pretty_detail(&item),
+            }
+        })
+        .collect();
+    Ok((ScreenData::Git(rows), has_more))
+}
+
+/// Fetch detail lines for the selected execution in a non-overview view.
+/// Loop-only dimensions report the server error for workflow executions so
+/// the notice explains the gap instead of failing silently.
+pub async fn fetch_exec_detail(
+    client: &WfClient,
+    exec_id: &str,
+    view: ExecView,
+) -> CliResult<Vec<String>> {
+    let path = |suffix: &str| format!("/api/v1/agent-loops/{exec_id}{suffix}");
+    let lines = match view {
+        ExecView::Overview => Vec::new(),
+        ExecView::Messages => {
+            let data: serde_json::Value = client
+                .get_json(&format!("{}?limit=50", path("/conversation")))
+                .await?;
+            let (items, _) = page_of(&data);
+            items
+                .iter()
+                .map(|m| {
+                    let role = text_of(m, &["role"]);
+                    let content = text_of(m, &["content", "text"]);
+                    let excerpt: String = content.chars().take(160).collect();
+                    let excerpt = if content.chars().count() > 160 {
+                        format!("{excerpt}...")
+                    } else {
+                        excerpt
+                    };
+                    format!("{role}: {excerpt}")
+                })
+                .collect()
+        }
+        ExecView::Tools => {
+            let data: serde_json::Value = client
+                .get_json(&format!("{}?limit=100", path("/iteration-history")))
+                .await?;
+            let (items, _) = page_of(&data);
+            items
+                .iter()
+                .map(|item| {
+                    let iteration = item
+                        .get("iteration")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| text_of(item, &["n"]));
+                    let status = text_of(item, &["status"]);
+                    let tools = item
+                        .get("tool_calls")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| text_of(item, &["tools"]));
+                    format!("iter {iteration} · {status} · {tools} tools")
+                })
+                .collect()
+        }
+        ExecView::Timeline => {
+            let data: serde_json::Value = client
+                .get_json(&format!("{}?limit=100", path("/timeline")))
+                .await?;
+            let (items, _) = page_of(&data);
+            items
+                .iter()
+                .map(|item| {
+                    let when = item
+                        .get("timestamp")
+                        .and_then(|v| v.as_i64())
+                        .map(format_ts)
+                        .unwrap_or_default();
+                    let event = text_of(item, &["event", "type", "kind"]);
+                    let message = text_of(item, &["message", "summary"]);
+                    format!("{when} · {event} · {message}")
+                })
+                .collect()
+        }
+        ExecView::Variables => {
+            let loop_data: serde_json::Value = client
+                .get_json(&format!("{}?limit=200", path("/variables")))
+                .await?;
+            let data = if items_of(&loop_data).is_empty() {
+                client
+                    .get_json(&format!("/api/v1/executions/{exec_id}/variables"))
+                    .await
+                    .unwrap_or(loop_data)
+            } else {
+                loop_data
+            };
+            let (items, _) = page_of(&data);
+            items
+                .iter()
+                .map(|item| {
+                    if let Some(pair) = item.as_array() {
+                        let name = pair.first().and_then(|v| v.as_str()).unwrap_or("?");
+                        let value = pair
+                            .get(1)
+                            .map(|v| truncate_value(&v.to_string(), 120))
+                            .unwrap_or_default();
+                        return format!("{name} = {value}");
+                    }
+                    let name = text_of(item, &["name", "key"]);
+                    let value = truncate_value(&text_of(item, &["value"]), 120);
+                    format!("{name} = {value}")
+                })
+                .collect()
+        }
+    };
+    Ok(cap_detail_lines(lines))
+}
+
+/// Fetch detail lines for the selected workflow in a non-summary view.
+pub async fn fetch_workflow_detail(
+    client: &WfClient,
+    workflow_id: &str,
+    view: WorkflowView,
+) -> CliResult<Vec<String>> {
+    let lines = match view {
+        WorkflowView::Summary => Vec::new(),
+        WorkflowView::Nodes => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/workflows/{workflow_id}"))
+                .await?;
+            let nodes = data
+                .get("nodes")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .or_else(|| {
+                    data.get("definition")
+                        .and_then(|d| d.get("nodes"))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                })
+                .unwrap_or_default();
+            nodes
+                .iter()
+                .map(|n| {
+                    let name = text_of(n, &["name", "id"]);
+                    let kind = text_of(n, &["type", "kind"]);
+                    format!("{name} · {kind}")
+                })
+                .collect()
+        }
+        WorkflowView::Runs => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions?workflow_id={workflow_id}"))
+                .await?;
+            let (items, _) = page_of(&data);
+            items
+                .iter()
+                .map(|e| {
+                    let id = text_of(e, &["id", "execution_id"]);
+                    let status = text_of(e, &["status"]);
+                    let started = e
+                        .get("start_time")
+                        .and_then(|v| v.as_i64())
+                        .map(format_ts)
+                        .unwrap_or_default();
+                    format!("{} · {} · {}", short_id(&id), status, started)
+                })
+                .collect()
+        }
+    };
+    Ok(cap_detail_lines(lines))
+}
+
+fn truncate_value(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if out.len() < text.len() {
+        out.push_str("...");
+    }
+    out
+}
+
+fn cap_detail_lines(mut lines: Vec<String>) -> Vec<String> {
+    if lines.len() > DETAIL_LINE_CAP {
+        lines.truncate(DETAIL_LINE_CAP);
+        lines.push(format!("... truncated to {DETAIL_LINE_CAP} lines"));
+    }
+    if lines.is_empty() {
+        lines.push("(none)".to_string());
+    }
+    lines
 }
 
 /// Snapshot the local config file values shown on the settings screen.

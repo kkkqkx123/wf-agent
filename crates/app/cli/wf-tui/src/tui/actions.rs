@@ -13,7 +13,7 @@ use super::TuiApp;
 impl TuiApp {
     /// Currently selected checkpoint row, or `None` off the screen.
     fn selected_checkpoint_row(&self) -> Option<CheckpointRow> {
-        let ScreenData::Checkpoints(rows) = self.current_data() else {
+        let ScreenData::Checkpoints(rows) = self.display_data() else {
             return None;
         };
         let idx = self
@@ -200,9 +200,236 @@ impl TuiApp {
         }));
     }
 
+    /// Open the read-only detail viewer for the selected row of a screen
+    /// whose rows pre-render their viewer text at fetch time.
+    pub(super) fn open_selected_cached_detail(&mut self) {
+        let selected = self.app.screen.navigation.selected();
+        let detail = match self.display_data() {
+            ScreenData::Templates(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx).map(|row| {
+                    (
+                        format!("Template {}", short_id(&row.id)),
+                        row.detail.clone(),
+                    )
+                })
+            }
+            ScreenData::Resources(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx).map(|row| {
+                    (
+                        format!("Resource {}", short_id(&row.id)),
+                        row.detail.clone(),
+                    )
+                })
+            }
+            ScreenData::Triggers(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx)
+                    .map(|row| (format!("Trigger {}", short_id(&row.id)), row.detail.clone()))
+            }
+            ScreenData::Events(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx)
+                    .map(|row| (format!("Event {}", short_id(&row.id)), row.detail.clone()))
+            }
+            ScreenData::Git(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx)
+                    .map(|row| (format!("Git {}", row.path), row.detail.clone()))
+            }
+            _ => None,
+        };
+        if let Some((title, text)) = detail {
+            self.modals
+                .push(Box::new(crate::file_viewer::FileViewer::new(title, &text)));
+        }
+    }
+
+    /// Open the full-text viewer for the selected execution subview.
+    /// Overview keeps its replay jump; other views show the cached detail
+    /// lines and refetch when they are missing.
+    pub(super) fn open_selected_exec_viewer(&mut self) {
+        if self.app.screen.exec_view == crate::screens::ExecView::Overview {
+            return;
+        }
+        let Some((key, _)) = self.current_detail_key() else {
+            return;
+        };
+        let cached = self
+            .app
+            .screen
+            .detail_for(&key)
+            .map(|c| (c.title.clone(), c.lines.join("\n")));
+        if let Some((title, text)) = cached {
+            self.modals
+                .push(Box::new(crate::file_viewer::FileViewer::new(title, &text)));
+        } else {
+            self.app.notice.set("Loading detail...".to_string());
+            self.request_detail_for_current();
+        }
+    }
+
+    /// Open the full-text viewer for the selected workflow subview.
+    /// Summary renders from the cached row; other views use fetched lines.
+    pub(super) fn open_selected_workflow_viewer(&mut self) {
+        if self.app.screen.workflow_view == crate::screens::WorkflowView::Summary {
+            let rows = match self.display_data() {
+                ScreenData::Workflow(rows) => rows,
+                _ => return,
+            };
+            let selected = self.app.screen.navigation.selected();
+            let Some(row) = rows.get(selected.min(rows.len().saturating_sub(1))) else {
+                return;
+            };
+            let text = format!(
+                "id: {}\nname: {}\ndescription: {}\nnodes: {}",
+                row.id,
+                row.name,
+                row.description.as_deref().unwrap_or("-"),
+                row.node_count
+            );
+            self.modals
+                .push(Box::new(crate::file_viewer::FileViewer::new(
+                    format!("Workflow {}", row.name),
+                    &text,
+                )));
+            return;
+        }
+        let Some((key, _)) = self.current_detail_key() else {
+            return;
+        };
+        let cached = self
+            .app
+            .screen
+            .detail_for(&key)
+            .map(|c| (c.title.clone(), c.lines.join("\n")));
+        if let Some((title, text)) = cached {
+            self.modals
+                .push(Box::new(crate::file_viewer::FileViewer::new(title, &text)));
+        } else {
+            self.app.notice.set("Loading detail...".to_string());
+            self.request_detail_for_current();
+        }
+    }
+
+    /// Prompt for a client-side substring filter over the current list.
+    /// Clearing goes through the `X` key: the prompt never submits empty.
+    pub(super) fn prompt_list_filter(&mut self) {
+        let rx = self
+            .modals
+            .push_with_result(Box::new(crate::prompt_modal::PromptModal::new(
+                "Filter list",
+                "Show rows containing",
+            )));
+        let tx = self.feedback_tx.clone();
+        self.tasks.push(tokio::spawn(async move {
+            if let Ok(ModalResult::Value(text)) = rx.await {
+                let _ = tx.send(Feedback::Filter(text.trim().to_string()));
+            }
+        }));
+    }
+
+    /// Apply `apply` to the local config file and persist it. Runtime
+    /// policies resolve at startup, so the notice states the restart
+    /// requirement instead of implying an instant effect.
+    fn update_local_config(
+        &mut self,
+        apply: impl FnOnce(&mut crate::app_config::AppConfig) -> String,
+    ) {
+        let Some(path) = crate::app_config::config_file_path() else {
+            self.app.notice.set("Config path unavailable.".to_string());
+            return;
+        };
+        let mut config = crate::app_config::ConfigManager::load(&path)
+            .map(|manager| manager.config().clone())
+            .unwrap_or_default();
+        let label = apply(&mut config);
+        match crate::app_config::ConfigManager::save(&path, &config) {
+            Ok(()) => {
+                self.invalidate(ScreenKind::Settings);
+                self.app.notice.set(format!("{label} (restart applies)"));
+            }
+            Err(err) => self.app.notice.set(format!("Save failed: {err}")),
+        }
+    }
+
+    pub(super) fn toggle_mouse_capture(&mut self) {
+        self.update_local_config(|config| {
+            config.behavior.mouse_capture = !config.behavior.mouse_capture;
+            format!(
+                "mouse_capture {}",
+                if config.behavior.mouse_capture {
+                    "on"
+                } else {
+                    "off"
+                }
+            )
+        });
+    }
+
+    pub(super) fn cycle_copy_target(&mut self) {
+        use crate::app_config::CopyTargetName;
+        self.update_local_config(|config| {
+            let next = match config.terminal.copy_target {
+                Some(CopyTargetName::Code) => None,
+                _ => Some(CopyTargetName::Code),
+            };
+            config.terminal.copy_target = next;
+            format!(
+                "copy_target {}",
+                if next.is_some() { "code" } else { "message" }
+            )
+        });
+    }
+
+    pub(super) fn toggle_tool_output(&mut self) {
+        self.update_local_config(|config| {
+            let on = !config.tool_output.enabled.unwrap_or(true);
+            config.tool_output.enabled = Some(on);
+            format!("tool_output {}", if on { "on" } else { "off" })
+        });
+    }
+
+    pub(super) fn cycle_tool_level(&mut self) {
+        use crate::app_config::ToolDetailLevelName;
+        self.update_local_config(|config| {
+            let next = match config.tool_output.level {
+                Some(ToolDetailLevelName::Low) => ToolDetailLevelName::Medium,
+                Some(ToolDetailLevelName::Medium) => ToolDetailLevelName::High,
+                _ => ToolDetailLevelName::Low,
+            };
+            config.tool_output.level = Some(next);
+            let label = match next {
+                ToolDetailLevelName::Low => "low",
+                ToolDetailLevelName::Medium => "medium",
+                ToolDetailLevelName::High => "high",
+            };
+            format!("tool_output level {label}")
+        });
+    }
+
+    pub(super) fn step_preview_budget(&mut self, up: bool) {
+        self.update_local_config(|config| {
+            let lines = step_option(
+                config.tool_output.preview_max_lines.unwrap_or(10),
+                &[5, 10, 20, 40],
+                up,
+            );
+            let chars = step_option(
+                config.tool_output.preview_max_chars.unwrap_or(320),
+                &[160, 320, 640, 1280],
+                up,
+            );
+            config.tool_output.preview_max_lines = Some(lines);
+            config.tool_output.preview_max_chars = Some(chars);
+            format!("preview {lines} lines · {chars} chars")
+        });
+    }
+
     /// Spawn a delete after the user confirms the currently selected workflow.
     pub(super) fn delete_selected_workflow(&mut self) {
-        let rows = match self.current_data() {
+        let rows = match self.display_data() {
             ScreenData::Workflow(rows) => rows,
             _ => return,
         };
@@ -250,7 +477,7 @@ impl TuiApp {
 
     /// Pause or resume the currently selected execution based on its status.
     pub(super) fn toggle_selected_execution(&mut self) {
-        let rows = match self.current_data() {
+        let rows = match self.display_data() {
             ScreenData::Executions(rows) => rows,
             _ => return,
         };
@@ -281,7 +508,7 @@ impl TuiApp {
 
     /// Cancel the currently selected execution after user confirmation.
     pub(super) fn cancel_selected_execution(&mut self) {
-        let rows = match self.current_data() {
+        let rows = match self.display_data() {
             ScreenData::Executions(rows) => rows,
             _ => return,
         };
@@ -413,4 +640,22 @@ async fn cancel_execution(client: &WfClient, id: &str) -> Result<(), wf_client::
         )
         .await
         .map(|_| ())
+}
+
+/// Step `current` up or down the `steps` ladder, clamping at the ends.
+fn step_option(current: usize, steps: &[usize], up: bool) -> usize {
+    if up {
+        steps
+            .iter()
+            .find(|step| **step > current)
+            .copied()
+            .unwrap_or(current)
+    } else {
+        steps
+            .iter()
+            .rev()
+            .find(|step| **step < current)
+            .copied()
+            .unwrap_or(current)
+    }
 }

@@ -42,6 +42,19 @@ impl InteractiveController {
         // transcript on large reads; prefer medium for daily use and switch
         // to high only when inspecting retrieval behavior.
         match key.code {
+            CKey::End if key.ctrl && !key.alt => {
+                self.jump_to_latest();
+                return InteractiveAction::Continue;
+            }
+            CKey::End if !key.ctrl && !key.alt => {
+                if self.footer.view != FooterView::Prompt
+                    || self.footer.route != FooterRoute::Composer
+                    || (!self.footer.composer.search_active() && self.footer.composer.is_empty())
+                {
+                    self.jump_to_latest();
+                    return InteractiveAction::Continue;
+                }
+            }
             CKey::PageUp => {
                 self.scroll_history_up();
                 return InteractiveAction::Continue;
@@ -97,6 +110,12 @@ impl InteractiveController {
     /// Scroll the scrollback viewport down by one page towards the live tail.
     pub fn scroll_history_down(&mut self) {
         self.view_scroll = self.view_scroll.saturating_sub(10);
+    }
+
+    /// Jump back to the live tail after reading history.
+    pub fn jump_to_latest(&mut self) {
+        self.view_scroll = 0;
+        self.scroll_at_top = false;
     }
 
     /// Insert a bracketed-paste body into the prompt composer as one whole

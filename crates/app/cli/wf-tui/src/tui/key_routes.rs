@@ -319,6 +319,11 @@ impl TuiApp {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
+            CKey::End if self.overlay == OverlayMode::History && !key.alt => {
+                self.history.jump_to_latest();
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                return Ok(LoopAction::Continue);
+            }
             _ => {}
         }
         Ok(LoopAction::Continue)
@@ -408,7 +413,6 @@ impl TuiApp {
     /// Number of selectable rows on the current screen.
     pub(super) fn nav_len(&self) -> usize {
         match self.app.screen.navigation.current_kind() {
-            ScreenKind::Dashboard => DASHBOARD_ENTRIES.len(),
             kind if kind.has_data() => self.current_data().row_count().max(1),
             _ => 1,
         }

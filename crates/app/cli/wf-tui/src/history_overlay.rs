@@ -95,6 +95,12 @@ impl HistoryOverlay {
         self.scroll = self.scroll.saturating_sub(VIEWPORT_ROWS);
     }
 
+    /// Jump back to the live tail after reading history.
+    pub fn jump_to_latest(&mut self) {
+        self.scroll = 0;
+        self.at_top = false;
+    }
+
     /// Pin the viewport to the window the last draw laid out: the renderer
     /// clamps the offset and reports whether it reached the oldest row.
     pub fn set_viewport(&mut self, scroll: usize, at_top: bool) {
@@ -235,6 +241,16 @@ mod tests {
         let mut overlay = HistoryOverlay::default();
         overlay.begin("exec-1".into());
         overlay.scroll_down();
+        assert_eq!(overlay.view().scroll, 0);
+    }
+
+    #[test]
+    fn jump_to_latest_resets_the_viewport() {
+        let mut overlay = HistoryOverlay::default();
+        overlay.begin("exec-1".into());
+        overlay.scroll_up();
+        overlay.set_viewport(10, true);
+        overlay.jump_to_latest();
         assert_eq!(overlay.view().scroll, 0);
     }
 }

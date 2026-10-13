@@ -24,7 +24,7 @@ impl ScreenKind {
             Self::Workflow => "Workflows",
             Self::Executions => "Executions",
             Self::Insights => "Insights",
-            Self::Interactive => "Interactive",
+            Self::Interactive => "Chat",
             Self::Checkpoints => "Checkpoints",
             Self::Settings => "Settings",
         }
@@ -224,7 +224,8 @@ impl ScreenData {
     /// Number of selectable rows on the screen (drives `j/k` navigation).
     pub fn row_count(&self) -> usize {
         match self {
-            Self::None | Self::Dashboard(_) | Self::Insights(_) => 0,
+            Self::None | Self::Insights(_) => 0,
+            Self::Dashboard(_) => ScreenKind::all().len(),
             Self::Workflow(rows) => rows.len(),
             Self::Executions(rows) => rows.len(),
             Self::Checkpoints(rows) => rows.len(),

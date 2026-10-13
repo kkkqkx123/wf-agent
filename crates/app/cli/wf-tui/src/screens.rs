@@ -127,7 +127,9 @@ impl Screens {
         settings_scroll: usize,
     ) {
         match self.current_kind() {
-            ScreenKind::Dashboard => screen_draw::draw_dashboard(frame, area, data, theme),
+            ScreenKind::Dashboard => {
+                screen_draw::draw_dashboard(frame, area, data, self.selected, theme)
+            }
             ScreenKind::Workflow => {
                 screen_draw::draw_workflow(frame, area, data, self.selected, theme)
             }
@@ -196,6 +198,11 @@ mod tests {
         }]);
         assert_eq!(data.row_count(), 1);
         assert_eq!(ScreenData::None.row_count(), 0);
+        assert_eq!(
+            ScreenData::Dashboard(Default::default()).row_count(),
+            ScreenKind::all().len()
+        );
+        assert_eq!(ScreenData::Insights(Default::default()).row_count(), 0);
     }
 
     #[test]

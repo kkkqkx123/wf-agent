@@ -53,6 +53,8 @@ impl InteractiveController {
         self.footer.state.phase = Phase::Streaming;
         self.reducer = crate::reducer::SessionReducer::new(self.execution_id.clone());
         self.scroll_cover = 0;
+        self.view_scroll = 0;
+        self.scroll_at_top = false;
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
         self.pacer.clear();

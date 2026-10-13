@@ -15,6 +15,9 @@ use tui_components::transcript::HistoryLine;
 use tui_core::screen_data::{screen_digit, short_id, ScreenData, ScreenKind, SearchRow};
 use tui_style::theme::{ColorRole, Theme};
 
+const LOADING_TEXT: &str = "Loading...";
+const EMPTY_TEXT: &str = "Empty - no records yet.";
+
 fn titled_block<'a>(title: &'a str, role: ColorRole, theme: &Theme) -> Block<'a> {
     Block::default()
         .title(format!(" {title} "))
@@ -45,7 +48,7 @@ fn render_rows(
     theme: &Theme,
 ) {
     if rows.is_empty() {
-        let empty = Paragraph::new("Empty - no records yet.").block(block);
+        let empty = Paragraph::new(EMPTY_TEXT).block(block);
         frame.render_widget(empty, area);
         return;
     }
@@ -61,26 +64,42 @@ fn render_rows(
     frame.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
-pub fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
+pub fn draw_dashboard(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+) {
     let inner = match data {
-        ScreenData::Dashboard(d) => format!(
-            "Workflows    : {}\nExecutions   : {} ({} running)\nCheckpoints  : {}\n\nRecent executions:\n{}",
-            d.workflow_count,
-            d.execution_count,
-            d.running_count,
-            d.checkpoint_count,
-            if d.recent.is_empty() {
-                "  (none)".to_string()
-            } else {
-                d.recent
-                    .iter()
-                    .take(5)
-                    .map(|r| format!("  - {r}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+        ScreenData::Dashboard(d) => {
+            let mut out = format!(
+                "Workflows    : {}\nExecutions   : {} ({} running)\nCheckpoints  : {}\n\nScreens (Enter open):\n",
+                d.workflow_count, d.execution_count, d.running_count, d.checkpoint_count,
+            );
+            for (idx, kind) in ScreenKind::all().iter().enumerate() {
+                let marker = if idx == selected { ">" } else { " " };
+                let digit = screen_digit(*kind)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                out.push_str(&format!("{marker} [{digit}] {}\n", kind.title()));
             }
-        ),
-        _ => "Loading...".to_string(),
+            out.push_str("\nRecent executions:\n");
+            if d.recent.is_empty() {
+                out.push_str(&format!("  {EMPTY_TEXT}"));
+            } else {
+                out.push_str(
+                    &d.recent
+                        .iter()
+                        .take(5)
+                        .map(|r| format!("  - {r}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+            }
+            out
+        }
+        _ => LOADING_TEXT.to_string(),
     };
     let block = titled_block(
         "Dashboard (q quit, 0-6 switch, ? help)",
@@ -191,7 +210,7 @@ pub fn draw_insights(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &T
             }
             out
         }
-        _ => "Loading...".to_string(),
+        _ => LOADING_TEXT.to_string(),
     };
     let block = titled_block("Insights (Esc back)", ColorRole::Highlight, theme);
     frame.render_widget(Paragraph::new(text).block(block), area);
@@ -278,7 +297,7 @@ pub fn draw_settings(
             out.push("Edit the config file in a terminal to change local values.".to_string());
             out
         }
-        _ => vec!["Loading...".to_string()],
+        _ => vec![LOADING_TEXT.to_string()],
     };
     let capacity = usize::from(area.height.saturating_sub(2)).max(1);
     let max_scroll = lines.len().saturating_sub(capacity);
@@ -466,6 +485,7 @@ pub fn draw_transcript_overlay(
         Paragraph::new(rows[start..end].to_vec()).block(block),
         overlay_area,
     );
+    paint_overlay_jump_badge(frame, inner, view.scroll, theme);
 
     if area.height > 0 {
         let status_area = Rect {
@@ -501,5 +521,47 @@ fn history_status(view: &HistoryOverlayView<'_>, at_top: bool) -> String {
     } else {
         "start of history".to_string()
     };
-    format!("{session}{state} · PageUp/PageDown scroll · Ctrl+T close")
+    if view.scroll > 0 {
+        format!("{session}{state} · PageUp/PageDown scroll · End for latest · Ctrl+T close")
+    } else {
+        format!("{session}{state} · PageUp/PageDown scroll · Ctrl+T close")
+    }
+}
+
+/// Floating jump-to-latest badge over the last overlay content row.
+fn paint_overlay_jump_badge(frame: &mut Frame, inner: Rect, scroll: usize, theme: &Theme) {
+    if scroll == 0 || inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let full = format!("↓ {scroll} more · End for latest");
+    let short = format!("↓ {scroll} more");
+    let text = pick_overlay_badge_text(&full, &short, inner.width);
+    let Some(text) = text else {
+        return;
+    };
+    use unicode_width::UnicodeWidthStr;
+    let text_width = text.width() as u16;
+    if text_width >= inner.width {
+        return;
+    }
+    let x = inner
+        .x
+        .saturating_add(inner.width.saturating_sub(text_width).saturating_sub(1));
+    let y = inner.y.saturating_add(inner.height.saturating_sub(1));
+    let style = theme
+        .style_for_role(ColorRole::Accent)
+        .add_modifier(Modifier::BOLD);
+    frame.buffer_mut().set_string(x, y, text, style);
+}
+
+/// Choose the full or compact overlay badge text for the available width.
+fn pick_overlay_badge_text<'a>(full: &'a str, short: &'a str, width: u16) -> Option<&'a str> {
+    use unicode_width::UnicodeWidthStr;
+    if (full.width() as u16) < width {
+        Some(full)
+    } else if (short.width() as u16) < width {
+        Some(short)
+    } else {
+        None
+    }
 }

@@ -1,4 +1,4 @@
-//! Full-TUI screens showcase: renders every screen (Dashboard, Workflow,
+//! Full-TUI screens showcase: renders every screen (Dashboard, Workflows,
 //! Executions, Insights, Checkpoints, Settings) with synthetic data
 //! in a full-screen TUI. Navigate between screens with `0`-`6` / `j`/`k`,
 //! select items with Enter, and press `q` to quit.
@@ -201,7 +201,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Workflow => "Workflows",
         ScreenKind::Executions => "Executions",
         ScreenKind::Insights => "Insights",
-        ScreenKind::Interactive => "Interactive (live)",
+        ScreenKind::Interactive => "Chat (live)",
         ScreenKind::Checkpoints => "Checkpoints",
         ScreenKind::Settings => "Settings",
     }

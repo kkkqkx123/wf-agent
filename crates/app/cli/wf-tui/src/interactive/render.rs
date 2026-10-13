@@ -64,11 +64,13 @@ impl InteractiveController {
                 self.draw_scrollback_scoped(frame, scroll_area, scope);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
+                self.paint_jump_badge(frame, scroll_area, theme);
             }
             RedrawScope::BottomOnly => {
                 self.draw_scrollback_cached(frame, scroll_area);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
+                self.paint_jump_badge(frame, scroll_area, theme);
             }
             RedrawScope::AnimationOnly => {
                 self.draw_anim_cells_only(frame);
@@ -210,16 +212,21 @@ impl InteractiveController {
     /// Record the animation cells an animation-only frame may touch: the
     /// streaming indicator cell and the statusline spinner cell while busy.
     /// Stored as loop-held packed rectangles; animation-only frames repaint
-    /// exactly these cells.
+    /// exactly these cells. While detached the streaming tail is hidden
+    /// behind the jump badge, so its cell stays untouched.
     fn record_anim_area(&mut self, scroll_area: Rect, footer_area: Rect) {
-        let streaming_cell = self.streaming.as_ref().map(|_| Rect {
-            x: scroll_area.x,
-            y: scroll_area
-                .y
-                .saturating_add(scroll_area.height.saturating_sub(1)),
-            width: 1,
-            height: 1,
-        });
+        let streaming_cell = if self.view_scroll > 0 {
+            None
+        } else {
+            self.streaming.as_ref().map(|_| Rect {
+                x: scroll_area.x,
+                y: scroll_area
+                    .y
+                    .saturating_add(scroll_area.height.saturating_sub(1)),
+                width: 1,
+                height: 1,
+            })
+        };
         let busy = self.footer.state.phase == crate::reducer::Phase::Streaming;
         let status_cell = busy.then(|| {
             let height = self.footer.apply_height().min(footer_area.height);
@@ -384,6 +391,66 @@ impl InteractiveController {
         }
         frame.render_widget(Paragraph::new(lines), area);
     }
+
+    /// Whether the detached-history badge belongs on screen.
+    fn should_show_jump_badge(&self) -> bool {
+        self.view_scroll > 0
+    }
+
+    /// Paint the floating jump-to-latest badge over the last scrollback row.
+    fn paint_jump_badge(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        if !self.should_show_jump_badge() || area.width == 0 || area.height == 0 {
+            return;
+        }
+        let hidden = self.view_scroll;
+        let full = jump_badge_text(hidden);
+        let short = jump_badge_short_text(hidden);
+        let text = pick_jump_badge_text(&full, &short, area.width);
+        let Some(text) = text else {
+            return;
+        };
+        use unicode_width::UnicodeWidthStr;
+        let text_width = text.width() as u16;
+        if text_width >= area.width {
+            return;
+        }
+        let x = area
+            .x
+            .saturating_add(area.width.saturating_sub(text_width).saturating_sub(1));
+        let y = area.y.saturating_add(area.height.saturating_sub(1));
+        use ratatui::style::Modifier;
+        use tui_style::theme::ColorRole;
+        let style = theme
+            .style_for_role(ColorRole::Accent)
+            .add_modifier(Modifier::BOLD);
+        frame.buffer_mut().set_string(x, y, text, style);
+    }
+}
+
+/// Full badge text carrying the hidden row count and the key hint.
+pub(crate) fn jump_badge_text(hidden: usize) -> String {
+    format!("↓ {hidden} more · End for latest")
+}
+
+/// Compact fallback when the viewport is too narrow for the full hint.
+pub(crate) fn jump_badge_short_text(hidden: usize) -> String {
+    format!("↓ {hidden} more")
+}
+
+/// Choose the full or compact badge text for the available width.
+pub(crate) fn pick_jump_badge_text<'a>(
+    full: &'a str,
+    short: &'a str,
+    width: u16,
+) -> Option<&'a str> {
+    use unicode_width::UnicodeWidthStr;
+    if (full.width() as u16) < width {
+        Some(full)
+    } else if (short.width() as u16) < width {
+        Some(short)
+    } else {
+        None
+    }
 }
 
 fn truncate_echo(text: &str, width: u16) -> String {
@@ -400,4 +467,27 @@ fn truncate_echo(text: &str, width: u16) -> String {
         w += gw;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{jump_badge_short_text, jump_badge_text, pick_jump_badge_text};
+
+    #[test]
+    fn badge_text_carries_hidden_count_and_hint() {
+        assert_eq!(jump_badge_text(3), "↓ 3 more · End for latest");
+        assert_eq!(jump_badge_short_text(3), "↓ 3 more");
+    }
+
+    #[test]
+    fn badge_text_picks_compact_or_hides_when_narrow() {
+        let full = jump_badge_text(12);
+        let short = jump_badge_short_text(12);
+        assert_eq!(pick_jump_badge_text(&full, &short, 80), Some(full.as_str()));
+        assert_eq!(
+            pick_jump_badge_text(&full, &short, short.len() as u16 + 1),
+            Some(short.as_str())
+        );
+        assert_eq!(pick_jump_badge_text(&full, &short, 3), None);
+    }
 }

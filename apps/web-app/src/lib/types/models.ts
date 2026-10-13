@@ -1,5 +1,7 @@
 /** View models consumed by components. Populated from the backend API. */
 
+import type { DisplayKind } from '$lib/utils/tool-output';
+
 export interface KeyValue {
 	key: string;
 	value: string;
@@ -627,6 +629,15 @@ export interface ToolCallEntry {
 	endpoint?: string;
 	exitCode?: number | null;
 	approvalId?: string;
+	/** Short failure reason; the full text stays in `output`. */
+	error?: string;
+	/** Presentation kind for the output body. Absent on persisted records;
+	 * views fall back to name-based inference. */
+	displayKind?: DisplayKind;
+	/** Server-provided preview excerpt for the output body. */
+	displayPreview?: string;
+	/** Whether the server truncated the preview by design. */
+	displayTruncated?: boolean;
 	/** Owning loop's definition id: launching workflow node id for loops
 	 * started by a workflow node, else the agent definition id. Joins to
 	 * graph nodes by exact id equality only. */

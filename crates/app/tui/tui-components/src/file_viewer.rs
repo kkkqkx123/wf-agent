@@ -54,6 +54,11 @@ impl FileViewer {
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
+
+    /// Plain-text content for the viewer copy key.
+    pub fn copy_text(&self) -> String {
+        crate::transcript::lines_to_string(&self.rows)
+    }
 }
 
 impl Modal for FileViewer {
@@ -66,11 +71,15 @@ impl Modal for FileViewer {
             frame,
             area,
             &self.title,
-            "j/k scroll · PgUp/PgDn page · Home/End · q close",
+            "j/k scroll · PgUp/PgDn page · Home/End · q close · Ctrl+Y copy",
             &self.rows,
             &self.scroll,
             theme,
         );
+    }
+
+    fn copy_source(&self) -> Option<String> {
+        Some(self.copy_text())
     }
 
     fn handle_key(&mut self, key: Key) -> ModalAction {
@@ -152,6 +161,15 @@ impl DiffViewer {
         self.rows.len()
     }
 
+    /// Plain-text content for the viewer copy key.
+    pub fn copy_text(&self) -> String {
+        self.rows
+            .iter()
+            .map(|row| row.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// Theme-coloured display lines for the current diff.
     fn display_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         self.rows
@@ -172,11 +190,15 @@ impl Modal for DiffViewer {
             frame,
             area,
             &self.title,
-            "j/k scroll · PgUp/PgDn page · Home/End · q close",
+            "j/k scroll · PgUp/PgDn page · Home/End · q close · Ctrl+Y copy",
             &rows,
             &self.scroll,
             theme,
         );
+    }
+
+    fn copy_source(&self) -> Option<String> {
+        Some(self.copy_text())
     }
 
     fn handle_key(&mut self, key: Key) -> ModalAction {
@@ -211,5 +233,16 @@ mod tests {
     fn file_viewer_splits_content_into_rows() {
         let viewer = FileViewer::new("readme", "one\ntwo\nthree");
         assert_eq!(viewer.row_count(), 3);
+    }
+
+    #[test]
+    fn viewers_expose_plain_copy_text() {
+        let file = FileViewer::new("readme", "one\ntwo");
+        assert_eq!(file.copy_text(), "one\ntwo");
+        let diff = DiffViewer::from_unified("diff", "@@ -1 +1 @@\n-removed\n+added\n");
+        assert_eq!(diff.copy_text(), "@@ -1 +1 @@\n-removed\n+added");
+        use crate::modal::Modal;
+        assert!(file.copy_source().is_some());
+        assert!(diff.copy_source().is_some());
     }
 }

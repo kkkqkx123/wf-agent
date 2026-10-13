@@ -208,15 +208,23 @@ impl InteractiveController {
     }
 
     /// Cycle the detail level Low -> Medium -> High, flushing any pending
-    /// activity group first so rows stay ordered.
+    /// activity group first so rows stay ordered. The High landing names its
+    /// retrieval caveat: expanded retrieval bodies can flood the transcript,
+    /// so medium stays the daily default.
     pub(crate) fn cycle_detail_level(&mut self) {
         self.flush_activity();
         let next = self.tool_config.level.cycle();
         self.tool_config.level = next;
-        self.pending_scroll.push(HistoryLine::new_role(
-            format!("detail level: {}", next.label()),
-            Role::Muted,
-        ));
+        let message = if next == DetailLevel::High {
+            format!(
+                "detail level: {} (retrieval bodies expand; medium is the daily default)",
+                next.label()
+            )
+        } else {
+            format!("detail level: {}", next.label())
+        };
+        self.pending_scroll
+            .push(HistoryLine::new_role(message, Role::Muted));
     }
 
     /// Expand all rendered blocks when any of them is collapsed, otherwise

@@ -28,7 +28,7 @@ pub use crate::stderr::TerminalStderrGuard;
 pub use commands::{
     keyboard_enhancement_env_disabled, keyboard_enhancement_flags, DISABLE_KEYBOARD_ENHANCEMENT_ENV,
 };
-pub use control::{FakeControl, TerminalControl};
+pub use control::{sanitize_copy_text, FakeControl, TerminalControl};
 pub use crossterm::CrosstermControl;
 pub use guard::TerminalGuard;
 pub use modes::TerminalModes;
@@ -254,6 +254,11 @@ mod tests {
             }
             fn reset_keyboard_enhancement(&mut self) -> io::Result<()> {
                 self.ops.borrow_mut().push("reset_keyboard_enhancement");
+                Ok(())
+            }
+            fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
+                let _ = text;
+                self.ops.borrow_mut().push("copy_to_clipboard");
                 Ok(())
             }
         }

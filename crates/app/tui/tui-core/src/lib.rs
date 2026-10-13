@@ -1,6 +1,7 @@
 //! tui-core: low-level TUI implementation crate.
 
 pub mod anchor;
+pub mod copy;
 pub mod event_dispatch;
 pub mod events;
 pub mod frame_metrics;

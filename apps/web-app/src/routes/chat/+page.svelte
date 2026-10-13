@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
@@ -13,6 +13,10 @@
 	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
 	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
+	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
+	import { groupToolCalls } from '$lib/utils/tool-output';
+	import { preferences } from '$lib/stores/preferences.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
 	import Composer from '$lib/components/chat/Composer.svelte';
@@ -110,8 +114,34 @@
 			durationMs: 0,
 			input: '',
 			output: tool.result,
+			error: tool.error,
+			displayKind: tool.display?.kind,
+			displayPreview: tool.display?.preview,
+			displayTruncated: tool.display?.truncated,
 		};
 	}
+
+	/** Live tool rows: consecutive reads and edits fold into one group row
+	 * while shell output and failures keep their own rows. Grouping is a
+	 * pure derivation over entry ids, so a collapsed group survives appends.
+	 * With previews off the flat pre-grouping list renders instead. */
+	const liveGroups = $derived(
+		groupToolCalls(chatStream.tools.map(toLiveEntry)),
+	);
+	const groupTools = $derived(preferences.toolOutputPreviews);
+	let openGroups = new SvelteSet<string>();
+
+	function toggleGroup(key: string): void {
+		if (openGroups.has(key)) openGroups.delete(key);
+		else openGroups.add(key);
+	}
+
+	// Group expansion is session-local memory: new ids mean new keys, but
+	// clear explicitly on session switch so stale keys never accumulate.
+	$effect(() => {
+		void selectedId;
+		openGroups.clear();
+	});
 
 	// Mini decision map: lightweight mirror of the session decision graph,
 	// sharing the projection bridge with the inspector graph tab.
@@ -242,9 +272,20 @@
 			);
 		if (match) {
 			focusedToolId = match.id;
-			document
-				.getElementById(`live-tool-${match.id}`)
-				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			const group = liveGroups.find((candidate) =>
+				candidate.members.some((member) => member.id === match.id),
+			);
+			const scroll = (): void => {
+				document
+					.getElementById(`live-tool-${match.id}`)
+					?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			};
+			if (group && group.kind !== 'single' && !openGroups.has(group.key)) {
+				openGroups.add(group.key);
+				void tick().then(scroll);
+				return;
+			}
+			scroll();
 		}
 	}
 
@@ -334,6 +375,8 @@
 						tool.success,
 						tool.result,
 						tool.toolKind,
+						tool.error,
+						tool.display,
 					),
 				onUsage: (usage) => {
 					chatStream.usage = usage;
@@ -474,26 +517,46 @@
 								streaming={chatStream.active}
 							/>
 						{/if}
-						{#each chatStream.tools as tool (tool.id)}
+						{#snippet liveMember(entry: ToolCallEntry)}
 							<div
-								id={`live-tool-${tool.id}`}
+								id={`live-tool-${entry.id}`}
 								role="button"
 								tabindex={0}
-								aria-label={`Locate tool ${tool.name} on decision map`}
-								onclick={() => focusNodeFromTool(tool.id, tool.name)}
+								aria-label={`Locate tool ${entry.name} on decision map`}
+								onclick={() => focusNodeFromTool(entry.id, entry.name)}
 								onkeydown={(event) => {
 									if (event.key === 'Enter' || event.key === ' ') {
 										event.preventDefault();
-										focusNodeFromTool(tool.id, tool.name);
+										focusNodeFromTool(entry.id, entry.name);
 									}
 								}}
-								class={focusedToolId === tool.id
+								class={focusedToolId === entry.id
 									? 'cursor-pointer rounded-lg ring-2 ring-warning'
 									: 'cursor-pointer rounded-lg'}
 							>
-								<ToolCallCard entry={toLiveEntry(tool)} />
+								<ToolCallCard {entry} />
 							</div>
-						{/each}
+						{/snippet}
+						{#if groupTools}
+							{#each liveGroups as group (group.key)}
+								{#if group.kind === 'single'}
+									{#each group.members as entry (entry.id)}
+										{@render liveMember(entry)}
+									{/each}
+								{:else}
+									<ToolCallGroup
+										{group}
+										open={openGroups.has(group.key)}
+										ontoggle={() => toggleGroup(group.key)}
+										member={liveMember}
+									/>
+								{/if}
+							{/each}
+						{:else}
+							{#each chatStream.tools as tool (tool.id)}
+								{@render liveMember(toLiveEntry(tool))}
+							{/each}
+						{/if}
 						{#if chatStream.answer}
 							<article class="flex gap-2.5">
 								<div

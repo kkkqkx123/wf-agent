@@ -28,6 +28,7 @@ import {
 	parseToolEndpoint,
 	parseToolExitCode,
 } from '$lib/utils/toolcalls';
+import { inferDisplayKind } from '$lib/utils/tool-output';
 
 interface ExecutionDto {
 	id?: string;
@@ -339,6 +340,8 @@ function toToolCall(d: ToolCallDto, index: number): ToolCallEntry {
 		durationMs: d.duration_ms ?? d.durationMs ?? 0,
 		input,
 		output,
+		error: d.error ?? undefined,
+		displayKind: inferDisplayKind(name),
 		endpoint: parseToolEndpoint(input) || undefined,
 		exitCode: parseToolExitCode(output),
 		approvalId: parseApprovalId(input, output) || undefined,

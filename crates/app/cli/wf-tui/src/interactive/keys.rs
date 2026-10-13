@@ -38,6 +38,9 @@ impl InteractiveController {
         // Tool-output keys are transcript context too: Ctrl+O toggles the
         // most recent expandable block, Ctrl+V opens its full output,
         // Ctrl+D cycles the detail level and Ctrl+E expands or collapses all.
+        // High level expands retrieval bodies by default and can flood the
+        // transcript on large reads; prefer medium for daily use and switch
+        // to high only when inspecting retrieval behavior.
         match key.code {
             CKey::PageUp => {
                 self.scroll_history_up();
@@ -61,6 +64,10 @@ impl InteractiveController {
             }
             CKey::Char('e') | CKey::Char('E') if key.ctrl && !key.alt => {
                 self.toggle_all_tool_blocks();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('y') | CKey::Char('Y') if key.ctrl && !key.alt => {
+                self.request_copy_default();
                 return InteractiveAction::Continue;
             }
             _ => {}
@@ -267,6 +274,9 @@ impl InteractiveController {
                     return InteractiveAction::Continue;
                 }
                 let text = self.footer.composer.submit().unwrap_or_default();
+                if self.handle_copy_command(&text) {
+                    return InteractiveAction::Continue;
+                }
                 if !text.trim().is_empty() {
                     self.flush_activity();
                     self.pending_scroll

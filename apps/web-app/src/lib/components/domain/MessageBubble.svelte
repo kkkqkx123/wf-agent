@@ -7,6 +7,14 @@
 	import { splitAttachments } from '$lib/utils/attachments';
 	import { textRuns } from '$lib/utils/mentions';
 	import { formatDateTime } from '$lib/utils/format';
+	import { resolveToolOutputBudgets } from '$lib/config/tool-output';
+	import {
+		countSummary,
+		inferDisplayKind,
+		limitBodyLines,
+		previewFor,
+	} from '$lib/utils/tool-output';
+	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface Props {
@@ -52,6 +60,38 @@
 	const expanded = $derived(
 		expandedIndex === null ? null : body.attachments[expandedIndex],
 	);
+
+	const isTool = $derived(message.role === 'tool');
+	const previews = $derived(preferences.toolOutputPreviews);
+	const budgets = $derived(
+		resolveToolOutputBudgets(preferences.toolOutputDetail),
+	);
+	const toolKind = $derived(inferDisplayKind(message.toolName ?? ''));
+	// Persisted messages carry no success signal, so retrieval bodies stay
+	// hidden until the user expands them; failures surface via the same
+	// toggle instead of guessing from keywords.
+	const toolHidden = $derived(toolKind === 'count');
+	const toolPreview = $derived(
+		previewFor(
+			message.toolName ?? '',
+			{
+				output: body.text,
+				success: !toolHidden,
+			},
+			budgets,
+		),
+	);
+	const toolExpandable = $derived(toolHidden || toolPreview.overflow);
+	const toolCount = $derived(countSummary(body.text));
+	const toolFull = $derived(limitBodyLines(body.text, budgets.bodyMaxLines));
+	let toolExpanded = $state(false);
+
+	// A new message starts collapsed; re-renders of the same message keep
+	// the user's expansion choice.
+	$effect(() => {
+		void message.id;
+		toolExpanded = false;
+	});
 </script>
 
 <article class={cn('flex gap-2.5', isUser && 'flex-row-reverse', className)}>
@@ -84,6 +124,41 @@
 			{/if}
 			{#if isAssistant}
 				<StreamMarkdown content={message.content} done />
+			{:else if isTool && previews && toolExpandable}
+				{#if toolHidden}
+					<p class="font-mono text-micro text-muted-foreground">{toolCount}</p>
+				{:else}
+					<p class="whitespace-pre-wrap break-words">{toolPreview.text}</p>
+				{/if}
+				<button
+					type="button"
+					onclick={() => (toolExpanded = !toolExpanded)}
+					aria-expanded={toolExpanded}
+					class="mt-1 flex items-center gap-1 text-micro text-muted-foreground transition-colors hover:text-foreground"
+				>
+					<Icon
+						name="chevron-down"
+						size={12}
+						class={cn(
+							'transition-transform duration-150',
+							toolExpanded && 'rotate-180',
+						)}
+					/>
+					{toolExpanded
+						? 'Hide full output'
+						: toolHidden
+							? 'Show output'
+							: `Show full output${toolPreview.hiddenLines > 0 ? ` (+${toolPreview.hiddenLines} lines)` : ''}`}
+				</button>
+				{#if toolExpanded}
+					<pre
+						class="mt-1 max-h-96 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro break-words whitespace-pre-wrap text-foreground">{toolFull.text}</pre>
+					{#if toolFull.capped}
+						<p class="mt-1 font-mono text-micro text-muted-foreground">
+							… {toolFull.hiddenLines} more lines
+						</p>
+					{/if}
+				{/if}
 			{:else}
 				<p class="whitespace-pre-wrap break-words">
 					{#each runs as run, index (index)}

@@ -158,4 +158,49 @@ describe('tool lifecycle', () => {
 		);
 		expect(calls).toEqual(['toolStart:t1:search']);
 	});
+
+	it('passes the display payload through on tool end', () => {
+		const seen: Array<{ kind: unknown; preview: unknown }> = [];
+		handleExecutionFrame(
+			'',
+			{
+				type: 'tool_end',
+				tool_call_id: 't1',
+				tool_name: 'execute_command',
+				success: true,
+				result: 'ok',
+				display: {
+					kind: 'shell_tail',
+					preview: 'ok',
+					truncated: false,
+					hidden_lines: 0,
+				},
+			},
+			{
+				onToolEnd: (tool) =>
+					seen.push({
+						kind: tool.display?.kind,
+						preview: tool.display?.preview,
+					}),
+			},
+		);
+		expect(seen).toEqual([{ kind: 'shell_tail', preview: 'ok' }]);
+	});
+
+	it('falls back to null display on unknown payloads', () => {
+		const seen: unknown[] = [];
+		handleExecutionFrame(
+			'',
+			{
+				type: 'tool_end',
+				tool_call_id: 't1',
+				tool_name: 'execute_command',
+				success: true,
+				result: 'ok',
+				display: { kind: 'mystery' },
+			},
+			{ onToolEnd: (tool) => seen.push(tool.display) },
+		);
+		expect(seen).toEqual([null]);
+	});
 });

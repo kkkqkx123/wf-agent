@@ -146,6 +146,25 @@ pub(super) fn load_mouse_opt_in() -> bool {
     }
 }
 
+/// Best-effort default copy target from `[terminal] copy_target`. A
+/// missing or unreadable config (or an unknown value, which fails the
+/// whole file parse and falls back here) means the message default.
+pub(super) fn load_copy_target() -> crate::copy::CopyDefaultTarget {
+    use crate::app_config::CopyTargetName;
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return crate::copy::CopyDefaultTarget::Message,
+    };
+    let target = match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager.config().terminal.copy_target,
+        Err(_) => None,
+    };
+    match target {
+        Some(CopyTargetName::Code) => crate::copy::CopyDefaultTarget::Code,
+        _ => crate::copy::CopyDefaultTarget::Message,
+    }
+}
+
 pub(super) fn map_key(key: crossterm::event::KeyEvent) -> Key {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);

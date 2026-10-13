@@ -50,6 +50,12 @@ pub trait Modal {
     fn is_transparent(&self) -> bool {
         false
     }
+    /// Full text behind a read-only viewer, if any. The shell copies this
+    /// on the viewer copy key; modals without copyable content return
+    /// `None` and keep the key for themselves.
+    fn copy_source(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Action after handling a key in a modal.
@@ -123,6 +129,11 @@ impl ModalStack {
         self.stack
             .last_mut()
             .map(|entry| entry.modal.as_mut() as &mut (dyn Modal + Send))
+    }
+
+    /// Full text behind the top read-only viewer, if it has any.
+    pub fn copy_source(&self) -> Option<String> {
+        self.stack.last()?.modal.copy_source()
     }
 
     pub fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {

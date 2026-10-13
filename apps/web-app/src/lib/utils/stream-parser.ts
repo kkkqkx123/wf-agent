@@ -1,4 +1,6 @@
 import type { StreamFailure } from '$lib/api/stream';
+import { parseDisplayPayload } from '$lib/utils/tool-output';
+import type { DisplayPayload } from '$lib/utils/tool-output';
 
 export interface ToolLifecycle {
 	toolCallId: string;
@@ -7,6 +9,9 @@ export interface ToolLifecycle {
 	success: boolean;
 	result: string;
 	error: string | null;
+	/** Frontend-facing summary produced alongside the full result. Null on
+	 * older servers; consumers fall back to name-based inference. */
+	display: DisplayPayload | null;
 }
 
 export interface UsageSnapshot {
@@ -231,6 +236,7 @@ export function handleExecutionFrame(
 				success: frame.success !== false,
 				result: asString(frame.result),
 				error: asOptionalString(frame.error),
+				display: parseDisplayPayload(frame.display),
 			});
 			break;
 		case 'usage':

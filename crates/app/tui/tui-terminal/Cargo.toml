@@ -6,7 +6,7 @@ description = "Low-level TUI implementation crate (tui-terminal)"
 
 [dependencies]
 wf-cli-shared = { path = "../../cli/wf-cli-shared" }
-crossterm = { workspace = true }
+crossterm = { workspace = true, features = ["osc52"] }
 libc = { workspace = true }
 ratatui = { workspace = true }
 tui-clock = { path = "../tui-clock" }

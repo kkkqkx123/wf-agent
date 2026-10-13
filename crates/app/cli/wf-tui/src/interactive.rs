@@ -15,6 +15,7 @@
 //! [`InteractiveController`] struct, its lifecycle, the event pump, and the
 //! turn/streaming settlement that feeds the scrollback.
 
+pub(crate) mod copy;
 pub(crate) mod keys;
 mod render;
 mod tool_blocks;
@@ -132,6 +133,12 @@ pub struct InteractiveController {
     activity: Vec<(String, bool)>,
     /// Pending full-output viewer request drained by the shell into a modal.
     viewer_request: Option<tool_blocks::ToolViewerRequest>,
+    /// Startup-resolved copy policy injected by the shell.
+    copy_policy: crate::copy::CopyPolicy,
+    /// Resolved copy payload waiting for the shell flush point.
+    pending_copy: Option<crate::copy::PendingCopy>,
+    /// Copy failure notice drained by the shell into its notice queue.
+    pending_copy_notice: Option<String>,
     exit_tracker: DoublePressTracker,
     /// Pagination state machine for replay-history loading (see `load_replay`).
     pager: ReplayPager,
@@ -309,6 +316,9 @@ impl InteractiveController {
             tool_config: tui_core::tool_output::ToolOutputConfig::default(),
             activity: Vec::new(),
             viewer_request: None,
+            copy_policy: crate::copy::CopyPolicy::disabled(),
+            pending_copy: None,
+            pending_copy_notice: None,
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
             pager: ReplayPager::default(),
             view_scroll: 0,

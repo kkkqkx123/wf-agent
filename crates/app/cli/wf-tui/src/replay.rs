@@ -2,7 +2,7 @@ use wf_client::WfClient;
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
 use crate::error::{CliError, CliResult};
-use crate::tool_output::{collapse_output, collapse_shell_tail, infer_kind};
+use crate::tool_output::{collapse_output, collapse_shell_tail, infer_kind, ToolOutputConfig};
 use crate::transcript::{HistoryLine, Role};
 use wf_types::tool::DisplayKind;
 
@@ -363,9 +363,12 @@ fn tool_success_from_message(message: &Message, text: &str) -> bool {
 }
 
 /// Preview budgets shared with the live transcript so replayed rows read
-/// exactly like live rows.
-const REPLAY_PREVIEW_LINES: usize = 10;
-const REPLAY_PREVIEW_CHARS: usize = 320;
+/// exactly like live rows. These track the live defaults from
+/// [`ToolOutputConfig`]; replay has no user config to read.
+fn replay_preview_budgets() -> (usize, usize) {
+    let config = ToolOutputConfig::default();
+    (config.preview_max_lines, config.preview_max_chars)
+}
 
 /// Summary rows for tool calls declared on the message envelope. Returns
 /// the emitted names so bare content parts can skip duplicates.
@@ -399,6 +402,7 @@ fn push_rich_tool_uses(lines: &mut Vec<HistoryLine>, message: &Message, skip: &[
 /// visually identical to a full one.
 fn records_to_lines(records: &[Message]) -> Vec<HistoryLine> {
     let mut lines: Vec<HistoryLine> = Vec::new();
+    let (preview_lines, preview_chars) = replay_preview_budgets();
     for message in records {
         let text = message_text(message);
         if text.trim().is_empty() {
@@ -440,9 +444,9 @@ fn records_to_lines(records: &[Message]) -> Vec<HistoryLine> {
                     lines.push(HistoryLine::new_role(summary, role));
                 } else {
                     let preview = if infer_kind(&name) == DisplayKind::ShellTail {
-                        collapse_shell_tail(&text, REPLAY_PREVIEW_LINES, REPLAY_PREVIEW_CHARS)
+                        collapse_shell_tail(&text, preview_lines, preview_chars)
                     } else {
-                        collapse_output(&text, REPLAY_PREVIEW_LINES, REPLAY_PREVIEW_CHARS)
+                        collapse_output(&text, preview_lines, preview_chars)
                     };
                     let summary = if preview.overflow {
                         if preview.hidden_lines > 0 {

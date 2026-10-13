@@ -48,6 +48,10 @@ pub struct TerminalCapabilities {
     // OSC color detection
     /// The terminal's default background color, if detected via OSC 11.
     pub default_colors: Option<ColorSet>,
+    /// OSC 52 clipboard write support (conservative: false without
+    /// positive evidence from a known emulator, passthrough proof, or an
+    /// explicit environment override).
+    pub osc52_clipboard: bool,
 }
 
 impl Default for TerminalCapabilities {
@@ -63,6 +67,7 @@ impl Default for TerminalCapabilities {
             terminal_type: TerminalType::Unknown,
             version: None,
             default_colors: None,
+            osc52_clipboard: false,
         }
     }
 }
@@ -153,6 +158,21 @@ impl TerminalType {
             Self::Kitty | Self::WezTerm | Self::Ghostty | Self::ITerm2 | Self::Rio
         )
     }
+
+    /// Whether this terminal is on the OSC 52 evidence list: emulators
+    /// with first-hand clipboard pass-through reports.
+    pub fn supports_osc52_clipboard(&self) -> bool {
+        matches!(
+            self,
+            Self::Kitty
+                | Self::WezTerm
+                | Self::Ghostty
+                | Self::Alacritty
+                | Self::ITerm2
+                | Self::Rio
+                | Self::WindowsTerminal
+        )
+    }
 }
 
 /// Orchestrates capability detection with concrete probe functions. No
@@ -188,6 +208,7 @@ impl TerminalProbe {
         probe_color_depth(&mut self.capabilities);
         probe_terminal_type(&mut self.capabilities);
         probe_focus_events(&mut self.capabilities);
+        probe_osc52_clipboard(&mut self.capabilities);
     }
 
     /// Get the detected capabilities.
@@ -225,6 +246,98 @@ fn probe_terminal_type(caps: &mut TerminalCapabilities) {
 fn probe_focus_events(caps: &mut TerminalCapabilities) {
     let term_type = TerminalType::detect_from_env();
     caps.focus_events = term_type.supports_focus_events();
+}
+
+/// Strict master switch for OSC 52 clipboard writes. Only `1` forces the
+/// channel on (the user vouches for tmux / ssh pass-through) and only `0`
+/// forces it off; any other value (including unset) carries no evidence.
+pub const OSC52_CLIPBOARD_ENV: &str = "WF_TUI_OSC52_CLIPBOARD";
+
+/// Parse the strict OSC 52 override: `Some(true)` for `1`, `Some(false)`
+/// for `0`, `None` otherwise.
+pub fn parse_osc52_override(value: Option<&str>) -> Option<bool> {
+    match value.map(str::trim) {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
+        _ => None,
+    }
+}
+
+/// Read the strict override from the environment.
+pub fn osc52_override() -> Option<bool> {
+    parse_osc52_override(std::env::var(OSC52_CLIPBOARD_ENV).ok().as_deref())
+}
+
+/// Pure OSC 52 evidence set, so the truth table is testable without
+/// touching process-wide variables.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Osc52Env {
+    pub is_tty: bool,
+    pub term: Option<String>,
+    pub terminal_type: TerminalType,
+    pub has_kitty_window_id: bool,
+    pub has_wezterm_version: bool,
+    pub has_wt_session: bool,
+    pub is_tmux: bool,
+    pub is_ssh: bool,
+    pub override_value: Option<bool>,
+}
+
+impl Osc52Env {
+    /// Read the live process environment.
+    pub fn detect() -> Self {
+        let terminal_type = TerminalType::detect_from_env();
+        let term = std::env::var("TERM").ok();
+        let is_tmux = std::env::var("TMUX").is_ok()
+            || matches!(terminal_type, TerminalType::Tmux | TerminalType::Screen)
+            || std::env::var("STY").is_ok();
+        let is_ssh = std::env::var("SSH_CONNECTION").is_ok()
+            || std::env::var("SSH_CLIENT").is_ok()
+            || std::env::var("SSH_TTY").is_ok();
+        Self {
+            is_tty: std::io::stdout().is_terminal(),
+            term,
+            terminal_type,
+            has_kitty_window_id: std::env::var("KITTY_WINDOW_ID").is_ok(),
+            has_wezterm_version: std::env::var("WEZTERM_VERSION").is_ok(),
+            has_wt_session: std::env::var("WT_SESSION").is_ok(),
+            is_tmux,
+            is_ssh,
+            override_value: osc52_override(),
+        }
+    }
+}
+
+/// Decide OSC 52 availability from explicit evidence. Conservative by
+/// design: piped output and dumb terminals never qualify, an explicit `0`
+/// always wins, an explicit `1` vouches for multiplexer / ssh
+/// pass-through, and without an override multiplexed or remote sessions
+/// stay off. Local sessions need a known emulator or a protocol-emulator
+/// environment marker.
+pub fn decide_osc52_clipboard(env: &Osc52Env) -> bool {
+    if env.override_value == Some(false) {
+        return false;
+    }
+    if !env.is_tty {
+        return false;
+    }
+    if env.term.as_deref().is_some_and(|term| term == "dumb") {
+        return false;
+    }
+    if env.override_value == Some(true) {
+        return true;
+    }
+    if env.is_tmux || env.is_ssh {
+        return false;
+    }
+    env.terminal_type.supports_osc52_clipboard()
+        || env.has_kitty_window_id
+        || env.has_wezterm_version
+        || env.has_wt_session
+}
+
+fn probe_osc52_clipboard(caps: &mut TerminalCapabilities) {
+    caps.osc52_clipboard = decide_osc52_clipboard(&Osc52Env::detect());
 }
 
 /// Heuristic keyboard enhancement detection via `TERM_PROGRAM` and version.
@@ -373,6 +486,95 @@ mod tests {
         let caps = TerminalCapabilities::default();
         assert!(caps.bracketed_paste);
         assert!(!caps.kitty_keyboard);
+        assert!(!caps.osc52_clipboard);
         assert_eq!(caps.color_depth, ColorDepth::Ansi16);
+    }
+
+    fn osc52_env(terminal_type: TerminalType) -> Osc52Env {
+        Osc52Env {
+            is_tty: true,
+            term: Some("xterm-256color".to_string()),
+            terminal_type,
+            has_kitty_window_id: false,
+            has_wezterm_version: false,
+            has_wt_session: false,
+            is_tmux: false,
+            is_ssh: false,
+            override_value: None,
+        }
+    }
+
+    #[test]
+    fn osc52_allows_known_emulators() {
+        for terminal_type in [
+            TerminalType::Kitty,
+            TerminalType::WezTerm,
+            TerminalType::Ghostty,
+            TerminalType::Alacritty,
+            TerminalType::ITerm2,
+            TerminalType::Rio,
+            TerminalType::WindowsTerminal,
+        ] {
+            assert!(
+                decide_osc52_clipboard(&osc52_env(terminal_type)),
+                "emulator {terminal_type:?} qualifies"
+            );
+        }
+    }
+
+    #[test]
+    fn osc52_env_markers_count_as_evidence() {
+        let mut env = osc52_env(TerminalType::Unknown);
+        env.has_kitty_window_id = true;
+        assert!(decide_osc52_clipboard(&env));
+        let mut env = osc52_env(TerminalType::Unknown);
+        env.has_wezterm_version = true;
+        assert!(decide_osc52_clipboard(&env));
+        let mut env = osc52_env(TerminalType::Unknown);
+        env.has_wt_session = true;
+        assert!(decide_osc52_clipboard(&env));
+    }
+
+    #[test]
+    fn osc52_truth_table_denies_without_evidence() {
+        assert!(!decide_osc52_clipboard(&osc52_env(TerminalType::Unknown)));
+        let mut dumb = osc52_env(TerminalType::Kitty);
+        dumb.term = Some("dumb".to_string());
+        assert!(!dumb.term.is_none());
+        assert!(!decide_osc52_clipboard(&dumb));
+        let mut piped = osc52_env(TerminalType::Kitty);
+        piped.is_tty = false;
+        assert!(!decide_osc52_clipboard(&piped));
+        let mut tmux = osc52_env(TerminalType::Kitty);
+        tmux.is_tmux = true;
+        assert!(!decide_osc52_clipboard(&tmux));
+        let mut ssh = osc52_env(TerminalType::Kitty);
+        ssh.is_ssh = true;
+        assert!(!decide_osc52_clipboard(&ssh));
+    }
+
+    #[test]
+    fn osc52_override_is_strict_and_total() {
+        assert_eq!(parse_osc52_override(None), None);
+        assert_eq!(parse_osc52_override(Some("1")), Some(true));
+        assert_eq!(parse_osc52_override(Some("0")), Some(false));
+        assert_eq!(parse_osc52_override(Some("true")), None);
+        assert_eq!(parse_osc52_override(Some("yes")), None);
+        assert_eq!(parse_osc52_override(Some(" 1 ")), Some(true));
+
+        let mut forced = osc52_env(TerminalType::Unknown);
+        forced.is_tmux = true;
+        forced.is_ssh = true;
+        forced.override_value = Some(true);
+        assert!(decide_osc52_clipboard(&forced));
+
+        let mut killed = osc52_env(TerminalType::Kitty);
+        killed.override_value = Some(false);
+        assert!(!decide_osc52_clipboard(&killed));
+
+        let mut piped = osc52_env(TerminalType::Kitty);
+        piped.is_tty = false;
+        piped.override_value = Some(true);
+        assert!(!decide_osc52_clipboard(&piped));
     }
 }

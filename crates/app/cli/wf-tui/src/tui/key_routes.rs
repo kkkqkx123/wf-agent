@@ -31,8 +31,28 @@ impl TuiApp {
             return Ok(LoopAction::Quit);
         }
 
-        // An open modal swallows every key.
+        // An open modal swallows every key, except the viewer copy key:
+        // Ctrl+Y copies the top read-only viewer through the same policy
+        // and post-frame flush as transcript copies.
         if !self.modals.is_empty() {
+            if key.ctrl && !key.alt && matches!(key.code, CKey::Char('y') | CKey::Char('Y')) {
+                if let Some(text) = self.modals.copy_source() {
+                    if self.copy_policy.allowed {
+                        match crate::terminal::sanitize_copy_text(&text) {
+                            Some(clean) => {
+                                self.pending_copy =
+                                    Some(crate::copy::PendingCopy::new(clean, "viewer"));
+                            }
+                            None => self.app.notice.set("copy: viewer is empty".to_string()),
+                        }
+                    } else {
+                        self.app
+                            .notice
+                            .set(self.copy_policy.deny_notice().to_string());
+                    }
+                    return Ok(LoopAction::Continue);
+                }
+            }
             let _ = self.modals.handle_key(key);
             return Ok(LoopAction::Continue);
         }
@@ -102,6 +122,14 @@ impl TuiApp {
                                 &request.content,
                             )));
                     }
+                }
+                // Copy requests become shell-owned payloads flushed after
+                // the next frame; resolution failures surface as notices.
+                if let Some(copy) = session.take_pending_copy() {
+                    self.pending_copy = Some(copy);
+                }
+                if let Some(notice) = session.take_copy_notice() {
+                    self.app.notice.set(notice);
                 }
                 return Ok(LoopAction::Continue);
             }

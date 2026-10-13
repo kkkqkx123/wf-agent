@@ -203,6 +203,23 @@ impl HistoryLine {
         &self.text
     }
 
+    /// Source-text view for copy paths: span contents joined per source
+    /// line, without reflow or reordering. Copy always reads this, never
+    /// the width-reflowed display rows.
+    pub fn source_text(&self) -> String {
+        self.text
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// Content identity for row-level caches: role and source text folded
     /// into one hash. Line state is intentionally excluded so a streaming
     /// line settling into its committed form hits the same cache entry
@@ -486,6 +503,26 @@ mod tests {
         let h = HistoryLine::new("");
         assert_eq!(h.desired_height(10), 1);
         assert_eq!(lines_to_string(&h.display_lines(10)), "");
+    }
+
+    #[test]
+    fn source_text_joins_spans_without_reflow() {
+        use ratatui::text::Span;
+        let mut text = Text::from("aaa bbb ccc");
+        text.lines
+            .push(Line::from(vec![Span::raw("x"), Span::raw("y")]));
+        let h = HistoryLine {
+            state: LineState::Committed,
+            role: Role::Default,
+            text,
+            motion_mode: MotionMode::default(),
+            animation_start_ms: None,
+            seq_no: 0,
+        };
+        assert_eq!(h.source_text(), "aaa bbb ccc\nxy");
+        // Narrow reflow splits rows, the source stays whole.
+        assert!(h.display_lines(4).len() > 2);
+        assert_eq!(HistoryLine::new("one\ntwo").source_text(), "one\ntwo");
     }
 
     #[test]

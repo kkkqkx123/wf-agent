@@ -35,13 +35,14 @@ use crate::overlay::OverlayMode;
 use crate::screens::{ScreenData, ScreenKind};
 use crate::size::{ResizeDebouncer, Size};
 use crate::state::AppState;
-use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
+use crate::terminal::{CrosstermControl, TerminalControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
 use wf_client::WfClient;
 
 use data_cache::DataResult;
 use input_classify::{
-    classify_mouse, classify_paste, load_mouse_opt_in, load_tool_output_config, map_key,
+    classify_mouse, classify_paste, load_copy_target, load_mouse_opt_in, load_tool_output_config,
+    map_key,
 };
 use input_classify::{focus_transition, FocusInput, MouseAction, PasteTarget};
 use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
@@ -113,6 +114,10 @@ pub struct TuiApp {
     perf_tier: crate::perf::PerformanceTier,
     /// Runtime policy derived from the tier at startup.
     perf_policy: crate::perf::TuiPerfPolicy,
+    /// Startup-resolved copy policy (config default x capability x TTY).
+    copy_policy: crate::copy::CopyPolicy,
+    /// Copy payload waiting for the post-frame flush point.
+    pending_copy: Option<crate::copy::PendingCopy>,
     /// Whether the terminal advertises synchronized-output support.
     sync_supported: bool,
     /// Deferred heavyweight frame work drained once per frame, plus the
@@ -160,6 +165,13 @@ impl TuiApp {
         // animation last so either path alone reproduces the same bytes.
         perf_policy.apply_glyph_safety(crate::perf::fragile_glyph_cache_with_caps(&profile, &caps));
         perf_policy.apply_env_overrides();
+        // Copy policy resolves once beside the perf policy: the configured
+        // default target gated by the OSC 52 capability and the live TTY.
+        let copy_policy = crate::copy::CopyPolicy::resolve(
+            load_copy_target(),
+            &caps,
+            std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        );
         let (theme, theme_mode, theme_explicit) =
             crate::theme_mode::resolve_render_theme(theme::probe_theme());
         // The frame ceiling follows the capability policy so constrained
@@ -194,6 +206,8 @@ impl TuiApp {
             theme_explicit,
             perf_tier,
             perf_policy,
+            copy_policy,
+            pending_copy: None,
             sync_supported: caps.synchronized_output,
             deferred: crate::deferred::DeferredFrameWork::new(),
             finish_cleanups: 0,
@@ -485,6 +499,9 @@ impl TuiApp {
                 if self.interactive.is_some() {
                     self.last_active = Instant::now();
                 }
+                // Post-frame copy flush: OSC 52 bytes always follow a
+                // complete frame, never interleave it.
+                self.flush_pending_copy(guard);
             }
 
             // Orphaned client with no live session exits instead of idling.
@@ -616,6 +633,33 @@ impl TuiApp {
         }
     }
 
+    /// Flush one queued copy request through the control plane. Runs after
+    /// `draw` returns so the OSC 52 bytes always follow a complete frame.
+    /// Denied or failed writes surface as notices and never touch state.
+    fn flush_pending_copy(&mut self, guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>) {
+        let Some(request) = self.pending_copy.take() else {
+            return;
+        };
+        if !self.copy_policy.allowed {
+            self.app
+                .notice
+                .set(self.copy_policy.deny_notice().to_string());
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            return;
+        }
+        let Some(payload) = crate::terminal::sanitize_copy_text(&request.text) else {
+            return;
+        };
+        match guard.control().copy_to_clipboard(&payload) {
+            Ok(()) => self
+                .app
+                .notice
+                .set(crate::copy::success_notice(&request.label, &payload)),
+            Err(err) => self.app.notice.set(format!("copy failed: {err}")),
+        }
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
     /// Route a bracketed-paste body to the currently focused input as one
     /// whole string: no shortcut semantics fire on pasted content. Returns
     /// whether the paste landed somewhere visible.
@@ -732,6 +776,7 @@ impl TuiApp {
                 let mut session = InteractiveController::start(self.client.clone(), id).await;
                 session.set_perf_tier(self.perf_tier.marker());
                 session.apply_perf_policy(self.perf_policy);
+                session.apply_copy_policy(self.copy_policy);
                 session.set_tool_config(load_tool_output_config());
                 self.interactive = Some(session);
                 self.held_session.attach();

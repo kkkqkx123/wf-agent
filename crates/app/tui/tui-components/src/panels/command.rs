@@ -29,6 +29,8 @@ pub enum CommandId {
     Resume,
     /// `/executions` — list recent executions.
     Executions,
+    /// `/copy` — copy the last message or code block to the clipboard.
+    Copy,
 }
 
 /// One command palette row.
@@ -117,6 +119,11 @@ impl CommandPalette {
                 id: CommandId::Executions,
                 label: "/executions",
                 description: "list recent executions",
+            },
+            CommandEntry {
+                id: CommandId::Copy,
+                label: "/copy",
+                description: "copy the last message or code block (message | code [N] | all | id)",
             },
         ]
     }

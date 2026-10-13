@@ -1,9 +1,10 @@
 //! Minimal user configuration for the CLI/TUI frontends.
 //!
-//! Only options with real consumers live here today (`mouse_capture`).
-//! The file follows XDG conventions: `$XDG_CONFIG_HOME/wf/config.toml`
-//! or `$HOME/.config/wf/config.toml`. A missing or unreadable file means
-//! defaults; `load` never fails the caller on bad contents.
+//! Only options with real consumers live here (`mouse_capture`,
+//! `copy_target`). The file follows XDG conventions:
+//! `$XDG_CONFIG_HOME/wf/config.toml` or `$HOME/.config/wf/config.toml`. A
+//! missing or unreadable file means defaults; `load` never fails the caller
+//! on bad contents.
 
 use std::path::{Path, PathBuf};
 
@@ -17,6 +18,9 @@ pub struct AppConfig {
     /// Behavioral settings.
     #[serde(default)]
     pub behavior: BehaviorConfig,
+    /// Terminal channel settings (clipboard copy target).
+    #[serde(default)]
+    pub terminal: TerminalConfig,
     /// Mini interactive-form display settings.
     #[serde(default)]
     pub mini: MiniConfig,
@@ -33,6 +37,24 @@ pub struct BehaviorConfig {
     /// alternate scroll without capture.
     #[serde(default)]
     pub mouse_capture: bool,
+}
+
+/// Default copy target name for the config file. Lowercase in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CopyTargetName {
+    Message,
+    Code,
+}
+
+/// Terminal channel configuration from the config file. Every field is
+/// optional so a missing file or missing key falls back to the built-in
+/// default.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    /// Default copy target for explicit copy actions. Defaults to message.
+    #[serde(default)]
+    pub copy_target: Option<CopyTargetName>,
 }
 
 /// Mini display settings from the config file. Every field is optional so a
@@ -91,7 +113,9 @@ pub struct ToolOutputFileConfig {
     /// Per-block stored excerpt cap in bytes. Defaults to 32768.
     #[serde(default)]
     pub block_max_bytes: Option<usize>,
-    /// Default detail level. Defaults to medium.
+    /// Default detail level. Defaults to medium. High expands retrieval
+    /// bodies by default and can flood the transcript on large reads;
+    /// reserve it for inspecting retrieval behavior.
     #[serde(default)]
     pub level: Option<ToolDetailLevelName>,
 }
@@ -182,6 +206,16 @@ mod tests {
         let empty: AppConfig = toml::from_str("").unwrap();
         assert_eq!(empty.tool_output.enabled, None);
         assert_eq!(empty.tool_output.level, None);
+    }
+
+    #[test]
+    fn terminal_copy_target_roundtrip_via_toml() {
+        let parsed: AppConfig = toml::from_str("[terminal]\ncopy_target = \"code\"\n").unwrap();
+        assert_eq!(parsed.terminal.copy_target, Some(CopyTargetName::Code));
+        let empty: AppConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.terminal.copy_target, None);
+        let message: AppConfig = toml::from_str("[terminal]\ncopy_target = \"message\"\n").unwrap();
+        assert_eq!(message.terminal.copy_target, Some(CopyTargetName::Message));
     }
 
     #[test]

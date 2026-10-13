@@ -98,4 +98,45 @@ impl<W: Write + fmt::Debug> TerminalControl for CrosstermControl<W> {
             ResetKeyboardEnhancementFlags
         )
     }
+    fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
+        use crossterm::clipboard::CopyToClipboard;
+        crossterm::execute!(self.writer, CopyToClipboard::to_clipboard_from(text))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copy_emits_osc52_after_frame_bytes() {
+        let mut control = CrosstermControl::new(Vec::new());
+        control
+            .writer()
+            .write_all(b"frame-bytes")
+            .expect("memory writer never fails");
+        control
+            .copy_to_clipboard("hi")
+            .expect("memory writer never fails");
+        let out = String::from_utf8(control.writer().clone()).expect("ansi is utf-8");
+        let frame_pos = out.find("frame-bytes").expect("frame bytes present");
+        let osc_pos = out.find("\x1b]52;c;").expect("osc52 sequence present");
+        assert!(osc_pos > frame_pos, "osc52 follows the frame bytes");
+        assert!(out.ends_with("\x1b\\"), "osc52 closes with ST");
+        assert!(out.contains("aGk="), "base64 of hi present");
+    }
+
+    #[test]
+    fn copy_covers_arbitrary_payload_bytes() {
+        let mut control = CrosstermControl::new(Vec::new());
+        control
+            .copy_to_clipboard("hello world")
+            .expect("memory writer never fails");
+        let out = String::from_utf8(control.writer().clone()).expect("ansi is utf-8");
+        assert!(out.starts_with("\x1b]52;c;"), "opens with osc52 clipboard");
+        assert!(
+            out.contains("aGVsbG8gd29ybGQ="),
+            "base64 of payload present: {out}"
+        );
+    }
 }

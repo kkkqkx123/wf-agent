@@ -1,4 +1,6 @@
 import { browser } from '$app/environment';
+import { parseToolOutputDetail } from '$lib/config/tool-output';
+import type { ToolOutputDetail } from '$lib/config/tool-output';
 
 /**
  * Local first-paint appearance track: theme, density, and shell geometry
@@ -35,6 +37,8 @@ interface PersistedPreferences {
 	inspectorWidth?: number;
 	inspectorPinned?: boolean;
 	minimapMode?: MinimapMode;
+	toolOutputPreviews?: boolean;
+	toolOutputDetail?: ToolOutputDetail;
 }
 
 const DENSITY_SCALE: Record<Density, number> = {
@@ -68,6 +72,8 @@ class PreferencesStore {
 	inspectorWidth = $state(INSPECTOR_WIDTH_DEFAULT);
 	inspectorPinned = $state(false);
 	minimapMode = $state<MinimapMode>('auto');
+	toolOutputPreviews = $state(true);
+	toolOutputDetail = $state<ToolOutputDetail>('balanced');
 
 	constructor() {
 		const stored = read();
@@ -109,6 +115,12 @@ class PreferencesStore {
 			stored.minimapMode === 'off'
 		) {
 			this.minimapMode = stored.minimapMode;
+		}
+		if (typeof stored.toolOutputPreviews === 'boolean') {
+			this.toolOutputPreviews = stored.toolOutputPreviews;
+		}
+		if (stored.toolOutputDetail !== undefined) {
+			this.toolOutputDetail = parseToolOutputDetail(stored.toolOutputDetail);
 		}
 	}
 
@@ -174,6 +186,16 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	setToolOutputPreviews(enabled: boolean): void {
+		this.toolOutputPreviews = enabled;
+		this.persist();
+	}
+
+	setToolOutputDetail(detail: ToolOutputDetail): void {
+		this.toolOutputDetail = parseToolOutputDetail(detail);
+		this.persist();
+	}
+
 	private persist(): void {
 		if (!browser) return;
 		try {
@@ -187,6 +209,8 @@ class PreferencesStore {
 					inspectorWidth: this.inspectorWidth,
 					inspectorPinned: this.inspectorPinned,
 					minimapMode: this.minimapMode,
+					toolOutputPreviews: this.toolOutputPreviews,
+					toolOutputDetail: this.toolOutputDetail,
 				} satisfies PersistedPreferences),
 			);
 		} catch {

@@ -15,6 +15,11 @@
 		type Density,
 		type ThemeMode,
 	} from '$lib/stores/preferences.svelte';
+	import {
+		describeToolOutputBudgets,
+		resolveToolOutputBudgets,
+		type ToolOutputDetail,
+	} from '$lib/config/tool-output';
 	import { behavior } from '$lib/stores/behavior.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { cn } from '@wf-agent/ui/cn';
@@ -51,6 +56,18 @@
 		{ value: 'default', label: 'Default' },
 		{ value: 'comfortable', label: 'Comfortable' },
 	];
+
+	const TOOL_DETAIL_OPTIONS = [
+		{ value: 'compact', label: 'Compact' },
+		{ value: 'balanced', label: 'Balanced' },
+		{ value: 'verbose', label: 'Verbose' },
+	];
+
+	const toolBudgetsHint = $derived(
+		describeToolOutputBudgets(
+			resolveToolOutputBudgets(preferences.toolOutputDetail),
+		),
+	);
 
 	const PAGE_SIZE_OPTIONS = [
 		{ value: '25', label: '25' },
@@ -254,6 +271,34 @@
 							Type {preferences.fontScale.toFixed(2)}× · corners
 							{preferences.spacingScale.toFixed(2)}×
 						</p>
+					</Card>
+
+					<Card
+						title="Tool output"
+						description="How much of each tool result shows inline. Retrieval outputs always collapse to counts; failures stay expandable on every preset. Verbose shows more rows per card, but retrieval output stays collapsed until expanded per card — safe for inspecting retrieval without flooding the transcript."
+					>
+						<Switch
+							checked={preferences.toolOutputPreviews}
+							label="Summarize tool outputs"
+							onchange={() =>
+								preferences.setToolOutputPreviews(
+									!preferences.toolOutputPreviews,
+								)}
+						/>
+						<div class="mt-3">
+							<Select
+								value={preferences.toolOutputDetail}
+								options={TOOL_DETAIL_OPTIONS}
+								placeholder="Detail"
+								class="w-56"
+								disabled={!preferences.toolOutputPreviews}
+								onchange={(value) =>
+									preferences.setToolOutputDetail(value as ToolOutputDetail)}
+							/>
+							<p class="mt-2 text-caption text-muted-foreground">
+								Preview {toolBudgetsHint}
+							</p>
+						</div>
 					</Card>
 				</div>
 			{:else if serverSection}

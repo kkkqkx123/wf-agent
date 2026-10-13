@@ -101,6 +101,8 @@ mod tests {
         assert_eq!(palette.find("/model"), Some(CommandId::Model));
         assert_eq!(palette.find("quit"), Some(CommandId::Quit));
         assert_eq!(palette.find("help"), Some(CommandId::Help));
+        assert_eq!(palette.find("/copy"), Some(CommandId::Copy));
+        assert_eq!(palette.find("copy"), Some(CommandId::Copy));
         assert_eq!(palette.find("nope"), None);
     }
 

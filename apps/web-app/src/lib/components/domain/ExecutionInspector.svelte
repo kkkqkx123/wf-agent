@@ -17,6 +17,9 @@
 	import Timeline from './Timeline.svelte';
 	import TimelineOutline from './TimelineOutline.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
+	import ToolCallGroup from './ToolCallGroup.svelte';
+	import { groupToolCalls } from '$lib/utils/tool-output';
+	import { preferences } from '$lib/stores/preferences.svelte';
 	import NodeTracePanel from './NodeTracePanel.svelte';
 	import ExecutionHierarchyBreadcrumb from './ExecutionHierarchyBreadcrumb.svelte';
 	import ExecutionHierarchyTree from './ExecutionHierarchyTree.svelte';
@@ -31,10 +34,7 @@
 		getExecutionToolCalls,
 	} from '$lib/services/executions';
 	import { getExecutionGraphNeighbors } from '$lib/services/graph';
-	import type {
-		EfficiencyEntry,
-		SlowNodeEntry,
-	} from '$lib/services/graph';
+	import type { EfficiencyEntry, SlowNodeEntry } from '$lib/services/graph';
 	import {
 		loadAnalysisData,
 		loadGraphData,
@@ -74,7 +74,7 @@
 	import type { StreamState } from '$lib/api/sse';
 	import type { EventRecord } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	interface Props {
 		execution: ExecutionDetail;
@@ -340,6 +340,23 @@
 				tool.name.toLowerCase().includes(needle) ||
 				tool.id.toLowerCase().includes(needle),
 		);
+	});
+
+	/** Audit tool rows group like live tool rows. Expansion is local memory
+	 * cleared on execution switch; with previews off the flat list renders
+	 * instead. */
+	const groupedTools = $derived(groupToolCalls(filteredTools));
+	const groupTools = $derived(preferences.toolOutputPreviews);
+	let openGroups = new SvelteSet<string>();
+
+	function toggleGroup(key: string): void {
+		if (openGroups.has(key)) openGroups.delete(key);
+		else openGroups.add(key);
+	}
+
+	$effect(() => {
+		void execution.id;
+		openGroups.clear();
 	});
 
 	/** Timeline entries up to the replay cursor (exact timestamp cutoff).
@@ -1111,7 +1128,7 @@
 							</button>
 						</div>
 					{/if}
-					{#each filteredTools as entry (entry.id)}
+					{#snippet auditMember(entry: ToolCallEntry)}
 						<div
 							role="button"
 							tabindex={0}
@@ -1128,13 +1145,39 @@
 						>
 							<ToolCallCard {entry} />
 						</div>
+					{/snippet}
+					{#if groupTools}
+						{#each groupedTools as group (group.key)}
+							{#if group.kind === 'single'}
+								{#each group.members as entry (entry.id)}
+									{@render auditMember(entry)}
+								{/each}
+							{:else}
+								<ToolCallGroup
+									{group}
+									open={openGroups.has(group.key)}
+									ontoggle={() => toggleGroup(group.key)}
+									member={auditMember}
+								/>
+							{/if}
+						{:else}
+							<p class="text-caption text-muted-foreground">
+								{toolCalls.length === 0
+									? 'No tool calls recorded.'
+									: 'No tool calls match the filter.'}
+							</p>
+						{/each}
 					{:else}
-						<p class="text-caption text-muted-foreground">
-							{toolCalls.length === 0
-								? 'No tool calls recorded.'
-								: 'No tool calls match the filter.'}
-						</p>
-					{/each}
+						{#each filteredTools as entry (entry.id)}
+							{@render auditMember(entry)}
+						{:else}
+							<p class="text-caption text-muted-foreground">
+								{toolCalls.length === 0
+									? 'No tool calls recorded.'
+									: 'No tool calls match the filter.'}
+							</p>
+						{/each}
+					{/if}
 				</div>
 			{/if}
 		{:else if tab === 'analysis'}

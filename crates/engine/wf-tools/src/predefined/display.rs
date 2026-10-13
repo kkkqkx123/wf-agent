@@ -11,10 +11,12 @@ use wf_types::tool::{DisplayKind, DisplayPayload};
 
 use super::fold::{is_file_edit_tool, is_shell_tool};
 
-/// Shell tail excerpt budget in lines.
-pub const DISPLAY_SHELL_TAIL_LINES: usize = 20;
-/// Generic head excerpt budget in lines.
-pub const DISPLAY_TEXT_HEAD_LINES: usize = 20;
+/// Shell tail excerpt budget in lines. Matches the web verbose preset so the
+/// server payload is the ceiling every frontend preset cuts below.
+pub const DISPLAY_SHELL_TAIL_LINES: usize = 25;
+/// Generic head excerpt budget in lines. Matches the web verbose preset so
+/// the server payload is the ceiling every frontend preset cuts below.
+pub const DISPLAY_TEXT_HEAD_LINES: usize = 25;
 /// Single-line preview width in graphemes.
 pub const DISPLAY_PREVIEW_CHARS: usize = 160;
 
@@ -139,7 +141,7 @@ mod tests {
         let payload = display_for(Some("execute_command"), &result);
         assert_eq!(payload.kind, DisplayKind::ShellTail);
         assert!(payload.truncated);
-        assert_eq!(payload.hidden_lines, 30);
+        assert_eq!(payload.hidden_lines, 25);
         assert!(payload.preview.contains("out 49"));
         assert!(!payload.preview.contains("out 0\n"));
     }
@@ -198,7 +200,7 @@ mod tests {
         let payload = display_for(Some("mystery_tool"), &result);
         assert_eq!(payload.kind, DisplayKind::Text);
         assert!(payload.truncated);
-        assert_eq!(payload.hidden_lines, 30);
+        assert_eq!(payload.hidden_lines, 25);
         assert!(payload.preview.contains("row 0"));
     }
 

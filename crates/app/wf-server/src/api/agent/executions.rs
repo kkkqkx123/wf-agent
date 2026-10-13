@@ -564,7 +564,7 @@ pub(crate) async fn handle_resume_checkpoint(
     tag = "agent",
     params(IdPath),
     responses(
-        (status = 200, description = "Checkpoint chain", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
+        (status = 200, description = "Checkpoint chain", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<crate::api::checkpoint::views::CheckpointDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),

@@ -7259,9 +7259,74 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_CappedChainDoc: {
+            /**
+             * @description Capped chain analysis of one execution's checkpoints (the transport
+             *     `CappedChainView` mirrored): full structure up to a hard cap with an
+             *     explicit truncation flag and pre-truncation total.
+             */
+            data?: {
+                checkpoint_count: number;
+                checkpoints: components["schemas"]["CheckpointDoc"][];
+                execution_id: string;
+                time_range: components["schemas"]["CheckpointTimeRangeDoc"];
+                total: number;
+                /** Format: int64 */
+                total_elapsed: number;
+                transitions: components["schemas"]["CheckpointTransitionDoc"][];
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_CappedPaths: {
             data?: {
                 paths: string[][];
+                total: number;
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CappedView_CheckpointDoc: {
+            /**
+             * @description Capped list view for chains and timelines: full structure up to a hard
+             *     cap with an explicit truncation flag and pre-truncation total.
+             */
+            data?: {
+                items: {
+                    base_checkpoint_id?: string | null;
+                    /**
+                     * Format: int64
+                     * @description Encoded blob size in bytes.
+                     */
+                    blob_size?: number | null;
+                    /**
+                     * Format: int32
+                     * @description Position within the checkpoint chain, when chained.
+                     */
+                    chain_position?: number | null;
+                    chain_root_id?: string | null;
+                    /** @description Wire-compatible `"FULL"` / `"DELTA"` literal union. */
+                    checkpoint_type: string;
+                    custom_fields?: {
+                        [key: string]: unknown;
+                    } | null;
+                    entity_id: string;
+                    entity_type: string;
+                    id: string;
+                    /** @description Forward link to the parent execution, when the owning entity has one. */
+                    parent_entity_id?: string | null;
+                    previous_checkpoint_id?: string | null;
+                    /** @description `active` | `completed` | `expired` | `corrupted` (snake_case). */
+                    status: string;
+                    tags?: string[] | null;
+                    /**
+                     * Format: int64
+                     * @description Record time (Unix milliseconds).
+                     */
+                    timestamp: number;
+                }[];
                 total: number;
                 truncated: boolean;
             };
@@ -7277,6 +7342,44 @@ export interface components {
                 items: unknown[];
                 total: number;
                 truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_CheckpointDoc: {
+            /** @description One stored execution checkpoint (`wf_types::Checkpoint` mirrored). */
+            data?: {
+                base_checkpoint_id?: string | null;
+                /**
+                 * Format: int64
+                 * @description Encoded blob size in bytes.
+                 */
+                blob_size?: number | null;
+                /**
+                 * Format: int32
+                 * @description Position within the checkpoint chain, when chained.
+                 */
+                chain_position?: number | null;
+                chain_root_id?: string | null;
+                /** @description Wire-compatible `"FULL"` / `"DELTA"` literal union. */
+                checkpoint_type: string;
+                custom_fields?: {
+                    [key: string]: unknown;
+                } | null;
+                entity_id: string;
+                entity_type: string;
+                id: string;
+                /** @description Forward link to the parent execution, when the owning entity has one. */
+                parent_entity_id?: string | null;
+                previous_checkpoint_id?: string | null;
+                /** @description `active` | `completed` | `expired` | `corrupted` (snake_case). */
+                status: string;
+                tags?: string[] | null;
+                /**
+                 * Format: int64
+                 * @description Record time (Unix milliseconds).
+                 */
+                timestamp: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -7407,6 +7510,18 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_EntityMetadataDoc: {
+            /**
+             * @description Entity metadata document: a bare map of arbitrary JSON values, or
+             *     `null` when the entity has no metadata (transparent over the stored
+             *     `HashMap<String, serde_json::Value>`).
+             */
+            data?: {
+                metadata: Record<string, never>;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_ExecuteView: {
             data?: {
                 execution_id: string;
@@ -7423,11 +7538,127 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_FileCheckpointSummaryDoc: {
+            /**
+             * @description Summary view of a created file checkpoint
+             *     (`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).
+             */
+            data?: {
+                /** @description Number of files captured. */
+                file_count: number;
+                /** @description Commit id (hex) of the created workspace checkpoint. */
+                id: string;
+                /**
+                 * Format: int64
+                 * @description Creation time (Unix milliseconds).
+                 */
+                timestamp: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_FileContentDoc: {
+            /**
+             * @description Read view of one workspace file with sandbox checks
+             *     (`wf_api::checkpoint::provenance::FileContentView` mirrored): reads are
+             *     capped at 1 MiB with `truncated: true`; binaries report metadata only
+             *     (`content` absent, `is_binary: true`).
+             */
+            data?: {
+                actor: string;
+                /** @description UTF-8 content; absent for binaries. */
+                content?: string | null;
+                /** @description Content hash (SHA-256 hex). */
+                hash: string;
+                is_binary: boolean;
+                path: string;
+                /** @description Content size in bytes (pre-truncation). */
+                size: number;
+                /** Format: int64 */
+                timestamp: number;
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_FileTimelineDoc: {
+            /**
+             * @description Capped version timeline for one file path
+             *     (`wf_api::checkpoint::provenance::FileTimelineView` mirrored): total is
+             *     counted before truncation.
+             */
+            data?: {
+                /** @description Entries are chronological, so the earliest page is stable. */
+                entries: components["schemas"]["FileTimelineEntryDoc"][];
+                /** @description Original path (the first path this file was known at). */
+                original_path: string;
+                total: number;
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_FileTreeDoc: {
+            /**
+             * @description Capped directory tree view (the transport-local `FileTreeView` in
+             *     `file_provenance` mirrored): entries are sorted by path before
+             *     truncation so the first page is stable.
+             */
+            data?: {
+                entries: components["schemas"]["FileTreeEntryDoc"][];
+                /** @description Total entry count before truncation. */
+                total: number;
+                truncated: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_FireResponse: {
             data?: {
                 execution_id?: string | null;
                 fire_id: string;
                 fired: boolean;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_GcStatsDoc: {
+            /**
+             * @description Statistics of one object-store cleanup run
+             *     (`wf_checkpoint::gc::GcStats` mirrored).
+             */
+            data?: {
+                /**
+                 * Format: int64
+                 * @description Unreachable blobs dropped by the reclaim sweep.
+                 */
+                reclaimed_snapshots: number;
+                /**
+                 * Format: int64
+                 * @description Unreachable commits dropped by the sweep.
+                 */
+                removed_checkpoints: number;
+                /**
+                 * Format: int64
+                 * @description Unreachable trees dropped with the removed commits.
+                 */
+                removed_snapshots: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_GitMergeOutcomeDoc: {
+            /**
+             * @description Outcome of merging an actor submission into a feature ref
+             *     (`wf_checkpoint::file::git_merge::GitMergeOutcome` mirrored).
+             */
+            data?: {
+                /** @description Merge commit id (hex). */
+                commit_id: string;
+                /** @description Distinct files with conflicts (empty when merged cleanly). */
+                conflict_files: string[];
+                details: components["schemas"]["GitConflictDetailDoc"][];
+                parents: string[];
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -7526,6 +7757,26 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_IndexStatusDoc: {
+            /**
+             * @description Source-index health (`wf_checkpoint::provenance::IndexStatus` mirrored):
+             *     a non-empty graph with an empty (or diverging) index sets
+             *     `needs_rebuild`.
+             */
+            data?: {
+                /** @description Rows present in the source index. */
+                indexed_commits: number;
+                /**
+                 * @description True when the index is empty while the graph is non-empty, or when
+                 *     counts diverge.
+                 */
+                needs_rebuild: boolean;
+                /** @description Commits reachable in the object store. */
+                total_commits: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_InfoView: {
             data?: {
                 apiVersion: string;
@@ -7546,12 +7797,147 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_MergeCommitDoc: {
+            /**
+             * @description Result of merging features into main, one merge commit per feature
+             *     (`wf_checkpoint::MergeCommitResult` mirrored): a conflicted feature
+             *     aborts the sequence while earlier merges stay individually revertable.
+             */
+            data?: {
+                /** @description Aggregate checkpoint id (hex) covering the merged features. */
+                checkpoint_id: string;
+                merge_result: components["schemas"]["GitMergeOutcomeDoc"];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_MergeOutcomeDoc: {
+            /**
+             * @description Outcome of an approve / merge operation
+             *     (`wf_checkpoint::approval::MergeOutcome` mirrored).
+             */
+            data?: {
+                /** @description Distinct files with conflicts (sorted). */
+                conflict_files: string[];
+                /** @description Conflicts detected by the three-way merge (empty when clean). */
+                conflicts: components["schemas"]["ConflictRegionDoc"][];
+                /** @description Whether the changes were merged into the feature. */
+                merged: boolean;
+                /** @description Human-readable outcome message. */
+                message: string;
+                /** @description Resulting snapshot id (hex) of the target partition. */
+                snapshot_id: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Option_LockView: {
             data?: null | {
                 /** Format: int64 */
                 expires_at: number;
                 owner_id: string;
                 owner_name: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Option_UnitDoc: {
+            data?: null | Record<string, never>;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_PageView_CheckpointDoc: {
+            /** @description One page of a list response. */
+            data?: {
+                has_more: boolean;
+                items: {
+                    base_checkpoint_id?: string | null;
+                    /**
+                     * Format: int64
+                     * @description Encoded blob size in bytes.
+                     */
+                    blob_size?: number | null;
+                    /**
+                     * Format: int32
+                     * @description Position within the checkpoint chain, when chained.
+                     */
+                    chain_position?: number | null;
+                    chain_root_id?: string | null;
+                    /** @description Wire-compatible `"FULL"` / `"DELTA"` literal union. */
+                    checkpoint_type: string;
+                    custom_fields?: {
+                        [key: string]: unknown;
+                    } | null;
+                    entity_id: string;
+                    entity_type: string;
+                    id: string;
+                    /** @description Forward link to the parent execution, when the owning entity has one. */
+                    parent_entity_id?: string | null;
+                    previous_checkpoint_id?: string | null;
+                    /** @description `active` | `completed` | `expired` | `corrupted` (snake_case). */
+                    status: string;
+                    tags?: string[] | null;
+                    /**
+                     * Format: int64
+                     * @description Record time (Unix milliseconds).
+                     */
+                    timestamp: number;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                /** Format: int64 */
+                offset: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_PageView_DeltaSummaryDoc: {
+            /** @description One page of a list response. */
+            data?: {
+                has_more: boolean;
+                items: {
+                    /** @description Relative file path. */
+                    file: string;
+                    /** @description Content hash (SHA-256 hex) of the resulting file bytes. */
+                    hash: string;
+                    /** @description Optional human-readable description of the edit intent. */
+                    message?: string | null;
+                    /** @description Commit id (hex). */
+                    snapshot_id: string;
+                    /** @description Origin: actor id / `human` / `merge` / `review`. */
+                    source: string;
+                    /**
+                     * Format: int64
+                     * @description Change time (Unix milliseconds).
+                     */
+                    timestamp: number;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                /** Format: int64 */
+                offset: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_PageView_EditGroupDoc: {
+            /** @description One page of a list response. */
+            data?: {
+                has_more: boolean;
+                items: {
+                    /**
+                     * Format: int64
+                     * @description Creation time (Unix milliseconds).
+                     */
+                    created_at: number;
+                    id: string;
+                    /** @description Optional human-readable label (e.g. "format file"). */
+                    label?: string | null;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                /** Format: int64 */
+                offset: number;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -7622,6 +8008,26 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_RestoredCheckpointDoc: {
+            /**
+             * @description Restored execution state (`wf_api::RestoredCheckpoint` mirrored); the
+             *     live entity handle is `#[serde(skip)]` and never serializes.
+             */
+            data?: {
+                checkpoint_id: string;
+                current_node_id?: string | null;
+                execution_id: string;
+                node_results?: {
+                    [key: string]: unknown;
+                } | null;
+                status: string;
+                variables: {
+                    [key: string]: unknown;
+                };
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_RollbackFeatureResponse: {
             data?: {
                 revert_commit: string;
@@ -7677,6 +8083,20 @@ export interface components {
         };
         ApiEnvelope_Value: {
             data?: unknown;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_ConflictFileDoc: {
+            data?: {
+                /** @description Conflict regions re-derived from the standard markers on disk. */
+                conflicts: components["schemas"]["ConflictRegionDoc"][];
+                /** @description Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`). */
+                partition: string;
+                /** @description Relative file path. */
+                path: string;
+                /** @description Commit id (hex) of the conflicted merge commit. */
+                snapshot_id: string;
+            }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -7737,6 +8157,19 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Vec_FileDiffDoc: {
+            data?: {
+                additions?: number | null;
+                deletions?: number | null;
+                /** @description Unified diff (text files only); absent for binary content. */
+                diff?: string | null;
+                /** @description `added` | `modified` | `deleted` | `unchanged` (snake_case). */
+                kind: string;
+                path: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Vec_GraphEdgeDoc: {
             data?: {
                 condition?: string | null;
@@ -7753,6 +8186,49 @@ export interface components {
                 id: string;
                 name?: string | null;
                 node_type: string;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_PartitionDoc: {
+            data?: {
+                /** @description Actor id for per-actor lines, absent otherwise. */
+                actor?: string | null;
+                /**
+                 * Format: int64
+                 * @description Creation time of the oldest reachable commit (Unix milliseconds).
+                 */
+                created_at: number;
+                /** @description Commit id (hex) of the ref head. */
+                current_snapshot: string;
+                /** @description Commits reachable from the head, saturated at the walk cap. */
+                history_len: number;
+                /** @description `manual` | `agent` | `approval` | `mainline` | `main`. */
+                kind: string;
+                name: string;
+                partition_id: string;
+                /**
+                 * Format: int64
+                 * @description Time of the head commit (Unix milliseconds).
+                 */
+                updated_at: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_PendingApprovalDoc: {
+            data?: {
+                /** @description Actor id string (e.g. `agent:{loop_id}`). */
+                actor: string;
+                /** @description The submitted changes (chunked per file, chronological). */
+                changes: components["schemas"]["DeltaSummaryDoc"][];
+                /** @description Approval snapshot id (hex). */
+                snapshot_id: string;
+                /**
+                 * Format: int64
+                 * @description Submission time (Unix milliseconds).
+                 */
+                submitted_at: number;
             }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -7786,8 +8262,26 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Vec_WorkspaceFileDoc: {
+            data?: {
+                content: number[];
+                /** @description Content hash (SHA-256 hex). */
+                hash: string;
+                path: string;
+                /** Format: int64 */
+                timestamp: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_bool: {
             data?: boolean;
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_u64: {
+            /** Format: int64 */
+            data?: number;
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
@@ -7855,6 +8349,22 @@ export interface components {
         BeginSessionRequest: {
             label?: string | null;
         };
+        /**
+         * @description Capped chain analysis of one execution's checkpoints (the transport
+         *     `CappedChainView` mirrored): full structure up to a hard cap with an
+         *     explicit truncation flag and pre-truncation total.
+         */
+        CappedChainDoc: {
+            checkpoint_count: number;
+            checkpoints: components["schemas"]["CheckpointDoc"][];
+            execution_id: string;
+            time_range: components["schemas"]["CheckpointTimeRangeDoc"];
+            total: number;
+            /** Format: int64 */
+            total_elapsed: number;
+            transitions: components["schemas"]["CheckpointTransitionDoc"][];
+            truncated: boolean;
+        };
         CappedPaths: {
             paths: string[][];
             total: number;
@@ -7868,6 +8378,63 @@ export interface components {
             items: unknown[];
             total: number;
             truncated: boolean;
+        };
+        /** @description One stored execution checkpoint (`wf_types::Checkpoint` mirrored). */
+        CheckpointDoc: {
+            base_checkpoint_id?: string | null;
+            /**
+             * Format: int64
+             * @description Encoded blob size in bytes.
+             */
+            blob_size?: number | null;
+            /**
+             * Format: int32
+             * @description Position within the checkpoint chain, when chained.
+             */
+            chain_position?: number | null;
+            chain_root_id?: string | null;
+            /** @description Wire-compatible `"FULL"` / `"DELTA"` literal union. */
+            checkpoint_type: string;
+            custom_fields?: {
+                [key: string]: unknown;
+            } | null;
+            entity_id: string;
+            entity_type: string;
+            id: string;
+            /** @description Forward link to the parent execution, when the owning entity has one. */
+            parent_entity_id?: string | null;
+            previous_checkpoint_id?: string | null;
+            /** @description `active` | `completed` | `expired` | `corrupted` (snake_case). */
+            status: string;
+            tags?: string[] | null;
+            /**
+             * Format: int64
+             * @description Record time (Unix milliseconds).
+             */
+            timestamp: number;
+        };
+        /** @description Start / end timestamps spanned by a checkpoint chain. */
+        CheckpointTimeRangeDoc: {
+            /** Format: int64 */
+            end: number;
+            /** Format: int64 */
+            start: number;
+        };
+        /**
+         * @description One transition between consecutive checkpoints of a chain
+         *     (`wf_api::checkpoint::record::CheckpointTransitionView` mirrored).
+         */
+        CheckpointTransitionDoc: {
+            /**
+             * Format: int64
+             * @description Milliseconds between the two checkpoints.
+             */
+            elapsed: number;
+            from_checkpoint_id: string;
+            to_checkpoint_id: string;
+            trigger_description?: string | null;
+            /** @description `FULL` | `DELTA`. */
+            type: string;
         };
         CleanupTasksBody: {
             /** Format: int64 */
@@ -7883,6 +8450,33 @@ export interface components {
         CloneTemplateBody: {
             kind: string;
             new_name?: string | null;
+        };
+        /**
+         * @description A file whose merge commit carries the unresolved-conflict flag
+         *     (`wf_checkpoint::provenance::ConflictFile` mirrored).
+         */
+        ConflictFileDoc: {
+            /** @description Conflict regions re-derived from the standard markers on disk. */
+            conflicts: components["schemas"]["ConflictRegionDoc"][];
+            /** @description Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`). */
+            partition: string;
+            /** @description Relative file path. */
+            path: string;
+            /** @description Commit id (hex) of the conflicted merge commit. */
+            snapshot_id: string;
+        };
+        /**
+         * @description One unresolved conflict region inside a merged file
+         *     (`wf_checkpoint::approval::ConflictView` mirrored).
+         */
+        ConflictRegionDoc: {
+            base: string[];
+            /** @description Relative file path the conflict applies to. */
+            file: string;
+            ours: string[];
+            /** @description Start line in the merged output (0-indexed). */
+            start_line: number;
+            theirs: string[];
         };
         /** @description Context growth at one point in an agent loop. */
         ContextEvolutionDoc: {
@@ -7965,6 +8559,27 @@ export interface components {
             timestamp: number;
             type: string;
         };
+        /**
+         * @description One file change recorded on an actor partition
+         *     (`wf_checkpoint::provenance::DeltaSummary` mirrored).
+         */
+        DeltaSummaryDoc: {
+            /** @description Relative file path. */
+            file: string;
+            /** @description Content hash (SHA-256 hex) of the resulting file bytes. */
+            hash: string;
+            /** @description Optional human-readable description of the edit intent. */
+            message?: string | null;
+            /** @description Commit id (hex). */
+            snapshot_id: string;
+            /** @description Origin: actor id / `human` / `merge` / `review`. */
+            source: string;
+            /**
+             * Format: int64
+             * @description Change time (Unix milliseconds).
+             */
+            timestamp: number;
+        };
         /** @description Per-dependent revalidation result of a draft promotion. */
         DependentImpactDoc: {
             errors: string[];
@@ -7974,6 +8589,28 @@ export interface components {
             warnings: string[];
             workflow_id: string;
             workflow_name: string;
+        };
+        /**
+         * @description One staged edit group (`wf_checkpoint::file::session::EditGroup`
+         *     mirrored): the group id stringifies to `sess-<ts>-<pid>-<n>`.
+         */
+        EditGroupDoc: {
+            /**
+             * Format: int64
+             * @description Creation time (Unix milliseconds).
+             */
+            created_at: number;
+            id: string;
+            /** @description Optional human-readable label (e.g. "format file"). */
+            label?: string | null;
+        };
+        /**
+         * @description Entity metadata document: a bare map of arbitrary JSON values, or
+         *     `null` when the entity has no metadata (transparent over the stored
+         *     `HashMap<String, serde_json::Value>`).
+         */
+        EntityMetadataDoc: {
+            metadata: Record<string, never>;
         };
         /**
          * @description Runtime and documentation envelope for every error response. Success
@@ -8056,10 +8693,137 @@ export interface components {
         ExportManyBody: {
             ids: string[];
         };
+        /**
+         * @description Summary view of a created file checkpoint
+         *     (`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).
+         */
+        FileCheckpointSummaryDoc: {
+            /** @description Number of files captured. */
+            file_count: number;
+            /** @description Commit id (hex) of the created workspace checkpoint. */
+            id: string;
+            /**
+             * Format: int64
+             * @description Creation time (Unix milliseconds).
+             */
+            timestamp: number;
+        };
+        /**
+         * @description Read view of one workspace file with sandbox checks
+         *     (`wf_api::checkpoint::provenance::FileContentView` mirrored): reads are
+         *     capped at 1 MiB with `truncated: true`; binaries report metadata only
+         *     (`content` absent, `is_binary: true`).
+         */
+        FileContentDoc: {
+            actor: string;
+            /** @description UTF-8 content; absent for binaries. */
+            content?: string | null;
+            /** @description Content hash (SHA-256 hex). */
+            hash: string;
+            is_binary: boolean;
+            path: string;
+            /** @description Content size in bytes (pre-truncation). */
+            size: number;
+            /** Format: int64 */
+            timestamp: number;
+            truncated: boolean;
+        };
+        /**
+         * @description Per-file difference view (`wf_checkpoint::provenance::FileDiffView`
+         *     mirrored).
+         */
+        FileDiffDoc: {
+            additions?: number | null;
+            deletions?: number | null;
+            /** @description Unified diff (text files only); absent for binary content. */
+            diff?: string | null;
+            /** @description `added` | `modified` | `deleted` | `unchanged` (snake_case). */
+            kind: string;
+            path: string;
+        };
+        /**
+         * @description Capped version timeline for one file path
+         *     (`wf_api::checkpoint::provenance::FileTimelineView` mirrored): total is
+         *     counted before truncation.
+         */
+        FileTimelineDoc: {
+            /** @description Entries are chronological, so the earliest page is stable. */
+            entries: components["schemas"]["FileTimelineEntryDoc"][];
+            /** @description Original path (the first path this file was known at). */
+            original_path: string;
+            total: number;
+            truncated: boolean;
+        };
+        /**
+         * @description One entry in a file's version timeline
+         *     (`wf_checkpoint::provenance::FileTimelineEntry` mirrored).
+         */
+        FileTimelineEntryDoc: {
+            /** @description Content hash (SHA-256 hex) of the resulting file bytes. */
+            content_hash: string;
+            /** @description When this entry follows a rename, the previous path. */
+            moved_from?: string | null;
+            /** @description File path at this point in time. */
+            path: string;
+            /** @description Commit id (hex). */
+            snapshot_id: string;
+            /** @description Origin label (e.g. "manual", "agent:loop-1"). */
+            source: string;
+            /**
+             * Format: int64
+             * @description Change time (Unix milliseconds).
+             */
+            timestamp: number;
+        };
+        /**
+         * @description Capped directory tree view (the transport-local `FileTreeView` in
+         *     `file_provenance` mirrored): entries are sorted by path before
+         *     truncation so the first page is stable.
+         */
+        FileTreeDoc: {
+            entries: components["schemas"]["FileTreeEntryDoc"][];
+            /** @description Total entry count before truncation. */
+            total: number;
+            truncated: boolean;
+        };
+        /**
+         * @description One directory tree entry (metadata only, no content bytes)
+         *     (`wf_api::checkpoint::provenance::FileTreeEntry` mirrored).
+         */
+        FileTreeEntryDoc: {
+            /** @description Content hash (SHA-256 hex). */
+            hash: string;
+            path: string;
+            /** @description Content size in bytes. */
+            size: number;
+            /** Format: int64 */
+            timestamp: number;
+        };
         FireResponse: {
             execution_id?: string | null;
             fire_id: string;
             fired: boolean;
+        };
+        /**
+         * @description Statistics of one object-store cleanup run
+         *     (`wf_checkpoint::gc::GcStats` mirrored).
+         */
+        GcStatsDoc: {
+            /**
+             * Format: int64
+             * @description Unreachable blobs dropped by the reclaim sweep.
+             */
+            reclaimed_snapshots: number;
+            /**
+             * Format: int64
+             * @description Unreachable commits dropped by the sweep.
+             */
+            removed_checkpoints: number;
+            /**
+             * Format: int64
+             * @description Unreachable trees dropped with the removed commits.
+             */
+            removed_snapshots: number;
         };
         GitActionBody: {
             action: string;
@@ -8067,6 +8831,41 @@ export interface components {
             params?: {
                 [key: string]: string;
             };
+        };
+        /**
+         * @description One conflicted file captured during a merge
+         *     (`wf_checkpoint::file::git_merge::GitConflictDetail` mirrored): binary
+         *     conflicts carry no regions and stay file-level only.
+         */
+        GitConflictDetailDoc: {
+            binary: boolean;
+            file: string;
+            regions: components["schemas"]["GitConflictRegionDoc"][];
+        };
+        /**
+         * @description One true conflict region parsed back from the diff3 markers the merge
+         *     driver embeds (`wf_checkpoint::file::git_merge::GitConflictRegion`
+         *     mirrored); line numbers are 0-indexed into the merged output,
+         *     `end_line` exclusive.
+         */
+        GitConflictRegionDoc: {
+            base_lines: string[];
+            end_line: number;
+            ours_lines: string[];
+            start_line: number;
+            theirs_lines: string[];
+        };
+        /**
+         * @description Outcome of merging an actor submission into a feature ref
+         *     (`wf_checkpoint::file::git_merge::GitMergeOutcome` mirrored).
+         */
+        GitMergeOutcomeDoc: {
+            /** @description Merge commit id (hex). */
+            commit_id: string;
+            /** @description Distinct files with conflicts (empty when merged cleanly). */
+            conflict_files: string[];
+            details: components["schemas"]["GitConflictDetailDoc"][];
+            parents: string[];
         };
         /** @description Combined structural analysis of a workflow graph. */
         GraphAnalysisDoc: {
@@ -8176,6 +8975,22 @@ export interface components {
             /** @default false */
             keep_original: boolean;
         };
+        /**
+         * @description Source-index health (`wf_checkpoint::provenance::IndexStatus` mirrored):
+         *     a non-empty graph with an empty (or diverging) index sets
+         *     `needs_rebuild`.
+         */
+        IndexStatusDoc: {
+            /** @description Rows present in the source index. */
+            indexed_commits: number;
+            /**
+             * @description True when the index is empty while the graph is non-empty, or when
+             *     counts diverge.
+             */
+            needs_rebuild: boolean;
+            /** @description Commits reachable in the object store. */
+            total_commits: number;
+        };
         InfoView: {
             apiVersion: string;
             name: string;
@@ -8229,6 +9044,32 @@ export interface components {
             /** @description Variable value (any JSON) */
             value: unknown;
         };
+        /**
+         * @description Result of merging features into main, one merge commit per feature
+         *     (`wf_checkpoint::MergeCommitResult` mirrored): a conflicted feature
+         *     aborts the sequence while earlier merges stay individually revertable.
+         */
+        MergeCommitDoc: {
+            /** @description Aggregate checkpoint id (hex) covering the merged features. */
+            checkpoint_id: string;
+            merge_result: components["schemas"]["GitMergeOutcomeDoc"];
+        };
+        /**
+         * @description Outcome of an approve / merge operation
+         *     (`wf_checkpoint::approval::MergeOutcome` mirrored).
+         */
+        MergeOutcomeDoc: {
+            /** @description Distinct files with conflicts (sorted). */
+            conflict_files: string[];
+            /** @description Conflicts detected by the three-way merge (empty when clean). */
+            conflicts: components["schemas"]["ConflictRegionDoc"][];
+            /** @description Whether the changes were merged into the feature. */
+            merged: boolean;
+            /** @description Human-readable outcome message. */
+            message: string;
+            /** @description Resulting snapshot id (hex) of the target partition. */
+            snapshot_id: string;
+        };
         MergeToFeatureRequest: {
             actor: string;
             feature: string;
@@ -8269,6 +9110,49 @@ export interface components {
         ParseWorkflowBody: {
             content: string;
             format?: string | null;
+        };
+        /**
+         * @description Read view of one ref line in the checkpoint store
+         *     (`wf_checkpoint::provenance::PartitionView` mirrored).
+         */
+        PartitionDoc: {
+            /** @description Actor id for per-actor lines, absent otherwise. */
+            actor?: string | null;
+            /**
+             * Format: int64
+             * @description Creation time of the oldest reachable commit (Unix milliseconds).
+             */
+            created_at: number;
+            /** @description Commit id (hex) of the ref head. */
+            current_snapshot: string;
+            /** @description Commits reachable from the head, saturated at the walk cap. */
+            history_len: number;
+            /** @description `manual` | `agent` | `approval` | `mainline` | `main`. */
+            kind: string;
+            name: string;
+            partition_id: string;
+            /**
+             * Format: int64
+             * @description Time of the head commit (Unix milliseconds).
+             */
+            updated_at: number;
+        };
+        /**
+         * @description One pending layered approval (`wf_checkpoint::approval::PendingApproval`
+         *     mirrored).
+         */
+        PendingApprovalDoc: {
+            /** @description Actor id string (e.g. `agent:{loop_id}`). */
+            actor: string;
+            /** @description The submitted changes (chunked per file, chronological). */
+            changes: components["schemas"]["DeltaSummaryDoc"][];
+            /** @description Approval snapshot id (hex). */
+            snapshot_id: string;
+            /**
+             * Format: int64
+             * @description Submission time (Unix milliseconds).
+             */
+            submitted_at: number;
         };
         /** @description Impact report returned when a draft is promoted to formal. */
         PromoteReportDoc: {
@@ -8355,6 +9239,22 @@ export interface components {
         };
         RestoreCheckpointResponse: {
             restored: number;
+        };
+        /**
+         * @description Restored execution state (`wf_api::RestoredCheckpoint` mirrored); the
+         *     live entity handle is `#[serde(skip)]` and never serializes.
+         */
+        RestoredCheckpointDoc: {
+            checkpoint_id: string;
+            current_node_id?: string | null;
+            execution_id: string;
+            node_results?: {
+                [key: string]: unknown;
+            } | null;
+            status: string;
+            variables: {
+                [key: string]: unknown;
+            };
         };
         ResumeCheckpointBody: components["schemas"]["RunAgentLoopBody"] & {
             mode?: string;
@@ -8573,6 +9473,11 @@ export interface components {
             start_time: number;
             status: string;
         };
+        /**
+         * @description Empty payload (`data: null`, e.g. the metadata PUT): utoipa cannot
+         *     render `()` in a generic envelope, so the unit response is named.
+         */
+        UnitDoc: Record<string, never>;
         UpdateLoopStatusBody: {
             /** @description New status value (e.g., "running", "paused", "completed", "failed") */
             status: string;
@@ -8601,6 +9506,20 @@ export interface components {
             name: string;
             scope?: string | null;
             value: unknown;
+        };
+        /**
+         * @description Reconstructed file of an actor partition
+         *     (`wf_checkpoint::provenance::WorkspaceFile` mirrored): `content` is the
+         *     raw bytes as a JSON number array (metadata consumers read path, hash and
+         *     timestamp only).
+         */
+        WorkspaceFileDoc: {
+            content: number[];
+            /** @description Content hash (SHA-256 hex). */
+            hash: string;
+            path: string;
+            /** Format: int64 */
+            timestamp: number;
         };
     };
     responses: never;
@@ -11000,7 +11919,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_CappedView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CappedView_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -16849,7 +17768,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_CheckpointDoc"];
                 };
             };
             /** @description Invalid query parameters */
@@ -16929,7 +17848,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17014,7 +17933,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17091,7 +18010,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_u64"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17169,7 +18088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17244,7 +18163,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_EntityMetadataDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17323,7 +18242,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Option_UnitDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17404,7 +18323,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -17479,7 +18398,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -19342,7 +20261,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_RestoredCheckpointDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -21386,7 +22305,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_CappedChainDoc"];
                 };
             };
             /** @description Invalid domain */
@@ -21481,7 +22400,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_u64"];
                 };
             };
             /** @description Invalid query parameters */
@@ -26571,7 +27490,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_PendingApprovalDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -26641,7 +27560,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_MergeOutcomeDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -26802,7 +27721,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_DeltaSummaryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -26879,7 +27798,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_FileCheckpointSummaryDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -26952,7 +27871,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_ConflictFileDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27104,7 +28023,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_FileContentDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -27180,7 +28099,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_FileDiffDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27255,7 +28174,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_FileDiffDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27330,7 +28249,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GcStatsDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -27467,7 +28386,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_IndexStatusDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27535,7 +28454,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_GitMergeOutcomeDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -27612,7 +28531,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_MergeCommitDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -27685,7 +28604,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_PartitionDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27751,7 +28670,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -27819,7 +28738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Invalid parameters */
@@ -28049,7 +28968,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PageView_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_EditGroupDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -28126,7 +29045,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Invalid parameters */
@@ -28202,7 +29121,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -28345,7 +29264,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_FileTimelineDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -28422,7 +29341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_FileTreeDoc"];
                 };
             };
             /** @description Invalid parameters */
@@ -28506,7 +29425,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_String"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */
@@ -28572,7 +29491,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_WorkspaceFileDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

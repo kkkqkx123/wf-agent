@@ -16,6 +16,10 @@ class CheckpointStore {
 	selectedChangeId = $state<string | null>(null);
 	selectedApprovalId = $state<string | null>(null);
 
+	// ── shared file-workspace executor (page, panel and dialogs read/write
+	// the same value; no prop drilling) ──
+	actor = $state('');
+
 	// ── in-flight action + error ──
 	action = $state<string | null>(null);
 	actionError = $state<string | null>(null);
@@ -53,6 +57,17 @@ class CheckpointStore {
 
 	get busy(): boolean {
 		return this.action !== null;
+	}
+
+	/**
+	 * Bump `version` and notify live listeners without touching the SSE
+	 * connection: local mutations (restore, delete, resolve…) reuse the
+	 * same version-follow mechanism as server events so panels re-pull
+	 * their own segments.
+	 */
+	bump(): void {
+		this.version += 1;
+		for (const notify of this.listeners) notify();
 	}
 
 	/**

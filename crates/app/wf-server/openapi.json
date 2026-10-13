@@ -2407,7 +2407,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_CappedView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_CappedView_CheckpointDoc"
                 }
               }
             }
@@ -8217,7 +8217,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_CheckpointDoc"
                 }
               }
             }
@@ -8317,7 +8317,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_CheckpointDoc"
                 }
               }
             }
@@ -8418,7 +8418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_CheckpointDoc"
                 }
               }
             }
@@ -8494,7 +8494,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_u64"
                 }
               }
             }
@@ -8573,7 +8573,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_CheckpointDoc"
                 }
               }
             }
@@ -8643,7 +8643,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_EntityMetadataDoc"
                 }
               }
             }
@@ -8719,7 +8719,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Option_UnitDoc"
                 }
               }
             }
@@ -8829,7 +8829,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_CheckpointDoc"
                 }
               }
             }
@@ -8899,7 +8899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_CheckpointDoc"
                 }
               }
             }
@@ -10852,7 +10852,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_RestoredCheckpointDoc"
                 }
               }
             }
@@ -12921,7 +12921,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_CappedChainDoc"
                 }
               }
             }
@@ -13020,7 +13020,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_u64"
                 }
               }
             }
@@ -18080,7 +18080,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_PendingApprovalDoc"
                 }
               }
             }
@@ -18150,7 +18150,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_MergeOutcomeDoc"
                 }
               }
             }
@@ -18348,7 +18348,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_DeltaSummaryDoc"
                 }
               }
             }
@@ -18418,7 +18418,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_FileCheckpointSummaryDoc"
                 }
               }
             }
@@ -18478,7 +18478,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_ConflictFileDoc"
                 }
               }
             }
@@ -18625,7 +18625,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_FileContentDoc"
                 }
               }
             }
@@ -18703,7 +18703,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_FileDiffDoc"
                 }
               }
             }
@@ -18773,7 +18773,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_FileDiffDoc"
                 }
               }
             }
@@ -18844,7 +18844,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GcStatsDoc"
                 }
               }
             }
@@ -18954,7 +18954,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_IndexStatusDoc"
                 }
               }
             }
@@ -19014,7 +19014,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_GitMergeOutcomeDoc"
                 }
               }
             }
@@ -19084,7 +19084,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_MergeCommitDoc"
                 }
               }
             }
@@ -19144,7 +19144,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_PartitionDoc"
                 }
               }
             }
@@ -19204,7 +19204,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -19264,7 +19264,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -19486,7 +19486,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PageView_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_EditGroupDoc"
                 }
               }
             }
@@ -19554,7 +19554,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -19632,7 +19632,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -19762,7 +19762,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_FileTimelineDoc"
                 }
               }
             }
@@ -19840,7 +19840,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_FileTreeDoc"
                 }
               }
             }
@@ -19920,7 +19920,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_String"
                 }
               }
             }
@@ -19980,7 +19980,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_WorkspaceFileDoc"
                 }
               }
             }
@@ -38248,6 +38248,76 @@
           }
         }
       },
+      "ApiEnvelope_CappedChainDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Capped chain analysis of one execution's checkpoints (the transport\n`CappedChainView` mirrored): full structure up to a hard cap with an\nexplicit truncation flag and pre-truncation total.",
+            "required": [
+              "execution_id",
+              "checkpoints",
+              "transitions",
+              "total_elapsed",
+              "checkpoint_count",
+              "time_range",
+              "truncated",
+              "total"
+            ],
+            "properties": {
+              "checkpoint_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "checkpoints": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CheckpointDoc"
+                }
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "time_range": {
+                "$ref": "#/components/schemas/CheckpointTimeRangeDoc"
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_elapsed": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "transitions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CheckpointTransitionDoc"
+                }
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_CappedPaths": {
         "type": "object",
         "required": [
@@ -38268,6 +38338,146 @@
                   "type": "array",
                   "items": {
                     "type": "string"
+                  }
+                }
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_CappedView_CheckpointDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Capped list view for chains and timelines: full structure up to a hard\ncap with an explicit truncation flag and pre-truncation total.",
+            "required": [
+              "items",
+              "truncated",
+              "total"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "One stored execution checkpoint (`wf_types::Checkpoint` mirrored).",
+                  "required": [
+                    "id",
+                    "entity_type",
+                    "entity_id",
+                    "checkpoint_type",
+                    "timestamp",
+                    "status"
+                  ],
+                  "properties": {
+                    "base_checkpoint_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "blob_size": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64",
+                      "description": "Encoded blob size in bytes.",
+                      "minimum": 0
+                    },
+                    "chain_position": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int32",
+                      "description": "Position within the checkpoint chain, when chained.",
+                      "minimum": 0
+                    },
+                    "chain_root_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "checkpoint_type": {
+                      "type": "string",
+                      "description": "Wire-compatible `\"FULL\"` / `\"DELTA\"` literal union."
+                    },
+                    "custom_fields": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      }
+                    },
+                    "entity_id": {
+                      "type": "string"
+                    },
+                    "entity_type": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "parent_entity_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Forward link to the parent execution, when the owning entity has one."
+                    },
+                    "previous_checkpoint_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "`active` | `completed` | `expired` | `corrupted` (snake_case)."
+                    },
+                    "tags": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timestamp": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Record time (Unix milliseconds)."
+                    }
                   }
                 }
               },
@@ -38320,6 +38530,125 @@
               },
               "truncated": {
                 "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_CheckpointDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One stored execution checkpoint (`wf_types::Checkpoint` mirrored).",
+            "required": [
+              "id",
+              "entity_type",
+              "entity_id",
+              "checkpoint_type",
+              "timestamp",
+              "status"
+            ],
+            "properties": {
+              "base_checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "blob_size": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Encoded blob size in bytes.",
+                "minimum": 0
+              },
+              "chain_position": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Position within the checkpoint chain, when chained.",
+                "minimum": 0
+              },
+              "chain_root_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "checkpoint_type": {
+                "type": "string",
+                "description": "Wire-compatible `\"FULL\"` / `\"DELTA\"` literal union."
+              },
+              "custom_fields": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "entity_id": {
+                "type": "string"
+              },
+              "entity_type": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "parent_entity_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Forward link to the parent execution, when the owning entity has one."
+              },
+              "previous_checkpoint_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "description": "`active` | `completed` | `expired` | `corrupted` (snake_case)."
+              },
+              "tags": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "timestamp": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Record time (Unix milliseconds)."
               }
             }
           },
@@ -38789,6 +39118,39 @@
           }
         }
       },
+      "ApiEnvelope_EntityMetadataDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Entity metadata document: a bare map of arbitrary JSON values, or\n`null` when the entity has no metadata (transparent over the stored\n`HashMap<String, serde_json::Value>`).",
+            "required": [
+              "metadata"
+            ],
+            "properties": {
+              "metadata": {
+                "type": "object"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_ExecuteView": {
         "type": "object",
         "required": [
@@ -38857,6 +39219,217 @@
           }
         }
       },
+      "ApiEnvelope_FileCheckpointSummaryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Summary view of a created file checkpoint\n(`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).",
+            "required": [
+              "id",
+              "timestamp",
+              "file_count"
+            ],
+            "properties": {
+              "file_count": {
+                "type": "integer",
+                "description": "Number of files captured.",
+                "minimum": 0
+              },
+              "id": {
+                "type": "string",
+                "description": "Commit id (hex) of the created workspace checkpoint."
+              },
+              "timestamp": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Creation time (Unix milliseconds)."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_FileContentDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Read view of one workspace file with sandbox checks\n(`wf_api::checkpoint::provenance::FileContentView` mirrored): reads are\ncapped at 1 MiB with `truncated: true`; binaries report metadata only\n(`content` absent, `is_binary: true`).",
+            "required": [
+              "path",
+              "actor",
+              "hash",
+              "size",
+              "is_binary",
+              "truncated",
+              "timestamp"
+            ],
+            "properties": {
+              "actor": {
+                "type": "string"
+              },
+              "content": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "UTF-8 content; absent for binaries."
+              },
+              "hash": {
+                "type": "string",
+                "description": "Content hash (SHA-256 hex)."
+              },
+              "is_binary": {
+                "type": "boolean"
+              },
+              "path": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer",
+                "description": "Content size in bytes (pre-truncation).",
+                "minimum": 0
+              },
+              "timestamp": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_FileTimelineDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Capped version timeline for one file path\n(`wf_api::checkpoint::provenance::FileTimelineView` mirrored): total is\ncounted before truncation.",
+            "required": [
+              "original_path",
+              "entries",
+              "truncated",
+              "total"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileTimelineEntryDoc"
+                },
+                "description": "Entries are chronological, so the earliest page is stable."
+              },
+              "original_path": {
+                "type": "string",
+                "description": "Original path (the first path this file was known at)."
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_FileTreeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Capped directory tree view (the transport-local `FileTreeView` in\n`file_provenance` mirrored): entries are sorted by path before\ntruncation so the first page is stable.",
+            "required": [
+              "entries",
+              "truncated",
+              "total"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileTreeEntryDoc"
+                }
+              },
+              "total": {
+                "type": "integer",
+                "description": "Total entry count before truncation.",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_FireResponse": {
         "type": "object",
         "required": [
@@ -38881,6 +39454,112 @@
               },
               "fired": {
                 "type": "boolean"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_GcStatsDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Statistics of one object-store cleanup run\n(`wf_checkpoint::gc::GcStats` mirrored).",
+            "required": [
+              "removed_checkpoints",
+              "removed_snapshots",
+              "reclaimed_snapshots"
+            ],
+            "properties": {
+              "reclaimed_snapshots": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unreachable blobs dropped by the reclaim sweep.",
+                "minimum": 0
+              },
+              "removed_checkpoints": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unreachable commits dropped by the sweep.",
+                "minimum": 0
+              },
+              "removed_snapshots": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Unreachable trees dropped with the removed commits.",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_GitMergeOutcomeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Outcome of merging an actor submission into a feature ref\n(`wf_checkpoint::file::git_merge::GitMergeOutcome` mirrored).",
+            "required": [
+              "commit_id",
+              "parents",
+              "conflict_files",
+              "details"
+            ],
+            "properties": {
+              "commit_id": {
+                "type": "string",
+                "description": "Merge commit id (hex)."
+              },
+              "conflict_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Distinct files with conflicts (empty when merged cleanly)."
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitConflictDetailDoc"
+                }
+              },
+              "parents": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -39266,6 +39945,52 @@
           }
         }
       },
+      "ApiEnvelope_IndexStatusDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Source-index health (`wf_checkpoint::provenance::IndexStatus` mirrored):\na non-empty graph with an empty (or diverging) index sets\n`needs_rebuild`.",
+            "required": [
+              "indexed_commits",
+              "total_commits",
+              "needs_rebuild"
+            ],
+            "properties": {
+              "indexed_commits": {
+                "type": "integer",
+                "description": "Rows present in the source index.",
+                "minimum": 0
+              },
+              "needs_rebuild": {
+                "type": "boolean",
+                "description": "True when the index is empty while the graph is non-empty, or when\ncounts diverge."
+              },
+              "total_commits": {
+                "type": "integer",
+                "description": "Commits reachable in the object store.",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_InfoView": {
         "type": "object",
         "required": [
@@ -39352,6 +40077,104 @@
           }
         }
       },
+      "ApiEnvelope_MergeCommitDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Result of merging features into main, one merge commit per feature\n(`wf_checkpoint::MergeCommitResult` mirrored): a conflicted feature\naborts the sequence while earlier merges stay individually revertable.",
+            "required": [
+              "merge_result",
+              "checkpoint_id"
+            ],
+            "properties": {
+              "checkpoint_id": {
+                "type": "string",
+                "description": "Aggregate checkpoint id (hex) covering the merged features."
+              },
+              "merge_result": {
+                "$ref": "#/components/schemas/GitMergeOutcomeDoc"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_MergeOutcomeDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Outcome of an approve / merge operation\n(`wf_checkpoint::approval::MergeOutcome` mirrored).",
+            "required": [
+              "merged",
+              "snapshot_id",
+              "conflicts",
+              "conflict_files",
+              "message"
+            ],
+            "properties": {
+              "conflict_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Distinct files with conflicts (sorted)."
+              },
+              "conflicts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConflictRegionDoc"
+                },
+                "description": "Conflicts detected by the three-way merge (empty when clean)."
+              },
+              "merged": {
+                "type": "boolean",
+                "description": "Whether the changes were merged into the feature."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable outcome message."
+              },
+              "snapshot_id": {
+                "type": "string",
+                "description": "Resulting snapshot id (hex) of the target partition."
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Option_LockView": {
         "type": "object",
         "required": [
@@ -39385,6 +40208,349 @@
                 }
               }
             ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Option_UnitDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "description": "Empty payload (`data: null`, e.g. the metadata PUT): utoipa cannot\nrender `()` in a generic envelope, so the unit response is named."
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_PageView_CheckpointDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of a list response.",
+            "required": [
+              "items",
+              "limit",
+              "offset",
+              "has_more"
+            ],
+            "properties": {
+              "has_more": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "One stored execution checkpoint (`wf_types::Checkpoint` mirrored).",
+                  "required": [
+                    "id",
+                    "entity_type",
+                    "entity_id",
+                    "checkpoint_type",
+                    "timestamp",
+                    "status"
+                  ],
+                  "properties": {
+                    "base_checkpoint_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "blob_size": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int64",
+                      "description": "Encoded blob size in bytes.",
+                      "minimum": 0
+                    },
+                    "chain_position": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "int32",
+                      "description": "Position within the checkpoint chain, when chained.",
+                      "minimum": 0
+                    },
+                    "chain_root_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "checkpoint_type": {
+                      "type": "string",
+                      "description": "Wire-compatible `\"FULL\"` / `\"DELTA\"` literal union."
+                    },
+                    "custom_fields": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": {},
+                      "propertyNames": {
+                        "type": "string"
+                      }
+                    },
+                    "entity_id": {
+                      "type": "string"
+                    },
+                    "entity_type": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "parent_entity_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Forward link to the parent execution, when the owning entity has one."
+                    },
+                    "previous_checkpoint_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "`active` | `completed` | `expired` | `corrupted` (snake_case)."
+                    },
+                    "tags": {
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timestamp": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Record time (Unix milliseconds)."
+                    }
+                  }
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_PageView_DeltaSummaryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of a list response.",
+            "required": [
+              "items",
+              "limit",
+              "offset",
+              "has_more"
+            ],
+            "properties": {
+              "has_more": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "One file change recorded on an actor partition\n(`wf_checkpoint::provenance::DeltaSummary` mirrored).",
+                  "required": [
+                    "file",
+                    "source",
+                    "timestamp",
+                    "snapshot_id",
+                    "hash"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "description": "Relative file path."
+                    },
+                    "hash": {
+                      "type": "string",
+                      "description": "Content hash (SHA-256 hex) of the resulting file bytes."
+                    },
+                    "message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Optional human-readable description of the edit intent."
+                    },
+                    "snapshot_id": {
+                      "type": "string",
+                      "description": "Commit id (hex)."
+                    },
+                    "source": {
+                      "type": "string",
+                      "description": "Origin: actor id / `human` / `merge` / `review`."
+                    },
+                    "timestamp": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Change time (Unix milliseconds)."
+                    }
+                  }
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_PageView_EditGroupDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of a list response.",
+            "required": [
+              "items",
+              "limit",
+              "offset",
+              "has_more"
+            ],
+            "properties": {
+              "has_more": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "One staged edit group (`wf_checkpoint::file::session::EditGroup`\nmirrored): the group id stringifies to `sess-<ts>-<pid>-<n>`.",
+                  "required": [
+                    "id",
+                    "created_at"
+                  ],
+                  "properties": {
+                    "created_at": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Creation time (Unix milliseconds)."
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Optional human-readable label (e.g. \"format file\")."
+                    }
+                  }
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
           },
           "error": {
             "oneOf": [
@@ -39699,6 +40865,71 @@
           }
         }
       },
+      "ApiEnvelope_RestoredCheckpointDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Restored execution state (`wf_api::RestoredCheckpoint` mirrored); the\nlive entity handle is `#[serde(skip)]` and never serializes.",
+            "required": [
+              "checkpoint_id",
+              "execution_id",
+              "status",
+              "variables"
+            ],
+            "properties": {
+              "checkpoint_id": {
+                "type": "string"
+              },
+              "current_node_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "execution_id": {
+                "type": "string"
+              },
+              "node_results": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string"
+              },
+              "variables": {
+                "type": "object",
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_RollbackFeatureResponse": {
         "type": "object",
         "required": [
@@ -39939,6 +41170,61 @@
         ],
         "properties": {
           "data": {},
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_ConflictFileDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A file whose merge commit carries the unresolved-conflict flag\n(`wf_checkpoint::provenance::ConflictFile` mirrored).",
+              "required": [
+                "path",
+                "snapshot_id",
+                "partition",
+                "conflicts"
+              ],
+              "properties": {
+                "conflicts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConflictRegionDoc"
+                  },
+                  "description": "Conflict regions re-derived from the standard markers on disk."
+                },
+                "partition": {
+                  "type": "string",
+                  "description": "Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`)."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Relative file path."
+                },
+                "snapshot_id": {
+                  "type": "string",
+                  "description": "Commit id (hex) of the conflicted merge commit."
+                }
+              }
+            }
+          },
           "error": {
             "oneOf": [
               {
@@ -40207,6 +41493,68 @@
           }
         }
       },
+      "ApiEnvelope_Vec_FileDiffDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored).",
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "additions": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "deletions": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "diff": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Unified diff (text files only); absent for binary content."
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "`added` | `modified` | `deleted` | `unchanged` (snake_case)."
+                },
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Vec_GraphEdgeDoc": {
         "type": "object",
         "required": [
@@ -40288,6 +41636,137 @@
                 },
                 "node_type": {
                   "type": "string"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_PartitionDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Read view of one ref line in the checkpoint store\n(`wf_checkpoint::provenance::PartitionView` mirrored).",
+              "required": [
+                "partition_id",
+                "name",
+                "kind",
+                "current_snapshot",
+                "history_len",
+                "created_at",
+                "updated_at"
+              ],
+              "properties": {
+                "actor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Actor id for per-actor lines, absent otherwise."
+                },
+                "created_at": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Creation time of the oldest reachable commit (Unix milliseconds)."
+                },
+                "current_snapshot": {
+                  "type": "string",
+                  "description": "Commit id (hex) of the ref head."
+                },
+                "history_len": {
+                  "type": "integer",
+                  "description": "Commits reachable from the head, saturated at the walk cap.",
+                  "minimum": 0
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "`manual` | `agent` | `approval` | `mainline` | `main`."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "partition_id": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Time of the head commit (Unix milliseconds)."
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_PendingApprovalDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One pending layered approval (`wf_checkpoint::approval::PendingApproval`\nmirrored).",
+              "required": [
+                "actor",
+                "snapshot_id",
+                "submitted_at",
+                "changes"
+              ],
+              "properties": {
+                "actor": {
+                  "type": "string",
+                  "description": "Actor id string (e.g. `agent:{loop_id}`)."
+                },
+                "changes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeltaSummaryDoc"
+                  },
+                  "description": "The submitted changes (chunked per file, chronological)."
+                },
+                "snapshot_id": {
+                  "type": "string",
+                  "description": "Approval snapshot id (hex)."
+                },
+                "submitted_at": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Submission time (Unix milliseconds)."
                 }
               }
             }
@@ -40440,6 +41919,61 @@
           }
         }
       },
+      "ApiEnvelope_Vec_WorkspaceFileDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Reconstructed file of an actor partition\n(`wf_checkpoint::provenance::WorkspaceFile` mirrored): `content` is the\nraw bytes as a JSON number array (metadata consumers read path, hash and\ntimestamp only).",
+              "required": [
+                "path",
+                "content",
+                "hash",
+                "timestamp"
+              ],
+              "properties": {
+                "content": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                },
+                "hash": {
+                  "type": "string",
+                  "description": "Content hash (SHA-256 hex)."
+                },
+                "path": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_bool": {
         "type": "object",
         "required": [
@@ -40448,6 +41982,32 @@
         "properties": {
           "data": {
             "type": "boolean"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_u64": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "error": {
             "oneOf": [
@@ -40668,6 +42228,55 @@
           }
         }
       },
+      "CappedChainDoc": {
+        "type": "object",
+        "description": "Capped chain analysis of one execution's checkpoints (the transport\n`CappedChainView` mirrored): full structure up to a hard cap with an\nexplicit truncation flag and pre-truncation total.",
+        "required": [
+          "execution_id",
+          "checkpoints",
+          "transitions",
+          "total_elapsed",
+          "checkpoint_count",
+          "time_range",
+          "truncated",
+          "total"
+        ],
+        "properties": {
+          "checkpoint_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckpointDoc"
+            }
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "time_range": {
+            "$ref": "#/components/schemas/CheckpointTimeRangeDoc"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_elapsed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "transitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckpointTransitionDoc"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "CappedPaths": {
         "type": "object",
         "required": [
@@ -40713,6 +42322,155 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "CheckpointDoc": {
+        "type": "object",
+        "description": "One stored execution checkpoint (`wf_types::Checkpoint` mirrored).",
+        "required": [
+          "id",
+          "entity_type",
+          "entity_id",
+          "checkpoint_type",
+          "timestamp",
+          "status"
+        ],
+        "properties": {
+          "base_checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blob_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Encoded blob size in bytes.",
+            "minimum": 0
+          },
+          "chain_position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Position within the checkpoint chain, when chained.",
+            "minimum": 0
+          },
+          "chain_root_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checkpoint_type": {
+            "type": "string",
+            "description": "Wire-compatible `\"FULL\"` / `\"DELTA\"` literal union."
+          },
+          "custom_fields": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "parent_entity_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Forward link to the parent execution, when the owning entity has one."
+          },
+          "previous_checkpoint_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`active` | `completed` | `expired` | `corrupted` (snake_case)."
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Record time (Unix milliseconds)."
+          }
+        }
+      },
+      "CheckpointTimeRangeDoc": {
+        "type": "object",
+        "description": "Start / end timestamps spanned by a checkpoint chain.",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CheckpointTransitionDoc": {
+        "type": "object",
+        "description": "One transition between consecutive checkpoints of a chain\n(`wf_api::checkpoint::record::CheckpointTransitionView` mirrored).",
+        "required": [
+          "from_checkpoint_id",
+          "to_checkpoint_id",
+          "elapsed",
+          "type"
+        ],
+        "properties": {
+          "elapsed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Milliseconds between the two checkpoints."
+          },
+          "from_checkpoint_id": {
+            "type": "string"
+          },
+          "to_checkpoint_id": {
+            "type": "string"
+          },
+          "trigger_description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "`FULL` | `DELTA`."
           }
         }
       },
@@ -40765,6 +42523,77 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "ConflictFileDoc": {
+        "type": "object",
+        "description": "A file whose merge commit carries the unresolved-conflict flag\n(`wf_checkpoint::provenance::ConflictFile` mirrored).",
+        "required": [
+          "path",
+          "snapshot_id",
+          "partition",
+          "conflicts"
+        ],
+        "properties": {
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictRegionDoc"
+            },
+            "description": "Conflict regions re-derived from the standard markers on disk."
+          },
+          "partition": {
+            "type": "string",
+            "description": "Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative file path."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Commit id (hex) of the conflicted merge commit."
+          }
+        }
+      },
+      "ConflictRegionDoc": {
+        "type": "object",
+        "description": "One unresolved conflict region inside a merged file\n(`wf_checkpoint::approval::ConflictView` mirrored).",
+        "required": [
+          "file",
+          "start_line",
+          "base",
+          "ours",
+          "theirs"
+        ],
+        "properties": {
+          "base": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file": {
+            "type": "string",
+            "description": "Relative file path the conflict applies to."
+          },
+          "ours": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_line": {
+            "type": "integer",
+            "description": "Start line in the merged output (0-indexed).",
+            "minimum": 0
+          },
+          "theirs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -41043,6 +42872,47 @@
           }
         }
       },
+      "DeltaSummaryDoc": {
+        "type": "object",
+        "description": "One file change recorded on an actor partition\n(`wf_checkpoint::provenance::DeltaSummary` mirrored).",
+        "required": [
+          "file",
+          "source",
+          "timestamp",
+          "snapshot_id",
+          "hash"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Relative file path."
+          },
+          "hash": {
+            "type": "string",
+            "description": "Content hash (SHA-256 hex) of the resulting file bytes."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable description of the edit intent."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Commit id (hex)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Origin: actor id / `human` / `merge` / `review`."
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Change time (Unix milliseconds)."
+          }
+        }
+      },
       "DependentImpactDoc": {
         "type": "object",
         "description": "Per-dependent revalidation result of a draft promotion.",
@@ -41082,6 +42952,43 @@
           },
           "workflow_name": {
             "type": "string"
+          }
+        }
+      },
+      "EditGroupDoc": {
+        "type": "object",
+        "description": "One staged edit group (`wf_checkpoint::file::session::EditGroup`\nmirrored): the group id stringifies to `sess-<ts>-<pid>-<n>`.",
+        "required": [
+          "id",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation time (Unix milliseconds)."
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional human-readable label (e.g. \"format file\")."
+          }
+        }
+      },
+      "EntityMetadataDoc": {
+        "type": "object",
+        "description": "Entity metadata document: a bare map of arbitrary JSON values, or\n`null` when the entity has no metadata (transparent over the stored\n`HashMap<String, serde_json::Value>`).",
+        "required": [
+          "metadata"
+        ],
+        "properties": {
+          "metadata": {
+            "type": "object"
           }
         }
       },
@@ -41325,6 +43232,240 @@
           }
         }
       },
+      "FileCheckpointSummaryDoc": {
+        "type": "object",
+        "description": "Summary view of a created file checkpoint\n(`wf_api::checkpoint::file::FileCheckpointSummary` mirrored).",
+        "required": [
+          "id",
+          "timestamp",
+          "file_count"
+        ],
+        "properties": {
+          "file_count": {
+            "type": "integer",
+            "description": "Number of files captured.",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "Commit id (hex) of the created workspace checkpoint."
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation time (Unix milliseconds)."
+          }
+        }
+      },
+      "FileContentDoc": {
+        "type": "object",
+        "description": "Read view of one workspace file with sandbox checks\n(`wf_api::checkpoint::provenance::FileContentView` mirrored): reads are\ncapped at 1 MiB with `truncated: true`; binaries report metadata only\n(`content` absent, `is_binary: true`).",
+        "required": [
+          "path",
+          "actor",
+          "hash",
+          "size",
+          "is_binary",
+          "truncated",
+          "timestamp"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UTF-8 content; absent for binaries."
+          },
+          "hash": {
+            "type": "string",
+            "description": "Content hash (SHA-256 hex)."
+          },
+          "is_binary": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Content size in bytes (pre-truncation).",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileDiffDoc": {
+        "type": "object",
+        "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored).",
+        "required": [
+          "path",
+          "kind"
+        ],
+        "properties": {
+          "additions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "deletions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "diff": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Unified diff (text files only); absent for binary content."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`added` | `modified` | `deleted` | `unchanged` (snake_case)."
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "FileTimelineDoc": {
+        "type": "object",
+        "description": "Capped version timeline for one file path\n(`wf_api::checkpoint::provenance::FileTimelineView` mirrored): total is\ncounted before truncation.",
+        "required": [
+          "original_path",
+          "entries",
+          "truncated",
+          "total"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileTimelineEntryDoc"
+            },
+            "description": "Entries are chronological, so the earliest page is stable."
+          },
+          "original_path": {
+            "type": "string",
+            "description": "Original path (the first path this file was known at)."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileTimelineEntryDoc": {
+        "type": "object",
+        "description": "One entry in a file's version timeline\n(`wf_checkpoint::provenance::FileTimelineEntry` mirrored).",
+        "required": [
+          "path",
+          "snapshot_id",
+          "content_hash",
+          "timestamp",
+          "source"
+        ],
+        "properties": {
+          "content_hash": {
+            "type": "string",
+            "description": "Content hash (SHA-256 hex) of the resulting file bytes."
+          },
+          "moved_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When this entry follows a rename, the previous path."
+          },
+          "path": {
+            "type": "string",
+            "description": "File path at this point in time."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Commit id (hex)."
+          },
+          "source": {
+            "type": "string",
+            "description": "Origin label (e.g. \"manual\", \"agent:loop-1\")."
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Change time (Unix milliseconds)."
+          }
+        }
+      },
+      "FileTreeDoc": {
+        "type": "object",
+        "description": "Capped directory tree view (the transport-local `FileTreeView` in\n`file_provenance` mirrored): entries are sorted by path before\ntruncation so the first page is stable.",
+        "required": [
+          "entries",
+          "truncated",
+          "total"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileTreeEntryDoc"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total entry count before truncation.",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileTreeEntryDoc": {
+        "type": "object",
+        "description": "One directory tree entry (metadata only, no content bytes)\n(`wf_api::checkpoint::provenance::FileTreeEntry` mirrored).",
+        "required": [
+          "path",
+          "hash",
+          "size",
+          "timestamp"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "description": "Content hash (SHA-256 hex)."
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Content size in bytes.",
+            "minimum": 0
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "FireResponse": {
         "type": "object",
         "required": [
@@ -41343,6 +43484,35 @@
           },
           "fired": {
             "type": "boolean"
+          }
+        }
+      },
+      "GcStatsDoc": {
+        "type": "object",
+        "description": "Statistics of one object-store cleanup run\n(`wf_checkpoint::gc::GcStats` mirrored).",
+        "required": [
+          "removed_checkpoints",
+          "removed_snapshots",
+          "reclaimed_snapshots"
+        ],
+        "properties": {
+          "reclaimed_snapshots": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unreachable blobs dropped by the reclaim sweep.",
+            "minimum": 0
+          },
+          "removed_checkpoints": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unreachable commits dropped by the sweep.",
+            "minimum": 0
+          },
+          "removed_snapshots": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unreachable trees dropped with the removed commits.",
+            "minimum": 0
           }
         }
       },
@@ -41367,6 +43537,103 @@
               "type": "string"
             },
             "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GitConflictDetailDoc": {
+        "type": "object",
+        "description": "One conflicted file captured during a merge\n(`wf_checkpoint::file::git_merge::GitConflictDetail` mirrored): binary\nconflicts carry no regions and stay file-level only.",
+        "required": [
+          "file",
+          "binary",
+          "regions"
+        ],
+        "properties": {
+          "binary": {
+            "type": "boolean"
+          },
+          "file": {
+            "type": "string"
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitConflictRegionDoc"
+            }
+          }
+        }
+      },
+      "GitConflictRegionDoc": {
+        "type": "object",
+        "description": "One true conflict region parsed back from the diff3 markers the merge\ndriver embeds (`wf_checkpoint::file::git_merge::GitConflictRegion`\nmirrored); line numbers are 0-indexed into the merged output,\n`end_line` exclusive.",
+        "required": [
+          "start_line",
+          "end_line",
+          "base_lines",
+          "ours_lines",
+          "theirs_lines"
+        ],
+        "properties": {
+          "base_lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ours_lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "theirs_lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GitMergeOutcomeDoc": {
+        "type": "object",
+        "description": "Outcome of merging an actor submission into a feature ref\n(`wf_checkpoint::file::git_merge::GitMergeOutcome` mirrored).",
+        "required": [
+          "commit_id",
+          "parents",
+          "conflict_files",
+          "details"
+        ],
+        "properties": {
+          "commit_id": {
+            "type": "string",
+            "description": "Merge commit id (hex)."
+          },
+          "conflict_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct files with conflicts (empty when merged cleanly)."
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitConflictDetailDoc"
+            }
+          },
+          "parents": {
+            "type": "array",
+            "items": {
               "type": "string"
             }
           }
@@ -41744,6 +44011,31 @@
           }
         }
       },
+      "IndexStatusDoc": {
+        "type": "object",
+        "description": "Source-index health (`wf_checkpoint::provenance::IndexStatus` mirrored):\na non-empty graph with an empty (or diverging) index sets\n`needs_rebuild`.",
+        "required": [
+          "indexed_commits",
+          "total_commits",
+          "needs_rebuild"
+        ],
+        "properties": {
+          "indexed_commits": {
+            "type": "integer",
+            "description": "Rows present in the source index.",
+            "minimum": 0
+          },
+          "needs_rebuild": {
+            "type": "boolean",
+            "description": "True when the index is empty while the graph is non-empty, or when\ncounts diverge."
+          },
+          "total_commits": {
+            "type": "integer",
+            "description": "Commits reachable in the object store.",
+            "minimum": 0
+          }
+        }
+      },
       "InfoView": {
         "type": "object",
         "required": [
@@ -41918,6 +44210,62 @@
           }
         }
       },
+      "MergeCommitDoc": {
+        "type": "object",
+        "description": "Result of merging features into main, one merge commit per feature\n(`wf_checkpoint::MergeCommitResult` mirrored): a conflicted feature\naborts the sequence while earlier merges stay individually revertable.",
+        "required": [
+          "merge_result",
+          "checkpoint_id"
+        ],
+        "properties": {
+          "checkpoint_id": {
+            "type": "string",
+            "description": "Aggregate checkpoint id (hex) covering the merged features."
+          },
+          "merge_result": {
+            "$ref": "#/components/schemas/GitMergeOutcomeDoc"
+          }
+        }
+      },
+      "MergeOutcomeDoc": {
+        "type": "object",
+        "description": "Outcome of an approve / merge operation\n(`wf_checkpoint::approval::MergeOutcome` mirrored).",
+        "required": [
+          "merged",
+          "snapshot_id",
+          "conflicts",
+          "conflict_files",
+          "message"
+        ],
+        "properties": {
+          "conflict_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct files with conflicts (sorted)."
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictRegionDoc"
+            },
+            "description": "Conflicts detected by the three-way merge (empty when clean)."
+          },
+          "merged": {
+            "type": "boolean",
+            "description": "Whether the changes were merged into the feature."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable outcome message."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Resulting snapshot id (hex) of the target partition."
+          }
+        }
+      },
       "MergeToFeatureRequest": {
         "type": "object",
         "required": [
@@ -42064,6 +44412,89 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "PartitionDoc": {
+        "type": "object",
+        "description": "Read view of one ref line in the checkpoint store\n(`wf_checkpoint::provenance::PartitionView` mirrored).",
+        "required": [
+          "partition_id",
+          "name",
+          "kind",
+          "current_snapshot",
+          "history_len",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Actor id for per-actor lines, absent otherwise."
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Creation time of the oldest reachable commit (Unix milliseconds)."
+          },
+          "current_snapshot": {
+            "type": "string",
+            "description": "Commit id (hex) of the ref head."
+          },
+          "history_len": {
+            "type": "integer",
+            "description": "Commits reachable from the head, saturated at the walk cap.",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "`manual` | `agent` | `approval` | `mainline` | `main`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "partition_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Time of the head commit (Unix milliseconds)."
+          }
+        }
+      },
+      "PendingApprovalDoc": {
+        "type": "object",
+        "description": "One pending layered approval (`wf_checkpoint::approval::PendingApproval`\nmirrored).",
+        "required": [
+          "actor",
+          "snapshot_id",
+          "submitted_at",
+          "changes"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Actor id string (e.g. `agent:{loop_id}`)."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeltaSummaryDoc"
+            },
+            "description": "The submitted changes (chunked per file, chronological)."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Approval snapshot id (hex)."
+          },
+          "submitted_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Submission time (Unix milliseconds)."
           }
         }
       },
@@ -42341,6 +44772,50 @@
           "restored": {
             "type": "integer",
             "minimum": 0
+          }
+        }
+      },
+      "RestoredCheckpointDoc": {
+        "type": "object",
+        "description": "Restored execution state (`wf_api::RestoredCheckpoint` mirrored); the\nlive entity handle is `#[serde(skip)]` and never serializes.",
+        "required": [
+          "checkpoint_id",
+          "execution_id",
+          "status",
+          "variables"
+        ],
+        "properties": {
+          "checkpoint_id": {
+            "type": "string"
+          },
+          "current_node_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "node_results": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -43070,6 +45545,10 @@
           }
         }
       },
+      "UnitDoc": {
+        "type": "object",
+        "description": "Empty payload (`data: null`, e.g. the metadata PUT): utoipa cannot\nrender `()` in a generic envelope, so the unit response is named."
+      },
       "UpdateLoopStatusBody": {
         "type": "object",
         "required": [
@@ -43176,6 +45655,37 @@
             ]
           },
           "value": {}
+        }
+      },
+      "WorkspaceFileDoc": {
+        "type": "object",
+        "description": "Reconstructed file of an actor partition\n(`wf_checkpoint::provenance::WorkspaceFile` mirrored): `content` is the\nraw bytes as a JSON number array (metadata consumers read path, hash and\ntimestamp only).",
+        "required": [
+          "path",
+          "content",
+          "hash",
+          "timestamp"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "hash": {
+            "type": "string",
+            "description": "Content hash (SHA-256 hex)."
+          },
+          "path": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          }
         }
       }
     },

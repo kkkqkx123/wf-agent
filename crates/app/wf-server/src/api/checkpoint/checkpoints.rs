@@ -107,7 +107,7 @@ pub(crate) async fn handle_create_checkpoint(
     tag = "checkpoint",
     params(IdPath),
     responses(
-        (status = 200, description = "Checkpoint chain analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Checkpoint chain analysis", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::CappedChainDoc>),
         (status = 404, description = "Execution not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid domain", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
@@ -178,7 +178,7 @@ fn cap_chain(chain: wf_api::checkpoint::record::CheckpointChainAnalysisView) -> 
     tag = "checkpoint",
     params(CidPath),
     responses(
-        (status = 200, description = "Checkpoint restored", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Checkpoint restored", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::RestoredCheckpointDoc>),
         (status = 404, description = "Checkpoint not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -256,7 +256,7 @@ pub(crate) struct GcCheckpointsQuery {
     tag = "checkpoint",
     params(IdPath, GcCheckpointsQuery),
     responses(
-        (status = 200, description = "Checkpoints garbage-collected", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Checkpoints garbage-collected", body = crate::envelope::ApiEnvelope<u64>),
         (status = 404, description = "Execution not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
@@ -307,7 +307,7 @@ pub(crate) struct ListCheckpointsQuery {
     tag = "checkpoint",
     params(ListCheckpointsQuery),
     responses(
-        (status = 200, description = "List of checkpoints", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
+        (status = 200, description = "List of checkpoints", body = crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::CheckpointDoc>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -336,7 +336,7 @@ pub(crate) async fn handle_list_checkpoints(
     tag = "checkpoint",
     params(IdPath),
     responses(
-        (status = 200, description = "Checkpoint found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Checkpoint found", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::CheckpointDoc>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -392,7 +392,7 @@ pub(crate) struct EntityCheckpointsQuery {
     tag = "checkpoint",
     params(EntityIdPath, EntityCheckpointsQuery),
     responses(
-        (status = 200, description = "List of checkpoints for entity", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
+        (status = 200, description = "List of checkpoints for entity", body = crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::CheckpointDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -437,7 +437,7 @@ pub(crate) struct LatestCheckpointQuery {
     tag = "checkpoint",
     params(EntityIdPath, LatestCheckpointQuery),
     responses(
-        (status = 200, description = "Latest checkpoint", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Latest checkpoint", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::CheckpointDoc>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -473,7 +473,7 @@ pub(crate) struct DeleteCheckpointsQuery {
     tag = "checkpoint",
     params(EntityIdPath, DeleteCheckpointsQuery),
     responses(
-        (status = 200, description = "Checkpoints deleted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Checkpoints deleted", body = crate::envelope::ApiEnvelope<u64>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -503,7 +503,7 @@ pub(crate) async fn handle_delete_checkpoints_by_entity(
     tag = "checkpoint",
     params(EntityIdPath),
     responses(
-        (status = 200, description = "Entity metadata", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Entity metadata", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::EntityMetadataDoc>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -531,7 +531,7 @@ pub(crate) async fn handle_checkpoint_entity_metadata(
     params(EntityIdPath),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Metadata updated", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Metadata updated", body = crate::envelope::ApiEnvelope<Option<crate::api::checkpoint::views::UnitDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -571,7 +571,7 @@ pub(crate) struct CheckpointEntitiesQuery {
     tag = "checkpoint",
     params(CheckpointEntitiesQuery),
     responses(
-        (status = 200, description = "Checkpoints by entities", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
+        (status = 200, description = "Checkpoints by entities", body = crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::CheckpointDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
@@ -627,7 +627,7 @@ pub(crate) struct CheckpointsTimeRangeQuery {
     tag = "checkpoint",
     params(CheckpointsTimeRangeQuery),
     responses(
-        (status = 200, description = "Checkpoints by time range", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
+        (status = 200, description = "Checkpoints by time range", body = crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::CheckpointDoc>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),

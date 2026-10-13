@@ -58,7 +58,7 @@ pub(crate) struct RejectRequest {
     path = "/api/v1/file-checkpoint/approvals/pending",
     tag = "checkpoint",
     responses(
-        (status = 200, description = "List of pending file approvals", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "List of pending file approvals", body = crate::envelope::ApiEnvelope<Vec<crate::api::checkpoint::views::PendingApprovalDoc>>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
     security(("api_key" = []))
@@ -79,7 +79,7 @@ pub(crate) async fn handle_list_pending_approvals(
     params(IdPath),
     request_body = ApproveRequest,
     responses(
-        (status = 200, description = "Changes approved", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 200, description = "Changes approved", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::MergeOutcomeDoc>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),

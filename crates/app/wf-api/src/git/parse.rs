@@ -130,27 +130,53 @@ pub fn parse_porcelain_v2_files(output: &str) -> Vec<FileEntry> {
 }
 
 pub fn parse_diff_unified(output: &str) -> Vec<DiffFileView> {
-    let mut files: Vec<DiffFileView> = Vec::new();
-    let mut current: Option<DiffFileView> = None;
-    let mut current_hunk: Option<DiffHunk> = None;
-    let mut additions = 0usize;
-    let mut deletions = 0usize;
-    let flush_hunk = |current_hunk: &mut Option<DiffHunk>, current: &mut Option<DiffFileView>| {
-        if let Some(hunk) = current_hunk.take() {
-            if let Some(file) = current.as_mut() {
-                file.hunks.push(hunk);
+    use super::types::MAX_DIFF_LINES;
+    struct Accum {
+        file: DiffFileView,
+        hunk: Option<DiffHunk>,
+        lines: usize,
+        truncated: bool,
+        binary: bool,
+        old_null: bool,
+        new_null: bool,
+    }
+    impl Accum {
+        fn finish(mut self, additions: usize, deletions: usize) -> DiffFileView {
+            if let Some(hunk) = self.hunk.take() {
+                self.file.hunks.push(hunk);
+            }
+            self.file.additions = additions;
+            self.file.deletions = deletions;
+            self.file.truncated = self.truncated;
+            self.file.binary = self.binary;
+            self.file.kind = if self.old_null && !self.new_null {
+                "added".to_string()
+            } else if self.new_null && !self.old_null {
+                "deleted".to_string()
+            } else {
+                "modified".to_string()
+            };
+            self.file
+        }
+        fn push_line(&mut self, line: &str) {
+            if self.lines >= MAX_DIFF_LINES {
+                self.truncated = true;
+                return;
+            }
+            if let Some(hunk) = self.hunk.as_mut() {
+                hunk.lines.push(line.to_string());
+                self.lines += 1;
             }
         }
-    };
+    }
+    let mut files: Vec<DiffFileView> = Vec::new();
+    let mut current: Option<Accum> = None;
+    let mut additions = 0usize;
+    let mut deletions = 0usize;
     for line in output.lines() {
         if let Some(rest) = line.strip_prefix("diff --git ") {
-            if let Some(mut file) = current.take() {
-                if let Some(hunk) = current_hunk.take() {
-                    file.hunks.push(hunk);
-                }
-                file.additions = additions;
-                file.deletions = deletions;
-                files.push(file);
+            if let Some(accum) = current.take() {
+                files.push(accum.finish(additions, deletions));
             }
             additions = 0;
             deletions = 0;
@@ -160,41 +186,70 @@ pub fn parse_diff_unified(output: &str) -> Vec<DiffFileView> {
                 .unwrap_or(rest)
                 .trim_start_matches("a/")
                 .to_string();
-            current = Some(DiffFileView {
-                path,
-                hunks: Vec::new(),
-                additions: 0,
-                deletions: 0,
+            current = Some(Accum {
+                file: DiffFileView {
+                    path,
+                    kind: "modified".to_string(),
+                    hunks: Vec::new(),
+                    additions: 0,
+                    deletions: 0,
+                    binary: false,
+                    truncated: false,
+                },
+                hunk: None,
+                lines: 0,
+                truncated: false,
+                binary: false,
+                old_null: false,
+                new_null: false,
             });
         } else if line.starts_with("@@ ") {
-            flush_hunk(&mut current_hunk, &mut current);
-            current_hunk = Some(DiffHunk {
-                header: line.to_string(),
-                lines: Vec::new(),
-            });
-        } else if line.starts_with('+') && !line.starts_with("+++") {
+            if let Some(accum) = current.as_mut() {
+                if let Some(hunk) = accum.hunk.take() {
+                    accum.file.hunks.push(hunk);
+                }
+                accum.hunk = Some(DiffHunk {
+                    header: line.to_string(),
+                    lines: Vec::new(),
+                });
+            }
+        } else if line.starts_with("Binary files ") {
+            // Binary content carries no hunks; the flag survives even
+            // when no text lines were collected.
+            if let Some(accum) = current.as_mut() {
+                if let Some(hunk) = accum.hunk.take() {
+                    accum.file.hunks.push(hunk);
+                }
+                accum.binary = true;
+            }
+        } else if line.starts_with("--- ") {
+            if let Some(accum) = current.as_mut() {
+                accum.old_null = line.trim_end() == "--- /dev/null";
+            }
+        } else if line.starts_with("+++ ") {
+            if let Some(accum) = current.as_mut() {
+                accum.new_null = line.trim_end() == "+++ /dev/null";
+            }
+        } else if line.starts_with('+') {
             additions += 1;
-            if let Some(hunk) = current_hunk.as_mut() {
-                hunk.lines.push(line.to_string());
+            if let Some(accum) = current.as_mut() {
+                accum.push_line(line);
             }
-        } else if line.starts_with('-') && !line.starts_with("---") {
+        } else if line.starts_with('-') {
             deletions += 1;
-            if let Some(hunk) = current_hunk.as_mut() {
-                hunk.lines.push(line.to_string());
+            if let Some(accum) = current.as_mut() {
+                accum.push_line(line);
             }
-        } else if current_hunk.is_some() {
-            if let Some(hunk) = current_hunk.as_mut() {
-                hunk.lines.push(line.to_string());
+        } else if let Some(accum) = current.as_mut() {
+            // Context and metadata lines belong to the open hunk; header
+            // lines outside any hunk are dropped.
+            if accum.hunk.is_some() {
+                accum.push_line(line);
             }
         }
     }
-    if let Some(mut file) = current.take() {
-        if let Some(hunk) = current_hunk.take() {
-            file.hunks.push(hunk);
-        }
-        file.additions = additions;
-        file.deletions = deletions;
-        files.push(file);
+    if let Some(accum) = current.take() {
+        files.push(accum.finish(additions, deletions));
     }
     files
 }
@@ -417,6 +472,42 @@ mod tests {
         assert_eq!(files[0].hunks.len(), 1);
         assert_eq!(files[0].additions, 2);
         assert_eq!(files[0].deletions, 1);
+        assert_eq!(files[0].kind, "modified");
+        assert!(!files[0].binary);
+        assert!(!files[0].truncated);
+    }
+
+    #[test]
+    fn diff_derives_kind_from_null_headers() {
+        let added = "diff --git a/new.rs b/new.rs\nnew file mode 100644\n--- /dev/null\n+++ b/new.rs\n@@ -0,0 +1 @@\n+hi\n";
+        let files = parse_diff_unified(added);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].kind, "added");
+        assert!(!files[0].binary);
+        let deleted = "diff --git a/old.rs b/old.rs\ndeleted file mode 100644\n--- a/old.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n";
+        let files = parse_diff_unified(deleted);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].kind, "deleted");
+    }
+
+    #[test]
+    fn diff_marks_binary_and_truncates_long_hunks() {
+        let binary = "diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n";
+        let files = parse_diff_unified(binary);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].binary);
+        assert!(files[0].hunks.is_empty());
+        let mut big = "diff --git a/big.rs b/big.rs\n@@ -1 +1 @@\n".to_string();
+        for i in 0..(super::super::types::MAX_DIFF_LINES + 10) {
+            big.push_str(&format!("+line{i}\n"));
+        }
+        let files = parse_diff_unified(&big);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].truncated);
+        assert_eq!(
+            files[0].hunks.iter().map(|h| h.lines.len()).sum::<usize>(),
+            super::super::types::MAX_DIFF_LINES
+        );
     }
 
     #[test]

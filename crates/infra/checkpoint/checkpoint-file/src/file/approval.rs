@@ -8,7 +8,7 @@ use std::path::Path;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 
 use crate::approval::{to_conflict_views, MergeOutcome, PendingApproval};
-use crate::event::CheckpointEventBus;
+use crate::event::{ApprovalDecision, CheckpointEventBus};
 use crate::file::git_merge::{conflict_details, GitMergeOutcome};
 use crate::file::git_write::map_git_error;
 use crate::file::merge::MergeCommitResult;
@@ -154,6 +154,13 @@ impl FileCheckpointManager {
             .ok_or_else(|| CheckpointError::Validation {
                 reason: format!("actor '{}' has no pending submission", actor.as_str()),
             })?;
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::approval_resolved(
+                actor.as_str().to_string(),
+                ApprovalDecision::Rejected,
+                last.clone(),
+            ));
+        }
         match reason.map(str::trim).filter(|r| !r.is_empty()) {
             Some(reason) => tracing::info!(
                 entity = %entity_id,
@@ -471,6 +478,13 @@ impl FileCheckpointManager {
                 }
                 let conflicts =
                     to_conflict_views(&conflict_details(&merged_changes, &conflict_files));
+                if let Some(ref bus) = self.event_bus {
+                    bus.publish(CheckpointEventBus::approval_resolved(
+                        actor.as_str().to_string(),
+                        ApprovalDecision::Approved,
+                        head.clone(),
+                    ));
+                }
                 return Ok(MergeOutcome {
                     merged: true,
                     snapshot_id: head,
@@ -482,6 +496,13 @@ impl FileCheckpointManager {
                         approved.join(", ")
                     ),
                 });
+            }
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::approval_resolved(
+                    actor.as_str().to_string(),
+                    ApprovalDecision::Approved,
+                    head.clone(),
+                ));
             }
             return Ok(MergeOutcome {
                 merged: true,
@@ -636,9 +657,16 @@ impl FileCheckpointManager {
                         ));
                     }
                 }
+                if let Some(ref bus) = self.event_bus {
+                    bus.publish(CheckpointEventBus::approval_resolved(
+                        actor.as_str().to_string(),
+                        ApprovalDecision::Approved,
+                        merged.commit_id.clone(),
+                    ));
+                }
                 Ok(MergeOutcome {
                     merged: true,
-                    snapshot_id: merged.commit_id,
+                    snapshot_id: merged.commit_id.clone(),
                     conflicts,
                     conflict_files,
                     message: "merged with conflicts".to_string(),
@@ -803,9 +831,6 @@ impl FileCheckpointManager {
         }
         let remaining = remaining_files.len();
         if remaining == 0 && !conflicted.is_empty() {
-            // Fully resolved: advance related pending reviews to approved so
-            // the review state machine does not stall in pending. Only reviews
-            // reachable from the resolution commit are closed.
             if let Ok(refs) = git.list_refs(REF_REVIEW_PREFIX).map_err(map_git_error) {
                 for (review_ref, _) in refs {
                     if storage.get_review_state(&review_ref).unwrap_or(None)
@@ -835,6 +860,13 @@ impl FileCheckpointManager {
                         }
                     }
                 }
+            }
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::approval_resolved(
+                    actor.as_str().to_string(),
+                    ApprovalDecision::Approved,
+                    id.clone(),
+                ));
             }
         }
         Ok(remaining)

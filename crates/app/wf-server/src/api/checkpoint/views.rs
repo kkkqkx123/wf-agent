@@ -173,6 +173,34 @@ pub(crate) struct PartitionDoc {
     updated_at: i64,
 }
 
+/// One commit in a partition history view
+/// (`wf_checkpoint::provenance::PartitionCommitView` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct PartitionHistoryEntryDoc {
+    /// Commit id (hex).
+    snapshot_id: String,
+    /// Parent commit ids (hex); more than one marks a merge commit.
+    parents: Vec<String>,
+    /// First message line (intent), absent when the message is blank.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    /// Owning actor from the `Wf-Actor` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    actor: Option<String>,
+    /// Edit session from the `Wf-Session` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<String>,
+    /// Origin tool from the `Wf-Tool` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool: Option<String>,
+    /// Commit time (Unix milliseconds).
+    timestamp: i64,
+    /// True when the commit has more than one parent.
+    is_merge: bool,
+    /// True when the commit carries the conflict-unresolved state.
+    has_conflicts: bool,
+}
+
 /// Reconstructed file of an actor partition
 /// (`wf_checkpoint::provenance::WorkspaceFile` mirrored): `content` is the
 /// raw bytes as a JSON number array (metadata consumers read path, hash and
@@ -186,20 +214,30 @@ pub(crate) struct WorkspaceFileDoc {
     timestamp: i64,
 }
 
+/// One hunk of a per-file difference (`DiffHunkView` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct DiffHunkDoc {
+    /// The `@@` hunk header.
+    header: String,
+    /// Raw unified lines (`+`/`-`/context).
+    lines: Vec<String>,
+}
+
 /// Per-file difference view (`wf_checkpoint::provenance::FileDiffView`
-/// mirrored).
+/// mirrored): the same structured shape the user-repo git diffs return,
+/// so both surfaces share one schema.
 #[derive(Serialize, ToSchema)]
 pub(crate) struct FileDiffDoc {
     path: String,
     /// `added` | `modified` | `deleted` | `unchanged` (snake_case).
     kind: String,
-    /// Unified diff (text files only); absent for binary content.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diff: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    additions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deletions: Option<usize>,
+    hunks: Vec<DiffHunkDoc>,
+    additions: usize,
+    deletions: usize,
+    /// True for non-text content (no hunks rendered).
+    binary: bool,
+    /// True when hunk lines were cut at the render cap.
+    truncated: bool,
 }
 
 /// One unresolved conflict region inside a merged file

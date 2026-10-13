@@ -176,6 +176,12 @@ impl FileCheckpointManager {
             match git.compare_and_swap(&review_ref, None, &head) {
                 Ok(()) => {
                     storage.set_review_state(&review_ref, ReviewStatus::Pending)?;
+                    if let Some(ref bus) = self.event_bus {
+                        bus.publish(CheckpointEventBus::review_submitted(
+                            actor.as_str().to_string(),
+                            head.clone(),
+                        ));
+                    }
                     return Ok((review_ref, head));
                 }
                 Err(crate::git_store::GitStoreError::RefConflict(_)) => continue,

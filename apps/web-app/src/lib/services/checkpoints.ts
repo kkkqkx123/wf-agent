@@ -3,6 +3,8 @@ import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { components } from '$lib/api/schema';
 import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
+import { toDiffFile } from '$lib/types/diff';
+import type { DiffFile } from '$lib/types/diff';
 
 // Transport row types come from the generated OpenAPI snapshot; only the
 // page-facing view models in `$lib/types/models` are hand-maintained.
@@ -101,13 +103,15 @@ export async function listLoopCheckpoints(
 }
 
 function toFileChange(d: DeltaSummaryDoc, index: number): FileChange {
-	// The wire row carries no change kind, actor or session fields; the
-	// view falls back the same way the untyped mapping did.
+	// DeltaSummary carries no change kind; the view keeps the previous
+	// `modified` fallback. `source` is the origin label (actor id /
+	// `human` / `merge` / `review`) and doubles as the actor owning the
+	// change; `snapshot_id` scopes the row id to its commit.
 	return {
-		id: `fc-${index}`,
+		id: d.snapshot_id ? `${d.snapshot_id}:${d.file}` : `fc-${index}`,
 		path: d.file,
 		changeType: 'modified',
-		actor: '',
+		actor: d.source ?? '',
 		at: toIso(d.timestamp),
 		additions: 0,
 		deletions: 0,
@@ -211,87 +215,24 @@ export async function resumeFromCheckpoint(
 	return true;
 }
 
-export interface FileDiffLine {
-	type: 'add' | 'del' | 'context' | 'meta';
-	text: string;
-}
-
-export interface FileDiff {
-	path: string;
-	kind: string;
-	lines: FileDiffLine[];
-	additions: number;
-	deletions: number;
-	binary: boolean;
-	truncated: boolean;
-}
-
-/** Rows rendered per diff; longer diffs are cut with a truncation flag. */
-const DIFF_LINE_LIMIT = 400;
-
-function parseUnifiedDiff(text: string): {
-	lines: FileDiffLine[];
-	truncated: boolean;
-} {
-	const rows = text.split('\n');
-	const lines: FileDiffLine[] = [];
-	for (const raw of rows) {
-		if (lines.length >= DIFF_LINE_LIMIT) break;
-		if (
-			raw.startsWith('+++') ||
-			raw.startsWith('---') ||
-			raw.startsWith('diff ') ||
-			raw.startsWith('index ') ||
-			raw.startsWith('@@')
-		) {
-			lines.push({ type: 'meta', text: raw });
-		} else if (raw.startsWith('+')) {
-			lines.push({ type: 'add', text: raw.slice(1) });
-		} else if (raw.startsWith('-')) {
-			lines.push({ type: 'del', text: raw.slice(1) });
-		} else if (raw.startsWith('\\')) {
-			continue;
-		} else {
-			lines.push({
-				type: 'context',
-				text: raw.startsWith(' ') ? raw.slice(1) : raw,
-			});
-		}
-	}
-	return { lines, truncated: rows.length > lines.length };
-}
-
-function toFileDiff(d: FileDiffDoc): FileDiff {
-	const text = d.diff ?? '';
-	const parsed = parseUnifiedDiff(text);
-	return {
-		path: d.path,
-		kind: d.kind.toLowerCase(),
-		lines: parsed.lines,
-		additions: d.additions ?? 0,
-		deletions: d.deletions ?? 0,
-		binary: !text,
-		truncated: parsed.truncated,
-	};
-}
 /** Per-file diffs of one actor workspace against main, backing the diff preview. */
-export async function getMainDiffs(actor: string): Promise<FileDiff[]> {
+export async function getMainDiffs(actor: string): Promise<DiffFile[]> {
 	const data = await call<FileDiffDoc[]>(
 		client.GET('/api/v1/file-checkpoint/diff/main/{id}', {
 			params: { path: { id: actor } },
 		}),
 	);
-	return data.map(toFileDiff);
+	return data.map(toDiffFile);
 }
 
 /** Per-file diff between two actor workspaces. */
-export async function getDiffActors(a: string, b: string): Promise<FileDiff[]> {
+export async function getDiffActors(a: string, b: string): Promise<DiffFile[]> {
 	const data = await call<FileDiffDoc[]>(
 		client.GET('/api/v1/file-checkpoint/diff/actors/{a}/{b}', {
 			params: { path: { a, b } },
 		}),
 	);
-	return data.map(toFileDiff);
+	return data.map(toDiffFile);
 }
 
 export interface FileContent {
@@ -305,15 +246,19 @@ export interface FileContent {
 	timestamp: number;
 }
 
-/** Read-only file content for one actor workspace. */
+/** Read-only file content for one actor workspace, optionally pinned to
+ * a historical commit (`version` is always a commit id). Versioned reads
+ * do not touch the workspace, so conflicted bytes can be read at the
+ * conflicted merge commit for in-place resolution. */
 export async function getFileContent(
 	actor: string,
 	path: string,
+	version?: string,
 ): Promise<FileContent> {
 	const d = requireData(
 		await call<FileContentDoc>(
 			client.GET('/api/v1/file-checkpoint/content', {
-				params: { query: { actor, path } },
+				params: { query: { actor, path, version } },
 			}),
 		),
 		`File content missing for ${path}`,
@@ -464,11 +409,20 @@ export async function listPartitions(): Promise<PartitionView[]> {
 	}));
 }
 
+export interface ConflictRegion {
+	file: string;
+	startLine: number;
+	base: string[];
+	ours: string[];
+	theirs: string[];
+}
+
 export interface ConflictFile {
 	path: string;
 	snapshotId: string;
 	partition: string;
 	conflictCount: number;
+	regions: ConflictRegion[];
 }
 
 /** Files with unresolved merge conflicts, enumerated from unresolved merge commits. */
@@ -481,6 +435,13 @@ export async function listConflicts(): Promise<ConflictFile[]> {
 		snapshotId: d.snapshot_id,
 		partition: d.partition,
 		conflictCount: d.conflicts.length,
+		regions: d.conflicts.map((region) => ({
+			file: region.file,
+			startLine: region.start_line,
+			base: region.base,
+			ours: region.ours,
+			theirs: region.theirs,
+		})),
 	}));
 }
 

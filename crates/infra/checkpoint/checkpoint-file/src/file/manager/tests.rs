@@ -805,3 +805,72 @@ fn scoped_restore_only_touches_checkpoint_range() {
         b"w2"
     );
 }
+
+#[test]
+fn partition_history_lists_merges_newest_first() {
+    use crate::event::{CheckpointEvent, CheckpointEventBus};
+
+    let manager = manager();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"one")])
+        .unwrap();
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"two")])
+        .unwrap();
+    let merged = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+
+    let history = manager
+        .partition_history("refs/wf/feat/feature-1", 50, 0)
+        .unwrap();
+    assert!(!history.is_empty(), "feature history must not be empty");
+    let head = &history[0];
+    assert_eq!(head.snapshot_id, merged.merge_result.commit_id);
+    assert!(head.is_merge, "feature head after merge must be a merge");
+    assert_eq!(head.parents.len(), 2);
+    assert!(!head.has_conflicts);
+
+    // Unknown refs are rejected instead of walking arbitrary ids.
+    assert!(manager.partition_history("refs/wf/feat/nope", 50, 0).is_err());
+    assert!(manager.partition_history("refs/heads/main", 50, 0).is_err());
+
+    // Paging past the end yields nothing.
+    let total = manager
+        .partition_history("refs/wf/feat/feature-1", 50, 0)
+        .unwrap()
+        .len();
+    let empty = manager
+        .partition_history("refs/wf/feat/feature-1", 50, total + 10)
+        .unwrap();
+    assert!(empty.is_empty());
+
+    // Approval transitions publish onto the attached bus.
+    let bus = CheckpointEventBus::new();
+    let mut rx = bus.subscribe();
+    let manager = FileCheckpointManager::new_in_memory()
+        .unwrap()
+        .with_event_bus(bus);
+    manager
+        .create_checkpoint("exec-9", &[entry("b.txt", b"v1")])
+        .unwrap();
+    manager
+        .approve_changes(
+            "exec-9",
+            "feature-9",
+            None,
+            ConflictBehavior::Marker,
+            None,
+        )
+        .unwrap();
+    let first = rx.try_recv().expect("submit must publish");
+    assert!(
+        matches!(first, CheckpointEvent::ReviewSubmitted { .. }),
+        "submit publishes ReviewSubmitted, got {first:?}"
+    );
+    let second = rx.try_recv().expect("approve must publish");
+    match second {
+        CheckpointEvent::ApprovalResolved { decision, .. } => {
+            assert_eq!(decision, crate::event::ApprovalDecision::Approved);
+        }
+        other => panic!("approve publishes ApprovalResolved, got {other:?}"),
+    }
+}

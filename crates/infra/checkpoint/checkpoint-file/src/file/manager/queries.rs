@@ -1,6 +1,6 @@
 //! Read-only provenance queries delegated to `ProvenanceReader`.
 
-use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use crate::provenance::{DeltaSummary, FileDiffView, PartitionCommitView, PartitionView, WorkspaceFile};
 use checkpoint_base::error::CheckpointError;
 
 use super::FileCheckpointManager;
@@ -17,6 +17,16 @@ impl FileCheckpointManager {
     /// approval, mainline features, main).
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
         self.reader()?.list_partitions()
+    }
+
+    /// Commit history of one partition ref, newest first in walk order.
+    pub fn partition_history(
+        &self,
+        ref_name: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<PartitionCommitView>, CheckpointError> {
+        self.reader()?.partition_history(ref_name, limit, offset)
     }
 
     /// Changes recorded in an actor partition, in chronological order.

@@ -1,7 +1,9 @@
 use wf_checkpoint::file::session::EditGroup;
 use wf_checkpoint::file::FileCheckpointOptions;
 use wf_checkpoint::gc::{GcRetention, GcStats};
-use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use wf_checkpoint::provenance::{
+    DeltaSummary, FileDiffView, PartitionCommitView, PartitionView, WorkspaceFile,
+};
 
 use super::file::FileCheckpointSummary;
 use crate::infra::context::ApiContext;
@@ -81,6 +83,25 @@ pub fn restore_workspace(
 pub fn list_partitions(ctx: &ApiContext) -> ApiResult<Vec<PartitionView>> {
     manager(ctx)?
         .list_partitions()
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Commit history of one partition ref, newest first in walk order. The
+/// ref must match a `refs/wf/` ref exactly (percent-encoded slashes from
+/// the route arrive decoded here).
+pub fn partition_history(
+    ctx: &ApiContext,
+    partition: &str,
+    limit: usize,
+    offset: usize,
+) -> ApiResult<Vec<PartitionCommitView>> {
+    if partition.trim().is_empty() {
+        return Err(ApiError::Validation(
+            "partition must not be empty".to_string(),
+        ));
+    }
+    manager(ctx)?
+        .partition_history(partition, limit, offset)
         .map_err(ApiError::execution_with_source)
 }
 

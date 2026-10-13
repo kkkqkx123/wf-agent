@@ -75,12 +75,24 @@ pub struct DiffHunk {
     pub lines: Vec<String>,
 }
 
+/// Maximum rendered diff lines per file; longer diffs are cut with
+/// `truncated: true`. The file-checkpoint diffs share the same cap, so
+/// both surfaces keep one contract.
+pub const MAX_DIFF_LINES: usize = 400;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DiffFileView {
     pub path: String,
+    /// `added` | `modified` | `deleted`, derived from the `---`/`+++`
+    /// headers (`modified` when the headers are inconclusive).
+    pub kind: String,
     pub hunks: Vec<DiffHunk>,
     pub additions: usize,
     pub deletions: usize,
+    /// True when git reports binary content (no hunks rendered).
+    pub binary: bool,
+    /// True when hunk lines were cut at the render cap.
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

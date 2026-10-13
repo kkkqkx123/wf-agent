@@ -18,6 +18,23 @@ pub struct CheckpointData {
     pub reason: Option<String>,
 }
 
+/// How a pending approval left the pending state.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Approved,
+    Rejected,
+}
+
+impl ApprovalDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ApprovalDecision::Approved => "approved",
+            ApprovalDecision::Rejected => "rejected",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CheckpointEvent {
     Created {
@@ -57,10 +74,27 @@ pub enum CheckpointEvent {
     /// A merge produced conflicts. `data.description` carries the
     /// affected file paths (comma-separated) and `paths` the structured
     /// list, so consumers do not have to re-parse the description.
+    /// `data.execution_id` carries the acting actor id (named for the
+    /// shared-event envelope; file-checkpoint merges have no execution).
     MergeConflicted {
         base: BaseEvent,
         data: CheckpointData,
         paths: Vec<String>,
+    },
+    /// An actor submission was copied to a review ref and marked pending.
+    /// `data.checkpoint_id` carries the review head commit id and
+    /// `data.reason` the submitting actor.
+    ReviewSubmitted {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
+    /// A pending approval left the pending state. `data.checkpoint_id`
+    /// carries the resulting commit id, `data.reason` the deciding actor,
+    /// and `decision` whether it was approved or rejected.
+    ApprovalResolved {
+        base: BaseEvent,
+        data: CheckpointData,
+        decision: ApprovalDecision,
     },
     /// A garbage collection run completed. `data.operation` is `"gc"`,
     /// `data.description` a human summary, and `stats` the full `GcStats`
@@ -264,19 +298,19 @@ impl CheckpointEventBus {
     }
 
     /// Create a `MergeConflicted` event carrying the affected file paths
-    /// (structured `paths` and a comma-separated `description`) and the
-    /// merge snapshot id.
+    /// (structured `paths` and a comma-separated `description`), the
+    /// merge snapshot id and the acting actor id.
     pub fn merge_conflicted(
         snapshot_id: impl Into<String>,
         paths: Vec<String>,
-        execution_id: Option<String>,
+        actor: Option<String>,
     ) -> CheckpointEvent {
         let description = paths.join(", ");
         CheckpointEvent::MergeConflicted {
             base: Self::make_base(EventType::CheckpointMergeConflicted),
             data: CheckpointData {
                 checkpoint_id: Some(snapshot_id.into()),
-                execution_id,
+                execution_id: actor,
                 operation: Some("merge".to_string()),
                 error: None,
                 description: Some(description),
@@ -286,6 +320,45 @@ impl CheckpointEventBus {
         }
     }
 
+    /// Create a `ReviewSubmitted` event carrying the submitting actor
+    /// and the review head commit id.
+    pub fn review_submitted(
+        actor: impl Into<String>,
+        snapshot_id: impl Into<String>,
+    ) -> CheckpointEvent {
+        CheckpointEvent::ReviewSubmitted {
+            base: Self::make_base(EventType::CheckpointReviewSubmitted),
+            data: CheckpointData {
+                checkpoint_id: Some(snapshot_id.into()),
+                execution_id: None,
+                operation: None,
+                error: None,
+                description: None,
+                reason: Some(actor.into()),
+            },
+        }
+    }
+
+    /// Create an `ApprovalResolved` event carrying the deciding actor,
+    /// the decision and the resulting commit id.
+    pub fn approval_resolved(
+        actor: impl Into<String>,
+        decision: ApprovalDecision,
+        snapshot_id: impl Into<String>,
+    ) -> CheckpointEvent {
+        CheckpointEvent::ApprovalResolved {
+            base: Self::make_base(EventType::CheckpointApprovalResolved),
+            data: CheckpointData {
+                checkpoint_id: Some(snapshot_id.into()),
+                execution_id: None,
+                operation: Some(decision.as_str().to_string()),
+                error: None,
+                description: None,
+                reason: Some(actor.into()),
+            },
+            decision,
+        }
+    }
     /// Create a `GcCompleted` event carrying the GC statistics.
     pub fn gc_completed(stats: GcStats) -> CheckpointEvent {
         let description = format!(
@@ -367,6 +440,61 @@ mod tests {
                 assert_eq!(base.r#type, EventType::CheckpointCreated);
             }
             _ => panic!("expected Created event"),
+        }
+    }
+
+    #[test]
+    fn review_submitted_carries_actor_and_head() {
+        let event = CheckpointEventBus::review_submitted("agent:x", "head-1");
+        match &event {
+            CheckpointEvent::ReviewSubmitted { base, data } => {
+                assert_eq!(base.r#type, EventType::CheckpointReviewSubmitted);
+                assert_eq!(data.checkpoint_id, Some("head-1".to_string()));
+                assert_eq!(data.reason, Some("agent:x".to_string()));
+            }
+            _ => panic!("expected ReviewSubmitted event"),
+        }
+    }
+
+    #[test]
+    fn approval_resolved_carries_decision() {
+        for (decision, wire) in [
+            (ApprovalDecision::Approved, "approved"),
+            (ApprovalDecision::Rejected, "rejected"),
+        ] {
+            let event =
+                CheckpointEventBus::approval_resolved("agent:x", decision, "snap-1");
+            match &event {
+                CheckpointEvent::ApprovalResolved {
+                    base,
+                    data,
+                    decision: back,
+                } => {
+                    assert_eq!(base.r#type, EventType::CheckpointApprovalResolved);
+                    assert_eq!(data.checkpoint_id, Some("snap-1".to_string()));
+                    assert_eq!(data.reason, Some("agent:x".to_string()));
+                    assert_eq!(data.operation, Some(wire.to_string()));
+                    assert_eq!(*back, decision);
+                }
+                _ => panic!("expected ApprovalResolved event"),
+            }
+        }
+    }
+
+    #[test]
+    fn merge_conflicted_carries_actor() {
+        let event = CheckpointEventBus::merge_conflicted(
+            "snap-1",
+            vec!["a.txt".to_string()],
+            Some("agent:x".to_string()),
+        );
+        match &event {
+            CheckpointEvent::MergeConflicted { base, data, paths } => {
+                assert_eq!(base.r#type, EventType::CheckpointMergeConflicted);
+                assert_eq!(data.execution_id, Some("agent:x".to_string()));
+                assert_eq!(paths, &vec!["a.txt".to_string()]);
+            }
+            _ => panic!("expected MergeConflicted event"),
         }
     }
 

@@ -1,7 +1,7 @@
 //! EventBus bridge for file-checkpoint events.
 //!
-//! Forwards `wf_checkpoint::event::CheckpointEvent`s (file changes and merge
-//! conflicts) to the shared `wf_core::EventBus` as
+//! Forwards `wf_checkpoint::event::CheckpointEvent`s (file changes, merge
+//! conflicts and approval transitions) to the shared `wf_core::EventBus` as
 //! `wf_types::events::BaseEvent`s. The `DeltaSummary` of a file change is
 //! carried in the event metadata (`file` / `source` / `timestamp` /
 //! `snapshot_id` / `hash`), so event-stream consumers see exactly what the
@@ -77,10 +77,36 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
             if let Some(files) = &data.description {
                 metadata.insert("conflict_files".to_string(), serde_json::json!(files));
             }
-            if let Some(actor) = &data.reason {
+            if let Some(actor) = &data.execution_id {
                 metadata.insert("actor".to_string(), serde_json::json!(actor));
             }
             (EventType::CheckpointMergeConflicted, metadata)
+        }
+        CheckpointEvent::ReviewSubmitted { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(snapshot_id) = &data.checkpoint_id {
+                metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot_id));
+            }
+            if let Some(actor) = &data.reason {
+                metadata.insert("actor".to_string(), serde_json::json!(actor));
+            }
+            (EventType::CheckpointReviewSubmitted, metadata)
+        }
+        CheckpointEvent::ApprovalResolved {
+            data, decision, ..
+        } => {
+            let mut metadata = HashMap::new();
+            if let Some(snapshot_id) = &data.checkpoint_id {
+                metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot_id));
+            }
+            if let Some(actor) = &data.reason {
+                metadata.insert("actor".to_string(), serde_json::json!(actor));
+            }
+            metadata.insert(
+                "decision".to_string(),
+                serde_json::json!(decision.as_str()),
+            );
+            (EventType::CheckpointApprovalResolved, metadata)
         }
         // Checkpoint lifecycle events are published by the coordinators
         // through their own bus and bridged here so observers see one

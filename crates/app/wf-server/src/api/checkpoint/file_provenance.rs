@@ -22,6 +22,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/file-checkpoint/restore", post(handle_restore_checkpoint))
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
+        .route(
+            "/file-checkpoint/partitions/{id}/history",
+            get(handle_partition_history),
+        )
         .route("/file-checkpoint/conflicts", get(handle_list_conflicts))
         .route(
             "/file-checkpoint/conflicts/resolve",
@@ -138,6 +142,45 @@ pub(crate) async fn handle_restore_checkpoint(
 pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::list_partitions(&state.ctx) {
         Ok(partitions) => ok(partitions).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
+pub(crate) struct PartitionHistoryPath {
+    id: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/file-checkpoint/partitions/{id}/history",
+    tag = "checkpoint",
+    params(PartitionHistoryPath, ListQuery),
+    responses((status = 200, description = "Commit history of one partition ref, newest first", body = crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::PartitionHistoryEntryDoc>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_partition_history(
+    State(state): State<ApiState>,
+    Path(path): Path<PartitionHistoryPath>,
+    Query(query): Query<ListQuery>,
+) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query);
+    // One extra row detects the next page; the reader already skipped
+    // `offset`, so only the window cap applies here.
+    match wf_api::checkpoint::provenance::partition_history(
+        &state.ctx,
+        &path.id,
+        fetch_size(limit) as usize,
+        offset as usize,
+    ) {
+        Ok(all) => {
+            let window = all
+                .into_iter()
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(err) => error_response(err),
     }
 }

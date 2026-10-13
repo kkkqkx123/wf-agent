@@ -5,6 +5,7 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
+	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
@@ -38,7 +39,6 @@
 		type BranchEntry,
 		type CommitEntry,
 		type CommitFileEntry,
-		type DiffFile,
 		type GitFile,
 		type RegistryEntry,
 		type RemoteEntry,
@@ -50,6 +50,7 @@
 		type WorktreeEntry,
 	} from '$lib/services/git';
 	import { bindingsFor, checkDrift, visibleControls } from '$lib/git/bindings';
+	import type { DiffFile } from '$lib/types/diff';
 	import {
 		CLIENT_ONLY_ACTIONS,
 		confirmTarget,
@@ -891,18 +892,14 @@
 									: 'unstaged diff'}
 							</p>
 							{#each diff as file (file.path)}
-								<p class="mb-1 font-mono text-caption">
-									{file.path} (+{file.additions}/-{file.deletions})
-								</p>
-								{#each file.hunks as hunk (hunk.header)}
-									<p class="font-mono text-micro text-muted-foreground">
-										{hunk.header}
-									</p>
-									<pre
-										class="mb-2 max-h-64 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro whitespace-pre-wrap">{hunk.lines.join(
-											'\n',
-										)}</pre>
-								{/each}
+								<div class="mb-2">
+									<DiffView
+										lines={file.lines}
+										title={file.truncated
+											? `${file.path} (+${file.additions}/-${file.deletions}) · truncated`
+											: `${file.path} (+${file.additions}/-${file.deletions})`}
+									/>
+								</div>
 							{/each}
 						{/if}
 						{#snippet footer()}

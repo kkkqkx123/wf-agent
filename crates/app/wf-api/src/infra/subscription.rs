@@ -62,6 +62,8 @@ impl EventSubscriptionOptions {
                 | EventType::CheckpointDeleted
                 | EventType::CheckpointFailed
                 | EventType::CheckpointFileChanged
+                | EventType::CheckpointReviewSubmitted
+                | EventType::CheckpointApprovalResolved
                 | EventType::CheckpointMergeConflicted
                 | EventType::CheckpointGcCompleted
         )
@@ -366,6 +368,16 @@ mod tests {
         )));
         assert!(options.matches(&checkpoint_event(
             EventType::CheckpointGcCompleted,
+            None,
+            None
+        )));
+        assert!(options.matches(&checkpoint_event(
+            EventType::CheckpointReviewSubmitted,
+            None,
+            None
+        )));
+        assert!(options.matches(&checkpoint_event(
+            EventType::CheckpointApprovalResolved,
             None,
             None
         )));

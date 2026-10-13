@@ -6,10 +6,59 @@ use crate::git_store::GitStore;
 use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
 use checkpoint_base::error::CheckpointError;
 
-use super::types::{FileDiffKind, FileDiffView, WorkspaceFile};
+use super::types::{DiffHunkView, FileDiffKind, FileDiffView, WorkspaceFile};
 use super::workspace::{actor_tree_ids, main_tree_ids};
 use crate::file::git_write::map_git_error;
 use crate::file::util::sha256_hex;
+
+/// Maximum rendered diff lines per file; longer diffs are cut with
+/// `truncated: true`. The user-repo git diffs share the same cap, so
+/// both surfaces keep one contract.
+pub const MAX_DIFF_LINES: usize = 400;
+
+fn empty_view(path: &str, kind: FileDiffKind) -> FileDiffView {
+    FileDiffView {
+        path: path.to_string(),
+        kind,
+        hunks: Vec::new(),
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        truncated: false,
+    }
+}
+
+/// Split unified text into `@@` hunk rows, capping total content lines.
+/// Lines before the first hunk header cannot occur in generator output
+/// and are dropped.
+fn split_hunks(text: &str) -> (Vec<DiffHunkView>, bool) {
+    let mut hunks = Vec::new();
+    let mut current: Option<DiffHunkView> = None;
+    let mut lines = 0usize;
+    let mut truncated = false;
+    for raw in text.lines() {
+        if raw.starts_with("@@ ") {
+            if let Some(hunk) = current.take() {
+                hunks.push(hunk);
+            }
+            current = Some(DiffHunkView {
+                header: raw.to_string(),
+                lines: Vec::new(),
+            });
+        } else if let Some(hunk) = current.as_mut() {
+            if lines >= MAX_DIFF_LINES {
+                truncated = true;
+                break;
+            }
+            hunk.lines.push(raw.to_string());
+            lines += 1;
+        }
+    }
+    if let Some(hunk) = current.take() {
+        hunks.push(hunk);
+    }
+    (hunks, truncated)
+}
 
 /// Per-file diff between two workspace states. Binary files report
 /// `Modified` without a diff.
@@ -29,59 +78,42 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
     let mut views = Vec::new();
     for path in paths {
         match (a_map.get(path), b_map.get(path)) {
-            (None, Some(_bf)) => views.push(FileDiffView {
-                path: path.to_string(),
-                kind: FileDiffKind::Added,
-                diff: None,
-                additions: None,
-                deletions: None,
-            }),
-            (Some(_af), None) => views.push(FileDiffView {
-                path: path.to_string(),
-                kind: FileDiffKind::Deleted,
-                diff: None,
-                additions: None,
-                deletions: None,
-            }),
+            (None, Some(_bf)) => views.push(empty_view(path, FileDiffKind::Added)),
+            (Some(_af), None) => views.push(empty_view(path, FileDiffKind::Deleted)),
             (None, None) => {} // unreachable: paths are the key union
             (Some(af), Some(bf)) => {
                 if af.hash == bf.hash {
-                    views.push(FileDiffView {
-                        path: path.to_string(),
-                        kind: FileDiffKind::Unchanged,
-                        diff: None,
-                        additions: None,
-                        deletions: None,
-                    });
+                    views.push(empty_view(path, FileDiffKind::Unchanged));
                     continue;
                 }
-                let (diff, additions, deletions) = text_diff(&af.content, &bf.content);
-                views.push(FileDiffView {
-                    path: path.to_string(),
-                    kind: FileDiffKind::Modified,
-                    diff,
-                    additions,
-                    deletions,
-                });
+                views.push(structured_view(path, &af.content, &bf.content));
             }
         }
     }
     views
 }
 
-/// Build a unified diff when both contents are valid UTF-8 text, otherwise
-/// `(None, None, None)` (binary: reported as changed, never expanded).
-fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Option<usize>) {
-    let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
-        return (None, None, None);
+/// Structured diff of two byte slices: hunk rows plus stats for text,
+/// a binary marker when either side is not valid UTF-8.
+fn structured_view(path: &str, before: &[u8], after: &[u8]) -> FileDiffView {
+    let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after))
+    else {
+        let mut view = empty_view(path, FileDiffKind::Modified);
+        view.binary = true;
+        return view;
     };
-    let diff = unified_diff_text(before, after, 3, None, None);
+    let text = unified_diff_text(before, after, 3, None, None);
     let stats = diff_stats_for_text(before, after);
-    (
-        Some(diff),
-        Some(stats.added_lines),
-        Some(stats.removed_lines),
-    )
+    let (hunks, truncated) = split_hunks(&text);
+    FileDiffView {
+        path: path.to_string(),
+        kind: FileDiffKind::Modified,
+        hunks,
+        additions: stats.added_lines,
+        deletions: stats.removed_lines,
+        binary: false,
+        truncated,
+    }
 }
 
 /// Diff between two actor workspaces. Identifier maps are compared first;
@@ -124,54 +156,62 @@ fn diff_ids(
     let mut views = Vec::with_capacity(paths.len());
     for path in paths {
         match (a.get(path), b.get(path)) {
-            (None, Some(_)) => views.push(FileDiffView {
-                path: path.to_string(),
-                kind: FileDiffKind::Added,
-                diff: None,
-                additions: None,
-                deletions: None,
-            }),
-            (Some(_), None) => views.push(FileDiffView {
-                path: path.to_string(),
-                kind: FileDiffKind::Deleted,
-                diff: None,
-                additions: None,
-                deletions: None,
-            }),
+            (None, Some(_)) => views.push(empty_view(path, FileDiffKind::Added)),
+            (Some(_), None) => views.push(empty_view(path, FileDiffKind::Deleted)),
             (None, None) => {}
             (Some((_, blob_a)), Some((_, blob_b))) => {
                 if blob_a == blob_b {
-                    views.push(FileDiffView {
-                        path: path.to_string(),
-                        kind: FileDiffKind::Unchanged,
-                        diff: None,
-                        additions: None,
-                        deletions: None,
-                    });
+                    views.push(empty_view(path, FileDiffKind::Unchanged));
                     continue;
                 }
                 let bytes_a = git.read_blob(blob_a).map_err(map_git_error)?;
                 let bytes_b = git.read_blob(blob_b).map_err(map_git_error)?;
                 if sha256_hex(&bytes_a) == sha256_hex(&bytes_b) {
-                    views.push(FileDiffView {
-                        path: path.to_string(),
-                        kind: FileDiffKind::Unchanged,
-                        diff: None,
-                        additions: None,
-                        deletions: None,
-                    });
+                    views.push(empty_view(path, FileDiffKind::Unchanged));
                     continue;
                 }
-                let (diff, additions, deletions) = text_diff(&bytes_a, &bytes_b);
-                views.push(FileDiffView {
-                    path: path.to_string(),
-                    kind: FileDiffKind::Modified,
-                    diff,
-                    additions,
-                    deletions,
-                });
+                views.push(structured_view(path, &bytes_a, &bytes_b));
             }
         }
     }
     Ok(views)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_hunks_groups_header_lines() {
+        let text = "@@ -1,2 +1,3 @@\n-old\n+new\n+extra\n context\n@@ -10 +11 @@\n tail\n";
+        let (hunks, truncated) = split_hunks(text);
+        assert!(!truncated);
+        assert_eq!(hunks.len(), 2);
+        assert_eq!(hunks[0].header, "@@ -1,2 +1,3 @@");
+        assert_eq!(hunks[0].lines.len(), 4);
+        assert_eq!(hunks[1].lines, vec![" tail".to_string()]);
+    }
+
+    #[test]
+    fn structured_view_reports_binary_without_hunks() {
+        let view = structured_view("img.png", &[0xff, 0xd8], &[0xff, 0xd9]);
+        assert_eq!(view.kind, FileDiffKind::Modified);
+        assert!(view.binary);
+        assert!(view.hunks.is_empty());
+        assert!(!view.truncated);
+    }
+
+    #[test]
+    fn structured_view_truncates_long_diffs() {
+        let before = "same\n".repeat(10);
+        let after = "same\n".repeat(10) + &"new\n".repeat(MAX_DIFF_LINES + 50);
+        let view = structured_view("big.txt", before.as_bytes(), after.as_bytes());
+        assert!(!view.binary);
+        assert!(view.truncated);
+        assert_eq!(
+            view.hunks.iter().map(|h| h.lines.len()).sum::<usize>(),
+            MAX_DIFF_LINES
+        );
+        assert!(view.additions >= MAX_DIFF_LINES);
+    }
 }

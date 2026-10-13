@@ -6,12 +6,12 @@ use crate::file::git_write::map_git_error;
 use crate::file::util::sha256_hex;
 use crate::git_store::{
     GitCommit, GitStore, REF_EDIT_PREFIX, REF_FEAT_PREFIX, REF_HUMAN, REF_MAIN, REF_REVIEW_PREFIX,
-    TRAILER_ACTOR,
+    STATE_CONFLICT_UNRESOLVED, TRAILER_ACTOR, TRAILER_SESSION, TRAILER_STATE, TRAILER_TOOL,
 };
 use crate::storage::SqliteStorage;
 use checkpoint_base::error::CheckpointError;
 
-use super::types::{DeltaSummary, PartitionView};
+use super::types::{DeltaSummary, PartitionCommitView, PartitionView};
 
 /// Maximum commits a fallback graph scan may walk when the source index is
 /// empty. Larger stores must rebuild the index; cold full scans stay bounded.
@@ -194,6 +194,50 @@ pub fn list_partitions(
         });
     }
     Ok(views)
+}
+
+/// Commit history of one partition ref, newest first in walk order. The
+/// ref must match a `refs/wf/` ref exactly; anything else is rejected so
+/// callers cannot walk arbitrary object ids. The walk is bounded by
+/// `limit + offset` (saturated at the partition walk cap); the window
+/// past `offset` is returned for paging.
+pub fn partition_history(
+    git: &GitStore,
+    ref_name: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<PartitionCommitView>, CheckpointError> {
+    let head = all_refs(git)?
+        .into_iter()
+        .find(|(name, _)| name == ref_name)
+        .map(|(_, head)| head)
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: ref_name.to_string(),
+        })?;
+    let depth = limit
+        .saturating_add(offset)
+        .min(MAX_PARTITION_HISTORY_COMMITS + 1)
+        .max(1);
+    let log = git.log(&head, depth).map_err(map_git_error)?;
+    Ok(log
+        .into_iter()
+        .skip(offset)
+        .map(|commit| {
+            let has_conflicts = commit.trailer(TRAILER_STATE).as_deref()
+                == Some(STATE_CONFLICT_UNRESOLVED);
+            PartitionCommitView {
+                snapshot_id: commit.id.clone(),
+                parents: commit.parents.clone(),
+                message: intent_line(&commit.message),
+                actor: commit.trailer(TRAILER_ACTOR),
+                session: commit.trailer(TRAILER_SESSION),
+                tool: commit.trailer(TRAILER_TOOL),
+                timestamp: commit.committer_ts,
+                is_merge: commit.parents.len() > 1,
+                has_conflicts,
+            }
+        })
+        .collect())
 }
 
 /// Changes touching `path` across every line: only commits whose tree

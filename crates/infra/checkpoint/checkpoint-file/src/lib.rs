@@ -38,7 +38,10 @@ pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
-pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
+pub use provenance::{
+    DeltaSummary, DiffHunkView, FileDiffKind, FileDiffView, PartitionCommitView, PartitionView,
+    WorkspaceFile,
+};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
 pub use scope::ScopeEndOutcome;
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};

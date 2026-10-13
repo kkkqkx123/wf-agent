@@ -150,6 +150,13 @@ pub enum EventType {
     /// (agent edit / manual edit / merge). The event payload carries the
     /// `DeltaSummary` (file / source / timestamp).
     CheckpointFileChanged,
+    /// An actor submission was copied to a review ref and marked pending.
+    /// The payload carries the actor and the review head commit.
+    CheckpointReviewSubmitted,
+    /// A pending approval left the pending state (approved via merge or
+    /// rejected). The payload carries the actor, the decision and the
+    /// resulting commit.
+    CheckpointApprovalResolved,
     /// A merge produced conflicts (marker strategy applied).
     CheckpointMergeConflicted,
     /// A file-checkpoint garbage collection run completed. The event
@@ -307,6 +314,8 @@ impl EventType {
             EventType::CheckpointRestoreStarted => "CHECKPOINT_RESTORE_STARTED",
             EventType::CheckpointRestoreCompleted => "CHECKPOINT_RESTORE_COMPLETED",
             EventType::CheckpointFileChanged => "CHECKPOINT_FILE_CHANGED",
+            EventType::CheckpointReviewSubmitted => "CHECKPOINT_REVIEW_SUBMITTED",
+            EventType::CheckpointApprovalResolved => "CHECKPOINT_APPROVAL_RESOLVED",
             EventType::CheckpointMergeConflicted => "CHECKPOINT_MERGE_CONFLICTED",
             EventType::CheckpointGcCompleted => "CHECKPOINT_GC_COMPLETED",
             EventType::ExecutionTimeoutWarning => "EXECUTION_TIMEOUT_WARNING",
@@ -386,6 +395,8 @@ impl EventType {
             | EventType::CheckpointRestored
             | EventType::CheckpointDeleted
             | EventType::CheckpointFileChanged
+            | EventType::CheckpointReviewSubmitted
+            | EventType::CheckpointApprovalResolved
             | EventType::CheckpointMergeConflicted
             | EventType::TriggeredSubgraphStarted
             | EventType::TriggeredSubgraphCompleted

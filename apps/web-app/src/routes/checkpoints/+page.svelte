@@ -17,6 +17,7 @@
 	import {
 		listCheckpoints,
 		getApprovalRequests,
+		getFileContent,
 		approveApproval,
 		rejectApproval,
 		deleteCheckpoint,
@@ -29,7 +30,10 @@
 	import type { Approval, Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
+	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
+	import { hasConflictMarkers } from '$lib/types/diff';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
+	import type { CheckpointDomain } from '$lib/stores/checkpoints.svelte';
 
 	const TABS = [
 		{ id: 'chain', label: 'Checkpoint chain' },
@@ -55,7 +59,8 @@
 
 	let loading = $state(false);
 	let loadError = $state<string | null>(null);
-	let liveDirty = $state(false);
+	let chainDirty = $state(false);
+	let approvalsDirty = $state(false);
 	let stopLive: (() => void) | null = null;
 
 	// ── dialogs ──
@@ -71,18 +76,24 @@
 	let resolveTarget = $state<ConflictFile | null>(null);
 	let resolveFeature = $state('');
 	let resolveContent = $state('');
+	let resolveLoading = $state(false);
+	let resolveBinary = $state(false);
+	let resolveNote = $state<string | null>(null);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenChain = $state(false);
 	let seenApprovals = $state(false);
 
 	onMount(() => {
-		stopLive = checkpointStore.subscribeLive(() => {
+		stopLive = checkpointStore.subscribeLive((domain: CheckpointDomain) => {
+			// The files tab follows `filesVersion` itself inside FilesPanel.
+			if (domain === 'files') return;
 			if (loading) {
-				liveDirty = true;
+				if (domain === 'chain') chainDirty = true;
+				else approvalsDirty = true;
 				return;
 			}
-			void reloadCurrent();
+			void reloadDomain(domain);
 		});
 	});
 
@@ -116,24 +127,40 @@
 			loadError = e instanceof Error ? e.message : 'Checkpoint request failed';
 		} finally {
 			loading = false;
-			if (liveDirty) {
-				liveDirty = false;
-				void reloadCurrent();
+			if (chainDirty || approvalsDirty) {
+				const pending: CheckpointDomain | null = chainDirty
+					? 'chain'
+					: approvalsDirty
+						? 'approvals'
+						: null;
+				chainDirty = false;
+				approvalsDirty = false;
+				if (pending) void reloadDomain(pending);
 			}
 		}
 	}
 
-	/** Refresh the visible tab after a live checkpoint event. */
-	async function reloadCurrent(): Promise<void> {
-		if (tab === 'chain') {
+	/** Refresh one domain tab after a live event or local mutation. A
+	 * hidden tab is only invalidated so its next visit refetches. */
+	async function reloadDomain(domain: CheckpointDomain): Promise<void> {
+		if (domain === 'files') {
+			// FilesPanel re-pulls through the `filesVersion` bump.
+			return;
+		}
+		if (domain === 'chain') {
+			if (tab !== 'chain') {
+				seenChain = false;
+				return;
+			}
 			seenChain = false;
 			chain = [];
-		} else if (tab === 'approvals') {
+		} else {
+			if (tab !== 'approvals') {
+				seenApprovals = false;
+				return;
+			}
 			seenApprovals = false;
 			approvals = [];
-		} else {
-			// FilesPanel already re-pulled through the store version bump.
-			return;
 		}
 		await loadTab(tab);
 	}
@@ -143,13 +170,13 @@
 		seenApprovals = false;
 		chain = [];
 		approvals = [];
-		// Bump the version so FilesPanel re-pulls its own segment too.
-		checkpointStore.bump();
+		// Bump the files domain so FilesPanel re-pulls its own segment too.
+		checkpointStore.bump('files');
 		await loadTab(tab);
 	}
 
 	async function runCreateFileCheckpoint(): Promise<void> {
-		const actor = checkpointStore.actor.trim() || 'manual';
+		const actor = fileWorkspace.actor.trim() || 'manual';
 		if (!actor) {
 			toasts.error('Enter an actor for the checkpoint');
 			return;
@@ -162,7 +189,7 @@
 				'File checkpoint created',
 				`${created.fileCount} files · ${created.id.slice(0, 10)}`,
 			);
-			checkpointStore.bump();
+			checkpointStore.bump('files');
 		} catch (e) {
 			console.error('File checkpoint creation failed:', e);
 			toasts.error(
@@ -186,7 +213,7 @@
 				'Checkpoint restored',
 				'Restore landed as a new commit; history was not rewritten.',
 			);
-			checkpointStore.bump();
+			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Restore failed:', e);
 			toasts.error(
@@ -227,7 +254,7 @@
 			deleteOpen = false;
 			deleteTarget = null;
 			toasts.success('Checkpoint deleted');
-			checkpointStore.bump();
+			checkpointStore.bump('chain');
 		} catch (e) {
 			console.error('Delete failed:', e);
 			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);
@@ -239,14 +266,24 @@
 	async function runResolveConflict(): Promise<void> {
 		const target = resolveTarget;
 		if (!target) return;
-		const actor = checkpointStore.actor.trim();
+		const actor = fileWorkspace.actor.trim();
 		if (!actor) {
 			toasts.error('Enter the resolving actor');
 			return;
 		}
 		if (!resolveContent) {
-			toasts.error('Paste the resolved file content');
+			toasts.error('Resolve the file content first');
 			return;
+		}
+		if (resolveBinary) {
+			toasts.error('Binary conflicts cannot be resolved here', 'Use the terminal');
+			return;
+		}
+		if (hasConflictMarkers(resolveContent)) {
+			toasts.warning(
+				'Conflict markers remain',
+				'The resolution still carries <<<<<<</>>>>>>> markers and will stay conflicted.',
+			);
 		}
 		checkpointStore.beginAction('resolve');
 		try {
@@ -260,7 +297,7 @@
 				remaining === 0 ? 'Conflict fully resolved' : 'Resolution recorded',
 				remaining === 0 ? target.path : `${remaining} file(s) still conflicted`,
 			);
-			checkpointStore.bump();
+			checkpointStore.bump('files');
 		} catch (e) {
 			console.error('Conflict resolution failed:', e);
 			toasts.error(
@@ -281,7 +318,43 @@
 			? conflict.partition.slice('refs/wf/feat/'.length)
 			: '';
 		resolveContent = '';
+		resolveBinary = false;
+		resolveNote = null;
+		resolveLoading = true;
+		// The conflicted bytes (with markers) are read at the conflicted
+		// merge commit without touching any workspace; the actor only
+		// satisfies path validation.
+		const actor = fileWorkspace.actor.trim() || 'manual';
+		getFileContent(actor, conflict.path, conflict.snapshotId)
+			.then((content) => {
+				if (resolveTarget !== conflict) return;
+				resolveBinary = content.isBinary;
+				if (content.isBinary) {
+					resolveNote =
+						'Binary file: frontend resolution is unsupported, use the terminal.';
+					return;
+				}
+				resolveContent = content.content ?? '';
+				if (!resolveContent) {
+					resolveNote = 'Conflicted content is empty at this commit.';
+				} else if (content.truncated) {
+					resolveNote = 'Content truncated at 1 MiB; verify the tail in the terminal.';
+				}
+			})
+			.catch((e) => {
+				if (resolveTarget !== conflict) return;
+				console.error('Failed to load conflicted content:', e);
+				resolveNote =
+					e instanceof Error
+						? `Conflicted content unavailable: ${e.message}`
+						: 'Conflicted content unavailable.';
+			})
+			.finally(() => {
+				if (resolveTarget === conflict) resolveLoading = false;
+			});
 	}
+
+	const resolveHasMarkers = $derived(hasConflictMarkers(resolveContent));
 
 	async function decideApproval(
 		approval: Approval,
@@ -297,7 +370,10 @@
 				rejectReason = '';
 				return;
 			}
-			checkpointStore.bump();
+			// Approving merges into a feature ref, which also changes the
+			// file workspace.
+			checkpointStore.bump('approvals');
+			checkpointStore.bump('files');
 		} catch (e) {
 			console.error('Failed to resolve approval:', e);
 			toasts.error('Approval decision failed');
@@ -313,7 +389,7 @@
 			rejectTarget = null;
 			rejectReason = '';
 			toasts.warning('Approval rejected');
-			checkpointStore.bump();
+			checkpointStore.bump('approvals');
 		} catch (e) {
 			console.error('Failed to reject approval:', e);
 			toasts.error('Approval rejection failed');
@@ -377,7 +453,7 @@
 				size="sm"
 				disabled={checkpointStore.busy}
 				onclick={() => {
-					if (!checkpointStore.actor) checkpointStore.actor = 'manual';
+					if (!fileWorkspace.actor) fileWorkspace.setActor('manual');
 					createOpen = true;
 				}}
 			>
@@ -444,7 +520,9 @@
 >
 	<Input
 		label="Actor"
-		bind:value={checkpointStore.actor}
+		value={fileWorkspace.actor}
+		oninput={(event: Event) =>
+			fileWorkspace.setActor((event.target as HTMLInputElement).value)}
 		placeholder="manual"
 	/>
 	{#snippet footer()}
@@ -453,7 +531,7 @@
 		</Button>
 		<Button
 			size="sm"
-			disabled={checkpointStore.busy || !checkpointStore.actor.trim()}
+			disabled={checkpointStore.busy || !fileWorkspace.actor.trim()}
 			onclick={() => void runCreateFileCheckpoint()}
 		>
 			Create
@@ -550,7 +628,9 @@
 	<div class="grid gap-2 sm:grid-cols-2">
 		<Input
 			label="Actor"
-			bind:value={checkpointStore.actor}
+			value={fileWorkspace.actor}
+			oninput={(event: Event) =>
+				fileWorkspace.setActor((event.target as HTMLInputElement).value)}
 			placeholder="Resolving actor"
 		/>
 		<Input
@@ -560,12 +640,31 @@
 		/>
 	</div>
 	<div class="mt-2">
-		<Textarea
-			label="Resolved content"
-			bind:value={resolveContent}
-			placeholder="Paste the full resolved file content"
-			rows={10}
-		/>
+		{#if resolveLoading}
+			<p class="text-caption text-muted-foreground">
+				Loading conflicted content…
+			</p>
+		{:else if resolveBinary}
+			<p class="text-caption text-warning">
+				Binary file: resolve it in the terminal, the frontend cannot merge
+				binary content.
+			</p>
+		{:else}
+			<Textarea
+				label="Resolved content"
+				bind:value={resolveContent}
+				placeholder="Edit the conflicted content in place"
+				rows={10}
+			/>
+		{/if}
+		{#if resolveNote}
+			<p class="mt-1 text-micro text-muted-foreground">{resolveNote}</p>
+		{/if}
+		{#if resolveHasMarkers && !resolveBinary}
+			<p class="mt-1 text-micro text-warning">
+				Conflict markers remain: saving now keeps the file conflicted.
+			</p>
+		{/if}
 	</div>
 	{#snippet footer()}
 		<Button variant="ghost" size="sm" onclick={() => (resolveOpen = false)}>
@@ -574,7 +673,9 @@
 		<Button
 			size="sm"
 			disabled={checkpointStore.busy ||
-				!checkpointStore.actor.trim() ||
+				resolveLoading ||
+				resolveBinary ||
+				!fileWorkspace.actor.trim() ||
 				!resolveFeature.trim() ||
 				!resolveContent}
 			onclick={() => void runResolveConflict()}

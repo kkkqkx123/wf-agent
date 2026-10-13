@@ -1,5 +1,7 @@
 import { client } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
+import { gitHunksToDiffFile } from '$lib/types/diff';
+import type { DiffFile } from '$lib/types/diff';
 
 export interface RepoMeta {
 	name: string;
@@ -23,12 +25,12 @@ export interface GitFile {
 	renamedFrom: string | null;
 }
 
-export interface DiffHunk {
+interface DiffHunk {
 	header: string;
 	lines: string[];
 }
 
-export interface DiffFile {
+interface DiffFileWire {
 	path: string;
 	hunks: DiffHunk[];
 	additions: number;
@@ -166,8 +168,10 @@ export async function getDiff(path?: string): Promise<DiffFile[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/diff', { params: { query: { path } } }),
 	);
-	const rows = requireData(data, 'Git diff') as DiffFile[];
-	return Array.isArray(rows) ? rows : [];
+	const rows = requireData(data, 'Git diff') as DiffFileWire[];
+	return (Array.isArray(rows) ? rows : []).map((f) =>
+		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
+	);
 }
 
 export async function listCommits(params?: {
@@ -240,8 +244,10 @@ export async function getDiffRange(
 			params: { query: { from, to, path } },
 		}),
 	);
-	const rows = requireData(data, 'Git diff range') as DiffFile[];
-	return Array.isArray(rows) ? rows : [];
+	const rows = requireData(data, 'Git diff range') as DiffFileWire[];
+	return (Array.isArray(rows) ? rows : []).map((f) =>
+		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
+	);
 }
 
 export async function listRemotes(): Promise<RemoteEntry[]> {

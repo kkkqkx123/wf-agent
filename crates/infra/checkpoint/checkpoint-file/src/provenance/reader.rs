@@ -10,9 +10,13 @@ use checkpoint_base::error::CheckpointError;
 
 use super::conflicts::list_conflicts;
 use super::diff::{diff_actors, diff_against_main};
-use super::queries::{list_changes_by_actor, list_changes_by_path, list_partitions};
+use super::queries::{
+    list_changes_by_actor, list_changes_by_path, list_partitions, partition_history,
+};
 use super::timeline::{file_timeline, FileTimeline};
-use super::types::{ConflictFile, DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use super::types::{
+    ConflictFile, DeltaSummary, FileDiffView, PartitionCommitView, PartitionView, WorkspaceFile,
+};
 use super::workspace::get_actor_workspace;
 
 pub struct ProvenanceReader<'a> {
@@ -27,6 +31,15 @@ impl<'a> ProvenanceReader<'a> {
 
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
         list_partitions(self.git, self.storage)
+    }
+
+    pub fn partition_history(
+        &self,
+        ref_name: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<PartitionCommitView>, CheckpointError> {
+        partition_history(self.git, ref_name, limit, offset)
     }
 
     pub fn list_changes_by_actor(

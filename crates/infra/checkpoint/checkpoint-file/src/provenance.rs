@@ -20,12 +20,14 @@ mod workspace;
 pub use conflicts::{list_conflicts, parse_marker_conflicts, unresolved_merges};
 pub use diff::{diff_actors, diff_against_main, diff_workspaces};
 pub use index::rebuild_source_index;
-pub use queries::{list_changes_by_actor, list_changes_by_path, list_partitions};
+pub use queries::{
+    list_changes_by_actor, list_changes_by_path, list_partitions, partition_history,
+};
 pub use reader::ProvenanceReader;
 pub use timeline::{file_timeline, FileTimeline, FileTimelineEntry, RENAME_SIMILARITY_THRESHOLD};
 pub use types::{
-    ConflictFile, DeltaSummary, FileDiffKind, FileDiffView, IndexStatus, PartitionView,
-    WorkspaceFile,
+    ConflictFile, DeltaSummary, DiffHunkView, FileDiffKind, FileDiffView, IndexStatus,
+    PartitionCommitView, PartitionView, WorkspaceFile,
 };
 pub use workspace::{
     get_actor_workspace, get_feature_workspace, get_main_workspace, workspace_entries,

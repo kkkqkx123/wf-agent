@@ -41,6 +41,33 @@ pub struct PartitionView {
     pub updated_at: i64,
 }
 
+/// One commit on a partition line, newest first in walk order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PartitionCommitView {
+    /// Commit id (hex).
+    pub snapshot_id: String,
+    /// Parent commit ids (hex); more than one marks a merge commit.
+    pub parents: Vec<String>,
+    /// First message line (intent), absent when the message is blank.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Owning actor from the `Wf-Actor` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    /// Edit session from the `Wf-Session` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// Origin tool from the `Wf-Tool` trailer, absent when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Commit time (Unix milliseconds).
+    pub timestamp: i64,
+    /// True when the commit has more than one parent.
+    pub is_merge: bool,
+    /// True when the commit carries the conflict-unresolved state.
+    pub has_conflicts: bool,
+}
+
 /// File content of a workspace view at its current ref state
 /// (`get_actor_workspace`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -61,18 +88,27 @@ pub enum FileDiffKind {
     Unchanged,
 }
 
-/// Per-file difference view (`diff_actors` /.
+/// One hunk of a per-file difference: the `@@` header plus its raw
+/// unified lines (`+`/`-`/context), mirroring the user-repo git shape.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DiffHunkView {
+    pub header: String,
+    pub lines: Vec<String>,
+}
+
+/// Per-file difference view (`diff_actors` / `diff_against_main`), in the
+/// same structured shape as the user-repo git diffs: hunk rows plus
+/// binary/truncation flags and line counts. Added, deleted and unchanged
+/// files carry no hunks.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileDiffView {
     pub path: String,
     pub kind: FileDiffKind,
-    /// Unified diff (text files only); `None` for binary content.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub diff: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub additions: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deletions: Option<usize>,
+    pub hunks: Vec<DiffHunkView>,
+    pub additions: usize,
+    pub deletions: usize,
+    pub binary: bool,
+    pub truncated: bool,
 }
 
 /// A file whose merge commit carries the unresolved-conflict flag.

@@ -1,5 +1,6 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
+	import { tick } from 'svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import {
 		FOLLOW_TAIL_SLACK_PX,
@@ -18,6 +19,8 @@
 		tail?: Snippet;
 		/** Monotonic content counter; while detached it feeds the increment badge. */
 		activity?: number;
+		/** Bumping this re-pins the viewport to the tail (send path). */
+		pin?: number;
 		/** Session identity; following and its counter are per-session state. */
 		resetKey?: string;
 		contentClass?: string;
@@ -30,6 +33,7 @@
 		renderItem,
 		tail,
 		activity = 0,
+		pin = 0,
 		resetKey = '',
 		contentClass = '',
 		class: className = '',
@@ -38,8 +42,11 @@
 	let viewport: HTMLDivElement | null = $state(null);
 	let scrollTop = $state(0);
 	let viewHeight = $state(0);
+	let contentHeight = $state(0);
 	let following = $state(true);
 	let baseline = $state(0);
+	/** Timestamp until which scroll events from a programmatic sink keep following. */
+	let programmaticUntil = 0;
 	/** Row heights measured so far, keyed by the row's first item. */
 	let heights = $state<Record<string, number>>({});
 
@@ -92,6 +99,14 @@
 		windowed ? offsets[rows.length] - offsets[last] : 0,
 	);
 	const increments = $derived(Math.max(0, activity - baseline));
+	const awayFromTop = $derived(scrollTop > FOLLOW_TAIL_SLACK_PX);
+	const canScroll = $derived(
+		contentHeight - viewHeight > FOLLOW_TAIL_SLACK_PX,
+	);
+	const showTop = $derived(canScroll && awayFromTop);
+
+	/** Short window where scroll events from a programmatic sink keep following. */
+	const PROGRAMMATIC_FOLLOW_MS = 350;
 
 	/** Rows are keyed by their own identity, so the measured key never changes. */
 	function measure(node: HTMLElement, key: string) {
@@ -109,12 +124,32 @@
 		return { destroy: () => observer.disconnect() };
 	}
 
-	function toTail(): void {
+	function toTail(smooth = false): void {
 		if (!viewport) return;
-		viewport.scrollTo({ top: viewport.scrollHeight });
+		programmaticUntil = Date.now() + PROGRAMMATIC_FOLLOW_MS;
+		viewport.scrollTo({
+			top: viewport.scrollHeight,
+			behavior: smooth ? 'smooth' : 'auto',
+		});
 	}
 
-	function resume(): void {
+	function toTop(): void {
+		if (!viewport) return;
+		following = false;
+		scrollTop = 0;
+		viewport.scrollTo({ top: 0 });
+	}
+
+	export function resume(): void {
+		following = true;
+		toTail(true);
+	}
+
+	export function scrollToTop(): void {
+		toTop();
+	}
+
+	export function scrollToTail(): void {
 		following = true;
 		toTail();
 	}
@@ -122,11 +157,18 @@
 	function onScroll(event: Event): void {
 		const node = event.currentTarget as HTMLDivElement;
 		scrollTop = node.scrollTop;
+		viewHeight = node.clientHeight;
+		contentHeight = node.scrollHeight;
 		const shortBy = node.scrollHeight - node.scrollTop - node.clientHeight;
+		if (Date.now() < programmaticUntil) {
+			if (shortBy <= FOLLOW_TAIL_SLACK_PX) following = true;
+			return;
+		}
 		following = shortBy <= FOLLOW_TAIL_SLACK_PX;
 	}
 
 	let lastResetKey = $state('');
+	let lastPin = $state(0);
 
 	// Selecting text can scroll the column on its own, so an anchored selection
 	// takes the tail over from the transcript.
@@ -147,11 +189,48 @@
 	});
 
 	$effect(() => {
+		if (pin === lastPin) return;
+		lastPin = pin;
+		following = true;
+		toTail();
+	});
+
+	$effect(() => {
 		const current = activity;
 		if (following) {
 			baseline = current;
 			toTail();
 		}
+	});
+
+	// Detached growth never fires a viewport scroll event, so the top-button
+	// predicate re-reads the content height once the rows settle.
+	$effect(() => {
+		void items.length;
+		void activity;
+		const node = viewport;
+		if (!node) return;
+		void tick().then(() => {
+			contentHeight = node.scrollHeight;
+			viewHeight = node.clientHeight;
+		});
+	});
+
+	// Global jump keys work from any input state; bare keys keep native semantics.
+	$effect(() => {
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== 'End' && event.key !== 'Home') return;
+			if (!event.ctrlKey && !event.metaKey) return;
+			event.preventDefault();
+			if (event.key === 'End') {
+				following = true;
+				toTail();
+			} else {
+				toTop();
+			}
+		};
+		document.addEventListener('keydown', onKey);
+		return () => document.removeEventListener('keydown', onKey);
 	});
 </script>
 
@@ -180,19 +259,39 @@
 		</div>
 	</div>
 
-	{#if !following}
-		<button
-			type="button"
-			onclick={resume}
-			class="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
+	{#if !following || showTop}
+		<div
+			class="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2"
 		>
-			<Icon name="chevron-down" size={13} />
-			Back to tail
-			{#if increments > 0}
-				<span class="font-mono text-micro text-muted-foreground">
-					+{increments}
-				</span>
+			{#if showTop}
+				<button
+					type="button"
+					onclick={toTop}
+					aria-label="Back to top"
+					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
+				>
+					<Icon name="chevron-up" size={13} />
+					<span class="hidden sm:inline">Back to top</span>
+				</button>
 			{/if}
-		</button>
+			{#if !following}
+				<button
+					type="button"
+					onclick={resume}
+					aria-label={increments > 0
+						? `Back to tail, ${increments} new`
+						: 'Back to tail'}
+					class="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-caption text-card-foreground shadow-sm transition-colors hover:bg-accent"
+				>
+					<Icon name="chevron-down" size={13} />
+					<span class="hidden sm:inline">Back to tail</span>
+					{#if increments > 0}
+						<span class="font-mono text-micro text-muted-foreground">
+							+{increments}
+						</span>
+					{/if}
+				</button>
+			{/if}
+		</div>
 	{/if}
 </div>

@@ -8,30 +8,20 @@
 	import Segmented from '@wf-agent/ui/components/Segmented.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
-	import ApprovalsPanel from '$lib/components/domain/checkpoints/ApprovalsPanel.svelte';
-	import ChainPanel from '$lib/components/domain/checkpoints/ChainPanel.svelte';
-	import FilesPanel from '$lib/components/domain/checkpoints/FilesPanel.svelte';
+	import ApprovalsSection from '$lib/components/domain/checkpoints/ApprovalsSection.svelte';
+	import ChainSection from '$lib/components/domain/checkpoints/ChainSection.svelte';
+	import FilesSection from '$lib/components/domain/checkpoints/FilesSection.svelte';
 	import {
 		listCheckpoints,
 		getApprovalRequests,
-		getFileContent,
-		approveApproval,
-		rejectApproval,
-		deleteCheckpoint,
-		resolveConflicts,
 		createFileCheckpoint,
-		restoreCheckpoint,
-		resumeFromCheckpoint,
-		type ConflictFile,
 	} from '$lib/services/checkpoints';
 	import type { Approval, Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
-	import { hasConflictMarkers } from '$lib/types/diff';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import type { CheckpointDomain } from '$lib/stores/checkpoints.svelte';
 
@@ -63,22 +53,8 @@
 	let approvalsDirty = $state(false);
 	let stopLive: (() => void) | null = null;
 
-	// ── dialogs ──
+	// ── header dialog ──
 	let createOpen = $state(false);
-	let restoreOpen = $state(false);
-	let restoreTarget = $state<Checkpoint | null>(null);
-	let deleteOpen = $state(false);
-	let deleteTarget = $state<Checkpoint | null>(null);
-	let rejectOpen = $state(false);
-	let rejectTarget = $state<Approval | null>(null);
-	let rejectReason = $state('');
-	let resolveOpen = $state(false);
-	let resolveTarget = $state<ConflictFile | null>(null);
-	let resolveFeature = $state('');
-	let resolveContent = $state('');
-	let resolveLoading = $state(false);
-	let resolveBinary = $state(false);
-	let resolveNote = $state<string | null>(null);
 
 	/** Segment sources already pulled, so a tab loads once. */
 	let seenChain = $state(false);
@@ -107,7 +83,7 @@
 	});
 
 	async function loadTab(current: string): Promise<void> {
-		// The files tab owns its segment inside FilesPanel; it follows the
+		// The files tab owns its segment inside FilesSection; it follows the
 		// store version itself.
 		if (current === 'files') return;
 		const pending = current === 'chain' ? !seenChain : !seenApprovals;
@@ -201,201 +177,6 @@
 		}
 	}
 
-	async function runRestore(): Promise<void> {
-		const target = restoreTarget;
-		if (!target) return;
-		checkpointStore.beginAction('restore');
-		try {
-			await restoreCheckpoint(target);
-			restoreOpen = false;
-			restoreTarget = null;
-			toasts.success(
-				'Checkpoint restored',
-				'Restore landed as a new commit; history was not rewritten.',
-			);
-			checkpointStore.bump('chain');
-		} catch (e) {
-			console.error('Restore failed:', e);
-			toasts.error(
-				'Restore failed',
-				e instanceof Error ? e.message : undefined,
-			);
-		} finally {
-			checkpointStore.endAction();
-		}
-	}
-
-	async function runResume(checkpoint: Checkpoint): Promise<void> {
-		if (checkpoint.entityType === 'agent_loop') {
-			toasts.error('Resume unavailable for agent-loop checkpoints');
-			return;
-		}
-		checkpointStore.beginAction('resume');
-		try {
-			await resumeFromCheckpoint(checkpoint.id);
-			toasts.success(
-				'Resume requested',
-				`Execution continues from ${checkpoint.id.slice(0, 10)}`,
-			);
-		} catch (e) {
-			console.error('Resume failed:', e);
-			toasts.error('Resume failed', e instanceof Error ? e.message : undefined);
-		} finally {
-			checkpointStore.endAction();
-		}
-	}
-
-	async function runDelete(): Promise<void> {
-		const target = deleteTarget;
-		if (!target) return;
-		checkpointStore.beginAction('delete');
-		try {
-			await deleteCheckpoint(target.id);
-			deleteOpen = false;
-			deleteTarget = null;
-			toasts.success('Checkpoint deleted');
-			checkpointStore.bump('chain');
-		} catch (e) {
-			console.error('Delete failed:', e);
-			toasts.error('Delete failed', e instanceof Error ? e.message : undefined);
-		} finally {
-			checkpointStore.endAction();
-		}
-	}
-
-	async function runResolveConflict(): Promise<void> {
-		const target = resolveTarget;
-		if (!target) return;
-		const actor = fileWorkspace.actor.trim();
-		if (!actor) {
-			toasts.error('Enter the resolving actor');
-			return;
-		}
-		if (!resolveContent) {
-			toasts.error('Resolve the file content first');
-			return;
-		}
-		if (resolveBinary) {
-			toasts.error('Binary conflicts cannot be resolved here', 'Use the terminal');
-			return;
-		}
-		if (hasConflictMarkers(resolveContent)) {
-			toasts.warning(
-				'Conflict markers remain',
-				'The resolution still carries <<<<<<</>>>>>>> markers and will stay conflicted.',
-			);
-		}
-		checkpointStore.beginAction('resolve');
-		try {
-			const { remaining } = await resolveConflicts(actor, resolveFeature, {
-				[target.path]: resolveContent,
-			});
-			resolveOpen = false;
-			resolveTarget = null;
-			resolveContent = '';
-			toasts.success(
-				remaining === 0 ? 'Conflict fully resolved' : 'Resolution recorded',
-				remaining === 0 ? target.path : `${remaining} file(s) still conflicted`,
-			);
-			checkpointStore.bump('files');
-		} catch (e) {
-			console.error('Conflict resolution failed:', e);
-			toasts.error(
-				'Resolution failed',
-				e instanceof Error ? e.message : undefined,
-			);
-		} finally {
-			checkpointStore.endAction();
-		}
-	}
-
-	function openResolve(conflict: ConflictFile): void {
-		resolveTarget = conflict;
-		resolveOpen = true;
-		// Feature refs look like refs/wf/feat/<name>; main conflicts resolve
-		// against an explicit feature name.
-		resolveFeature = conflict.partition.startsWith('refs/wf/feat/')
-			? conflict.partition.slice('refs/wf/feat/'.length)
-			: '';
-		resolveContent = '';
-		resolveBinary = false;
-		resolveNote = null;
-		resolveLoading = true;
-		// The conflicted bytes (with markers) are read at the conflicted
-		// merge commit without touching any workspace; the actor only
-		// satisfies path validation.
-		const actor = fileWorkspace.actor.trim() || 'manual';
-		getFileContent(actor, conflict.path, conflict.snapshotId)
-			.then((content) => {
-				if (resolveTarget !== conflict) return;
-				resolveBinary = content.isBinary;
-				if (content.isBinary) {
-					resolveNote =
-						'Binary file: frontend resolution is unsupported, use the terminal.';
-					return;
-				}
-				resolveContent = content.content ?? '';
-				if (!resolveContent) {
-					resolveNote = 'Conflicted content is empty at this commit.';
-				} else if (content.truncated) {
-					resolveNote = 'Content truncated at 1 MiB; verify the tail in the terminal.';
-				}
-			})
-			.catch((e) => {
-				if (resolveTarget !== conflict) return;
-				console.error('Failed to load conflicted content:', e);
-				resolveNote =
-					e instanceof Error
-						? `Conflicted content unavailable: ${e.message}`
-						: 'Conflicted content unavailable.';
-			})
-			.finally(() => {
-				if (resolveTarget === conflict) resolveLoading = false;
-			});
-	}
-
-	const resolveHasMarkers = $derived(hasConflictMarkers(resolveContent));
-
-	async function decideApproval(
-		approval: Approval,
-		granted: boolean,
-	): Promise<void> {
-		try {
-			if (granted) {
-				await approveApproval(approval.id);
-				toasts.success('Approval granted');
-			} else {
-				rejectTarget = approval;
-				rejectOpen = true;
-				rejectReason = '';
-				return;
-			}
-			// Approving merges into a feature ref, which also changes the
-			// file workspace.
-			checkpointStore.bump('approvals');
-			checkpointStore.bump('files');
-		} catch (e) {
-			console.error('Failed to resolve approval:', e);
-			toasts.error('Approval decision failed');
-		}
-	}
-
-	async function runReject(): Promise<void> {
-		const target = rejectTarget;
-		if (!target) return;
-		try {
-			await rejectApproval(target.id, rejectReason || undefined);
-			rejectOpen = false;
-			rejectTarget = null;
-			rejectReason = '';
-			toasts.warning('Approval rejected');
-			checkpointStore.bump('approvals');
-		} catch (e) {
-			console.error('Failed to reject approval:', e);
-			toasts.error('Approval rejection failed');
-		}
-	}
-
 	function emptyCopyFor(current: string): {
 		title: string;
 		description: string;
@@ -485,29 +266,11 @@
 			onretry={() => void reload()}
 		>
 			{#if tab === 'chain'}
-				<ChainPanel
-					{chain}
-					busy={checkpointStore.busy}
-					onrestore={(checkpoint: Checkpoint) => {
-						restoreTarget = checkpoint;
-						restoreOpen = true;
-					}}
-					onresume={(checkpoint: Checkpoint) => void runResume(checkpoint)}
-					ondelete={(checkpoint: Checkpoint) => {
-						deleteTarget = checkpoint;
-						deleteOpen = true;
-					}}
-				/>
+				<ChainSection {chain} />
 			{:else if tab === 'files'}
-				<FilesPanel
-					onresolve={(conflict: ConflictFile) => openResolve(conflict)}
-				/>
+				<FilesSection />
 			{:else}
-				<ApprovalsPanel
-					{approvals}
-					ondecide={(approval: Approval, granted: boolean) =>
-						void decideApproval(approval, granted)}
-				/>
+				<ApprovalsSection {approvals} />
 			{/if}
 		</PageState>
 	</div>
@@ -535,152 +298,6 @@
 			onclick={() => void runCreateFileCheckpoint()}
 		>
 			Create
-		</Button>
-	{/snippet}
-</Dialog>
-
-<Dialog
-	bind:open={restoreOpen}
-	title="Restore checkpoint"
-	description="Restore lands as a new commit on top of history. Pointers are never moved and other branches are untouched."
-	onclose={() => (restoreTarget = null)}
->
-	{#if restoreTarget}
-		<p class="text-caption">
-			Restore <span class="font-mono">{restoreTarget.id}</span>
-			({restoreTarget.kind}
-			· {restoreTarget.actor}). Files covered by this checkpoint return to the
-			recorded state; everything else stays as-is.
-		</p>
-	{/if}
-	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (restoreOpen = false)}>
-			Cancel
-		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runRestore()}
-		>
-			Restore as new commit
-		</Button>
-	{/snippet}
-</Dialog>
-
-<Dialog
-	bind:open={deleteOpen}
-	title="Delete checkpoint"
-	description="Delete removes the checkpoint record. File history in the object store is reclaimed by garbage collection."
-	onclose={() => (deleteTarget = null)}
->
-	{#if deleteTarget}
-		<p class="text-caption">
-			Delete <span class="font-mono">{deleteTarget.id}</span>? This cannot be
-			undone from this page.
-		</p>
-	{/if}
-	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (deleteOpen = false)}>
-			Cancel
-		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy}
-			onclick={() => void runDelete()}
-		>
-			Delete
-		</Button>
-	{/snippet}
-</Dialog>
-
-<Dialog
-	bind:open={rejectOpen}
-	title="Reject approval"
-	description="Rejecting rolls the approval partition back to its baseline. Only the pending reference is removed; history is untouched."
-	onclose={() => (rejectTarget = null)}
->
-	<Textarea
-		label="Reason (optional)"
-		bind:value={rejectReason}
-		placeholder="Why is this change unacceptable? What should change next?"
-		rows={3}
-	/>
-	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (rejectOpen = false)}>
-			Cancel
-		</Button>
-		<Button size="sm" onclick={() => void runReject()}>Reject</Button>
-	{/snippet}
-</Dialog>
-
-<Dialog
-	bind:open={resolveOpen}
-	title="Resolve conflict"
-	description="Commit the resolved file content as a child of the conflicted head. Files still carrying markers stay conflicted."
-	onclose={() => (resolveTarget = null)}
->
-	{#if resolveTarget}
-		<p class="mb-2 text-caption">
-			<span class="font-mono">{resolveTarget.path}</span> on
-			<span class="font-mono">{resolveTarget.partition}</span>
-		</p>
-	{/if}
-	<div class="grid gap-2 sm:grid-cols-2">
-		<Input
-			label="Actor"
-			value={fileWorkspace.actor}
-			oninput={(event: Event) =>
-				fileWorkspace.setActor((event.target as HTMLInputElement).value)}
-			placeholder="Resolving actor"
-		/>
-		<Input
-			label="Feature"
-			bind:value={resolveFeature}
-			placeholder="Feature name for refs/wf/feat/<name>"
-		/>
-	</div>
-	<div class="mt-2">
-		{#if resolveLoading}
-			<p class="text-caption text-muted-foreground">
-				Loading conflicted content…
-			</p>
-		{:else if resolveBinary}
-			<p class="text-caption text-warning">
-				Binary file: resolve it in the terminal, the frontend cannot merge
-				binary content.
-			</p>
-		{:else}
-			<Textarea
-				label="Resolved content"
-				bind:value={resolveContent}
-				placeholder="Edit the conflicted content in place"
-				rows={10}
-			/>
-		{/if}
-		{#if resolveNote}
-			<p class="mt-1 text-micro text-muted-foreground">{resolveNote}</p>
-		{/if}
-		{#if resolveHasMarkers && !resolveBinary}
-			<p class="mt-1 text-micro text-warning">
-				Conflict markers remain: saving now keeps the file conflicted.
-			</p>
-		{/if}
-	</div>
-	{#snippet footer()}
-		<Button variant="ghost" size="sm" onclick={() => (resolveOpen = false)}>
-			Cancel
-		</Button>
-		<Button
-			size="sm"
-			disabled={checkpointStore.busy ||
-				resolveLoading ||
-				resolveBinary ||
-				!fileWorkspace.actor.trim() ||
-				!resolveFeature.trim() ||
-				!resolveContent}
-			onclick={() => void runResolveConflict()}
-		>
-			Commit resolution
 		</Button>
 	{/snippet}
 </Dialog>

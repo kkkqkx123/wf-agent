@@ -148,6 +148,7 @@
 	const error = $derived(active.error);
 
 	const transcriptMessages = $derived(messages.data?.items ?? []);
+	const transcriptActivity = $derived(transcriptMessages.length);
 	/** The transcript owns its scroll viewport, so the pane yields scrolling to it. */
 	const showTranscript = $derived(
 		tab === 'messages' && !loading && !error && transcriptMessages.length > 0,
@@ -613,6 +614,7 @@
 				<TranscriptScroller
 					items={transcriptMessages}
 					itemKey={(message) => message.id}
+					activity={transcriptActivity}
 					resetKey={sessionId}
 					contentClass="mx-auto max-w-3xl px-3 py-3"
 					class="min-h-0 flex-1"

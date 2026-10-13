@@ -152,6 +152,7 @@
 				</button>
 				{#if toolExpanded}
 					<pre
+						data-scrollable="true"
 						class="mt-1 max-h-96 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro break-words whitespace-pre-wrap text-foreground">{toolFull.text}</pre>
 					{#if toolFull.capped}
 						<p class="mt-1 font-mono text-micro text-muted-foreground">
@@ -194,6 +195,7 @@
 			</div>
 			{#if expanded}
 				<pre
+					data-scrollable="true"
 					class="mt-1 max-h-56 overflow-auto rounded-md border border-border bg-muted px-2 py-1.5 text-left font-mono text-micro text-foreground">{expanded.content}</pre>
 			{/if}
 		{/if}

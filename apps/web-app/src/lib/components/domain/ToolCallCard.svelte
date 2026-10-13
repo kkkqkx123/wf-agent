@@ -71,6 +71,17 @@
 	const countText = $derived(countSummary(entry.output, entry.displayPreview));
 	const fullBody = $derived(limitBodyLines(entry.output, budgets.bodyMaxLines));
 	const expandable = $derived(hiddenBody || preview.overflow);
+	const headerHint = $derived(
+		!previews
+			? null
+			: hiddenBody
+				? `· ${countText}`
+				: preview.overflow
+					? preview.hiddenLines > 0
+						? `· +${preview.hiddenLines} lines`
+						: '· +more'
+					: null,
+	);
 
 	function diffToneClass(line: string): string {
 		if (displayKind !== 'diff') return '';
@@ -175,6 +186,13 @@
 		<span class="min-w-0 flex-1 truncate font-mono text-caption text-foreground"
 			>{entry.name}</span
 		>
+		{#if headerHint}
+			<span
+				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
+			>
+				{headerHint}
+			</span>
+		{/if}
 		<span class="shrink-0 text-micro tabular-nums text-muted-foreground">
 			{formatDuration(entry.durationMs)}
 		</span>
@@ -245,7 +263,7 @@
 						{showFullOutput ? 'Hide output' : 'Show output'}
 					</button>
 					{#if showFullOutput}
-						<pre class={PREVIEW_PRE}>{fullBody.text}</pre>
+						<pre data-scrollable="true" class={PREVIEW_PRE}>{fullBody.text}</pre>
 						{#if fullBody.capped}
 							<p class="mt-1 font-mono text-micro text-muted-foreground">
 								… {fullBody.hiddenLines} more lines — open Full result for everything
@@ -255,11 +273,12 @@
 				{:else if preview.text}
 					{#if displayKind === 'diff'}
 						<pre
+							data-scrollable="true"
 							class={PREVIEW_PRE}>{#each previewLines as line, index (index)}<span
 									class={diffToneClass(line)}>{line}</span
 								>{#if index < previewLines.length - 1}<br />{/if}{/each}</pre>
 					{:else}
-						<pre class={PREVIEW_PRE}>{preview.text}</pre>
+						<pre data-scrollable="true" class={PREVIEW_PRE}>{preview.text}</pre>
 					{/if}
 					{#if expandable}
 						<button

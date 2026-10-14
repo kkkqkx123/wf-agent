@@ -19,7 +19,7 @@ pub static SHELL_WAIT: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "shell",
     tags: &["wait"],
-    description: "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. Provide 'pattern' (a regex) to stop early once matching output appears.",
+    description: "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. When the session is moved to the background while waiting, the wait returns immediately with 'backgrounded' true instead of waiting out the deadline. Provide 'pattern' (a regex) to stop early once matching output appears. Absolute byte cursors from shell_output window responses stay valid across truncation; incremental reads are a convenience over the same cursor.",
     parameters: &[
         ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by backend_shell", default_json: None, constraints: None },
         ToolParameter { name: "timeout", r#type: "number", required: false, description: "Timeout in milliseconds (default 30000)", default_json: Some("30000"), constraints: None },
@@ -73,6 +73,36 @@ impl StatefulInstance for ShellWaitInstance {
         let mut last_growth = Instant::now();
         let mut last_len = 0usize;
         loop {
+            // Background handoff races the blocking wait: once another call
+            // moves the session to the background, return the background
+            // branch immediately instead of waiting out the deadline.
+            if wf_shell::engine::background_task_registry().is_backgrounded(session_id) {
+                let snapshot = session.snapshot();
+                let output = snapshot
+                    .get("output")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let status = snapshot
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let exit_code = snapshot.get("exit_code").cloned().unwrap_or(Value::Null);
+                let (capped_output, output_truncated) =
+                    cap_response_output(&output, max_output_bytes);
+                return Ok(serde_json::json!({
+                    "session_id": session_id,
+                    "status": status,
+                    "exit_code": exit_code,
+                    "output": capped_output,
+                    "output_truncated": output_truncated,
+                    "timed_out": false,
+                    "matched": false,
+                    "backgrounded": true,
+                    "guidance": "Command moved to the background. Do not wait, sleep or poll until its completion event arrives; then read the result with shell_output or shell_tasks.",
+                }));
+            }
             let snapshot = session.snapshot();
             let output = snapshot
                 .get("output")
@@ -105,6 +135,7 @@ impl StatefulInstance for ShellWaitInstance {
                             "timed_out": false,
                             "matched": true,
                             "matched_line": matched_line,
+                            "backgrounded": false,
                         }));
                     }
                     let first = *matched_at.get_or_insert_with(Instant::now);
@@ -121,6 +152,7 @@ impl StatefulInstance for ShellWaitInstance {
                             "timed_out": false,
                             "matched": true,
                             "matched_line": matched_line,
+                            "backgrounded": false,
                         }));
                     }
                 } else {
@@ -135,6 +167,7 @@ impl StatefulInstance for ShellWaitInstance {
                     "output_truncated": output_truncated,
                     "timed_out": false,
                     "matched": false,
+                    "backgrounded": false,
                 }));
             }
 
@@ -147,6 +180,7 @@ impl StatefulInstance for ShellWaitInstance {
                     "output_truncated": output_truncated,
                     "timed_out": true,
                     "matched": false,
+                    "backgrounded": false,
                 }));
             }
             if status != "busy" {
@@ -158,6 +192,7 @@ impl StatefulInstance for ShellWaitInstance {
                     "output_truncated": output_truncated,
                     "timed_out": false,
                     "matched": false,
+                    "backgrounded": false,
                 }));
             }
             std::thread::sleep(Duration::from_millis(50));

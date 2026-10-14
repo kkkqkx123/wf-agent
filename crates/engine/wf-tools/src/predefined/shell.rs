@@ -13,7 +13,9 @@ pub mod execute_in_session;
 pub mod get_or_create_shell;
 pub mod release_sessions_for_task;
 pub mod session_observe;
+pub mod shell_ack;
 pub mod shell_background;
+pub mod shell_background_all;
 pub mod shell_kill;
 pub mod shell_output;
 pub mod shell_resize;
@@ -26,7 +28,9 @@ pub use execute_command::EXECUTE_COMMAND;
 pub use execute_in_session::EXECUTE_IN_SESSION;
 pub use get_or_create_shell::GET_OR_CREATE_SHELL;
 pub use release_sessions_for_task::RELEASE_SESSIONS_FOR_TASK;
+pub use shell_ack::SHELL_ACK;
 pub use shell_background::SHELL_BACKGROUND;
+pub use shell_background_all::SHELL_BACKGROUND_ALL;
 pub use shell_kill::SHELL_KILL;
 pub use shell_output::SHELL_OUTPUT;
 pub use shell_resize::SHELL_RESIZE;
@@ -56,6 +60,8 @@ pub const ALL: &[&ToolDefinition] = &[
     &RELEASE_SESSIONS_FOR_TASK,
     &SHELL_TASKS,
     &SHELL_BACKGROUND,
+    &SHELL_BACKGROUND_ALL,
+    &SHELL_ACK,
 ];
 
 /// Register shell handlers: execute_command (stateless) plus the background
@@ -80,6 +86,8 @@ pub fn register(registry: &ToolRegistry, config: &ShellToolConfig) -> ToolResult
     shell_kill::register(registry, &store, &forwarder)?;
     shell_tasks::register(registry)?;
     shell_background::register(registry, &store)?;
+    shell_background_all::register(registry)?;
+    shell_ack::register(registry)?;
     shell_send_input::register(registry, &store)?;
     shell_resize::register(registry, &store)?;
     get_or_create_shell::register(registry, &store, &forwarder)?;

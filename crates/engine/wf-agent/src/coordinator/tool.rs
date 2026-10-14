@@ -406,7 +406,10 @@ impl ToolExecutionCoordinator {
         tc: &LlmToolCall,
     ) -> Result<LlmToolCall, Box<(Message, String)>> {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
-            return Err(Box::new((self.build_rejection_message(tc, &reason), reason)));
+            return Err(Box::new((
+                self.build_rejection_message(tc, &reason),
+                reason,
+            )));
         }
         let outcomes = self
             .approval
@@ -533,7 +536,7 @@ impl ToolExecutionCoordinator {
                     )
                     .await;
 
-                    messages.push(msg);
+                    messages.push(compact_background_message(&tc.function.name, msg));
                 }
             }
         }
@@ -902,4 +905,20 @@ impl ToolExecutionCoordinator {
             }
         }
     }
+}
+
+/// Keep background handoffs out of the model context: the message stored in
+/// LLM history retains only the session linkage and follow-up guidance.
+/// Non-background results pass through unchanged.
+fn compact_background_message(tool_name: &str, mut msg: Message) -> Message {
+    let result_text = match &msg.content {
+        wf_types::message::MessageContentValue::Text(text) => text.clone(),
+        wf_types::message::MessageContentValue::Rich(_) => return msg,
+    };
+    if let Some(compact) =
+        wf_tools::predefined::display::model_result_for(Some(tool_name), &result_text)
+    {
+        msg.content = wf_types::message::MessageContentValue::Text(compact);
+    }
+    msg
 }

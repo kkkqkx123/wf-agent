@@ -125,13 +125,30 @@ impl wf_shell::lifecycle::SessionLifecycleSink for ShellLifecycleBridge {
                 exit_code,
                 success,
             } => {
-                let backgrounded =
-                    wf_shell::engine::background_task_registry().is_backgrounded(&event.session_id);
+                let registry = wf_shell::engine::background_task_registry();
+                let backgrounded = registry.is_backgrounded(&event.session_id);
+                let status = registry
+                    .get(&event.session_id)
+                    .map(|task| task.status.as_str().to_string())
+                    .unwrap_or_else(|| {
+                        if *success {
+                            "completed".to_string()
+                        } else {
+                            "failed".to_string()
+                        }
+                    });
                 let mut metadata = shell_metadata(&event.session_id, event.task_id.as_deref());
                 metadata.insert("command".to_string(), serde_json::json!(command));
                 metadata.insert("exit_code".to_string(), serde_json::json!(exit_code));
                 metadata.insert("success".to_string(), serde_json::json!(success));
                 metadata.insert("backgrounded".to_string(), serde_json::json!(backgrounded));
+                metadata.insert("status".to_string(), serde_json::json!(status));
+                metadata.insert(
+                    "guidance".to_string(),
+                    serde_json::json!(
+                        "Background command settled. Read the result with shell_output (absolute cursor) or shell_tasks, then confirm with shell_ack."
+                    ),
+                );
                 let bus_event = BaseEvent {
                     id: wf_common::id::generate_id(),
                     r#type: EventType::ShellCommandCompleted,
@@ -147,6 +164,11 @@ impl wf_shell::lifecycle::SessionLifecycleSink for ShellLifecycleBridge {
                 }
             }
             wf_shell::lifecycle::SessionLifecycleKind::Terminated => {
+                let backgrounded =
+                    wf_shell::engine::background_task_registry().is_backgrounded(&event.session_id);
+                let mut metadata = shell_metadata(&event.session_id, event.task_id.as_deref());
+                metadata.insert("backgrounded".to_string(), serde_json::json!(backgrounded));
+                metadata.insert("status".to_string(), serde_json::json!("cancelled"));
                 let bus_event = BaseEvent {
                     id: wf_common::id::generate_id(),
                     r#type: EventType::ShellSessionTerminated,
@@ -155,13 +177,29 @@ impl wf_shell::lifecycle::SessionLifecycleSink for ShellLifecycleBridge {
                     execution_id: event.task_id.clone(),
                     agent_loop_id: None,
                     event_name: None,
-                    metadata: Some(shell_metadata(&event.session_id, event.task_id.as_deref())),
+                    metadata: Some(metadata),
                 };
                 if let Err(err) = self.bus.publish(bus_event) {
                     tracing::warn!("Failed to publish shell lifecycle event: {}", err);
                 }
             }
-            wf_shell::lifecycle::SessionLifecycleKind::Started { .. } => {}
+            wf_shell::lifecycle::SessionLifecycleKind::Started { reused } => {
+                let mut metadata = shell_metadata(&event.session_id, event.task_id.as_deref());
+                metadata.insert("reused".to_string(), serde_json::json!(reused));
+                let bus_event = BaseEvent {
+                    id: wf_common::id::generate_id(),
+                    r#type: EventType::ShellSessionCreated,
+                    timestamp: wf_common::time::now(),
+                    workflow_id: None,
+                    execution_id: event.task_id.clone(),
+                    agent_loop_id: None,
+                    event_name: None,
+                    metadata: Some(metadata),
+                };
+                if let Err(err) = self.bus.publish(bus_event) {
+                    tracing::warn!("Failed to publish shell lifecycle event: {}", err);
+                }
+            }
         }
     }
 }

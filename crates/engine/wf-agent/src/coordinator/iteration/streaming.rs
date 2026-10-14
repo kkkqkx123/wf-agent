@@ -414,10 +414,31 @@ impl AgentIterationCoordinator {
                 )
                 .await?;
             }
-            tool_messages.push(msg);
+            tool_messages.push(compact_background_history_message(
+                &effective_tc.function.name,
+                msg,
+                &result_text,
+            ));
         }
         Ok(tool_messages)
     }
+}
+
+/// Keep the full background result in the stream event for UI rendering
+/// while storing only the session linkage in LLM history, so background
+/// outputs never pollute the model context. Non-background results pass
+/// through unchanged.
+fn compact_background_history_message(
+    tool_name: &str,
+    mut msg: Message,
+    result_text: &str,
+) -> Message {
+    if let Some(compact) =
+        wf_tools::predefined::display::model_result_for(Some(tool_name), result_text)
+    {
+        msg.content = wf_types::message::MessageContentValue::Text(compact);
+    }
+    msg
 }
 
 /// Hook payload for one streaming tool call. Mirrors the sequential tool

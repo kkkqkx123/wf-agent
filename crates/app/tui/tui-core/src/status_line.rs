@@ -4,7 +4,7 @@
 //! UI-only fields (model label, execution id, elapsed time, notice)
 //! and is owned by [`tui_components::footer::Footer`].
 
-use crate::reducer::{ActiveSubAgent, Phase, UsageMeta};
+use crate::reducer::{ActiveBackgroundTask, ActiveSubAgent, Phase, UsageMeta};
 
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
 /// the interactive presentation fields (model label, execution id, elapsed
@@ -28,6 +28,8 @@ pub struct FooterState {
     pub subagent_count: u32,
     /// Running sub-agents by start order (footer panel).
     pub subagents: Vec<ActiveSubAgent>,
+    /// Background shell sessions handed back without waiting.
+    pub background_tasks: Vec<ActiveBackgroundTask>,
     /// Pending notice: `(text, expires_at_ms)`.
     pub notice: Option<(String, u64)>,
 }
@@ -46,6 +48,7 @@ impl Default for FooterState {
             usage: None,
             subagent_count: 0,
             subagents: Vec::new(),
+            background_tasks: Vec::new(),
             notice: None,
         }
     }
@@ -62,6 +65,15 @@ impl FooterState {
         self.usage = reducer.usage;
         self.subagent_count = reducer.subagent_count;
         self.subagents = reducer.subagents.clone();
+        self.background_tasks = reducer.background_tasks.clone();
+    }
+
+    /// Aggregate background row for the footer status line.
+    pub fn background_summary(&self) -> Option<String> {
+        if self.background_tasks.is_empty() {
+            return None;
+        }
+        Some(format!("background:{}", self.background_tasks.len()))
     }
 }
 
@@ -104,6 +116,7 @@ mod tests {
             usage: None,
             subagent_count: 0,
             subagents: Vec::new(),
+            background_tasks: Vec::new(),
         };
         state.merge_reducer(&reducer);
 
@@ -115,5 +128,19 @@ mod tests {
         assert_eq!(state.model.as_deref(), Some("gpt-4"));
         assert_eq!(state.execution_id.as_deref(), Some("exec-1"));
         assert_eq!(state.duration_ms, 500);
+    }
+
+    #[test]
+    fn background_summary_counts_handoffs() {
+        let mut state = FooterState::default();
+        assert_eq!(state.background_summary(), None);
+        state
+            .background_tasks
+            .push(crate::reducer::ActiveBackgroundTask {
+                tool_call_id: "t1".to_string(),
+                tool_name: "backend_shell".to_string(),
+                session_id: "sess-1".to_string(),
+            });
+        assert_eq!(state.background_summary().as_deref(), Some("background:1"));
     }
 }

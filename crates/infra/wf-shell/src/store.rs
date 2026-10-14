@@ -343,7 +343,10 @@ impl BackgroundShellStore {
     /// idle; the command runs as its own subprocess with the session
     /// cwd/env/mode and its output accumulates into the session buffer.
     /// Blocks until the command exits or `timeout_ms` elapses (then the
-    /// command is terminated gracefully). Returns the exit code and the
+    /// command is terminated gracefully). When the task is moved to the
+    /// background while waiting, the deadline is cleared and the wait turns
+    /// into an unbounded one so a backgrounded long command is never killed
+    /// by a stale foreground timeout. Returns the exit code and the
     /// output produced by this command.
     pub fn execute_in_session(
         &self,
@@ -371,7 +374,7 @@ impl BackgroundShellStore {
         let start_index = session.output_start();
         let started_at = Instant::now();
         let shell = self.spawn_command(&session, command)?;
-        let (exit_code, timed_out) = wait_for_command_exit(&shell, timeout_ms);
+        let (exit_code, timed_out) = wait_for_command_exit(&shell, timeout_ms, session_id);
         let success = !timed_out && exit_code == Some(0);
         session.finalize(command, exit_code, success, &shell.drain);
         // Make sure every event of this command (output lines, completion) is

@@ -179,7 +179,12 @@ async fn run_workflow(
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;
+        let background_summary = renderer.background_summary();
         drop(renderer);
+        if let Some(summary) = background_summary {
+            let mut diag = wf_common::lock::lock_ok(io.diag.lock());
+            let _ = diag.ok(&summary);
+        }
         io.sink.flush()?;
         finish_workflow_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
     } else {
@@ -227,7 +232,12 @@ async fn run_agent(
         let terminal = drive_stream(map_frames(stream), &mut renderer, &io.diag).await?;
         renderer.finish()?;
         let had_output = renderer.had_output;
+        let background_summary = renderer.background_summary();
         drop(renderer);
+        if let Some(summary) = background_summary {
+            let mut diag = wf_common::lock::lock_ok(io.diag.lock());
+            let _ = diag.ok(&summary);
+        }
         io.sink.flush()?;
         finish_agent_stream_terminal(terminal, io, &opts, &execution_id, started, had_output)
     } else {

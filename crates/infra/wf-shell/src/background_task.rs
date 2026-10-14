@@ -160,6 +160,59 @@ impl BackgroundTaskRegistry {
             .is_some_and(|entry| entry.backgrounded)
     }
 
+    /// Running tasks across all executions ordered by start time.
+    /// Settled entries are appended after running ones when requested so a
+    /// global backlog view needs a single call.
+    pub fn list_all(&self, include_settled: bool) -> Vec<BackgroundTask> {
+        let mut tasks: Vec<BackgroundTask> = self
+            .tasks
+            .iter()
+            .filter(|entry| include_settled || !entry.status.is_settled())
+            .map(|entry| entry.clone())
+            .collect();
+        tasks.sort_by_key(|task| task.started_at);
+        tasks
+    }
+
+    /// Recently settled tasks ordered by completion time.
+    pub fn list_settled(&self) -> Vec<BackgroundTask> {
+        let mut tasks: Vec<BackgroundTask> = self
+            .tasks
+            .iter()
+            .filter(|entry| entry.status.is_settled())
+            .map(|entry| entry.clone())
+            .collect();
+        tasks.sort_by_key(|task| task.completed_at.unwrap_or(task.started_at));
+        tasks
+    }
+
+    /// Mark every running task bound to `execution_id` as backgrounded.
+    /// Returns the tasks moved to the background in start-time order.
+    pub fn background_all_for_execution(&self, execution_id: &str) -> Vec<BackgroundTask> {
+        let mut moved = Vec::new();
+        for mut entry in self.tasks.iter_mut() {
+            if entry.execution_id == execution_id
+                && entry.status == BackgroundTaskStatus::Running
+                && !entry.backgrounded
+            {
+                entry.backgrounded = true;
+                moved.push(entry.clone());
+            }
+        }
+        moved.sort_by_key(|task: &BackgroundTask| task.started_at);
+        moved
+    }
+
+    /// Confirm delivery of a settled task notification and drop the entry.
+    /// Returns true when a settled entry was removed.
+    pub fn acknowledge(&self, session_id: &str) -> bool {
+        match self.tasks.get(session_id) {
+            Some(entry) if entry.status.is_settled() => {}
+            _ => return false,
+        }
+        self.tasks.remove(session_id).is_some()
+    }
+
     /// Running tasks ordered by start time.
     pub fn list_running(&self) -> Vec<BackgroundTask> {
         let mut tasks: Vec<BackgroundTask> = self
@@ -306,5 +359,41 @@ mod tests {
         }
         let settled = registry.list_for_execution("exec-1", true).len();
         assert_eq!(settled, SETTLED_LIMIT);
+    }
+
+    #[test]
+    fn background_all_moves_only_running_tasks_of_execution() {
+        let registry = BackgroundTaskRegistry::new();
+        registry.register("s-1", "a", "exec-1");
+        registry.register("s-2", "b", "exec-1");
+        registry.register("s-3", "c", "exec-2");
+        registry.settle("s-2", Some(0), true);
+        let moved = registry.background_all_for_execution("exec-1");
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].session_id, "s-1");
+        assert!(registry.is_backgrounded("s-1"));
+        assert!(!registry.is_backgrounded("s-3"));
+    }
+
+    #[test]
+    fn acknowledge_removes_only_settled_entries() {
+        let registry = BackgroundTaskRegistry::new();
+        registry.register("s-1", "a", "exec-1");
+        assert!(!registry.acknowledge("s-1"));
+        assert!(!registry.acknowledge("missing"));
+        registry.settle("s-1", Some(0), true);
+        assert!(registry.acknowledge("s-1"));
+        assert!(registry.get("s-1").is_none());
+    }
+
+    #[test]
+    fn global_listing_covers_settled_when_requested() {
+        let registry = BackgroundTaskRegistry::new();
+        registry.register("s-1", "a", "exec-1");
+        registry.register("s-2", "b", "exec-2");
+        registry.settle("s-2", Some(0), true);
+        assert_eq!(registry.list_all(false).len(), 1);
+        assert_eq!(registry.list_all(true).len(), 2);
+        assert_eq!(registry.list_settled().len(), 1);
     }
 }

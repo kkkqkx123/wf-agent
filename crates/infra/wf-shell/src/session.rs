@@ -267,18 +267,36 @@ impl ShellSession {
 }
 
 /// Block until the command exits or the timeout elapses, returning
-/// `(exit_code, timed_out)`. On timeout the command is terminated gracefully;
-/// on success it additionally waits for the output readers to drain so the
-/// caller's buffer snapshot is complete.
+/// `(exit_code, timed_out)`. The deadline is sliced so a concurrent
+/// `shell_background` handoff clears it: once the task is marked
+/// backgrounded the wait turns unbounded and never times out, mirroring
+/// the reference unlimited-timeout semantic for background commands. On a
+/// foreground timeout the command is terminated gracefully; on success the
+/// output readers are drained so the caller's buffer snapshot is complete.
 pub(crate) fn wait_for_command_exit(
     shell: &Arc<ShellSession>,
     timeout_ms: u64,
+    session_id: &str,
 ) -> (Option<i32>, bool) {
-    let (exit_code, timed_out) = shell.wait_for_exit(Duration::from_millis(timeout_ms));
-    if timed_out {
-        let _ = shell.kill(true);
-    } else {
-        shell.wait_for_output_drained(Duration::from_millis(timeout_ms));
+    use crate::background_task::background_task_registry;
+    const SLICE_MS: u64 = 50;
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+    loop {
+        if background_task_registry().is_backgrounded(session_id) {
+            let (exit_code, _) = shell.wait_for_exit(Duration::from_secs(24 * 3600));
+            shell.wait_for_output_drained(Duration::from_millis(timeout_ms));
+            return (exit_code, false);
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            let _ = shell.kill(true);
+            return (None, true);
+        }
+        let slice = (deadline - now).min(Duration::from_millis(SLICE_MS));
+        let (exit_code, timed_out) = shell.wait_for_exit(slice);
+        if !timed_out {
+            shell.wait_for_output_drained(Duration::from_millis(timeout_ms));
+            return (exit_code, false);
+        }
     }
-    (exit_code, timed_out)
 }

@@ -72,6 +72,9 @@ pub(crate) struct SessionRenderer<'a> {
     saw_text: bool,
     tool_started_at: HashMap<String, Instant>,
     pub(crate) had_output: bool,
+    /// Background sessions handed back without waiting, in completion
+    /// order. Used for the terminal background summary.
+    background_sessions: Vec<String>,
 }
 
 impl<'a> SessionRenderer<'a> {
@@ -85,6 +88,7 @@ impl<'a> SessionRenderer<'a> {
             saw_text: false,
             tool_started_at: HashMap::new(),
             had_output: false,
+            background_sessions: Vec::new(),
         }
     }
 
@@ -147,6 +151,9 @@ impl<'a> SessionRenderer<'a> {
                 if *success {
                     if let Some(marker) = background {
                         line.push_str(&format!(" · background {}", marker.session_id));
+                        if !self.background_sessions.contains(&marker.session_id) {
+                            self.background_sessions.push(marker.session_id.clone());
+                        }
                     }
                 }
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
@@ -201,6 +208,19 @@ impl<'a> SessionRenderer<'a> {
             self.line_pending = false;
         }
         Ok(())
+    }
+
+    /// Terminal background summary for headless runs. Returns `None` when
+    /// no background task was observed, so callers emit nothing.
+    pub(crate) fn background_summary(&self) -> Option<String> {
+        if self.background_sessions.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "background tasks: {} running ({}) — follow up with shell_output or shell_wait, confirm with shell_ack",
+            self.background_sessions.len(),
+            self.background_sessions.join(", "),
+        ))
     }
 }
 
@@ -322,6 +342,38 @@ mod tests {
         assert!(text.contains("▲ read_file"), "{text}");
         assert!(text.contains("✓ read_file"), "{text}");
         assert!(text.contains("✗ write_file"), "{text}");
+    }
+
+    #[test]
+    fn background_tool_end_tracks_sessions_for_summary() {
+        let mut sink = MemorySink::new();
+        let diag = shared_diag();
+        let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
+        for (id, session) in [("t1", "sess-1"), ("t2", "sess-2")] {
+            renderer
+                .on_event(
+                    &ExecutionStreamEvent::ToolEnd {
+                        tool_call_id: id.into(),
+                        tool_name: "backend_shell".into(),
+                        success: true,
+                        result: String::new(),
+                        error: None,
+                        display: None,
+                        background: Some(wf_types::tool::BackgroundMarker {
+                            session_id: session.into(),
+                            backgrounded: true,
+                        }),
+                    },
+                    &diag,
+                )
+                .unwrap();
+        }
+        let summary = renderer.background_summary().expect("summary");
+        assert!(summary.contains("2 running"), "{summary}");
+        assert!(summary.contains("sess-1"), "{summary}");
+        assert!(summary.contains("shell_ack"), "{summary}");
+        let text = diag_text(&diag);
+        assert!(text.contains("background sess-1"), "{text}");
     }
 
     #[test]

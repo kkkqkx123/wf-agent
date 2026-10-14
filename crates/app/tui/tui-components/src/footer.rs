@@ -392,8 +392,8 @@ impl Footer {
     }
 
     /// The middle status text: agent · model · iteration · message count,
-    /// with tool names, the sub-agent count and the last error appended
-    /// when present.
+    /// with tool names, the sub-agent count, the background task count and
+    /// the last error appended when present.
     fn status_text(&self) -> String {
         if let Some(err) = &self.state.last_error {
             return format!("⚠ {err}");
@@ -410,6 +410,9 @@ impl Footer {
         }
         if self.state.subagent_count > 0 {
             parts.push(format!("subagents:{}", self.state.subagent_count));
+        }
+        if !self.state.background_tasks.is_empty() {
+            parts.push(format!("background:{}", self.state.background_tasks.len()));
         }
         parts.join(" · ")
     }

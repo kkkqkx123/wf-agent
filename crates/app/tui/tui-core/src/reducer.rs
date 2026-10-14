@@ -119,6 +119,18 @@ pub struct FooterState {
     /// Running sub-agents by start order (footer panel + jump targets).
     /// `subagent_count` always equals `subagents.len()`.
     pub subagents: Vec<ActiveSubAgent>,
+    /// Background shell sessions handed back without waiting, in completion
+    /// order. The count drives the footer aggregate row; details resolve
+    /// through shell_output or shell_tasks.
+    pub background_tasks: Vec<ActiveBackgroundTask>,
+}
+
+/// One background shell task observed on the stream, in completion order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveBackgroundTask {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub session_id: String,
 }
 
 impl Default for FooterState {
@@ -132,6 +144,7 @@ impl Default for FooterState {
             usage: None,
             subagent_count: 0,
             subagents: Vec::new(),
+            background_tasks: Vec::new(),
         }
     }
 }
@@ -196,9 +209,9 @@ impl From<&ExecutionStreamEvent> for EventSig {
             ExecutionStreamEvent::SubAgentStarted { id, name, .. } => {
                 EventSig::SubAgentStart(id.clone(), name.clone())
             }
-            ExecutionStreamEvent::SubAgentEnded { id, name, success, .. } => {
-                EventSig::SubAgentEnd(id.clone(), name.clone(), *success)
-            }
+            ExecutionStreamEvent::SubAgentEnded {
+                id, name, success, ..
+            } => EventSig::SubAgentEnd(id.clone(), name.clone(), *success),
             ExecutionStreamEvent::SubAgentProgress { id, .. } => {
                 EventSig::SubAgentProgress(id.clone())
             }
@@ -308,15 +321,26 @@ impl SessionReducer {
                 });
             }
             ExecutionStreamEvent::ToolEnd {
+                tool_call_id,
                 tool_name,
                 success,
                 result,
                 error,
+                background,
                 ..
             } => {
                 self.flush_text(commits);
                 if let Some(pos) = self.footer.active_tools.iter().position(|t| t == tool_name) {
                     self.footer.active_tools.remove(pos);
+                }
+                if *success {
+                    if let Some(marker) = background {
+                        self.note_background_task(
+                            tool_call_id.clone(),
+                            tool_name.clone(),
+                            marker.session_id.clone(),
+                        );
+                    }
                 }
                 commits.push(MiniCommit::ToolEnd {
                     tool_name: tool_name.clone(),
@@ -371,7 +395,10 @@ impl SessionReducer {
                 });
             }
             ExecutionStreamEvent::SubAgentStarted {
-                id, name, tool_call_id, ..
+                id,
+                name,
+                tool_call_id,
+                ..
             } => {
                 self.upsert_subagent(id, name, tool_call_id.clone(), None);
             }
@@ -455,9 +482,35 @@ impl SessionReducer {
         self.footer.subagent_count = self.footer.subagents.len() as u32;
     }
 
+    /// Track a background handoff in completion order; a duplicate session
+    /// id refreshes its tool linkage instead of double-counting.
+    fn note_background_task(
+        &mut self,
+        tool_call_id: String,
+        tool_name: String,
+        session_id: String,
+    ) {
+        if let Some(existing) = self
+            .footer
+            .background_tasks
+            .iter_mut()
+            .find(|task| task.session_id == session_id)
+        {
+            existing.tool_call_id = tool_call_id;
+            existing.tool_name = tool_name;
+        } else {
+            self.footer.background_tasks.push(ActiveBackgroundTask {
+                tool_call_id,
+                tool_name,
+                session_id,
+            });
+        }
+    }
+
     /// Close the current turn: flush pending text, return to Idle, emit the
     /// terminal commit.
-    fn finish_terminal(&mut self, commits: &mut Vec<MiniCommit>, terminal: MiniCommit) {        self.flush_text(commits);
+    fn finish_terminal(&mut self, commits: &mut Vec<MiniCommit>, terminal: MiniCommit) {
+        self.flush_text(commits);
         self.footer.phase = Phase::Idle;
         commits.push(terminal);
     }
@@ -886,5 +939,64 @@ mod tests {
         }
         assert_eq!(stream_commits, fold_commits);
         assert_eq!(reducer.footer(), &fold_footer);
+    }
+
+    #[test]
+    fn background_tool_end_tracks_aggregate_without_double_count() {
+        let first = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".to_string(),
+            tool_name: "backend_shell".to_string(),
+            success: true,
+            result: String::new(),
+            error: None,
+            display: None,
+            background: Some(wf_types::tool::BackgroundMarker {
+                session_id: "sess-1".to_string(),
+                backgrounded: true,
+            }),
+        };
+        let second = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t2".to_string(),
+            tool_name: "shell_wait".to_string(),
+            success: true,
+            result: String::new(),
+            error: None,
+            display: None,
+            background: Some(wf_types::tool::BackgroundMarker {
+                session_id: "sess-2".to_string(),
+                backgrounded: true,
+            }),
+        };
+        let (_, footer) = fold(&[first.clone(), second], "exec-1");
+        assert_eq!(footer.background_tasks.len(), 2);
+        assert_eq!(footer.background_tasks[0].session_id, "sess-1");
+        let repeat = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t9".to_string(),
+            tool_name: "shell_background".to_string(),
+            success: true,
+            result: String::new(),
+            error: None,
+            display: None,
+            background: Some(wf_types::tool::BackgroundMarker {
+                session_id: "sess-1".to_string(),
+                backgrounded: true,
+            }),
+        };
+        let (_, footer) = fold(&[first, repeat], "exec-1");
+        assert_eq!(footer.background_tasks.len(), 1);
+        let failed = ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t3".to_string(),
+            tool_name: "backend_shell".to_string(),
+            success: false,
+            result: String::new(),
+            error: Some("boom".to_string()),
+            display: None,
+            background: Some(wf_types::tool::BackgroundMarker {
+                session_id: "sess-3".to_string(),
+                backgrounded: true,
+            }),
+        };
+        let (_, footer) = fold(&[failed], "exec-1");
+        assert!(footer.background_tasks.is_empty());
     }
 }

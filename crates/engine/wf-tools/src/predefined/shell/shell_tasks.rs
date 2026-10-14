@@ -17,7 +17,7 @@ pub static SHELL_TASKS: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "shell",
     tags: &["tasks", "background"],
-    description: "List background shell tasks (commands started by backend_shell or execute_in_session). By default only running tasks are returned; set 'include_settled' to also see recently finished ones. Provide 'execution_id' to filter to one execution.",
+    description: "List background shell tasks (commands started by backend_shell or execute_in_session). By default only running tasks are returned; set 'include_settled' to also see recently finished ones. Provide 'execution_id' to filter to one execution. Absolute byte cursors from shell_output window responses are the canonical paging positions; incremental reads are a convenience over the same cursor. Acknowledge a settled task with shell_ack once its completion event is consumed.",
     parameters: &[
         ToolParameter { name: "execution_id", r#type: "string", required: false, description: "Only tasks bound to this execution", default_json: None, constraints: None },
         ToolParameter { name: "include_settled", r#type: "boolean", required: false, description: "Also return recently settled tasks (default false)", default_json: Some("false"), constraints: None },
@@ -39,15 +39,7 @@ impl StatefulInstance for ShellTasksInstance {
             Some(execution_id) if !execution_id.is_empty() => {
                 registry.list_for_execution(execution_id, include_settled)
             }
-            _ => {
-                if include_settled {
-                    let mut tasks = registry.list_running();
-                    tasks.sort_by_key(|task| task.started_at);
-                    tasks
-                } else {
-                    registry.list_running()
-                }
-            }
+            _ => registry.list_all(include_settled),
         };
         Ok(serde_json::json!({
             "tasks": tasks.iter().map(|task| task.to_value()).collect::<Vec<_>>(),

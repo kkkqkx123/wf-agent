@@ -34,7 +34,8 @@
 | `02-current-analysis.md` | 当前项目后端、前端、命令行界面的现状与差距 |
 | `03-design.md` | 可借鉴点、总体设计、接口划分与分阶段落地 |
 | `04-progress.md` | 各阶段落地状态与后续工作 |
-| `05-remaining-design.md` | 剩余任务（聚合视图、终端聚合行）的细化设计与已落地的标记协议 |
+| `05-gap-and-improvements.md` | 现状复核、与 opencode 的对比结论与改进清单（本期新增） |
+| `05-remaining-design.md` | 剩余任务细化设计（待建，聚合视图与终端聚合行的接口细节见本期 `05-gap-and-improvements.md` 第六节） |
 
 ## 范围
 

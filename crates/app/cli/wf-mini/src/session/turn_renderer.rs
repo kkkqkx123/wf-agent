@@ -69,6 +69,7 @@ pub(super) struct TurnRenderer<S: TurnSink = RealSink> {
     line_pending: bool,
     assistant_text: String,
     sink: S,
+    background_sessions: Vec<String>,
 }
 
 impl<S: TurnSink + Default> TurnRenderer<S> {
@@ -82,6 +83,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             line_pending: false,
             assistant_text: String::new(),
             sink: S::default(),
+            background_sessions: Vec::new(),
         }
     }
 
@@ -128,6 +130,9 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             } => {
                 if *success {
                     if let Some(marker) = background {
+                        if !self.background_sessions.contains(&marker.session_id) {
+                            self.background_sessions.push(marker.session_id.clone());
+                        }
                         self.end_stdout_line();
                         self.sink.stderr_line(&format!(
                             "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
@@ -205,6 +210,13 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
                 self.flush_stdout();
+                if !self.background_sessions.is_empty() {
+                    self.sink.stderr_line(&format!(
+                        "background tasks: {} running ({}) — follow up with shell_output or shell_wait, confirm with shell_ack",
+                        self.background_sessions.len(),
+                        self.background_sessions.join(", "),
+                    ));
+                }
                 if self.display.show_tools {
                     self.sink
                         .stderr_line(&format!("completed in {iterations} iterations"));
@@ -418,6 +430,39 @@ mod tests {
             stderr.contains("background task: backend_shell running as sess-1"),
             "{stderr}"
         );
+    }
+
+    #[test]
+    fn completed_prints_background_aggregate() {
+        let (_, _, stderr, _) = render(vec![
+            ExecutionStreamEvent::ToolEnd {
+                tool_call_id: "t1".to_string(),
+                tool_name: "backend_shell".to_string(),
+                success: true,
+                result: String::new(),
+                error: None,
+                display: None,
+                background: Some(wf_types::tool::BackgroundMarker {
+                    session_id: "sess-1".to_string(),
+                    backgrounded: true,
+                }),
+            },
+            ExecutionStreamEvent::ToolEnd {
+                tool_call_id: "t2".to_string(),
+                tool_name: "shell_wait".to_string(),
+                success: true,
+                result: String::new(),
+                error: None,
+                display: None,
+                background: Some(wf_types::tool::BackgroundMarker {
+                    session_id: "sess-2".to_string(),
+                    backgrounded: true,
+                }),
+            },
+            completed(),
+        ]);
+        assert!(stderr.contains("background tasks: 2 running"), "{stderr}");
+        assert!(stderr.contains("shell_ack"), "{stderr}");
     }
 
     #[test]

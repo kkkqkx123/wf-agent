@@ -130,15 +130,39 @@ fn text_display(result: &str) -> DisplayPayload {
 
 /// Structured background linkage for one tool result. Only the tools that
 /// hand a running session back instead of blocking (`backend_shell` on
-/// spawn, `shell_background` on manual handoff) produce a marker, and only
-/// when the result carries both a session id and a background flag.
-/// Everything else returns `None` so frontends can match on presence.
+/// spawn, `shell_background` on manual handoff, `shell_background_all` on
+/// whole-execution handoff, `shell_wait` on background preemption) produce
+/// a marker, and only when the result carries both a session id and a
+/// background flag. Everything else returns `None` so frontends can match
+/// on presence.
 pub fn background_marker_for(tool_name: Option<&str>, result: &str) -> Option<BackgroundMarker> {
     let name = tool_name.unwrap_or_default();
-    if !matches!(name, "backend_shell" | "shell_background") {
+    if !matches!(
+        name,
+        "backend_shell" | "shell_background" | "shell_background_all" | "shell_wait"
+    ) {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(result).ok()?;
+    if name == "shell_background_all" {
+        let tasks = value.get("tasks")?.as_array()?;
+        let first = tasks.first()?;
+        let session_id = first.get("session_id")?.as_str()?;
+        if session_id.is_empty() {
+            return None;
+        }
+        let backgrounded = value
+            .get("backgrounded")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !backgrounded {
+            return None;
+        }
+        return Some(BackgroundMarker {
+            session_id: session_id.to_string(),
+            backgrounded: true,
+        });
+    }
     let session_id = value.get("session_id")?.as_str()?;
     if session_id.is_empty() {
         return None;
@@ -158,6 +182,40 @@ pub fn background_marker_for(tool_name: Option<&str>, result: &str) -> Option<Ba
         session_id: session_id.to_string(),
         backgrounded: true,
     })
+}
+
+/// Compact model-visible result for background handoffs. The full result
+/// stays in the stream event for UI rendering; the message appended to LLM
+/// history keeps only the session linkage and follow-up guidance so large
+/// background outputs never pollute the model context. Returns `None` when
+/// the result carries no background marker.
+pub fn model_result_for(tool_name: Option<&str>, result: &str) -> Option<String> {
+    let marker = background_marker_for(tool_name, result)?;
+    let value: serde_json::Value = serde_json::from_str(result).ok()?;
+    let guidance = value
+        .get("guidance")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Command moved to the background. Wait for its completion event; then read the result with shell_output or shell_tasks.");
+    if tool_name.unwrap_or_default() == "shell_background_all" {
+        let count = value.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+        return Some(
+            serde_json::json!({
+                "backgrounded": true,
+                "count": count,
+                "first_session_id": marker.session_id,
+                "guidance": guidance,
+            })
+            .to_string(),
+        );
+    }
+    Some(
+        serde_json::json!({
+            "session_id": marker.session_id,
+            "backgrounded": true,
+            "guidance": guidance,
+        })
+        .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -270,6 +328,45 @@ mod tests {
         .to_string();
         let marker = background_marker_for(Some("shell_background"), &result);
         assert_eq!(marker.map(|m| m.session_id), Some("sess-2".to_string()));
+    }
+
+    #[test]
+    fn background_all_and_wait_preemption_carry_markers() {
+        let all = serde_json::json!({
+            "backgrounded": true,
+            "count": 2,
+            "tasks": [{"session_id": "sess-a"}, {"session_id": "sess-b"}],
+        })
+        .to_string();
+        assert_eq!(
+            background_marker_for(Some("shell_background_all"), &all).map(|m| m.session_id),
+            Some("sess-a".to_string())
+        );
+        let waited = serde_json::json!({
+            "session_id": "sess-w",
+            "backgrounded": true,
+        })
+        .to_string();
+        assert_eq!(
+            background_marker_for(Some("shell_wait"), &waited).map(|m| m.session_id),
+            Some("sess-w".to_string())
+        );
+    }
+
+    #[test]
+    fn background_model_result_compacts_to_linkage() {
+        let result = serde_json::json!({
+            "session_id": "sess-1",
+            "backgrounded": true,
+            "output": "huge output that must not reach the model",
+            "guidance": "Do not poll.",
+        })
+        .to_string();
+        let compact = model_result_for(Some("shell_wait"), &result).expect("compact");
+        assert!(compact.contains("sess-1"));
+        assert!(compact.contains("Do not poll."));
+        assert!(!compact.contains("huge output"));
+        assert_eq!(model_result_for(Some("shell_output"), &result), None);
     }
 
     #[test]

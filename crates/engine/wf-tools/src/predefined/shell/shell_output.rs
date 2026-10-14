@@ -18,7 +18,7 @@ pub static SHELL_OUTPUT: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "shell",
     tags: &["output"],
-    description: "Retrieve output from a running background shell session by session_id. Set 'all' to false to read only output produced since the last read (incremental). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.",
+    description: "Retrieve output from a running background shell session by session_id. Absolute byte positions are the canonical paging cursor: pass a previous windowed response's 'window_end' as 'start' to continue the stream across truncation. Set 'all' to false to read only output produced since the last read (incremental convenience over the same cursor). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.",
     parameters: &[
         ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by backend_shell", default_json: None, constraints: None },
         ToolParameter { name: "all", r#type: "boolean", required: false, description: "Return the full output buffer (default true); false returns only new output since the last read", default_json: Some("true"), constraints: None },
@@ -71,6 +71,19 @@ impl StatefulInstance for ShellOutputInstance {
 
         if all {
             let mut value = session.snapshot();
+            // Expose the canonical absolute cursor alongside the snapshot so
+            // windowed follow-ups need no second call.
+            if value.get("total_written").is_none() {
+                let window = session.output_window(0, 0);
+                if let Some(total) = window.get("total_written").cloned() {
+                    value["total_written"] = total.clone();
+                    value["window_end"] = total.clone();
+                    value["cursor"] = total;
+                }
+                if let Some(trimmed) = window.get("trimmed_bytes").cloned() {
+                    value["trimmed_bytes"] = trimmed;
+                }
+            }
             if let Some(pattern) = filter {
                 if let Some(output) = value["output"].as_str() {
                     value["output"] = Value::String(apply_line_filter(output, pattern));
@@ -82,11 +95,16 @@ impl StatefulInstance for ShellOutputInstance {
             if let Some(pattern) = filter {
                 new_output = apply_line_filter(&new_output, pattern);
             }
+            let window = session.output_window(0, 0);
+            let total = window.get("total_written").cloned().unwrap_or(Value::Null);
             Ok(serde_json::json!({
                 "session_id": session_id,
                 "status": session.status_str(),
                 "exit_code": session.last_exit_code(),
                 "new_output": new_output,
+                "total_written": total.clone(),
+                "cursor": total.clone(),
+                "window_end": total,
             }))
         }
     }

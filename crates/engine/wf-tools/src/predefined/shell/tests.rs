@@ -36,6 +36,8 @@ fn shell_registry(config: &ShellToolConfig) -> ToolRegistry {
         RELEASE_SESSIONS_FOR_TASK.tool_def(),
         SHELL_TASKS.tool_def(),
         SHELL_BACKGROUND.tool_def(),
+        SHELL_BACKGROUND_ALL.tool_def(),
+        SHELL_ACK.tool_def(),
     ] {
         registry.register_tool(def);
     }

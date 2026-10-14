@@ -66,6 +66,9 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
         let pending = self.store.sessions_for_task(task_id);
         let released = self.store.release_sessions_for_task(task_id, terminate);
         for (session_id, cwd) in pending {
+            if terminate {
+                wf_shell::engine::background_task_registry().cancel(&session_id);
+            }
             self.checkpoint.end_session(session_id, cwd);
         }
         Ok(serde_json::json!({

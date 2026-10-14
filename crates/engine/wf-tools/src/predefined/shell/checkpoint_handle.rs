@@ -42,6 +42,10 @@ impl ShellCheckpointHandle {
         lock_ok(self.session.lock()).as_ref().cloned()
     }
 
+    pub fn execution_id(&self) -> &str {
+        &self.execution_id
+    }
+
     pub fn begin_session(&self, session_id: &str, scope_dir: Option<PathBuf>) {
         if let Some(cp) = self.get() {
             cp.begin_session(wf_types::effect::SessionBoundary {

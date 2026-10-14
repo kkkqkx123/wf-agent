@@ -16,6 +16,9 @@
 //! only ever happens inside the head segment.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
+
+use crate::spill::SpillFile;
 
 const MAX_OUTPUT_BYTES: usize = 256_000;
 /// Per-segment capacity of the segmented [`OutputBuffer`]. Segments are cut on
@@ -43,6 +46,16 @@ pub(crate) struct OutputBuffer {
     truncated: bool,
     /// Absolute position of the next unread output chunk.
     last_read: usize,
+    /// Overflow file opened lazily once the live tail passes
+    /// `spill_threshold`. Holds the contiguous range
+    /// `[spill.base(), written)` so paged reads for positions that fell out
+    /// of the memory ring can still be served.
+    spill: Option<SpillFile>,
+    /// Destination for the lazily opened spill file. `None` keeps the
+    /// legacy memory-only behavior.
+    spill_path: Option<PathBuf>,
+    /// Live-tail size that opens the spill file.
+    spill_threshold: usize,
 }
 
 impl OutputBuffer {
@@ -66,6 +79,56 @@ impl OutputBuffer {
         }
         self.push_bytes(chunk.as_bytes());
         self.written += chunk.len();
+        self.maybe_spill(chunk);
+    }
+
+    /// Arm the lazily opened overflow file. The file is created only once
+    /// the live tail passes the threshold; until then no file exists.
+    pub(crate) fn set_spill(&mut self, path: PathBuf, threshold: usize) {
+        self.spill_path = Some(path);
+        self.spill_threshold = threshold;
+    }
+
+    /// Whether overflow history is available beyond the memory ring.
+    pub(crate) fn has_spill(&self) -> bool {
+        self.spill.is_some()
+    }
+
+    /// Bytes of history held by the spill file.
+    pub(crate) fn spill_len(&self) -> u64 {
+        self.spill.as_ref().map(|spill| spill.len()).unwrap_or(0)
+    }
+
+    /// Delete the spill file and forget it. Best-effort: never fails.
+    pub(crate) fn remove_spill(&mut self) {
+        if let Some(spill) = self.spill.take() {
+            spill.remove();
+        }
+    }
+
+    /// Open the spill file once the live tail passes the threshold and
+    /// mirror subsequent chunks into it. A file failure disables spilling
+    /// and keeps the legacy memory-only behavior.
+    fn maybe_spill(&mut self, chunk: &str) {
+        if self.spill.is_some() {
+            let mut spill = self.spill.take().expect("spill is some");
+            if spill.append(chunk).is_ok() {
+                self.spill = Some(spill);
+            } else {
+                spill.remove();
+            }
+            return;
+        }
+        let (Some(path), threshold) = (self.spill_path.clone(), self.spill_threshold) else {
+            return;
+        };
+        if threshold == 0 || self.live_len() <= threshold {
+            return;
+        }
+        match SpillFile::create(&path, self.trimmed, &self.live_text()) {
+            Ok(spill) => self.spill = Some(spill),
+            Err(_) => self.spill_path = None,
+        }
     }
 
     /// Append `bytes` (valid UTF-8) as one or more segments, cutting on char
@@ -195,12 +258,17 @@ impl OutputBuffer {
 
     /// Tail of the buffer starting at the absolute position `start`. A start
     /// that fell into the dropped prefix yields the marker plus the whole
-    /// retained content; a start at/beyond the end yields the empty string.
+    /// retained content; with a spill file the dropped prefix is served
+    /// from history instead (capped at the spill threshold). A start
+    /// at/beyond the end yields the empty string.
     pub(crate) fn tail_from(&self, start: usize) -> String {
         if start >= self.written {
             return String::new();
         }
         if start < self.trimmed {
+            if let Some((text, served_start)) = self.serve_history(start, self.history_cap()) {
+                return format!("{}{}", self.history_marker(served_start), text);
+            }
             return format!("{}{}", self.marker(), self.live_text());
         }
         self.collect_from(start - self.trimmed, self.written - start)
@@ -209,8 +277,10 @@ impl OutputBuffer {
     /// Window of the buffer starting at the absolute position `start`, capped
     /// at `max_bytes` of retained content. A start inside the dropped prefix
     /// yields the truncation marker plus the capped head of the retained
-    /// content; positions and the dropped-prefix size are reported through
-    /// the returned tuple `(text, window_end, trimmed, prefix_dropped)`.
+    /// content, unless a spill file serves the history (then `prefix_dropped`
+    /// is false when the window starts at served history). Positions and the
+    /// dropped-prefix size are reported through the returned tuple
+    /// `(text, window_end, trimmed, prefix_dropped)`.
     pub(crate) fn window_from(
         &self,
         start: usize,
@@ -220,6 +290,23 @@ impl OutputBuffer {
             return (String::new(), start.min(self.written), self.trimmed, false);
         }
         if start < self.trimmed {
+            if let Some(spill) = self.spill.as_ref() {
+                let base = spill.base();
+                let history_end = self.trimmed;
+                let file_start = start.max(base);
+                if file_start < history_end {
+                    let file_budget = (history_end - file_start).min(max_bytes);
+                    let (file_text, _) = spill
+                        .read_range(file_start, file_budget)
+                        .unwrap_or_default();
+                    let live_budget = max_bytes.saturating_sub(file_text.len());
+                    let live_take = live_budget.min(self.live_len());
+                    let mut text = file_text;
+                    text.push_str(&self.collect_from(0, live_take));
+                    let end = history_end + live_take;
+                    return (text, end, self.trimmed, file_start > start);
+                }
+            }
             let marker = self.marker();
             let budget = max_bytes.saturating_sub(marker.len());
             let text = format!(
@@ -241,6 +328,12 @@ impl OutputBuffer {
             return String::new();
         }
         if self.last_read < self.trimmed {
+            if let Some((text, served_start)) =
+                self.serve_history(self.last_read, self.history_cap())
+            {
+                self.last_read = self.written;
+                return format!("{}{}", self.history_marker(served_start), text);
+            }
             let new = format!("{}{}", self.marker(), self.live_text());
             self.last_read = self.written;
             return new;
@@ -256,9 +349,53 @@ impl OutputBuffer {
             return String::new();
         }
         if self.last_read < self.trimmed {
+            if let Some((text, served_start)) =
+                self.serve_history(self.last_read, self.history_cap())
+            {
+                return format!("{}{}", self.history_marker(served_start), text);
+            }
             return format!("{}{}", self.marker(), self.live_text());
         }
         self.collect_from(self.last_read - self.trimmed, self.written - self.last_read)
+    }
+
+    /// Bound for one history-serving read: the spill threshold keeps a
+    /// single read near the memory-ring bound.
+    fn history_cap(&self) -> usize {
+        self.spill_threshold.max(1)
+    }
+
+    /// Marker for a history-served read whose served window starts at
+    /// `served_start` (bytes before it are omitted).
+    fn history_marker(&self, served_start: usize) -> String {
+        if served_start == 0 {
+            String::new()
+        } else {
+            format!("(output truncated, {served_start} bytes omitted)\n")
+        }
+    }
+
+    /// Serve the absolute range `[start, written)` from spill history plus
+    /// the live tail, capped at `cap` bytes of history. Returns the text
+    /// and the absolute position the served window starts at. Returns
+    /// `None` when no spill file covers the range (legacy marker behavior
+    /// applies).
+    fn serve_history(&self, start: usize, cap: usize) -> Option<(String, usize)> {
+        let spill = self.spill.as_ref()?;
+        let history_end = self.trimmed;
+        if start >= history_end {
+            return None;
+        }
+        let file_start = start.max(spill.base()).max(history_end.saturating_sub(cap));
+        if file_start >= history_end {
+            return None;
+        }
+        let (mut text, _) = spill
+            .read_range(file_start, history_end - file_start)
+            .ok()?;
+        let live_budget = cap.saturating_sub(text.len());
+        text.push_str(&self.collect_from(0, live_budget.min(self.live_len())));
+        Some((text, file_start))
     }
 }
 
@@ -436,5 +573,67 @@ mod tests {
         // via the absolute cursor past the truncated prefix.
         let later = buf.written() - "tail".len();
         assert_eq!(buf.tail_from(later), "tail");
+    }
+
+    fn spill_buf(name: &str, threshold: usize) -> (OutputBuffer, PathBuf) {
+        let dir = std::env::temp_dir().join("wf-shell-spill-tests");
+        let path = dir.join(format!(
+            "{name}-{}-{}.log",
+            std::process::id(),
+            wf_common::time::now()
+        ));
+        let mut buf = OutputBuffer::default();
+        buf.set_spill(path.clone(), threshold);
+        (buf, path)
+    }
+
+    #[test]
+    fn test_spill_serves_window_history() {
+        let (mut buf, path) = spill_buf("window", 64);
+        let start = buf.written();
+        buf.append(&"a".repeat(100));
+        assert!(buf.has_spill(), "spill must open past the threshold");
+        buf.append("tail");
+        let (text, end, _, prefix_dropped) = buf.window_from(start, 48);
+        assert!(!prefix_dropped, "history is served, not dropped");
+        assert!(text.starts_with(&"a".repeat(48)), "text: {}", text);
+        assert_eq!(end, start + 48);
+        // Full-range window reaches the live tail.
+        let (full, end, _, dropped) = buf.window_from(start, 10_000);
+        assert!(!dropped);
+        assert!(full.ends_with("tail"), "full: {}", full);
+        assert_eq!(end, buf.written());
+        buf.remove_spill();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_spill_tail_and_incremental_read() {
+        let (mut buf, path) = spill_buf("tail", 32);
+        buf.append("head-");
+        buf.append(&"b".repeat(100));
+        buf.append("-tail");
+        let tail = buf.tail_from(0);
+        assert!(!tail.contains("truncated"), "tail: {}", tail);
+        assert!(tail.starts_with("head-"), "tail: {}", tail);
+        assert!(tail.ends_with("-tail"), "tail: {}", tail);
+        let peeked = buf.peek_new();
+        assert!(peeked.contains("head-"), "peeked: {}", peeked);
+        let read = buf.read_new();
+        assert_eq!(read, peeked);
+        assert_eq!(buf.read_new(), "");
+        buf.remove_spill();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_no_spill_keeps_legacy_marker() {
+        let mut buf = OutputBuffer::default();
+        let start = buf.written();
+        buf.append(&"x".repeat(MAX_OUTPUT_BYTES));
+        buf.append("tail");
+        let (text, _, _, prefix_dropped) = buf.window_from(start, 16);
+        assert!(prefix_dropped);
+        assert!(text.contains("truncated"), "text: {}", text);
     }
 }

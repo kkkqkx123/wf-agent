@@ -60,6 +60,8 @@ pub(crate) fn is_shell_tool(name: &str) -> bool {
             | "execute_in_session"
             | "release_sessions_for_task"
             | "session_observe"
+            | "shell_tasks"
+            | "shell_background"
     )
 }
 

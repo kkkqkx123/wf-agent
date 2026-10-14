@@ -88,10 +88,23 @@ impl StatefulInstance for ExecuteInSessionInstance {
         let timeout = params.get("timeout").and_then(|v| v.as_u64());
 
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
+        wf_shell::engine::background_task_registry().register(
+            session_id,
+            command,
+            self.checkpoint.execution_id(),
+        );
         let result: crate::error::ToolResult<serde_json::Value> = self
             .store
             .execute_in_session(session_id, command, timeout)
             .map_err(Into::into);
+        let settled = match &result {
+            Ok(value) => (
+                value.get("exit_code").and_then(|v| v.as_i64()).map(|c| c as i32),
+                value.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
+            ),
+            Err(_) => (None, false),
+        };
+        wf_shell::engine::background_task_registry().settle(session_id, settled.0, settled.1);
         // The command boundary ends here (the store blocks until the
         // command exits or the timeout terminates it). Report completion
         // with the session cwd so the observer can sample this command.

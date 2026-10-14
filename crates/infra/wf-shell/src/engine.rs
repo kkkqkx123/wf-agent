@@ -9,6 +9,9 @@
 //! public engine API so existing `wf_shell::engine::*` imports keep working.
 
 pub use crate::backend::SessionMode;
+pub use crate::background_task::{
+    background_task_registry, BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus,
+};
 pub use crate::session::ShellSession;
 pub use crate::store::{
     BackgroundShellStore, GetOrCreateResult, SessionCreateOptions, SpawnOptions,

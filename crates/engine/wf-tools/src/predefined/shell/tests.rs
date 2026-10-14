@@ -5,6 +5,7 @@ use super::*;
 use crate::executor::trait_def::ToolExecutionContext;
 
 mod backend_shell;
+mod background_tasks;
 mod events;
 mod session;
 mod terminal;
@@ -33,6 +34,8 @@ fn shell_registry(config: &ShellToolConfig) -> ToolRegistry {
         GET_OR_CREATE_SHELL.tool_def(),
         EXECUTE_IN_SESSION.tool_def(),
         RELEASE_SESSIONS_FOR_TASK.tool_def(),
+        SHELL_TASKS.tool_def(),
+        SHELL_BACKGROUND.tool_def(),
     ] {
         registry.register_tool(def);
     }

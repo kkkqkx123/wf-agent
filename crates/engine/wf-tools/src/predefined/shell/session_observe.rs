@@ -8,10 +8,11 @@
 //! boundaries so the upper layer can close scope sampling. Events without a
 //! registered session are skipped: file attribution is never invented.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 use wf_checkpoint::CheckpointSession;
+use wf_common::lock::lock_ok;
 use wf_shell::lifecycle::{SessionLifecycleEvent, SessionLifecycleKind, SessionLifecycleSink};
 use wf_types::effect::SessionBoundary;
 
@@ -20,15 +21,30 @@ use wf_types::effect::SessionBoundary;
 /// (one forwarder per background store).
 pub struct SessionLifecycleForwarder {
     sessions: DashMap<String, CheckpointSession>,
+    extra_sinks: Mutex<Vec<Arc<dyn SessionLifecycleSink>>>,
 }
 
 impl SessionLifecycleForwarder {
     pub fn new() -> Self {
         Self {
             sessions: DashMap::new(),
+            extra_sinks: Mutex::new(Vec::new()),
         }
     }
 
+    /// Attach an additional lifecycle sink (for example an event-bus
+    /// bridge). Extra sinks observe every event after the task registry
+    /// settled, so completion notifications stay push-based even when no
+    /// checkpoint session is registered.
+    pub fn add_sink(&self, sink: Arc<dyn SessionLifecycleSink>) {
+        lock_ok(self.extra_sinks.lock()).push(sink);
+    }
+
+    fn extra_snapshot(&self) -> Vec<Arc<dyn SessionLifecycleSink>> {
+        let mut sinks = lock_ok(self.extra_sinks.lock()).clone();
+        sinks.extend(global_sinks_snapshot());
+        sinks
+    }
     /// Remember the checkpoint session for a task (execution) id. Empty
     /// sessions never overwrite a registered one.
     pub fn set_session(&self, task_id: String, session: CheckpointSession) {
@@ -53,6 +69,27 @@ impl Default for SessionLifecycleForwarder {
 
 impl SessionLifecycleSink for SessionLifecycleForwarder {
     fn on_lifecycle(&self, event: &SessionLifecycleEvent) {
+        // Settle the background task registry first so task state is
+        // current even when no checkpoint session is registered (for
+        // example a background process exiting via the monitor thread
+        // without any further tool call).
+        match &event.kind {
+            SessionLifecycleKind::CommandCompleted {
+                exit_code,
+                success,
+                ..
+            } => {
+                wf_shell::engine::background_task_registry().settle(
+                    &event.session_id,
+                    *exit_code,
+                    *success,
+                );
+            }
+            SessionLifecycleKind::Terminated => {
+                wf_shell::engine::background_task_registry().cancel(&event.session_id);
+            }
+            SessionLifecycleKind::Started { .. } => {}
+        }
         match &event.kind {
             // Session-creation baselines are owned by the tool-level
             // begin_session call, which runs with the resolved
@@ -60,37 +97,59 @@ impl SessionLifecycleSink for SessionLifecycleForwarder {
             // it and lose attribution of writes between the two captures.
             SessionLifecycleKind::Started { .. } => {}
             SessionLifecycleKind::CommandCompleted { .. } => {
-                let Some(task_id) = event.task_id.as_deref() else {
-                    return;
-                };
-                let Some(session) = self.session_for(task_id) else {
-                    return;
-                };
-                session.session_command_finished(SessionBoundary {
-                    execution_id: task_id.to_string(),
-                    session_id: event.session_id.clone(),
-                    scope_dir: event.cwd.clone(),
-                });
+                if let (Some(task_id), Some(session)) = (
+                    event.task_id.as_deref(),
+                    event.task_id.as_deref().and_then(|id| self.session_for(id)),
+                ) {
+                    session.session_command_finished(SessionBoundary {
+                        execution_id: task_id.to_string(),
+                        session_id: event.session_id.clone(),
+                        scope_dir: event.cwd.clone(),
+                    });
+                }
             }
             SessionLifecycleKind::Terminated => {
-                let Some(task_id) = event.task_id.as_deref() else {
-                    return;
-                };
-                let Some(session) = self.session_for(task_id) else {
-                    return;
-                };
-                session.end_session(SessionBoundary {
-                    execution_id: task_id.to_string(),
-                    session_id: event.session_id.clone(),
-                    scope_dir: event.cwd.clone(),
-                });
+                if let (Some(task_id), Some(session)) = (
+                    event.task_id.as_deref(),
+                    event.task_id.as_deref().and_then(|id| self.session_for(id)),
+                ) {
+                    session.end_session(SessionBoundary {
+                        execution_id: task_id.to_string(),
+                        session_id: event.session_id.clone(),
+                        scope_dir: event.cwd.clone(),
+                    });
+                }
             }
+        }
+        for sink in self.extra_snapshot().iter() {
+            sink.on_lifecycle(event);
         }
     }
 }
 
 /// Share a forwarder with `Arc` (signature helper for tool registration).
 pub type SharedSessionForwarder = Arc<SessionLifecycleForwarder>;
+
+/// Process-wide extra lifecycle sinks, installed by upper layers (for
+/// example the runtime event-bus bridge) before tool registration. The
+/// forwarder fans every event out to them so completion notifications stay
+/// push-based without threading a bus handle through the tool registry.
+static GLOBAL_SINKS: std::sync::OnceLock<Mutex<Vec<Arc<dyn SessionLifecycleSink>>>> =
+    std::sync::OnceLock::new();
+
+fn global_sinks() -> &'static Mutex<Vec<Arc<dyn SessionLifecycleSink>>> {
+    GLOBAL_SINKS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn global_sinks_snapshot() -> Vec<Arc<dyn SessionLifecycleSink>> {
+    lock_ok(global_sinks().lock()).clone()
+}
+
+/// Install a process-wide extra lifecycle sink observed by every shell
+/// tool registry created afterwards.
+pub fn add_global_lifecycle_sink(sink: Arc<dyn SessionLifecycleSink>) {
+    lock_ok(global_sinks().lock()).push(sink);
+}
 
 #[cfg(test)]
 mod tests {

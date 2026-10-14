@@ -103,6 +103,72 @@ fn shell_metadata(session_id: &str, task_id: Option<&str>) -> HashMap<String, se
     metadata
 }
 
+/// Lifecycle sink publishing background command boundaries to the shared
+/// event bus. Unlike the per-line [`ShellEventBusBridge`] (gated by
+/// `output_event_enabled`), completion and termination always publish so
+/// background callers are notified without polling.
+pub struct ShellLifecycleBridge {
+    bus: Arc<EventBus>,
+}
+
+impl ShellLifecycleBridge {
+    pub fn new(bus: Arc<EventBus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl wf_shell::lifecycle::SessionLifecycleSink for ShellLifecycleBridge {
+    fn on_lifecycle(&self, event: &wf_shell::lifecycle::SessionLifecycleEvent) {
+        match &event.kind {
+            wf_shell::lifecycle::SessionLifecycleKind::CommandCompleted {
+                command,
+                exit_code,
+                success,
+            } => {
+                let backgrounded = wf_shell::engine::background_task_registry()
+                    .is_backgrounded(&event.session_id);
+                let mut metadata = shell_metadata(&event.session_id, event.task_id.as_deref());
+                metadata.insert("command".to_string(), serde_json::json!(command));
+                metadata.insert("exit_code".to_string(), serde_json::json!(exit_code));
+                metadata.insert("success".to_string(), serde_json::json!(success));
+                metadata.insert("backgrounded".to_string(), serde_json::json!(backgrounded));
+                let bus_event = BaseEvent {
+                    id: wf_common::id::generate_id(),
+                    r#type: EventType::ShellCommandCompleted,
+                    timestamp: wf_common::time::now(),
+                    workflow_id: None,
+                    execution_id: event.task_id.clone(),
+                    agent_loop_id: None,
+                    event_name: None,
+                    metadata: Some(metadata),
+                };
+                if let Err(err) = self.bus.publish(bus_event) {
+                    tracing::warn!("Failed to publish shell lifecycle event: {}", err);
+                }
+            }
+            wf_shell::lifecycle::SessionLifecycleKind::Terminated => {
+                let bus_event = BaseEvent {
+                    id: wf_common::id::generate_id(),
+                    r#type: EventType::ShellSessionTerminated,
+                    timestamp: wf_common::time::now(),
+                    workflow_id: None,
+                    execution_id: event.task_id.clone(),
+                    agent_loop_id: None,
+                    event_name: None,
+                    metadata: Some(shell_metadata(
+                        &event.session_id,
+                        event.task_id.as_deref(),
+                    )),
+                };
+                if let Err(err) = self.bus.publish(bus_event) {
+                    tracing::warn!("Failed to publish shell lifecycle event: {}", err);
+                }
+            }
+            wf_shell::lifecycle::SessionLifecycleKind::Started { .. } => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

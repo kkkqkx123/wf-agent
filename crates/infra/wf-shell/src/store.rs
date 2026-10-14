@@ -136,7 +136,8 @@ pub struct BackgroundShellStore {
     max_sessions_per_task: Option<usize>,
     session_idle_timeout_ms: Option<u64>,
     output_event_enabled: bool,
-    event_sink: Option<Arc<EventDispatcher>>,
+    spill_dir: Option<PathBuf>,
+    spill_threshold_bytes: usize,    event_sink: Option<Arc<EventDispatcher>>,
     /// Generic session lifecycle sink (start / command complete /
     /// terminate). Independent from `output_event_enabled` so background
     /// process ends are observable even without per-line output events.
@@ -173,6 +174,8 @@ impl BackgroundShellStore {
             output_event_enabled: false,
             event_sink: None,
             lifecycle_sink: None,
+            spill_dir: None,
+            spill_threshold_bytes: crate::spill::DEFAULT_SPILL_THRESHOLD_BYTES,
             monitor_poll_interval_ms: COMPLETION_POLL_INTERVAL_MS,
         }
     }
@@ -215,6 +218,8 @@ impl BackgroundShellStore {
         store.max_sessions_per_task = config.max_sessions_per_task;
         store.session_idle_timeout_ms = config.session_idle_timeout_ms;
         store.output_event_enabled = config.output_event_enabled;
+        store.spill_dir = config.output_spill_dir.clone();
+        store.spill_threshold_bytes = config.output_spill_threshold_bytes;
         // Wrap the configured sink in an async dispatcher so a blocking sink
         // cannot backpressure the reader threads (single dispatch thread per
         // store, shared by all sessions).
@@ -615,6 +620,14 @@ impl BackgroundShellStore {
             event_sink: self.event_sink.clone(),
             lifecycle_sink: self.lifecycle_sink.clone(),
         });
+        if self.spill_threshold_bytes > 0 {
+            let dir = self
+                .spill_dir
+                .clone()
+                .unwrap_or_else(std::env::temp_dir)
+                .join("wf-shell-spill");
+            session.enable_spill(dir.join(format!("{session_id}.log")), self.spill_threshold_bytes);
+        }
         self.sessions.insert(session_id.clone(), session.clone());
         session.dispatch_created(false);
         let task_id = wf_common::lock::lock_ok(session.task_id.lock()).clone();

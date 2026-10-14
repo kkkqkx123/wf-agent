@@ -37,6 +37,9 @@ pub use execution_loop::{
 pub use execution_state::ExecutionStateManager;
 pub use fold_operation::{execute_fold, FoldOutcome, FoldParams};
 pub use fork::{BranchRecord, BranchStatus, ForkChildStatus, ForkRegistry};
+pub use wf_shell::background_task::{
+    background_task_registry, BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus,
+};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
     evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,

@@ -152,9 +152,34 @@ impl TerminalSession {
         self.cwd.clone()
     }
 
+    /// Arm the lazily opened output overflow file. Until the live tail
+    /// passes `threshold` no file exists; afterwards paged reads for
+    /// positions that fell out of the memory ring are served from history.
+    pub fn enable_spill(&self, path: PathBuf, threshold: usize) {
+        wf_common::lock::lock_ok(self.output.lock()).set_spill(path, threshold);
+    }
+
+    /// Whether overflow history is available beyond the memory ring.
+    pub fn has_spill(&self) -> bool {
+        wf_common::lock::lock_ok(self.output.lock()).has_spill()
+    }
+
+    /// Delete the overflow file, if any. Best-effort: never fails.
+    pub(crate) fn remove_spill(&self) {
+        wf_common::lock::lock_ok(self.output.lock()).remove_spill();
+    }
+
     /// Task (execution) the session is currently bound to, if any.
     pub fn task_id(&self) -> Option<String> {
         wf_common::lock::lock_ok(self.task_id.lock()).clone()
+    }
+
+    /// Command text of the running command, if any.
+    pub fn current_command(&self) -> String {
+        lock_ok(self.current.lock())
+            .as_ref()
+            .map(|command| command.command().to_string())
+            .unwrap_or_default()
     }
 
     /// Lazily transition `Busy` -> `Idle` once the current command has
@@ -226,6 +251,7 @@ impl TerminalSession {
             Some(current) => current.kill(graceful),
             None => Ok(()),
         };
+        self.remove_spill();
         self.dispatch_session_terminated();
         result
     }
@@ -256,12 +282,14 @@ impl TerminalSession {
     /// `start` (a previous response's `window_end` continues the stream).
     /// Positions stay valid across ring truncation; a window that starts in
     /// the dropped prefix reports `prefix_dropped` with the truncation
-    /// marker prepended.
+    /// marker prepended, unless the overflow file serves the history.
     pub fn output_window(&self, start: usize, max_bytes: usize) -> Value {
-        let output = wf_common::lock::lock_ok(self.output.lock());
-        let (text, window_end, trimmed, prefix_dropped) = output.window_from(start, max_bytes);
         let status = self.status();
         let exit_code = *wf_common::lock::lock_ok(self.last_exit_code.lock());
+        let output = wf_common::lock::lock_ok(self.output.lock());
+        let (text, window_end, trimmed, prefix_dropped) = output.window_from(start, max_bytes);
+        let spilled = output.has_spill();
+        let spill_bytes = output.spill_len();
         serde_json::json!({
             "session_id": self.session_id,
             "status": status.as_str(),
@@ -272,6 +300,8 @@ impl TerminalSession {
             "total_written": output.written(),
             "trimmed_bytes": trimmed,
             "prefix_dropped": prefix_dropped,
+            "spilled": spilled,
+            "spill_bytes": spill_bytes,
         })
     }
 
@@ -282,6 +312,7 @@ impl TerminalSession {
         let running_seconds = lock_ok(self.current.lock())
             .as_ref()
             .map_or(0, |c| c.elapsed_secs());
+        let output = wf_common::lock::lock_ok(self.output.lock());
         serde_json::json!({
             "session_id": self.session_id,
             "status": status.as_str(),
@@ -292,7 +323,9 @@ impl TerminalSession {
             "cwd": self.cwd.as_ref().map(|p| p.to_string_lossy().to_string()),
             "created_at": self.created_at,
             "running_seconds": running_seconds,
-            "output": wf_common::lock::lock_ok(self.output.lock()).snapshot(),
+            "output": output.snapshot(),
+            "spilled": output.has_spill(),
+            "spill_bytes": output.spill_len(),
         })
     }
 
@@ -410,5 +443,13 @@ impl TerminalSession {
         drop(status);
         drain.wait_drained(FINALIZE_DRAIN_TIMEOUT);
         self.dispatch_command_completed(command, exit_code, success);
+    }
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        // Sweep and store teardown drop sessions without terminating them;
+        // the overflow file must not outlive its session record.
+        self.remove_spill();
     }
 }

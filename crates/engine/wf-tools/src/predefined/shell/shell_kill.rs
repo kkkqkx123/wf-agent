@@ -63,6 +63,7 @@ impl StatefulInstance for ShellKillInstance {
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
         let killed = self.store.kill_with(session_id, graceful)?;
         if killed {
+            wf_shell::engine::background_task_registry().cancel(session_id);
             self.checkpoint
                 .end_session(session_id.to_string(), scope_dir);
         }

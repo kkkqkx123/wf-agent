@@ -113,6 +113,11 @@ impl StatefulInstance for BackendShellInstance {
             // One-shot startup input.
             self.store.send_input(&session_id, text, true)?;
         }
+        wf_shell::engine::background_task_registry().register(
+            &session_id,
+            command,
+            &self.execution_id,
+        );
         let session = self.store.get(&session_id).ok_or_else(|| {
             ToolError::Internal(format!("Session '{}' not found after spawn", session_id))
         })?;
@@ -122,11 +127,14 @@ impl StatefulInstance for BackendShellInstance {
         Ok(serde_json::json!({
             "session_id": session_id,
             "status": "started",
+            "background": true,
+            "task_id": session_id,
             "mode": session.mode_str(),
             "pid": session.pid(),
             "cwd": cwd,
             "interactive": interactive,
             "execution_id": self.execution_id,
+            "guidance": "Command moved to the background. Do not poll in a tight loop: use shell_wait to block until it finishes or shell_output to read output, or move on and watch for the shell completion event.",
         }))
     }
 

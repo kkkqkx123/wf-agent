@@ -90,6 +90,8 @@ const SHELL_TOOL_NAMES = new Set([
 	'execute_in_session',
 	'release_sessions_for_task',
 	'session_observe',
+	'shell_tasks',
+	'shell_background',
 ]);
 
 /** Read and retrieval tool names whose bodies stay hidden by default. */

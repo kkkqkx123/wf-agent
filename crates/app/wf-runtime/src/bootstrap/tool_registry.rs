@@ -17,6 +17,12 @@ pub async fn init_tool_registry_with_mcp(
             crate::shell_event_bridge::ShellEventBusBridge::new(event_bus.clone()),
         ));
     }
+    // Push-based background completion: command boundaries reach the event
+    // bus even when per-line output events are disabled, so background
+    // callers are notified without polling.
+    wf_tools::predefined::shell::session_observe::add_global_lifecycle_sink(Arc::new(
+        crate::shell_event_bridge::ShellLifecycleBridge::new(event_bus.clone()),
+    ));
     shell_config.sandbox_policy = Some(sandbox_runtime.default_policy().clone());
     let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
     let fs_scope_mode = sandbox_runtime.default_policy().mode.clone();

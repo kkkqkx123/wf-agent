@@ -61,6 +61,14 @@ pub struct ShellToolConfig {
     /// PTY backend cannot attach `pre_exec` hooks and therefore skips the
     /// kernel-level enforcement (it still inherits the command-safety gate).
     pub sandbox_policy: Option<wf_types::script::sandbox::SandboxPolicy>,
+    /// Directory holding per-session output overflow files. `None` uses the
+    /// system temporary directory. Files open lazily once a session tail
+    /// passes `output_spill_threshold_bytes` and are removed with the
+    /// session.
+    pub output_spill_dir: Option<PathBuf>,
+    /// Live-tail size that opens the overflow file (`0` disables spilling
+    /// and keeps the legacy memory-only behavior).
+    pub output_spill_threshold_bytes: usize,
 }
 
 impl Default for ShellToolConfig {
@@ -85,6 +93,8 @@ impl Default for ShellToolConfig {
             event_sink: None,
             lifecycle_sink: None,
             sandbox_policy: None,
+            output_spill_dir: None,
+            output_spill_threshold_bytes: crate::spill::DEFAULT_SPILL_THRESHOLD_BYTES,
         }
     }
 }
@@ -105,6 +115,11 @@ impl std::fmt::Debug for ShellToolConfig {
             .field("max_sessions_per_task", &self.max_sessions_per_task)
             .field("session_idle_timeout_ms", &self.session_idle_timeout_ms)
             .field("output_event_enabled", &self.output_event_enabled)
+            .field("output_spill_dir", &self.output_spill_dir)
+            .field(
+                "output_spill_threshold_bytes",
+                &self.output_spill_threshold_bytes,
+            )
             .field(
                 "event_sink",
                 &self.event_sink.as_ref().map(|_| "<shell event sink>"),

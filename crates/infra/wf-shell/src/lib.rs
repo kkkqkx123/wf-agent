@@ -28,6 +28,7 @@
 //! `force_pty`); every other combination falls back to pipe mode.
 
 pub mod backend;
+pub mod background_task;
 pub mod command_safety;
 pub mod config;
 pub mod drain;
@@ -41,6 +42,7 @@ pub mod runner;
 pub mod session;
 pub mod shell_detector;
 pub mod spawn;
+pub mod spill;
 pub mod store;
 pub mod terminal_session;
 pub mod utf8;

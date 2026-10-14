@@ -36,6 +36,30 @@ impl AnchorKind {
             AnchorKind::Decision => "decision",
         }
     }
+
+    /// Every anchor kind, for filter-aware listings.
+    pub fn all() -> [AnchorKind; 6] {
+        [
+            AnchorKind::UserPrompt,
+            AnchorKind::TodoUpdate,
+            AnchorKind::ToolFailure,
+            AnchorKind::SubAgent,
+            AnchorKind::Checkpoint,
+            AnchorKind::Decision,
+        ]
+    }
+
+    /// Cycle key shown in listings, kept next to the keys that honor it.
+    pub fn shortcut_hint(self) -> &'static str {
+        match self {
+            AnchorKind::UserPrompt => "Ctrl+P",
+            AnchorKind::TodoUpdate => "Ctrl+U",
+            AnchorKind::ToolFailure => "Ctrl+F",
+            AnchorKind::SubAgent => "Ctrl+G",
+            AnchorKind::Checkpoint => "Ctrl+N",
+            AnchorKind::Decision => "Ctrl+X",
+        }
+    }
 }
 
 /// Identity of one anchor: its kind plus the domain id behind the row
@@ -73,6 +97,9 @@ pub fn first_line_label(text: &str, max: usize) -> String {
     out
 }
 
+/// Display rows kept above a jump target so the landing keeps context.
+const JUMP_CONTEXT_ROWS: usize = 1;
+
 impl InteractiveController {
     /// Record or refresh one anchor. A repeated id refreshes its label
     /// instead of duplicating the order entry. A new anchor restarts that
@@ -105,6 +132,25 @@ impl InteractiveController {
         self.anchor_cycle.insert(kind, 0);
     }
 
+    /// Switch one anchor kind on or off for jumps, badge hints and the
+    /// timeline listing. Recording keeps every kind so toggling never
+    /// loses data; only navigation reads the switch. No settings surface
+    /// wires it yet, so the method waits for that layer like the cached
+    /// label helper below.
+    #[allow(dead_code)]
+    pub(crate) fn set_anchor_kind_enabled(&mut self, kind: AnchorKind, enabled: bool) {
+        if enabled {
+            self.anchor_disabled.remove(&kind);
+        } else {
+            self.anchor_disabled.insert(kind);
+        }
+    }
+
+    /// Whether jumps may land on this kind. All kinds jump by default.
+    fn anchor_kind_allowed(&self, kind: AnchorKind) -> bool {
+        !self.anchor_disabled.contains(&kind)
+    }
+
     /// Anchors of one kind, newest first.
     fn anchors_of_kind(&self, kind: AnchorKind) -> Vec<AnchorKey> {
         self.anchor_order
@@ -124,7 +170,43 @@ impl InteractiveController {
             .collect()
     }
 
-    /// Jump the viewport so the target sequence lands at the top.
+    /// Timeline of enabled anchors, newest first. Every jump target reads
+    /// this so a disabled kind disappears from jumps, hints and listings.
+    fn enabled_anchor_timeline(&self) -> Vec<AnchorEntry> {
+        self.anchor_timeline()
+            .into_iter()
+            .filter(|entry| self.anchor_kind_allowed(entry.kind))
+            .collect()
+    }
+
+    /// Sequence number of the row at the viewport top. Shared by the badge
+    /// hint and the cross-kind jumps so all three agree on the cursor.
+    fn viewport_top_seq(&self) -> u64 {
+        let width = self.last_layout_width.max(1);
+        let capacity = usize::from(self.last_layout_height.max(1));
+        let total: usize = self
+            .scrollback
+            .iter()
+            .map(|line| line.display_lines(width).len())
+            .sum();
+        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+        let mut consumed = 0usize;
+        let mut top_seq = 0u64;
+        for line in &self.scrollback {
+            let height = line.display_lines(width).len();
+            if consumed + height > start {
+                top_seq = line.seq_no();
+                break;
+            }
+            consumed += height;
+            top_seq = line.seq_no();
+        }
+        top_seq
+    }
+
+    /// Jump the viewport so the target sequence lands one row below the
+    /// top, keeping a line of context above it like message jumps do.
+    /// Targets inside the last viewport page pin to the tail instead.
     pub(crate) fn jump_to_seq(&mut self, seq: u64) {
         self.settle_scrollback();
         let width = self.last_layout_width.max(1);
@@ -146,15 +228,21 @@ impl InteractiveController {
             .iter()
             .map(|line| line.display_lines(width).len())
             .sum();
-        self.view_scroll = full_total.saturating_sub(above);
+        let capacity = usize::from(self.last_layout_height.max(1));
+        let max_scroll = full_total.saturating_sub(capacity);
+        let desired_top = above.saturating_sub(JUMP_CONTEXT_ROWS);
+        self.view_scroll = max_scroll.saturating_sub(desired_top);
         self.scroll_at_top = false;
     }
 
     /// Cycle through one kind newest-first. Trimmed rows drop their
     /// bookkeeping and the jump falls through to the next candidate; with
-    /// no candidate the viewport stays put.
+    /// no candidate the viewport stays put. Disabled kinds stay put too.
     pub(crate) fn jump_to_anchor_kind(&mut self, kind: AnchorKind) {
         self.settle_scrollback();
+        if !self.anchor_kind_allowed(kind) {
+            return;
+        }
         let order = self.anchors_of_kind(kind);
         if order.is_empty() {
             return;
@@ -183,33 +271,20 @@ impl InteractiveController {
         }
     }
 
-    /// Nearest anchor at or above the current viewport top, for badge hints.
+    /// Nearest enabled anchor at or above the current viewport top, for badge hints.
     pub(crate) fn anchor_above_viewport(&self) -> Option<AnchorEntry> {
-        let width = self.last_layout_width.max(1);
-        let capacity = usize::from(self.last_layout_height.max(1));
-        let total: usize = self
-            .scrollback
-            .iter()
-            .map(|line| line.display_lines(width).len())
-            .sum();
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        let mut consumed = 0usize;
-        let mut top_index = 0usize;
-        for (index, line) in self.scrollback.iter().enumerate() {
-            let height = line.display_lines(width).len();
-            if consumed + height > start {
-                top_index = index;
-                break;
-            }
-            consumed += height;
-            top_index = index;
+        if self.scrollback.is_empty() {
+            return None;
         }
-        let top_seq = self.scrollback.get(top_index).map(|row| row.seq_no())?;
+        let top_seq = self.viewport_top_seq();
         let mut best: Option<&AnchorEntry> = None;
         for key in &self.anchor_order {
             let Some(entry) = self.anchors.get(key) else {
                 continue;
             };
+            if !self.anchor_kind_allowed(entry.kind) {
+                continue;
+            }
             if entry.seq > top_seq {
                 continue;
             }
@@ -252,7 +327,17 @@ impl InteractiveController {
                 continue;
             }
             let trimmed = text.trim();
-            if trimmed.starts_with("❯ ") || trimmed.starts_with("> ") {
+            if let Some(body) = trimmed.strip_prefix("◆ ") {
+                if body.is_empty() {
+                    continue;
+                }
+                self.record_anchor(
+                    AnchorKind::Decision,
+                    &format!("decision-{seq}"),
+                    first_line_label(body, 60),
+                    seq,
+                );
+            } else if trimmed.starts_with("❯ ") || trimmed.starts_with("> ") {
                 let body = trimmed
                     .strip_prefix("❯ ")
                     .or_else(|| trimmed.strip_prefix("> "))
@@ -356,20 +441,28 @@ impl InteractiveController {
     }
 
     /// One-line timeline listing, newest first, for the anchor index key.
+    /// Disabled kinds stay out of the listing; the header names the keys
+    /// that produced the visible rows.
     pub(crate) fn list_anchors(&mut self) {
         use crate::transcript::{HistoryLine, Role};
         self.settle_scrollback();
-        let timeline = self.anchor_timeline();
+        let timeline = self.enabled_anchor_timeline();
         if timeline.is_empty() {
             self.pending_scroll.push(HistoryLine::new_role(
-                "no anchors yet · prompts, todos, failures, subagents and checkpoints land here"
+                "no anchors yet · prompts, todos, failures, subagents, decisions and checkpoints land here"
                     .to_string(),
                 Role::Muted,
             ));
             return;
         }
+        let keys = AnchorKind::all()
+            .into_iter()
+            .filter(|kind| self.anchor_kind_allowed(*kind))
+            .map(|kind| format!("{} {}", kind.shortcut_hint(), kind.label()))
+            .collect::<Vec<_>>()
+            .join(" · ");
         self.pending_scroll.push(HistoryLine::new_role(
-            "anchors · newest first (Ctrl+P prompt · Ctrl+U todo · Ctrl+F failed · Ctrl+G subagent · Ctrl+N checkpoint)".to_string(),
+            format!("anchors · newest first ({keys})"),
             Role::Muted,
         ));
         for entry in timeline.iter().take(30) {
@@ -383,27 +476,9 @@ impl InteractiveController {
     /// Jump to the next anchor toward the tail relative to the viewport top.
     pub(crate) fn jump_to_next_anchor(&mut self) {
         self.settle_scrollback();
-        let width = self.last_layout_width.max(1);
-        let capacity = usize::from(self.last_layout_height.max(1));
-        let total: usize = self
-            .scrollback
-            .iter()
-            .map(|line| line.display_lines(width).len())
-            .sum();
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        let mut consumed = 0usize;
-        let mut top_seq = 0u64;
-        for line in &self.scrollback {
-            let height = line.display_lines(width).len();
-            if consumed + height > start {
-                top_seq = line.seq_no();
-                break;
-            }
-            consumed += height;
-            top_seq = line.seq_no();
-        }
+        let top_seq = self.viewport_top_seq();
         let mut newer: Vec<AnchorEntry> = self
-            .anchor_timeline()
+            .enabled_anchor_timeline()
             .into_iter()
             .filter(|entry| entry.seq > top_seq)
             .collect();
@@ -418,27 +493,9 @@ impl InteractiveController {
     /// Jump to the previous anchor toward the head relative to the viewport top.
     pub(crate) fn jump_to_prev_anchor(&mut self) {
         self.settle_scrollback();
-        let width = self.last_layout_width.max(1);
-        let capacity = usize::from(self.last_layout_height.max(1));
-        let total: usize = self
-            .scrollback
-            .iter()
-            .map(|line| line.display_lines(width).len())
-            .sum();
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        let mut consumed = 0usize;
-        let mut top_seq = 0u64;
-        for line in &self.scrollback {
-            let height = line.display_lines(width).len();
-            if consumed + height > start {
-                top_seq = line.seq_no();
-                break;
-            }
-            consumed += height;
-            top_seq = line.seq_no();
-        }
+        let top_seq = self.viewport_top_seq();
         let mut older: Vec<AnchorEntry> = self
-            .anchor_timeline()
+            .enabled_anchor_timeline()
             .into_iter()
             .filter(|entry| entry.seq < top_seq)
             .collect();
@@ -481,6 +538,19 @@ mod tests {
     }
 
     #[test]
+    fn anchor_kinds_cover_all_jump_targets_with_distinct_keys() {
+        let all = AnchorKind::all();
+        assert_eq!(all.len(), 6);
+        let mut hints = all
+            .iter()
+            .map(|kind| kind.shortcut_hint())
+            .collect::<Vec<_>>();
+        hints.sort_unstable();
+        hints.dedup();
+        assert_eq!(hints.len(), all.len());
+    }
+
+    #[test]
     fn anchor_key_hashes_by_kind_and_id() {
         use std::collections::HashSet;
         let mut set = HashSet::new();
@@ -501,5 +571,50 @@ mod tests {
     #[test]
     fn unused_import_guard() {
         let _ = HashMap::<String, String>::new();
+    }
+
+    async fn controller_with_rows(count: usize) -> InteractiveController {
+        let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
+        let mut ctl = InteractiveController::start(client, "exec".into()).await;
+        ctl.last_layout_width = 80;
+        ctl.last_layout_height = 24;
+        let mut rows: Vec<crate::transcript::HistoryLine> = (0..count)
+            .map(|index| crate::transcript::HistoryLine::new(format!("row {index:03}")))
+            .collect();
+        ctl.assign_seq(&mut rows);
+        ctl.scrollback = rows;
+        ctl
+    }
+
+    #[tokio::test]
+    async fn jump_lands_target_one_row_below_the_top() {
+        let mut ctl = controller_with_rows(100).await;
+        ctl.jump_to_seq(50);
+        assert_eq!(ctl.view_scroll, 28);
+        assert_eq!(ctl.viewport_top_seq(), 49);
+    }
+
+    #[tokio::test]
+    async fn disabled_kinds_stay_out_of_jumps_but_keep_recording() {
+        let mut ctl = controller_with_rows(100).await;
+        ctl.record_anchor(AnchorKind::UserPrompt, "prompt-10", "prompt".into(), 10);
+        ctl.record_anchor(AnchorKind::TodoUpdate, "todo-20", "todo".into(), 20);
+        assert_eq!(ctl.anchor_timeline().len(), 2);
+        ctl.set_anchor_kind_enabled(AnchorKind::TodoUpdate, false);
+        ctl.jump_to_anchor_kind(AnchorKind::TodoUpdate);
+        assert_eq!(ctl.view_scroll, 0);
+        ctl.jump_to_anchor_kind(AnchorKind::UserPrompt);
+        assert!(ctl.view_scroll > 0);
+        assert_eq!(ctl.anchor_above_viewport().map(|entry| entry.kind), None);
+        ctl.jump_to_latest();
+        assert_eq!(
+            ctl.anchor_above_viewport().map(|entry| entry.kind.label()),
+            Some("prompt")
+        );
+        ctl.set_anchor_kind_enabled(AnchorKind::TodoUpdate, true);
+        assert_eq!(
+            ctl.anchor_above_viewport().map(|entry| entry.kind.label()),
+            Some("todo")
+        );
     }
 }

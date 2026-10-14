@@ -11,6 +11,7 @@
 	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
 	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
+	import { isTranscriptAnchor } from '$lib/chat/transcript-anchors';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
 	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
 	import { formatDuration, formatNumber } from '$lib/utils/format';
@@ -35,8 +36,7 @@
 	<TranscriptScroller
 		items={bubbles}
 		itemKey={(message: LoopMessage) => message.id}
-		isAnchor={(message: LoopMessage) =>
-			message.role === 'user' || message.toolName === 'update_todo_list'}
+		isAnchor={isTranscriptAnchor}
 		activity={controller.activity}
 		resetKey={selectedId ?? NEW_SESSION}
 		contentClass="mx-auto max-w-3xl px-4 py-4"

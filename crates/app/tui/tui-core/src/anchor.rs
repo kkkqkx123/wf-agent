@@ -3,6 +3,9 @@
 //! Cost metrics prove frames are cheap; stability proves they look steady.
 //! The recorder hashes each frame with blank rows marked, so anchor drift
 //! across scroll and streaming frames becomes a comparable number.
+//!
+//! This module owns no jump targets: session navigation anchors live in the
+//! interactive controller, this recorder only hashes rendered frames.
 
 /// Blank-row marker hash distinguishing empty rows from content.
 pub const BLANK_ROW_HASH: u64 = 0;

@@ -30,6 +30,7 @@ mod view;
 use crate::pager::ReplayPager;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -147,6 +148,9 @@ pub struct InteractiveController {
     anchor_order: Vec<anchors::AnchorKey>,
     /// Next jump position per anchor kind inside the reversed order.
     anchor_cycle: HashMap<anchors::AnchorKind, usize>,
+    /// Anchor kinds excluded from jumps, badge hints and the timeline
+    /// listing. Recording keeps every kind; empty means everything jumps.
+    anchor_disabled: HashSet<anchors::AnchorKind>,
     /// Thresholds for tool-output previews and block storage.
     tool_config: tui_core::tool_output::ToolOutputConfig,
     /// Successful tool calls accumulated for the Low detail-level activity
@@ -345,6 +349,7 @@ impl InteractiveController {
             anchors: HashMap::new(),
             anchor_order: Vec::new(),
             anchor_cycle: HashMap::new(),
+            anchor_disabled: HashSet::new(),
             tool_config: tui_core::tool_output::ToolOutputConfig::default(),
             activity: Vec::new(),
             viewer_request: None,

@@ -41,8 +41,9 @@ impl InteractiveController {
         // Ctrl+D cycles the detail level, Ctrl+E expands or collapses all,
         // Ctrl+G jumps between sub-agent start rows newest-first, Ctrl+P
         // cycles user prompts, Ctrl+U cycles todo updates, Ctrl+F cycles
-        // tool failures, Ctrl+N cycles checkpoints, Ctrl+I lists the anchor
-        // timeline, Alt+N/Alt+P move to the next/previous anchor.
+        // tool failures, Ctrl+N cycles checkpoints, Ctrl+X cycles human
+        // decisions, Ctrl+I lists the anchor timeline, Alt+N/Alt+P move to
+        // the next/previous anchor.
         // High level expands retrieval bodies by default and can flood the
         // transcript on large reads; prefer medium for daily use and switch
         // to high only when inspecting retrieval behavior.
@@ -106,6 +107,10 @@ impl InteractiveController {
             }
             CKey::Char('n') | CKey::Char('N') if key.ctrl && !key.alt => {
                 self.jump_to_anchor_kind(AnchorKind::Checkpoint);
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('x') | CKey::Char('X') if key.ctrl && !key.alt => {
+                self.jump_to_anchor_kind(AnchorKind::Decision);
                 return InteractiveAction::Continue;
             }
             CKey::Char('i') | CKey::Char('I') if key.ctrl && !key.alt => {
@@ -255,7 +260,7 @@ impl InteractiveController {
         let response = question.response_value(outcome);
         let interaction_id = question.interaction_id().to_string();
         self.flush_activity();
-        let mut rows = vec![HistoryLine::new_role(format!("❯ {answer}"), Role::Accent)];
+        let mut rows = vec![HistoryLine::new_role(format!("◆ {answer}"), Role::Accent)];
         self.assign_seq(&mut rows);
         let seq = rows.first().map(|row| row.seq_no()).unwrap_or(0);
         self.record_anchor(

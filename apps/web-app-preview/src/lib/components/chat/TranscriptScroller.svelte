@@ -3,6 +3,10 @@
 	import { tick } from 'svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import {
+		nextAnchorIndex,
+		prevAnchorIndex,
+	} from '$lib/chat/transcript-anchors';
+	import {
 		FOLLOW_TAIL_SLACK_PX,
 		TRANSCRIPT_OVERSCAN_ROWS,
 		TRANSCRIPT_ROW_ESTIMATE_PX,
@@ -198,28 +202,33 @@
 		return false;
 	}
 
-	function anchorKeys(): string[] {
-		return items
-			.filter((item) => (isAnchor ? isAnchor(item) : true))
-			.map((item) => itemKey(item));
-	}
+	/** Viewport cursor lead below the scroll top when resolving the current item. */
+	const VIEWPORT_LEAD_PX = 100;
 
-	function currentKey(): string | null {
-		if (!viewport) return null;
-		const cursor = scrollTop + 100;
-		const rowIndex = rowAt(cursor);
-		const row = rows[rowIndex];
-		return row ? itemKey(row.items[0]) : null;
+	/**
+	 * Item positions counting as anchors, ascending. Derived from the items
+	 * so jumps never rescan the transcript.
+	 */
+	const anchorIndexes = $derived.by(() => {
+		const out: number[] = [];
+		for (let index = 0; index < items.length; index += 1) {
+			if (isAnchor ? isAnchor(items[index]) : true) out.push(index);
+		}
+		return out;
+	});
+
+	/** Viewport cursor as an item index; rows measure as a whole, so the row head stands in. */
+	function currentIndex(): number {
+		if (!viewport || items.length === 0) return 0;
+		const rowIndex = rowAt(scrollTop + VIEWPORT_LEAD_PX);
+		return Math.min(rowIndex * TRANSCRIPT_ROW_SIZE, items.length - 1);
 	}
 
 	/** Jump to the next anchor toward the tail; at the end, resume follow. */
 	export function scrollToNextAnchor(): void {
-		const keys = anchorKeys();
-		if (keys.length === 0) return;
-		const current = currentKey();
-		const position = current ? keys.indexOf(current) : -1;
-		const target = position < 0 ? keys[0] : keys[position + 1];
-		if (!target) {
+		if (anchorIndexes.length === 0) return;
+		const target = nextAnchorIndex(anchorIndexes, currentIndex());
+		if (target === null) {
 			resume();
 			try {
 				history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -228,18 +237,16 @@
 			}
 			return;
 		}
-		void scrollToMessage(target);
+		void scrollToMessage(itemKey(items[target]));
 	}
 
 	/** Jump to the previous anchor toward the head. */
 	export function scrollToPrevAnchor(): void {
-		const keys = anchorKeys();
-		if (keys.length === 0) return;
-		const current = currentKey();
-		const position = current ? keys.indexOf(current) : keys.length;
-		const target = keys[position - 1] ?? keys[0];
-		if (!target) return;
-		void scrollToMessage(target);
+		if (anchorIndexes.length === 0) return;
+		const target =
+			prevAnchorIndex(anchorIndexes, currentIndex()) ?? anchorIndexes[0];
+		if (target === undefined) return;
+		void scrollToMessage(itemKey(items[target]));
 	}
 
 	function onScroll(event: Event): void {

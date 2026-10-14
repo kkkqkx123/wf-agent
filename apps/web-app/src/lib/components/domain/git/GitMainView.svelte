@@ -3,9 +3,13 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import { git as gitStore } from '$lib/stores/git.svelte';
-	import { GitWorkbench } from '$lib/git/workbench.svelte';
+	import type { GitWorkbench } from '$lib/git/workbench.svelte';
 
-	let { workbench }: { workbench: GitWorkbench } = $props();
+	interface Props {
+		workbench: GitWorkbench;
+	}
+
+	let { workbench }: Props = $props();
 </script>
 
 <Card
@@ -28,9 +32,7 @@
 							)}
 						class="flex w-full items-center justify-between gap-2 px-1 py-1 text-left hover:bg-accent/50"
 					>
-						<span class="truncate font-mono text-caption"
-							>{file.path}</span
-						>
+						<span class="truncate font-mono text-caption">{file.path}</span>
 						<span class="font-mono text-micro text-muted-foreground"
 							>{file.status}</span
 						>
@@ -47,7 +49,7 @@
 		</p>
 	{:else}
 		<p class="mb-1 text-micro text-muted-foreground">
-			{workbench.diffSource === "commit"
+			{workbench.diffSource === 'commit'
 				? 'commit range diff'
 				: 'unstaged diff'}
 		</p>

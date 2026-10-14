@@ -34,6 +34,7 @@
 		Checkpoint,
 		LoopMessage,
 		LoopVariable,
+		ToolCallEntry,
 	} from '$lib/types/models';
 	import {
 		INSPECTOR_TABS,
@@ -43,6 +44,10 @@
 		type TabDataKey,
 	} from '$lib/config/session-tabs';
 	import { createResource } from '$lib/stores/collection.svelte';
+	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
+	import { groupToolCalls } from '$lib/utils/tool-output';
+	import { preferences } from '$lib/stores/preferences.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		formatBytes,
 		formatDateTime,
@@ -143,6 +148,7 @@
 	const error = $derived(active.error);
 
 	const transcriptMessages = $derived(messages.data?.items ?? []);
+	const transcriptActivity = $derived(transcriptMessages.length);
 	/** The transcript owns its scroll viewport, so the pane yields scrolling to it. */
 	const showTranscript = $derived(
 		tab === 'messages' && !loading && !error && transcriptMessages.length > 0,
@@ -283,6 +289,23 @@
 					(call) => matchDecisionNode(call.name) === selectedGraphNode,
 				),
 	);
+
+	/** History tool rows group like live tool rows. Expansion is local
+	 * memory cleared on session switch; with previews off the flat list
+	 * renders instead. */
+	const visibleGroups = $derived(groupToolCalls(visibleTools));
+	const groupTools = $derived(preferences.toolOutputPreviews);
+	let openGroups = new SvelteSet<string>();
+
+	function toggleGroup(key: string): void {
+		if (openGroups.has(key)) openGroups.delete(key);
+		else openGroups.add(key);
+	}
+
+	$effect(() => {
+		void sessionId;
+		openGroups.clear();
+	});
 </script>
 
 <div class={cn('flex min-h-0 flex-col', className)}>
@@ -473,7 +496,7 @@
 				</p>
 			{:else}
 				<div class="space-y-2">
-					{#each visibleTools as entry (entry.id)}
+					{#snippet historyMember(entry: ToolCallEntry)}
 						{@const toolNodeId = matchDecisionNode(entry.name)}
 						<div
 							role="button"
@@ -498,7 +521,27 @@
 						>
 							<ToolCallCard {entry} />
 						</div>
-					{/each}
+					{/snippet}
+					{#if groupTools}
+						{#each visibleGroups as group (group.key)}
+							{#if group.kind === 'single'}
+								{#each group.members as entry (entry.id)}
+									{@render historyMember(entry)}
+								{/each}
+							{:else}
+								<ToolCallGroup
+									{group}
+									open={openGroups.has(group.key)}
+									ontoggle={() => toggleGroup(group.key)}
+									member={historyMember}
+								/>
+							{/if}
+						{/each}
+					{:else}
+						{#each visibleTools as entry (entry.id)}
+							{@render historyMember(entry)}
+						{/each}
+					{/if}
 				</div>
 			{/if}
 		{:else if tab === 'timeline'}
@@ -571,6 +614,7 @@
 				<TranscriptScroller
 					items={transcriptMessages}
 					itemKey={(message) => message.id}
+					activity={transcriptActivity}
 					resetKey={sessionId}
 					contentClass="mx-auto max-w-3xl px-3 py-3"
 					class="min-h-0 flex-1"

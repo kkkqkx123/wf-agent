@@ -14,6 +14,17 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
 	import { cn } from '@wf-agent/ui/cn';
+	import { resolveToolOutputBudgets } from '$lib/config/tool-output';
+	import {
+		countSummary,
+		diffLineTone,
+		hidesBody,
+		inferDisplayKind,
+		limitBodyLines,
+		previewFor,
+	} from '$lib/utils/tool-output';
+	import type { DisplayPayload } from '$lib/utils/tool-output';
+	import { preferences } from '$lib/stores/preferences.svelte';
 
 	interface Props {
 		entry: ToolCallEntry;
@@ -25,6 +36,68 @@
 	let open = $state(false);
 	let resultOpen = $state(false);
 	let decisionPending = $state(false);
+	let showFullOutput = $state(false);
+
+	const PREVIEW_PRE =
+		'max-h-48 overflow-auto rounded-md bg-muted px-2 py-1.5 font-mono text-micro break-words whitespace-pre-wrap text-foreground';
+
+	const failed = $derived(entry.status === 'failed');
+	const previews = $derived(preferences.toolOutputPreviews);
+	const budgets = $derived(
+		resolveToolOutputBudgets(preferences.toolOutputDetail),
+	);
+	const displayKind = $derived(
+		entry.displayKind ?? inferDisplayKind(entry.name),
+	);
+	const display = $derived<DisplayPayload | null>(
+		entry.displayKind
+			? {
+					kind: entry.displayKind,
+					preview: entry.displayPreview ?? '',
+					truncated: entry.displayTruncated ?? false,
+					hiddenLines: 0,
+				}
+			: null,
+	);
+	const previewInput = $derived({
+		output: entry.output,
+		error: entry.error,
+		success: !failed,
+		display,
+	});
+	const hiddenBody = $derived(hidesBody(entry.name, previewInput));
+	const preview = $derived(previewFor(entry.name, previewInput, budgets));
+	const previewLines = $derived(preview.text.split('\n'));
+	const countText = $derived(countSummary(entry.output, entry.displayPreview));
+	const fullBody = $derived(limitBodyLines(entry.output, budgets.bodyMaxLines));
+	const expandable = $derived(hiddenBody || preview.overflow);
+	const headerHint = $derived(
+		!previews
+			? null
+			: hiddenBody
+				? `· ${countText}`
+				: preview.overflow
+					? preview.hiddenLines > 0
+						? `· +${preview.hiddenLines} lines`
+						: '· +more'
+					: null,
+	);
+
+	function diffToneClass(line: string): string {
+		if (displayKind !== 'diff') return '';
+		const tone = diffLineTone(line);
+		if (tone === 'add') return 'text-success';
+		if (tone === 'remove') return 'text-destructive';
+		if (tone === 'hunk') return 'text-info';
+		return '';
+	}
+
+	// A new tool call starts collapsed; live updates of the same call keep
+	// the user's expansion choice.
+	$effect(() => {
+		void entry.id;
+		showFullOutput = false;
+	});
 
 	/** Outputs beyond this length open in a dialog instead of inline. */
 	const INLINE_OUTPUT_LIMIT = 2000;
@@ -113,6 +186,13 @@
 		<span class="min-w-0 flex-1 truncate font-mono text-caption text-foreground"
 			>{entry.name}</span
 		>
+		{#if headerHint}
+			<span
+				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
+			>
+				{headerHint}
+			</span>
+		{/if}
 		<span class="shrink-0 text-micro tabular-nums text-muted-foreground">
 			{formatDuration(entry.durationMs)}
 		</span>
@@ -152,8 +232,84 @@
 					class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
 				>
 					Output
+					{#if previews && !hiddenBody && preview.overflow}
+						<span class="ml-1 font-mono normal-case tabular-nums">
+							{#if preview.hiddenLines > 0}
+								+{preview.hiddenLines} lines
+							{:else}
+								+more
+							{/if}
+						</span>
+					{/if}
 				</p>
-				<JsonViewer value={entry.output} />
+				{#if !previews}
+					<JsonViewer value={entry.output} />
+				{:else if hiddenBody}
+					<p class="font-mono text-micro text-muted-foreground">{countText}</p>
+					<button
+						type="button"
+						onclick={() => (showFullOutput = !showFullOutput)}
+						aria-expanded={showFullOutput}
+						class="mb-1 flex items-center gap-1 text-micro text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<Icon
+							name="chevron-down"
+							size={12}
+							class={cn(
+								'transition-transform duration-150',
+								showFullOutput && 'rotate-180',
+							)}
+						/>
+						{showFullOutput ? 'Hide output' : 'Show output'}
+					</button>
+					{#if showFullOutput}
+						<pre
+							data-scrollable="true"
+							class={PREVIEW_PRE}>{fullBody.text}</pre>
+						{#if fullBody.capped}
+							<p class="mt-1 font-mono text-micro text-muted-foreground">
+								… {fullBody.hiddenLines} more lines — open Full result for everything
+							</p>
+						{/if}
+					{/if}
+				{:else if preview.text}
+					{#if displayKind === 'diff'}
+						<pre
+							data-scrollable="true"
+							class={PREVIEW_PRE}>{#each previewLines as line, index (index)}<span
+									class={diffToneClass(line)}>{line}</span
+								>{#if index < previewLines.length - 1}<br />{/if}{/each}</pre>
+					{:else}
+						<pre data-scrollable="true" class={PREVIEW_PRE}>{preview.text}</pre>
+					{/if}
+					{#if expandable}
+						<button
+							type="button"
+							onclick={() => (showFullOutput = !showFullOutput)}
+							aria-expanded={showFullOutput}
+							class="mt-1 flex items-center gap-1 text-micro text-muted-foreground transition-colors hover:text-foreground"
+						>
+							<Icon
+								name="chevron-down"
+								size={12}
+								class={cn(
+									'transition-transform duration-150',
+									showFullOutput && 'rotate-180',
+								)}
+							/>
+							{showFullOutput ? 'Hide full output' : 'Show full output'}
+						</button>
+					{/if}
+					{#if showFullOutput}
+						<div class="mt-1">
+							<JsonViewer value={entry.output} />
+						</div>
+					{/if}
+				{:else}
+					<p class="font-mono text-micro text-muted-foreground">
+						No content recorded
+					</p>
+				{/if}
 			</div>
 			{#if isApproval}
 				<div

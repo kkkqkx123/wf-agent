@@ -58,9 +58,7 @@
 	}
 
 	// Each engine exposes its own pause/resume/cancel endpoints; pick per kind.
-	function controlsFor(
-		kind: ExecutionDetail['kind'],
-	): {
+	function controlsFor(kind: ExecutionDetail['kind']): {
 		pause: (id: string) => Promise<void>;
 		resume: (id: string) => Promise<void>;
 		cancel: (id: string) => Promise<void>;
@@ -72,7 +70,11 @@
 				cancel: cancelAgentLoop,
 			};
 		}
-		return { pause: pauseExecution, resume: resumeExecution, cancel: cancelExecution };
+		return {
+			pause: pauseExecution,
+			resume: resumeExecution,
+			cancel: cancelExecution,
+		};
 	}
 
 	async function runControl(

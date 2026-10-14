@@ -33,6 +33,7 @@
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 	import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 	import { WorkflowEditSession } from '$lib/workflows/edit-session.svelte';
+	import { WorkflowGraphState } from '$lib/workflows/graph-state.svelte';
 
 	const TABS = [
 		{ id: 'graph', label: 'Graph' },
@@ -84,6 +85,9 @@
 		detailError = null;
 		try {
 			detail = await getWorkflowDetail(id);
+			// Clear the graph selection and re-run the analysis with each
+			// detail load, as the page-level state did before the split.
+			void graphState.load(id);
 		} catch (e) {
 			detailError = e instanceof Error ? e.message : 'Failed to load workflow.';
 			detail = null;
@@ -91,6 +95,10 @@
 			detailLoading = false;
 		}
 	}
+
+	// Route-owned so tab switches keep the selection and analysis; the detail
+	// load resets it.
+	const graphState = new WorkflowGraphState();
 
 	// Edit state lives on the controller; the route only reloads detail for it
 	// and owns the active tab, which the controller drives through applyTab.
@@ -288,7 +296,7 @@
 				class="rounded-lg border border-border bg-card"
 			/>
 		{:else if tab === 'graph'}
-			<WorkflowGraphTab {detail} workflowId={detail.id} {nodes} {edges} />
+			<WorkflowGraphTab {detail} {nodes} {edges} state={graphState} />
 		{:else if tab === 'edit'}
 			<WorkflowEditSection controller={session} workflowId={detail.id} />
 		{:else if tab === 'versions'}

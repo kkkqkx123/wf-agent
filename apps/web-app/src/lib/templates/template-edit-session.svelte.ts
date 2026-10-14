@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import {
@@ -33,6 +34,13 @@ import type { TemplateEditTab } from '$lib/components/domain/TemplateEditPanel.s
 
 export const VIEWS = ['preview', 'edit', 'graph'] as const;
 export type DetailView = (typeof VIEWS)[number];
+
+const KIND_OPTIONS = [
+	{ value: 'node', label: 'Node' },
+	{ value: 'trigger', label: 'Trigger' },
+	{ value: 'agent', label: 'Agent' },
+	{ value: 'workflow', label: 'Workflow' },
+];
 
 /**
  * Read access to the route identity the controller acts on. The route owns
@@ -88,28 +96,30 @@ export class TemplateEditController {
 
 	constructor(context: TemplateEditRouteContext) {
 		this.context = context;
+	}
 
-		// Keep the session document fresh while typing; failed parses retain
-		// the last valid document so the form and canvas never clear.
-		$effect(() => {
-			if (this.editMode && this.context.kind() !== null) {
-				this.session.applyText(this.editText);
-				this.syntaxError = this.session.syntaxError;
-			}
-		});
+	/**
+	 * Route `$effect`: keep the session document fresh while typing; failed
+	 * parses retain the last valid document so the form and canvas never
+	 * clear.
+	 */
+	watchSessionText(): void {
+		if (this.editMode && this.kind !== null) {
+			this.session.applyText(this.editText);
+			this.syntaxError = this.session.syntaxError;
+		}
+	}
 
-		// Explicit check results only describe the validated text; any later
-		// edit returns the badge and server issues to idle.
-		$effect(() => {
-			if (
-				this.validatedText !== null &&
-				this.editText !== this.validatedText
-			) {
-				this.validatedText = null;
-				this.serverIssues = [];
-				this.validationState = 'idle';
-			}
-		});
+	/**
+	 * Route `$effect`: explicit check results only describe the validated
+	 * text; any later edit returns the badge and server issues to idle.
+	 */
+	watchValidationReset(): void {
+		if (this.validatedText !== null && this.editText !== this.validatedText) {
+			this.validatedText = null;
+			this.serverIssues = [];
+			this.validationState = 'idle';
+		}
 	}
 
 	get kind(): TemplateKind | null {
@@ -128,12 +138,12 @@ export class TemplateEditController {
 		return this.context.routeIdParam();
 	}
 
-	get formFields() {
-		return templateFormFields(this.kind ?? 'node');
-	}
+	/** Form fields for the kind being edited (detail kind, or the create kind). */
+	formFields = $derived(templateFormFields(this.kind ?? 'node'));
 
-	get viewItems() {
-		return this.kind === 'workflow'
+	/** Segmented switcher entries; only workflow templates expose the graph. */
+	viewItems = $derived(
+		this.kind === 'workflow'
 			? [
 					{ id: 'preview', label: 'Preview' },
 					{ id: 'edit', label: 'Edit' },
@@ -142,17 +152,10 @@ export class TemplateEditController {
 			: [
 					{ id: 'preview', label: 'Preview' },
 					{ id: 'edit', label: 'Edit' },
-				];
-	}
+				],
+	);
 
-	get kindOptions() {
-		return [
-			{ value: 'node', label: 'Node' },
-			{ value: 'trigger', label: 'Trigger' },
-			{ value: 'agent', label: 'Agent' },
-			{ value: 'workflow', label: 'Workflow' },
-		];
-	}
+	kindOptions = KIND_OPTIONS;
 
 	enterEdit(tab: TemplateEditTab): void {
 		const kind = this.kind;
@@ -239,7 +242,7 @@ export class TemplateEditController {
 
 	handleTemplateAddNode(position: CanvasPosition): void {
 		const store = this.templateEditStore;
-		const existing = new Set(store.nodes.map((node) => node.id));
+		const existing = new SvelteSet(store.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
 		store.addNode({ id, label: id, kind: 'STEP' }, position);
 		store.selectedId = id;
@@ -396,10 +399,9 @@ export class TemplateEditController {
 			}
 		}
 		const value = this.session.definition();
-		const isNew = this.isNew;
 		this.saveBusy = true;
 		try {
-			if (isNew) {
+			if (this.isNew) {
 				const payload = value as Record<string, unknown>;
 				const id = this.createId.trim() || slugify(this.createName);
 				if (!id) throw new Error('Template id is required');
@@ -549,7 +551,7 @@ export class TemplateEditController {
 	 * templates carry `node_type`; trigger templates describe a trigger, never
 	 * a canvas node.
 	 */
-	get insertNodeType(): string | null {
+	insertNodeType = $derived.by(() => {
 		const kind = this.kind;
 		const detail = this.detail;
 		if (this.isNew || kind !== 'node' || !detail) return null;
@@ -559,7 +561,7 @@ export class TemplateEditController {
 				: null;
 		const value = raw?.node_type;
 		return typeof value === 'string' ? normalizeNodeType(value) : null;
-	}
+	});
 
 	/**
 	 * Queue the current node template for insertion into a workflow canvas,

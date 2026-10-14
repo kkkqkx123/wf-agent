@@ -1,4 +1,5 @@
 import type { UsageSnapshot } from '$lib/services/streaming';
+import type { DisplayPayload } from '$lib/utils/tool-output';
 
 /** Milliseconds between buffer flushes into the rendered answer. */
 export const STREAM_FLUSH_MS = 80;
@@ -9,6 +10,10 @@ export interface LiveToolCall {
 	kind?: string;
 	status: 'pending' | 'running' | 'completed' | 'failed';
 	result: string;
+	error?: string;
+	/** Frontend-facing summary produced alongside the full result. Absent
+	 * on older servers; views fall back to name-based inference. */
+	display?: DisplayPayload | null;
 }
 
 export interface SubAgentNote {
@@ -103,6 +108,8 @@ export class StreamRunStore {
 		success: boolean,
 		result: string,
 		toolKind?: string,
+		error?: string | null,
+		display?: DisplayPayload | null,
 	): void {
 		const existing = this.tools.find((tool) => tool.id === toolCallId);
 		const status = success ? 'completed' : 'failed';
@@ -110,6 +117,8 @@ export class StreamRunStore {
 			existing.status = status;
 			existing.result = result;
 			if (toolKind) existing.kind = toolKind;
+			if (error) existing.error = error;
+			if (display !== undefined) existing.display = display;
 			this.tools = [...this.tools];
 			return;
 		}
@@ -121,6 +130,8 @@ export class StreamRunStore {
 				kind: toolKind,
 				status,
 				result,
+				error: error ?? undefined,
+				display: display ?? null,
 			},
 		];
 	}

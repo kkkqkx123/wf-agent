@@ -1,7 +1,7 @@
 <script lang="ts">
-	import SessionInspector from "$lib/components/domain/SessionInspector.svelte";
-	import { chatStream } from "$lib/stores/stream-run.svelte";
-	import type { ChatSessionController } from "$lib/chat/chat-session.svelte";
+	import SessionInspector from '$lib/components/domain/SessionInspector.svelte';
+	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -13,7 +13,7 @@
 </script>
 
 <SessionInspector
-	sessionId={selectedId ?? ""}
+	sessionId={selectedId ?? ''}
 	bind:tab={controller.tab}
 	revision={controller.revision}
 	busy={chatStream.active}
@@ -25,10 +25,10 @@
 			controller.projectedSubAgents.map((agent) => [
 				agent.name,
 				agent.success === null
-					? "running"
+					? 'running'
 					: agent.success
-						? "completed"
-						: "failed",
+						? 'completed'
+						: 'failed',
 			]),
 		),
 	}}

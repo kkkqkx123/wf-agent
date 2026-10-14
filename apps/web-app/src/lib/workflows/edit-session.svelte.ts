@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
 import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
@@ -227,7 +228,7 @@ export class WorkflowEditSession {
 		nodeType: string,
 		name: string | null,
 	): void {
-		const existing = new Set(this.editStore.nodes.map((node) => node.id));
+		const existing = new SvelteSet(this.editStore.nodes.map((node) => node.id));
 		const id = allocateGraphNodeId(existing);
 		const label = name?.trim() || id;
 		this.editStore.addNode({ id, label, kind: nodeType }, position);

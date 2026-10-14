@@ -45,7 +45,7 @@
 <TemplateEditPanel
 	kind={controller.createKind}
 	tab={controller.editTab}
-	isNew
+	isNew={true}
 	validationState={controller.validationState}
 	fields={templateFormFields(controller.createKind)}
 	bind:formState={controller.formState}

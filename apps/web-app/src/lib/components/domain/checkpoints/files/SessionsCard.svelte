@@ -109,8 +109,7 @@
 				<li class="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption">
 					<span class="min-w-0 flex-1 truncate font-mono">{session.id}</span>
 					{#if session.label}
-						<span class="text-micro text-muted-foreground"
-							>{session.label}</span
+						<span class="text-micro text-muted-foreground">{session.label}</span
 						>
 					{/if}
 					<Button

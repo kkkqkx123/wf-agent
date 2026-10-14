@@ -1,40 +1,40 @@
-import { tick } from "svelte";
-import { page } from "$app/state";
-import { groupToolCalls } from "$lib/utils/tool-output";
-import { preferences } from "$lib/stores/preferences.svelte";
-import { SvelteSet } from "svelte/reactivity";
+import { tick } from 'svelte';
+import { page } from '$app/state';
+import { groupToolCalls } from '$lib/utils/tool-output';
+import { preferences } from '$lib/stores/preferences.svelte';
+import { SvelteDate, SvelteSet } from 'svelte/reactivity';
 import {
 	getLoopGraph,
 	listLoopMessages,
 	type RunLoopMessage,
-} from "$lib/services/agent-loops";
+} from '$lib/services/agent-loops';
 import {
 	applyExecutionOverlay,
 	matchDecisionNodeId,
 	nodesForIteration,
 	projectExecutionOverlay,
-} from "$lib/graph/execution-projection";
-import type { DisplayEdge, DisplayNode } from "$lib/graph/display-model";
-import { streamLoopRun } from "$lib/services/streaming";
-import { listModelProfiles } from "$lib/services/resources";
-import type { CommandAction } from "$lib/config/commands";
+} from '$lib/graph/execution-projection';
+import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
+import { streamLoopRun } from '$lib/services/streaming';
+import { listModelProfiles } from '$lib/services/resources';
+import type { CommandAction } from '$lib/config/commands';
 import type {
 	LoopMessage,
 	MessageAttachment,
 	OutgoingMessage,
 	ToolCallEntry,
-} from "$lib/types/models";
-import { splitAttachments, withAttachments } from "$lib/utils/attachments";
-import { createResource } from "$lib/stores/collection.svelte";
+} from '$lib/types/models';
+import { splitAttachments, withAttachments } from '$lib/utils/attachments';
+import { createResource } from '$lib/stores/collection.svelte';
 import {
 	chatStream,
 	type LiveToolCall,
 	type SubAgentNote,
-} from "$lib/stores/stream-run.svelte";
-import { NEW_SESSION, sessions } from "$lib/stores/sessions.svelte";
-import { toasts } from "$lib/stores/toast.svelte";
-import { gotoWithParams } from "$lib/utils/route";
-import { isSessionTab, type SessionTab } from "$lib/config/session-tabs";
+} from '$lib/stores/stream-run.svelte';
+import { NEW_SESSION, sessions } from '$lib/stores/sessions.svelte';
+import { toasts } from '$lib/stores/toast.svelte';
+import { gotoWithParams } from '$lib/utils/route';
+import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
 
 /**
  * Per-page chat controller: owns selection, the transcript resource, the
@@ -43,16 +43,66 @@ import { isSessionTab, type SessionTab } from "$lib/config/session-tabs";
  */
 export class ChatSessionController {
 	/** Selection lives in the address, so the sidebar and this page share it. */
-	selectedId = $derived(page.url.searchParams.get("id"));
+	selectedId = $derived(page.url.searchParams.get('id'));
 
-	model = $state("");
+	model = $state('');
 	revision = $state(0);
 
 	/** Inspector tab, mirrored into the address by the route. */
-	tab = $state<SessionTab>("overview");
+	tab = $state<SessionTab>('overview');
 
 	constructor(initialTab: string | undefined) {
-		this.tab = isSessionTab(initialTab) ?? "overview";
+		this.tab = isSessionTab(initialTab) ?? 'overview';
+
+		// Group expansion is session-local memory: new ids mean new keys, but
+		// clear explicitly on session switch so stale keys never accumulate.
+		$effect(() => {
+			void this.selectedId;
+			this.openGroups.clear();
+		});
+
+		$effect(() => {
+			if (!this.selectedId) {
+				this.mapOpen = false;
+				this.miniSelected = null;
+				this.focusedToolId = null;
+				return;
+			}
+			void this.loopGraph.reload();
+		});
+
+		$effect(() => {
+			const id = window.setInterval(() => {
+				if (!chatStream.active) return;
+				this.projectedTools = [...chatStream.tools];
+				this.projectedSubAgents = [...chatStream.subAgents];
+				this.projectedIteration = chatStream.iteration;
+			}, 200);
+			return () => window.clearInterval(id);
+		});
+
+		$effect(() => {
+			if (chatStream.active) return;
+			this.projectedTools = [...chatStream.tools];
+			this.projectedSubAgents = [...chatStream.subAgents];
+			this.projectedIteration = chatStream.iteration;
+		});
+
+		// Converge with the history snapshot once the run settles.
+		$effect(() => {
+			if (chatStream.done && this.selectedId) void this.loopGraph.reload();
+		});
+
+		// The address is the source of truth for which session is open.
+		$effect(() => {
+			const id = this.selectedId;
+			if (!id) {
+				this.transcript.data = [];
+				return;
+			}
+			sessions.touch(id);
+			void this.transcript.reload();
+		});
 	}
 
 	transcript = createResource<LoopMessage[]>(async () => {
@@ -76,7 +126,7 @@ export class ChatSessionController {
 				chatStream.done ||
 				chatStream.cancelled ||
 				chatStream.error !== null ||
-				chatStream.answer !== ""),
+				chatStream.answer !== ''),
 	);
 
 	showTranscript = $derived(this.bubbles.length > 0 || this.showLive);
@@ -84,7 +134,7 @@ export class ChatSessionController {
 	session = $derived(
 		this.selectedId
 			? (sessions.list.items.find((item) => item.id === this.selectedId) ??
-				null)
+					null)
 			: null,
 	);
 
@@ -92,11 +142,11 @@ export class ChatSessionController {
 		return {
 			id: tool.id,
 			name: tool.name,
-			kind: tool.kind ?? "",
+			kind: tool.kind ?? '',
 			status: tool.status,
-			startedAt: "",
+			startedAt: '',
 			durationMs: 0,
-			input: "",
+			input: '',
 			output: tool.result,
 			error: tool.error,
 			displayKind: tool.display?.kind,
@@ -120,13 +170,6 @@ export class ChatSessionController {
 		else this.openGroups.add(key);
 	}
 
-	// Group expansion is session-local memory: new ids mean new keys, but
-	// clear explicitly on session switch so stale keys never accumulate.
-	$effect(() => {
-		void this.selectedId;
-		this.openGroups.clear();
-	});
-
 	// Mini decision map: lightweight mirror of the session decision graph,
 	// sharing the projection bridge with the inspector graph tab.
 	loopGraph = createResource(async () => {
@@ -138,16 +181,6 @@ export class ChatSessionController {
 	miniSelected = $state<string | null>(null);
 	focusedToolId = $state<string | null>(null);
 	miniCanvas = $state<{ zoomTo: (id: string) => void } | null>(null);
-
-	$effect(() => {
-		if (!this.selectedId) {
-			this.mapOpen = false;
-			this.miniSelected = null;
-			this.focusedToolId = null;
-			return;
-		}
-		void this.loopGraph.reload();
-	});
 
 	miniBaseNodes = $derived<DisplayNode[]>(
 		(this.loopGraph.data?.nodes ?? []).map((node) => ({
@@ -176,28 +209,6 @@ export class ChatSessionController {
 	projectedSubAgents = $state<SubAgentNote[]>([]);
 	projectedIteration = $state<number | null>(null);
 
-	$effect(() => {
-		const id = window.setInterval(() => {
-			if (!chatStream.active) return;
-			this.projectedTools = [...chatStream.tools];
-			this.projectedSubAgents = [...chatStream.subAgents];
-			this.projectedIteration = chatStream.iteration;
-		}, 200);
-		return () => window.clearInterval(id);
-	});
-
-	$effect(() => {
-		if (chatStream.active) return;
-		this.projectedTools = [...chatStream.tools];
-		this.projectedSubAgents = [...chatStream.subAgents];
-		this.projectedIteration = chatStream.iteration;
-	});
-
-	// Converge with the history snapshot once the run settles.
-	$effect(() => {
-		if (chatStream.done && this.selectedId) void this.loopGraph.reload();
-	});
-
 	matchMiniNode(name: string): string | null {
 		return matchDecisionNodeId(this.miniBaseNodes, name);
 	}
@@ -209,7 +220,7 @@ export class ChatSessionController {
 			const nodeId = this.matchMiniNode(tool.name);
 			if (!nodeId) continue;
 			live[nodeId] = tool.status;
-			if (tool.status === "running" || tool.status === "pending") {
+			if (tool.status === 'running' || tool.status === 'pending') {
 				current = nodeId;
 			}
 		}
@@ -218,10 +229,10 @@ export class ChatSessionController {
 			if (!nodeId) continue;
 			const status =
 				agent.success === null
-					? "running"
+					? 'running'
 					: agent.success
-						? "completed"
-						: "failed";
+						? 'completed'
+						: 'failed';
 			live[nodeId] = status;
 			if (agent.success === null) current ??= nodeId;
 		}
@@ -264,13 +275,9 @@ export class ChatSessionController {
 			const scroll = (): void => {
 				document
 					.getElementById(`live-tool-${match.id}`)
-					?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+					?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 			};
-			if (
-				group &&
-				group.kind !== "single" &&
-				!this.openGroups.has(group.key)
-			) {
+			if (group && group.kind !== 'single' && !this.openGroups.has(group.key)) {
 				this.openGroups.add(group.key);
 				void tick().then(scroll);
 				return;
@@ -293,7 +300,7 @@ export class ChatSessionController {
 		if (!text && message.attachments.length === 0) return false;
 		if (chatStream.active) return false;
 		if (!this.model.trim()) {
-			toasts.error("Choose a model before sending");
+			toasts.error('Choose a model before sending');
 			return false;
 		}
 		void this.runStream(text, message.attachments);
@@ -307,33 +314,30 @@ export class ChatSessionController {
 	retryLast(): void {
 		const bubbles = this.bubbles;
 		for (let index = bubbles.length - 1; index >= 0; index -= 1) {
-			if (bubbles[index].role === "user") {
+			if (bubbles[index].role === 'user') {
 				this.sendText(splitAttachments(bubbles[index].content));
 				return;
 			}
 		}
-		toasts.error("No user message to retry");
+		toasts.error('No user message to retry');
 	}
 
-	recordFeedback(kind: "up" | "down"): void {
-		if (kind === "up") toasts.success("Thanks for the feedback");
-		else toasts.info("Feedback recorded, will improve");
+	recordFeedback(kind: 'up' | 'down'): void {
+		if (kind === 'up') toasts.success('Thanks for the feedback');
+		else toasts.info('Feedback recorded, will improve');
 	}
 
 	/** Every slash command maps to one action here; the table owns the vocabulary. */
 	COMMANDS: Record<CommandAction, (arg: string) => void> = {
 		new: () => sessions.startDraft(),
 		retry: () => this.retryLast(),
-		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : "Continue"),
+		continue: (arg) => this.sendPrompt(arg ? `Continue: ${arg}` : 'Continue'),
 	};
 
-	async runStream(
-		content: string,
-		files: MessageAttachment[],
-	): Promise<void> {
+	async runStream(content: string, files: MessageAttachment[]): Promise<void> {
 		const draft = !this.selectedId;
-		const baseline = new Set(sessions.list.items.map((item) => item.id));
-		const startedAt = new Date().toISOString();
+		const baseline = new SvelteSet(sessions.list.items.map((item) => item.id));
+		const startedAt = new SvelteDate().toISOString();
 		const history: RunLoopMessage[] = this.bubbles.map((message) => ({
 			id: message.id,
 			role: message.role,
@@ -385,9 +389,7 @@ export class ChatSessionController {
 		if (!chatStream.error && !chatStream.done) chatStream.complete();
 		await sessions.refresh();
 		if (draft) {
-			const fresh = sessions.sessions.filter(
-				(row) => !baseline.has(row.id),
-			);
+			const fresh = sessions.sessions.filter((row) => !baseline.has(row.id));
 			const adopted =
 				fresh.find((row) => row.startedAt >= startedAt) ?? fresh[0];
 			if (adopted) {
@@ -399,23 +401,12 @@ export class ChatSessionController {
 		if (this.selectedId) await this.transcript.reload();
 	}
 
-	// The address is the source of truth for which session is open.
-	$effect(() => {
-		const id = this.selectedId;
-		if (!id) {
-			this.transcript.data = [];
-			return;
-		}
-		sessions.touch(id);
-		void this.transcript.reload();
-	});
-
 	/** URL-sync effect body; the route hosts the $effect wrapper. */
 	syncAddress(tab: string, panelOpen: boolean): void {
 		void gotoWithParams(page.url, {
-			id: this.selectedId ?? "",
-			tab: tab === "overview" ? "" : tab,
-			panel: panelOpen ? "" : "closed",
+			id: this.selectedId ?? '',
+			tab: tab === 'overview' ? '' : tab,
+			panel: panelOpen ? '' : 'closed',
 		});
 	}
 

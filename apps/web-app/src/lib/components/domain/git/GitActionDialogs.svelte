@@ -5,13 +5,14 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import { git as gitStore } from '$lib/stores/git.svelte';
 	import { bindingsFor } from '$lib/git/bindings';
-	import {
-		GitWorkbench,
-		GUARDED_DANGERS,
-		PARAM_LABELS,
-	} from '$lib/git/workbench.svelte';
+	import { GUARDED_DANGERS, PARAM_LABELS } from '$lib/git/workbench.svelte';
+	import type { GitWorkbench } from '$lib/git/workbench.svelte';
 
-	let { workbench }: { workbench: GitWorkbench } = $props();
+	interface Props {
+		workbench: GitWorkbench;
+	}
+
+	let { workbench }: Props = $props();
 </script>
 
 <Dialog

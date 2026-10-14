@@ -3,15 +3,12 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import { git as gitStore } from '$lib/stores/git.svelte';
-	import {
-		PANELS,
-		GitWorkbench,
-		type PanelId,
-	} from '$lib/git/workbench.svelte';
+	import { PANELS } from '$lib/git/workbench.svelte';
+	import type { GitWorkbench, PanelId } from '$lib/git/workbench.svelte';
 
 	interface Props {
 		workbench: GitWorkbench;
-		panel: PanelId;
+		panel?: PanelId;
 	}
 
 	let { workbench, panel = $bindable('status') }: Props = $props();
@@ -85,9 +82,7 @@
 							? 'bg-accent/70'
 							: ''}"
 					>
-						<span class="truncate font-mono text-caption"
-							>{file.path}</span
-						>
+						<span class="truncate font-mono text-caption">{file.path}</span>
 						<span class="font-mono text-micro text-muted-foreground"
 							>{file.staged}{file.unstaged}</span
 						>
@@ -135,8 +130,8 @@
 					</ul>
 				{/if}
 				<p class="text-micro text-muted-foreground">
-					Worktree and submodule writes are unavailable here; use the
-					terminal. Lists refresh with the page.
+					Worktree and submodule writes are unavailable here; use the terminal.
+					Lists refresh with the page.
 				</p>
 			</div>
 		{/if}
@@ -147,8 +142,7 @@
 					<button
 						type="button"
 						onclick={() => gitStore.select('branches', branch.name)}
-						aria-pressed={gitStore.selectionFor('branches') ===
-							branch.name}
+						aria-pressed={gitStore.selectionFor('branches') === branch.name}
 						class="flex w-full items-center justify-between gap-2 px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
 							'branches',
 						) === branch.name
@@ -179,9 +173,7 @@
 		{#if workbench.remotes.length > 0 || workbench.tags.length > 0}
 			<div class="mt-3 space-y-2 border-t border-border pt-2">
 				{#if workbench.remotes.length > 0}
-					<p class="text-micro font-medium text-muted-foreground">
-						Remotes
-					</p>
+					<p class="text-micro font-medium text-muted-foreground">Remotes</p>
 					<ul class="space-y-0.5">
 						{#each workbench.remotes as remote (remote.name)}
 							<li
@@ -194,9 +186,7 @@
 					</ul>
 				{/if}
 				{#if workbench.tags.length > 0}
-					<p class="text-micro font-medium text-muted-foreground">
-						Tags
-					</p>
+					<p class="text-micro font-medium text-muted-foreground">Tags</p>
 					<ul class="space-y-0.5">
 						{#each workbench.tags as tag (tag.name)}
 							<li
@@ -217,8 +207,7 @@
 					<button
 						type="button"
 						onclick={() => void workbench.selectCommit(commit.id)}
-						aria-pressed={gitStore.selectionFor('commits') ===
-							commit.id}
+						aria-pressed={gitStore.selectionFor('commits') === commit.id}
 						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
 							'commits',
 						) === commit.id

@@ -3,10 +3,7 @@
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import ApprovalsPanel from '$lib/components/domain/checkpoints/ApprovalsPanel.svelte';
-	import {
-		approveApproval,
-		rejectApproval,
-	} from '$lib/services/checkpoints';
+	import { approveApproval, rejectApproval } from '$lib/services/checkpoints';
 	import type { Approval } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';

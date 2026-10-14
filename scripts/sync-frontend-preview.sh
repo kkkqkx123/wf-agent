@@ -168,9 +168,46 @@ fs.renameSync(path + ".tmp", path);
 fi
  
 # ---------------------------------------------------------------------------
+# Step 3 — Verify mirror consistency (preview is a mirror, not a co-author)
+# ---------------------------------------------------------------------------
+
+# The sync script is the only writer of the preview project. Everything in
+# the mirror must match web-app exactly except the preview-only allowlist:
+# fixture data, the fixture-backed API client, and the env file. Any drift
+# outside that allowlist means someone hand-edited one side; the check fails
+# and the sync is reported as incomplete until it is resolved.
+
+info "Verifying mirror consistency (allowlist: fixtures/, api/client.ts, .env)"
+
+VERIFY_EXCLUDES=(
+--exclude="fixtures"        # preview-only sample data
+--exclude="client.ts"       # fixture-backed API client
+)
+
+if ! diff -qr "${VERIFY_EXCLUDES[@]}" "$SRC_DIR/src" "$DST_DIR/src"; then
+echo "Error: preview src/ has drifted from web-app outside the allowlist." >&2
+echo "Fix the diverged files in apps/web-app and re-run this script;" >&2
+echo "hand-editing apps/web-app-preview directly is not supported." >&2
+exit 1
+fi
+
+# package.json is intentionally merged, not mirrored: identity fields stay
+# preview-owned while deps and scripts follow web-app. Config files are
+# mirrored wholesale, so they must match too.
+for f in svelte.config.js tsconfig.json tsconfig.test.json eslint.config.js vite.config.ts; do
+if ! diff -q "$SRC_DIR/$f" "$DST_DIR/$f" >/dev/null; then
+echo "Error: $f differs between web-app and web-app-preview." >&2
+echo "Re-run the sync or resolve the divergence manually in web-app first." >&2
+exit 1
+fi
+done
+
+info "Mirror consistency verified."
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
- 
+
 echo
 info "Sync complete."
 echo

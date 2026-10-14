@@ -100,9 +100,7 @@
 	);
 	const increments = $derived(Math.max(0, activity - baseline));
 	const awayFromTop = $derived(scrollTop > FOLLOW_TAIL_SLACK_PX);
-	const canScroll = $derived(
-		contentHeight - viewHeight > FOLLOW_TAIL_SLACK_PX,
-	);
+	const canScroll = $derived(contentHeight - viewHeight > FOLLOW_TAIL_SLACK_PX);
 	const showTop = $derived(canScroll && awayFromTop);
 
 	/** Short window where scroll events from a programmatic sink keep following. */

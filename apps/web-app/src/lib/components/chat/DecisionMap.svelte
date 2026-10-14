@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Skeleton from "@wf-agent/ui/components/Skeleton.svelte";
-	import GraphCanvas from "$lib/components/domain/GraphCanvas.svelte";
-	import { chatStream } from "$lib/stores/stream-run.svelte";
-	import type { ChatSessionController } from "$lib/chat/chat-session.svelte";
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import GraphCanvas from '$lib/components/domain/GraphCanvas.svelte';
+	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -29,10 +29,10 @@
 			class="text-micro text-muted-foreground underline-offset-2 hover:underline"
 			onclick={() => (controller.mapOpen = !controller.mapOpen)}
 		>
-			{mapOpen ? "Hide decision map" : "Show decision map"}
+			{mapOpen ? 'Hide decision map' : 'Show decision map'}
 			{chatStream.tools.length > 0
 				? ` · ${chatStream.tools.length} live tool(s)`
-				: ""}
+				: ''}
 		</button>
 		{#if mapOpen}
 			<div class="mt-1.5">
@@ -50,8 +50,7 @@
 						preset="decision"
 						layout="columns"
 						selectedId={controller.miniSelected}
-						onselect={(nodeId: string) =>
-							controller.focusToolFromNode(nodeId)}
+						onselect={(nodeId: string) => controller.focusToolFromNode(nodeId)}
 						heightClass="h-56"
 					/>
 				{/if}

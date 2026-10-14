@@ -59,11 +59,19 @@
 		<Icon name="pencil" size={13} />
 		Edit
 	</Button>
-	<Button variant="outline" size="sm" onclick={() => void controller.runExport()}>
+	<Button
+		variant="outline"
+		size="sm"
+		onclick={() => void controller.runExport()}
+	>
 		<Icon name="download" size={13} />
 		Export
 	</Button>
-	<Button variant="outline" size="sm" onclick={() => void controller.runClone()}>
+	<Button
+		variant="outline"
+		size="sm"
+		onclick={() => void controller.runClone()}
+	>
 		Clone as new
 	</Button>
 	{#if kind === 'workflow'}

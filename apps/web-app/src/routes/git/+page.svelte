@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy, onMount } from 'svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
@@ -12,7 +13,8 @@
 	import GitActionDialogs from '$lib/components/domain/git/GitActionDialogs.svelte';
 	import { page } from '$app/state';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
-	import { GitWorkbench, PANELS, type PanelId } from '$lib/git/workbench.svelte';
+	import { GitWorkbench, PANELS } from '$lib/git/workbench.svelte';
+	import type { PanelId } from '$lib/git/workbench.svelte';
 
 	const requested = parseListParams(page.url).panel;
 	const workbench = new GitWorkbench();
@@ -24,14 +26,14 @@
 			? (requested as PanelId)
 			: 'status';
 
-	$effect(() => {
-		void gotoWithParams(
-			page.url,
-			{ panel: workbench.panel === 'status' ? '' : workbench.panel },
-		);
-	});
+	onMount(() => workbench.start());
+	onDestroy(() => workbench.stop());
 
-	workbench.start();
+	$effect(() => {
+		void gotoWithParams(page.url, {
+			panel: workbench.panel === 'status' ? '' : workbench.panel,
+		});
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -41,8 +43,7 @@
 	>
 		{#snippet actions()}
 			{#if workbench.meta}
-				<Badge variant="neutral"
-					>{workbench.meta.branch || '(no branch)'}</Badge
+				<Badge variant="neutral">{workbench.meta.branch || '(no branch)'}</Badge
 				>
 				{#if workbench.meta.upstream}
 					<Badge variant="neutral"
@@ -50,9 +51,7 @@
 							.behind}</Badge
 					>
 				{/if}
-				{#if workbench.meta.mergeHead ||
-					workbench.meta.rebaseHead ||
-					workbench.meta.cherryPickHead}
+				{#if workbench.meta.mergeHead || workbench.meta.rebaseHead || workbench.meta.cherryPickHead}
 					<Badge variant="warning">mid-operation</Badge>
 				{/if}
 			{/if}

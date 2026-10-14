@@ -1,7 +1,4 @@
-import type {
-	IndexStatus,
-	WorkspaceFile,
-} from '$lib/services/checkpoints';
+import type { IndexStatus, WorkspaceFile } from '$lib/services/checkpoints';
 
 const ACTOR_STORAGE_KEY = 'wf:fileWorkspace:actor';
 

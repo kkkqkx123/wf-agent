@@ -4,7 +4,11 @@
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
 	import FilesPanel from '$lib/components/domain/checkpoints/FilesPanel.svelte';
-	import { getFileContent, resolveConflicts, type ConflictFile } from '$lib/services/checkpoints';
+	import {
+		getFileContent,
+		resolveConflicts,
+		type ConflictFile,
+	} from '$lib/services/checkpoints';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as checkpointStore } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace } from '$lib/stores/fileWorkspace.svelte';
@@ -32,7 +36,10 @@
 			return;
 		}
 		if (resolveBinary) {
-			toasts.error('Binary conflicts cannot be resolved here', 'Use the terminal');
+			toasts.error(
+				'Binary conflicts cannot be resolved here',
+				'Use the terminal',
+			);
 			return;
 		}
 		if (hasConflictMarkers(resolveContent)) {
@@ -94,7 +101,8 @@
 				if (!resolveContent) {
 					resolveNote = 'Conflicted content is empty at this commit.';
 				} else if (content.truncated) {
-					resolveNote = 'Content truncated at 1 MiB; verify the tail in the terminal.';
+					resolveNote =
+						'Content truncated at 1 MiB; verify the tail in the terminal.';
 				}
 			})
 			.catch((e) => {

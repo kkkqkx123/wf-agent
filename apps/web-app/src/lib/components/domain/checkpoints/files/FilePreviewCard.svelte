@@ -142,8 +142,7 @@
 								renamed from {entry.movedFrom}
 							</span>
 						{/if}
-						<span
-							class="shrink-0 text-micro tabular-nums text-muted-foreground"
+						<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
 							>{formatRelativeTime(
 								new Date(entry.timestamp).toISOString(),
 							)}</span
@@ -190,11 +189,8 @@
 			<ul class="space-y-1">
 				{#each previewTree.entries as entry (entry.path)}
 					<li class="flex items-center justify-between gap-2 text-caption">
-						<span class="min-w-0 flex-1 truncate font-mono"
-							>{entry.path}</span
-						>
-						<span
-							class="shrink-0 text-micro tabular-nums text-muted-foreground"
+						<span class="min-w-0 flex-1 truncate font-mono">{entry.path}</span>
+						<span class="shrink-0 text-micro tabular-nums text-muted-foreground"
 							>{formatBytes(entry.size)}</span
 						>
 					</li>

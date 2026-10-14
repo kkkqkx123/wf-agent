@@ -1,4 +1,4 @@
-import { onDestroy, onMount } from 'svelte';
+import { SvelteSet } from 'svelte/reactivity';
 import { toasts } from '$lib/stores/toast.svelte';
 import { git as gitStore } from '$lib/stores/git.svelte';
 import {
@@ -70,7 +70,10 @@ export const PARAM_DEFAULTS: Record<string, Record<string, string>> = {
 	pull: { remote: 'origin' },
 };
 
-export const GUARDED_DANGERS = new Set(['destructive', 'history_rewrite']);
+export const GUARDED_DANGERS = new SvelteSet([
+	'destructive',
+	'history_rewrite',
+]);
 
 export class GitWorkbench {
 	panel = $state<PanelId>('status');
@@ -163,19 +166,21 @@ export class GitWorkbench {
 	);
 	selection = $derived(gitStore.selectionFor(this.panel));
 
+	/** Attach the live subscription, do the initial load and focus the key input. */
 	start(): void {
-		onMount(() => {
-			this.stopLive = gitStore.subscribeLive(() => {
-				if (this.loading) this.liveDirty = true;
-				else void this.reload();
-			});
-			void this.reload();
-			this.focusKeyInput();
+		this.stopLive = gitStore.subscribeLive(() => {
+			if (this.loading) this.liveDirty = true;
+			else void this.reload();
 		});
-		onDestroy(() => {
-			this.stopLive?.();
-			if (this.terminalId) void closeTerminal(this.terminalId).catch(() => {});
-		});
+		void this.reload();
+		this.focusKeyInput();
+	}
+
+	/** Detach the live subscription and close any open terminal session. */
+	stop(): void {
+		this.stopLive?.();
+		this.stopLive = null;
+		if (this.terminalId) void closeTerminal(this.terminalId).catch(() => {});
 	}
 
 	specFor(action: string): RegistryEntry | undefined {
@@ -253,9 +258,9 @@ export class GitWorkbench {
 				this.diffSource = 'unstaged';
 			}
 			if (gitStore.selectedCommit) {
-				this.commitFiles = await getCommitFiles(
-					gitStore.selectedCommit,
-				).catch(() => []);
+				this.commitFiles = await getCommitFiles(gitStore.selectedCommit).catch(
+					() => [],
+				);
 			}
 		} catch (e) {
 			this.loadError = e instanceof Error ? e.message : 'Git request failed';
@@ -282,10 +287,7 @@ export class GitWorkbench {
 		this.focusKeyInput();
 	}
 
-	async showCommitFileDiff(
-		commit: string,
-		path: string,
-	): Promise<void> {
+	async showCommitFileDiff(commit: string, path: string): Promise<void> {
 		this.diffSource = 'commit';
 		try {
 			this.diff = await getDiffRange(`${commit}^`, commit, path);
@@ -337,9 +339,7 @@ export class GitWorkbench {
 	paramDefault(action: string, key: string): string {
 		if (key === 'path') return gitStore.selectedFile ?? '';
 		if (key === 'index' && this.panel === 'stash') {
-			const entry = this.stash.find(
-				(s) => s.name === gitStore.selectedStash,
-			);
+			const entry = this.stash.find((s) => s.name === gitStore.selectedStash);
 			return entry ? String(entry.index) : '';
 		}
 		if (key === 'commit') return gitStore.selectedCommit ?? '';
@@ -502,7 +502,10 @@ export class GitWorkbench {
 		try {
 			const before = await getFingerprint().catch(() => null);
 			await sendTerminalInput(this.terminalId, input);
-			const output = await readTerminalOutput(this.terminalId, this.terminalOffset);
+			const output = await readTerminalOutput(
+				this.terminalId,
+				this.terminalOffset,
+			);
 			this.terminalText += output;
 			this.terminalOffset += output.length;
 			const after = await getFingerprint().catch(() => null);

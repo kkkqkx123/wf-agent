@@ -178,13 +178,10 @@
 
 <PageState {loading} error={loadError} onretry={() => void loadShared()}>
 	<div class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-		<FileChangesCard
-			selectedId={selectedChangeId}
-			onselect={handleSelect}
-		/>
+		<FileChangesCard selectedId={selectedChangeId} onselect={handleSelect} />
 
 		<FilePreviewCard
-			selectedChange={selectedChange}
+			{selectedChange}
 			{mainDiff}
 			{diffNote}
 			{diffLoading}

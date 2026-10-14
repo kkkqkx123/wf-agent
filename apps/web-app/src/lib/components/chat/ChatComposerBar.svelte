@@ -1,14 +1,14 @@
 <script lang="ts">
-	import Composer from "$lib/components/chat/Composer.svelte";
-	import DecisionMap from "$lib/components/chat/DecisionMap.svelte";
-	import { chatStream } from "$lib/stores/stream-run.svelte";
-	import { NEW_SESSION } from "$lib/stores/sessions.svelte";
-	import type { ChatSessionController } from "$lib/chat/chat-session.svelte";
+	import Composer from '$lib/components/chat/Composer.svelte';
+	import DecisionMap from '$lib/components/chat/DecisionMap.svelte';
+	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
+	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	const SUGGESTIONS = [
-		"Summarize the current workspace state",
-		"List the available tools and skills",
-		"Draft a plan before making changes",
+		'Summarize the current workspace state',
+		'List the available tools and skills',
+		'Draft a plan before making changes',
 	];
 
 	interface Props {

@@ -73,6 +73,18 @@
 		void gotoWithParams(page.url, { tab: view === 'preview' ? '' : view });
 	});
 
+	// Keep the session document fresh while typing; failed parses retain
+	// the last valid document so the form and canvas never clear.
+	$effect(() => {
+		controller.watchSessionText();
+	});
+
+	// Explicit check results only describe the validated text; any later
+	// edit returns the badge and server issues to idle.
+	$effect(() => {
+		controller.watchValidationReset();
+	});
+
 	// Reload when the route identity changes (list navigation, clone jumps).
 	// The view intent always comes from the live URL so clone and save jumps
 	// land on the view their address carries.
@@ -116,7 +128,7 @@
 			if (view !== 'preview') {
 				controller.enterEdit(view === 'graph' ? 'graph' : 'json');
 			} else {
-				controller.exitEdit();
+				controller.editMode = false;
 			}
 		} catch (e) {
 			detailError = e instanceof Error ? e.message : 'Template detail failed.';

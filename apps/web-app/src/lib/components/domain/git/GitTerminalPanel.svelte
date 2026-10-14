@@ -2,9 +2,13 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
-	import { GitWorkbench } from '$lib/git/workbench.svelte';
+	import type { GitWorkbench } from '$lib/git/workbench.svelte';
 
-	let { workbench }: { workbench: GitWorkbench } = $props();
+	interface Props {
+		workbench: GitWorkbench;
+	}
+
+	let { workbench }: Props = $props();
 </script>
 
 {#if workbench.terminalOpen}
@@ -13,8 +17,10 @@
 		description="Repo-locked shell; output polls the session buffer."
 	>
 		<div class="mb-2 flex gap-2">
-			<Button size="sm" variant="ghost" onclick={() => workbench.clearTerminal()}
-				>Clear</Button
+			<Button
+				size="sm"
+				variant="ghost"
+				onclick={() => workbench.clearTerminal()}>Clear</Button
 			>
 			<Button
 				size="sm"

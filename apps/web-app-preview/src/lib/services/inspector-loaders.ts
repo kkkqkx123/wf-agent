@@ -124,7 +124,9 @@ export interface HierarchySnapshot {
 	subtree: ExecutionSubtree;
 }
 
-export async function loadHierarchyData(id: string): Promise<HierarchySnapshot> {
+export async function loadHierarchyData(
+	id: string,
+): Promise<HierarchySnapshot> {
 	const [view, tree] = await Promise.all([
 		getExecutionHierarchy(id),
 		getExecutionSubtree(id),

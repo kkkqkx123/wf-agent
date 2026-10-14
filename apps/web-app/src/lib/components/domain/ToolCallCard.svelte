@@ -263,7 +263,9 @@
 						{showFullOutput ? 'Hide output' : 'Show output'}
 					</button>
 					{#if showFullOutput}
-						<pre data-scrollable="true" class={PREVIEW_PRE}>{fullBody.text}</pre>
+						<pre
+							data-scrollable="true"
+							class={PREVIEW_PRE}>{fullBody.text}</pre>
 						{#if fullBody.capped}
 							<p class="mt-1 font-mono text-micro text-muted-foreground">
 								… {fullBody.hiddenLines} more lines — open Full result for everything

@@ -310,9 +310,7 @@
 						class="w-36"
 						onchange={(value) => {
 							engine =
-								value === 'agent_loop' || value === 'workflow'
-									? value
-									: 'all';
+								value === 'agent_loop' || value === 'workflow' ? value : 'all';
 							selectedId = null;
 							void reload();
 						}}

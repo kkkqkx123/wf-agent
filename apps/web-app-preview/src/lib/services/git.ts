@@ -1,5 +1,7 @@
 import { client } from '$lib/api/client';
 import { call, requireData } from '$lib/api/envelope';
+import { gitHunksToDiffFile } from '$lib/types/diff';
+import type { DiffFile } from '$lib/types/diff';
 
 export interface RepoMeta {
 	name: string;
@@ -23,12 +25,12 @@ export interface GitFile {
 	renamedFrom: string | null;
 }
 
-export interface DiffHunk {
+interface DiffHunk {
 	header: string;
 	lines: string[];
 }
 
-export interface DiffFile {
+interface DiffFileWire {
 	path: string;
 	hunks: DiffHunk[];
 	additions: number;
@@ -108,12 +110,10 @@ export interface Fingerprint {
 	branchSummary: string;
 }
 
-function snake<T>(data: T): T {
-	return data;
-}
-
 export async function getMeta(): Promise<RepoMeta> {
-	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/meta'));
+	const data = await call<Record<string, unknown>>(
+		client.GET('/api/v1/git/meta'),
+	);
 	const v = requireData(data, 'Git meta') as Record<string, unknown>;
 	return {
 		name: String(v.name ?? ''),
@@ -124,9 +124,9 @@ export async function getMeta(): Promise<RepoMeta> {
 		behind: Number(v.behind ?? 0),
 		head: String(v.head ?? ''),
 		bare: Boolean(v.bare ?? false),
-		mergeHead: Boolean(v.merge_head ?? v.mergeHead ?? false),
-		rebaseHead: Boolean(v.rebase_head ?? v.rebaseHead ?? false),
-		cherryPickHead: Boolean(v.cherry_pick_head ?? v.cherryPickHead ?? false),
+		mergeHead: Boolean(v.merge_head ?? false),
+		rebaseHead: Boolean(v.rebase_head ?? false),
+		cherryPickHead: Boolean(v.cherry_pick_head ?? false),
 	};
 }
 
@@ -139,7 +139,9 @@ export interface StatusCounts {
 }
 
 export async function getStatus(): Promise<StatusCounts> {
-	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/status'));
+	const data = await call<Record<string, unknown>>(
+		client.GET('/api/v1/git/status'),
+	);
 	const v = requireData(data, 'Git status') as Record<string, unknown>;
 	return {
 		branch: String(v.branch ?? ''),
@@ -158,7 +160,7 @@ export async function listFiles(): Promise<GitFile[]> {
 		staged: String(f.staged ?? ''),
 		unstaged: String(f.unstaged ?? ''),
 		kind: String(f.kind ?? ''),
-		renamedFrom: (f.renamed_from as string | null) ?? (f.renamedFrom as string | null) ?? null,
+		renamedFrom: (f.renamed_from as string | null) ?? null,
 	}));
 }
 
@@ -166,8 +168,10 @@ export async function getDiff(path?: string): Promise<DiffFile[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/diff', { params: { query: { path } } }),
 	);
-	const rows = requireData(data, 'Git diff') as DiffFile[];
-	return snake(Array.isArray(rows) ? rows : []);
+	const rows = requireData(data, 'Git diff') as DiffFileWire[];
+	return (Array.isArray(rows) ? rows : []).map((f) =>
+		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
+	);
 }
 
 export async function listCommits(params?: {
@@ -178,14 +182,20 @@ export async function listCommits(params?: {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/commits', {
 			params: {
-				query: { limit: params?.limit, offset: params?.offset, branch: params?.branch },
+				query: {
+					limit: params?.limit,
+					offset: params?.offset,
+					branch: params?.branch,
+				},
 			},
 		}),
 	);
-	const rows = requireData(data, 'Git commits') as Array<Record<string, unknown>>;
+	const rows = requireData(data, 'Git commits') as Array<
+		Record<string, unknown>
+	>;
 	return (Array.isArray(rows) ? rows : []).map((c) => ({
 		id: String(c.id ?? ''),
-		shortId: String(c.short_id ?? c.shortId ?? String(c.id ?? '').slice(0, 7)),
+		shortId: String(c.short_id ?? String(c.id ?? '').slice(0, 7)),
 		author: String(c.author ?? ''),
 		email: String(c.email ?? ''),
 		timestamp: Number(c.timestamp ?? 0),
@@ -208,24 +218,36 @@ export async function listStash(): Promise<StashEntry[]> {
 	return Array.isArray(rows) ? rows : [];
 }
 
-export async function getCommitFiles(commit: string): Promise<CommitFileEntry[]> {
+export async function getCommitFiles(
+	commit: string,
+): Promise<CommitFileEntry[]> {
 	const data = await call<unknown>(
 		client.GET('/api/v1/git/commits/files', { params: { query: { commit } } }),
 	);
-	const rows = requireData(data, 'Git commit files') as Array<Record<string, unknown>>;
+	const rows = requireData(data, 'Git commit files') as Array<
+		Record<string, unknown>
+	>;
 	return (Array.isArray(rows) ? rows : []).map((f) => ({
 		path: String(f.path ?? ''),
 		status: String(f.status ?? ''),
-		renamedFrom: (f.renamed_from as string | null) ?? (f.renamedFrom as string | null) ?? null,
+		renamedFrom: (f.renamed_from as string | null) ?? null,
 	}));
 }
 
-export async function getDiffRange(from: string, to: string, path?: string): Promise<DiffFile[]> {
+export async function getDiffRange(
+	from: string,
+	to: string,
+	path?: string,
+): Promise<DiffFile[]> {
 	const data = await call<unknown>(
-		client.GET('/api/v1/git/diff/range', { params: { query: { from, to, path } } }),
+		client.GET('/api/v1/git/diff/range', {
+			params: { query: { from, to, path } },
+		}),
 	);
-	const rows = requireData(data, 'Git diff range') as DiffFile[];
-	return snake(Array.isArray(rows) ? rows : []);
+	const rows = requireData(data, 'Git diff range') as DiffFileWire[];
+	return (Array.isArray(rows) ? rows : []).map((f) =>
+		gitHunksToDiffFile(f.path, f.hunks, f.additions, f.deletions),
+	);
 }
 
 export async function listRemotes(): Promise<RemoteEntry[]> {
@@ -240,15 +262,17 @@ export async function listTags(): Promise<TagEntry[]> {
 	return Array.isArray(rows) ? rows : [];
 }
 
-export async function listSubmodules(): Promise<SubmoduleEntry[]> {
-	const data = await call<unknown>(client.GET('/api/v1/git/submodules'));
-	const rows = requireData(data, 'Git submodules') as SubmoduleEntry[];
-	return Array.isArray(rows) ? rows : [];
-}
-
+/** Linked worktrees of the user repository, read-only. */
 export async function listWorktrees(): Promise<WorktreeEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/worktrees'));
 	const rows = requireData(data, 'Git worktrees') as WorktreeEntry[];
+	return Array.isArray(rows) ? rows : [];
+}
+
+/** Nested submodule states of the user repository, read-only. */
+export async function listSubmodules(): Promise<SubmoduleEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/submodules'));
+	const rows = requireData(data, 'Git submodules') as SubmoduleEntry[];
 	return Array.isArray(rows) ? rows : [];
 }
 
@@ -259,12 +283,14 @@ export async function getRegistry(): Promise<RegistryEntry[]> {
 }
 
 export async function getFingerprint(): Promise<Fingerprint> {
-	const data = await call<Record<string, unknown>>(client.GET('/api/v1/git/fingerprint'));
+	const data = await call<Record<string, unknown>>(
+		client.GET('/api/v1/git/fingerprint'),
+	);
 	const v = requireData(data, 'Git fingerprint') as Record<string, unknown>;
 	return {
-		statusHash: String(v.status_hash ?? v.statusHash ?? ''),
+		statusHash: String(v.status_hash ?? ''),
 		head: String(v.head ?? ''),
-		branchSummary: String(v.branch_summary ?? v.branchSummary ?? ''),
+		branchSummary: String(v.branch_summary ?? ''),
 	};
 }
 
@@ -286,7 +312,10 @@ export async function createTerminal(): Promise<{ id: string }> {
 	return { id: v.id ?? '' };
 }
 
-export async function sendTerminalInput(id: string, input: string): Promise<void> {
+export async function sendTerminalInput(
+	id: string,
+	input: string,
+): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/git/terminal/{id}/input', {
 			params: { path: { id } },
@@ -295,7 +324,10 @@ export async function sendTerminalInput(id: string, input: string): Promise<void
 	);
 }
 
-export async function readTerminalOutput(id: string, offset: number): Promise<string> {
+export async function readTerminalOutput(
+	id: string,
+	offset: number,
+): Promise<string> {
 	const data = await call<{ output?: string }>(
 		client.GET('/api/v1/git/terminal/{id}/output', {
 			params: { path: { id }, query: { offset } },
@@ -307,11 +339,17 @@ export async function readTerminalOutput(id: string, offset: number): Promise<st
 
 export async function closeTerminal(id: string): Promise<void> {
 	await call<unknown>(
-		client.POST('/api/v1/git/terminal/{id}/close', { params: { path: { id } } }),
+		client.POST('/api/v1/git/terminal/{id}/close', {
+			params: { path: { id } },
+		}),
 	);
 }
 
-export async function resizeTerminal(id: string, rows: number, cols: number): Promise<void> {
+export async function resizeTerminal(
+	id: string,
+	rows: number,
+	cols: number,
+): Promise<void> {
 	await call<unknown>(
 		client.POST('/api/v1/git/terminal/{id}/resize', {
 			params: { path: { id } },

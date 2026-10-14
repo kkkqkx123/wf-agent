@@ -4,9 +4,13 @@
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import { git as gitStore } from '$lib/stores/git.svelte';
-	import { GitWorkbench } from '$lib/git/workbench.svelte';
+	import type { GitWorkbench } from '$lib/git/workbench.svelte';
 
-	let { workbench }: { workbench: GitWorkbench } = $props();
+	interface Props {
+		workbench: GitWorkbench;
+	}
+
+	let { workbench }: Props = $props();
 </script>
 
 <Card
@@ -39,11 +43,11 @@
 		</p>
 	{:else if workbench.tokenResult.kind === 'prefix' && workbench.tokenResult.candidates?.length}
 		<p class="mt-1 text-micro text-muted-foreground">
-			{workbench.tokenResult.candidates.slice(0, 8).join(', ')}
+			{workbench.tokenResult.candidates?.slice(0, 8).join(', ')}
 		</p>
 	{:else if workbench.tokenResult.kind === 'help' && workbench.tokenResult.candidates?.length}
 		<p class="mt-1 text-micro text-muted-foreground">
-			{workbench.tokenResult.candidates.join(', ')}
+			{workbench.tokenResult.candidates?.join(', ')}
 		</p>
 	{/if}
 	{#if gitStore.actionError}

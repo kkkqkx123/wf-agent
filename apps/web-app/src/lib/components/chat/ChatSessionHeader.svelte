@@ -1,13 +1,13 @@
 <script lang="ts">
-	import Icon from "@wf-agent/ui/icons/Icon.svelte";
-	import Badge from "@wf-agent/ui/components/Badge.svelte";
-	import Button from "@wf-agent/ui/components/Button.svelte";
-	import IconButton from "@wf-agent/ui/components/IconButton.svelte";
-	import StatusBadge from "@wf-agent/ui/components/StatusBadge.svelte";
-	import { sessions } from "$lib/stores/sessions.svelte";
-	import { formatNumber } from "$lib/utils/format";
-	import { appPath } from "$lib/utils/route";
-	import type { ChatSessionController } from "$lib/chat/chat-session.svelte";
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import IconButton from '@wf-agent/ui/components/IconButton.svelte';
+	import StatusBadge from '@wf-agent/ui/components/StatusBadge.svelte';
+	import { sessions } from '$lib/stores/sessions.svelte';
+	import { formatNumber } from '$lib/utils/format';
+	import { appPath } from '$lib/utils/route';
+	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -38,9 +38,7 @@
 	{#if selectedId}
 		<IconButton
 			icon="star"
-			label={sessions.isStarred(selectedId)
-				? "Unstar session"
-				: "Star session"}
+			label={sessions.isStarred(selectedId) ? 'Unstar session' : 'Star session'}
 			onclick={() => void sessions.toggleStar(selectedId)}
 		/>
 	{/if}

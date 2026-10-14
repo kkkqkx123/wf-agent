@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { page } from "$app/state";
-	import SplitView from "$lib/components/layout/SplitView.svelte";
-	import ChatSessionHeader from "$lib/components/chat/ChatSessionHeader.svelte";
-	import ChatTranscript from "$lib/components/chat/ChatTranscript.svelte";
-	import ChatComposerBar from "$lib/components/chat/ChatComposerBar.svelte";
-	import ChatInspectorPanel from "$lib/components/chat/ChatInspectorPanel.svelte";
-	import { ChatSessionController } from "$lib/chat/chat-session.svelte";
-	import { parseListParams } from "$lib/utils/route";
+	import { onMount } from 'svelte';
+	import { page } from '$app/state';
+	import SplitView from '$lib/components/layout/SplitView.svelte';
+	import ChatSessionHeader from '$lib/components/chat/ChatSessionHeader.svelte';
+	import ChatTranscript from '$lib/components/chat/ChatTranscript.svelte';
+	import ChatComposerBar from '$lib/components/chat/ChatComposerBar.svelte';
+	import ChatInspectorPanel from '$lib/components/chat/ChatInspectorPanel.svelte';
+	import { ChatSessionController } from '$lib/chat/chat-session.svelte';
+	import { parseListParams } from '$lib/utils/route';
 
 	const initial = parseListParams(page.url);
 	const controller = new ChatSessionController(initial.tab);
-	let panelOpen = $state(initial.panel !== "closed");
+	let panelOpen = $state(initial.panel !== 'closed');
 
 	const selectedId = $derived(controller.selectedId);
 	const tab = $derived(controller.tab);

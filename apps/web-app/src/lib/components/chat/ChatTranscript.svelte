@@ -1,23 +1,20 @@
 <script lang="ts">
-	import Icon from "@wf-agent/ui/icons/Icon.svelte";
-	import Button from "@wf-agent/ui/components/Button.svelte";
-	import EmptyState from "@wf-agent/ui/components/EmptyState.svelte";
-	import ErrorState from "@wf-agent/ui/components/ErrorState.svelte";
-	import Skeleton from "@wf-agent/ui/components/Skeleton.svelte";
-	import MessageBubble from "$lib/components/domain/MessageBubble.svelte";
-	import ReasoningBlock from "$lib/components/chat/ReasoningBlock.svelte";
-	import StreamMarkdown from "$lib/components/chat/StreamMarkdown.svelte";
-	import ToolCallCard from "$lib/components/domain/ToolCallCard.svelte";
-	import ToolCallGroup from "$lib/components/domain/ToolCallGroup.svelte";
-	import TranscriptScroller from "$lib/components/chat/TranscriptScroller.svelte";
-	import { chatStream } from "$lib/stores/stream-run.svelte";
-	import { NEW_SESSION } from "$lib/stores/sessions.svelte";
-	import { formatDuration, formatNumber } from "$lib/utils/format";
-	import type {
-		LoopMessage,
-		ToolCallEntry,
-	} from "$lib/types/models";
-	import type { ChatSessionController } from "$lib/chat/chat-session.svelte";
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import Button from '@wf-agent/ui/components/Button.svelte';
+	import EmptyState from '@wf-agent/ui/components/EmptyState.svelte';
+	import ErrorState from '@wf-agent/ui/components/ErrorState.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
+	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
+	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
+	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
+	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
+	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
+	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
+	import { chatStream } from '$lib/stores/stream-run.svelte';
+	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
+	import { formatDuration, formatNumber } from '$lib/utils/format';
+	import type { LoopMessage, ToolCallEntry } from '$lib/types/models';
+	import type { ChatSessionController } from '$lib/chat/chat-session.svelte';
 
 	interface Props {
 		controller: ChatSessionController;
@@ -46,7 +43,7 @@
 			<MessageBubble
 				{message}
 				onretry={() => controller.retryLast()}
-				oncontinue={() => controller.sendPrompt("Continue")}
+				oncontinue={() => controller.sendPrompt('Continue')}
 				onfeedback={(kind) => controller.recordFeedback(kind)}
 			/>
 		{/snippet}
@@ -64,24 +61,23 @@
 						role="button"
 						tabindex={0}
 						aria-label={`Locate tool ${entry.name} on decision map`}
-						onclick={() =>
-							controller.focusNodeFromTool(entry.id, entry.name)}
+						onclick={() => controller.focusNodeFromTool(entry.id, entry.name)}
 						onkeydown={(event) => {
-							if (event.key === "Enter" || event.key === " ") {
+							if (event.key === 'Enter' || event.key === ' ') {
 								event.preventDefault();
 								controller.focusNodeFromTool(entry.id, entry.name);
 							}
 						}}
 						class={controller.focusedToolId === entry.id
-							? "cursor-pointer rounded-lg ring-2 ring-warning"
-							: "cursor-pointer rounded-lg"}
+							? 'cursor-pointer rounded-lg ring-2 ring-warning'
+							: 'cursor-pointer rounded-lg'}
 					>
 						<ToolCallCard {entry} />
 					</div>
 				{/snippet}
 				{#if groupTools}
 					{#each liveGroups as group (group.key)}
-						{#if group.kind === "single"}
+						{#if group.kind === 'single'}
 							{#each group.members as entry (entry.id)}
 								{@render liveMember(entry)}
 							{/each}
@@ -187,10 +183,10 @@
 			{:else}
 				<EmptyState
 					icon="sparkles"
-					title={selectedId ? "No messages yet" : "Start a conversation"}
+					title={selectedId ? 'No messages yet' : 'Start a conversation'}
 					description={selectedId
-						? "This session has no recorded messages."
-						: "Ask anything. The first send creates a tracked agent loop for this session."}
+						? 'This session has no recorded messages.'
+						: 'Ask anything. The first send creates a tracked agent loop for this session.'}
 					class="rounded-lg border border-border bg-card"
 				/>
 			{/if}

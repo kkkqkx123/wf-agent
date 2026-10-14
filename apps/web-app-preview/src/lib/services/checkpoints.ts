@@ -1,33 +1,39 @@
 import { client } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
+import type { components } from '$lib/api/schema';
 import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
+import { toDiffFile } from '$lib/types/diff';
+import type { DiffFile } from '$lib/types/diff';
 
-interface CheckpointDto {
-	id?: string;
-	entity_id?: string;
-	entityId?: string;
-	executionId?: string;
-	entity_type?: string;
-	entityType?: string;
-	checkpoint_type?: string;
-	checkpointType?: string;
-	kind?: string;
-	timestamp?: number;
-	createdAt?: string;
-	created_at?: number;
-	chain_position?: number | null;
-	chainPosition?: number | null;
-	sequence?: number;
-	blob_size?: number | null;
-	sizeBytes?: number;
-	size_bytes?: number;
-	status?: string;
-	tags?: string[];
-	actor?: string;
-	note?: string;
-	restorable?: boolean;
-}
+// Transport row types come from the generated OpenAPI snapshot; only the
+// page-facing view models in `$lib/types/models` are hand-maintained.
+type CheckpointDoc = components['schemas']['CheckpointDoc'];
+type DeltaSummaryDoc = components['schemas']['DeltaSummaryDoc'];
+type PendingApprovalDoc = components['schemas']['PendingApprovalDoc'];
+type FileDiffDoc = components['schemas']['FileDiffDoc'];
+type FileContentDoc = components['schemas']['FileContentDoc'];
+type FileTreeDoc = components['schemas']['FileTreeDoc'];
+type FileTimelineDoc = components['schemas']['FileTimelineDoc'];
+type PartitionDoc = components['schemas']['PartitionDoc'];
+type ConflictFileDoc = components['schemas']['ConflictFileDoc'];
+type EditGroupDoc = components['schemas']['EditGroupDoc'];
+type WorkspaceFileDoc = components['schemas']['WorkspaceFileDoc'];
+type IndexStatusDoc = components['schemas']['IndexStatusDoc'];
+type FileCheckpointSummaryDoc =
+	components['schemas']['FileCheckpointSummaryDoc'];
+type GitMergeOutcomeDoc = components['schemas']['GitMergeOutcomeDoc'];
+type MergeCommitDoc = components['schemas']['MergeCommitDoc'];
+
+type CheckpointPage = NonNullable<
+	components['schemas']['ApiEnvelope_PageView_CheckpointDoc']['data']
+>;
+type ChangesPage = NonNullable<
+	components['schemas']['ApiEnvelope_PageView_DeltaSummaryDoc']['data']
+>;
+type SessionsPage = NonNullable<
+	components['schemas']['ApiEnvelope_PageView_EditGroupDoc']['data']
+>;
 
 function toIso(value: number | string | null | undefined): string {
 	if (typeof value === 'string') return value;
@@ -35,23 +41,22 @@ function toIso(value: number | string | null | undefined): string {
 	return '';
 }
 
-function toCheckpoint(d: CheckpointDto, index: number): Checkpoint {
-	const sequence = d.sequence ?? d.chain_position ?? d.chainPosition ?? index;
+function toCheckpoint(d: CheckpointDoc, index: number): Checkpoint {
+	const sequence = d.chain_position ?? index;
 	return {
-		id: d.id ?? `ckpt-${index}`,
-		executionId: d.entity_id ?? d.entityId ?? d.executionId ?? '',
+		id: d.id,
+		executionId: d.entity_id,
 		sequence,
-		kind: d.kind ?? d.checkpoint_type ?? d.checkpointType ?? '',
-		actor: d.actor ?? '',
-		createdAt: toIso(d.createdAt ?? d.created_at ?? d.timestamp),
-		sizeBytes: d.sizeBytes ?? d.blob_size ?? d.size_bytes ?? 0,
-		note: d.note ?? '',
-		restorable:
-			d.restorable ?? String(d.status ?? '').toLowerCase() !== 'failed',
-		chainPosition: d.chain_position ?? d.chainPosition ?? sequence,
-		status: d.status ?? 'completed',
+		kind: d.checkpoint_type,
+		actor: '',
+		createdAt: toIso(d.timestamp),
+		sizeBytes: d.blob_size ?? 0,
+		note: '',
+		restorable: d.status.toLowerCase() !== 'failed',
+		chainPosition: d.chain_position ?? sequence,
+		status: d.status,
 		tags: d.tags ?? [],
-		entityType: d.entity_type ?? d.entityType ?? '',
+		entityType: d.entity_type,
 	};
 }
 
@@ -60,18 +65,17 @@ export async function listCheckpoints(params?: {
 	limit?: number;
 	offset?: number;
 }): Promise<PageResult<Checkpoint>> {
-	const data = await call<unknown>(
+	const data = await call<CheckpointPage | CheckpointDoc[]>(
 		client.GET('/api/v1/checkpoints', {
 			params: { query: { limit: params?.limit, offset: params?.offset } },
 		}),
 	);
-	requireData(data, 'Checkpoint list');
-	const page = extractPage<CheckpointDto>(data);
+	const page = extractPage<CheckpointDoc>(data);
 	const rows =
 		page.items.length > 0
 			? page.items
 			: Array.isArray(data)
-				? (data as CheckpointDto[])
+				? (data as CheckpointDoc[])
 				: [];
 	return {
 		...page,
@@ -83,79 +87,36 @@ export async function listCheckpoints(params?: {
 export async function listLoopCheckpoints(
 	loopId: string,
 ): Promise<Checkpoint[]> {
-	const data = await call<unknown>(
+	const data = await call<{ items: CheckpointDoc[] } | CheckpointDoc[]>(
 		client.GET('/api/v1/agent-loops/{id}/checkpoints/chain', {
 			params: { path: { id: loopId } },
 		}),
 	);
-	requireData(data, `Checkpoint chain missing for loop ${loopId}`);
-	const page = extractPage<CheckpointDto>(data);
+	const page = extractPage<CheckpointDoc>(data);
 	const rows =
 		page.items.length > 0
 			? page.items
 			: Array.isArray(data)
-				? (data as CheckpointDto[])
+				? (data as CheckpointDoc[])
 				: [];
 	return rows.map((d, index) => toCheckpoint(d, index));
 }
 
-/** Checkpoint statistics. */
-export async function getCheckpointStats(): Promise<object> {
-	const data = await call<object>(
-		client.GET('/api/v1/agent-checkpoints/stats'),
-	);
-	return requireData(data, 'Checkpoint statistics');
-}
-
-interface FileChangeDto {
-	id?: string;
-	path?: string;
-	file?: string;
-	change_type?: string;
-	changeType?: string;
-	kind?: string;
-	actor?: string;
-	actor_id?: string;
-	at?: string;
-	timestamp?: number;
-	additions?: number;
-	deletions?: number;
-	session?: string;
-	session_id?: string;
-}
-
-function toFileChange(d: FileChangeDto, index: number): FileChange {
-	const raw = String(
-		d.change_type ?? d.changeType ?? d.kind ?? '',
-	).toLowerCase();
-	const changeType = (
-		raw === 'added' ||
-		raw === 'modified' ||
-		raw === 'deleted' ||
-		raw === 'renamed'
-			? raw
-			: 'modified'
-	) as FileChange['changeType'];
+function toFileChange(d: DeltaSummaryDoc, index: number): FileChange {
+	// DeltaSummary carries no change kind; the view keeps the previous
+	// `modified` fallback. `source` is the origin label (actor id /
+	// `human` / `merge` / `review`) and doubles as the actor owning the
+	// change; `snapshot_id` scopes the row id to its commit.
 	return {
-		id: d.id ?? `fc-${index}`,
-		path: d.path ?? d.file ?? '',
-		changeType,
-		actor: d.actor ?? d.actor_id ?? '',
-		at: typeof d.at === 'string' ? d.at : toIso(d.timestamp),
-		additions: d.additions ?? 0,
-		deletions: d.deletions ?? 0,
-		session: d.session ?? d.session_id ?? '',
+		id: d.snapshot_id ? `${d.snapshot_id}:${d.file}` : `fc-${index}`,
+		path: d.file,
+		changeType: 'modified',
+		actor: d.source ?? '',
+		at: toIso(d.timestamp),
+		additions: 0,
+		deletions: 0,
+		session: '',
 	};
-}
-
-/** File changes for an execution or checkpoint. */
-export async function getFileChanges(params?: {
-	actor?: string;
-	path?: string;
-	limit?: number;
-	offset?: number;
-}): Promise<FileChange[]> {
-	return (await getFileChangesPage(params)).items;
 }
 
 /** Paged file changes with cursor state. */
@@ -165,7 +126,7 @@ export async function getFileChangesPage(params?: {
 	limit?: number;
 	offset?: number;
 }): Promise<PageResult<FileChange>> {
-	const data = await call<unknown>(
+	const data = await call<ChangesPage | DeltaSummaryDoc[]>(
 		client.GET('/api/v1/file-checkpoint/changes', {
 			params: {
 				query: {
@@ -177,12 +138,12 @@ export async function getFileChangesPage(params?: {
 			},
 		}),
 	);
-	const page = extractPage<FileChangeDto>(data);
+	const page = extractPage<DeltaSummaryDoc>(data);
 	const rows =
 		page.items.length > 0
 			? page.items
 			: Array.isArray(data)
-				? (data as FileChangeDto[])
+				? (data as DeltaSummaryDoc[])
 				: [];
 	return {
 		...page,
@@ -190,53 +151,28 @@ export async function getFileChangesPage(params?: {
 	};
 }
 
-interface ApprovalDto {
-	id?: string;
-	title?: string;
-	kind?: string;
-	type?: string;
-	requester?: string;
-	requested_at?: number;
-	requestedAt?: string;
-	status?: string;
-	detail?: string;
-	description?: string;
-	execution_id?: string;
-	executionId?: string;
+function toApproval(d: PendingApprovalDoc, index: number): Approval {
+	// The wire row carries actor + snapshot + changes; the titled view
+	// fields are absent there. `{id}` on approve/reject is the actor
+	// partition id, and every listed item is pending by definition.
+	return {
+		id: d.actor || `approval-${index}`,
+		title: '',
+		kind: '',
+		requester: d.actor,
+		requestedAt: toIso(d.submitted_at),
+		status: 'pending',
+		detail: '',
+		executionId: '',
+	};
 }
 
 /** Pending approval requests. */
-export async function getApprovalRequests(
-	status?: string,
-): Promise<Approval[]> {
-	const data = await call<unknown>(
+export async function getApprovalRequests(): Promise<Approval[]> {
+	const data = await call<PendingApprovalDoc[]>(
 		client.GET('/api/v1/file-checkpoint/approvals/pending'),
 	);
-	const page = extractPage<ApprovalDto>(data);
-	const rows =
-		page.items.length > 0
-			? page.items
-			: Array.isArray(data)
-				? (data as ApprovalDto[])
-				: [];
-	return rows
-		.map(
-			(d, index) =>
-				({
-					id: d.id ?? `approval-${index}`,
-					title: d.title ?? '',
-					kind: d.kind ?? d.type ?? '',
-					requester: d.requester ?? '',
-					requestedAt:
-						typeof d.requestedAt === 'string'
-							? d.requestedAt
-							: toIso(d.requested_at),
-					status: d.status ?? '',
-					detail: d.detail ?? d.description ?? '',
-					executionId: d.execution_id ?? d.executionId ?? '',
-				}) satisfies Approval,
-		)
-		.filter((a) => !status || a.status === status);
+	return data.map((d, index) => toApproval(d, index));
 }
 
 /** Restore from a checkpoint. */
@@ -252,12 +188,19 @@ export async function restoreFromCheckpoint(
 		);
 		return true;
 	}
-	await call<unknown>(
+	await call<boolean>(
 		client.POST('/api/v1/executions/checkpoints/{cid}/restore', {
 			params: { path: { cid: checkpointId } },
 		}),
 	);
 	return true;
+}
+
+/** Restore a listed checkpoint through the endpoint matching its entity. */
+export async function restoreCheckpoint(target: Checkpoint): Promise<boolean> {
+	const loopId =
+		target.entityType === 'agent_loop' ? target.executionId : undefined;
+	return restoreFromCheckpoint(target.id, loopId || undefined);
 }
 
 /** Resume execution from a checkpoint. */
@@ -272,101 +215,24 @@ export async function resumeFromCheckpoint(
 	return true;
 }
 
-export interface FileDiffLine {
-	type: 'add' | 'del' | 'context' | 'meta';
-	text: string;
-}
-
-export interface FileDiff {
-	path: string;
-	kind: string;
-	lines: FileDiffLine[];
-	additions: number;
-	deletions: number;
-	binary: boolean;
-	truncated: boolean;
-}
-
-/** Rows rendered per diff; longer diffs are cut with a truncation flag. */
-const DIFF_LINE_LIMIT = 400;
-
-function parseUnifiedDiff(text: string): {
-	lines: FileDiffLine[];
-	truncated: boolean;
-} {
-	const rows = text.split('\n');
-	const lines: FileDiffLine[] = [];
-	for (const raw of rows) {
-		if (lines.length >= DIFF_LINE_LIMIT) break;
-		if (
-			raw.startsWith('+++') ||
-			raw.startsWith('---') ||
-			raw.startsWith('diff ') ||
-			raw.startsWith('index ') ||
-			raw.startsWith('@@')
-		) {
-			lines.push({ type: 'meta', text: raw });
-		} else if (raw.startsWith('+')) {
-			lines.push({ type: 'add', text: raw.slice(1) });
-		} else if (raw.startsWith('-')) {
-			lines.push({ type: 'del', text: raw.slice(1) });
-		} else if (raw.startsWith('\\')) {
-			continue;
-		} else {
-			lines.push({
-				type: 'context',
-				text: raw.startsWith(' ') ? raw.slice(1) : raw,
-			});
-		}
-	}
-	return { lines, truncated: rows.length > lines.length };
-}
-
-interface FileDiffDto {
-	path?: string;
-	kind?: string;
-	diff?: string | null;
-	additions?: number | null;
-	deletions?: number | null;
-}
-
-function toFileDiff(d: FileDiffDto): FileDiff {
-	const text = d.diff ?? '';
-	const parsed = parseUnifiedDiff(text);
-	return {
-		path: d.path ?? '',
-		kind: String(d.kind ?? '').toLowerCase(),
-		lines: parsed.lines,
-		additions: d.additions ?? 0,
-		deletions: d.deletions ?? 0,
-		binary: !text,
-		truncated: parsed.truncated,
-	};
-}
 /** Per-file diffs of one actor workspace against main, backing the diff preview. */
-export async function getMainDiffs(actor: string): Promise<FileDiff[]> {
-	const data = await call<unknown>(
+export async function getMainDiffs(actor: string): Promise<DiffFile[]> {
+	const data = await call<FileDiffDoc[]>(
 		client.GET('/api/v1/file-checkpoint/diff/main/{id}', {
 			params: { path: { id: actor } },
 		}),
 	);
-	const rows = Array.isArray(data)
-		? (data as FileDiffDto[])
-		: extractPage<FileDiffDto>(data).items;
-	return rows.map(toFileDiff);
+	return data.map(toDiffFile);
 }
 
 /** Per-file diff between two actor workspaces. */
-export async function getDiffActors(a: string, b: string): Promise<FileDiff[]> {
-	const data = await call<unknown>(
+export async function getDiffActors(a: string, b: string): Promise<DiffFile[]> {
+	const data = await call<FileDiffDoc[]>(
 		client.GET('/api/v1/file-checkpoint/diff/actors/{a}/{b}', {
 			params: { path: { a, b } },
 		}),
 	);
-	const rows = Array.isArray(data)
-		? (data as FileDiffDto[])
-		: extractPage<FileDiffDto>(data).items;
-	return rows.map(toFileDiff);
+	return data.map(toDiffFile);
 }
 
 export interface FileContent {
@@ -380,41 +246,32 @@ export interface FileContent {
 	timestamp: number;
 }
 
-interface FileContentDto {
-	path?: string;
-	actor?: string;
-	hash?: string;
-	size?: number;
-	is_binary?: boolean;
-	isBinary?: boolean;
-	content?: string | null;
-	truncated?: boolean;
-	timestamp?: number;
-}
-
-/** Read-only file content for one actor workspace. */
+/** Read-only file content for one actor workspace, optionally pinned to
+ * a historical commit (`version` is always a commit id). Versioned reads
+ * do not touch the workspace, so conflicted bytes can be read at the
+ * conflicted merge commit for in-place resolution. */
 export async function getFileContent(
 	actor: string,
 	path: string,
+	version?: string,
 ): Promise<FileContent> {
-	const data = requireData(
-		await call<FileContentDto>(
+	const d = requireData(
+		await call<FileContentDoc>(
 			client.GET('/api/v1/file-checkpoint/content', {
-				params: { query: { actor, path } },
+				params: { query: { actor, path, version } },
 			}),
 		),
 		`File content missing for ${path}`,
 	);
-	const view = data;
 	return {
-		path: view.path ?? path,
-		actor: view.actor ?? actor,
-		hash: view.hash ?? '',
-		size: view.size ?? 0,
-		isBinary: view.is_binary ?? view.isBinary ?? view.content == null,
-		content: view.content ?? null,
-		truncated: view.truncated ?? false,
-		timestamp: view.timestamp ?? 0,
+		path: d.path,
+		actor: d.actor,
+		hash: d.hash,
+		size: d.size,
+		isBinary: d.is_binary,
+		content: d.content ?? null,
+		truncated: d.truncated,
+		timestamp: d.timestamp,
 	};
 }
 
@@ -431,19 +288,13 @@ export interface FileTree {
 	total: number;
 }
 
-interface FileTreeDto {
-	entries?: FileTreeEntry[];
-	truncated?: boolean;
-	total?: number;
-}
-
 /** Capped directory tree for one actor workspace. */
 export async function getFileTree(
 	actor: string,
 	prefix?: string,
 ): Promise<FileTree> {
-	const data = requireData(
-		await call<FileTreeDto>(
+	const d = requireData(
+		await call<FileTreeDoc>(
 			client.GET('/api/v1/file-checkpoint/tree/{id}', {
 				params: { path: { id: actor }, query: { prefix } },
 			}),
@@ -451,9 +302,9 @@ export async function getFileTree(
 		`File tree missing for ${actor}`,
 	);
 	return {
-		entries: data.entries ?? [],
-		truncated: data.truncated ?? false,
-		total: data.total ?? data.entries?.length ?? 0,
+		entries: d.entries,
+		truncated: d.truncated,
+		total: d.total,
 	};
 }
 
@@ -473,28 +324,10 @@ export interface FileTimeline {
 	total: number;
 }
 
-interface FileTimelineDto {
-	original_path?: string;
-	originalPath?: string;
-	entries?: Array<{
-		path?: string;
-		snapshot_id?: string;
-		snapshotId?: string;
-		content_hash?: string;
-		contentHash?: string;
-		timestamp?: number;
-		source?: string;
-		moved_from?: string | null;
-		movedFrom?: string | null;
-	}>;
-	truncated?: boolean;
-	total?: number;
-}
-
 /** Version timeline for one file path, including rename history. */
 export async function getFileTimeline(path: string): Promise<FileTimeline> {
-	const data = requireData(
-		await call<FileTimelineDto>(
+	const d = requireData(
+		await call<FileTimelineDoc>(
 			client.GET('/api/v1/file-checkpoint/timeline/{id}', {
 				params: { path: { id: path } },
 			}),
@@ -502,17 +335,17 @@ export async function getFileTimeline(path: string): Promise<FileTimeline> {
 		`File timeline missing for ${path}`,
 	);
 	return {
-		originalPath: data.original_path ?? data.originalPath ?? path,
-		entries: (data.entries ?? []).map((entry) => ({
-			path: entry.path ?? path,
-			snapshotId: entry.snapshot_id ?? entry.snapshotId ?? '',
-			contentHash: entry.content_hash ?? entry.contentHash ?? '',
-			timestamp: entry.timestamp ?? 0,
-			source: entry.source ?? '',
-			movedFrom: entry.moved_from ?? entry.movedFrom ?? null,
+		originalPath: d.original_path,
+		entries: d.entries.map((entry) => ({
+			path: entry.path,
+			snapshotId: entry.snapshot_id,
+			contentHash: entry.content_hash,
+			timestamp: entry.timestamp,
+			source: entry.source,
+			movedFrom: entry.moved_from ?? null,
 		})),
-		truncated: data.truncated ?? false,
-		total: data.total ?? data.entries?.length ?? 0,
+		truncated: d.truncated,
+		total: d.total,
 	};
 }
 
@@ -559,45 +392,29 @@ export interface PartitionView {
 	updatedAt: number;
 }
 
-interface PartitionDto {
-	partition_id?: string;
-	partitionId?: string;
-	name?: string;
-	kind?: string;
-	actor?: string | null;
-	current_snapshot?: string;
-	currentSnapshot?: string;
-	history_len?: number;
-	historyLen?: number;
-	created_at?: number;
-	createdAt?: number;
-	updated_at?: number;
-	updatedAt?: number;
-}
-
 /** All partitions of the file-checkpoint store. */
 export async function listPartitions(): Promise<PartitionView[]> {
-	const data = await call<unknown>(
+	const rows = await call<PartitionDoc[]>(
 		client.GET('/api/v1/file-checkpoint/partitions'),
 	);
-	const rows = Array.isArray(data)
-		? (data as PartitionDto[])
-		: extractPage<PartitionDto>(data).items;
 	return rows.map((d) => ({
-		partitionId: d.partition_id ?? d.partitionId ?? '',
-		name: d.name ?? '',
-		kind: d.kind ?? '',
+		partitionId: d.partition_id,
+		name: d.name,
+		kind: d.kind,
 		actor: d.actor ?? null,
-		currentSnapshot: d.current_snapshot ?? d.currentSnapshot ?? '',
-		historyLen: d.history_len ?? d.historyLen ?? 0,
-		createdAt: d.created_at ?? d.createdAt ?? 0,
-		updatedAt: d.updated_at ?? d.updatedAt ?? 0,
+		currentSnapshot: d.current_snapshot,
+		historyLen: d.history_len,
+		createdAt: d.created_at,
+		updatedAt: d.updated_at,
 	}));
 }
 
 export interface ConflictRegion {
+	file: string;
 	startLine: number;
-	endLine: number;
+	base: string[];
+	ours: string[];
+	theirs: string[];
 }
 
 export interface ConflictFile {
@@ -605,29 +422,26 @@ export interface ConflictFile {
 	snapshotId: string;
 	partition: string;
 	conflictCount: number;
-}
-
-interface ConflictDto {
-	path?: string;
-	snapshot_id?: string;
-	snapshotId?: string;
-	partition?: string;
-	conflicts?: unknown[];
+	regions: ConflictRegion[];
 }
 
 /** Files with unresolved merge conflicts, enumerated from unresolved merge commits. */
 export async function listConflicts(): Promise<ConflictFile[]> {
-	const data = await call<unknown>(
+	const rows = await call<ConflictFileDoc[]>(
 		client.GET('/api/v1/file-checkpoint/conflicts'),
 	);
-	const rows = Array.isArray(data)
-		? (data as ConflictDto[])
-		: extractPage<ConflictDto>(data).items;
 	return rows.map((d) => ({
-		path: d.path ?? '',
-		snapshotId: d.snapshot_id ?? d.snapshotId ?? '',
-		partition: d.partition ?? '',
-		conflictCount: Array.isArray(d.conflicts) ? d.conflicts.length : 0,
+		path: d.path,
+		snapshotId: d.snapshot_id,
+		partition: d.partition,
+		conflictCount: d.conflicts.length,
+		regions: d.conflicts.map((region) => ({
+			file: region.file,
+			startLine: region.start_line,
+			base: region.base,
+			ours: region.ours,
+			theirs: region.theirs,
+		})),
 	}));
 }
 
@@ -638,13 +452,15 @@ export async function resolveConflicts(
 	resolutions: Record<string, string>,
 	session?: string,
 ): Promise<{ remaining: number }> {
-	const data = await call<{ remaining?: number }>(
-		client.POST('/api/v1/file-checkpoint/conflicts/resolve', {
-			body: { actor, feature, resolutions, session: session ?? null },
-		}),
+	const d = requireData(
+		await call<components['schemas']['ResolveConflictsResponse']>(
+			client.POST('/api/v1/file-checkpoint/conflicts/resolve', {
+				body: { actor, feature, resolutions, session: session ?? null },
+			}),
+		),
+		'Conflict resolution',
 	);
-	const view = requireData(data, 'Conflict resolution');
-	return { remaining: view.remaining ?? 0 };
+	return { remaining: d.remaining };
 }
 
 export interface EditSession {
@@ -653,40 +469,35 @@ export interface EditSession {
 	createdAt: number;
 }
 
-interface EditSessionDto {
-	id?: string;
-	label?: string | null;
-	created_at?: number;
-	createdAt?: number;
-}
-
-function toEditSession(d: EditSessionDto): EditSession {
-	return {
-		id: typeof d.id === 'string' ? d.id : String(d.id ?? ''),
-		label: d.label ?? null,
-		createdAt: d.created_at ?? d.createdAt ?? 0,
-	};
-}
-
 /** Staged edit sessions (newest first). */
 export async function listEditSessions(): Promise<EditSession[]> {
-	const data = await call<unknown>(
+	const data = await call<SessionsPage | EditGroupDoc[]>(
 		client.GET('/api/v1/file-checkpoint/sessions'),
 	);
-	const rows = Array.isArray(data)
-		? (data as EditSessionDto[])
-		: extractPage<EditSessionDto>(data).items;
-	return rows.map(toEditSession);
+	const page = extractPage<EditGroupDoc>(data);
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as EditGroupDoc[])
+				: [];
+	return rows.map((d) => ({
+		id: d.id,
+		label: d.label ?? null,
+		createdAt: d.created_at,
+	}));
 }
 
 /** Begin a new edit session with an optional label. */
 export async function beginEditSession(label?: string): Promise<string> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/sessions', {
-			body: { label: label ?? null },
-		}),
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/file-checkpoint/sessions', {
+				body: { label: label ?? null },
+			}),
+		),
+		'Edit session',
 	);
-	return String(requireData(data, 'Edit session'));
 }
 
 /** Roll back an entire edit session on an actor partition. */
@@ -694,32 +505,38 @@ export async function rollbackEditSession(
 	sessionId: string,
 	actor: string,
 ): Promise<string> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', {
-			params: { path: { id: sessionId, actor } },
-		}),
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}', {
+				params: { path: { id: sessionId, actor } },
+			}),
+		),
+		'Session rollback',
 	);
-	return String(requireData(data, 'Session rollback'));
 }
 
 /** Undo the last edit on an actor partition. */
 export async function undoEdit(actor: string): Promise<string> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/undo/{id}', {
-			params: { path: { id: actor } },
-		}),
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/file-checkpoint/undo/{id}', {
+				params: { path: { id: actor } },
+			}),
+		),
+		'Undo',
 	);
-	return String(requireData(data, 'Undo'));
 }
 
 /** Redo the most recently undone edit on an actor partition. */
 export async function redoEdit(actor: string): Promise<string> {
-	const data = await call<unknown>(
-		client.POST('/api/v1/file-checkpoint/redo/{id}', {
-			params: { path: { id: actor } },
-		}),
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/file-checkpoint/redo/{id}', {
+				params: { path: { id: actor } },
+			}),
+		),
+		'Redo',
 	);
-	return String(requireData(data, 'Redo'));
 }
 
 export interface WorkspaceFile {
@@ -732,19 +549,15 @@ export interface WorkspaceFile {
 export async function getActorWorkspace(
 	actor: string,
 ): Promise<WorkspaceFile[]> {
-	const data = await call<unknown>(
+	const rows = await call<WorkspaceFileDoc[]>(
 		client.GET('/api/v1/file-checkpoint/workspace/{id}', {
 			params: { path: { id: actor } },
 		}),
 	);
-	const rows = Array.isArray(data)
-		? (data as Array<{ path?: string; hash?: string; timestamp?: number }>)
-		: extractPage<{ path?: string; hash?: string; timestamp?: number }>(data)
-				.items;
 	return rows.map((f) => ({
-		path: f.path ?? '',
-		hash: f.hash ?? '',
-		timestamp: f.timestamp ?? 0,
+		path: f.path,
+		hash: f.hash,
+		timestamp: f.timestamp,
 	}));
 }
 
@@ -756,26 +569,28 @@ export interface IndexStatus {
 
 /** Source-index health: indexed rows versus reachable commits. */
 export async function getIndexStatus(): Promise<IndexStatus> {
-	const data = await call<{
-		indexed_commits?: number;
-		total_commits?: number;
-		needs_rebuild?: boolean;
-	}>(client.GET('/api/v1/file-checkpoint/index/status'));
-	const view = requireData(data, 'Index status');
+	const d = requireData(
+		await call<IndexStatusDoc>(
+			client.GET('/api/v1/file-checkpoint/index/status'),
+		),
+		'Index status',
+	);
 	return {
-		indexedCommits: view.indexed_commits ?? 0,
-		totalCommits: view.total_commits ?? 0,
-		needsRebuild: view.needs_rebuild ?? false,
+		indexedCommits: d.indexed_commits,
+		totalCommits: d.total_commits,
+		needsRebuild: d.needs_rebuild,
 	};
 }
 
 /** Rebuild the source index from the commit graph. */
 export async function rebuildIndex(): Promise<{ indexedCommits: number }> {
-	const data = await call<{ indexed_commits?: number }>(
-		client.POST('/api/v1/file-checkpoint/index/rebuild'),
+	const d = requireData(
+		await call<components['schemas']['RebuildIndexResponse']>(
+			client.POST('/api/v1/file-checkpoint/index/rebuild'),
+		),
+		'Index rebuild',
 	);
-	const view = requireData(data, 'Index rebuild');
-	return { indexedCommits: view.indexed_commits ?? 0 };
+	return { indexedCommits: d.indexed_commits };
 }
 
 /** Create a full workspace file checkpoint for an actor. */
@@ -784,35 +599,19 @@ export async function createFileCheckpoint(actor: string): Promise<{
 	timestamp: number;
 	fileCount: number;
 }> {
-	const data = await call<{
-		id?: string;
-		timestamp?: number;
-		file_count?: number;
-	}>(
-		client.POST('/api/v1/file-checkpoint/checkpoints', {
-			body: { actor },
-		}),
+	const d = requireData(
+		await call<FileCheckpointSummaryDoc>(
+			client.POST('/api/v1/file-checkpoint/checkpoints', {
+				body: { actor },
+			}),
+		),
+		'File checkpoint',
 	);
-	const view = requireData(data, 'File checkpoint');
 	return {
-		id: view.id ?? '',
-		timestamp: view.timestamp ?? 0,
-		fileCount: view.file_count ?? 0,
+		id: d.id,
+		timestamp: d.timestamp,
+		fileCount: d.file_count,
 	};
-}
-
-/** Restore the bound workspace from a file checkpoint. */
-export async function restoreFileCheckpoint(
-	entity: string,
-	checkpoint: string,
-): Promise<{ restored: number }> {
-	const data = await call<{ restored?: number }>(
-		client.POST('/api/v1/file-checkpoint/restore', {
-			body: { entity, checkpoint },
-		}),
-	);
-	const view = requireData(data, 'File restore');
-	return { restored: view.restored ?? 0 };
 }
 
 /** Submit an actor edit line for review (edit ref copy, no merge). */
@@ -820,25 +619,20 @@ export async function submitForReview(
 	actor: string,
 	session?: string,
 ): Promise<{ reviewCommit: string }> {
-	const data = await call<{ review_commit?: string }>(
-		client.POST('/api/v1/file-checkpoint/submit', {
-			body: { actor, session: session ?? null },
-		}),
+	const d = requireData(
+		await call<components['schemas']['SubmitReviewResponse']>(
+			client.POST('/api/v1/file-checkpoint/submit', {
+				body: { actor, session: session ?? null },
+			}),
+		),
+		'Review submit',
 	);
-	const view = requireData(data, 'Review submit');
-	return { reviewCommit: view.review_commit ?? '' };
+	return { reviewCommit: d.review_commit };
 }
 
 export interface MergeToFeatureOutcome {
 	commitId: string;
 	conflictFiles: string[];
-}
-
-interface MergeToFeatureDto {
-	commit_id?: string;
-	commitId?: string;
-	conflict_files?: string[];
-	conflictFiles?: string[];
 }
 
 /** Merge an actor submission into a feature ref via three-way merge. */
@@ -847,15 +641,17 @@ export async function mergeToFeature(
 	feature: string,
 	session?: string,
 ): Promise<MergeToFeatureOutcome> {
-	const data = await call<MergeToFeatureDto>(
-		client.POST('/api/v1/file-checkpoint/merge-to-feature', {
-			body: { actor, feature, session: session ?? null },
-		}),
+	const d = requireData(
+		await call<GitMergeOutcomeDoc>(
+			client.POST('/api/v1/file-checkpoint/merge-to-feature', {
+				body: { actor, feature, session: session ?? null },
+			}),
+		),
+		'Merge to feature',
 	);
-	const view = requireData(data, 'Merge to feature');
 	return {
-		commitId: view.commit_id ?? view.commitId ?? '',
-		conflictFiles: view.conflict_files ?? view.conflictFiles ?? [],
+		commitId: d.commit_id,
+		conflictFiles: d.conflict_files,
 	};
 }
 
@@ -865,30 +661,24 @@ export interface MergeToMainOutcome {
 	conflictFiles: string[];
 }
 
-interface MergeToMainDto {
-	checkpoint_id?: string;
-	checkpointId?: string;
-	merge_result?: MergeToFeatureDto | null;
-	mergeResult?: MergeToFeatureDto | null;
-}
-
 /** Merge named features into main in input order, one merge commit per feature. */
 export async function mergeToMain(
 	actor: string,
 	features: string[],
 	session?: string,
 ): Promise<MergeToMainOutcome> {
-	const data = await call<MergeToMainDto>(
-		client.POST('/api/v1/file-checkpoint/merge-to-main', {
-			body: { actor, features, session: session ?? null },
-		}),
+	const d = requireData(
+		await call<MergeCommitDoc>(
+			client.POST('/api/v1/file-checkpoint/merge-to-main', {
+				body: { actor, features, session: session ?? null },
+			}),
+		),
+		'Merge to main',
 	);
-	const view = requireData(data, 'Merge to main');
-	const nested = view.merge_result ?? view.mergeResult ?? null;
 	return {
-		checkpointId: view.checkpoint_id ?? view.checkpointId ?? '',
-		commitId: nested?.commit_id ?? nested?.commitId ?? '',
-		conflictFiles: nested?.conflict_files ?? nested?.conflictFiles ?? [],
+		checkpointId: d.checkpoint_id,
+		commitId: d.merge_result.commit_id,
+		conflictFiles: d.merge_result.conflict_files,
 	};
 }
 
@@ -898,11 +688,13 @@ export async function rollbackFeature(
 	featureHead: string,
 	session?: string,
 ): Promise<{ revertCommit: string }> {
-	const data = await call<{ revert_commit?: string }>(
-		client.POST('/api/v1/file-checkpoint/rollback-feature', {
-			body: { actor, feature_head: featureHead, session: session ?? null },
-		}),
+	const d = requireData(
+		await call<components['schemas']['RollbackFeatureResponse']>(
+			client.POST('/api/v1/file-checkpoint/rollback-feature', {
+				body: { actor, feature_head: featureHead, session: session ?? null },
+			}),
+		),
+		'Feature rollback',
 	);
-	const view = requireData(data, 'Feature rollback');
-	return { revertCommit: view.revert_commit ?? '' };
+	return { revertCommit: d.revert_commit };
 }

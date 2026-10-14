@@ -291,7 +291,8 @@ impl AgentIterationCoordinator {
                 .approve_single_for_stream(entity, tc)
                 .await
             {
-                Err((rejection, reason)) => {
+                Err(err) => {
+                    let (rejection, reason) = *err;
                     let failure = Some(reason);
                     let result_text = text_of(&rejection.content);
                     if let Some(ref sink) = self.event_sink {

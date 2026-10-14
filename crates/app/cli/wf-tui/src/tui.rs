@@ -931,18 +931,16 @@ impl TuiApp {
                 self.history.set_viewport(view.scroll, at_top);
             }
             OverlayMode::SearchPalette => {
-                crate::screen_draw::draw_search_palette(
-                    frame,
-                    area,
-                    self.search_palette.input(),
-                    self.search_palette.query(),
-                    self.search_palette.results(),
-                    self.search_palette.truncated(),
-                    self.search_palette.running(),
-                    self.search_palette.selected(),
-                    self.search_palette.error(),
-                    &self.theme,
-                );
+                let palette = crate::screen_draw::SearchPaletteView {
+                    input: self.search_palette.input(),
+                    query: self.search_palette.query(),
+                    results: self.search_palette.results(),
+                    truncated: self.search_palette.truncated(),
+                    running: self.search_palette.running(),
+                    selected: self.search_palette.selected(),
+                    error: self.search_palette.error(),
+                };
+                crate::screen_draw::draw_search_palette(frame, area, &palette, &self.theme);
             }
             OverlayMode::None => {}
         }

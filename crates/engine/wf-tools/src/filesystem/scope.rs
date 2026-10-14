@@ -136,7 +136,7 @@ impl FsToolHandlers {
         match check_path_bounds(resolved, bounds) {
             PathVerdict::Inside(physical) => {
                 let lexical = physical.to_string_lossy().to_string();
-                return self.finish_write_gate(tool, &physical, ctx, want_write, &lexical);
+                self.finish_write_gate(tool, &physical, ctx, want_write, &lexical)
             }
             PathVerdict::Outside(_) => {
                 tracing::warn!(
@@ -146,7 +146,7 @@ impl FsToolHandlers {
                     "filesystem scope violation: outside allowed prefixes"
                 );
                 let guidance = self.scope_guidance(ctx, kind);
-                return self.scope_violation(
+                self.scope_violation(
                     tool,
                     ctx,
                     format!(
@@ -157,7 +157,7 @@ impl FsToolHandlers {
                     ),
                     resolved.to_path_buf(),
                     want_write,
-                );
+                )
             }
             PathVerdict::Escaped(physical) => {
                 tracing::warn!(
@@ -167,7 +167,7 @@ impl FsToolHandlers {
                     "filesystem scope violation: symlink escapes allowed prefixes"
                 );
                 let guidance = self.scope_guidance(ctx, kind);
-                return self.scope_violation(
+                self.scope_violation(
                     tool,
                     ctx,
                     format!(
@@ -178,7 +178,7 @@ impl FsToolHandlers {
                     ),
                     physical,
                     want_write,
-                );
+                )
             }
         }
     }

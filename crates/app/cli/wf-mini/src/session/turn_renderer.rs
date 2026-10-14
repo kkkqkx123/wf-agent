@@ -195,9 +195,7 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::SubAgentProgress { activity, .. } => {
-                let Some(text) = activity.as_deref().filter(|t| !t.trim().is_empty()) else {
-                    return None;
-                };
+                let text = activity.as_deref().filter(|t| !t.trim().is_empty())?;
                 if !self.display.show_tools {
                     return None;
                 }

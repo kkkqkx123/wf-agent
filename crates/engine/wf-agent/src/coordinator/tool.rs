@@ -397,25 +397,26 @@ impl ToolExecutionCoordinator {
     /// Approval gate for the streaming tool path: exposure gate first,
     /// then approval through the same batch pipeline as the sequential
     /// executor. Returns the effective call (approval-edited parameters
-    /// applied) on approval, or the rejection message plus its reason on
-    /// denial. Approval rejections never fire tool hooks, matching the
+    /// applied) on approval, or the boxed rejection message plus its reason
+    /// on denial. Approval rejections never fire tool hooks, matching the
     /// sequential path.
     pub async fn approve_single_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
-    ) -> Result<LlmToolCall, (Message, String)> {
+    ) -> Result<LlmToolCall, Box<(Message, String)>> {
         if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
-            return Err((self.build_rejection_message(tc, &reason), reason));
+            return Err(Box::new((self.build_rejection_message(tc, &reason), reason)));
         }
         let outcomes = self
             .approval
             .approve_tool_calls(entity, std::slice::from_ref(tc), &self.tool_registry)
             .await;
         match outcomes.first() {
-            Some(ApprovalOutcome::Rejected { reason }) => {
-                Err((self.build_rejection_message(tc, reason), reason.clone()))
-            }
+            Some(ApprovalOutcome::Rejected { reason }) => Err(Box::new((
+                self.build_rejection_message(tc, reason),
+                reason.clone(),
+            ))),
             Some(ApprovalOutcome::Execute { edited_parameters }) => {
                 Ok(Self::apply_edited_parameters(tc, edited_parameters))
             }

@@ -213,8 +213,7 @@ impl TuiApp {
                     crate::screens::WorkflowView::from_index(view),
                 )
                 .await
-            }
-            .map_err(Into::into);
+            };
             let _ = tx.send(DataResult::Detail { key, title, result });
         });
         self.tasks.push(handle);
@@ -379,8 +378,7 @@ impl TuiApp {
                 before,
                 crate::replay::REPLAY_PAGE_LIMIT,
             )
-            .await
-            .map_err(Into::into);
+            .await;
             let _ = tx.send(DataResult::History {
                 session_id,
                 earlier,

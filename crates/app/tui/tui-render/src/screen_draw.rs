@@ -704,17 +704,23 @@ pub fn draw_settings(
     }
 }
 
+/// Snapshot of the search-palette state, keeping the draw entry point to
+/// four arguments.
+pub struct SearchPaletteView<'a> {
+    pub input: &'a str,
+    pub query: &'a str,
+    pub results: &'a [SearchRow],
+    pub truncated: bool,
+    pub running: bool,
+    pub selected: usize,
+    pub error: Option<&'a str>,
+}
+
 /// Search palette overlay: centered floating input plus result list.
 pub fn draw_search_palette(
     frame: &mut Frame,
     area: Rect,
-    input: &str,
-    query: &str,
-    results: &[SearchRow],
-    truncated: bool,
-    running: bool,
-    selected: usize,
-    error: Option<&str>,
+    palette: &SearchPaletteView<'_>,
     theme: &Theme,
 ) {
     use ratatui::layout::{Constraint, Direction, Layout};
@@ -726,19 +732,19 @@ pub fn draw_search_palette(
         .split(popup);
     let input_block = titled_block("Search (Enter run, Esc close)", ColorRole::Accent, theme);
     frame.render_widget(
-        Paragraph::new(format!("> {input}")).block(input_block),
+        Paragraph::new(format!("> {}", palette.input)).block(input_block),
         chunks[0],
     );
     let mut rows: Vec<String> = Vec::new();
-    if running {
+    if palette.running {
         rows.push("Searching...".to_string());
-    } else if let Some(message) = error {
+    } else if let Some(message) = palette.error {
         rows.push(format!("error: {message}"));
     } else {
-        if results.is_empty() && !query.is_empty() {
-            rows.push(format!("No results for \"{query}\""));
+        if palette.results.is_empty() && !palette.query.is_empty() {
+            rows.push(format!("No results for \"{}\"", palette.query));
         }
-        for row in results {
+        for row in palette.results {
             rows.push(format!(
                 "[{}] {} · {} (score {})",
                 row.kind,
@@ -747,7 +753,7 @@ pub fn draw_search_palette(
                 row.score
             ));
         }
-        if truncated {
+        if palette.truncated {
             rows.push("(results truncated)".to_string());
         }
         if rows.is_empty() {
@@ -758,12 +764,12 @@ pub fn draw_search_palette(
         .iter()
         .enumerate()
         .map(|(idx, text)| {
-            ListItem::new(text.as_str()).style(selected_style(idx == selected, theme))
+            ListItem::new(text.as_str()).style(selected_style(idx == palette.selected, theme))
         })
         .collect();
     let mut state = ListState::default();
     if !rows.is_empty() {
-        state.select(Some(selected.min(rows.len() - 1)));
+        state.select(Some(palette.selected.min(rows.len() - 1)));
     }
     let list = List::new(items).block(titled_block("Results", ColorRole::Accent, theme));
     frame.render_stateful_widget(list, chunks[1], &mut state);

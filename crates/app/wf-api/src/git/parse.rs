@@ -100,8 +100,8 @@ pub fn parse_porcelain_v2_files(output: &str) -> Vec<FileEntry> {
                 kind,
                 renamed_from,
             });
-        } else if line.starts_with("? ") {
-            let path = line[2..].to_string();
+        } else if let Some(path) = line.strip_prefix("? ") {
+            let path = path.to_string();
             out.push(FileEntry {
                 path,
                 staged: "?".to_string(),
@@ -109,8 +109,8 @@ pub fn parse_porcelain_v2_files(output: &str) -> Vec<FileEntry> {
                 kind: FileKind::Untracked,
                 renamed_from: None,
             });
-        } else if line.starts_with("u ") {
-            let rest = line[2..].trim().to_string();
+        } else if let Some(rest) = line.strip_prefix("u ") {
+            let rest = rest.trim().to_string();
             let path = rest.split_whitespace().last().unwrap_or("").to_string();
             if !path.is_empty() {
                 out.push(FileEntry {

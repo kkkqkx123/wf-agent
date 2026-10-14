@@ -216,8 +216,7 @@ pub fn partition_history(
         })?;
     let depth = limit
         .saturating_add(offset)
-        .min(MAX_PARTITION_HISTORY_COMMITS + 1)
-        .max(1);
+        .clamp(1, MAX_PARTITION_HISTORY_COMMITS + 1);
     let log = git.log(&head, depth).map_err(map_git_error)?;
     Ok(log
         .into_iter()

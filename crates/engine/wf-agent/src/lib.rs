@@ -15,12 +15,13 @@ pub mod hook;
 pub mod persistence;
 pub mod registry;
 pub mod state;
+pub mod stream;
+pub mod subagent;
+pub mod timeout;
 pub use state::{
     AgentLoopState, AgentLoopStateSnapshot, InterruptionStatistics, IterationRecord,
     ToolCallRecord, ToolDiscoveryState, VariableHistoryEntry,
 };
-pub mod stream;
-pub mod timeout;
 pub mod tool_router;
 pub mod trigger;
 pub mod validation;

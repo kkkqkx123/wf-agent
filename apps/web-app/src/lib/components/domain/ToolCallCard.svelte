@@ -2,8 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';

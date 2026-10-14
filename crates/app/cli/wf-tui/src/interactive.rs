@@ -10,6 +10,7 @@
 //!
 //! * [`keys`] — keyboard input handling (prompt, approval, question, scroll).
 //! * [`render`] — the draw path (scrollback viewport, footer, prompt line).
+//! * [`subagent_blocks`] — sub-agent start/end row bookkeeping for jumps.
 //!
 //! This root file keeps the cohesive session state machine itself: the
 //! [`InteractiveController`] struct, its lifecycle, the event pump, and the
@@ -18,6 +19,7 @@
 pub(crate) mod copy;
 pub(crate) mod keys;
 mod render;
+mod subagent_blocks;
 mod tool_blocks;
 mod turn;
 mod view;
@@ -126,6 +128,14 @@ pub struct InteractiveController {
     tool_blocks: HashMap<String, tool_blocks::ToolBlock>,
     /// Tool call insertion order for most-recent expandable lookup.
     tool_order: Vec<String>,
+    /// Dispatched children with start/end row bookkeeping, keyed by child
+    /// execution id. The scrollback stays plain history rows; this table
+    /// owns the jump targets for sub-agent navigation.
+    subagent_blocks: HashMap<String, subagent_blocks::SubagentBlock>,
+    /// Child dispatch order for most-recent-first jump cycling.
+    subagent_order: Vec<String>,
+    /// Next jump position inside the reversed dispatch order.
+    subagent_cycle: usize,
     /// Thresholds for tool-output previews and block storage.
     tool_config: tui_core::tool_output::ToolOutputConfig,
     /// Successful tool calls accumulated for the Low detail-level activity
@@ -313,6 +323,9 @@ impl InteractiveController {
             tool_started_at: HashMap::new(),
             tool_blocks: HashMap::new(),
             tool_order: Vec::new(),
+            subagent_blocks: HashMap::new(),
+            subagent_order: Vec::new(),
+            subagent_cycle: 0,
             tool_config: tui_core::tool_output::ToolOutputConfig::default(),
             activity: Vec::new(),
             viewer_request: None,

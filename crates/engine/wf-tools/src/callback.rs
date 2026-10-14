@@ -24,6 +24,17 @@ pub struct ParentLink {
     /// Resolved filesystem scope of the parent execution. Child executions
     /// derive their scope from it; `None` means the parent carried no scope.
     pub file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
+    /// Outer tool call that dispatches the child (`call_agent` /
+    /// `execute_workflow`). Carried so the child engine can correlate its
+    /// lifecycle events with the host tool card. `None` outside dispatch
+    /// tools.
+    pub tool_call_id: Option<String>,
+    /// Parent-stream observer for sub-agent lifecycle events. `Some` only
+    /// when the parent run streams to a live consumer; the child engine
+    /// reports start / finish / progress through it without blocking on a
+    /// slow consumer. `None` keeps plain behavior with no parent updates.
+    pub subagent_tx:
+        Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
 }
 
 impl std::fmt::Debug for ParentLink {
@@ -32,6 +43,8 @@ impl std::fmt::Debug for ParentLink {
             .field("execution_id", &self.execution_id)
             .field("cancellation", &self.cancellation.is_some())
             .field("file_scope", &self.file_scope.is_some())
+            .field("tool_call_id", &self.tool_call_id)
+            .field("subagent_tx", &self.subagent_tx.is_some())
             .finish()
     }
 }

@@ -102,12 +102,47 @@ impl ExecutionEventStream {
                         completion_tokens,
                         cost,
                     },
-                    AgentStreamEvent::SubAgentStarted { id, name } => {
-                        ExecutionStreamEvent::SubAgentStarted { id, name }
-                    }
-                    AgentStreamEvent::SubAgentEnded { id, name, success } => {
-                        ExecutionStreamEvent::SubAgentEnded { id, name, success }
-                    }
+                    AgentStreamEvent::SubAgentStarted {
+                        id,
+                        name,
+                        tool_call_id,
+                        depth,
+                        preview,
+                        background,
+                    } => ExecutionStreamEvent::SubAgentStarted {
+                        id,
+                        name,
+                        tool_call_id,
+                        depth,
+                        preview,
+                        background: Some(background),
+                    },
+                    AgentStreamEvent::SubAgentEnded {
+                        id,
+                        name,
+                        success,
+                        tool_call_id,
+                        background,
+                    } => ExecutionStreamEvent::SubAgentEnded {
+                        id,
+                        name,
+                        success,
+                        tool_call_id,
+                        background: Some(background),
+                    },
+                    AgentStreamEvent::SubAgentProgress {
+                        id,
+                        tool_call_id,
+                        activity,
+                        output_tokens,
+                        tool_uses,
+                    } => ExecutionStreamEvent::SubAgentProgress {
+                        id,
+                        tool_call_id,
+                        activity,
+                        output_tokens,
+                        tool_uses,
+                    },
                 };
                 let terminal = matches!(
                     mapped,

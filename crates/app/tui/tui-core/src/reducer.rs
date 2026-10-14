@@ -92,6 +92,17 @@ pub enum Phase {
     Streaming,
 }
 
+/// One running sub-agent tracked for the footer panel and keyboard jump
+/// targets. `tool_call_id` links the child to its host tool card when the
+/// dispatcher reported it; `activity` carries the latest milestone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveSubAgent {
+    pub id: String,
+    pub name: String,
+    pub tool_call_id: Option<String>,
+    pub activity: Option<String>,
+}
+
 /// Pure footer state consumed by the TUI footer prompt view (inline form). Maintained
 /// incrementally by the reduction pass.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +116,9 @@ pub struct FooterState {
     pub usage: Option<UsageMeta>,
     /// Number of sub-agents currently running (status line hint).
     pub subagent_count: u32,
+    /// Running sub-agents by start order (footer panel + jump targets).
+    /// `subagent_count` always equals `subagents.len()`.
+    pub subagents: Vec<ActiveSubAgent>,
 }
 
 impl Default for FooterState {
@@ -117,6 +131,7 @@ impl Default for FooterState {
             last_error: None,
             usage: None,
             subagent_count: 0,
+            subagents: Vec::new(),
         }
     }
 }
@@ -138,6 +153,7 @@ enum EventSig {
     Usage,
     SubAgentStart(String, String),
     SubAgentEnd(String, String, bool),
+    SubAgentProgress(String),
     Engine,
 }
 
@@ -177,11 +193,14 @@ impl From<&ExecutionStreamEvent> for EventSig {
             ExecutionStreamEvent::Failed { error } => EventSig::Failed(error.clone()),
             ExecutionStreamEvent::ReasoningDelta { .. } => EventSig::Reasoning,
             ExecutionStreamEvent::Usage { .. } => EventSig::Usage,
-            ExecutionStreamEvent::SubAgentStarted { id, name } => {
+            ExecutionStreamEvent::SubAgentStarted { id, name, .. } => {
                 EventSig::SubAgentStart(id.clone(), name.clone())
             }
-            ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
+            ExecutionStreamEvent::SubAgentEnded { id, name, success, .. } => {
                 EventSig::SubAgentEnd(id.clone(), name.clone(), *success)
+            }
+            ExecutionStreamEvent::SubAgentProgress { id, .. } => {
+                EventSig::SubAgentProgress(id.clone())
             }
         }
     }
@@ -351,19 +370,94 @@ impl SessionReducer {
                     cost: *cost,
                 });
             }
-            ExecutionStreamEvent::SubAgentStarted { .. } => {
-                self.footer.subagent_count = self.footer.subagent_count.saturating_add(1);
+            ExecutionStreamEvent::SubAgentStarted {
+                id, name, tool_call_id, ..
+            } => {
+                self.upsert_subagent(id.clone(), name.clone(), tool_call_id.clone(), None);
             }
-            ExecutionStreamEvent::SubAgentEnded { .. } => {
-                self.footer.subagent_count = self.footer.subagent_count.saturating_sub(1);
+            ExecutionStreamEvent::SubAgentEnded { id, .. } => {
+                self.remove_subagent(id);
+            }
+            ExecutionStreamEvent::SubAgentProgress {
+                id,
+                tool_call_id,
+                activity,
+                ..
+            } => {
+                self.note_subagent_progress(id, tool_call_id.clone(), activity.clone());
             }
         }
     }
 
+    /// Track a started sub-agent in start order; a duplicate start for the
+    /// same id refreshes its label instead of double-counting.
+    fn upsert_subagent(
+        &mut self,
+        id: &str,
+        name: &str,
+        tool_call_id: Option<String>,
+        activity: Option<String>,
+    ) {
+        if let Some(existing) = self.footer.subagents.iter_mut().find(|s| s.id == id) {
+            existing.name = name.to_string();
+            if tool_call_id.is_some() {
+                existing.tool_call_id = tool_call_id;
+            }
+            if activity.is_some() {
+                existing.activity = activity;
+            }
+        } else {
+            self.footer.subagents.push(ActiveSubAgent {
+                id: id.to_string(),
+                name: name.to_string(),
+                tool_call_id,
+                activity,
+            });
+        }
+        self.sync_subagent_count();
+    }
+
+    /// Drop a finished sub-agent; unknown ids are ignored so duplicate or
+    /// reordered delivery never drives the count negative.
+    fn remove_subagent(&mut self, id: &str) {
+        self.footer.subagents.retain(|s| s.id != id);
+        self.sync_subagent_count();
+    }
+
+    /// Update the latest milestone of a running sub-agent. Progress for an
+    /// unknown id still records a row (name falls back to the id) so a
+    /// missed start never loses the activity.
+    fn note_subagent_progress(
+        &mut self,
+        id: &str,
+        tool_call_id: Option<String>,
+        activity: Option<String>,
+    ) {
+        if let Some(existing) = self.footer.subagents.iter_mut().find(|s| s.id == id) {
+            if tool_call_id.is_some() {
+                existing.tool_call_id = tool_call_id;
+            }
+            if activity.is_some() {
+                existing.activity = activity;
+            }
+        } else {
+            self.footer.subagents.push(ActiveSubAgent {
+                id: id.to_string(),
+                name: id.to_string(),
+                tool_call_id,
+                activity,
+            });
+        }
+        self.sync_subagent_count();
+    }
+
+    fn sync_subagent_count(&mut self) {
+        self.footer.subagent_count = self.footer.subagents.len() as u32;
+    }
+
     /// Close the current turn: flush pending text, return to Idle, emit the
     /// terminal commit.
-    fn finish_terminal(&mut self, commits: &mut Vec<MiniCommit>, terminal: MiniCommit) {
-        self.flush_text(commits);
+    fn finish_terminal(&mut self, commits: &mut Vec<MiniCommit>, terminal: MiniCommit) {        self.flush_text(commits);
         self.footer.phase = Phase::Idle;
         commits.push(terminal);
     }

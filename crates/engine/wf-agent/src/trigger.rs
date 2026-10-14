@@ -168,6 +168,8 @@ impl TriggeredAgentExecutionManager {
             // optional view.
             manager: parent.as_ref().hierarchy_manager(),
             cancellation: Some(parent.get_abort_signal()),
+            tool_call_id: None,
+            subagent_tx: None,
         };
 
         // Register the child on the parent entity. The child entity id is a

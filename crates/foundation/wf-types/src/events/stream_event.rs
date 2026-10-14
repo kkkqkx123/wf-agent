@@ -72,12 +72,54 @@ pub enum ExecutionStreamEvent {
         completion_tokens: u32,
         cost: Option<f64>,
     },
-    /// A sub-agent (triggered child agent) started.
-    SubAgentStarted { id: String, name: String },
+    /// A sub-agent (triggered child agent) started. `id` is the child
+    /// execution id. The linkage fields are `None` on older servers;
+    /// consumers fall back to name-only display.
+    SubAgentStarted {
+        id: String,
+        name: String,
+        /// Outer tool call that dispatched the child (`call_agent` /
+        /// `execute_workflow`), linking the child to its host card.
+        #[serde(default)]
+        tool_call_id: Option<String>,
+        /// Nesting depth of the child (root = 0).
+        #[serde(default)]
+        depth: Option<u32>,
+        /// Truncated task preview (prompt first line / workflow id).
+        #[serde(default)]
+        preview: Option<String>,
+        /// True when dispatched without waiting (background handle).
+        #[serde(default)]
+        background: Option<bool>,
+    },
     /// A sub-agent finished.
     SubAgentEnded {
         id: String,
         name: String,
         success: bool,
+        /// Outer tool call that dispatched the child, for card correlation.
+        #[serde(default)]
+        tool_call_id: Option<String>,
+        /// True when the child was dispatched without waiting.
+        #[serde(default)]
+        background: Option<bool>,
+    },
+    /// Milestone progress of a running sub-agent (iteration / tool
+    /// summary / token usage). Ephemeral like usage deltas: renderers
+    /// update the host card in place and never persist it.
+    SubAgentProgress {
+        id: String,
+        /// Outer tool call that dispatched the child, for card correlation.
+        #[serde(default)]
+        tool_call_id: Option<String>,
+        /// Human-readable activity summary (latest milestone).
+        #[serde(default)]
+        activity: Option<String>,
+        /// Cumulative output tokens reported by the child, when known.
+        #[serde(default)]
+        output_tokens: Option<u32>,
+        /// Tool calls made by the child so far, when known.
+        #[serde(default)]
+        tool_uses: Option<u32>,
     },
 }

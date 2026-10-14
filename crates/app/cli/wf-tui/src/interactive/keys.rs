@@ -37,7 +37,8 @@ impl InteractiveController {
         // view (a prompt, an approval or a question all leave history above).
         // Tool-output keys are transcript context too: Ctrl+O toggles the
         // most recent expandable block, Ctrl+V opens its full output,
-        // Ctrl+D cycles the detail level and Ctrl+E expands or collapses all.
+        // Ctrl+D cycles the detail level, Ctrl+E expands or collapses all
+        // and Ctrl+G jumps between sub-agent start rows newest-first.
         // High level expands retrieval bodies by default and can flood the
         // transcript on large reads; prefer medium for daily use and switch
         // to high only when inspecting retrieval behavior.
@@ -81,6 +82,10 @@ impl InteractiveController {
             }
             CKey::Char('e') | CKey::Char('E') if key.ctrl && !key.alt => {
                 self.toggle_all_tool_blocks();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('g') | CKey::Char('G') if key.ctrl && !key.alt => {
+                self.jump_to_subagent();
                 return InteractiveAction::Continue;
             }
             CKey::Char('y') | CKey::Char('Y') if key.ctrl && !key.alt => {

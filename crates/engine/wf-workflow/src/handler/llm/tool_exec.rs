@@ -179,6 +179,8 @@ pub async fn execute_tool_call(
             execution_id: ctx.execution_id.clone(),
             manager,
             cancellation: ctx.cancellation.clone(),
+            tool_call_id: Some(call.id.clone()),
+            subagent_tx: None,
         }
     }));
     tool_ctx = tool_ctx.with_file_scope(ctx.file_scope.inner.clone());

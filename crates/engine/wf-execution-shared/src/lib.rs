@@ -37,9 +37,6 @@ pub use execution_loop::{
 pub use execution_state::ExecutionStateManager;
 pub use fold_operation::{execute_fold, FoldOutcome, FoldParams};
 pub use fork::{BranchRecord, BranchStatus, ForkChildStatus, ForkRegistry};
-pub use wf_shell::background_task::{
-    background_task_registry, BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus,
-};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
     evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,
@@ -50,6 +47,9 @@ pub use interruption::{
     iterate_with_interruption_handling,
 };
 pub use types::{ExecutionInstance, ExecutionKind};
+pub use wf_shell::background_task::{
+    background_task_registry, BackgroundTask, BackgroundTaskRegistry, BackgroundTaskStatus,
+};
 // Conversation and token-usage engine contract: session state, message-array
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.

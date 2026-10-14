@@ -30,6 +30,17 @@ export interface StreamNodeUpdate {
 	at: string;
 }
 
+/** Linkage details of a sub-agent frame. All fields are absent on
+ * older servers; views fall back to name-only display. */
+export interface SubAgentDetails {
+	toolCallId?: string;
+	preview?: string | null;
+	background?: boolean | null;
+	activity?: string | null;
+	outputTokens?: number | null;
+	toolUses?: number | null;
+}
+
 /** One error of an execution chain, root cause included. */
 export interface ErrorRecord {
 	id: string;
@@ -56,7 +67,12 @@ export interface StreamCallbacks {
 	) => void;
 	onToolEnd?: (tool: ToolLifecycle) => void;
 	onUsage?: (usage: UsageSnapshot) => void;
-	onSubAgent?: (id: string, name: string, success: boolean | null) => void;
+	onSubAgent?: (
+		id: string,
+		name: string,
+		success: boolean | null,
+		details?: SubAgentDetails,
+	) => void;
 	onNode?: (node: StreamNodeUpdate) => void;
 	onCompleted?: (iterations: number) => void;
 	onFailed?: (message: string) => void;
@@ -247,14 +263,35 @@ export function handleExecutionFrame(
 			});
 			break;
 		case 'sub_agent_started':
-			callbacks.onSubAgent?.(asString(frame.id), asString(frame.name), null);
+			callbacks.onSubAgent?.(
+				asString(frame.id),
+				asString(frame.name),
+				null,
+				{
+					toolCallId: asString(frame.tool_call_id) || undefined,
+					preview: asOptionalString(frame.preview),
+					background: frame.background === true,
+				},
+			);
 			break;
 		case 'sub_agent_ended':
 			callbacks.onSubAgent?.(
 				asString(frame.id),
 				asString(frame.name),
 				frame.success !== false,
+				{
+					toolCallId: asString(frame.tool_call_id) || undefined,
+					background: frame.background === true,
+				},
 			);
+			break;
+		case 'sub_agent_progress':
+			callbacks.onSubAgent?.(asString(frame.id), '', null, {
+				toolCallId: asString(frame.tool_call_id) || undefined,
+				activity: asOptionalString(frame.activity),
+				outputTokens: asOptionalNumber(frame.output_tokens),
+				toolUses: asOptionalNumber(frame.tool_uses),
+			});
 			break;
 		case 'completed':
 			callbacks.onCompleted?.(asNumber(frame.iterations));

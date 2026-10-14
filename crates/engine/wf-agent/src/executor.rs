@@ -237,8 +237,21 @@ impl AgentLoopExecutor {
         Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
         self.check_sub_agent_depth(parent.as_ref())?;
         let config = Self::inherit_file_scope(config, parent.as_ref())?;
-        let coordinator = self.coordinator(parent.as_ref());
+        // Pre-allocate the child id so the parent stream can attribute the
+        // run before it starts instead of only after it settles. The
+        // display name derives from the same config/input on both ends.
+        let child_id = Id::from(wf_common::generate_id());
+        let child_name = crate::subagent::display_name(&config, &input);
+        if let Some(ref link) = parent {
+            crate::subagent::emit_started(link, &child_id, &config, &input, false);
+        }
+        let coordinator = self
+            .coordinator(parent.as_ref())
+            .with_agent_loop_id(child_id.clone());
         let output = coordinator.execute(config, input).await;
+        if let Some(ref link) = parent {
+            crate::subagent::emit_ended(link, &child_id, &child_name, output.is_ok(), false);
+        }
         // Sync path writes the result slot too, keeping both dispatch paths
         // consistent: a later query_execution_status returns the output.
         if let Ok(output) = &output {
@@ -288,6 +301,17 @@ impl AgentLoopExecutor {
         self.agent_registry
             .register(Arc::new(AgentLoopEntity::new(execution_id.clone())))?;
 
+        // Background dispatch reports its lifecycle to the parent stream
+        // when observed: start now, finish when the background task
+        // settles. The display name derives from the same config/input.
+        let child_name = crate::subagent::display_name(&config, &input);
+        if let Some(ref link) = parent {
+            crate::subagent::emit_started(link, &execution_id, &config, &input, true);
+        }
+        let subagent_parent = parent.clone();
+        let subagent_child_id = execution_id.clone();
+        let subagent_child_name = child_name.clone();
+
         // Parent cancellation propagation: the typed link carries the live
         // parent abort signal, so a parent of any execution type stops the
         // child. A missing link means no cross-execution cancel.
@@ -304,6 +328,15 @@ impl AgentLoopExecutor {
             match coordinator.execute(config, input).await {
                 Ok(output) => {
                     agent_registry.store_result(run_id.clone(), output);
+                    if let Some(ref link) = subagent_parent {
+                        crate::subagent::emit_ended(
+                            link,
+                            &subagent_child_id,
+                            &subagent_child_name,
+                            true,
+                            true,
+                        );
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -311,6 +344,15 @@ impl AgentLoopExecutor {
                         error = %e,
                         "spawned agent loop failed"
                     );
+                    if let Some(ref link) = subagent_parent {
+                        crate::subagent::emit_ended(
+                            link,
+                            &subagent_child_id,
+                            &subagent_child_name,
+                            false,
+                            true,
+                        );
+                    }
                     // Settle the placeholder as a terminal failed execution
                     // carrying the build error: the spawn handle keeps its
                     // query contract and the failure reason reaches polling
@@ -561,6 +603,8 @@ mod tests {
             // optional view.
             manager: entity.as_ref().hierarchy_manager(),
             cancellation: Some(entity.get_abort_signal()),
+            tool_call_id: None,
+            subagent_tx: None,
         }
     }
 
@@ -1195,6 +1239,8 @@ mod tests {
             execution_id: Id::from("wf-parent".to_string()),
             manager: parent_manager,
             cancellation: None,
+            tool_call_id: None,
+            subagent_tx: None,
         };
         let spawned = executor
             .spawn_with_parent(agent_config("agent-linked"), agent_input("run"), Some(link))
@@ -1255,6 +1301,8 @@ mod tests {
                 ExecutionType::Workflow,
             )),
             cancellation: Some(parent_token.clone()),
+            tool_call_id: None,
+            subagent_tx: None,
         };
         let spawned = executor
             .spawn_with_parent(
@@ -1351,6 +1399,8 @@ mod tests {
             execution_id: wf_types::Id::from("p".to_string()),
             manager: std::sync::Arc::new(manager),
             cancellation: None,
+            tool_call_id: None,
+            subagent_tx: None,
         };
         let mut config = agent_config("a");
         config.file_scope = Some(wf_types::config::file_scope::ExecutionFileScope {

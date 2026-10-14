@@ -137,7 +137,8 @@ pub struct BackgroundShellStore {
     session_idle_timeout_ms: Option<u64>,
     output_event_enabled: bool,
     spill_dir: Option<PathBuf>,
-    spill_threshold_bytes: usize,    event_sink: Option<Arc<EventDispatcher>>,
+    spill_threshold_bytes: usize,
+    event_sink: Option<Arc<EventDispatcher>>,
     /// Generic session lifecycle sink (start / command complete /
     /// terminate). Independent from `output_event_enabled` so background
     /// process ends are observable even without per-line output events.
@@ -626,7 +627,10 @@ impl BackgroundShellStore {
                 .clone()
                 .unwrap_or_else(std::env::temp_dir)
                 .join("wf-shell-spill");
-            session.enable_spill(dir.join(format!("{session_id}.log")), self.spill_threshold_bytes);
+            session.enable_spill(
+                dir.join(format!("{session_id}.log")),
+                self.spill_threshold_bytes,
+            );
         }
         self.sessions.insert(session_id.clone(), session.clone());
         session.dispatch_created(false);

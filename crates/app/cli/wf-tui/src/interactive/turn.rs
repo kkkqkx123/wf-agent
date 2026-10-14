@@ -451,19 +451,30 @@ impl InteractiveController {
                 self.pacer.push_reasoning(content);
             }
             ExecutionStreamEvent::Usage { .. } => {}
-            ExecutionStreamEvent::SubAgentStarted { name, .. } => {
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("◇ subagent started: {name}"),
-                    Role::Muted,
-                ));
+            ExecutionStreamEvent::SubAgentStarted {
+                id,
+                name,
+                tool_call_id,
+                preview,
+                ..
+            } => {
+                self.record_subagent_started(
+                    id,
+                    name,
+                    tool_call_id.as_deref(),
+                    preview.as_deref(),
+                );
             }
-            ExecutionStreamEvent::SubAgentEnded { name, success, .. } => {
-                let mark = if *success { "✓" } else { "✗" };
-                let role = if *success { Role::Add } else { Role::Error };
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("{mark} subagent ended: {name}"),
-                    role,
-                ));
+            ExecutionStreamEvent::SubAgentEnded { id, name, success, .. } => {
+                self.record_subagent_ended(id, name, *success);
+            }
+            ExecutionStreamEvent::SubAgentProgress {
+                id,
+                tool_call_id,
+                activity,
+                ..
+            } => {
+                self.note_subagent_activity(id, tool_call_id.as_deref(), activity.as_deref());
             }
         }
     }

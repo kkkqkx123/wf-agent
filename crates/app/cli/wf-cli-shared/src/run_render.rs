@@ -158,7 +158,8 @@ impl<'a> SessionRenderer<'a> {
             ExecutionStreamEvent::ReasoningDelta { .. }
             | ExecutionStreamEvent::Usage { .. }
             | ExecutionStreamEvent::SubAgentStarted { .. }
-            | ExecutionStreamEvent::SubAgentEnded { .. } => return Ok(()),
+            | ExecutionStreamEvent::SubAgentEnded { .. }
+            | ExecutionStreamEvent::SubAgentProgress { .. } => return Ok(()),
         }
         Ok(())
     }

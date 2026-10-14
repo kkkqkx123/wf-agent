@@ -171,12 +171,10 @@ async fn finished_command_settles_the_task() {
         )
         .await
         .unwrap();
-    assert!(
-        running.result.unwrap()["tasks"]
-            .as_array()
-            .expect("tasks array")
-            .is_empty()
-    );
+    assert!(running.result.unwrap()["tasks"]
+        .as_array()
+        .expect("tasks array")
+        .is_empty());
     let _ = registry
         .execute_tool(
             "shell_kill",

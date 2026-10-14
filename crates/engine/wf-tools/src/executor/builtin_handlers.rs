@@ -189,6 +189,7 @@ impl BuiltinToolHandler for CallAgentHandler {
         Ok(serde_json::json!({
             "result": output.result,
             "iterations": output.iterations,
+            "execution_id": output.agent_loop_id.to_string(),
         }))
     }
 }

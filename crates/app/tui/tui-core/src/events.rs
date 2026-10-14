@@ -50,13 +50,24 @@ pub enum UnifiedEvent {
         completion_tokens: u32,
         cost: Option<f64>,
     },
-    /// A sub-agent (triggered child agent) started.
-    SubAgentStarted { id: String, name: String },
+    /// A sub-agent (dispatched child agent) started.
+    SubAgentStarted {
+        id: String,
+        name: String,
+        tool_call_id: Option<String>,
+    },
     /// A sub-agent finished.
     SubAgentEnded {
         id: String,
         name: String,
         success: bool,
+        tool_call_id: Option<String>,
+    },
+    /// Milestone progress of a running sub-agent.
+    SubAgentProgress {
+        id: String,
+        tool_call_id: Option<String>,
+        activity: Option<String>,
     },
     /// Execution lifecycle event (checkpoint bus adapter).
     Execution(ExecutionEvent),
@@ -78,6 +89,7 @@ impl UnifiedEvent {
             Self::Usage { .. } => "usage",
             Self::SubAgentStarted { .. } => "subagent_started",
             Self::SubAgentEnded { .. } => "subagent_ended",
+            Self::SubAgentProgress { .. } => "subagent_progress",
             Self::Execution(e) => match e {
                 ExecutionEvent::StateChanged(_) => "execution_state_changed",
                 ExecutionEvent::ErrorOccurred(_) => "execution_error",
@@ -140,12 +152,38 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
             completion_tokens,
             cost,
         }),
-        ExecutionStreamEvent::SubAgentStarted { id, name } => {
-            Some(UnifiedEvent::SubAgentStarted { id, name })
-        }
-        ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
-            Some(UnifiedEvent::SubAgentEnded { id, name, success })
-        }
+        ExecutionStreamEvent::SubAgentStarted {
+            id,
+            name,
+            tool_call_id,
+            ..
+        } => Some(UnifiedEvent::SubAgentStarted {
+            id,
+            name,
+            tool_call_id,
+        }),
+        ExecutionStreamEvent::SubAgentEnded {
+            id,
+            name,
+            success,
+            tool_call_id,
+            ..
+        } => Some(UnifiedEvent::SubAgentEnded {
+            id,
+            name,
+            success,
+            tool_call_id,
+        }),
+        ExecutionStreamEvent::SubAgentProgress {
+            id,
+            tool_call_id,
+            activity,
+            ..
+        } => Some(UnifiedEvent::SubAgentProgress {
+            id,
+            tool_call_id,
+            activity,
+        }),
         ExecutionStreamEvent::LlmDelta { content } => Some(UnifiedEvent::TextDelta { content }),
         ExecutionStreamEvent::Engine(_) => None,
     }

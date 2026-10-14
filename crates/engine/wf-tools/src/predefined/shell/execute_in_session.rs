@@ -99,8 +99,14 @@ impl StatefulInstance for ExecuteInSessionInstance {
             .map_err(Into::into);
         let settled = match &result {
             Ok(value) => (
-                value.get("exit_code").and_then(|v| v.as_i64()).map(|c| c as i32),
-                value.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
+                value
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .map(|c| c as i32),
+                value
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             ),
             Err(_) => (None, false),
         };

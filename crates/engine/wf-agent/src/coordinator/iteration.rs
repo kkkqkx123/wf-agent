@@ -146,13 +146,15 @@ impl AgentIterationCoordinator {
         let file_observer = self.tool_coordinator.checkpoint_session_config();
         let file_scope = self.tool_coordinator.file_scope_config();
         let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
+        let subagent_tx = self.tool_coordinator.subagent_tx_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(options, handler)
             .with_checkpoint_session(file_observer)
             .with_file_scope(file_scope)
-            .with_agent_checkpoint(agent_checkpoint);
+            .with_agent_checkpoint(agent_checkpoint)
+            .with_subagent_tx(subagent_tx);
         self
     }
 
@@ -170,6 +172,7 @@ impl AgentIterationCoordinator {
         let file_observer = self.tool_coordinator.checkpoint_session_config();
         let file_scope = self.tool_coordinator.file_scope_config();
         let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
+        let subagent_tx = self.tool_coordinator.subagent_tx_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
@@ -177,15 +180,81 @@ impl AgentIterationCoordinator {
             .with_visibility_store(store)
             .with_checkpoint_session(file_observer)
             .with_file_scope(file_scope)
-            .with_agent_checkpoint(agent_checkpoint);
+            .with_agent_checkpoint(agent_checkpoint)
+            .with_subagent_tx(subagent_tx);
         self
     }
 
     /// Switch the coordinator to streaming mode and attach the event sink
-    /// deltas and tool lifecycle events are forwarded to.
+    /// deltas and tool lifecycle events are forwarded to. Dispatched
+    /// children report their lifecycle through a dedicated channel that a
+    /// forwarder task folds into the same sink, so sub-agent start/finish
+    /// events interleave with the parent tool lifecycle in arrival order.
     pub fn with_streaming(mut self, sink: AgentEventSink) -> Self {
         self.mode = IterationMode::Streaming;
-        self.event_sink = Some(sink);
+        self.event_sink = Some(sink.clone());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        self.tool_coordinator = self.tool_coordinator.with_subagent_tx(Some(tx));
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                // The bus mirror tags the child execution id; the parent
+                // stream consumer already holds the event itself.
+                let (bus_id, mapped) = match event {
+                    wf_types::events::ExecutionStreamEvent::SubAgentStarted {
+                        id,
+                        name,
+                        tool_call_id,
+                        depth,
+                        preview,
+                        background,
+                    } => (
+                        id.clone(),
+                        AgentStreamEvent::SubAgentStarted {
+                            id,
+                            name,
+                            tool_call_id,
+                            depth,
+                            preview,
+                            background: background.unwrap_or(false),
+                        },
+                    ),
+                    wf_types::events::ExecutionStreamEvent::SubAgentEnded {
+                        id,
+                        name,
+                        success,
+                        tool_call_id,
+                        background,
+                    } => (
+                        id.clone(),
+                        AgentStreamEvent::SubAgentEnded {
+                            id,
+                            name,
+                            success,
+                            tool_call_id,
+                            background: background.unwrap_or(false),
+                        },
+                    ),
+                    wf_types::events::ExecutionStreamEvent::SubAgentProgress {
+                        id,
+                        tool_call_id,
+                        activity,
+                        output_tokens,
+                        tool_uses,
+                    } => (
+                        id.clone(),
+                        AgentStreamEvent::SubAgentProgress {
+                            id,
+                            tool_call_id,
+                            activity,
+                            output_tokens,
+                            tool_uses,
+                        },
+                    ),
+                    _ => continue,
+                };
+                sink.emit_quiet(&bus_id, mapped).await;
+            }
+        });
         self
     }
 

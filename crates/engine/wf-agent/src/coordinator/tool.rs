@@ -62,6 +62,11 @@ pub struct ToolExecutionCoordinator {
     checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
     /// Resolved execution filesystem scope gating tool paths.
     file_scope: wf_types::config::file_scope::ResolvedExecutionScope,
+    /// Parent-stream observer for sub-agent lifecycle events, installed by
+    /// the streaming iteration driver. Carried into every per-tool parent
+    /// link so dispatched children report start/finish to the parent
+    /// stream. `None` in blocking runs.
+    subagent_tx: Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
     /// Strategy-gated checkpoint handle for hook `create_checkpoint` opt-ins
     /// (`BEFORE_TOOL_CALL` / `AFTER_TOOL_CALL`). Shared (Arc) so coordinator
     /// rebuilds stay cheap; `None` keeps hook fires checkpoint-free.
@@ -89,6 +94,7 @@ impl ToolExecutionCoordinator {
             checkpoint_session: None,
             file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
             agent_checkpoint: None,
+            subagent_tx: None,
         }
     }
 
@@ -274,6 +280,26 @@ impl ToolExecutionCoordinator {
     pub fn with_rejection_builder(mut self, builder: RejectionMessageBuilder) -> Self {
         self.rejection_builder = builder;
         self
+    }
+
+    /// Install the parent-stream observer for sub-agent lifecycle events.
+    /// Set once per streaming run by the iteration driver; dispatched
+    /// children report start/finish through it. `None` keeps dispatched
+    /// children silent (blocking runs).
+    pub fn with_subagent_tx(
+        mut self,
+        tx: Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
+    ) -> Self {
+        self.subagent_tx = tx;
+        self
+    }
+
+    /// Current sub-agent observer wiring; lets coordinator rebuilds
+    /// preserve the streaming parent-link contract.
+    pub fn subagent_tx_config(
+        &self,
+    ) -> Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>> {
+        self.subagent_tx.clone()
     }
 
     pub fn tool_registry(&self) -> &Arc<ToolRegistry> {
@@ -539,6 +565,10 @@ impl ToolExecutionCoordinator {
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: run_ctx.cancellation.clone(),
+            // The batch link carries the observer; each task stamps its
+            // own tool call id after cloning (see the spawn below).
+            tool_call_id: None,
+            subagent_tx: self.subagent_tx.clone(),
         });
         let batch_cancellation = self.batch_cancellation(entity);
 
@@ -574,7 +604,12 @@ impl ToolExecutionCoordinator {
                 ApprovalOutcome::Execute { edited_parameters } => {
                     executed_any = true;
                     let tool_call = Self::apply_edited_parameters(tc, edited_parameters);
-                    let run_ctx = run_ctx.clone();
+                    let mut run_ctx = run_ctx.clone();
+                    // Stamp the task's own tool call id so a dispatched
+                    // child correlates with its host card.
+                    if let Some(ref mut link) = run_ctx.parent_link {
+                        link.tool_call_id = Some(tool_call.id.clone());
+                    }
                     let event_bus = self.event_bus.clone();
                     let hook_handler_registry = self.hook_handler_registry.clone();
                     let rejection_builder = self.rejection_builder.clone();
@@ -805,6 +840,8 @@ impl ToolExecutionCoordinator {
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: ctx.cancellation.clone(),
+            tool_call_id: Some(tc.id.clone()),
+            subagent_tx: self.subagent_tx.clone(),
         });
         match run_tool(&ctx, tc, entity.id(), &entity.state).await {
             Ok(msg) => (msg, None),
@@ -830,6 +867,8 @@ impl ToolExecutionCoordinator {
             execution_id: entity.id().clone(),
             manager: entity.hierarchy_manager(),
             cancellation: ctx.cancellation.clone(),
+            tool_call_id: Some(tc.id.clone()),
+            subagent_tx: self.subagent_tx.clone(),
         });
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await

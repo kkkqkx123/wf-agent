@@ -86,11 +86,28 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             Some(cost) => format!("usage {prompt_tokens}+{completion_tokens} cost={cost:.4}"),
             None => format!("usage {prompt_tokens}+{completion_tokens}"),
         },
-        ExecutionStreamEvent::SubAgentStarted { id, name } => {
-            format!("sub-agent {name} started ({id})")
+        ExecutionStreamEvent::SubAgentStarted {
+            id, name, tool_call_id, ..
+        } => {
+            let link = tool_call_id
+                .as_deref()
+                .map(|call| format!(" [{call}]"))
+                .unwrap_or_default();
+            format!("sub-agent {name} started ({id}){link}")
         }
-        ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
+        ExecutionStreamEvent::SubAgentEnded {
+            id,
+            name,
+            success,
+            ..
+        } => {
             format!("sub-agent {name} ended ({id}) success={success}")
+        }
+        ExecutionStreamEvent::SubAgentProgress {
+            id, activity, ..
+        } => {
+            let what = activity.as_deref().unwrap_or("working");
+            format!("sub-agent {id} progress: {what}")
         }
         ExecutionStreamEvent::Interrupted { reason } => format!("interrupted: {reason}"),
         ExecutionStreamEvent::Completed { result, iterations } => {

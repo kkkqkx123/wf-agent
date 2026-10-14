@@ -183,6 +183,17 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 self.sink.stderr_line(&format!("subagent done: {name}"));
                 None
             }
+            ExecutionStreamEvent::SubAgentProgress { activity, .. } => {
+                let Some(text) = activity.as_deref().filter(|t| !t.trim().is_empty()) else {
+                    return None;
+                };
+                if !self.display.show_tools {
+                    return None;
+                }
+                self.end_stdout_line();
+                self.sink.stderr_line(&format!("subagent: {text}"));
+                None
+            }
             ExecutionStreamEvent::Completed { iterations, .. } => {
                 self.flush_stdout();
                 if self.display.show_tools {
@@ -413,17 +424,30 @@ mod tests {
             ExecutionStreamEvent::SubAgentStarted {
                 id: "s1".to_string(),
                 name: "helper".to_string(),
+                tool_call_id: Some("t9".to_string()),
+                depth: Some(1),
+                preview: Some("help out".to_string()),
+                background: Some(false),
+            },
+            ExecutionStreamEvent::SubAgentProgress {
+                id: "s1".to_string(),
+                tool_call_id: Some("t9".to_string()),
+                activity: Some("reading files".to_string()),
+                output_tokens: None,
+                tool_uses: Some(2),
             },
             ExecutionStreamEvent::SubAgentEnded {
                 id: "s1".to_string(),
                 name: "helper".to_string(),
                 success: false,
+                tool_call_id: Some("t9".to_string()),
+                background: Some(false),
             },
         ]);
         assert_eq!(stdout, "");
         assert_eq!(
             stderr,
-            "subagent started: helper\nsubagent failed: helper\n"
+            "subagent started: helper\nsubagent: reading files\nsubagent failed: helper\n"
         );
     }
 

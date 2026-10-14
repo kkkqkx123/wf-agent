@@ -4,7 +4,7 @@
 //! UI-only fields (model label, execution id, elapsed time, notice)
 //! and is owned by [`tui_components::footer::Footer`].
 
-use crate::reducer::{Phase, UsageMeta};
+use crate::reducer::{ActiveSubAgent, Phase, UsageMeta};
 
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
 /// the interactive presentation fields (model label, execution id, elapsed
@@ -26,6 +26,8 @@ pub struct FooterState {
     pub usage: Option<UsageMeta>,
     /// Number of sub-agents currently running (status line hint).
     pub subagent_count: u32,
+    /// Running sub-agents by start order (footer panel).
+    pub subagents: Vec<ActiveSubAgent>,
     /// Pending notice: `(text, expires_at_ms)`.
     pub notice: Option<(String, u64)>,
 }
@@ -43,6 +45,7 @@ impl Default for FooterState {
             duration_ms: 0,
             usage: None,
             subagent_count: 0,
+            subagents: Vec::new(),
             notice: None,
         }
     }
@@ -58,6 +61,7 @@ impl FooterState {
         self.last_error = reducer.last_error.clone();
         self.usage = reducer.usage;
         self.subagent_count = reducer.subagent_count;
+        self.subagents = reducer.subagents.clone();
     }
 }
 
@@ -99,6 +103,7 @@ mod tests {
             last_error: None,
             usage: None,
             subagent_count: 0,
+            subagents: Vec::new(),
         };
         state.merge_reducer(&reducer);
 

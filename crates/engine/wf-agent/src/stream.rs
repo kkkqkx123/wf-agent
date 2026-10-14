@@ -85,16 +85,44 @@ pub enum AgentStreamEvent {
         completion_tokens: u32,
         cost: Option<f64>,
     },
-    /// A sub-agent (triggered child agent) started.
+    /// A sub-agent (dispatched child agent) started. `id` is the child
+    /// execution id. The linkage fields stay `None` when the dispatcher
+    /// has no parent-stream observer.
     SubAgentStarted {
         id: String,
         name: String,
+        /// Outer tool call that dispatched the child, linking the child
+        /// to its host tool card.
+        tool_call_id: Option<String>,
+        /// Nesting depth of the child (root = 0).
+        depth: Option<u32>,
+        /// Truncated task preview (prompt first line / workflow id).
+        preview: Option<String>,
+        /// True when dispatched without waiting (background handle).
+        background: bool,
     },
     /// A sub-agent finished (success distinguishes a clean vs failed child).
     SubAgentEnded {
         id: String,
         name: String,
         success: bool,
+        /// Outer tool call that dispatched the child, for card correlation.
+        tool_call_id: Option<String>,
+        /// True when the child was dispatched without waiting.
+        background: bool,
+    },
+    /// Milestone progress of a running sub-agent. Best effort like usage
+    /// deltas: renderers update the host card in place.
+    SubAgentProgress {
+        id: String,
+        /// Outer tool call that dispatched the child, for card correlation.
+        tool_call_id: Option<String>,
+        /// Human-readable activity summary (latest milestone).
+        activity: Option<String>,
+        /// Cumulative output tokens reported by the child, when known.
+        output_tokens: Option<u32>,
+        /// Tool calls made by the child so far, when known.
+        tool_uses: Option<u32>,
     },
 }
 
@@ -156,6 +184,7 @@ fn publish_to_bus(event_bus: Option<&EventBus>, agent_loop_id: &str, event: &Age
         AgentStreamEvent::Usage { .. } => EventType::LlmStreamDone,
         AgentStreamEvent::SubAgentStarted { .. } => EventType::AgentStarted,
         AgentStreamEvent::SubAgentEnded { .. } => EventType::AgentCompleted,
+        AgentStreamEvent::SubAgentProgress { .. } => EventType::LlmStreamChunk,
     };
     let bus_event = BaseEvent {
         id: wf_common::generate_id(),

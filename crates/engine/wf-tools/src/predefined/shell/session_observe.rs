@@ -75,9 +75,7 @@ impl SessionLifecycleSink for SessionLifecycleForwarder {
         // without any further tool call).
         match &event.kind {
             SessionLifecycleKind::CommandCompleted {
-                exit_code,
-                success,
-                ..
+                exit_code, success, ..
             } => {
                 wf_shell::engine::background_task_registry().settle(
                     &event.session_id,

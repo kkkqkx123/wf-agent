@@ -219,6 +219,10 @@ async fn bus_mirror_maps_every_stream_variant() {
             AgentStreamEvent::SubAgentStarted {
                 id: "child-1".to_string(),
                 name: "child".to_string(),
+                tool_call_id: Some("call_9".to_string()),
+                depth: Some(1),
+                preview: Some("do work".to_string()),
+                background: false,
             },
             EventType::AgentStarted,
         ),
@@ -227,8 +231,20 @@ async fn bus_mirror_maps_every_stream_variant() {
                 id: "child-1".to_string(),
                 name: "child".to_string(),
                 success: true,
+                tool_call_id: Some("call_9".to_string()),
+                background: false,
             },
             EventType::AgentCompleted,
+        ),
+        (
+            AgentStreamEvent::SubAgentProgress {
+                id: "child-1".to_string(),
+                tool_call_id: Some("call_9".to_string()),
+                activity: Some("iteration 2".to_string()),
+                output_tokens: Some(40),
+                tool_uses: Some(3),
+            },
+            EventType::LlmStreamChunk,
         ),
     ];
 

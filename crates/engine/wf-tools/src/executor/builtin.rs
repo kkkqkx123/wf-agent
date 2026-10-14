@@ -369,6 +369,7 @@ mod tests {
         let value = result.result.unwrap();
         assert_eq!(value["iterations"], 1);
         assert_eq!(value["result"], serde_json::json!({"synced": true}));
+        assert_eq!(value["execution_id"], "sync-run");
     }
 
     #[tokio::test]

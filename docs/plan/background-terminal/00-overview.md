@@ -33,6 +33,8 @@
 | `01-opencode-analysis.md` | `ref/opencode` 后台终端的实现拆解 |
 | `02-current-analysis.md` | 当前项目后端、前端、命令行界面的现状与差距 |
 | `03-design.md` | 可借鉴点、总体设计、接口划分与分阶段落地 |
+| `04-progress.md` | 各阶段落地状态与后续工作 |
+| `05-remaining-design.md` | 剩余任务（聚合视图、终端聚合行）的细化设计与已落地的标记协议 |
 
 ## 范围
 

@@ -644,4 +644,8 @@ export interface ToolCallEntry {
 	nodeId?: string;
 	/** Owning iteration for agent-loop tool calls. */
 	iteration?: number;
+	/** Background session produced by this tool call, from the live stream
+	 * marker. Null for foreground tools, history records and older
+	 * servers. */
+	backgroundSessionId?: string | null;
 }

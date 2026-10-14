@@ -64,6 +64,7 @@ fn tool_script() -> Vec<ExecutionStreamEvent> {
             result: String::new(),
             error: None,
             display: None,
+            background: None,
         },
         it_end(1),
         it(2),

@@ -64,6 +64,7 @@ impl ExecutionEventStream {
                         result,
                         error,
                         display,
+                        background,
                     } => ExecutionStreamEvent::ToolEnd {
                         tool_call_id,
                         tool_name,
@@ -71,6 +72,7 @@ impl ExecutionEventStream {
                         result,
                         error,
                         display,
+                        background,
                     },
                     AgentStreamEvent::IterationEnd {
                         iteration,

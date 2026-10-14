@@ -12,6 +12,16 @@ export interface ToolLifecycle {
 	/** Frontend-facing summary produced alongside the full result. Null on
 	 * older servers; consumers fall back to name-based inference. */
 	display: DisplayPayload | null;
+	/** Structured background linkage for tools that hand a running session
+	 * back instead of blocking. Null for foreground tools and older
+	 * servers; views must not sniff the result text. */
+	background: BackgroundMarker | null;
+}
+
+/** Linkage between one tool call and the background session it produced. */
+export interface BackgroundMarker {
+	sessionId: string;
+	backgrounded: boolean;
 }
 
 export interface UsageSnapshot {
@@ -109,6 +119,15 @@ function asOptionalNumber(value: unknown): number | null {
 
 function asOptionalString(value: unknown): string | null {
 	return typeof value === 'string' && value ? value : null;
+}
+
+/** Background linkage attached to tool end frames by newer servers. Absent
+ * or malformed values read as null so older servers keep working. */
+function parseBackgroundMarker(value: unknown): BackgroundMarker | null {
+	const record = asRecord(value);
+	const sessionId = asString(record?.session_id);
+	if (!record || !sessionId) return null;
+	return { sessionId, backgrounded: record.backgrounded !== false };
 }
 
 /** Engine frames carry their node payload under `metadata`. */
@@ -253,6 +272,7 @@ export function handleExecutionFrame(
 				result: asString(frame.result),
 				error: asOptionalString(frame.error),
 				display: parseDisplayPayload(frame.display),
+				background: parseBackgroundMarker(frame.background),
 			});
 			break;
 		case 'usage':

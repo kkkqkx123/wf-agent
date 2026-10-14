@@ -307,6 +307,10 @@ impl AgentIterationCoordinator {
                                     Some(tc.function.name.as_str()),
                                     &result_text,
                                 )),
+                                background: wf_tools::predefined::display::background_marker_for(
+                                    Some(tc.function.name.as_str()),
+                                    &result_text,
+                                ),
                             },
                         )
                         .await?;
@@ -360,6 +364,10 @@ impl AgentIterationCoordinator {
                                 Some(effective_tc.function.name.as_str()),
                                 &result_text,
                             )),
+                            background: wf_tools::predefined::display::background_marker_for(
+                                Some(effective_tc.function.name.as_str()),
+                                &result_text,
+                            ),
                         },
                     )
                     .await?;
@@ -397,6 +405,10 @@ impl AgentIterationCoordinator {
                             Some(effective_tc.function.name.as_str()),
                             &result_text,
                         )),
+                        background: wf_tools::predefined::display::background_marker_for(
+                            Some(effective_tc.function.name.as_str()),
+                            &result_text,
+                        ),
                     },
                 )
                 .await?;

@@ -121,9 +121,20 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 None
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name, success, ..
+                tool_name,
+                success,
+                background,
+                ..
             } => {
-                if !*success {
+                if *success {
+                    if let Some(marker) = background {
+                        self.end_stdout_line();
+                        self.sink.stderr_line(&format!(
+                            "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
+                            marker.session_id
+                        ));
+                    }
+                } else {
                     self.end_stdout_line();
                     self.sink.stderr_line(&format!("tool failed: {tool_name}"));
                     return None;
@@ -300,6 +311,7 @@ mod tests {
             result: String::new(),
             error: None,
             display: None,
+            background: None,
         }
     }
 
@@ -387,6 +399,27 @@ mod tests {
         let (_, stdout, stderr, _) = render(vec![tool_end(false)]);
         assert_eq!(stdout, "");
         assert_eq!(stderr, "tool failed: write_file\n");
+    }
+
+    #[test]
+    fn background_tool_end_prints_a_follow_up_hint() {
+        let (_, stdout, stderr, _) = render(vec![ExecutionStreamEvent::ToolEnd {
+            tool_call_id: "t1".to_string(),
+            tool_name: "backend_shell".to_string(),
+            success: true,
+            result: String::new(),
+            error: None,
+            display: None,
+            background: Some(wf_types::tool::BackgroundMarker {
+                session_id: "sess-1".to_string(),
+                backgrounded: true,
+            }),
+        }]);
+        assert_eq!(stdout, "");
+        assert!(
+            stderr.contains("background task: backend_shell running as sess-1"),
+            "{stderr}"
+        );
     }
 
     #[test]

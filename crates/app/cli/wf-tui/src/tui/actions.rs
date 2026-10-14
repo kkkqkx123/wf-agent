@@ -368,6 +368,32 @@ impl TuiApp {
         });
     }
 
+    pub(super) fn toggle_session_scrollbar(&mut self) {
+        let Some(path) = crate::app_config::config_file_path() else {
+            self.app.notice.set("Config path unavailable.".to_string());
+            return;
+        };
+        let mut config = crate::app_config::ConfigManager::load(&path)
+            .map(|manager| manager.config().clone())
+            .unwrap_or_default();
+        config.behavior.session_scrollbar = !config.behavior.session_scrollbar;
+        let enabled = config.behavior.session_scrollbar;
+        match crate::app_config::ConfigManager::save(&path, &config) {
+            Ok(()) => {
+                self.invalidate(ScreenKind::Settings);
+                if let Some(session) = self.interactive.as_mut() {
+                    session.set_session_scrollbar(enabled);
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                self.app.notice.set(format!(
+                    "session_scrollbar {} (applies instantly)",
+                    if enabled { "on" } else { "off" }
+                ));
+            }
+            Err(err) => self.app.notice.set(format!("Save failed: {err}")),
+        }
+    }
+
     pub(super) fn cycle_copy_target(&mut self) {
         use crate::app_config::CopyTargetName;
         self.update_local_config(|config| {

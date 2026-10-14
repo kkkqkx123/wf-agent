@@ -523,6 +523,7 @@ mod tests {
             result: String::new(),
             error: None,
             display: None,
+            background: None,
         }
     }
 
@@ -534,6 +535,7 @@ mod tests {
             result: result.to_string(),
             error: None,
             display: None,
+            background: None,
         }
     }
 
@@ -723,6 +725,7 @@ mod tests {
             result: "partial output".to_string(),
             error: Some("permission denied".to_string()),
             display: None,
+            background: None,
         };
         let (commits, _) = fold(&[failed], "exec-1");
         assert_eq!(

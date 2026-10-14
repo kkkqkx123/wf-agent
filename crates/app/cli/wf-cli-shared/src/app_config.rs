@@ -37,6 +37,11 @@ pub struct BehaviorConfig {
     /// alternate scroll without capture.
     #[serde(default)]
     pub mouse_capture: bool,
+    /// Explicit opt-in for the main session scrollback scrollbar. Defaults
+    /// to off to match the reference main session; takes effect instantly
+    /// because the width change grades a full frame.
+    #[serde(default)]
+    pub session_scrollbar: bool,
 }
 
 /// Default copy target name for the config file. Lowercase in TOML.
@@ -194,6 +199,7 @@ mod tests {
     fn missing_fields_use_defaults() {
         let parsed: AppConfig = toml::from_str("").unwrap();
         assert!(!parsed.behavior.mouse_capture);
+        assert!(!parsed.behavior.session_scrollbar);
     }
 
     #[test]
@@ -202,6 +208,7 @@ mod tests {
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: AppConfig = toml::from_str(&toml_str).unwrap();
         assert!(!parsed.behavior.mouse_capture);
+        assert!(!parsed.behavior.session_scrollbar);
     }
 
     #[test]

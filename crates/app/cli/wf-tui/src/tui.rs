@@ -41,8 +41,8 @@ use wf_client::WfClient;
 
 use data_cache::DataResult;
 use input_classify::{
-    classify_mouse, classify_paste, load_copy_target, load_mouse_opt_in, load_tool_output_config,
-    map_key,
+    classify_mouse, classify_paste, load_copy_target, load_mouse_opt_in,
+    load_session_scrollbar_opt_in, load_tool_output_config, map_key,
 };
 use input_classify::{focus_transition, FocusInput, MouseAction, PasteTarget};
 use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
@@ -782,6 +782,7 @@ impl TuiApp {
                 session.apply_perf_policy(self.perf_policy);
                 session.apply_copy_policy(self.copy_policy);
                 session.set_tool_config(load_tool_output_config());
+                session.set_session_scrollbar(load_session_scrollbar_opt_in());
                 self.interactive = Some(session);
                 self.held_session.attach();
             }

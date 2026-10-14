@@ -7,7 +7,7 @@
 //! apply only generic truncation, so per-tool presentation knowledge lives
 //! here next to the tools instead of spreading across frontends.
 
-use wf_types::tool::{DisplayKind, DisplayPayload};
+use wf_types::tool::{BackgroundMarker, DisplayKind, DisplayPayload};
 
 use super::fold::{is_file_edit_tool, is_shell_tool};
 
@@ -128,6 +128,38 @@ fn text_display(result: &str) -> DisplayPayload {
     }
 }
 
+/// Structured background linkage for one tool result. Only the tools that
+/// hand a running session back instead of blocking (`backend_shell` on
+/// spawn, `shell_background` on manual handoff) produce a marker, and only
+/// when the result carries both a session id and a background flag.
+/// Everything else returns `None` so frontends can match on presence.
+pub fn background_marker_for(tool_name: Option<&str>, result: &str) -> Option<BackgroundMarker> {
+    let name = tool_name.unwrap_or_default();
+    if !matches!(name, "backend_shell" | "shell_background") {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(result).ok()?;
+    let session_id = value.get("session_id")?.as_str()?;
+    if session_id.is_empty() {
+        return None;
+    }
+    let backgrounded = value
+        .get("backgrounded")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || value
+            .get("background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+    if !backgrounded {
+        return None;
+    }
+    Some(BackgroundMarker {
+        session_id: session_id.to_string(),
+        backgrounded: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +241,57 @@ mod tests {
         let payload = display_for(None, "hello");
         assert_eq!(payload.kind, DisplayKind::Text);
         assert_eq!(payload.preview, "hello");
+    }
+
+    #[test]
+    fn background_shell_spawn_carries_a_marker() {
+        let result = serde_json::json!({
+            "session_id": "sess-1",
+            "status": "started",
+            "background": true,
+        })
+        .to_string();
+        let marker = background_marker_for(Some("backend_shell"), &result);
+        assert_eq!(
+            marker,
+            Some(BackgroundMarker {
+                session_id: "sess-1".to_string(),
+                backgrounded: true,
+            })
+        );
+    }
+
+    #[test]
+    fn manual_background_handoff_carries_a_marker() {
+        let result = serde_json::json!({
+            "session_id": "sess-2",
+            "backgrounded": true,
+        })
+        .to_string();
+        let marker = background_marker_for(Some("shell_background"), &result);
+        assert_eq!(marker.map(|m| m.session_id), Some("sess-2".to_string()));
+    }
+
+    #[test]
+    fn foreground_and_foreign_results_carry_no_marker() {
+        assert_eq!(
+            background_marker_for(Some("shell_output"), "{\"session_id\":\"s\"}"),
+            None
+        );
+        assert_eq!(
+            background_marker_for(
+                Some("backend_shell"),
+                "{\"session_id\":\"s\",\"background\":false}"
+            ),
+            None
+        );
+        assert_eq!(
+            background_marker_for(Some("backend_shell"), "not json"),
+            None
+        );
+        assert_eq!(
+            background_marker_for(Some("backend_shell"), "{\"background\":true}"),
+            None
+        );
     }
 }

@@ -202,6 +202,7 @@ mod tests {
             result: "out".into(),
             error: Some("boom".into()),
             display: None,
+            background: None,
         };
         assert_eq!(
             unified_from_execution_stream(end),

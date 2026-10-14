@@ -129,13 +129,14 @@ impl<'a> SessionRenderer<'a> {
                 tool_name,
                 success,
                 error,
+                background,
                 ..
             } => {
                 let elapsed = self
                     .tool_started_at
                     .remove(tool_call_id)
                     .map(|started| started.elapsed());
-                let line = match (success, elapsed) {
+                let mut line = match (success, elapsed) {
                     (true, Some(d)) => format!("✓ {tool_name} ({}ms)", d.as_millis()),
                     (true, None) => format!("✓ {tool_name}"),
                     (false, _) => match error {
@@ -143,6 +144,11 @@ impl<'a> SessionRenderer<'a> {
                         None => format!("✗ {tool_name}"),
                     },
                 };
+                if *success {
+                    if let Some(marker) = background {
+                        line.push_str(&format!(" · background {}", marker.session_id));
+                    }
+                }
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 if *success {
                     let _ = diag.ok(&line);
@@ -291,6 +297,7 @@ mod tests {
                         result: String::new(),
                         error: None,
                         display: None,
+                        background: None,
                     },
                     &diag,
                 )
@@ -304,6 +311,7 @@ mod tests {
                         result: String::new(),
                         error: None,
                         display: None,
+                        background: None,
                     },
                     &diag,
                 )

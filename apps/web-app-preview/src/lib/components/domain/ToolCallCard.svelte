@@ -125,6 +125,11 @@
 				? `· ${liveSubagents.length} subagent${liveSubagents.length === 1 ? '' : 's'}`
 				: null,
 	);
+	/** Structured background linkage from the live stream marker. History
+	 * records and older servers carry no marker and show no badge. */
+	const backgroundHint = $derived(
+		entry.backgroundSessionId ? '· ◐ background' : null,
+	);
 
 	function subagentStatus(note: SubAgentNote): string {
 		if (note.success === null) return 'running';
@@ -222,6 +227,14 @@
 				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
 			>
 				{subagentHint}
+			</span>
+		{/if}
+		{#if backgroundHint}
+			<span
+				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
+				title={entry.backgroundSessionId}
+			>
+				{backgroundHint}
 			</span>
 		{/if}
 		<span class="shrink-0 text-micro tabular-nums text-muted-foreground">

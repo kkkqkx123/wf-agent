@@ -169,6 +169,7 @@ async fn bus_mirror_maps_every_stream_variant() {
                 result: "ok".to_string(),
                 error: None,
                 display: None,
+                background: None,
             },
             EventType::AgentToolExecutionCompleted,
         ),

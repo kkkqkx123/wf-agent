@@ -322,6 +322,11 @@ impl TuiApp {
             {
                 self.toggle_mouse_capture();
             }
+            CKey::Char('s')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.toggle_session_scrollbar();
+            }
             CKey::Char('c')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
             {

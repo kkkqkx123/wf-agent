@@ -808,9 +808,11 @@ fn load_local_settings() -> LocalSettings {
     let tool_config = crate::tui::input_classify::load_tool_output_config();
     let copy_target = crate::tui::input_classify::load_copy_target();
     let mouse_capture = crate::tui::input_classify::load_mouse_opt_in();
+    let session_scrollbar = crate::tui::input_classify::load_session_scrollbar_opt_in();
     LocalSettings {
         config_path: path.unwrap_or_else(|| "unavailable".to_string()),
         mouse_capture,
+        session_scrollbar,
         copy_target: format!("{copy_target:?}").to_lowercase(),
         tool_output_enabled: tool_config.enabled,
         tool_output_level: tool_config.level.label().to_string(),

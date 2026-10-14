@@ -193,6 +193,7 @@ fn synthetic_settings() -> ScreenData {
         local: LocalSettings {
             config_path: "~/.config/wf/config.toml".into(),
             mouse_capture: false,
+            session_scrollbar: false,
             copy_target: "message".into(),
             tool_output_enabled: true,
             tool_output_level: "medium".into(),

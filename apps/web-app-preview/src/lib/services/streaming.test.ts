@@ -203,4 +203,37 @@ describe('tool lifecycle', () => {
 		);
 		expect(seen).toEqual([null]);
 	});
+
+	it('parses the background marker on tool end', () => {
+		const seen: unknown[] = [];
+		handleExecutionFrame(
+			'',
+			{
+				type: 'tool_end',
+				tool_call_id: 't1',
+				tool_name: 'backend_shell',
+				success: true,
+				result: '{}',
+				background: { session_id: 'sess-1', backgrounded: true },
+			},
+			{ onToolEnd: (tool) => seen.push(tool.background) },
+		);
+		expect(seen).toEqual([{ sessionId: 'sess-1', backgrounded: true }]);
+	});
+
+	it('reads missing background markers as null', () => {
+		const seen: unknown[] = [];
+		handleExecutionFrame(
+			'',
+			{
+				type: 'tool_end',
+				tool_call_id: 't1',
+				tool_name: 'shell_output',
+				success: true,
+				result: 'ok',
+			},
+			{ onToolEnd: (tool) => seen.push(tool.background) },
+		);
+		expect(seen).toEqual([null]);
+	});
 });

@@ -1,5 +1,6 @@
 import type { UsageSnapshot } from '$lib/services/streaming';
 import type { DisplayPayload } from '$lib/utils/tool-output';
+import type { BackgroundMarker } from '$lib/utils/stream-parser';
 
 /** Milliseconds between buffer flushes into the rendered answer. */
 export const STREAM_FLUSH_MS = 80;
@@ -14,6 +15,9 @@ export interface LiveToolCall {
 	/** Frontend-facing summary produced alongside the full result. Absent
 	 * on older servers; views fall back to name-based inference. */
 	display?: DisplayPayload | null;
+	/** Background session linkage for tools that returned without waiting.
+	 * Absent for foreground tools and older servers. */
+	background?: BackgroundMarker | null;
 }
 
 export interface SubAgentNote {
@@ -119,6 +123,7 @@ export class StreamRunStore {
 		toolKind?: string,
 		error?: string | null,
 		display?: DisplayPayload | null,
+		background?: BackgroundMarker | null,
 	): void {
 		const existing = this.tools.find((tool) => tool.id === toolCallId);
 		const status = success ? 'completed' : 'failed';
@@ -128,6 +133,7 @@ export class StreamRunStore {
 			if (toolKind) existing.kind = toolKind;
 			if (error) existing.error = error;
 			if (display !== undefined) existing.display = display;
+			if (background !== undefined) existing.background = background;
 			this.tools = [...this.tools];
 			return;
 		}
@@ -141,6 +147,7 @@ export class StreamRunStore {
 				result,
 				error: error ?? undefined,
 				display: display ?? null,
+				background: background ?? null,
 			},
 		];
 	}

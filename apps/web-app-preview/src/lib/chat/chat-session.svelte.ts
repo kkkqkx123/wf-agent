@@ -153,6 +153,7 @@ export class ChatSessionController {
 			displayKind: tool.display?.kind,
 			displayPreview: tool.display?.preview,
 			displayTruncated: tool.display?.truncated,
+			backgroundSessionId: tool.background?.sessionId ?? null,
 		};
 	}
 
@@ -373,6 +374,7 @@ export class ChatSessionController {
 						tool.toolKind,
 						tool.error,
 						tool.display,
+						tool.background,
 					),
 				onUsage: (usage) => {
 					chatStream.usage = usage;

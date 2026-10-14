@@ -652,6 +652,14 @@ pub fn draw_settings(
                 "  [o] mouse_capture: {}",
                 if d.local.mouse_capture { "on" } else { "off" }
             ));
+            out.push(format!(
+                "  [s] session_scrollbar: {} (instant)",
+                if d.local.session_scrollbar {
+                    "on"
+                } else {
+                    "off"
+                }
+            ));
             out.push(format!("  [c] copy_target: {}", d.local.copy_target));
             out.push(format!(
                 "  [e] tool_output: {} · [l] level {}",
@@ -667,7 +675,10 @@ pub fn draw_settings(
                 d.local.preview_max_lines, d.local.preview_max_chars
             ));
             out.push(String::new());
-            out.push("Local changes save to the config file; restart applies them.".to_string());
+            out.push(
+                "Local changes save to the config file; restart applies them (session_scrollbar instant)."
+                    .to_string(),
+            );
             out
         }
         _ => vec![LOADING_TEXT.to_string()],
@@ -678,7 +689,7 @@ pub fn draw_settings(
     let end = (scroll + capacity).min(lines.len());
     let text = lines[scroll..end].join("\n");
     let block = titled_block(
-        "Settings (j/k scroll, o/c/e/l local keys, +/- preview, m model, Esc back)",
+        "Settings (j/k scroll, o/c/e/l/s local keys, +/- preview, m model, Esc back)",
         ColorRole::Default,
         theme,
     );

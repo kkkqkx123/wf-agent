@@ -7,6 +7,7 @@
 //! kind, metadata and execution knobs never leave the host.
 
 pub mod approval;
+pub mod background;
 pub mod checkpoint;
 pub mod definition;
 pub mod display;
@@ -21,6 +22,7 @@ pub mod state;
 pub mod static_config;
 
 pub use approval::*;
+pub use background::*;
 pub use checkpoint::*;
 pub use definition::*;
 pub use display::*;

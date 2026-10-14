@@ -159,6 +159,11 @@ pub struct InteractiveController {
     /// Whether the last draw already showed the oldest loaded row (the user
     /// pressed scroll-up at the very top and can page further back).
     scroll_at_top: bool,
+    /// Whether the optional single-column session scrollbar is enabled.
+    /// Defaults to off; takes effect instantly because the text-width change
+    /// grades a full frame. Visibility still requires overflow plus the
+    /// shared minimum viewport and width guards.
+    show_session_scrollbar: bool,
     /// Whether the session was torn down gracefully (user quit / runtime
     /// shutdown). Once set, late terminal error events are not rendered so
     /// quitting never flashes a spurious error row.
@@ -336,6 +341,7 @@ impl InteractiveController {
             pager: ReplayPager::default(),
             view_scroll: 0,
             scroll_at_top: false,
+            show_session_scrollbar: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
             pacer: SegmentedPacer::default(),
@@ -539,6 +545,18 @@ impl InteractiveController {
     /// Show the active performance tier marker in the footer status line.
     pub fn set_perf_tier(&mut self, label: &'static str) {
         self.footer.set_perf_tier(label);
+    }
+
+    /// Whether the optional session scrollbar is enabled. Visibility still
+    /// requires overflow plus the shared minimum viewport and width guards.
+    pub fn session_scrollbar_enabled(&self) -> bool {
+        self.show_session_scrollbar
+    }
+
+    /// Set the optional session scrollbar switch. Takes effect on the next
+    /// frame: the text-width change grades full so no restart is needed.
+    pub fn set_session_scrollbar(&mut self, enabled: bool) {
+        self.show_session_scrollbar = enabled;
     }
 
     /// Apply a capability policy: minimal tiers drop the spinner and shimmer,

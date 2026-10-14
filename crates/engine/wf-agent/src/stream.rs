@@ -44,6 +44,10 @@ pub enum AgentStreamEvent {
         /// Frontend-facing summary produced alongside the full result.
         #[serde(default)]
         display: Option<wf_types::tool::DisplayPayload>,
+        /// Structured background linkage for tools that hand a running
+        /// session back instead of blocking.
+        #[serde(default)]
+        background: Option<wf_types::tool::BackgroundMarker>,
     },
     IterationEnd {
         iteration: u32,

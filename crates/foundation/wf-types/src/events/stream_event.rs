@@ -50,6 +50,11 @@ pub enum ExecutionStreamEvent {
         /// inference and generic truncation.
         #[serde(default)]
         display: Option<crate::tool::DisplayPayload>,
+        /// Structured background linkage for tools that hand a running
+        /// session back instead of blocking. `None` for foreground tools
+        /// and older servers; frontends must not sniff the result text.
+        #[serde(default)]
+        background: Option<crate::tool::BackgroundMarker>,
     },
     /// One execution round finished.
     IterationEnd {

@@ -18,6 +18,10 @@ wf-cli-shared = { path = "../wf-cli-shared" }
 # frontends too (e.g. terminal backend + clock), keeping `cli/` lean.
 tui-terminal = { path = "../../tui/tui-terminal" }
 tui-clock = { path = "../../tui/tui-clock" }
+# Raw-mode prompt editor: termios + render commands, key/width tables.
+crossterm.workspace = true
+libc.workspace = true
+unicode-width.workspace = true
 
 [[bin]]
 name = "wf-mini"

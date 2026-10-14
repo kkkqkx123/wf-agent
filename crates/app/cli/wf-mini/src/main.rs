@@ -1,11 +1,15 @@
-//! wf-mini binary entry point: native terminal session without raw mode.
+//! wf-mini binary entry point: native terminal session. Prompts run in a
+//! raw-mode single-row editor with ghost-text suggestions on TTYs and fall
+//! back to the cooked line reader when piped.
 
 mod approval;
 mod display;
+mod editor;
 mod input;
 mod output;
 mod render;
 mod session;
+mod suggest;
 mod transcript;
 
 use clap::Parser;

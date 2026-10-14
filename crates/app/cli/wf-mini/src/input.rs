@@ -1,4 +1,16 @@
-//! Line-discipline input: single stdin pump, slash commands, history.
+//! Line-discipline input: single stdin byte pump, slash commands, history.
+//!
+//! One pump thread is the only reader of stdin for the whole process: it
+//! forwards raw byte chunks into an unbounded channel. Two consumers take
+//! turns on that channel, never concurrently:
+//! - [`LineReader`] assembles cooked lines (approval answers, piped stdin);
+//! - the raw-mode prompt editor ([`crate::editor`]) borrows the receiver
+//!   for the duration of one prompt and hands it back afterwards.
+//!
+//! In cooked mode the terminal line discipline does the editing and hands
+//! over complete lines; in raw mode the editor renders itself and the bytes
+//! arrive per keystroke. Mode only changes the termios flags — the pump
+//! never cares.
 
 use std::collections::VecDeque;
 use std::io::{self, Write};
@@ -143,11 +155,18 @@ impl History {
             .collect()
     }
 
+    /// Point-in-time copy for the raw editor and the suggestion strategies,
+    /// oldest first. History only grows between prompts, so a snapshot
+    /// taken when a prompt starts stays consistent for the whole prompt.
+    pub fn snapshot(&self) -> Vec<String> {
+        self.entries.iter().cloned().collect()
+    }
+
     /// Inline-prediction suffix for `prefix`: the rest of the newest entry
     /// starting with `prefix` and strictly longer. Empty for empty prefixes,
     /// exact repeats and misses. Cooked mode cannot draw it dim after the
-    /// cursor (that needs the raw editor), so `/history [prefix]` lists the
-    /// matches explicitly until the raw path lands; both read this function.
+    /// cursor, so `/history [prefix]` lists the matches explicitly; the raw
+    /// editor draws it dim instead — both read the same strategy layer.
     pub fn suggest(&self, prefix: &str) -> Option<String> {
         suggest_suffix(prefix, &self.entries)
     }
@@ -260,86 +279,130 @@ fn env_flag_disabled(name: &str) -> bool {
     )
 }
 
-/// Process-wide single owner of stdin line reads.
+/// Spawn the process-wide stdin pump: one detached thread reads raw byte
+/// chunks and forwards them into the channel. It is the only stdin reader;
+/// nothing else in the process may touch fd 0.
 ///
-/// One pump task is the only place that touches stdin; the prompt loop and
-/// the approval handler both take lines from the same channel, so a late
-/// approval answer or a line typed mid-stream can never be misread as the
-/// next prompt: the session drains unconsumed lines whenever consumption
-/// passes back to the prompt. A half-typed line without a newline needs no
-/// drain: in cooked mode Ctrl-C makes the terminal discard it.
+/// The thread cannot be interrupted while blocked in `read`; it exits on
+/// EOF, read error, or when the channel closes, and the OS reaps it at
+/// process exit regardless. `blocking_send` is legal here: the thread was
+/// not created by tokio.
+fn spawn_stdin_pump(tx: mpsc::UnboundedSender<Vec<u8>>) {
+    let _ = std::thread::Builder::new().name("stdin-pump".into()).spawn(move || {
+        use std::io::Read as _;
+        let mut stdin = io::stdin().lock();
+        let mut buf = [0u8; 1024];
+        loop {
+            match stdin.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    // Unbounded `send` is a plain sync method: it never
+                    // blocks and works from a non-async thread.
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Cooked-mode line assembler over the shared byte channel: the single
+/// consumer of stdin bytes while the raw editor is not running.
 ///
 /// The channel is unbounded so the pump never blocks: backpressure here
-/// would stall interrupt handling while buying nothing (a line is tiny).
-/// EOF closes the channel; once drained, the reader reports closed.
+/// would stall interrupt handling while buying nothing (bytes are tiny).
 pub struct LineReader {
-    rx: mpsc::UnboundedReceiver<String>,
+    rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    pending: Vec<u8>,
     finished: bool,
-    _pump: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl LineReader {
-    /// Start the stdin pump. Call once per process; the session owns it.
+    /// Spawn the stdin pump. Call once per process; the session owns it.
     pub fn for_stdin() -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        let pump = tokio::spawn(async move {
-            let stdin = tokio::io::stdin();
-            let mut buffered = tokio::io::BufReader::new(stdin);
-            loop {
-                let mut line = String::new();
-                match tokio::io::AsyncBufReadExt::read_line(&mut buffered, &mut line).await {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        if tx.send(line).is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        spawn_stdin_pump(tx);
         Self {
-            rx,
+            rx: Some(rx),
+            pending: Vec::new(),
             finished: false,
-            _pump: Some(pump),
         }
     }
 
     /// Wrap an existing channel. Tests use this to feed fake input without
     /// touching real stdin.
     #[cfg(test)]
-    pub fn from_receiver(rx: mpsc::UnboundedReceiver<String>) -> Self {
+    pub fn from_receiver(rx: mpsc::UnboundedReceiver<Vec<u8>>) -> Self {
         Self {
-            rx,
+            rx: Some(rx),
+            pending: Vec::new(),
             finished: false,
-            _pump: None,
         }
     }
 
-    /// Wait for the next line. Returns `None` once stdin hit EOF and every
-    /// buffered line was consumed.
+    /// Hand the receiver to the raw editor for one prompt. While it is
+    /// gone, [`Self::next_line`] reports EOF (defensive: no turn runs
+    /// during a prompt, so nothing else consumes stdin).
+    pub fn take_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Vec<u8>>> {
+        self.rx.take()
+    }
+
+    /// Take the receiver back after the editor finished.
+    pub fn restore_receiver(&mut self, rx: mpsc::UnboundedReceiver<Vec<u8>>) {
+        self.rx = Some(rx);
+    }
+
+    /// Wait for the next complete line. Returns `None` once stdin hit EOF
+    /// and every buffered byte was consumed; an EOF with a pending
+    /// unterminated line yields that line (shell convention for piped
+    /// input without a trailing newline).
     pub async fn next_line(&mut self) -> Option<String> {
-        if self.finished {
-            return None;
-        }
-        match self.rx.recv().await {
-            Some(line) => Some(line),
-            None => {
-                self.finished = true;
-                None
+        loop {
+            if let Some(pos) = self.pending.iter().position(|&byte| byte == b'\n') {
+                let mut line: Vec<u8> = self.pending.drain(..=pos).collect();
+                line.pop();
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+                return Some(String::from_utf8_lossy(&line).into_owned());
+            }
+            if self.finished {
+                return None;
+            }
+            let Some(rx) = self.rx.as_mut() else {
+                // Receiver handed to the raw editor: EOF for this consumer,
+                // but do not latch `finished` — the receiver comes back
+                // when the prompt ends.
+                return None;
+            };
+            match rx.recv().await {
+                Some(chunk) => self.pending.extend_from_slice(&chunk),
+                None => {
+                    self.finished = true;
+                    if self.pending.is_empty() {
+                        return None;
+                    }
+                    let rest = std::mem::take(&mut self.pending);
+                    return Some(String::from_utf8_lossy(&rest).into_owned());
+                }
             }
         }
     }
 
-    /// Drop every buffered but unconsumed line, returning how many were
-    /// dropped. Never blocks.
+    /// Drop every buffered but unconsumed byte, returning how many complete
+    /// lines were dropped. Never blocks. Runs whenever consumption passes
+    /// back to the prompt, so a late approval answer or a line typed
+    /// mid-stream is never misread as the next prompt.
     pub fn drain(&mut self) -> usize {
-        let mut dropped = 0;
+        let mut dropped = self.pending.iter().filter(|&&b| b == b'\n').count();
+        self.pending.clear();
         loop {
-            match self.rx.try_recv() {
-                Ok(_) => dropped += 1,
-                Err(mpsc::error::TryRecvError::Empty) => return dropped,
-                Err(mpsc::error::TryRecvError::Disconnected) => {
+            let try_result = self.rx.as_mut().map(|rx| rx.try_recv());
+            match try_result {
+                Some(Ok(chunk)) => dropped += chunk.iter().filter(|&&b| b == b'\n').count(),
+                Some(Err(mpsc::error::TryRecvError::Empty)) | None => return dropped,
+                Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
                     self.finished = true;
                     return dropped;
                 }
@@ -349,10 +412,10 @@ impl LineReader {
 
     /// Print the prompt, flush, then take one line from the shared channel.
     ///
-    /// Returns `None` on EOF (Ctrl-D). The terminal stays in cooked mode,
-    /// so line editing, paste and input methods are provided by the
-    /// terminal. The prompt goes to stderr so stdout carries only assistant
-    /// text and stays clean under pipe redirection.
+    /// Returns `None` on EOF (Ctrl-D). In cooked mode line editing, paste
+    /// and input methods are provided by the terminal. The prompt goes to
+    /// stderr so stdout carries only assistant text and stays clean under
+    /// pipe redirection.
     pub async fn read_prompt_line(&mut self, prompt: &str) -> io::Result<Option<String>> {
         {
             let stderr = io::stderr();
@@ -361,14 +424,6 @@ impl LineReader {
             err.flush()?;
         }
         Ok(self.next_line().await)
-    }
-}
-
-impl Drop for LineReader {
-    fn drop(&mut self) {
-        if let Some(pump) = self._pump.take() {
-            pump.abort();
-        }
     }
 }
 
@@ -444,7 +499,7 @@ mod tests {
         assert_eq!(history.entries.len(), HISTORY_LIMIT);
     }
 
-    fn test_reader() -> (LineReader, mpsc::UnboundedSender<String>) {
+    fn test_reader() -> (LineReader, mpsc::UnboundedSender<Vec<u8>>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (LineReader::from_receiver(rx), tx)
     }
@@ -452,18 +507,26 @@ mod tests {
     #[tokio::test]
     async fn reader_delivers_lines_in_order() {
         let (mut reader, tx) = test_reader();
-        tx.send("first\n".to_string()).unwrap();
-        tx.send("second\n".to_string()).unwrap();
-        assert_eq!(reader.next_line().await.as_deref(), Some("first\n"));
-        assert_eq!(reader.next_line().await.as_deref(), Some("second\n"));
+        tx.send(b"first\n".to_vec()).unwrap();
+        tx.send(b"second\n".to_vec()).unwrap();
+        assert_eq!(reader.next_line().await.as_deref(), Some("first"));
+        assert_eq!(reader.next_line().await.as_deref(), Some("second"));
+    }
+
+    #[tokio::test]
+    async fn reader_reassembles_lines_split_across_chunks() {
+        let (mut reader, tx) = test_reader();
+        tx.send(b"hel".to_vec()).unwrap();
+        tx.send("lo世\n".as_bytes().to_vec()).unwrap();
+        assert_eq!(reader.next_line().await.as_deref(), Some("hello世"));
     }
 
     #[tokio::test]
     async fn reader_reports_closed_after_sender_drop_and_drain() {
         let (mut reader, tx) = test_reader();
-        tx.send("late\n".to_string()).unwrap();
+        tx.send(b"late\n".to_vec()).unwrap();
         drop(tx);
-        assert_eq!(reader.next_line().await.as_deref(), Some("late\n"));
+        assert_eq!(reader.next_line().await.as_deref(), Some("late"));
         assert_eq!(reader.next_line().await, None);
         assert_eq!(reader.next_line().await, None);
     }
@@ -471,21 +534,43 @@ mod tests {
     #[tokio::test]
     async fn drain_drops_stale_lines_and_counts_them() {
         let (mut reader, tx) = test_reader();
-        tx.send("stale-1\n".to_string()).unwrap();
-        tx.send("stale-2\n".to_string()).unwrap();
+        tx.send(b"stale-1\n".to_vec()).unwrap();
+        tx.send(b"stale-2\n".to_vec()).unwrap();
         assert_eq!(reader.drain(), 2);
         assert_eq!(reader.drain(), 0);
-        tx.send("fresh\n".to_string()).unwrap();
-        assert_eq!(reader.next_line().await.as_deref(), Some("fresh\n"));
+        tx.send(b"fresh\n".to_vec()).unwrap();
+        assert_eq!(reader.next_line().await.as_deref(), Some("fresh"));
     }
 
     #[tokio::test]
     async fn drain_on_closed_channel_marks_finished() {
         let (mut reader, tx) = test_reader();
-        tx.send("x\n".to_string()).unwrap();
+        tx.send(b"x\n".to_vec()).unwrap();
         drop(tx);
         assert_eq!(reader.drain(), 1);
         assert_eq!(reader.next_line().await, None);
+    }
+
+    #[tokio::test]
+    async fn eof_yields_pending_unterminated_line() {
+        let (mut reader, tx) = test_reader();
+        tx.send(b"no trailing newline".to_vec()).unwrap();
+        drop(tx);
+        assert_eq!(
+            reader.next_line().await.as_deref(),
+            Some("no trailing newline")
+        );
+        assert_eq!(reader.next_line().await, None);
+    }
+
+    #[tokio::test]
+    async fn receiver_handed_to_editor_restores_cleanly() {
+        let (mut reader, tx) = test_reader();
+        let rx = reader.take_receiver().expect("receiver present");
+        assert!(reader.next_line().await.is_none(), "no receiver: EOF");
+        reader.restore_receiver(rx);
+        tx.send(b"back\n".to_vec()).unwrap();
+        assert_eq!(reader.next_line().await.as_deref(), Some("back"));
     }
 
     #[test]
@@ -537,6 +622,14 @@ mod tests {
         assert!(history.is_empty());
         history.push("a\nb");
         assert_eq!(history.get(1), Some("a b"));
+    }
+
+    #[test]
+    fn history_snapshot_is_oldest_first() {
+        let mut history = History::new();
+        history.push("first");
+        history.push("second");
+        assert_eq!(history.snapshot(), vec!["first", "second"]);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Native terminal session: line-discipline REPL over an append-only
 //! terminal. stdout carries assistant text (verbatim, plain or styled per
 //! display config), stderr carries tool lifecycle, summaries and errors,
-//! stdin reads one line per prompt. No raw mode, no fullscreen redraw.
+//! stdin reads one line per prompt. No fullscreen redraw: prompts run in a
+//! single-row raw-mode editor with ghost-text suggestions when stdin and
+//! stderr are TTYs, and fall back to the cooked line reader otherwise.
 //!
 //! Every turn runs against `wf-server`: the transcript seeds the request,
 //! the server streams execution events back, and the transcript keeps the
@@ -23,8 +25,10 @@ use wf_cli_shared::turn::{TurnKind, TurnParams};
 
 use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
+use crate::editor::{EditorSnapshot, PromptEvent};
 use crate::input::{self, History, LineReader, SlashCommand};
 use crate::output::{self};
+use crate::suggest::{SuggestBroker, SuggestEngine};
 use crate::transcript::Transcript;
 
 mod turn_renderer;
@@ -74,6 +78,14 @@ pub struct NativeSession {
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     transcript: Transcript,
     anchor: String,
+    /// Raw-mode prompt editor is usable: stdin and stderr are TTYs.
+    raw_prompt: bool,
+    /// The previously submitted prompt (backs the `match_prev_cmd`
+    /// suggestion strategy).
+    prev_prompt: Option<String>,
+    /// Suggestion pipeline shared by every prompt.
+    suggest: Arc<SuggestEngine>,
+    broker: Arc<SuggestBroker>,
     /// Turn-cancel flag: the approval prompter sets it when Ctrl-C is
     /// pressed during a prompt; the pump loop watches it and treats the
     /// turn as interrupted.
@@ -93,6 +105,7 @@ impl NativeSession {
     /// Run one prompt as a question: record, stream, memorize, drain.
     async fn ask(&mut self, question: String) {
         self.history.push(&question);
+        self.prev_prompt = Some(question.clone());
         output::diag_line(&format!("user: {question}"));
         if let Some(finished) = self.run_turn(question.clone()).await {
             self.record_completed_turn(&question, &finished);
@@ -114,6 +127,7 @@ impl NativeSession {
         };
         let stdout_tty = std::io::stdout().is_terminal();
         let display = DisplayConfig::resolve(cli, stdout_tty);
+        let raw_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
         Ok(Self {
             client,
             timeout_ms: cli.timeout,
@@ -125,6 +139,10 @@ impl NativeSession {
             lines: Arc::new(tokio::sync::Mutex::new(LineReader::for_stdin())),
             transcript,
             anchor,
+            raw_prompt,
+            prev_prompt: None,
+            suggest: Arc::new(SuggestEngine::new()),
+            broker: Arc::new(SuggestBroker::new()),
             cancel_tx: tokio::sync::watch::channel(false).0,
             cancel_rx: tokio::sync::watch::channel(false).1,
         })
@@ -148,10 +166,14 @@ impl NativeSession {
         }
         let mut quitter = QuitArmer::default();
         loop {
-            let lines = Arc::clone(&self.lines);
-            let line = tokio::select! {
-                biased;
-                _ = tokio::signal::ctrl_c() => {
+            let event = if self.raw_prompt {
+                self.read_prompt_raw().await?
+            } else {
+                self.read_prompt_cooked().await?
+            };
+            match event {
+                PromptEvent::Eof => break,
+                PromptEvent::Interrupt => {
                     // The terminal already discarded the half-typed line;
                     // drop any queued whole lines through the shared drain,
                     // then stay (first press) or quit (second press).
@@ -160,28 +182,82 @@ impl NativeSession {
                         break;
                     }
                     output::diag_line("press Ctrl-C again to quit");
-                    continue;
                 }
-                result = async { lines.lock().await.read_prompt_line(PROMPT).await } => result
-                    .map_err(|e| CliError::Io(std::io::Error::other(format!("read prompt: {e}"))))?,
-            };
-            let Some(raw) = line else { break };
-            quitter.reset();
-            let trimmed = raw.trim().to_string();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if let Some(command) = input::parse_command(&trimmed) {
-                match self.handle_command(command) {
-                    CommandAction::Exit => break,
-                    CommandAction::Continue => continue,
-                    CommandAction::Ask(question) => self.ask(question).await,
+                PromptEvent::Line(raw) => {
+                    quitter.reset();
+                    let trimmed = raw.trim().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Some(command) = input::parse_command(&trimmed) {
+                        match self.handle_command(command) {
+                            CommandAction::Exit => break,
+                            CommandAction::Continue => continue,
+                            CommandAction::Ask(question) => self.ask(question).await,
+                        }
+                        continue;
+                    }
+                    self.ask(trimmed).await;
                 }
-                continue;
             }
-            self.ask(trimmed).await;
         }
         Ok(())
+    }
+
+    /// One prompt through the raw-mode editor. The editor runs on a
+    /// blocking thread and borrows the shared stdin receiver for the
+    /// duration; nothing else reads stdin while a prompt is active.
+    async fn read_prompt_raw(&mut self) -> CliResult<PromptEvent> {
+        let snapshot = EditorSnapshot {
+            history: self.history.snapshot(),
+            prev_prompt: self.prev_prompt.clone(),
+            prompt: PROMPT.to_string(),
+        };
+        let engine = Arc::clone(&self.suggest);
+        let broker = Arc::clone(&self.broker);
+        let rx = self.lines.lock().await.take_receiver();
+        let Some(rx) = rx else {
+            // Defensive: stdin already closed reads as EOF.
+            return Ok(PromptEvent::Eof);
+        };
+        let (event, rx) = tokio::task::spawn_blocking(move || {
+            crate::editor::run_blocking(rx, snapshot, engine, broker)
+        })
+        .await
+        .map_err(|e| CliError::Io(std::io::Error::other(format!("prompt editor: {e}"))))?;
+        self.lines.lock().await.restore_receiver(rx);
+        Ok(event)
+    }
+
+    /// Cooked fallback (piped stdin or stderr): the plain line reader with
+    /// a SIGINT select, matching the pre-editor behavior.
+    async fn read_prompt_cooked(&mut self) -> CliResult<PromptEvent> {
+        enum CookedRead {
+            Line(String),
+            Eof,
+            Interrupt,
+        }
+        let lines = Arc::clone(&self.lines);
+        let result = tokio::select! {
+            biased;
+            _ = tokio::signal::ctrl_c() => CookedRead::Interrupt,
+            read = async { lines.lock().await.read_prompt_line(PROMPT).await } => {
+                match read {
+                    Ok(Some(line)) => CookedRead::Line(line),
+                    Ok(None) => CookedRead::Eof,
+                    Err(e) => {
+                        return Err(CliError::Io(std::io::Error::other(format!(
+                            "read prompt: {e}"
+                        ))));
+                    }
+                }
+            }
+        };
+        Ok(match result {
+            CookedRead::Line(line) => PromptEvent::Line(line),
+            CookedRead::Eof => PromptEvent::Eof,
+            CookedRead::Interrupt => PromptEvent::Interrupt,
+        })
     }
 
     /// Drop lines that arrived while the prompt was not listening (late
@@ -205,7 +281,7 @@ impl NativeSession {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
-                output::diag_line("keys: Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
+                output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );

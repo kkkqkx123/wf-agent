@@ -142,7 +142,7 @@ fn main() -> io::Result<()> {
                         "API Key",
                         "Paste the provider API key:",
                     ))),
-                    CKey::Char('3') => stack.push(Box::new(HelpModal)),
+                    CKey::Char('3') => stack.push(Box::new(HelpModal::default())),
                     CKey::Char('4') => stack.push(Box::new(ModelPicker::new(vec![
                         ("glm-4.7".into(), "glm-4.7".into()),
                         ("glm-4.7-flash".into(), "glm-4.7-flash".into()),

@@ -57,6 +57,38 @@ impl Key {
         self.shift = shift;
         self
     }
+
+    /// Human-readable description for help displays, e.g. `Ctrl-K`, `Esc`.
+    pub fn describe(&self) -> String {
+        let base = match self.code {
+            CKey::Char(c) => c.to_string(),
+            CKey::Enter => "Enter".to_string(),
+            CKey::Esc => "Esc".to_string(),
+            CKey::Tab => "Tab".to_string(),
+            CKey::Up => "Up".to_string(),
+            CKey::Down => "Down".to_string(),
+            CKey::Left => "Left".to_string(),
+            CKey::Right => "Right".to_string(),
+            CKey::Home => "Home".to_string(),
+            CKey::End => "End".to_string(),
+            CKey::PageUp => "PgUp".to_string(),
+            CKey::PageDown => "PgDn".to_string(),
+            CKey::Backspace => "Bksp".to_string(),
+            CKey::Delete => "Del".to_string(),
+        };
+        let mut out = String::new();
+        if self.ctrl {
+            out.push_str("Ctrl-");
+        }
+        if self.alt {
+            out.push_str("Alt-");
+        }
+        if self.shift {
+            out.push_str("Shift-");
+        }
+        out.push_str(&base);
+        out
+    }
 }
 
 /// macOS Option-composed character mapped back to its ASCII base key.

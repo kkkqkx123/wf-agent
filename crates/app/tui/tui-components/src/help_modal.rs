@@ -14,8 +14,22 @@ fn to_color(rgb: tui_style::theme::Rgb) -> Color {
 }
 
 /// Help modal showing key bindings. It is transparent: the screen behind it
-/// keeps rendering so the user can read the shortcut in context.
-pub struct HelpModal;
+/// keeps rendering so the user can read the shortcut in context. User
+/// keymap overrides can be attached at push time and are listed under the
+/// static overview so the help reflects the active configuration.
+#[derive(Default)]
+pub struct HelpModal {
+    /// User overrides as `(binding, key description)` rows.
+    overrides: Vec<(String, String)>,
+}
+
+impl HelpModal {
+    /// Build the modal with the user's keymap overrides listed after the
+    /// static overview.
+    pub fn with_overrides(overrides: Vec<(String, String)>) -> Self {
+        Self { overrides }
+    }
+}
 
 impl Modal for HelpModal {
     fn title(&self) -> &str {
@@ -27,7 +41,15 @@ impl Modal for HelpModal {
     }
 
     fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let help_text = "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - all screens incl. Templates/Resources/Triggers/Events/Git\n  7 or Ctrl-K - search palette\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] - switch exec/workflow views\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Ctrl-Z - suspend (fg to resume)";
+        let mut help_text = String::from(
+            "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - all screens incl. Templates/Resources/Triggers/Events/Git\n  7 or Ctrl-K - search palette\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] - switch exec/workflow views\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Ctrl-Z - suspend (fg to resume)",
+        );
+        if !self.overrides.is_empty() {
+            help_text.push_str("\n\nCustom bindings:");
+            for (binding, key) in &self.overrides {
+                help_text.push_str(&format!("\n  {key} - {binding}"));
+            }
+        }
         let block = Block::default()
             .title(" Help (?) ")
             .borders(Borders::ALL)

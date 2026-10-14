@@ -9,6 +9,7 @@
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
+	import ShortcutsSettings from '$lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
@@ -27,6 +28,7 @@
 
 	const SECTIONS = [
 		{ id: 'appearance', label: 'Appearance', icon: 'sun' },
+		{ id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
 		{ id: 'execution', label: 'Execution defaults', icon: 'activity' },
 		{ id: 'notifications', label: 'Notifications', icon: 'bell' },
 		{ id: 'workspace', label: 'Workspace', icon: 'sliders' },
@@ -34,7 +36,8 @@
 
 	const requestedSection = parseListParams(page.url).tab;
 	let section = $state<(typeof SECTIONS)[number]['id']>(
-		requestedSection === 'execution' ||
+		requestedSection === 'shortcuts' ||
+			requestedSection === 'execution' ||
 			requestedSection === 'notifications' ||
 			requestedSection === 'workspace'
 			? requestedSection
@@ -300,6 +303,10 @@
 							</p>
 						</div>
 					</Card>
+				</div>
+			{:else if section === 'shortcuts'}
+				<div class="space-y-3">
+					<ShortcutsSettings />
 				</div>
 			{:else if serverSection}
 				<PageState

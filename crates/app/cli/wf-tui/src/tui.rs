@@ -9,6 +9,7 @@ mod actions;
 mod data_cache;
 pub(crate) mod input_classify;
 mod key_routes;
+pub(crate) mod keymap_config;
 mod signals;
 
 use std::io;
@@ -37,6 +38,7 @@ use crate::size::{ResizeDebouncer, Size};
 use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
+use tui_core::keymap::Keymap;
 use wf_client::WfClient;
 
 use data_cache::DataResult;
@@ -131,6 +133,11 @@ pub struct TuiApp {
     held_session: crate::session_holder::SessionHolder,
     /// Orphan probe for detached clients.
     liveness: crate::liveness::LivenessProbe,
+    /// Key resolution table: builtin defaults merged with user overrides.
+    keymap: Keymap,
+    /// Applied user overrides as `(binding, key description)` rows for the
+    /// help display.
+    keymap_overrides: Vec<(String, String)>,
     /// External editor handoff state.
     editor: crate::editor::EditorHandoff,
     /// Production frame budget accounting: per-frame metrics plus
@@ -145,6 +152,9 @@ pub struct TuiApp {
 
 impl TuiApp {
     pub fn new(client: WfClient) -> Self {
+        // User keymap overrides resolve once at startup; failures fall back
+        // to the builtin keymap and never block the session.
+        let (keymap, keymap_overrides) = keymap_config::load_user_keymap();
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
         // Capability-driven policy, built once: components render the
@@ -217,6 +227,8 @@ impl TuiApp {
             finish_cleanups: 0,
             held_session: crate::session_holder::SessionHolder::new(),
             liveness: crate::liveness::LivenessProbe::new(),
+            keymap,
+            keymap_overrides,
             editor: crate::editor::EditorHandoff::Idle,
             prod_metrics: crate::frame_metrics::FrameMetrics::new(),
             prod_frame_no: 0,

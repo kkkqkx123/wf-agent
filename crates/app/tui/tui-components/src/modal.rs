@@ -318,7 +318,7 @@ mod tests {
         assert!(stack.is_empty());
         stack.push(Box::new(ConfirmModal::new("t", "m")));
         assert_eq!(stack.len(), 1);
-        stack.push(Box::new(HelpModal));
+        stack.push(Box::new(HelpModal::default()));
         assert_eq!(stack.len(), 2);
         let _ = stack.pop();
         assert_eq!(stack.len(), 1);
@@ -328,7 +328,7 @@ mod tests {
     fn help_modal_is_transparent_and_confirm_is_not() {
         use crate::confirm_modal::ConfirmModal;
         use crate::help_modal::HelpModal;
-        assert!(HelpModal.is_transparent());
+        assert!(HelpModal::default().is_transparent());
         assert!(!ConfirmModal::new("t", "m").is_transparent());
     }
 

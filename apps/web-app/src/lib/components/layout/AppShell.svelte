@@ -11,6 +11,8 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import { createHotkey } from '@tanstack/svelte-hotkeys';
+	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
 
 	interface Props {
 		children: Snippet;
@@ -51,20 +53,19 @@
 		);
 	}
 
-	function onwindowkeydown(event: KeyboardEvent): void {
-		if (event.key === 'F1') {
-			event.preventDefault();
-			ui.toggleHelp();
-			return;
-		}
-		if (event.key === '?' && !isTypingTarget(event.target)) {
-			event.preventDefault();
-			ui.toggleHelp();
-		}
-	}
+	// Global help toggle: the F1 binding follows the shortcut catalog (user
+	// overrides apply); the bare `?` alias is fixed so help stays reachable
+	// from any layout. createHotkey manages its own lifecycle and is a
+	// no-op during SSR.
+	createHotkey(effectiveHotkey('app.help'), () => ui.toggleHelp(), {
+		enabled: !isShortcutDisabled('app.help')
+	});
+	createHotkey('?', (event) => {
+		if (isTypingTarget(event.target)) return;
+		event.preventDefault();
+		ui.toggleHelp();
+	});
 </script>
-
-<svelte:window onkeydown={onwindowkeydown} />
 
 <div class="flex h-screen w-full overflow-hidden bg-background text-foreground">
 	{#if sidebar}

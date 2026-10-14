@@ -10,6 +10,8 @@
 		VIRTUALIZE_THRESHOLD,
 	} from '$lib/config/virtualization';
 	import { cn } from '@wf-agent/ui/cn';
+	import { createHotkey } from '@tanstack/svelte-hotkeys';
+	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
 
 	interface Props {
 		items: T[];
@@ -214,22 +216,26 @@
 		});
 	});
 
-	// Global jump keys work from any input state; bare keys keep native semantics.
-	$effect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key !== 'End' && event.key !== 'Home') return;
-			if (!event.ctrlKey && !event.metaKey) return;
+	// Global jump keys work from any input state; bare keys keep native
+	// semantics. Bindings resolve through the shortcut catalog so user
+	// overrides apply.
+	createHotkey(
+		effectiveHotkey('transcript.toBottom'),
+		(event) => {
 			event.preventDefault();
-			if (event.key === 'End') {
-				following = true;
-				toTail();
-			} else {
-				toTop();
-			}
-		};
-		document.addEventListener('keydown', onKey);
-		return () => document.removeEventListener('keydown', onKey);
-	});
+			following = true;
+			toTail();
+		},
+		{ enabled: !isShortcutDisabled('transcript.toBottom'), ignoreInputs: false }
+	);
+	createHotkey(
+		effectiveHotkey('transcript.toTop'),
+		(event) => {
+			event.preventDefault();
+			toTop();
+		},
+		{ enabled: !isShortcutDisabled('transcript.toTop'), ignoreInputs: false }
+	);
 </script>
 
 <div class={cn('relative flex min-h-0 flex-col', className)}>

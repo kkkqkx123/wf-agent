@@ -146,15 +146,45 @@ impl TuiApp {
             }
         }
 
-        match key.code {
-            CKey::Char('?') if !key.ctrl && !key.alt => {
-                self.modals.push(Box::new(HelpModal));
+        // Shared actions resolve through the keymap (user overrides first,
+        // then builtin defaults); screen-specific keys fall through to the
+        // hard-coded match below.
+        match self
+            .keymap
+            .resolve(tui_core::keymap::KeymapContext::List, key)
+        {
+            Some(tui_core::keymap::KeyAction::Help) => {
+                self.modals
+                    .push(Box::new(HelpModal::with_overrides(
+                        self.keymap_overrides.clone(),
+                    )));
+                return Ok(LoopAction::Continue);
             }
-            CKey::Char('q') | CKey::Esc => {
+            Some(tui_core::keymap::KeyAction::Back) => {
                 if !self.go_back() {
                     return Ok(LoopAction::Quit);
                 }
+                return Ok(LoopAction::Continue);
             }
+            Some(tui_core::keymap::KeyAction::Quit) => {
+                return Ok(LoopAction::Quit);
+            }
+            Some(tui_core::keymap::KeyAction::MoveNext) => {
+                let len = self.nav_len();
+                self.app.screen.navigation.select_next(len);
+                self.request_detail_for_current();
+                return Ok(LoopAction::Continue);
+            }
+            Some(tui_core::keymap::KeyAction::MovePrev) => {
+                let len = self.nav_len();
+                self.app.screen.navigation.select_prev(len);
+                self.request_detail_for_current();
+                return Ok(LoopAction::Continue);
+            }
+            _ => {}
+        }
+
+        match key.code {
             CKey::Char(c) if c.is_ascii_digit() && !key.ctrl && !key.alt => {
                 if let Some(kind) = screen_for_digit(c) {
                     self.goto(kind);
@@ -162,16 +192,6 @@ impl TuiApp {
                     self.overlay = OverlayMode::SearchPalette;
                     self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 }
-            }
-            CKey::Char('j') | CKey::Down => {
-                let len = self.nav_len();
-                self.app.screen.navigation.select_next(len);
-                self.request_detail_for_current();
-            }
-            CKey::Char('k') | CKey::Up => {
-                let len = self.nav_len();
-                self.app.screen.navigation.select_prev(len);
-                self.request_detail_for_current();
             }
             CKey::PageUp => {
                 if self.scroll_detail(-10) {

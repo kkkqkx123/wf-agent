@@ -2,6 +2,7 @@ pub mod env;
 pub mod error;
 pub mod file_layer;
 pub mod index;
+pub mod keymap;
 pub mod layered;
 pub mod layout;
 pub mod loader;

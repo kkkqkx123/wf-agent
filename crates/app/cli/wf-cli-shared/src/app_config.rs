@@ -2,9 +2,13 @@
 //!
 //! Only options with real consumers live here (`mouse_capture`,
 //! `copy_target`). The file follows XDG conventions:
-//! `$XDG_CONFIG_HOME/wf/config.toml` or `$HOME/.config/wf/config.toml`. A
+//! `$XDG_CONFIG_HOME/wf/tui.toml` or `$HOME/.config/wf/tui.toml`. A
 //! missing or unreadable file means defaults; `load` never fails the caller
 //! on bad contents.
+//!
+//! The kernel host layer owns `config.toml` in the same directory
+//! (`storage`, `log_level`, `tool_approval`); this module never reads or
+//! writes that file so frontend toggles cannot drop kernel keys.
 
 use std::path::{Path, PathBuf};
 
@@ -188,7 +192,7 @@ pub fn config_file_path() -> Option<PathBuf> {
                 .filter(|p| !p.as_os_str().is_empty())
                 .map(|home| home.join(".config"))
         })?;
-    Some(base.join("wf").join("config.toml"))
+    Some(base.join("wf").join("tui.toml"))
 }
 
 #[cfg(test)]

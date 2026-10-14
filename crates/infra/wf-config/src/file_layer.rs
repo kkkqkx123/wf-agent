@@ -9,6 +9,10 @@
 //! checkpoint and sandbox settings are deliberately excluded here so the
 //! dotfile layer can never shadow the infrastructure preset mapping with a
 //! partial sibling value.
+//!
+//! The CLI frontend display knobs live in the sibling `tui.toml` file and
+//! are owned by the CLI shared config module; this layer ignores those
+//! sections so frontend edits never disturb kernel keys.
 
 use std::path::{Path, PathBuf};
 

@@ -23,6 +23,12 @@ struct Args {
     #[arg(long)]
     config: Option<PathBuf>,
 
+    /// Infrastructure preset name from the server-owned registry
+    /// (`configs/infrastructure/index.json`). Registry names only;
+    /// file paths are never accepted here.
+    #[arg(long)]
+    preset: Option<String>,
+
     /// Web frontend build directory served with SPA fallback. Wins over
     /// `WF_SERVER_STATIC_DIR` env and the `server.toml` file layer.
     #[arg(long)]
@@ -55,10 +61,14 @@ fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig
         config.log_config = config.log_config.with_level(normalized.to_string());
     }
 
-    let source = args.config.clone().map(|path| InfraSourceConfig {
-        project_root: Some(path),
-        ..Default::default()
-    });
+    let source = match (args.config.clone(), args.preset.clone()) {
+        (None, None) => None,
+        (project_root, preset_name) => Some(InfraSourceConfig {
+            project_root,
+            preset_name,
+            ..Default::default()
+        }),
+    };
 
     (config, source)
 }

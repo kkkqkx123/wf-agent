@@ -11,7 +11,8 @@ use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
 use crate::orchestrator::InfrastructurePresetFiles;
 use crate::preset::{
-    find_preset_by_name, load_single_file_preset, resolve_preset_index, INDEX_FILE_NAME,
+    find_preset_by_name, list_preset_names, load_single_file_preset, resolve_preset_index,
+    INDEX_FILE_NAME,
 };
 
 pub fn load_infrastructure_preset(
@@ -20,9 +21,15 @@ pub fn load_infrastructure_preset(
 ) -> ConfigResult<InfrastructurePresetFiles> {
     let resolved = resolve_preset_index(infra_dir)?;
     let entry = find_preset_by_name(&resolved, preset_name).ok_or_else(|| {
+        let available = list_preset_names(&resolved).join(", ");
         ConfigError::NotFound(format!(
-            "Infrastructure preset '{preset_name}' not found in {}",
-            infra_dir.join(INDEX_FILE_NAME).display()
+            "Infrastructure preset '{preset_name}' not found in {}. Available presets: {}",
+            infra_dir.join(INDEX_FILE_NAME).display(),
+            if available.is_empty() {
+                "(none)".to_string()
+            } else {
+                available
+            }
         ))
     })?;
     let value = load_single_file_preset::<serde_json::Value>(entry)?;

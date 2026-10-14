@@ -191,7 +191,7 @@ fn synthetic_settings() -> ScreenData {
         default_profile: Some("default".into()),
         theme: "dark".into(),
         local: LocalSettings {
-            config_path: "~/.config/wf/config.toml".into(),
+            config_path: "~/.config/wf/tui.toml".into(),
             mouse_capture: false,
             session_scrollbar: false,
             copy_target: "message".into(),

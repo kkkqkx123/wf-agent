@@ -87,7 +87,10 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             None => format!("usage {prompt_tokens}+{completion_tokens}"),
         },
         ExecutionStreamEvent::SubAgentStarted {
-            id, name, tool_call_id, ..
+            id,
+            name,
+            tool_call_id,
+            ..
         } => {
             let link = tool_call_id
                 .as_deref()
@@ -96,16 +99,11 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             format!("sub-agent {name} started ({id}){link}")
         }
         ExecutionStreamEvent::SubAgentEnded {
-            id,
-            name,
-            success,
-            ..
+            id, name, success, ..
         } => {
             format!("sub-agent {name} ended ({id}) success={success}")
         }
-        ExecutionStreamEvent::SubAgentProgress {
-            id, activity, ..
-        } => {
+        ExecutionStreamEvent::SubAgentProgress { id, activity, .. } => {
             let what = activity.as_deref().unwrap_or("working");
             format!("sub-agent {id} progress: {what}")
         }

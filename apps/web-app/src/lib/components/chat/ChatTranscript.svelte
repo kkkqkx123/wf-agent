@@ -35,6 +35,8 @@
 	<TranscriptScroller
 		items={bubbles}
 		itemKey={(message: LoopMessage) => message.id}
+		isAnchor={(message: LoopMessage) =>
+			message.role === 'user' || message.toolName === 'update_todo_list'}
 		activity={controller.activity}
 		resetKey={selectedId ?? NEW_SESSION}
 		contentClass="mx-auto max-w-3xl px-4 py-4"

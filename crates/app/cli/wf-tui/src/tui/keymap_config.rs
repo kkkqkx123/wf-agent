@@ -141,10 +141,7 @@ pub fn load_user_keymap() -> (Keymap, Vec<(String, String)>) {
             } else {
                 keymap.bind(ctx, key, action);
             }
-            overrides.push((
-                format!("{ctx_name}.{action_name}"),
-                key.describe(),
-            ));
+            overrides.push((format!("{ctx_name}.{action_name}"), key.describe()));
         }
     }
     (keymap, overrides)

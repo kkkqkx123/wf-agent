@@ -24,6 +24,8 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 	{ id: 'app.commandPalette', label: 'Command palette', defaultKeys: 'Mod+K', scope: 'global' },
 	{ id: 'transcript.toTop', label: 'Scroll transcript to top', defaultKeys: 'Mod+Home', scope: 'global' },
 	{ id: 'transcript.toBottom', label: 'Scroll transcript to bottom', defaultKeys: 'Mod+End', scope: 'global' },
+	{ id: 'transcript.anchorNext', label: 'Jump to next anchor', defaultKeys: 'Mod+]', scope: 'global' },
+	{ id: 'transcript.anchorPrev', label: 'Jump to previous anchor', defaultKeys: 'Mod+[', scope: 'global' },
 	// Graph canvas.
 	{ id: 'canvas.fit', label: 'Fit graph to view', defaultKeys: 'f', scope: 'canvas' },
 	{ id: 'canvas.relayout', label: 'Re-run layout', defaultKeys: 'r', scope: 'canvas' },

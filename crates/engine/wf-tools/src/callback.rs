@@ -33,8 +33,7 @@ pub struct ParentLink {
     /// when the parent run streams to a live consumer; the child engine
     /// reports start / finish / progress through it without blocking on a
     /// slow consumer. `None` keeps plain behavior with no parent updates.
-    pub subagent_tx:
-        Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
+    pub subagent_tx: Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
 }
 
 impl std::fmt::Debug for ParentLink {

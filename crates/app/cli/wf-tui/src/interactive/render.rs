@@ -524,6 +524,8 @@ impl InteractiveController {
     /// Paint the floating jump-to-latest badge over the last scrollback row.
     /// When the gutter shows, the badge anchors to the text area bottom-right
     /// so it never covers the bar; otherwise it uses the full scroll area.
+    /// When an anchor sits at or above the viewport top, its kind is
+    /// appended so detached readers see the nearest jump target.
     fn paint_jump_badge(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         if !self.should_show_jump_badge() || area.width == 0 || area.height == 0 {
             return;
@@ -534,7 +536,8 @@ impl InteractiveController {
             area
         };
         let hidden = self.view_scroll;
-        let full = jump_badge_text(hidden);
+        let anchor_hint = self.anchor_above_viewport().map(|entry| entry.kind.label());
+        let full = jump_badge_text_with_anchor(hidden, anchor_hint);
         let short = jump_badge_short_text(hidden);
         let text = pick_jump_badge_text(&full, &short, badge_area.width);
         let Some(text) = text else {
@@ -566,6 +569,14 @@ impl InteractiveController {
 /// Full badge text carrying the hidden row count and the key hint.
 pub(crate) fn jump_badge_text(hidden: usize) -> String {
     format!("↓ {hidden} more · End for latest")
+}
+
+/// Full badge text with the nearest anchor kind above the viewport.
+pub(crate) fn jump_badge_text_with_anchor(hidden: usize, anchor: Option<&str>) -> String {
+    match anchor {
+        Some(kind) => format!("↓ {hidden} more · {kind} above · End for latest"),
+        None => jump_badge_text(hidden),
+    }
 }
 
 /// Compact fallback when the viewport is too narrow for the full hint.
@@ -607,7 +618,9 @@ fn truncate_echo(text: &str, width: u16) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{jump_badge_short_text, jump_badge_text, pick_jump_badge_text};
+    use super::{
+        jump_badge_short_text, jump_badge_text, jump_badge_text_with_anchor, pick_jump_badge_text,
+    };
     use crate::interactive::InteractiveController;
     use ratatui::layout::Rect;
     use tui_components::scrollbar;
@@ -616,6 +629,11 @@ mod tests {
     fn badge_text_carries_hidden_count_and_hint() {
         assert_eq!(jump_badge_text(3), "↓ 3 more · End for latest");
         assert_eq!(jump_badge_short_text(3), "↓ 3 more");
+        assert_eq!(
+            jump_badge_text_with_anchor(3, Some("todo")),
+            "↓ 3 more · todo above · End for latest"
+        );
+        assert_eq!(jump_badge_text_with_anchor(3, None), jump_badge_text(3));
     }
 
     #[test]

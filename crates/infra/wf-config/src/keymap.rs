@@ -21,9 +21,32 @@ pub const DEFAULT_KEYMAP_SETTINGS_FILE: &str = "keymap-settings.toml";
 /// The base key names accepted inside a chord description. Everything else
 /// (single letters, digits) is accepted verbatim as a character key.
 pub const NAMED_KEYS: &[&str] = &[
-    "enter", "esc", "tab", "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
-    "backspace", "delete", "space", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
-    "f11", "f12",
+    "enter",
+    "esc",
+    "tab",
+    "up",
+    "down",
+    "left",
+    "right",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+    "backspace",
+    "delete",
+    "space",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11",
+    "f12",
 ];
 
 /// A parsed chord description: a base key plus optional modifiers.
@@ -65,7 +88,11 @@ pub fn parse_chord(description: &str) -> ConfigResult<Chord> {
         alt: false,
         shift: false,
     };
-    for token in description.split('+').map(str::trim).filter(|t| !t.is_empty()) {
+    for token in description
+        .split('+')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         let lowered = token.to_ascii_lowercase();
         match lowered.as_str() {
             "ctrl" | "control" => chord.ctrl = true,
@@ -82,7 +109,9 @@ pub fn parse_chord(description: &str) -> ConfigResult<Chord> {
                 } else {
                     let mut chars = token.chars();
                     let first = chars.next().ok_or_else(|| {
-                        ConfigError::Validation(format!("invalid key chord '{description}': empty key"))
+                        ConfigError::Validation(format!(
+                            "invalid key chord '{description}': empty key"
+                        ))
                     })?;
                     if chars.next().is_some() {
                         return Err(ConfigError::Validation(format!(
@@ -147,10 +176,9 @@ impl KeymapSettings {
                     )),
                 }
             }
-            let mut conflicts: Vec<(String, Vec<&String>)> =
-                by_chord
-                    .into_iter()
-                    .filter(|(_, actions)| actions.len() > 1)
+            let mut conflicts: Vec<(String, Vec<&String>)> = by_chord
+                .into_iter()
+                .filter(|(_, actions)| actions.len() > 1)
                 .map(|(chord, mut actions)| {
                     actions.sort();
                     (chord, actions)
@@ -240,7 +268,10 @@ mod tests {
 
     #[test]
     fn modifier_order_and_case_do_not_matter() {
-        assert_eq!(parse_chord("Shift+Ctrl+S").unwrap(), parse_chord("ctrl+shift+s").unwrap());
+        assert_eq!(
+            parse_chord("Shift+Ctrl+S").unwrap(),
+            parse_chord("ctrl+shift+s").unwrap()
+        );
     }
 
     #[test]
@@ -306,7 +337,8 @@ mod tests {
 
     #[test]
     fn loads_missing_file_as_empty_settings() {
-        let settings = load_keymap_settings(Path::new("/nonexistent/keymap-settings.toml")).unwrap();
+        let settings =
+            load_keymap_settings(Path::new("/nonexistent/keymap-settings.toml")).unwrap();
         assert!(settings.bindings.is_empty());
     }
 
@@ -314,11 +346,7 @@ mod tests {
     fn loads_toml_file() {
         let dir = std::env::temp_dir();
         let path = dir.join("test_wf_keymap_settings.toml");
-        std::fs::write(
-            &path,
-            "[keymap.global]\nquit = \"ctrl+q\"\nhelp = \"?\"\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "[keymap.global]\nquit = \"ctrl+q\"\nhelp = \"?\"\n").unwrap();
         let settings = load_keymap_settings(&path).unwrap();
         assert_eq!(
             settings.resolve("global", "quit").unwrap().to_description(),

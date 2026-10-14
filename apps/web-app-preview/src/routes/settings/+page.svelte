@@ -9,6 +9,7 @@
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
+	import ShortcutsSettings from '$lib/components/layout/ShortcutsSettings.svelte';
 	import UnsavedChangesDialog from '@wf-agent/ui/components/UnsavedChangesDialog.svelte';
 	import {
 		preferences,
@@ -22,21 +23,34 @@
 	} from '$lib/config/tool-output';
 	import { behavior } from '$lib/stores/behavior.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { shortcutOverrides } from '$lib/shortcuts/registry';
+	import { saveShortcutOverrides } from '$lib/shortcuts/settings';
+	import {
+		backupFilename,
+		describeBackup,
+		parseBackupDocument,
+		serializeBackupDocument,
+		type SettingsBackup,
+	} from '$lib/services/portability';
 	import { cn } from '@wf-agent/ui/cn';
 	import { gotoWithParams, parseListParams } from '$lib/utils/route';
 
 	const SECTIONS = [
 		{ id: 'appearance', label: 'Appearance', icon: 'sun' },
+		{ id: 'shortcuts', label: 'Shortcuts', icon: 'command' },
 		{ id: 'execution', label: 'Execution defaults', icon: 'activity' },
 		{ id: 'notifications', label: 'Notifications', icon: 'bell' },
 		{ id: 'workspace', label: 'Workspace', icon: 'sliders' },
+		{ id: 'portability', label: 'Portability', icon: 'archive' },
 	] as const;
 
 	const requestedSection = parseListParams(page.url).tab;
 	let section = $state<(typeof SECTIONS)[number]['id']>(
-		requestedSection === 'execution' ||
+		requestedSection === 'shortcuts' ||
+			requestedSection === 'execution' ||
 			requestedSection === 'notifications' ||
-			requestedSection === 'workspace'
+			requestedSection === 'workspace' ||
+			requestedSection === 'portability'
 			? requestedSection
 			: 'appearance',
 	);
@@ -155,6 +169,99 @@
 			proceedPending();
 		} finally {
 			unsavedBusy = false;
+		}
+	}
+
+	let pendingBackup = $state<SettingsBackup | null>(null);
+	let backupError = $state<string | null>(null);
+	let backupMessage = $state('');
+	let backupBusy = $state(false);
+
+	function exportBackup(): void {
+		const backup: SettingsBackup = {
+			version: 1,
+			preferences: {
+				theme: preferences.theme,
+				density: preferences.density,
+				sidebarCollapsed: preferences.sidebarCollapsed,
+				sidebarWidth: preferences.sidebarWidth,
+				inspectorWidth: preferences.inspectorWidth,
+				inspectorPinned: preferences.inspectorPinned,
+				minimapMode: preferences.minimapMode,
+				toolOutputPreviews: preferences.toolOutputPreviews,
+				toolOutputDetail: preferences.toolOutputDetail,
+			},
+			shortcuts: shortcutOverrides(),
+			behavior: {
+				pageSize: behavior.pageSize,
+				autoRefresh: behavior.autoRefresh,
+				streamFollow: behavior.streamFollow,
+				reduceMotion: behavior.reduceMotion,
+			},
+		};
+		const blob = new Blob([serializeBackupDocument(backup)], {
+			type: 'application/json',
+		});
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = backupFilename();
+		document.body.appendChild(anchor);
+		anchor.click();
+		anchor.remove();
+		URL.revokeObjectURL(url);
+		backupMessage = 'Backup downloaded.';
+		backupError = null;
+	}
+
+	async function onBackupFileSelected(
+		event: Event & { currentTarget: HTMLInputElement },
+	): Promise<void> {
+		const file = event.currentTarget.files?.[0] ?? null;
+		pendingBackup = null;
+		backupError = null;
+		backupMessage = '';
+		if (!file) return;
+		try {
+			const text = await file.text();
+			pendingBackup = parseBackupDocument(text);
+			backupMessage = `Ready to restore: ${describeBackup(pendingBackup)}.`;
+		} catch (error) {
+			backupError =
+				error instanceof Error ? error.message : 'Invalid backup file';
+		} finally {
+			event.currentTarget.value = '';
+		}
+	}
+
+	function applyLocalBackup(): void {
+		if (!pendingBackup) return;
+		preferences.applyBackup(pendingBackup.preferences);
+		saveShortcutOverrides({ ...pendingBackup.shortcuts });
+		backupMessage = 'Local preferences and shortcuts restored.';
+		backupError = null;
+		pendingBackup = null;
+		toasts.success('Local settings restored');
+	}
+
+	async function applyFullBackup(): Promise<void> {
+		if (!pendingBackup) return;
+		backupBusy = true;
+		try {
+			preferences.applyBackup(pendingBackup.preferences);
+			saveShortcutOverrides({ ...pendingBackup.shortcuts });
+			behavior.applyBackup(pendingBackup.behavior);
+			await behavior.save();
+			if (behavior.error) {
+				backupError = `Server part failed: ${behavior.error}. Local part is restored; retry Save later.`;
+				return;
+			}
+			backupError = null;
+			backupMessage = 'Backup fully restored.';
+			pendingBackup = null;
+			toasts.success('Settings restored');
+		} finally {
+			backupBusy = false;
 		}
 	}
 </script>
@@ -299,6 +406,75 @@
 								Preview {toolBudgetsHint}
 							</p>
 						</div>
+					</Card>
+				</div>
+			{:else if section === 'shortcuts'}
+				<div class="space-y-3">
+					<ShortcutsSettings />
+				</div>
+			{:else if section === 'portability'}
+				<div class="space-y-3">
+					<Card
+						title="Backup"
+						description="One versioned file with appearance, shortcuts and server behavior. Download never needs the server."
+					>
+						<Button size="sm" variant="outline" onclick={exportBackup}>
+							<Icon name="download" size={13} />
+							Export settings
+						</Button>
+						{#if backupMessage && !pendingBackup}
+							<p class="mt-2 text-caption text-muted-foreground">{backupMessage}</p>
+						{/if}
+					</Card>
+					<Card
+						title="Restore"
+						description="Unknown versions, unknown keys and mistyped values are rejected without changing anything."
+					>
+						<input
+							type="file"
+							accept="application/json,.json"
+							onchange={(event) => void onBackupFileSelected(event)}
+							class="text-body"
+						/>
+						{#if backupError}
+							<p class="mt-2 text-caption text-destructive">{backupError}</p>
+						{/if}
+						{#if pendingBackup}
+							<p class="mt-2 text-caption text-muted-foreground">
+								Will replace: {describeBackup(pendingBackup)}.
+							</p>
+							{#if serverUnreachable}
+								<p class="mt-2 text-caption text-warning">
+									Server is unreachable, so only the local part can be
+									restored now. Retry the server part later.
+								</p>
+							{/if}
+							<div class="mt-3 flex flex-wrap gap-2">
+								<Button size="sm" variant="outline" onclick={applyLocalBackup}>
+									Restore local only
+								</Button>
+								<Button
+									size="sm"
+									disabled={backupBusy || serverUnreachable}
+									onclick={() => void applyFullBackup()}
+								>
+									<Icon name="upload" size={13} />
+									{backupBusy ? 'Restoring…' : 'Restore all'}
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={() => {
+										pendingBackup = null;
+										backupMessage = '';
+									}}
+								>
+									Cancel
+								</Button>
+							</div>
+						{:else if backupMessage}
+							<p class="mt-2 text-caption text-muted-foreground">{backupMessage}</p>
+						{/if}
 					</Card>
 				</div>
 			{:else if serverSection}

@@ -4,6 +4,7 @@ import {
 	saveBehavior,
 } from '$lib/services/preferences';
 import type { Behavior } from '$lib/services/preferences';
+import type { BehaviorBackup } from '$lib/services/portability';
 
 /**
  * Server cross-device behavior track shared with the backend preference
@@ -64,6 +65,14 @@ class BehaviorStore {
 		this.streamFollow = DEFAULT_BEHAVIOR.streamFollow;
 		this.reduceMotion = DEFAULT_BEHAVIOR.reduceMotion;
 		await this.save();
+	}
+
+	/** Stage validated backup values locally; the caller saves them. */
+	applyBackup(backup: BehaviorBackup): void {
+		this.pageSize = backup.pageSize;
+		this.autoRefresh = backup.autoRefresh;
+		this.streamFollow = backup.streamFollow;
+		this.reduceMotion = backup.reduceMotion;
 	}
 
 	private current(): Behavior {

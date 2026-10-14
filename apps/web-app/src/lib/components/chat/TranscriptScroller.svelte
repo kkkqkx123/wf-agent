@@ -25,6 +25,8 @@
 		pin?: number;
 		/** Session identity; following and its counter are per-session state. */
 		resetKey?: string;
+		/** Anchor predicate for next/previous jumps; defaults to every item. */
+		isAnchor?: (item: T) => boolean;
 		contentClass?: string;
 		class?: string;
 	}
@@ -37,6 +39,7 @@
 		activity = 0,
 		pin = 0,
 		resetKey = '',
+		isAnchor,
 		contentClass = '',
 		class: className = '',
 	}: Props = $props();
@@ -154,6 +157,91 @@
 		toTail();
 	}
 
+	function anchorIdFor(key: string): string {
+		return `message-${CSS.escape(key)}`;
+	}
+
+	function revealKey(key: string): boolean {
+		const index = items.findIndex((item) => itemKey(item) === key);
+		if (index < 0) return false;
+		const rowIndex = Math.floor(index / TRANSCRIPT_ROW_SIZE);
+		const top = offsets[rowIndex] ?? 0;
+		following = false;
+		if (viewport) {
+			programmaticUntil = Date.now() + PROGRAMMATIC_FOLLOW_MS;
+			viewport.scrollTo({ top: Math.max(0, top - 8) });
+		}
+		return true;
+	}
+
+	/** Jump to one message anchor; retries until the virtual row mounts. */
+	export async function scrollToMessage(
+		key: string,
+		behavior: ScrollBehavior = 'smooth',
+	): Promise<boolean> {
+		if (!viewport) return false;
+		following = false;
+		if (!revealKey(key)) return false;
+		for (let attempt = 0; attempt < 4; attempt += 1) {
+			await tick();
+			const node = document.getElementById(anchorIdFor(key));
+			if (node) {
+				node.scrollIntoView({ block: 'start', behavior });
+				try {
+					history.replaceState(null, '', `#message-${key}`);
+				} catch {
+					// Hash sync is best-effort; jumps never fail on it.
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function anchorKeys(): string[] {
+		return items
+			.filter((item) => (isAnchor ? isAnchor(item) : true))
+			.map((item) => itemKey(item));
+	}
+
+	function currentKey(): string | null {
+		if (!viewport) return null;
+		const cursor = scrollTop + 100;
+		const rowIndex = rowAt(cursor);
+		const row = rows[rowIndex];
+		return row ? itemKey(row.items[0]) : null;
+	}
+
+	/** Jump to the next anchor toward the tail; at the end, resume follow. */
+	export function scrollToNextAnchor(): void {
+		const keys = anchorKeys();
+		if (keys.length === 0) return;
+		const current = currentKey();
+		const position = current ? keys.indexOf(current) : -1;
+		const target = position < 0 ? keys[0] : keys[position + 1];
+		if (!target) {
+			resume();
+			try {
+				history.replaceState(null, '', window.location.pathname + window.location.search);
+			} catch {
+				// Hash cleanup is best-effort.
+			}
+			return;
+		}
+		void scrollToMessage(target);
+	}
+
+	/** Jump to the previous anchor toward the head. */
+	export function scrollToPrevAnchor(): void {
+		const keys = anchorKeys();
+		if (keys.length === 0) return;
+		const current = currentKey();
+		const position = current ? keys.indexOf(current) : keys.length;
+		const target = keys[position - 1] ?? keys[0];
+		if (!target) return;
+		void scrollToMessage(target);
+	}
+
 	function onScroll(event: Event): void {
 		const node = event.currentTarget as HTMLDivElement;
 		scrollTop = node.scrollTop;
@@ -236,6 +324,36 @@
 		},
 		{ enabled: !isShortcutDisabled('transcript.toTop'), ignoreInputs: false }
 	);
+	createHotkey(
+		effectiveHotkey('transcript.anchorNext'),
+		(event) => {
+			event.preventDefault();
+			scrollToNextAnchor();
+		},
+		{ enabled: !isShortcutDisabled('transcript.anchorNext'), ignoreInputs: false }
+	);
+	createHotkey(
+		effectiveHotkey('transcript.anchorPrev'),
+		(event) => {
+			event.preventDefault();
+			scrollToPrevAnchor();
+		},
+		{ enabled: !isShortcutDisabled('transcript.anchorPrev'), ignoreInputs: false }
+	);
+
+	// Deep links: an empty hash follows the tail, a message hash reveals
+	// and scrolls to that anchor, unknown hashes fall back to the tail.
+	$effect(() => {
+		void items.length;
+		const hash = window.location.hash;
+		if (!hash) return;
+		const match = /^#message-(.+)$/.exec(hash);
+		if (!match) return;
+		const key = decodeURIComponent(match[1]);
+		void tick().then(() => {
+			void scrollToMessage(key, 'auto');
+		});
+	});
 </script>
 
 <div class={cn('relative flex min-h-0 flex-col', className)}>

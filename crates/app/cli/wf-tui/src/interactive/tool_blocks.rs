@@ -19,6 +19,7 @@ use wf_types::tool::{DisplayKind, DisplayPayload};
 
 use crate::transcript::{HistoryLine, Role};
 
+use super::anchors::{first_line_label, AnchorKind};
 use super::InteractiveController;
 
 /// Capped excerpt of one finished tool call plus its row bookkeeping.
@@ -334,6 +335,31 @@ impl InteractiveController {
         block.summary_seq = rows.first().map(|row| row.seq_no()).unwrap_or(0);
         self.tool_order.push(tool_call_id.to_string());
         self.tool_blocks.insert(tool_call_id.to_string(), block);
+        let summary_seq = self
+            .tool_blocks
+            .get(tool_call_id)
+            .map(|block| block.summary_seq)
+            .unwrap_or(0);
+        if tool_name == "update_todo_list" {
+            let label = if result.trim().is_empty() {
+                tool_name.to_string()
+            } else {
+                format!("{tool_name} · {}", first_line_label(result, 60))
+            };
+            self.record_anchor(AnchorKind::TodoUpdate, tool_call_id, label, summary_seq);
+        }
+        if !success {
+            let detail = error
+                .filter(|text| !text.trim().is_empty())
+                .map(|text| first_line_label(text, 60))
+                .unwrap_or_else(|| first_line_label(result, 60));
+            let label = if detail.is_empty() {
+                tool_name.to_string()
+            } else {
+                format!("{tool_name} · {detail}")
+            };
+            self.record_anchor(AnchorKind::ToolFailure, tool_call_id, label, summary_seq);
+        }
         self.pending_scroll.extend(rows);
     }
 

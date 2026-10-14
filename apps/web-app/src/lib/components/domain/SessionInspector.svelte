@@ -614,6 +614,8 @@
 				<TranscriptScroller
 					items={transcriptMessages}
 					itemKey={(message) => message.id}
+					isAnchor={(message: LoopMessage) =>
+						message.role === 'user' || message.toolName === 'update_todo_list'}
 					activity={transcriptActivity}
 					resetKey={sessionId}
 					contentClass="mx-auto max-w-3xl px-3 py-3"

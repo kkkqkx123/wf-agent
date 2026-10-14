@@ -8,6 +8,7 @@
 
 use crate::transcript::{HistoryLine, Role};
 
+use super::anchors::{first_line_label, AnchorKind};
 use super::InteractiveController;
 
 /// Lifecycle rows of one dispatched child: the start row is the jump
@@ -66,6 +67,12 @@ impl InteractiveController {
         }
         // A new child restarts the cycle at the most recent start.
         self.subagent_cycle = 0;
+        self.record_anchor(
+            AnchorKind::SubAgent,
+            id,
+            first_line_label(&format!("{name} · {}", preview.unwrap_or("")), 60),
+            start_seq,
+        );
         self.pending_scroll.extend(rows);
     }
 
@@ -128,54 +135,6 @@ impl InteractiveController {
     /// trimmed rows drop their bookkeeping and the jump falls through to
     /// the next candidate; with no candidate the viewport stays put.
     pub(crate) fn jump_to_subagent(&mut self) {
-        self.settle_scrollback();
-        let width = self.last_layout_width.max(1);
-        let total: usize = self
-            .scrollback
-            .iter()
-            .map(|line| line.display_lines(width).len())
-            .sum();
-        let streaming_len = self
-            .streaming
-            .as_ref()
-            .map(|line| line.display_lines(width).len())
-            .unwrap_or(0);
-        let full_total = total + streaming_len;
-        let order: Vec<String> = self.subagent_order.iter().rev().cloned().collect();
-        if order.is_empty() {
-            return;
-        }
-        let mut attempts = 0;
-        while attempts < order.len() {
-            let idx = (self.subagent_cycle + attempts) % order.len();
-            let Some(block) = self.subagent_blocks.get(&order[idx]) else {
-                attempts += 1;
-                continue;
-            };
-            if block.start_seq == 0 {
-                attempts += 1;
-                continue;
-            }
-            let Some(pos) = self
-                .scrollback
-                .iter()
-                .position(|row| row.seq_no() == block.start_seq)
-            else {
-                // Trimmed away: drop the bookkeeping like tool blocks do.
-                self.subagent_blocks.remove(&order[idx]);
-                self.subagent_order.retain(|id| id != &order[idx]);
-                continue;
-            };
-            let above: usize = self.scrollback[..pos]
-                .iter()
-                .map(|line| line.display_lines(width).len())
-                .sum();
-            // Rows below the target (plus the live tail) become the new
-            // offset so the target lands at the top of the viewport.
-            self.view_scroll = full_total.saturating_sub(above);
-            self.scroll_at_top = false;
-            self.subagent_cycle = idx + 1;
-            return;
-        }
+        self.jump_to_anchor_kind(AnchorKind::SubAgent);
     }
 }

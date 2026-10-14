@@ -317,7 +317,13 @@ mod tests {
         ConfigManager::save(&live, &config).unwrap();
         ConfigManager::export_to(&live, &backup).unwrap();
         ConfigManager::save(&live, &AppConfig::default()).unwrap();
-        assert!(!ConfigManager::load(&live).unwrap().config().behavior.mouse_capture);
+        assert!(
+            !ConfigManager::load(&live)
+                .unwrap()
+                .config()
+                .behavior
+                .mouse_capture
+        );
         ConfigManager::import_from(&backup, &live).expect("import valid backup");
         let restored = ConfigManager::load(&live).unwrap();
         assert!(restored.config().behavior.mouse_capture);
@@ -340,7 +346,13 @@ mod tests {
         std::fs::create_dir_all(dir.clone()).unwrap();
         std::fs::write(&bad, "[behavior\nmouse_capture = not-toml").unwrap();
         assert!(ConfigManager::import_from(&bad, &live).is_err());
-        assert!(ConfigManager::load(&live).unwrap().config().behavior.mouse_capture);
+        assert!(
+            ConfigManager::load(&live)
+                .unwrap()
+                .config()
+                .behavior
+                .mouse_capture
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

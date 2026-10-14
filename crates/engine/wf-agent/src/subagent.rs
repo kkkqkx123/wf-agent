@@ -68,13 +68,7 @@ pub fn emit_started(
 }
 
 /// Report a child finish to the parent stream. No observer means no event.
-pub fn emit_ended(
-    parent: &ParentLink,
-    child_id: &Id,
-    name: &str,
-    success: bool,
-    background: bool,
-) {
+pub fn emit_ended(parent: &ParentLink, child_id: &Id, name: &str, success: bool, background: bool) {
     let Some(tx) = parent.subagent_tx.as_ref() else {
         return;
     };

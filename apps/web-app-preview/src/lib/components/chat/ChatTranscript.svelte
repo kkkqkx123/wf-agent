@@ -8,6 +8,7 @@
 	import ReasoningBlock from '$lib/components/chat/ReasoningBlock.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import ToolCallCard from '$lib/components/domain/ToolCallCard.svelte';
+	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
 	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
@@ -34,6 +35,8 @@
 	<TranscriptScroller
 		items={bubbles}
 		itemKey={(message: LoopMessage) => message.id}
+		isAnchor={(message: LoopMessage) =>
+			message.role === 'user' || message.toolName === 'update_todo_list'}
 		activity={controller.activity}
 		resetKey={selectedId ?? NEW_SESSION}
 		contentClass="mx-auto max-w-3xl px-4 py-4"
@@ -49,6 +52,7 @@
 		{/snippet}
 		{#snippet tail()}
 			{#if showLive}
+				<BackgroundTasksBar />
 				{#if chatStream.reasoning}
 					<ReasoningBlock
 						content={chatStream.reasoning}

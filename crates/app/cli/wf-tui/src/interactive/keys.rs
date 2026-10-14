@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use crate::approval_overlay::ApprovalChoice;
 use crate::footer::{FooterRoute, FooterView};
+use crate::interactive::anchors::{first_line_label, AnchorKind};
 use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 use crate::question_overlay::QuestionOutcome;
@@ -37,8 +38,11 @@ impl InteractiveController {
         // view (a prompt, an approval or a question all leave history above).
         // Tool-output keys are transcript context too: Ctrl+O toggles the
         // most recent expandable block, Ctrl+V opens its full output,
-        // Ctrl+D cycles the detail level, Ctrl+E expands or collapses all
-        // and Ctrl+G jumps between sub-agent start rows newest-first.
+        // Ctrl+D cycles the detail level, Ctrl+E expands or collapses all,
+        // Ctrl+G jumps between sub-agent start rows newest-first, Ctrl+P
+        // cycles user prompts, Ctrl+U cycles todo updates, Ctrl+F cycles
+        // tool failures, Ctrl+N cycles checkpoints, Ctrl+I lists the anchor
+        // timeline, Alt+N/Alt+P move to the next/previous anchor.
         // High level expands retrieval bodies by default and can flood the
         // transcript on large reads; prefer medium for daily use and switch
         // to high only when inspecting retrieval behavior.
@@ -86,6 +90,34 @@ impl InteractiveController {
             }
             CKey::Char('g') | CKey::Char('G') if key.ctrl && !key.alt => {
                 self.jump_to_subagent();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('p') | CKey::Char('P') if key.ctrl && !key.alt => {
+                self.jump_to_anchor_kind(AnchorKind::UserPrompt);
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('u') | CKey::Char('U') if key.ctrl && !key.alt => {
+                self.jump_to_anchor_kind(AnchorKind::TodoUpdate);
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('f') | CKey::Char('F') if key.ctrl && !key.alt => {
+                self.jump_to_anchor_kind(AnchorKind::ToolFailure);
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('n') | CKey::Char('N') if key.ctrl && !key.alt => {
+                self.jump_to_anchor_kind(AnchorKind::Checkpoint);
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('i') | CKey::Char('I') if key.ctrl && !key.alt => {
+                self.list_anchors();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('n') | CKey::Char('N') if key.alt && !key.ctrl => {
+                self.jump_to_next_anchor();
+                return InteractiveAction::Continue;
+            }
+            CKey::Char('p') | CKey::Char('P') if key.alt && !key.ctrl => {
+                self.jump_to_prev_anchor();
                 return InteractiveAction::Continue;
             }
             CKey::Char('y') | CKey::Char('Y') if key.ctrl && !key.alt => {
@@ -223,8 +255,16 @@ impl InteractiveController {
         let response = question.response_value(outcome);
         let interaction_id = question.interaction_id().to_string();
         self.flush_activity();
-        self.pending_scroll
-            .push(HistoryLine::new_role(format!("❯ {answer}"), Role::Accent));
+        let mut rows = vec![HistoryLine::new_role(format!("❯ {answer}"), Role::Accent)];
+        self.assign_seq(&mut rows);
+        let seq = rows.first().map(|row| row.seq_no()).unwrap_or(0);
+        self.record_anchor(
+            AnchorKind::Decision,
+            &format!("decision-{seq}"),
+            first_line_label(&answer, 60),
+            seq,
+        );
+        self.pending_scroll.extend(rows);
         self.send_question_reply(&interaction_id, response);
         self.footer.present(FooterView::Prompt);
     }
@@ -320,8 +360,16 @@ impl InteractiveController {
                 }
                 if !text.trim().is_empty() {
                     self.flush_activity();
-                    self.pending_scroll
-                        .push(HistoryLine::new_role(format!("❯ {text}"), Role::Accent));
+                    let mut rows = vec![HistoryLine::new_role(format!("❯ {text}"), Role::Accent)];
+                    self.assign_seq(&mut rows);
+                    let seq = rows.first().map(|row| row.seq_no()).unwrap_or(0);
+                    self.record_anchor(
+                        AnchorKind::UserPrompt,
+                        &format!("prompt-{seq}"),
+                        first_line_label(text.trim(), 60),
+                        seq,
+                    );
+                    self.pending_scroll.extend(rows);
                     self.start_turn(text.trim().to_string(), None, None);
                 }
             }

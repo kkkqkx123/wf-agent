@@ -94,7 +94,13 @@
 	});
 </script>
 
-<article class={cn('flex gap-2.5', isUser && 'flex-row-reverse', className)}>
+<article
+	id={`message-${message.id}`}
+	data-message-id={message.id}
+	data-role={message.role}
+	data-tool={message.toolName ?? ''}
+	class={cn('flex gap-2.5', isUser && 'flex-row-reverse', className)}
+>
 	<div
 		class={cn(
 			'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border',

@@ -154,10 +154,9 @@ impl TuiApp {
             .resolve(tui_core::keymap::KeymapContext::List, key)
         {
             Some(tui_core::keymap::KeyAction::Help) => {
-                self.modals
-                    .push(Box::new(HelpModal::with_overrides(
-                        self.keymap_overrides.clone(),
-                    )));
+                self.modals.push(Box::new(HelpModal::with_overrides(
+                    self.keymap_overrides.clone(),
+                )));
                 return Ok(LoopAction::Continue);
             }
             Some(tui_core::keymap::KeyAction::Back) => {

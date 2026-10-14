@@ -1,24 +1,14 @@
-export interface CanvasShortcutEntry {
-	keys: string;
-	action: string;
-}
+import { getHotkeyManager } from '@tanstack/hotkeys';
+import { effectiveHotkey, isShortcutDisabled, resolvedShortcutRows } from '$lib/shortcuts/registry';
 
 /**
  * Shared vocabulary for canvas shortcuts. The global help overlay renders
- * these rows, so renaming a shortcut only happens here.
+ * these rows, so renaming a shortcut only happens in the shortcut catalog.
  */
-export const CANVAS_SHORTCUT_HELP: CanvasShortcutEntry[] = [
-	{ keys: 'F', action: 'Fit graph to view' },
-	{ keys: 'R', action: 'Re-run layout' },
-	{ keys: '+ / -', action: 'Zoom in / out' },
-	{ keys: 'C', action: 'Focus selected node' },
-	{ keys: 'E', action: 'Enter or exit edit mode' },
-	{ keys: 'Esc', action: 'Exit edit mode' },
-	{ keys: 'Ctrl/⌘ + S', action: 'Save draft' },
-	{ keys: 'Ctrl/⌘ + Z / Ctrl/⌘ + Shift + Z', action: 'Undo / redo' },
-	{ keys: 'Ctrl/⌘ + A', action: 'Select all nodes' },
-	{ keys: 'Del', action: 'Delete selection' },
-];
+export const CANVAS_SHORTCUT_HELP: Array<{ keys: string; action: string }> =
+	resolvedShortcutRows('canvas')
+		.filter((row) => !row.disabled)
+		.map((row) => ({ keys: row.keys, action: row.action.label }));
 
 export interface CanvasShortcutHandlers {
 	fit(): void;
@@ -38,112 +28,92 @@ export interface CanvasShortcutHandlers {
 	onreadonlywrite(): void;
 }
 
-function isTyping(target: HTMLElement | null): boolean {
-	if (!target) return false;
-	return (
-		target.tagName === 'INPUT' ||
-		target.tagName === 'TEXTAREA' ||
-		target.tagName === 'SELECT' ||
-		target.isContentEditable
-	);
-}
-
 /**
- * Register canvas shortcuts on the window, scoped to focus inside `root`.
- * Typing in fields never triggers shortcuts, except Escape which exits
- * edit mode even from inputs. Write operations are gated by `canWrite`;
- * read-only presses report through `onreadonlywrite` without side effects.
- * Zoom and focus are view operations and stay available read-only.
- * Returns a dispose function.
+ * Register canvas shortcuts from the shortcut catalog, scoped to focus
+ * inside `root` (bindings attach to the root element, so events bubble
+ * only from within it). Typing in fields never triggers shortcuts, except
+ * Escape which exits edit mode even from inputs. Write operations are
+ * gated by `canWrite`; read-only presses report through `onreadonlywrite`
+ * without side effects. Zoom and focus are view operations and stay
+ * available read-only. Returns a dispose function.
  */
 export function registerCanvasShortcuts(
 	root: HTMLElement,
 	get: () => CanvasShortcutHandlers,
 ): () => void {
-	function guarded(
-		handlers: CanvasShortcutHandlers,
-		fn: (handlers: CanvasShortcutHandlers) => void,
-	): void {
+	const manager = getHotkeyManager();
+	const handles: Array<{ unregister(): void }> = [];
+
+	function guarded(handlers: CanvasShortcutHandlers, fn: (handlers: CanvasShortcutHandlers) => void): void {
 		if (!handlers.canWrite()) {
 			handlers.onreadonlywrite();
 			return;
 		}
 		fn(handlers);
 	}
-	function onKey(event: KeyboardEvent): void {
-		const target = event.target as HTMLElement | null;
-		if (!target || !root.contains(target)) return;
-		const handlers = get();
-		const key = event.key;
-		if (key === 'Escape') {
-			if (handlers.canWrite()) {
-				event.preventDefault();
-				handlers.toggleEdit();
-			}
-			return;
-		}
-		if (isTyping(target)) return;
-		const mod = event.ctrlKey || event.metaKey;
-		if (mod && (key === 'z' || key === 'Z')) {
-			event.preventDefault();
-			if (event.shiftKey) {
-				guarded(handlers, (h) => h.redo());
-			} else {
-				guarded(handlers, (h) => h.undo());
-			}
-			return;
-		}
-		if (mod && (key === 'a' || key === 'A')) {
-			event.preventDefault();
-			guarded(handlers, (h) => h.selectAll());
-			return;
-		}
-		if (mod && (key === 's' || key === 'S')) {
-			event.preventDefault();
-			guarded(handlers, (h) => h.save());
-			return;
-		}
-		if (mod) return;
-		switch (key) {
-			case 'Delete':
-			case 'Backspace':
-				event.preventDefault();
-				guarded(handlers, (h) => h.deleteSelected());
-				break;
-			case 'f':
-			case 'F':
-				event.preventDefault();
-				handlers.fit();
-				break;
-			case 'r':
-			case 'R':
-				event.preventDefault();
-				handlers.relayout();
-				break;
-			case '+':
-			case '=':
-				event.preventDefault();
-				handlers.zoomIn();
-				break;
-			case '-':
-			case '_':
-				event.preventDefault();
-				handlers.zoomOut();
-				break;
-			case 'c':
-			case 'C':
-				event.preventDefault();
-				handlers.focusSelected();
-				break;
-			case 'e':
-			case 'E':
-				event.preventDefault();
-				handlers.toggleEdit();
-				break;
-			default:
-				break;
-		}
+
+	function bindWrite(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
+		if (isShortcutDisabled(actionId)) return;
+		const hotkey = effectiveHotkey(actionId);
+		if (!hotkey) return;
+		handles.push(
+			manager.register(
+				hotkey,
+				() => {
+					const handlers = get();
+					guarded(handlers, run);
+				},
+				{ target: root, ignoreInputs: true }
+			)
+		);
 	}
-	window.addEventListener('keydown', onKey);
-	return () => window.removeEventListener('keydown', onKey);
+
+	function bindView(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
+		if (isShortcutDisabled(actionId)) return;
+		const hotkey = effectiveHotkey(actionId);
+		if (!hotkey) return;
+		handles.push(
+			manager.register(
+				hotkey,
+				() => {
+					const handlers = get();
+					run(handlers);
+				},
+				{ target: root, ignoreInputs: true }
+			)
+		);
+	}
+
+	bindView('canvas.fit', (h) => h.fit());
+	bindView('canvas.relayout', (h) => h.relayout());
+	bindView('canvas.zoomIn', (h) => h.zoomIn());
+	bindView('canvas.zoomOut', (h) => h.zoomOut());
+	bindView('canvas.focusSelected', (h) => h.focusSelected());
+
+	// Write operations are gated by edit mode.
+	bindWrite('canvas.toggleEdit', (h) => h.toggleEdit());
+	bindWrite('canvas.saveDraft', (h) => h.save());
+	bindWrite('canvas.undo', (h) => h.undo());
+	bindWrite('canvas.redo', (h) => h.redo());
+	bindWrite('canvas.selectAll', (h) => h.selectAll());
+	bindWrite('canvas.deleteSelection', (h) => h.deleteSelected());
+
+	// Escape exits edit mode even while typing in a field.
+	if (!isShortcutDisabled('canvas.exitEdit')) {
+		handles.push(
+			manager.register(
+				effectiveHotkey('canvas.exitEdit') || 'Escape',
+				() => {
+					const handlers = get();
+					if (handlers.canWrite()) handlers.toggleEdit();
+				},
+				{ target: root, ignoreInputs: false }
+			)
+		);
+	}
+
+	return () => {
+		for (const handle of handles) handle.unregister();
+		handles.length = 0;
+	};
 }

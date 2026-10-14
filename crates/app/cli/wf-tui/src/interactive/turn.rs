@@ -256,6 +256,7 @@ impl InteractiveController {
                     self.scrollback = scrollback;
                     self.view_scroll = 0;
                     self.scroll_at_top = false;
+                    self.rebuild_anchors_from_scrollback();
                 }
                 InteractiveEvent::ReplayEarlier {
                     mut lines,
@@ -318,6 +319,7 @@ impl InteractiveController {
                             self.view_scroll = self.view_scroll.saturating_add(shift);
                         }
                         self.scroll_at_top = false;
+                        self.rebuild_anchors_from_scrollback();
                     }
                 }
             }
@@ -363,7 +365,9 @@ impl InteractiveController {
         self.footer.state.merge_reducer(self.reducer.footer());
 
         match &event {
-            ExecutionStreamEvent::Engine(_) => {}
+            ExecutionStreamEvent::Engine(base) => {
+                self.record_engine_anchor(base);
+            }
             ExecutionStreamEvent::Completed { iterations, .. } => {
                 self.flush_activity();
                 self.pending_scroll.push(HistoryLine::new_role(
@@ -458,14 +462,11 @@ impl InteractiveController {
                 preview,
                 ..
             } => {
-                self.record_subagent_started(
-                    id,
-                    name,
-                    tool_call_id.as_deref(),
-                    preview.as_deref(),
-                );
+                self.record_subagent_started(id, name, tool_call_id.as_deref(), preview.as_deref());
             }
-            ExecutionStreamEvent::SubAgentEnded { id, name, success, .. } => {
+            ExecutionStreamEvent::SubAgentEnded {
+                id, name, success, ..
+            } => {
                 self.record_subagent_ended(id, name, *success);
             }
             ExecutionStreamEvent::SubAgentProgress {
@@ -622,6 +623,7 @@ impl InteractiveController {
                 self.scrollback.drain(0..drop);
                 let version = self.bump_version();
                 self.prep.sync_trim(drop, version);
+                self.prune_anchors();
             }
         }
     }

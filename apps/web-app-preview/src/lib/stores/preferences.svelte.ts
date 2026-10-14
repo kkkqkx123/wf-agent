@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { parseToolOutputDetail } from '$lib/config/tool-output';
 import type { ToolOutputDetail } from '$lib/config/tool-output';
+import type { LocalPreferencesBackup } from '$lib/services/portability';
 
 /**
  * Local first-paint appearance track: theme, density, and shell geometry
@@ -193,6 +194,20 @@ class PreferencesStore {
 
 	setToolOutputDetail(detail: ToolOutputDetail): void {
 		this.toolOutputDetail = parseToolOutputDetail(detail);
+		this.persist();
+	}
+
+	/** Replace every local field from a validated backup and persist. */
+	applyBackup(backup: LocalPreferencesBackup): void {
+		this.theme = backup.theme;
+		this.density = backup.density;
+		this.sidebarCollapsed = backup.sidebarCollapsed;
+		this.sidebarWidth = clampSidebarWidth(backup.sidebarWidth);
+		this.inspectorWidth = clampInspectorWidth(backup.inspectorWidth);
+		this.inspectorPinned = backup.inspectorPinned;
+		this.minimapMode = backup.minimapMode;
+		this.toolOutputPreviews = backup.toolOutputPreviews;
+		this.toolOutputDetail = parseToolOutputDetail(backup.toolOutputDetail);
 		this.persist();
 	}
 

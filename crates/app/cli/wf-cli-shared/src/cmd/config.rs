@@ -4,7 +4,7 @@
 //! live beside it but are owned by their own loaders, so they stay out of
 //! this command; copy those by hand when needed.
 
-use crate::app_config::{ConfigManager, config_file_path};
+use crate::app_config::{config_file_path, ConfigManager};
 use crate::args::{Cli, ConfigSub};
 use crate::cmd::render::render_envelope;
 use crate::error::{CliError, CliResult};

@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use super::layout::split_management;
+use tui_components::scrollbar;
 use tui_components::transcript::HistoryLine;
 use tui_core::screen_data::{
     screen_digit, short_id, ExecView, ScreenContext, ScreenData, ScreenKind, SearchRow,
@@ -159,13 +160,22 @@ fn draw_detail_pane(
     theme: &Theme,
 ) {
     let capacity = usize::from(area.height.saturating_sub(2));
-    let (window, below) = window_lines(lines, scroll, capacity);
+    let top = scrollbar::clamp_top(scroll, lines.len(), capacity);
+    let (window, below) = window_lines(lines, top, capacity);
     let mut text = window.join("\n");
     if below > 0 {
         text.push_str(&format!("\n+{below} more (PgUp/PgDn scroll, Enter full)"));
     }
     let block = titled_block(&title, ColorRole::Highlight, theme);
-    frame.render_widget(Paragraph::new(text).block(block), area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if scrollbar::visible_in(inner, lines.len(), capacity) {
+        let (content, gutter) = scrollbar::split_content_gutter(inner);
+        frame.render_widget(Paragraph::new(text), content);
+        scrollbar::render(frame, gutter, lines.len(), capacity, top, theme);
+    } else {
+        frame.render_widget(Paragraph::new(text), inner);
+    }
 }
 
 /// Split the body below the header into list and detail halves.
@@ -672,7 +682,15 @@ pub fn draw_settings(
         ColorRole::Default,
         theme,
     );
-    frame.render_widget(Paragraph::new(text).block(block), area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if scrollbar::visible_in(inner, lines.len(), capacity) {
+        let (content, gutter) = scrollbar::split_content_gutter(inner);
+        frame.render_widget(Paragraph::new(text), content);
+        scrollbar::render(frame, gutter, lines.len(), capacity, scroll, theme);
+    } else {
+        frame.render_widget(Paragraph::new(text), inner);
+    }
 }
 
 /// Search palette overlay: centered floating input plus result list.
@@ -823,32 +841,51 @@ pub fn draw_transcript_overlay(
     };
     let block = titled_block("History", ColorRole::Accent, theme);
     let inner = block.inner(overlay_area);
-    let width = inner.width.max(1);
+    let capacity = usize::from(inner.height.max(1));
 
     // Reflow every loaded line to the window width and carry its role color
     // into the spans, so the roles the loader assigns stay readable here.
-    let mut rows: Vec<Line<'static>> = Vec::with_capacity(view.lines.len());
-    for source in view.lines {
-        let role_style = theme.style_for_role(source.role.to_color_role());
-        for mut row in source.display_lines(width) {
-            for span in &mut row.spans {
-                span.style = role_style.patch(span.style);
+    let reflow = |width: u16| -> Vec<Line<'static>> {
+        let mut rows: Vec<Line<'static>> = Vec::with_capacity(view.lines.len());
+        for source in view.lines {
+            let role_style = theme.style_for_role(source.role.to_color_role());
+            for mut row in source.display_lines(width) {
+                for span in &mut row.spans {
+                    span.style = role_style.patch(span.style);
+                }
+                rows.push(row);
             }
-            rows.push(row);
         }
-    }
+        rows
+    };
+    let rows = reflow(inner.width.max(1));
+    // Reserve the gutter only when the bar will actually show; reflow again
+    // at the narrowed width so no text column is lost underneath it.
+    let (content, gutter, rows) =
+        if scrollbar::visible_in(inner, rows.len(), capacity) && inner.width > 1 {
+            let narrowed = reflow(inner.width - 1);
+            if scrollbar::should_show(narrowed.len(), capacity) {
+                let (content, gutter) = scrollbar::split_content_gutter(inner);
+                (content, Some(gutter), narrowed)
+            } else {
+                (inner, None, rows)
+            }
+        } else {
+            (inner, None, rows)
+        };
 
-    let capacity = usize::from(inner.height.max(1));
     let max_scroll = rows.len().saturating_sub(capacity);
     view.scroll = view.scroll.min(max_scroll);
     let at_top = view.scroll >= max_scroll;
     let end = rows.len().saturating_sub(view.scroll);
     let start = end.saturating_sub(capacity);
-    frame.render_widget(
-        Paragraph::new(rows[start..end].to_vec()).block(block),
-        overlay_area,
-    );
-    paint_overlay_jump_badge(frame, inner, view.scroll, theme);
+    let top = scrollbar::clamp_top(start, rows.len(), capacity);
+    frame.render_widget(block, overlay_area);
+    frame.render_widget(Paragraph::new(rows[start..end].to_vec()), content);
+    if let Some(gutter) = gutter {
+        scrollbar::render(frame, gutter, rows.len(), capacity, top, theme);
+    }
+    paint_overlay_jump_badge(frame, content, view.scroll, theme);
 
     if area.height > 0 {
         let status_area = Rect {

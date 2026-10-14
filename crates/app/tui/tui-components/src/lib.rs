@@ -17,5 +17,6 @@ pub mod password_modal;
 pub mod prompt_modal;
 pub mod question_overlay;
 pub mod queue;
+pub mod scrollbar;
 pub mod select;
 pub mod transcript;

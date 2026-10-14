@@ -72,7 +72,10 @@
 							? 'cursor-pointer rounded-lg ring-2 ring-warning'
 							: 'cursor-pointer rounded-lg'}
 					>
-						<ToolCallCard {entry} />
+						<ToolCallCard
+							{entry}
+							subagents={chatStream.subAgentsOf(entry.id)}
+						/>
 					</div>
 				{/snippet}
 				{#if groupTools}

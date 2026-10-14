@@ -20,6 +20,15 @@ export interface SubAgentNote {
 	id: string;
 	name: string;
 	success: boolean | null;
+	/** Outer dispatching tool call, linking the child to its host card.
+	 * Absent on older servers. */
+	toolCallId?: string;
+	/** Truncated task preview from the start frame. */
+	preview?: string | null;
+	/** True when dispatched without waiting (background handle). */
+	background?: boolean | null;
+	/** Latest milestone from progress frames. */
+	activity?: string | null;
 }
 
 /**
@@ -136,15 +145,51 @@ export class StreamRunStore {
 		];
 	}
 
-	noteSubAgent(id: string, name: string, success: boolean | null): void {
+	noteSubAgent(
+		id: string,
+		name: string,
+		success: boolean | null,
+		details?: {
+			toolCallId?: string;
+			preview?: string | null;
+			background?: boolean | null;
+			activity?: string | null;
+		},
+	): void {
 		if (!id) return;
 		const existing = this.subAgents.find((note) => note.id === id);
 		if (existing) {
-			existing.success = success;
+			// Progress frames carry no name; never clobber a known label.
+			if (name) existing.name = name;
+			if (success !== null && success !== undefined)
+				existing.success = success;
+			if (details?.toolCallId) existing.toolCallId = details.toolCallId;
+			if (details?.preview) existing.preview = details.preview;
+			if (details?.background !== undefined)
+				existing.background = details.background;
+			if (details?.activity !== undefined)
+				existing.activity = details.activity;
 			this.subAgents = [...this.subAgents];
 			return;
 		}
-		this.subAgents = [...this.subAgents, { id, name, success }];
+		this.subAgents = [
+			...this.subAgents,
+			{
+				id,
+				name,
+				success,
+				toolCallId: details?.toolCallId,
+				preview: details?.preview ?? null,
+				background: details?.background ?? null,
+				activity: details?.activity ?? null,
+			},
+		];
+	}
+
+	/** Live children dispatched by one tool call, in start order. */
+	subAgentsOf(toolCallId: string): SubAgentNote[] {
+		if (!toolCallId) return [];
+		return this.subAgents.filter((note) => note.toolCallId === toolCallId);
 	}
 
 	complete(): void {

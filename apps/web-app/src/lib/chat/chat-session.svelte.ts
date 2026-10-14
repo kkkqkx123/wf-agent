@@ -117,7 +117,8 @@ export class ChatSessionController {
 		this.bubbles.length +
 			chatStream.answer.length +
 			chatStream.reasoning.length +
-			chatStream.tools.length,
+			chatStream.tools.length +
+			chatStream.subAgents.length,
 	);
 
 	showLive = $derived(

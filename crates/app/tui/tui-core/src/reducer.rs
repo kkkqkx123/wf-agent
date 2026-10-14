@@ -373,7 +373,7 @@ impl SessionReducer {
             ExecutionStreamEvent::SubAgentStarted {
                 id, name, tool_call_id, ..
             } => {
-                self.upsert_subagent(id.clone(), name.clone(), tool_call_id.clone(), None);
+                self.upsert_subagent(id, name, tool_call_id.clone(), None);
             }
             ExecutionStreamEvent::SubAgentEnded { id, .. } => {
                 self.remove_subagent(id);

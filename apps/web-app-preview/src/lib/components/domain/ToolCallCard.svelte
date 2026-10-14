@@ -2,8 +2,8 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';
-	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import type { SubAgentNote } from '$lib/stores/stream-run.svelte';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
@@ -28,10 +28,13 @@
 
 	interface Props {
 		entry: ToolCallEntry;
+		/** Live children dispatched by this tool call, in start order.
+		 * Empty for history records and non-dispatch tools. */
+		subagents?: SubAgentNote[];
 		class?: string;
 	}
 
-	let { entry, class: className = '' }: Props = $props();
+	let { entry, subagents = [], class: className = '' }: Props = $props();
 
 	let open = $state(false);
 	let resultOpen = $state(false);
@@ -106,6 +109,27 @@
 	const isGateway = $derived(entry.kind === 'network');
 	const isScript = $derived(entry.kind === 'bash' || entry.kind === 'script');
 	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
+	/** Dispatch tools host their live children inline below the header. */
+	const isDispatch =
+		$derived(entry.name === 'call_agent' || entry.name === 'execute_workflow');
+	const liveSubagents = $derived(
+		isDispatch ? subagents : [],
+	);
+	const runningSubagents = $derived(
+		liveSubagents.filter((note) => note.success === null),
+	);
+	const subagentHint = $derived(
+		runningSubagents.length > 0
+			? `· ◔ ${runningSubagents[0].name}${runningSubagents.length > 1 ? ` +${runningSubagents.length - 1}` : ''}`
+			: liveSubagents.length > 0
+				? `· ${liveSubagents.length} subagent${liveSubagents.length === 1 ? '' : 's'}`
+				: null,
+	);
+
+	function subagentStatus(note: SubAgentNote): string {
+		if (note.success === null) return 'running';
+		return note.success ? 'completed' : 'failed';
+	}
 
 	function reviewApprovals(): void {
 		void goto(resolve('/checkpoints?tab=approvals'));
@@ -193,6 +217,13 @@
 				{headerHint}
 			</span>
 		{/if}
+		{#if subagentHint}
+			<span
+				class="shrink-0 font-mono text-micro tabular-nums text-muted-foreground"
+			>
+				{subagentHint}
+			</span>
+		{/if}
 		<span class="shrink-0 text-micro tabular-nums text-muted-foreground">
 			{formatDuration(entry.durationMs)}
 		</span>
@@ -209,6 +240,36 @@
 
 	{#if open}
 		<div class="animate-panel-in space-y-2 border-t border-border px-3 py-2.5">
+			{#if liveSubagents.length > 0}
+				<div>
+					<p
+						class="mb-1 text-micro uppercase tracking-wide text-muted-foreground"
+					>
+						Subagents
+					</p>
+					<ul class="space-y-1">
+						{#each liveSubagents as note (note.id)}
+							<li class="flex items-center gap-2">
+								<StatusBadge status={subagentStatus(note)} size="sm" />
+								<span
+									class="min-w-0 flex-1 truncate font-mono text-micro text-foreground"
+								>
+									{note.name}
+								</span>
+								{#if note.success === null && note.activity}
+									<span class="shrink-0 truncate text-micro text-muted-foreground">
+										{note.activity}
+									</span>
+								{:else if note.preview}
+									<span class="shrink-0 truncate text-micro text-muted-foreground">
+										{note.preview}
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 			{#if isGateway && entry.endpoint}
 				<p class="truncate font-mono text-micro text-muted-foreground">
 					{entry.endpoint}

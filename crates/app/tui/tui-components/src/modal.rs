@@ -24,6 +24,8 @@ use tokio::sync::oneshot;
 use tui_core::keymap::{CKey, Key};
 use tui_style::theme::{Rgb, Theme};
 
+use crate::scrollbar;
+
 /// Convert one theme color value into a ratatui color.
 fn to_color(rgb: Rgb) -> ratatui::style::Color {
     ratatui::style::Color::Rgb(rgb.r, rgb.g, rgb.b)
@@ -247,18 +249,21 @@ pub(crate) fn render_viewer(
         .split(inner);
 
     let view = usize::from(chunks[0].height.max(1));
-    let visible: Vec<Line<'static>> = rows
-        .iter()
-        .skip(scroll.offset)
-        .take(view)
-        .cloned()
-        .collect();
-    frame.render_widget(Paragraph::new(visible), chunks[0]);
+    let total = rows.len();
+    let top = scrollbar::clamp_top(scroll.offset, total, view);
+    let visible: Vec<Line<'static>> = rows.iter().skip(top).take(view).cloned().collect();
+    if scrollbar::visible_in(chunks[0], total, view) {
+        let (content, gutter) = scrollbar::split_content_gutter(chunks[0]);
+        frame.render_widget(Paragraph::new(visible), content);
+        scrollbar::render(frame, gutter, total, view, top, theme);
+    } else {
+        frame.render_widget(Paragraph::new(visible), chunks[0]);
+    }
 
     let position = if rows.is_empty() {
         "(0/0)".to_string()
     } else {
-        format!("({}/{})", scroll.offset + 1, rows.len())
+        format!("({}/{})", top + 1, rows.len())
     };
     frame.render_widget(
         Paragraph::new(format!("{position}  {hint}"))

@@ -49,6 +49,9 @@ pub(crate) async fn run_streaming(
                 AgentStreamEvent::SubAgentEnded { .. } => {
                     wf_types::events::EventType::AgentCompleted
                 }
+                AgentStreamEvent::SubAgentProgress { .. } => {
+                    wf_types::events::EventType::LlmStreamChunk
+                }
             };
             let bus_event = wf_types::events::BaseEvent {
                 id: wf_common::generate_id(),

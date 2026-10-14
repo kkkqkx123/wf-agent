@@ -117,7 +117,8 @@ export class ChatSessionController {
 		this.bubbles.length +
 			chatStream.answer.length +
 			chatStream.reasoning.length +
-			chatStream.tools.length,
+			chatStream.tools.length +
+			chatStream.subAgents.length,
 	);
 
 	showLive = $derived(
@@ -376,8 +377,8 @@ export class ChatSessionController {
 				onUsage: (usage) => {
 					chatStream.usage = usage;
 				},
-				onSubAgent: (id, name, success) =>
-					chatStream.noteSubAgent(id, name, success),
+				onSubAgent: (id, name, success, details) =>
+					chatStream.noteSubAgent(id, name, success, details),
 				onCompleted: () => chatStream.complete(),
 				onFailed: (message) => chatStream.fail(message),
 				onInterrupted: (reason) => chatStream.fail(reason),

@@ -19,6 +19,7 @@ pub mod analysis;
 pub mod approval;
 pub mod audit;
 pub mod checkpoint;
+pub mod config;
 pub mod diagnostics;
 pub mod event;
 pub mod execution;

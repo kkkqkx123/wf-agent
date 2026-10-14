@@ -145,6 +145,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Health) => {
             return cmd::diagnostics::run_health(&cli).await;
         }
+        Some(Command::Config { sub }) => {
+            return cmd::config::run(&cli, sub).await;
+        }
         Some(Command::Diagnostics) => {
             return cmd::diagnostics::run_diagnostics(&cli).await;
         }

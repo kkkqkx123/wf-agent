@@ -1,10 +1,10 @@
 # 快捷键（Keybinding）现状分析与自定义快捷键设计方案
 
-> 结论速览：
+> 结论速览（已按落地更新）：
 >
-> 1. 前端**建议引入** `@tanstack/hotkeys`（配套 svelte 适配层），用统一的键位注册中心替换当前散落的 `keydown` 监听；现有代码均为单键和弦，迁移成本低。
-> 2. 前端目前**不支持**自定义快捷键；按键处理分散在各组件内、且无持久化配置。
-> 3. TUI **框架层已具备**完整的 keymap 抽象（`tui-core/keymap.rs`），但运行时 `wf-tui` 未接入（硬编码 match），`wf-config` 亦无键位字段——自定义能力**未打通**，方案核心是"让运行时走 Keymap + wf-config 提供覆盖配置"。
+> 1. 前端已引入统一键位注册中心，动作目录、覆盖存储、冲突校验与录制编辑器均已落地，用户覆盖存本浏览器。
+> 2. TUI 框架层键位抽象已由运行时接入，用户覆盖经全局加项目两级键位文件合并进内置键位表。
+> 3. 统一配置层已提供键位覆盖解析与合并能力，剩余工作为帮助文案反查补齐与运行时硬编码路径收尾，详见下文差距小节。
 
 ## 一、参考目录 ref/hotkeys 分析
 
@@ -46,26 +46,18 @@
 | `AddNodeDrawer.svelte` / `CommandPalette.svelte` 内部 | ↑/↓/Enter | 列表导航 |
 | `GitKeyInput.svelte` | Enter | 提交 |
 
-差距：
+差距（已部分收敛）：
 
-1. **无统一注册中心**：无 scope 概念（输入框聚焦、抽屉打开等上下文互斥靠各处手写 `isTyping` / `if (!open)`）。
-2. **不可配置**：键位全部硬编码，无持久化（localStorage / 服务端 settings），无冲突检测。
-3. **无录制能力**：无法让用户"按下组合键"来重绑。
-4. **帮助展示与实现脱节**：`CANVAS_SHORTCUT_HELP` 是手写副本，改键不会同步。
+1. **注册中心已建立**：动作目录、覆盖存储、冲突校验与录制编辑器均已落地，帮助浮层与设置编辑器同源，剩余为个别组件内按键行为的持续收敛。
+2. **持久化已有**：用户覆盖存浏览器本地版本化键，损坏回默认；跨设备同步留待服务端键扩展，不在本次范围。
+3. **录制与帮助已打通**：设置页提供录制、冲突提示与恢复默认，帮助行由注册表派生，不再手写副本。
 
 ## 三、TUI 现状与差距
 
-- `crates/app/tui/tui-core/src/keymap.rs` 已有完整抽象：
-  - `CKey` / `Key`（chord，含 ctrl/alt/shift，含 macOS Option 字符归一化 `normalize_key`）；
-  - `KeyAction`（抽象动作，约 30 项：Quit/Help/Approve/Submit/…）；
-  - `KeymapContext`（Global/Composer/Approval/Question/Modal/Panel 等上下文）；
-  - `Keymap`（支持 `set_global` / `bind(ctx, key, action)` / `resolve`），`builtin_keymap()` 提供默认绑定，context 覆盖优先于 global；
-  - 组件层（`tui-components` 的 approval_overlay、panels、modal 等）均已按 `KeyAction` 编程。
-- **但运行时未接入**：`crates/app/cli/wf-tui/src/tui/key_routes.rs`、`input_classify.rs`、`interactive/keys.rs` 直接对 `Key`/`CKey` 硬编码 `match`，未构造 `Keymap` 实例做 `resolve`。也就是说 `Keymap` 目前只被 `wf-cli-demo` 示例使用。
-- `wf-config` 中无 keybind/shortcut/keymap 任何字段——没有配置来源。
-- 帮助视图（HelpModal / footer 提示）同样硬编码键位文案。
-
-结论：TUI 的"自定义快捷键"缺的不是抽象，而是**三段接线**：运行时改走 `Keymap::resolve` → `wf-config` 增加键位配置 → 覆盖项合并进 `builtin_keymap()`。
+- 框架层键位抽象完整，组件层已按动作编程。
+- 运行时已接入用户覆盖合并：全局加项目两级键位文件合并进内置键位表，未知项跳过告警并记录覆盖行。
+- 统一配置层已提供键位文件的发现、解析与合并能力。
+- 剩余差距为帮助视图与部分运行时路径仍有硬编码键位文案，需改为从当前键位表反查；TUI 内改键界面不在本次范围。
 
 ## 四、设计方案
 

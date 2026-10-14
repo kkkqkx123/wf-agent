@@ -4,14 +4,14 @@ use std::path::PathBuf;
 
 use super::data::{Theme, ThemeOverrides, ThemeSource};
 
-/// Cache file path: `$XDG_CACHE_HOME/wf-cli/theme.json` (fallback
-/// `$HOME/.cache/wf-cli/theme.json`). `None` when no home is discoverable.
+/// Cache file path: `$XDG_CACHE_HOME/wf/theme.json` (fallback
+/// `$HOME/.cache/wf/theme.json`). `None` when no home is discoverable.
 pub fn theme_cache_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))?;
-    Some(base.join("wf-cli").join("theme.json"))
+    Some(base.join("wf").join("theme.json"))
 }
 
 /// Persist a successfully probed theme (best effort; the `source` field is
@@ -40,14 +40,14 @@ pub fn load_theme_cache() -> Option<Theme> {
     Some(theme)
 }
 
-/// User theme file path: `$XDG_CONFIG_HOME/wf-cli/theme.json` (fallback
-/// `$HOME/.config/wf-cli/theme.json`). `None` when no home is discoverable.
+/// User theme file path: `$XDG_CONFIG_HOME/wf/theme.json` (fallback
+/// `$HOME/.config/wf/theme.json`). `None` when no home is discoverable.
 pub fn theme_config_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("wf-cli").join("theme.json"))
+    Some(base.join("wf").join("theme.json"))
 }
 
 /// Load the explicit user theme file, marked [`ThemeSource::File`]. Takes
@@ -62,14 +62,14 @@ pub fn load_theme_file() -> Option<Theme> {
     Some(theme)
 }
 
-/// Theme overrides file path: `$XDG_CONFIG_HOME/wf-cli/theme-overrides.json` (fallback
-/// `$HOME/.config/wf-cli/theme-overrides.json`). `None` when no home is discoverable.
+/// Theme overrides file path: `$XDG_CONFIG_HOME/wf/theme-overrides.json` (fallback
+/// `$HOME/.config/wf/theme-overrides.json`). `None` when no home is discoverable.
 pub fn theme_overrides_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("wf-cli").join("theme-overrides.json"))
+    Some(base.join("wf").join("theme-overrides.json"))
 }
 
 /// Load theme overrides from the user's config directory.

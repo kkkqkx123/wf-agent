@@ -271,7 +271,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("XDG_CONFIG_HOME", dir.path());
         let path = theme_config_path().expect("config home is set");
-        assert_eq!(path, dir.path().join("wf-cli").join("theme.json"));
+        assert_eq!(path, dir.path().join("wf").join("theme.json"));
         std::env::remove_var("XDG_CONFIG_HOME");
     }
 

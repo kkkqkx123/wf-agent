@@ -9,6 +9,9 @@
 //! The kernel host layer owns `config.toml` in the same directory
 //! (`storage`, `log_level`, `tool_approval`); this module never reads or
 //! writes that file so frontend toggles cannot drop kernel keys.
+//!
+//! Backup scope is this file only. Keymap settings and theme files live
+//! beside it but are owned by their own loaders; use file copy for those.
 
 use std::path::{Path, PathBuf};
 
@@ -175,6 +178,23 @@ impl ConfigManager {
         Ok(())
     }
 
+    /// Export the live config file to `dest`. A missing source exports
+    /// defaults so backup never fails on a fresh machine.
+    pub fn export_to(path: &Path, dest: &Path) -> Result<(), ConfigError> {
+        let config = match Self::load(path) {
+            Ok(manager) => manager.config().clone(),
+            Err(_) => AppConfig::default(),
+        };
+        Self::save(dest, &config)
+    }
+
+    /// Import `src` over the live config file. The source is parsed first;
+    /// a malformed source is rejected and `path` is left untouched.
+    pub fn import_from(src: &Path, path: &Path) -> Result<(), ConfigError> {
+        let manager = Self::load(src)?;
+        Self::save(path, manager.config())
+    }
+
     /// The loaded configuration (or defaults when not loaded from a file).
     pub fn config(&self) -> &AppConfig {
         &self.config
@@ -271,5 +291,56 @@ mod tests {
         assert_eq!(parsed.mini.show_reasoning, Some(false));
         assert_eq!(parsed.mini.approval_timeout_secs, Some(30));
         assert_eq!(parsed.mini.show_usage, None);
+    }
+
+    #[test]
+    fn export_missing_source_writes_loadable_defaults() {
+        let dir = std::env::temp_dir().join("wf-config-export-defaults-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let missing = dir.join("absent").join("tui.toml");
+        let dest = dir.join("backup.toml");
+        ConfigManager::export_to(&missing, &dest).expect("export defaults");
+        let loaded = ConfigManager::load(&dest).expect("export output loads");
+        assert!(!loaded.config().behavior.mouse_capture);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_roundtrip_preserves_values() {
+        let dir = std::env::temp_dir().join("wf-config-import-roundtrip-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let live = dir.join("tui.toml");
+        let backup = dir.join("backup.toml");
+        let mut config = AppConfig::default();
+        config.behavior.mouse_capture = true;
+        config.tool_output.level = Some(ToolDetailLevelName::High);
+        ConfigManager::save(&live, &config).unwrap();
+        ConfigManager::export_to(&live, &backup).unwrap();
+        ConfigManager::save(&live, &AppConfig::default()).unwrap();
+        assert!(!ConfigManager::load(&live).unwrap().config().behavior.mouse_capture);
+        ConfigManager::import_from(&backup, &live).expect("import valid backup");
+        let restored = ConfigManager::load(&live).unwrap();
+        assert!(restored.config().behavior.mouse_capture);
+        assert_eq!(
+            restored.config().tool_output.level,
+            Some(ToolDetailLevelName::High)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_rejects_malformed_source_without_touching_live() {
+        let dir = std::env::temp_dir().join("wf-config-import-reject-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let live = dir.join("tui.toml");
+        let bad = dir.join("bad.toml");
+        let mut config = AppConfig::default();
+        config.behavior.mouse_capture = true;
+        ConfigManager::save(&live, &config).unwrap();
+        std::fs::create_dir_all(dir.clone()).unwrap();
+        std::fs::write(&bad, "[behavior\nmouse_capture = not-toml").unwrap();
+        assert!(ConfigManager::import_from(&bad, &live).is_err());
+        assert!(ConfigManager::load(&live).unwrap().config().behavior.mouse_capture);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

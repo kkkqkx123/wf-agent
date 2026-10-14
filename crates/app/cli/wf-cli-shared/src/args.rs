@@ -395,6 +395,31 @@ pub enum Command {
     Health,
     /// Show full diagnostics.
     Diagnostics,
+    /// TUI display config backup (`tui.toml` only; keymap and theme files
+    /// are out of scope, copy those by hand).
+    Config {
+        #[command(subcommand)]
+        sub: ConfigSub,
+    },
+}
+
+/// TUI display config backup operations.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ConfigSub {
+    /// Export the live `tui.toml` to `dest`. A missing source exports
+    /// defaults so backup never fails on a fresh machine.
+    Export {
+        /// Destination file path.
+        #[arg(value_name = "DEST")]
+        dest: PathBuf,
+    },
+    /// Import `src` over the live `tui.toml`. A malformed source is
+    /// rejected and the live file is left untouched.
+    Import {
+        /// Source backup file path.
+        #[arg(value_name = "SRC")]
+        src: PathBuf,
+    },
 }
 
 #[cfg(test)]
@@ -665,5 +690,22 @@ mod tests {
         let cli = parse(&["run", "hi", "--interactive", "--approval-timeout", "0"]).unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("greater than 0"), "{err}");
+    }
+
+    #[test]
+    fn config_export_import_parse() {
+        let cli = parse(&["config", "export", "/tmp/backup.toml"]).unwrap();
+        let Some(Command::Config { sub }) = &cli.command else {
+            panic!("expected config");
+        };
+        assert!(matches!(sub, ConfigSub::Export { .. }));
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["config", "import", "/tmp/backup.toml"]).unwrap();
+        let Some(Command::Config { sub }) = &cli.command else {
+            panic!("expected config");
+        };
+        assert!(matches!(sub, ConfigSub::Import { .. }));
+        assert!(cli.validate().is_ok());
     }
 }

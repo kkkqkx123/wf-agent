@@ -1,0 +1,12 @@
+{
+  "tool": "session_note",
+  "description": "Create a persistent session note",
+  "tier": "offline",
+  "parameters": {
+    "operation": "create",
+    "content": "Persistent note",
+    "category": "general",
+    "summary": "a note"
+  },
+  "expect": { "success": true, "result_contains": "created" }
+}

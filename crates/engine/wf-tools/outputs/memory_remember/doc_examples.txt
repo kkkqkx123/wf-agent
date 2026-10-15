@@ -1,0 +1,5 @@
+# memory_remember (memory)
+Store a piece of information in long-term memory for later recall across sessions.
+
+examples:
+- memory_remember("user_name", "Alice")

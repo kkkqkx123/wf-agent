@@ -1,0 +1,35 @@
+{
+  "case": "basic",
+  "description": "Parse a markdown checklist into structured todo items",
+  "parameters": {
+    "todos": "- [ ] pending task\n- [-] in progress task\n- [x] completed task"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "completed": 1,
+      "display": "TODO list updated:\n[ ] pending task\n[-] in progress task\n[x] completed task\n\nSummary: 1 pending, 1 in progress, 1 completed",
+      "in_progress": 1,
+      "items": [
+        {
+          "content": "pending task",
+          "status": "pending"
+        },
+        {
+          "content": "in progress task",
+          "status": "in_progress"
+        },
+        {
+          "content": "completed task",
+          "status": "completed"
+        }
+      ],
+      "pending": 1,
+      "total": 3
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "update_todo_list"
+}

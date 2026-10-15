@@ -1,0 +1,30 @@
+{
+  "case": "create",
+  "description": "Create a persistent session note",
+  "parameters": {
+    "category": "general",
+    "content": "Persistent note",
+    "operation": "create",
+    "summary": "a note"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "created": true,
+      "note": {
+        "category": "general",
+        "content": "Persistent note",
+        "created_at": 0,
+        "id": "<ID>",
+        "summary": "a note",
+        "timestamp": "<TIMESTAMP>",
+        "token_count": 5,
+        "updated_at": 0
+      }
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "session_note"
+}

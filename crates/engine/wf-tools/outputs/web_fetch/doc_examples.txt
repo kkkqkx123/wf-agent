@@ -1,0 +1,8 @@
+# web_fetch (web)
+Fetch the content of a web page. Returns the page content in the requested format.
+
+tips:
+- Prefer markdown format for readability
+
+examples:
+- web_fetch("https://example.com")

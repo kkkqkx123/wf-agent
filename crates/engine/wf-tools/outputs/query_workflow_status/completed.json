@@ -1,0 +1,22 @@
+{
+  "case": "completed",
+  "description": "Query a workflow execution's status through the stub engine callback",
+  "parameters": {
+    "workflow_id": "wf-demo"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "execution_id": "wf-demo",
+      "progress": 1.0,
+      "result": {
+        "stub": "status"
+      },
+      "status": "completed"
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "stub",
+  "tool": "query_workflow_status"
+}

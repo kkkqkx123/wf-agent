@@ -1,0 +1,7 @@
+{
+  "tool": "apply_patch",
+  "description": "Apply a Codex-style Add File patch",
+  "tier": "offline",
+  "parameters": { "patch": "*** Begin Patch\n*** Add File: added.txt\n+hello patch\n*** End Patch" },
+  "expect": { "success": true }
+}

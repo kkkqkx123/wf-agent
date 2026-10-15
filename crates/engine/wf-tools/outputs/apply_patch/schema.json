@@ -1,0 +1,29 @@
+{
+  "description": "Apply a Codex-style patch to the filesystem. The patch is a sequence of Add File, Delete File and Update File operations delimited by '*** Begin Patch' and '*** End Patch'.",
+  "enabled": true,
+  "id": "apply_patch",
+  "metadata": {
+    "category": "filesystem",
+    "create_checkpoint": "both",
+    "risk_level": "write",
+    "tags": [
+      "patch",
+      "diff"
+    ]
+  },
+  "name": "apply_patch",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "patch": {
+        "description": "The patch content in Codex apply_patch format",
+        "type": "string"
+      }
+    },
+    "required": [
+      "patch"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

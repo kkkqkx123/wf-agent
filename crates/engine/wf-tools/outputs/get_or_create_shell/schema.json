@@ -1,0 +1,49 @@
+{
+  "description": "Get an existing idle background shell session for the given working directory (and task) or create a new one. Sessions are reused across calls: an idle session with the same cwd and task_id wins, then any idle session with the same cwd; otherwise a new session is created. Returns the session_id with a 'reused' flag. Use execute_in_session to run commands inside the returned session.",
+  "enabled": true,
+  "id": "get_or_create_shell",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "shell",
+      "session"
+    ]
+  },
+  "name": "get_or_create_shell",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "cols": {
+        "default": 80,
+        "description": "PTY terminal columns (default 80)",
+        "type": "integer"
+      },
+      "cwd": {
+        "description": "Working directory the session is bound to (reuse key)",
+        "type": "string"
+      },
+      "env": {
+        "description": "Extra environment variables merged into the session environment",
+        "type": "object"
+      },
+      "interactive": {
+        "default": false,
+        "description": "Run commands on a real terminal (PTY) for TTY-dependent programs (default false)",
+        "type": "boolean"
+      },
+      "rows": {
+        "default": 24,
+        "description": "PTY terminal rows (default 24)",
+        "type": "integer"
+      },
+      "task_id": {
+        "description": "Task (execution) the session is bound to; defaults to the current execution id",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

@@ -1,0 +1,5 @@
+# code_keyword_search (code_context)
+BM25 keyword search with raw source snippets. Complements code_search for exact identifier or token matches.
+
+examples:
+- code_keyword_search("fold_batch")

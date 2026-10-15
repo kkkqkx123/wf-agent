@@ -1,0 +1,38 @@
+{
+  "description": "Resize the terminal of an interactive (PTY) background shell session. Only supported for PTY sessions; pipe sessions return an explicit error.",
+  "enabled": true,
+  "id": "shell_resize",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "shell",
+      "resize"
+    ]
+  },
+  "name": "shell_resize",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "cols": {
+        "description": "Number of terminal columns",
+        "type": "integer"
+      },
+      "rows": {
+        "description": "Number of terminal rows",
+        "type": "integer"
+      },
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "rows",
+      "cols"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

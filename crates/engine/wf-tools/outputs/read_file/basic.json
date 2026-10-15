@@ -1,0 +1,15 @@
+{
+  "case": "basic",
+  "description": "Read a seeded text file by relative path",
+  "parameters": {
+    "path": "notes/hello.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "     1|hello\n     2|world\n     3|",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "read_file"
+}

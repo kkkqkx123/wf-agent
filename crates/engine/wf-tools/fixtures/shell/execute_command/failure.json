@@ -1,0 +1,7 @@
+{
+  "tool": "execute_command",
+  "description": "A failing command surfaces a non-zero exit code in the result body",
+  "tier": "process",
+  "parameters": { "command": "ls /nonexistent-harness-path" },
+  "expect": { "success": true, "result_contains": "Command failed" }
+}

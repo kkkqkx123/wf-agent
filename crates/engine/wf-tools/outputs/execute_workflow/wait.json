@@ -1,0 +1,27 @@
+{
+  "case": "wait",
+  "description": "Synchronously run a workflow by id through the stub engine callback",
+  "parameters": {
+    "input": {
+      "text": "hi"
+    },
+    "workflow_id": "wf-demo"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "execution_id": "stub-workflow-exec",
+      "result": {
+        "stub": "workflow",
+        "variables": {
+          "text": "hi"
+        },
+        "workflow_id": "wf-demo"
+      }
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "stub",
+  "tool": "execute_workflow"
+}

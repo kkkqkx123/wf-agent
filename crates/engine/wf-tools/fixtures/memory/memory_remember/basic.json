@@ -1,0 +1,7 @@
+{
+  "tool": "memory_remember",
+  "description": "Store a key/value pair in long-term memory",
+  "tier": "offline",
+  "parameters": { "key": "user_name", "content": "Alice" },
+  "expect": { "success": true, "result_contains": "remembered" }
+}

@@ -1,0 +1,33 @@
+{
+  "description": "Find files matching a glob pattern. Returns matching file paths relative to the search path.",
+  "enabled": true,
+  "id": "glob_search",
+  "metadata": {
+    "category": "filesystem",
+    "risk_level": "read_only",
+    "tags": [
+      "glob",
+      "search"
+    ]
+  },
+  "name": "glob_search",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "The directory to search in",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "The glob pattern to match",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern",
+      "path"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

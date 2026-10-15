@@ -1,0 +1,8 @@
+# web_search (web)
+Search the web for information. Returns relevant results with titles, URLs and snippets.
+
+tips:
+- Be specific in your queries for better results
+
+examples:
+- web_search("Rust async programming best practices")

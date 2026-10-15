@@ -23,6 +23,7 @@ use crate::general::GeneralHandler;
 use crate::skill::SkillLoadContext;
 use wf_types::llm::ToolCallProtocolConfig;
 use wf_types::message::Message;
+use wf_types::Id;
 fn default_wait() -> bool {
     true
 }
@@ -248,6 +249,18 @@ impl BuiltinToolHandler for ExecuteWorkflowHandler {
     }
 }
 
+/// Root execution id of the calling execution, used to scope the
+/// control-plane tools to the caller's execution subtree. The parent link
+/// carries the live hierarchy manager, whose root also covers cross-engine
+/// callers; without a link the caller is itself a root execution.
+fn caller_root(context: &ToolExecutionContext) -> Id {
+    context
+        .parent_link
+        .as_ref()
+        .map(|link| link.manager.root_execution_id())
+        .unwrap_or_else(|| context.execution_id.clone())
+}
+
 /// Handler for the `query_workflow_status` builtin tool.
 pub struct QueryWorkflowStatusHandler;
 
@@ -260,7 +273,7 @@ impl BuiltinToolHandler for QueryWorkflowStatusHandler {
     async fn handle(
         &self,
         parameters: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
         resources: &BuiltinHandlerResources,
     ) -> ToolResult<Value> {
         let callback = resolve_callback(resources, self.tool_name())?;
@@ -275,7 +288,9 @@ impl BuiltinToolHandler for QueryWorkflowStatusHandler {
             .execution_id
             .or(params.workflow_id)
             .unwrap_or_default();
-        let status = callback.query_execution_status(&execution_id).await?;
+        let status = callback
+            .query_execution_status(&execution_id, &caller_root(context))
+            .await?;
 
         Ok(serde_json::json!({
             "execution_id": status.execution_id,
@@ -298,7 +313,7 @@ impl BuiltinToolHandler for CancelWorkflowHandler {
     async fn handle(
         &self,
         parameters: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
         resources: &BuiltinHandlerResources,
     ) -> ToolResult<Value> {
         let callback = resolve_callback(resources, self.tool_name())?;
@@ -311,7 +326,9 @@ impl BuiltinToolHandler for CancelWorkflowHandler {
             .execution_id
             .or(params.workflow_id)
             .unwrap_or_default();
-        callback.cancel_execution(&execution_id).await?;
+        callback
+            .cancel_execution(&execution_id, &caller_root(context))
+            .await?;
 
         Ok(serde_json::json!({ "cancelled": true }))
     }

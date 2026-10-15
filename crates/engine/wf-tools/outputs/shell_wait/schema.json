@@ -1,0 +1,45 @@
+{
+  "description": "Wait for a background shell session command to finish or for its output to match a pattern. Returns the current status, exit code and full output; 'timed_out' is true when the deadline elapsed first. Provide 'pattern' (a regex) to stop early once matching output appears.",
+  "enabled": true,
+  "id": "shell_wait",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "wait"
+    ]
+  },
+  "name": "shell_wait",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "max_output_bytes": {
+        "description": "Cap the returned output at this many bytes (tail-kept); sets 'output_truncated' when cut",
+        "type": "number"
+      },
+      "pattern": {
+        "description": "Regex; stop waiting once output contains a match",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      },
+      "settle_ms": {
+        "default": 0,
+        "description": "After a pattern match, keep polling until output is quiet for this long before returning (debounces output jitter; default 0)",
+        "type": "number"
+      },
+      "timeout": {
+        "default": 30000,
+        "description": "Timeout in milliseconds (default 30000)",
+        "type": "number"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

@@ -1,0 +1,5 @@
+# code_definition (code_context)
+Jump to the definition of the symbol at a file path plus 1-based line number. Returns definition locations with code and signature.
+
+examples:
+- code_definition({"path": "src/indexer.rs", "line": 45})

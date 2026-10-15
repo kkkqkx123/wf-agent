@@ -1,0 +1,7 @@
+{
+  "tool": "write_file",
+  "description": "Create a new file including missing parent directories",
+  "tier": "offline",
+  "parameters": { "path": "out/created.txt", "content": "created\n" },
+  "expect": { "success": true, "result_contains": "Successfully wrote" }
+}

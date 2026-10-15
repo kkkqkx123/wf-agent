@@ -1,0 +1,9 @@
+{
+  "tool": "general",
+  "description": "Forward an inner tool request through the general proxy (stub invoker)",
+  "tier": "stub",
+  "parameters": {
+    "request": "{\"tool\": \"read_file\", \"parameters\": {\"path\": \"notes/hello.txt\"}}"
+  },
+  "expect": { "success": true, "result_contains": "read_file" }
+}

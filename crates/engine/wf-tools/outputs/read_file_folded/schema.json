@@ -1,0 +1,42 @@
+{
+  "description": "Read a file with optional symbol-skeleton folding. Without folding behaves like read_file; with folding large contents are reduced to signatures and structure. Folding is skipped silently when the code-context service is unavailable.",
+  "enabled": true,
+  "id": "read_file_folded",
+  "metadata": {
+    "category": "code_context",
+    "risk_level": "read_only",
+    "tags": [
+      "read",
+      "file",
+      "fold"
+    ]
+  },
+  "name": "read_file_folded",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "fold": {
+        "default": false,
+        "description": "Fold the content into a symbol skeleton when the service is available (default false)",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "Maximum number of lines to read",
+        "type": "number"
+      },
+      "offset": {
+        "description": "Line number to start reading from (1-indexed)",
+        "type": "number"
+      },
+      "path": {
+        "description": "Absolute path to the file",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

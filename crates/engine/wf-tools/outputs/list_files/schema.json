@@ -1,0 +1,32 @@
+{
+  "description": "List files and directories at the given path. Can be recursive.",
+  "enabled": true,
+  "id": "list_files",
+  "metadata": {
+    "category": "filesystem",
+    "risk_level": "read_only",
+    "tags": [
+      "list",
+      "file"
+    ]
+  },
+  "name": "list_files",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Absolute path to the directory",
+        "type": "string"
+      },
+      "recursive": {
+        "description": "Whether to list recursively",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

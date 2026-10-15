@@ -1,0 +1,260 @@
+{
+  "cases": 28,
+  "tools": {
+    "apply_diff": {
+      "cases": [
+        {
+          "case": "search_replace",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "apply_patch": {
+      "cases": [
+        {
+          "case": "add_file",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "call_agent": {
+      "cases": [
+        {
+          "case": "async",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "wait",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "cancel_workflow": {
+      "cases": [
+        {
+          "case": "cancel",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "edit_file": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "execute_workflow": {
+      "cases": [
+        {
+          "case": "wait",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "general": {
+      "cases": [
+        {
+          "case": "forward",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "glob_search": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "grep_search": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "list_categories": {
+      "cases": [
+        {
+          "case": "after_records",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "list_files": {
+      "cases": [
+        {
+          "case": "flat",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "recursive",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "memory_forget": {
+      "cases": [
+        {
+          "case": "after_remember",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "memory_list": {
+      "cases": [
+        {
+          "case": "after_remembers",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "memory_remember": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "query_workflow_status": {
+      "cases": [
+        {
+          "case": "completed",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "read_file": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "missing",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "offset_limit",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "read_file_folded": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "recall_notes": {
+      "cases": [
+        {
+          "case": "after_records",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "record_note": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "session_note": {
+      "cases": [
+        {
+          "case": "create",
+          "execution_error": null,
+          "passed": true
+        },
+        {
+          "case": "list_after_create",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "skill": {
+      "cases": [
+        {
+          "case": "load",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "stub"
+    },
+    "update_todo_list": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    },
+    "write_file": {
+      "cases": [
+        {
+          "case": "basic",
+          "execution_error": null,
+          "passed": true
+        }
+      ],
+      "tier": "offline"
+    }
+  }
+}

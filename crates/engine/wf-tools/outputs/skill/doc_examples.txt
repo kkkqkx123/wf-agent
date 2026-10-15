@@ -1,0 +1,5 @@
+# skill (knowledge)
+Load and apply a skill by name. Skills provide specialized instructions and workflows for common tasks.
+
+examples:
+- skill("analyze-data")

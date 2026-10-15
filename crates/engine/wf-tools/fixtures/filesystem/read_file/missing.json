@@ -1,0 +1,7 @@
+{
+  "tool": "read_file",
+  "description": "Reading a missing file fails without panicking",
+  "tier": "offline",
+  "parameters": { "path": "does/not/exist.txt" },
+  "expect": { "success": false }
+}

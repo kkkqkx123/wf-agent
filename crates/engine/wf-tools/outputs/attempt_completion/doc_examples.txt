@@ -1,0 +1,8 @@
+# attempt_completion (interaction)
+Signal that the task is complete and present the final result to the user.
+
+tips:
+- Only call this when the task is fully complete
+
+examples:
+- attempt_completion("Task complete. Created 3 files.")

@@ -1,0 +1,13 @@
+{
+  "tool": "session_note",
+  "description": "List persistent session notes after creating one",
+  "tier": "offline",
+  "setup": [
+    {
+      "tool": "session_note",
+      "parameters": { "operation": "create", "content": "Persistent note", "category": "general" }
+    }
+  ],
+  "parameters": { "operation": "list" },
+  "expect": { "success": true, "result_contains": "Persistent note" }
+}

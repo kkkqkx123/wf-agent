@@ -1,0 +1,34 @@
+{
+  "description": "Recall previously recorded session notes. Filters by optional search term and category.",
+  "enabled": true,
+  "id": "recall_notes",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "read_only",
+    "tags": [
+      "note",
+      "recall"
+    ]
+  },
+  "name": "recall_notes",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "category": {
+        "description": "Optional category to filter by",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of notes to return",
+        "type": "number"
+      },
+      "search": {
+        "description": "Optional search term to filter notes",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

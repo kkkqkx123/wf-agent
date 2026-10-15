@@ -1,0 +1,6 @@
+# session_note (memory)
+Manage persistent session notes. Notes survive across executions in a Sqlite database (default <workspace>/data/session-notes.db). Operations: create, list (category filter, newest first), get, update, delete and search.
+
+examples:
+- session_note("create", content="User prefers dark mode", category="preferences")
+- session_note("list", category="preferences")

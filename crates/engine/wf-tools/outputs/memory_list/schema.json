@@ -1,0 +1,25 @@
+{
+  "description": "List all stored memories. Optionally filter by prefix.",
+  "enabled": true,
+  "id": "memory_list",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "read_only",
+    "tags": [
+      "list"
+    ]
+  },
+  "name": "memory_list",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "prefix": {
+        "description": "Optional prefix to filter by",
+        "type": "string"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

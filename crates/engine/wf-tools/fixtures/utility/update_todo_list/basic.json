@@ -1,0 +1,7 @@
+{
+  "tool": "update_todo_list",
+  "description": "Parse a markdown checklist into structured todo items",
+  "tier": "offline",
+  "parameters": { "todos": "- [ ] pending task\n- [-] in progress task\n- [x] completed task" },
+  "expect": { "success": true, "result_contains": "pending" }
+}

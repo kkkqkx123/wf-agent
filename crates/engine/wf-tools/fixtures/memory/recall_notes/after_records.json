@@ -1,0 +1,11 @@
+{
+  "tool": "recall_notes",
+  "description": "Recall session notes after recording two of them",
+  "tier": "offline",
+  "setup": [
+    { "tool": "record_note", "parameters": { "note": "alpha", "category": "work" } },
+    { "tool": "record_note", "parameters": { "note": "beta", "category": "personal" } }
+  ],
+  "parameters": { "search": "alpha" },
+  "expect": { "success": true, "result_contains": "alpha" }
+}

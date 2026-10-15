@@ -7,6 +7,8 @@ pub mod filesystem;
 pub mod general;
 pub mod general_history;
 pub mod handlers;
+#[cfg(feature = "harness")]
+pub mod harness;
 pub mod ignore;
 pub mod mcp;
 pub mod patch;

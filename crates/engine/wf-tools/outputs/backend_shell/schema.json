@@ -1,0 +1,55 @@
+{
+  "description": "Start a long-running shell command in the background. Returns a session_id for subsequent operations with shell_output, shell_send_input, shell_resize and shell_kill. Set 'interactive' to true to run the command on a real terminal (PTY), enabling programs that require a TTY. 'env' merges extra environment variables into the process environment. 'input' writes a one-shot line to stdin right after start.",
+  "enabled": true,
+  "id": "backend_shell",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "backend",
+      "shell"
+    ]
+  },
+  "name": "backend_shell",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "cols": {
+        "default": 80,
+        "description": "PTY terminal columns (default 80)",
+        "type": "integer"
+      },
+      "command": {
+        "description": "The command to start in the background",
+        "type": "string"
+      },
+      "cwd": {
+        "description": "Working directory",
+        "type": "string"
+      },
+      "env": {
+        "description": "Extra environment variables merged over the process environment",
+        "type": "object"
+      },
+      "input": {
+        "description": "Input written once to stdin right after start (a trailing newline is appended)",
+        "type": "string"
+      },
+      "interactive": {
+        "default": false,
+        "description": "Run on a real terminal (PTY) for TTY-dependent programs (default false)",
+        "type": "boolean"
+      },
+      "rows": {
+        "default": 24,
+        "description": "PTY terminal rows (default 24)",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "command"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

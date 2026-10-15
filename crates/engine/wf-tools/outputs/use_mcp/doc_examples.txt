@@ -1,0 +1,5 @@
+# use_mcp (integration)
+Call a tool or access a resource on an MCP (Model Context Protocol) server. Allows extending capabilities dynamically.
+
+examples:
+- use_mcp("database", "query", {"sql": "SELECT * FROM users"})

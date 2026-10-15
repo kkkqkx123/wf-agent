@@ -1,0 +1,7 @@
+{
+  "tool": "execute_workflow",
+  "description": "Synchronously run a workflow by id through the stub engine callback",
+  "tier": "stub",
+  "parameters": { "workflow_id": "wf-demo", "input": { "text": "hi" } },
+  "expect": { "success": true, "result_contains": "wf-demo" }
+}

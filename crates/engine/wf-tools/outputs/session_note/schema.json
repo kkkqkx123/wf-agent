@@ -1,0 +1,56 @@
+{
+  "description": "Manage persistent session notes. Notes survive across executions in a Sqlite database (default <workspace>/data/session-notes.db). Operations: create, list (category filter, newest first), get, update, delete and search.",
+  "enabled": true,
+  "id": "session_note",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "write",
+    "tags": [
+      "note",
+      "persistent"
+    ]
+  },
+  "name": "session_note",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "category": {
+        "description": "Note category (create / update; list filter)",
+        "type": "string"
+      },
+      "content": {
+        "description": "The note content (create / update)",
+        "type": "string"
+      },
+      "note_id": {
+        "description": "Target note id (get / update / delete)",
+        "type": "string"
+      },
+      "operation": {
+        "description": "The note operation to run",
+        "enum": [
+          "create",
+          "list",
+          "get",
+          "update",
+          "delete",
+          "search"
+        ],
+        "type": "string"
+      },
+      "query": {
+        "description": "Search term over note content and summary (search)",
+        "type": "string"
+      },
+      "summary": {
+        "description": "Optional one-line summary of the note (create / update)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "operation"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

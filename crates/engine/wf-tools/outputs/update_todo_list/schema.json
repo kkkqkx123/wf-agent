@@ -1,0 +1,28 @@
+{
+  "description": "Update the current todo list with markdown-formatted tasks. Supports [ ], [-], [x] statuses for pending, in-progress and completed items.",
+  "enabled": true,
+  "id": "update_todo_list",
+  "metadata": {
+    "category": "utility",
+    "risk_level": "read_only",
+    "tags": [
+      "todo",
+      "list"
+    ]
+  },
+  "name": "update_todo_list",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "todos": {
+        "description": "Markdown-formatted todo list with [ ], [-], [x] prefixes",
+        "type": "string"
+      }
+    },
+    "required": [
+      "todos"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

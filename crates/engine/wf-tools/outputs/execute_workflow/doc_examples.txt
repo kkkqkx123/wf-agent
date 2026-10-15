@@ -1,0 +1,5 @@
+# execute_workflow (workflow)
+Execute a predefined workflow by ID. Workflows are multi-step automation sequences.
+
+examples:
+- execute_workflow("llm_summary", {"text": "..."})

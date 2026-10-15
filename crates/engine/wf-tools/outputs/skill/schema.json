@@ -1,0 +1,31 @@
+{
+  "description": "Load and apply a skill by name. Skills provide specialized instructions and workflows for common tasks.",
+  "enabled": true,
+  "id": "skill",
+  "metadata": {
+    "category": "knowledge",
+    "risk_level": "read_only",
+    "tags": [
+      "skill"
+    ]
+  },
+  "name": "skill",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "args": {
+        "description": "Optional key-value pairs passed as template variables to the skill. Substituted into {{name}} placeholders in the skill content.",
+        "type": "object"
+      },
+      "skill": {
+        "description": "The skill name to load",
+        "type": "string"
+      }
+    },
+    "required": [
+      "skill"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

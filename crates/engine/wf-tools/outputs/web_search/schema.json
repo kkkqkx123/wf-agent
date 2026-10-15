@@ -1,0 +1,32 @@
+{
+  "description": "Search the web for information. Returns relevant results with titles, URLs and snippets.",
+  "enabled": true,
+  "id": "web_search",
+  "metadata": {
+    "category": "web",
+    "risk_level": "network",
+    "tags": [
+      "search"
+    ]
+  },
+  "name": "web_search",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "max_results": {
+        "default": 5,
+        "description": "Maximum number of results to return",
+        "type": "number"
+      },
+      "query": {
+        "description": "The search query",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

@@ -1,0 +1,39 @@
+{
+  "description": "Execute a command inside an existing background shell session (from get_or_create_shell or backend_shell). The command runs as its own subprocess inheriting the session's working directory, environment and terminal mode; its output accumulates in the session buffer. The session must be idle; executing while a command is running returns an error. Blocks until the command finishes or the timeout elapses (then the command is terminated gracefully). Returns the exit code and the output produced by this command.",
+  "enabled": true,
+  "id": "execute_in_session",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "shell",
+      "session",
+      "command"
+    ]
+  },
+  "name": "execute_in_session",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "description": "The command to execute inside the session",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "The session ID returned by get_or_create_shell or backend_shell",
+        "type": "string"
+      },
+      "timeout": {
+        "default": 120000,
+        "description": "Timeout in milliseconds (default 120000); on timeout the command is terminated gracefully",
+        "type": "number"
+      }
+    },
+    "required": [
+      "session_id",
+      "command"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

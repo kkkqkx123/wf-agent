@@ -1,0 +1,7 @@
+{
+  "tool": "web_search",
+  "description": "Search the in-process mock endpoint and parse the result links",
+  "tier": "network",
+  "parameters": { "query": "rust async" },
+  "expect": { "success": true, "result_contains": "Rust Async Programming" }
+}

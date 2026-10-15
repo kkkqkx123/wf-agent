@@ -1,0 +1,9 @@
+# get_or_create_shell (shell)
+Get an existing idle background shell session for the given working directory (and task) or create a new one. Sessions are reused across calls: an idle session with the same cwd and task_id wins, then any idle session with the same cwd; otherwise a new session is created. Returns the session_id with a 'reused' flag. Use execute_in_session to run commands inside the returned session.
+
+tips:
+- Reuse the session across tool calls to keep cwd/env consistent
+
+examples:
+- get_or_create_shell(cwd="/workspace")
+- get_or_create_shell(cwd="/workspace", task_id="exec-1")

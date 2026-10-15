@@ -1,0 +1,34 @@
+{
+  "description": "Apply SEARCH/REPLACE blocks to modify a file. Each block contains a SEARCH section and a REPLACE section delimited by '<<<<<<< SEARCH' and '>>>>>>> REPLACE'.",
+  "enabled": true,
+  "id": "apply_diff",
+  "metadata": {
+    "category": "filesystem",
+    "create_checkpoint": "before",
+    "risk_level": "write",
+    "tags": [
+      "diff",
+      "search-replace"
+    ]
+  },
+  "name": "apply_diff",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "diff": {
+        "description": "The SEARCH/REPLACE diff content",
+        "type": "string"
+      },
+      "path": {
+        "description": "Absolute path to the file to modify",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "diff"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

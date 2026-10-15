@@ -1,0 +1,5 @@
+# list_files (filesystem)
+List files and directories at the given path. Can be recursive.
+
+examples:
+- list_files("/home/user/project/src")

@@ -1,0 +1,32 @@
+{
+  "case": "basic",
+  "description": "Find files matching a glob pattern",
+  "parameters": {
+    "path": ".",
+    "pattern": "**/*.rs"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "display": "[FILE] src/lib.rs\n[FILE] src/main.rs\nSummary: 0 directories, 2 files, pattern: **/*.rs",
+      "entries": [
+        {
+          "name": "src/lib.rs",
+          "path": "src/lib.rs",
+          "type": "file"
+        },
+        {
+          "name": "src/main.rs",
+          "path": "src/main.rs",
+          "type": "file"
+        }
+      ],
+      "total": 2,
+      "truncated": false
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "glob_search"
+}

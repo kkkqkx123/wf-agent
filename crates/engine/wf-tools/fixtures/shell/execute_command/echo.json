@@ -1,0 +1,7 @@
+{
+  "tool": "execute_command",
+  "description": "Run a short deterministic command and capture stdout",
+  "tier": "process",
+  "parameters": { "command": "echo hello-shell" },
+  "expect": { "success": true, "result_contains": "hello-shell" }
+}

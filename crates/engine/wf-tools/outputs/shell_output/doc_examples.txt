@@ -1,0 +1,7 @@
+# shell_output (shell)
+Retrieve output from a running background shell session by session_id. Set 'all' to false to read only output produced since the last read (incremental). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.
+
+examples:
+- shell_output("abc123")
+- shell_output("abc123", all=false)
+- shell_output("abc123", filter="error")

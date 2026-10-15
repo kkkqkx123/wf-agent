@@ -1,0 +1,19 @@
+{
+  "case": "basic",
+  "description": "Store a key/value pair in long-term memory",
+  "parameters": {
+    "content": "Alice",
+    "key": "user_name"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "key": "user_name",
+      "remembered": true
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "memory_remember"
+}

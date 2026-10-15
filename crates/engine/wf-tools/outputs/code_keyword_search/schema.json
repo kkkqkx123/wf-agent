@@ -1,0 +1,34 @@
+{
+  "description": "BM25 keyword search with raw source snippets. Complements code_search for exact identifier or token matches.",
+  "enabled": true,
+  "id": "code_keyword_search",
+  "metadata": {
+    "category": "code_context",
+    "risk_level": "read_only",
+    "tags": [
+      "code",
+      "search"
+    ]
+  },
+  "name": "code_keyword_search",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "project_id": {
+        "description": "Project id to search within (falls back to the configured default)",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Keyword query string",
+        "type": "string"
+      },
+      "top_n": {
+        "description": "Maximum number of results (falls back to the configured default, capped by the configured maximum)",
+        "type": "integer"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

@@ -1,0 +1,32 @@
+{
+  "case": "flat",
+  "description": "List a directory non-recursively",
+  "parameters": {
+    "path": ".",
+    "recursive": false
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "display": "[FILE] a.txt\n[DIR] sub\nSummary: 1 directories, 1 files",
+      "entries": [
+        {
+          "name": "a.txt",
+          "path": "a.txt",
+          "type": "file"
+        },
+        {
+          "name": "sub",
+          "path": "sub",
+          "type": "directory"
+        }
+      ],
+      "total": 2,
+      "truncated": false
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "list_files"
+}

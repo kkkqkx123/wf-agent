@@ -1,0 +1,9 @@
+# backend_shell (shell)
+Start a long-running shell command in the background. Returns a session_id for subsequent operations with shell_output, shell_send_input, shell_resize and shell_kill. Set 'interactive' to true to run the command on a real terminal (PTY), enabling programs that require a TTY. 'env' merges extra environment variables into the process environment. 'input' writes a one-shot line to stdin right after start.
+
+tips:
+- Use for long-running processes like dev servers
+
+examples:
+- backend_shell("npm run dev")
+- backend_shell("read -p 'name:' n; echo $n", interactive=true)

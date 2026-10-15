@@ -1,0 +1,8 @@
+# edit_file (filesystem)
+Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.
+
+tips:
+- Use unique context around the edit target
+
+examples:
+- edit_file("src/main.rs", "old_function()", "new_function()")

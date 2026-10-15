@@ -1,0 +1,9 @@
+# general (utility)
+Invoke tools whose schemas are not directly exposed. The request body is a JSON object {"tool": "tool_name", "parameters": {...}} wrapped in a regular <tool_use> call, e.g.:
+<tool_use>
+  <tool_name>general</tool_name>
+  <parameters>
+    <request>{"tool": "web_search", "parameters": {"query": "rust"}}</request>
+  </parameters>
+</tool_use>
+The inner tool is interpreted and executed server-side.

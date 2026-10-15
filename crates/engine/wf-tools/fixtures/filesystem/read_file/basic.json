@@ -1,0 +1,8 @@
+{
+  "tool": "read_file",
+  "description": "Read a seeded text file by relative path",
+  "tier": "offline",
+  "workspace": { "files": { "notes/hello.txt": "hello\nworld\n" } },
+  "parameters": { "path": "notes/hello.txt" },
+  "expect": { "success": true, "result_contains": "hello" }
+}

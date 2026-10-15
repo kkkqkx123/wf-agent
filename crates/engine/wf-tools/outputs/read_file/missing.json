@@ -1,0 +1,15 @@
+{
+  "case": "missing",
+  "description": "Reading a missing file fails without panicking",
+  "parameters": {
+    "path": "does/not/exist.txt"
+  },
+  "result": {
+    "error": "Execution error: Cannot access '<WORKSPACE>/does/not/exist.txt': No such file or directory (os error 2)",
+    "execution_time": 0,
+    "retry_count": 0,
+    "success": false
+  },
+  "tier": "offline",
+  "tool": "read_file"
+}

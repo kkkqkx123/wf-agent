@@ -1,0 +1,32 @@
+{
+  "description": "Kill a running background shell session by session_id. By default the session is terminated gracefully (SIGTERM, then SIGKILL after the configured timeout); set 'graceful' to false for an immediate force kill.",
+  "enabled": true,
+  "id": "shell_kill",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "kill"
+    ]
+  },
+  "name": "shell_kill",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "graceful": {
+        "default": true,
+        "description": "Terminate gracefully (SIGTERM then SIGKILL on timeout); false forces an immediate kill (default true)",
+        "type": "boolean"
+      },
+      "session_id": {
+        "description": "The session ID to kill",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

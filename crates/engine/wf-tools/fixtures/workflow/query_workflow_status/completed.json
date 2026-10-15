@@ -1,0 +1,7 @@
+{
+  "tool": "query_workflow_status",
+  "description": "Query a workflow execution's status through the stub engine callback",
+  "tier": "stub",
+  "parameters": { "workflow_id": "wf-demo" },
+  "expect": { "success": true, "result_contains": "completed" }
+}

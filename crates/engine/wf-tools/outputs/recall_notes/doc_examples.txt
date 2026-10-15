@@ -1,0 +1,5 @@
+# recall_notes (memory)
+Recall previously recorded session notes. Filters by optional search term and category.
+
+examples:
+- recall_notes("preferences")

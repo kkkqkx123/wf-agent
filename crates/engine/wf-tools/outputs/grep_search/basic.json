@@ -1,0 +1,17 @@
+{
+  "case": "basic",
+  "description": "Search file contents with an include glob and a single matching file",
+  "parameters": {
+    "include": "*.rs",
+    "path": ".",
+    "pattern": "fn main"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "# src/one.rs\n   1 | fn main() {\n----",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "grep_search"
+}

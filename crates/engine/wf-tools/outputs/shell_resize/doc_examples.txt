@@ -1,0 +1,5 @@
+# shell_resize (shell)
+Resize the terminal of an interactive (PTY) background shell session. Only supported for PTY sessions; pipe sessions return an explicit error.
+
+examples:
+- shell_resize("abc123", 40, 120)

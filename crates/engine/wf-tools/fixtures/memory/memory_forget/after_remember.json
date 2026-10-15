@@ -1,0 +1,10 @@
+{
+  "tool": "memory_forget",
+  "description": "Remove a previously stored long-term memory",
+  "tier": "offline",
+  "setup": [
+    { "tool": "memory_remember", "parameters": { "key": "user_name", "content": "Alice" } }
+  ],
+  "parameters": { "key": "user_name" },
+  "expect": { "success": true, "result_contains": "removed" }
+}

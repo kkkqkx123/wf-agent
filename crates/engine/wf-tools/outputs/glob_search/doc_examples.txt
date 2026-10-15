@@ -1,0 +1,5 @@
+# glob_search (filesystem)
+Find files matching a glob pattern. Returns matching file paths relative to the search path.
+
+examples:
+- glob_search("**/*.rs", "/home/user/project")

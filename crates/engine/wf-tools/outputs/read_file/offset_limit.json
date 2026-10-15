@@ -1,0 +1,17 @@
+{
+  "case": "offset_limit",
+  "description": "Read a slice of a file using offset and limit",
+  "parameters": {
+    "limit": 1,
+    "offset": 2,
+    "path": "notes/hello.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "IMPORTANT: File content truncated.\nStatus: Showing lines 2-2 of 4 total lines.\nTo read more: Use the read_file tool with offset=3 and limit=1.\n     2|line-2",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "read_file"
+}

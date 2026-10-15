@@ -1,0 +1,78 @@
+{
+  "description": "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously. Built-in agent definitions: @standard/main (general-purpose default), @standard/explorer (read-only codebase questions), @standard/worker (execution subtask with explicit ownership). Parent contract: the sub-agent links under the calling execution, so cancelling the caller stops a spawned sub-agent and hierarchy depth limits apply to the chain. A call issued outside any live execution runs the sub-agent as a root.",
+  "enabled": true,
+  "id": "call_agent",
+  "metadata": {
+    "category": "agent",
+    "risk_level": "system",
+    "tags": [
+      "call"
+    ]
+  },
+  "name": "call_agent",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "agent_id": {
+        "description": "The agent definition ID to invoke",
+        "type": "string"
+      },
+      "agent_profile_id": {
+        "description": "The agent profile ID to invoke",
+        "type": "string"
+      },
+      "available_tool_names": {
+        "description": "Tool names the agent may call; empty means all tools",
+        "type": "array"
+      },
+      "conversation": {
+        "description": "Initial conversation imported into the agent session",
+        "type": "array"
+      },
+      "enable_token_tracking": {
+        "description": "Enable token usage tracking",
+        "type": "boolean"
+      },
+      "hooks": {
+        "description": "Hooks to attach to the agent loop",
+        "type": "array"
+      },
+      "max_execution_time": {
+        "description": "Maximum execution time in milliseconds",
+        "type": "integer"
+      },
+      "max_iterations": {
+        "description": "Maximum number of agent loop iterations",
+        "type": "integer"
+      },
+      "prompt": {
+        "description": "The task prompt for the agent",
+        "type": "string"
+      },
+      "token_limit": {
+        "description": "Cumulative token limit for the agent conversation",
+        "type": "integer"
+      },
+      "token_warning_threshold": {
+        "description": "Warning threshold percentage of the token limit",
+        "type": "integer"
+      },
+      "tool_call_protocol": {
+        "description": "Protocol lock for tool calls (e.g. XML wrapping)",
+        "type": "string"
+      },
+      "wait": {
+        "default": true,
+        "description": "Whether to wait for the agent to complete",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "agent_id",
+      "agent_profile_id",
+      "prompt"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

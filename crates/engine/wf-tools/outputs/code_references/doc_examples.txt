@@ -1,0 +1,5 @@
+# code_references (code_context)
+Find all references of the symbol at a file path plus 1-based line number. Returns grouped locations with snippets and caller names.
+
+examples:
+- code_references({"path": "src/main.rs", "line": 10})

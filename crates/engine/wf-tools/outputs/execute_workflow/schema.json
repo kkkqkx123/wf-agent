@@ -1,0 +1,36 @@
+{
+  "description": "Execute a predefined workflow by ID. Workflows are multi-step automation sequences.",
+  "enabled": true,
+  "id": "execute_workflow",
+  "metadata": {
+    "category": "workflow",
+    "risk_level": "system",
+    "tags": [
+      "execute"
+    ]
+  },
+  "name": "execute_workflow",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "input": {
+        "description": "Input parameters for the workflow",
+        "type": "object"
+      },
+      "wait": {
+        "default": true,
+        "description": "Whether to wait for the workflow to finish",
+        "type": "boolean"
+      },
+      "workflow_id": {
+        "description": "The ID of the workflow to execute",
+        "type": "string"
+      }
+    },
+    "required": [
+      "workflow_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

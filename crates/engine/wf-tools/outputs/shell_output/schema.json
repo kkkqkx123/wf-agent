@@ -1,0 +1,44 @@
+{
+  "description": "Retrieve output from a running background shell session by session_id. Set 'all' to false to read only output produced since the last read (incremental). Optionally provide 'filter' (a regex) to keep only matching lines; an invalid regex is ignored.",
+  "enabled": true,
+  "id": "shell_output",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "read_only",
+    "tags": [
+      "output"
+    ]
+  },
+  "name": "shell_output",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "all": {
+        "default": true,
+        "description": "Return the full output buffer (default true); false returns only new output since the last read",
+        "type": "boolean"
+      },
+      "filter": {
+        "description": "Regex; only matching lines are returned (invalid regexes are ignored)",
+        "type": "string"
+      },
+      "max_bytes": {
+        "description": "Cap the returned window at this many bytes; positions stay valid across ring truncation",
+        "type": "number"
+      },
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      },
+      "start": {
+        "description": "Absolute byte position to read from (a previous windowed response's 'window_end' continues the stream)",
+        "type": "number"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

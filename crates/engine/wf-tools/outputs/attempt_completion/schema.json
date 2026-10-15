@@ -1,0 +1,31 @@
+{
+  "description": "Signal that the task is complete and present the final result to the user.",
+  "enabled": true,
+  "id": "attempt_completion",
+  "metadata": {
+    "category": "interaction",
+    "risk_level": "interaction",
+    "tags": [
+      "complete"
+    ]
+  },
+  "name": "attempt_completion",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "result": {
+        "description": "Summary of what was accomplished",
+        "type": "string"
+      },
+      "variables": {
+        "description": "State variable changes",
+        "type": "object"
+      }
+    },
+    "required": [
+      "result"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

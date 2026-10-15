@@ -1,0 +1,8 @@
+{
+  "tool": "read_file",
+  "description": "Read a slice of a file using offset and limit",
+  "tier": "offline",
+  "workspace": { "files": { "notes/hello.txt": "line-1\nline-2\nline-3\n" } },
+  "parameters": { "path": "notes/hello.txt", "offset": 2, "limit": 1 },
+  "expect": { "success": true, "result_contains": "line-2" }
+}

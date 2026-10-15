@@ -1,0 +1,37 @@
+{
+  "description": "Search file contents using a regular expression pattern. Returns matching file paths and line numbers.",
+  "enabled": true,
+  "id": "grep_search",
+  "metadata": {
+    "category": "filesystem",
+    "risk_level": "read_only",
+    "tags": [
+      "grep",
+      "search"
+    ]
+  },
+  "name": "grep_search",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "include": {
+        "description": "File glob pattern to include (e.g. *.rs)",
+        "type": "string"
+      },
+      "path": {
+        "description": "The directory to search in",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "The regex pattern to search for",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern",
+      "path"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

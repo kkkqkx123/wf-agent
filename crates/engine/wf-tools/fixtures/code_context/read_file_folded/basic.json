@@ -1,0 +1,8 @@
+{
+  "tool": "read_file_folded",
+  "description": "Fold-enhanced read degrades to a plain read when the code-context service is absent",
+  "tier": "offline",
+  "workspace": { "files": { "fold.txt": "line-1\nline-2\nline-3\n" } },
+  "parameters": { "path": "fold.txt" },
+  "expect": { "success": true, "result_contains": "line-1" }
+}

@@ -1,0 +1,25 @@
+{
+  "case": "after_records",
+  "description": "List note categories with counts after recording notes",
+  "parameters": {},
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "categories": [
+        {
+          "category": "personal",
+          "count": 1
+        },
+        {
+          "category": "work",
+          "count": 1
+        }
+      ],
+      "total": 2
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "list_categories"
+}

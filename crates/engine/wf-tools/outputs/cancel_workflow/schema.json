@@ -1,0 +1,31 @@
+{
+  "description": "Cancel a running workflow by ID.",
+  "enabled": true,
+  "id": "cancel_workflow",
+  "metadata": {
+    "category": "workflow",
+    "risk_level": "system",
+    "tags": [
+      "cancel"
+    ]
+  },
+  "name": "cancel_workflow",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "execution_id": {
+        "description": "Optional execution ID to cancel",
+        "type": "string"
+      },
+      "workflow_id": {
+        "description": "The ID of the workflow to cancel",
+        "type": "string"
+      }
+    },
+    "required": [
+      "workflow_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

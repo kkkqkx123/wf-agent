@@ -1,0 +1,5 @@
+# query_workflow_status (workflow)
+Query the status of a running or completed workflow.
+
+examples:
+- query_workflow_status("wf-123")

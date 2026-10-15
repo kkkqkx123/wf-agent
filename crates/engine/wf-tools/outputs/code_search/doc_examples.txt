@@ -1,0 +1,5 @@
+# code_search (code_context)
+Hybrid semantic code search within an indexed project. Returns matching chunks with file path, line range and score.
+
+examples:
+- code_search("fold batch items", {"limit": 5})

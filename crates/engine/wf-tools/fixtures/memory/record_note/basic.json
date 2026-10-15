@@ -1,0 +1,7 @@
+{
+  "tool": "record_note",
+  "description": "Record a session note with a category",
+  "tier": "offline",
+  "parameters": { "note": "User prefers dark mode", "category": "preferences" },
+  "expect": { "success": true, "result_contains": "recorded" }
+}

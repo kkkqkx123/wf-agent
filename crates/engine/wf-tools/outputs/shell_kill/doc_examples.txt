@@ -1,0 +1,6 @@
+# shell_kill (shell)
+Kill a running background shell session by session_id. By default the session is terminated gracefully (SIGTERM, then SIGKILL after the configured timeout); set 'graceful' to false for an immediate force kill.
+
+examples:
+- shell_kill("abc123")
+- shell_kill("abc123", graceful=false)

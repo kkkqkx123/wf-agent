@@ -1,0 +1,7 @@
+{
+  "tool": "cancel_workflow",
+  "description": "Cancel a workflow execution through the stub engine callback",
+  "tier": "stub",
+  "parameters": { "workflow_id": "wf-demo" },
+  "expect": { "success": true, "result_contains": "cancelled" }
+}

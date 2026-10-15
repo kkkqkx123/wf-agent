@@ -1,0 +1,18 @@
+{
+  "case": "basic",
+  "description": "Fold-enhanced read degrades to a plain read when the code-context service is absent",
+  "parameters": {
+    "path": "fold.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "content": "     1|line-1\n     2|line-2\n     3|line-3\n     4|",
+      "folded": false
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "read_file_folded"
+}

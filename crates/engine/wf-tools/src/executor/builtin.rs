@@ -319,11 +319,16 @@ mod tests {
         async fn query_execution_status(
             &self,
             _execution_id: &str,
+            _caller_root: &wf_types::Id,
         ) -> ToolResult<crate::callback::ExecutionStatus> {
             Err(ToolError::ExecutionError("not supported".into()))
         }
 
-        async fn cancel_execution(&self, _execution_id: &str) -> ToolResult<()> {
+        async fn cancel_execution(
+            &self,
+            _execution_id: &str,
+            _caller_root: &wf_types::Id,
+        ) -> ToolResult<()> {
             Err(ToolError::ExecutionError("not supported".into()))
         }
     }

@@ -1,0 +1,20 @@
+{
+  "case": "basic",
+  "description": "Record a session note with a category",
+  "parameters": {
+    "category": "preferences",
+    "note": "User prefers dark mode"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "execution_id": "fixture-exec",
+      "note": "User prefers dark mode",
+      "recorded": true
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "record_note"
+}

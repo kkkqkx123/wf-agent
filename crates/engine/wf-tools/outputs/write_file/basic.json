@@ -1,0 +1,16 @@
+{
+  "case": "basic",
+  "description": "Create a new file including missing parent directories",
+  "parameters": {
+    "content": "created\n",
+    "path": "out/created.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "Successfully wrote to <WORKSPACE>/out/created.txt",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "write_file"
+}

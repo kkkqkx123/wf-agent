@@ -1,0 +1,38 @@
+{
+  "description": "Send input to a running background shell session (stdin in pipe mode, the master in PTY mode). A trailing newline is appended unless 'enter' is false (set to false for control sequences such as Ctrl-C).",
+  "enabled": true,
+  "id": "shell_send_input",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "shell",
+      "input"
+    ]
+  },
+  "name": "shell_send_input",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "enter": {
+        "default": true,
+        "description": "Append a trailing newline (default true)",
+        "type": "boolean"
+      },
+      "input": {
+        "description": "The input to send to the session",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "The session ID returned by backend_shell",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "input"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

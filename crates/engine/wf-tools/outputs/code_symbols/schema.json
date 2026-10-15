@@ -1,0 +1,34 @@
+{
+  "description": "List symbols (functions, classes and their children) for project files. Continues a code_search hit by file path without any internal keys.",
+  "enabled": true,
+  "id": "code_symbols",
+  "metadata": {
+    "category": "code_context",
+    "risk_level": "read_only",
+    "tags": [
+      "code",
+      "symbols"
+    ]
+  },
+  "name": "code_symbols",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Single file path (alternative to 'paths')",
+        "type": "string"
+      },
+      "paths": {
+        "description": "File paths to list symbols for (at most 32); or a single path via 'path'",
+        "type": "array"
+      },
+      "project_id": {
+        "description": "Project id to search within (falls back to the configured default)",
+        "type": "integer"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

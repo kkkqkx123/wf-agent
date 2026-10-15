@@ -1,0 +1,39 @@
+{
+  "description": "Call a tool or access a resource on an MCP (Model Context Protocol) server. Allows extending capabilities dynamically.",
+  "enabled": true,
+  "id": "use_mcp",
+  "metadata": {
+    "category": "integration",
+    "risk_level": "mcp",
+    "tags": [
+      "mcp"
+    ]
+  },
+  "name": "use_mcp",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "arguments": {
+        "description": "Arguments for the tool",
+        "type": "object"
+      },
+      "server_name": {
+        "description": "The MCP server name",
+        "type": "string"
+      },
+      "tool_name": {
+        "description": "The tool to call on the server",
+        "type": "string"
+      },
+      "uri": {
+        "description": "The resource URI to read on the server",
+        "type": "string"
+      }
+    },
+    "required": [
+      "server_name"
+    ],
+    "type": "object"
+  },
+  "tool_type": "mcp"
+}

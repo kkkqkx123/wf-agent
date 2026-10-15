@@ -1,0 +1,18 @@
+{
+  "case": "load",
+  "description": "Load a skill body with template-variable substitution",
+  "parameters": {
+    "args": {
+      "who": "harness"
+    },
+    "skill": "demo-skill"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "# Demo Skill\n\nHello harness.",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "stub",
+  "tool": "skill"
+}

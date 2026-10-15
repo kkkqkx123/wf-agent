@@ -1,0 +1,8 @@
+{
+  "tool": "edit_file",
+  "description": "Replace a unique substring in a seeded file",
+  "tier": "offline",
+  "workspace": { "files": { "edit.txt": "alpha beta gamma\n" } },
+  "parameters": { "path": "edit.txt", "old_string": "beta", "new_string": "BETA" },
+  "expect": { "success": true }
+}

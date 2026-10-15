@@ -1,0 +1,11 @@
+{
+  "tool": "memory_list",
+  "description": "List long-term memories after storing two keys",
+  "tier": "offline",
+  "setup": [
+    { "tool": "memory_remember", "parameters": { "key": "b_key", "content": "2" } },
+    { "tool": "memory_remember", "parameters": { "key": "a_key", "content": "1" } }
+  ],
+  "parameters": { "prefix": "" },
+  "expect": { "success": true, "result_contains": "a_key" }
+}

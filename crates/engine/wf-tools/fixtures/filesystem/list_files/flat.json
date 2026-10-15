@@ -1,0 +1,8 @@
+{
+  "tool": "list_files",
+  "description": "List a directory non-recursively",
+  "tier": "offline",
+  "workspace": { "files": { "a.txt": "a", "sub/b.txt": "b" } },
+  "parameters": { "path": ".", "recursive": false },
+  "expect": { "success": true, "result_contains": "a.txt" }
+}

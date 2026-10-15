@@ -1,0 +1,2 @@
+# apply_diff (filesystem)
+Apply SEARCH/REPLACE blocks to modify a file. Each block contains a SEARCH section and a REPLACE section delimited by '<<<<<<< SEARCH' and '>>>>>>> REPLACE'.

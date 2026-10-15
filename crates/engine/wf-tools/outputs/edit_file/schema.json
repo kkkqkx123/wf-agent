@@ -1,0 +1,39 @@
+{
+  "description": "Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.",
+  "enabled": true,
+  "id": "edit_file",
+  "metadata": {
+    "category": "filesystem",
+    "create_checkpoint": "before",
+    "risk_level": "write",
+    "tags": [
+      "edit",
+      "file"
+    ]
+  },
+  "name": "edit_file",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "new_string": {
+        "description": "The replacement text",
+        "type": "string"
+      },
+      "old_string": {
+        "description": "The exact text to search for (must be unique)",
+        "type": "string"
+      },
+      "path": {
+        "description": "Absolute path to the file to edit",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "old_string",
+      "new_string"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

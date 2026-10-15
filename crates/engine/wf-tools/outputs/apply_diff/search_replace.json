@@ -1,0 +1,21 @@
+{
+  "case": "search_replace",
+  "description": "Apply a SEARCH/REPLACE block to a seeded file",
+  "parameters": {
+    "diff": "<<<<<<< SEARCH\nline1\n=======\nline1x\n>>>>>>> REPLACE",
+    "path": "diff.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "applied": 1,
+      "display": "Diff applied successfully to <WORKSPACE>/diff.txt\n1 block(s) processed",
+      "failed": 0,
+      "success": true
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "apply_diff"
+}

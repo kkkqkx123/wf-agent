@@ -1,0 +1,37 @@
+{
+  "case": "recursive",
+  "description": "List a directory recursively",
+  "parameters": {
+    "path": ".",
+    "recursive": true
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "display": "[FILE] a.txt\n[FILE] sub/b.txt\n[DIR] sub\nSummary: 1 directories, 2 files",
+      "entries": [
+        {
+          "name": "a.txt",
+          "path": "a.txt",
+          "type": "file"
+        },
+        {
+          "name": "sub/b.txt",
+          "path": "sub/b.txt",
+          "type": "file"
+        },
+        {
+          "name": "sub",
+          "path": "sub",
+          "type": "directory"
+        }
+      ],
+      "total": 3,
+      "truncated": false
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "list_files"
+}

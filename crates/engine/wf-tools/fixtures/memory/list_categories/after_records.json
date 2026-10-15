@@ -1,0 +1,11 @@
+{
+  "tool": "list_categories",
+  "description": "List note categories with counts after recording notes",
+  "tier": "offline",
+  "setup": [
+    { "tool": "record_note", "parameters": { "note": "alpha", "category": "work" } },
+    { "tool": "record_note", "parameters": { "note": "beta", "category": "personal" } }
+  ],
+  "parameters": {},
+  "expect": { "success": true, "result_contains": "work" }
+}

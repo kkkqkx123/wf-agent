@@ -1,0 +1,35 @@
+{
+  "description": "Ask the user follow-up questions when more information is needed to complete the task.",
+  "enabled": true,
+  "id": "ask_followup_question",
+  "metadata": {
+    "category": "interaction",
+    "risk_level": "interaction",
+    "tags": [
+      "ask"
+    ]
+  },
+  "name": "ask_followup_question",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "options": {
+        "description": "Optional multiple choice options",
+        "items": {
+          "description": "One multiple choice option",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "question": {
+        "description": "The question to ask the user",
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

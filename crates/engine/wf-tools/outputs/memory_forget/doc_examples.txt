@@ -1,0 +1,5 @@
+# memory_forget (memory)
+Remove a specific piece of information from long-term memory.
+
+examples:
+- memory_forget("user_name")

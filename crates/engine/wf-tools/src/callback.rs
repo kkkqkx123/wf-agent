@@ -132,6 +132,27 @@ pub struct SpawnedWorkflow {
     pub status: String,
 }
 
+/// Refuse a control-plane operation whose target lives outside the
+/// caller's execution subtree.
+///
+/// `caller_root` is the root execution id of the calling execution (its
+/// own id when it is a root). The target's root comes from its hierarchy
+/// manager. Roots agree across engines because a child derives its
+/// manager from the parent's, so one comparison covers agent-to-agent,
+/// workflow-to-workflow and cross-engine pairs alike.
+pub fn require_same_subtree(
+    target_manager: &wf_core::hierarchy::manager::ExecutionHierarchyManager,
+    caller_root: &Id,
+) -> ToolResult<()> {
+    let target_root = target_manager.root_execution_id();
+    if target_root == *caller_root {
+        return Ok(());
+    }
+    Err(ToolError::ExecutionError(format!(
+        "execution is outside the caller's subtree (caller root {caller_root}, target root {target_root})"
+    )))
+}
+
 #[async_trait]
 pub trait ExecutionCallback: Send + Sync {
     async fn execute_agent_loop(
@@ -146,9 +167,17 @@ pub trait ExecutionCallback: Send + Sync {
         input: WorkflowInput,
     ) -> ToolResult<WorkflowOutput>;
 
-    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus>;
+    /// Status of one execution, scoped to the caller's execution subtree.
+    /// `caller_root` is the root execution id of the calling execution (its
+    /// own id when it is a root): the target must share that root, so an
+    /// execution can only observe itself, its ancestors, its descendants
+    /// and its siblings. An unrelated target is refused instead of exposed.
+    async fn query_execution_status(&self, execution_id: &str, caller_root: &Id)
+        -> ToolResult<ExecutionStatus>;
 
-    async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()>;
+    /// Stop one execution, scoped to the caller's execution subtree under
+    /// the same rule as [`ExecutionCallback::query_execution_status`].
+    async fn cancel_execution(&self, execution_id: &str, caller_root: &Id) -> ToolResult<()>;
 
     /// Dispatch an agent loop in the background and return immediately. The
     /// completion result is later retrieved via `query_execution_status`.

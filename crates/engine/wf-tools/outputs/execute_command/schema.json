@@ -1,0 +1,41 @@
+{
+  "description": "Execute a shell command and capture its output. Supports configurable timeout, working directory and an optional one-shot stdin input.",
+  "enabled": true,
+  "id": "execute_command",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "shell",
+      "command"
+    ]
+  },
+  "name": "execute_command",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "description": "The shell command to execute",
+        "type": "string"
+      },
+      "cwd": {
+        "description": "Working directory for the command",
+        "type": "string"
+      },
+      "input": {
+        "description": "Input written once to stdin after start (a trailing newline is appended, then stdin is closed)",
+        "type": "string"
+      },
+      "timeout": {
+        "default": 120000,
+        "description": "Timeout in milliseconds",
+        "type": "number"
+      }
+    },
+    "required": [
+      "command"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

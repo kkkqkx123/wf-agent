@@ -1,0 +1,18 @@
+{
+  "case": "after_remember",
+  "description": "Remove a previously stored long-term memory",
+  "parameters": {
+    "key": "user_name"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "key": "user_name",
+      "removed": true
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "memory_forget"
+}

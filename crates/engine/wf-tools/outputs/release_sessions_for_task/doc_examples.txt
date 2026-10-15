@@ -1,0 +1,6 @@
+# release_sessions_for_task (shell)
+Release (or terminate) all background shell sessions bound to a task_id. With 'terminate' set to false the task binding is cleared and idle sessions become reusable by other calls (default); with 'terminate' set to true running commands are killed and the sessions are removed.
+
+examples:
+- release_sessions_for_task("exec-1")
+- release_sessions_for_task("exec-1", terminate=true)

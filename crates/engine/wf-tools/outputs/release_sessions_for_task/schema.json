@@ -1,0 +1,33 @@
+{
+  "description": "Release (or terminate) all background shell sessions bound to a task_id. With 'terminate' set to false the task binding is cleared and idle sessions become reusable by other calls (default); with 'terminate' set to true running commands are killed and the sessions are removed.",
+  "enabled": true,
+  "id": "release_sessions_for_task",
+  "metadata": {
+    "category": "shell",
+    "risk_level": "execute",
+    "tags": [
+      "shell",
+      "session"
+    ]
+  },
+  "name": "release_sessions_for_task",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "task_id": {
+        "description": "The task id the sessions are bound to",
+        "type": "string"
+      },
+      "terminate": {
+        "default": false,
+        "description": "Terminate (kill) the sessions instead of just releasing them (default false)",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "task_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

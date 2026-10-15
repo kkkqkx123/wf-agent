@@ -1,0 +1,40 @@
+{
+  "description": "Hybrid semantic code search within an indexed project. Returns matching chunks with file path, line range and score.",
+  "enabled": true,
+  "id": "code_search",
+  "metadata": {
+    "category": "code_context",
+    "risk_level": "read_only",
+    "tags": [
+      "code",
+      "search"
+    ]
+  },
+  "name": "code_search",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "directory_prefix": {
+        "description": "Restrict results to a directory prefix (e.g. src/parser)",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of results (falls back to the configured default, capped by the configured maximum)",
+        "type": "integer"
+      },
+      "project_id": {
+        "description": "Project id to search within (falls back to the configured default)",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Natural-language or code query string",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

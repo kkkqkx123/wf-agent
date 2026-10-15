@@ -1,0 +1,8 @@
+# grep_search (filesystem)
+Search file contents using a regular expression pattern. Returns matching file paths and line numbers.
+
+tips:
+- Use specific patterns to narrow results
+
+examples:
+- grep_search("fn main", ".", "*.rs")

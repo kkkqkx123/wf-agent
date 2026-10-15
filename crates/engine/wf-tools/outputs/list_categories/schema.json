@@ -1,0 +1,20 @@
+{
+  "description": "List all note categories with note counts.",
+  "enabled": true,
+  "id": "list_categories",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "read_only",
+    "tags": [
+      "category"
+    ]
+  },
+  "name": "list_categories",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

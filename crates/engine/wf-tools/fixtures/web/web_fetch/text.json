@@ -1,0 +1,7 @@
+{
+  "tool": "web_fetch",
+  "description": "Fetch a page from the in-process mock server and strip it to text",
+  "tier": "network",
+  "parameters": { "url": "<MOCK_HTTP_BASE>/page", "format": "text" },
+  "expect": { "success": true, "result_contains": "Mock page body" }
+}

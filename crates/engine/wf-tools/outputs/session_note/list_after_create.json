@@ -1,0 +1,29 @@
+{
+  "case": "list_after_create",
+  "description": "List persistent session notes after creating one",
+  "parameters": {
+    "operation": "list"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "notes": [
+        {
+          "category": "general",
+          "content": "Persistent note",
+          "created_at": 0,
+          "id": "<ID>",
+          "summary": "",
+          "timestamp": "<TIMESTAMP>",
+          "token_count": 4,
+          "updated_at": 0
+        }
+      ],
+      "total": 1
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "session_note"
+}

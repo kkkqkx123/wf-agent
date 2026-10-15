@@ -1,0 +1,8 @@
+# ask_followup_question (interaction)
+Ask the user follow-up questions when more information is needed to complete the task.
+
+tips:
+- Be concise, ask one question at a time when possible
+
+examples:
+- ask_followup_question("What is the target directory?")

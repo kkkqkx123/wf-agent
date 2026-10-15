@@ -1,0 +1,50 @@
+{
+  "description": "Jump to the definition of the symbol at a file path plus 1-based line number. Returns definition locations with code and signature.",
+  "enabled": true,
+  "id": "code_definition",
+  "metadata": {
+    "category": "code_context",
+    "risk_level": "read_only",
+    "tags": [
+      "code",
+      "definition"
+    ]
+  },
+  "name": "code_definition",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "column": {
+        "description": "1-based column number (optional)",
+        "type": "integer"
+      },
+      "include_body": {
+        "default": false,
+        "description": "Return the full definition body instead of the signature only (default false)",
+        "type": "boolean"
+      },
+      "line": {
+        "description": "1-based line number of the symbol use",
+        "type": "integer"
+      },
+      "path": {
+        "description": "File path containing the symbol use",
+        "type": "string"
+      },
+      "project_id": {
+        "description": "Project id to search within (falls back to the configured default)",
+        "type": "integer"
+      },
+      "symbol": {
+        "description": "Symbol name (optional, for documentation)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "line"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

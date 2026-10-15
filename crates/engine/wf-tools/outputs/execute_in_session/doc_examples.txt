@@ -1,0 +1,9 @@
+# execute_in_session (shell)
+Execute a command inside an existing background shell session (from get_or_create_shell or backend_shell). The command runs as its own subprocess inheriting the session's working directory, environment and terminal mode; its output accumulates in the session buffer. The session must be idle; executing while a command is running returns an error. Blocks until the command finishes or the timeout elapses (then the command is terminated gracefully). Returns the exit code and the output produced by this command.
+
+tips:
+- Reuse one session for a sequence of related commands
+
+examples:
+- execute_in_session("abc123", "npm install")
+- execute_in_session("abc123", "npm test", timeout=30000)

@@ -1,0 +1,27 @@
+{
+  "case": "after_remembers",
+  "description": "List long-term memories after storing two keys",
+  "parameters": {
+    "prefix": ""
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "memories": [
+        {
+          "content": "1",
+          "key": "a_key"
+        },
+        {
+          "content": "2",
+          "key": "b_key"
+        }
+      ],
+      "total": 2
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "memory_list"
+}

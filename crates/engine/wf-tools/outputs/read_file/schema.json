@@ -1,0 +1,36 @@
+{
+  "description": "Read the contents of a file at the given path. Returns the file content as text. Supports line-range and offset-based slicing.",
+  "enabled": true,
+  "id": "read_file",
+  "metadata": {
+    "category": "filesystem",
+    "risk_level": "read_only",
+    "tags": [
+      "read",
+      "file"
+    ]
+  },
+  "name": "read_file",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "description": "Maximum number of lines to read",
+        "type": "number"
+      },
+      "offset": {
+        "description": "Line number to start reading from (1-indexed)",
+        "type": "number"
+      },
+      "path": {
+        "description": "Absolute path to the file",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

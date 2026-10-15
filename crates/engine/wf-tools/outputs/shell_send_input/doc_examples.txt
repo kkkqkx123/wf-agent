@@ -1,0 +1,6 @@
+# shell_send_input (shell)
+Send input to a running background shell session (stdin in pipe mode, the master in PTY mode). A trailing newline is appended unless 'enter' is false (set to false for control sequences such as Ctrl-C).
+
+examples:
+- shell_send_input("abc123", "yes")
+- shell_send_input("abc123", "\x03", enter=false)

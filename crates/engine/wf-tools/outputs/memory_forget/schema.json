@@ -1,0 +1,27 @@
+{
+  "description": "Remove a specific piece of information from long-term memory.",
+  "enabled": true,
+  "id": "memory_forget",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "write",
+    "tags": [
+      "forget"
+    ]
+  },
+  "name": "memory_forget",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "key": {
+        "description": "The memory key to forget",
+        "type": "string"
+      }
+    },
+    "required": [
+      "key"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

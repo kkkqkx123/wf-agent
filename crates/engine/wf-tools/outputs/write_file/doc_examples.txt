@@ -1,0 +1,5 @@
+# write_file (filesystem)
+Write content to a file at the given path. Creates the file and any missing parent directories; overwrites existing content.
+
+tips:
+- Always read the file first before overwriting

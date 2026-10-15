@@ -1,0 +1,17 @@
+{
+  "case": "basic",
+  "description": "Replace a unique substring in a seeded file",
+  "parameters": {
+    "new_string": "BETA",
+    "old_string": "beta",
+    "path": "edit.txt"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": "Edited <WORKSPACE>/edit.txt: replaced 1 occurrence(s)",
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "edit_file"
+}

@@ -1,0 +1,5 @@
+# code_symbols (code_context)
+List symbols (functions, classes and their children) for project files. Continues a code_search hit by file path without any internal keys.
+
+examples:
+- code_symbols({"paths": ["src/main.rs"]})

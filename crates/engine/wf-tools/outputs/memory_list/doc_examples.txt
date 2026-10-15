@@ -1,0 +1,5 @@
+# memory_list (memory)
+List all stored memories. Optionally filter by prefix.
+
+examples:
+- memory_list()

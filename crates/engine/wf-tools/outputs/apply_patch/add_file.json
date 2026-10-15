@@ -1,0 +1,30 @@
+{
+  "case": "add_file",
+  "description": "Apply a Codex-style Add File patch",
+  "parameters": {
+    "patch": "*** Begin Patch\n*** Add File: added.txt\n+hello patch\n*** End Patch"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "display": "Added 'added.txt'\nSummary: 1/1 operations succeeded",
+      "results": [
+        {
+          "operation": "add",
+          "path": "added.txt",
+          "success": true
+        }
+      ],
+      "success": true,
+      "summary": {
+        "failed": 0,
+        "succeeded": 1,
+        "total": 1
+      }
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "offline",
+  "tool": "apply_patch"
+}

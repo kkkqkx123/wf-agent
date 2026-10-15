@@ -1,0 +1,3 @@
+# Environment-dependent tier results (process / network / mcp) are not
+# committed as golden output; only the deterministic tiers are tracked.
+_volatile/

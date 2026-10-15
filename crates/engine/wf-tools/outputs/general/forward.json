@@ -1,0 +1,23 @@
+{
+  "case": "forward",
+  "description": "Forward an inner tool request through the general proxy (stub invoker)",
+  "parameters": {
+    "request": "{\"tool\": \"read_file\", \"parameters\": {\"path\": \"notes/hello.txt\"}}"
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "request": {
+        "parameters": {
+          "path": "notes/hello.txt"
+        },
+        "tool": "read_file"
+      },
+      "stub": "general"
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "stub",
+  "tool": "general"
+}

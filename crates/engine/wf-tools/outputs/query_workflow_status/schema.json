@@ -1,0 +1,32 @@
+{
+  "description": "Query the status of a running or completed workflow.",
+  "enabled": true,
+  "id": "query_workflow_status",
+  "metadata": {
+    "category": "workflow",
+    "risk_level": "read_only",
+    "tags": [
+      "query",
+      "status"
+    ]
+  },
+  "name": "query_workflow_status",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "execution_id": {
+        "description": "Optional execution ID to query",
+        "type": "string"
+      },
+      "workflow_id": {
+        "description": "The ID of the workflow to query",
+        "type": "string"
+      }
+    },
+    "required": [
+      "workflow_id"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

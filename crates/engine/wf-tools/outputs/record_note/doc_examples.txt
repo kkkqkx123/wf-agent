@@ -1,0 +1,5 @@
+# record_note (memory)
+Record a note in memory with an optional category. Notes can be recalled later within the same execution.
+
+examples:
+- record_note("User prefers dark mode", "preferences")

@@ -1,0 +1,28 @@
+{
+  "description": "Invoke tools whose schemas are not directly exposed. The request body is a JSON object {\"tool\": \"tool_name\", \"parameters\": {...}} wrapped in a regular <tool_use> call, e.g.:\n<tool_use>\n  <tool_name>general</tool_name>\n  <parameters>\n    <request>{\"tool\": \"web_search\", \"parameters\": {\"query\": \"rust\"}}</request>\n  </parameters>\n</tool_use>\nThe inner tool is interpreted and executed server-side.",
+  "enabled": true,
+  "id": "general",
+  "metadata": {
+    "category": "utility",
+    "risk_level": "read_only",
+    "tags": [
+      "general",
+      "discovery"
+    ]
+  },
+  "name": "general",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "request": {
+        "description": "The inner tool invocation as a JSON object {\"tool\": \"name\", \"parameters\": {...}} (or an array of such objects for multiple calls).",
+        "type": "string"
+      }
+    },
+    "required": [
+      "request"
+    ],
+    "type": "object"
+  },
+  "tool_type": "built_in"
+}

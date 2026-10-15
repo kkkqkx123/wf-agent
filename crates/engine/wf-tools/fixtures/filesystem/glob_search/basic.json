@@ -1,0 +1,10 @@
+{
+  "tool": "glob_search",
+  "description": "Find files matching a glob pattern",
+  "tier": "offline",
+  "workspace": {
+    "files": { "src/main.rs": "fn main() {}", "src/lib.rs": "", "README.md": "# x" }
+  },
+  "parameters": { "pattern": "**/*.rs", "path": "." },
+  "expect": { "success": true, "result_contains": "src/main.rs" }
+}

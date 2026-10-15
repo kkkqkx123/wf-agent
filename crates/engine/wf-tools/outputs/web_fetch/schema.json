@@ -1,0 +1,37 @@
+{
+  "description": "Fetch the content of a web page. Returns the page content in the requested format.",
+  "enabled": true,
+  "id": "web_fetch",
+  "metadata": {
+    "category": "web",
+    "risk_level": "network",
+    "tags": [
+      "fetch"
+    ]
+  },
+  "name": "web_fetch",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "format": {
+        "default": "markdown",
+        "description": "Output format: text, markdown, or html",
+        "enum": [
+          "text",
+          "markdown",
+          "html"
+        ],
+        "type": "string"
+      },
+      "url": {
+        "description": "The URL to fetch",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateless"
+}

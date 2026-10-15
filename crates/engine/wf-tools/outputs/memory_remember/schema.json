@@ -1,0 +1,32 @@
+{
+  "description": "Store a piece of information in long-term memory for later recall across sessions.",
+  "enabled": true,
+  "id": "memory_remember",
+  "metadata": {
+    "category": "memory",
+    "risk_level": "write",
+    "tags": [
+      "remember"
+    ]
+  },
+  "name": "memory_remember",
+  "parameters": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "description": "The content to remember",
+        "type": "string"
+      },
+      "key": {
+        "description": "The memory key",
+        "type": "string"
+      }
+    },
+    "required": [
+      "key",
+      "content"
+    ],
+    "type": "object"
+  },
+  "tool_type": "stateful"
+}

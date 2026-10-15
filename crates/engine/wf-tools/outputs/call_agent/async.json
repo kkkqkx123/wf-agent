@@ -1,0 +1,22 @@
+{
+  "case": "async",
+  "description": "Asynchronously dispatch a sub-agent and return a handle (stub engine callback)",
+  "parameters": {
+    "agent_id": "standard/worker",
+    "agent_profile_id": "profile-default",
+    "prompt": "Index the workspace",
+    "wait": false
+  },
+  "result": {
+    "execution_time": 0,
+    "result": {
+      "agent_id": "stub-agent-loop",
+      "execution_id": "stub-agent-exec",
+      "status": "started"
+    },
+    "retry_count": 0,
+    "success": true
+  },
+  "tier": "stub",
+  "tool": "call_agent"
+}

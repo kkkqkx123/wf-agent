@@ -1,0 +1,11 @@
+{
+  "tool": "apply_diff",
+  "description": "Apply a SEARCH/REPLACE block to a seeded file",
+  "tier": "offline",
+  "workspace": { "files": { "diff.txt": "line1\nline2\n" } },
+  "parameters": {
+    "path": "diff.txt",
+    "diff": "<<<<<<< SEARCH\nline1\n=======\nline1x\n>>>>>>> REPLACE"
+  },
+  "expect": { "success": true }
+}

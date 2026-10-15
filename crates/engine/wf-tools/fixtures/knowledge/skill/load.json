@@ -1,0 +1,12 @@
+{
+  "tool": "skill",
+  "description": "Load a skill body with template-variable substitution",
+  "tier": "stub",
+  "workspace": {
+    "files": {
+      "skills/demo-skill/SKILL.md": "---\nname: demo-skill\ndescription: Demo skill\n---\n\n# Demo Skill\n\nHello {{who}}."
+    }
+  },
+  "parameters": { "skill": "demo-skill", "args": { "who": "harness" } },
+  "expect": { "success": true, "result_contains": "Hello harness" }
+}

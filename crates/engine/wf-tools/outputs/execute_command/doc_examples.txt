@@ -1,0 +1,10 @@
+# execute_command (shell)
+Execute a shell command and capture its output. Supports configurable timeout, working directory and an optional one-shot stdin input.
+
+tips:
+- Use absolute paths for safety
+- Avoid interactive commands
+
+examples:
+- execute_command("cargo build")
+- execute_command("cat", input="hello")

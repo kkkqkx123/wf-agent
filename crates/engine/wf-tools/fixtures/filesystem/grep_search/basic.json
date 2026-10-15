@@ -1,0 +1,10 @@
+{
+  "tool": "grep_search",
+  "description": "Search file contents with an include glob and a single matching file",
+  "tier": "offline",
+  "workspace": {
+    "files": { "src/one.rs": "fn main() {\n}\n", "src/two.rs": "// nothing\n" }
+  },
+  "parameters": { "pattern": "fn main", "path": ".", "include": "*.rs" },
+  "expect": { "success": true, "result_contains": "one.rs" }
+}

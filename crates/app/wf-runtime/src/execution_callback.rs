@@ -165,28 +165,34 @@ impl ExecutionCallback for CompositeExecutionCallback {
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
 
-    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus> {
+    async fn query_execution_status(
+        &self,
+        execution_id: &str,
+        caller_root: &Id,
+    ) -> ToolResult<ExecutionStatus> {
         let id = Id::from(execution_id.to_string());
         // Agent executions take precedence; workflow executions fall back.
         if let Some(agent) = &self.agent {
             if agent.agent_registry().has(&id) {
-                return agent.query_execution_status(execution_id).await;
+                return agent
+                    .query_execution_status(execution_id, caller_root)
+                    .await;
             }
         }
         self.require_workflow()?
-            .query_execution_status(execution_id)
+            .query_execution_status(execution_id, caller_root)
             .await
     }
 
-    async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()> {
+    async fn cancel_execution(&self, execution_id: &str, caller_root: &Id) -> ToolResult<()> {
         let id = Id::from(execution_id.to_string());
         if let Some(agent) = &self.agent {
             if agent.agent_registry().has(&id) {
-                return agent.cancel_execution(execution_id).await;
+                return agent.cancel_execution(execution_id, caller_root).await;
             }
         }
         self.require_workflow()?
-            .cancel_execution(execution_id)
+            .cancel_execution(execution_id, caller_root)
             .await
     }
 }

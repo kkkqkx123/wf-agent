@@ -1,5 +1,5 @@
 # query_workflow_status (workflow)
-Query the status of a running or completed workflow.
+Query the status of a running or completed execution in the current execution tree (this run, its ancestors or its descendants).
 
 examples:
 - query_workflow_status("wf-123")

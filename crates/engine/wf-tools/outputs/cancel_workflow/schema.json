@@ -1,5 +1,5 @@
 {
-  "description": "Cancel a running workflow by ID.",
+  "description": "Cancel a running execution in the current execution tree by ID.",
   "enabled": true,
   "id": "cancel_workflow",
   "metadata": {

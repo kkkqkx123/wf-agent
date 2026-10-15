@@ -12,7 +12,7 @@ pub static CANCEL_WORKFLOW: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "workflow",
     tags: &["cancel"],
-    description: "Cancel a running workflow by ID.",
+    description: "Cancel a running execution in the current execution tree by ID.",
     parameters: &[
         ToolParameter {
             name: "workflow_id",

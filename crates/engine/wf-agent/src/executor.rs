@@ -245,10 +245,19 @@ impl AgentLoopExecutor {
         if let Some(ref link) = parent {
             crate::subagent::emit_started(link, &child_id, &config, &input, false);
         }
+        let parent_manager = parent.as_ref().map(|link| link.manager.clone());
+        let reclaim = ChildRunReclaim::arm(
+            self.agent_registry.clone(),
+            child_id.clone(),
+            parent_manager,
+        );
         let coordinator = self
             .coordinator(parent.as_ref())
             .with_agent_loop_id(child_id.clone());
         let output = coordinator.execute(config, input).await;
+        // The run settled (successfully or not): the child reference leaves
+        // the parent hierarchy and the reclaim guard disarms.
+        reclaim.finish();
         if let Some(ref link) = parent {
             crate::subagent::emit_ended(link, &child_id, &child_name, output.is_ok(), false);
         }
@@ -298,8 +307,38 @@ impl AgentLoopExecutor {
         // and cancellable from the moment spawn returns; the coordinator
         // replaces it with the fully-built entity on its first steps. The
         // capacity gate is enforced here: overflow surfaces immediately.
-        self.agent_registry
-            .register(Arc::new(AgentLoopEntity::new(execution_id.clone())))?;
+        // The placeholder carries the parent linkage from the start, so a
+        // caller polling in the window before the real entity registers
+        // still resolves it inside its own execution subtree.
+        let mut placeholder = AgentLoopEntity::new(execution_id.clone());
+        if let Some(link) = parent.as_ref() {
+            let child_manager = link
+                .manager
+                .derive_child(
+                    execution_id.clone(),
+                    wf_types::execution::ExecutionType::AgentLoop,
+                    None,
+                )
+                .map_err(|e| {
+                    if e.is_hierarchy_depth_exceeded() {
+                        crate::error::AgentError::HierarchyLimitReached(e.to_string())
+                    } else {
+                        crate::error::AgentError::Validation(e.to_string())
+                    }
+                })?;
+            placeholder = placeholder.with_hierarchy_manager(child_manager);
+        }
+        if let Err(e) = self.agent_registry.register(Arc::new(placeholder)) {
+            // The derive above registered the child on the parent manager;
+            // a capacity-rejected spawn must not leave that reference behind.
+            if let Some(link) = parent.as_ref() {
+                link.manager.remove_child(
+                    execution_id.as_str(),
+                    &wf_types::execution::ExecutionType::AgentLoop,
+                );
+            }
+            return Err(e);
+        }
 
         // Background dispatch reports its lifecycle to the parent stream
         // when observed: start now, finish when the background task
@@ -325,7 +364,16 @@ impl AgentLoopExecutor {
         let event_bus = self.event_bus.clone();
 
         let handle = tokio::spawn(async move {
-            match coordinator.execute(config, input).await {
+            let reclaim = ChildRunReclaim::arm(
+                agent_registry.clone(),
+                run_id.clone(),
+                subagent_parent.as_ref().map(|link| link.manager.clone()),
+            );
+            let run = coordinator.execute(config, input).await;
+            // Settled runs leave the parent hierarchy; the guard stays armed
+            // only to reclaim the slot if this task is aborted mid-run.
+            reclaim.finish();
+            match run {
                 Ok(output) => {
                     agent_registry.store_result(run_id.clone(), output);
                     if let Some(ref link) = subagent_parent {
@@ -421,6 +469,84 @@ fn status_string(status: &wf_execution_shared::types::execution_entity::Executio
     }
 }
 
+/// Reclaim guard for one dispatched child execution.
+///
+/// The guard is armed before the child run starts and disarmed by `finish`
+/// once the run settles. A settled run also unlinks the child from the
+/// parent hierarchy, so the parent's child list tracks live children only.
+///
+/// When the driving future is dropped before settling — a tool-level
+/// timeout unwinds the synchronous dispatch, or the background task is
+/// aborted — the child would otherwise stay registered in a non-terminal
+/// state forever, holding its capacity-gate permit and its parent link.
+/// The drop path reclaims the registry slot and the permit in that case.
+/// An already-settled entity keeps its terminal record: only the parent
+/// link is removed.
+struct ChildRunReclaim {
+    registry: Arc<AgentLoopRegistry>,
+    child_id: Id,
+    parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    armed: bool,
+}
+
+impl ChildRunReclaim {
+    fn arm(
+        registry: Arc<AgentLoopRegistry>,
+        child_id: Id,
+        parent_manager: Option<Arc<wf_core::hierarchy::manager::ExecutionHierarchyManager>>,
+    ) -> Self {
+        Self {
+            registry,
+            child_id,
+            parent_manager,
+            armed: true,
+        }
+    }
+
+    /// The run settled: unlink the child from the parent hierarchy and
+    /// disarm the guard.
+    fn finish(mut self) {
+        self.unlink_parent();
+        self.armed = false;
+    }
+
+    fn unlink_parent(&self) {
+        if let Some(manager) = &self.parent_manager {
+            manager.remove_child(
+                self.child_id.as_str(),
+                &wf_types::execution::ExecutionType::AgentLoop,
+            );
+        }
+    }
+}
+
+impl Drop for ChildRunReclaim {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // An absent entity never registered; a terminal entity settled
+        // through its own state transition. Only a non-terminal entity is a
+        // phantom left behind by the dropped driving future.
+        let settled = self
+            .registry
+            .get(&self.child_id)
+            .map(|entity| entity.status().is_terminal())
+            .unwrap_or(true);
+        if !settled {
+            if let Some(entity) = self.registry.get(&self.child_id) {
+                entity.release_gate_permit();
+            }
+            self.registry.unregister(&self.child_id);
+            tracing::warn!(
+                child_execution_id = %self.child_id,
+                "dispatched child execution dropped before settling; reclaimed registry slot and capacity permit"
+            );
+        }
+        self.unlink_parent();
+    }
+}
+
 /// Map a typed agent error onto the tool-error channel so the agent-as-tool
 /// path keeps cancellation, timeout and validation semantics distinguishable
 /// instead of collapsing everything into one string bucket.
@@ -499,12 +625,20 @@ impl ExecutionCallback for AgentLoopExecutor {
         )))
     }
 
-    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus> {
+    async fn query_execution_status(
+        &self,
+        execution_id: &str,
+        caller_root: &Id,
+    ) -> ToolResult<ExecutionStatus> {
         let id = Id::from(execution_id.to_string());
         let entity = self
             .agent_registry
             .get(&id)
             .ok_or_else(|| ToolError::NotFound(format!("execution {} not found", execution_id)))?;
+        wf_tools::callback::require_same_subtree(
+            &entity.as_ref().hierarchy_manager(),
+            caller_root,
+        )?;
         let state = entity.state.read().await;
         let status = state.status();
         // Terminal executions expose their stored output. Reading is
@@ -534,12 +668,16 @@ impl ExecutionCallback for AgentLoopExecutor {
         })
     }
 
-    async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()> {
+    async fn cancel_execution(&self, execution_id: &str, caller_root: &Id) -> ToolResult<()> {
         let id = Id::from(execution_id.to_string());
         let entity = self
             .agent_registry
             .get(&id)
             .ok_or_else(|| ToolError::NotFound(format!("execution {} not found", execution_id)))?;
+        wf_tools::callback::require_same_subtree(
+            &entity.as_ref().hierarchy_manager(),
+            caller_root,
+        )?;
         entity
             .stop()
             .await
@@ -634,7 +772,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     match executor
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &spawned.execution_id,
+                        )
                         .await
                     {
                         Ok(status) if status.status == "completed" => true,
@@ -662,7 +803,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     executor
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &spawned.execution_id,
+                        )
                         .await
                         .expect("query must succeed")
                         .status
@@ -673,7 +817,7 @@ mod tests {
             "spawned execution did not complete in time"
         );
         let result = executor
-            .query_execution_status(&spawned.execution_id.to_string())
+            .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("query must succeed")
             .result
@@ -690,7 +834,7 @@ mod tests {
             .expect("sync execution must succeed");
 
         let status = executor
-            .query_execution_status(&output.agent_loop_id.to_string())
+            .query_execution_status(&output.agent_loop_id.to_string(), &output.agent_loop_id)
             .await
             .expect("registered execution must be queryable");
         assert_eq!(status.status, "completed");
@@ -904,12 +1048,12 @@ mod tests {
         // Give the background task a moment to start, then cancel.
         tokio::time::sleep(Duration::from_millis(20)).await;
         executor
-            .cancel_execution(&spawned.execution_id.to_string())
+            .cancel_execution(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("cancel must succeed");
 
         let status = executor
-            .query_execution_status(&spawned.execution_id.to_string())
+            .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("query after cancel must succeed");
         assert_eq!(status.status, "cancelled");
@@ -953,7 +1097,7 @@ mod tests {
 
         // While paused the loop is suspended: no result, status stays paused.
         let status = executor
-            .query_execution_status(&spawned.execution_id.to_string())
+            .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("query during pause must succeed");
         assert_eq!(status.status, "paused");
@@ -962,7 +1106,7 @@ mod tests {
         entity.resume().await.expect("resume must succeed");
         for _ in 0..300 {
             let status = executor
-                .query_execution_status(&spawned.execution_id.to_string())
+                .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
                 .await
                 .expect("query after resume must succeed");
             if status.status == "completed" {
@@ -981,11 +1125,213 @@ mod tests {
     #[tokio::test]
     async fn test_query_unknown_returns_not_found() {
         let executor = make_executor().await;
+        let caller = Id::from("caller-root".to_string());
         let err = executor
-            .query_execution_status("missing-id")
+            .query_execution_status("missing-id", &caller)
             .await
             .expect_err("unknown execution must not be found");
         assert!(matches!(err, ToolError::NotFound(_)));
+    }
+
+    /// Dropping the driving future of a synchronous child (tool-level
+    /// timeout, aborted host task) must reclaim the child's registry slot
+    /// and capacity permit instead of leaving a phantom running execution.
+    #[tokio::test]
+    async fn test_aborted_sync_child_is_reclaimed() {
+        let gateway = Arc::new(LlmGateway::new());
+        let mock = Arc::new(MockLlmClient::new());
+        mock.default(
+            LlmResponseSpec::text("done")
+                .with_usage(10, 5)
+                .with_delay(2000),
+        );
+        gateway.register_mock("mock", mock);
+        let registry = Arc::new(wf_tools::create_default_tool_registry());
+        let executor = Arc::new(AgentLoopExecutor::new(gateway, registry).with_max_concurrent(8));
+
+        let parent = Arc::new(AgentLoopEntity::new(Id::from("parent-reclaim".to_string())));
+        executor
+            .agent_registry()
+            .register(parent.clone())
+            .expect("parent registers");
+        let permits_before = executor.agent_registry().available_permits();
+
+        let exec = executor.clone();
+        let parent_for_task = parent.clone();
+        let handle = tokio::spawn(async move {
+            let _ = exec
+                .execute_with_parent(
+                    agent_config("child-reclaim"),
+                    agent_input("run"),
+                    Some(parent_link_for(&parent_for_task)),
+                )
+                .await;
+        });
+
+        // The child links onto the parent before its first LLM call.
+        let mut child_id = None;
+        for _ in 0..100 {
+            if let Some(id) = parent.child_ids().first().cloned() {
+                child_id = Some(id);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let child_id = child_id.expect("child must link onto the parent");
+
+        // Aborting the task drops the driving future mid-run, exactly like
+        // a tool-level timeout unwinding a synchronous dispatch.
+        handle.abort();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(
+            executor.agent_registry().get(&child_id).is_none(),
+            "abandoned child must not stay registered"
+        );
+        assert_eq!(
+            executor.agent_registry().available_permits(),
+            permits_before,
+            "abandoned child must release its capacity permit"
+        );
+        assert!(
+            parent.child_ids().is_empty(),
+            "abandoned child must leave the parent hierarchy"
+        );
+    }
+
+    /// A settled child (success or failure) leaves the parent hierarchy, so
+    /// the parent's child list tracks live children only.
+    #[tokio::test]
+    async fn test_completed_child_leaves_parent_hierarchy() {
+        let executor = make_executor().await.with_max_concurrent(8);
+        let parent = Arc::new(AgentLoopEntity::new(Id::from("parent-done".to_string())));
+        executor
+            .agent_registry()
+            .register(parent.clone())
+            .expect("parent registers");
+
+        let output = executor
+            .execute_with_parent(
+                agent_config("child-done"),
+                agent_input("run"),
+                Some(parent_link_for(&parent)),
+            )
+            .await
+            .expect("child must complete");
+
+        assert_eq!(output.result, serde_json::Value::String("done".to_string()));
+        assert!(
+            parent.child_ids().is_empty(),
+            "settled child must leave the parent hierarchy"
+        );
+        // The child stays queryable as terminal history; the caller root is
+        // the tree root, which the parent provides.
+        let tree_root = parent.id().clone();
+        let status = executor
+            .query_execution_status(&output.agent_loop_id.to_string(), &tree_root)
+            .await
+            .expect("settled child stays queryable");
+        assert_eq!(status.status, "completed");
+    }
+
+    /// Status queries and cancellation are scoped to the caller's
+    /// execution subtree: foreign trees are refused, unknown executions
+    /// keep the not-found error.
+    #[tokio::test]
+    async fn test_control_plane_is_scoped_to_caller_subtree() {
+        let executor = make_executor().await.with_max_concurrent(8);
+        let tree_a = Id::from("tree-a".to_string());
+        let tree_b = Id::from("tree-b".to_string());
+        executor
+            .agent_registry()
+            .register(Arc::new(AgentLoopEntity::new(tree_a.clone())))
+            .expect("tree-a registers");
+        executor
+            .agent_registry()
+            .register(Arc::new(AgentLoopEntity::new(tree_b.clone())))
+            .expect("tree-b registers");
+
+        // Same subtree (the execution itself) passes.
+        assert!(executor
+            .query_execution_status("tree-a", &tree_a)
+            .await
+            .is_ok());
+
+        // A foreign tree is refused on both control operations.
+        let err = executor
+            .query_execution_status("tree-b", &tree_a)
+            .await
+            .expect_err("foreign execution must be refused");
+        assert!(matches!(err, ToolError::ExecutionError(_)));
+        let err = executor
+            .cancel_execution("tree-b", &tree_a)
+            .await
+            .expect_err("foreign cancel must be refused");
+        assert!(matches!(err, ToolError::ExecutionError(_)));
+
+        // Unknown executions keep the not-found classification.
+        let err = executor
+            .query_execution_status("tree-missing", &tree_a)
+            .await
+            .expect_err("unknown execution is not found");
+        assert!(matches!(err, ToolError::NotFound(_)));
+    }
+
+    /// A streaming run publishes its parent-stream observer on the entity
+    /// for the run's duration and clears it when the run settles, so the
+    /// forwarding task exits with the loop instead of outliving it.
+    #[tokio::test]
+    async fn test_streaming_run_installs_then_clears_parent_observer() {
+        use futures::StreamExt;
+
+        let gateway = Arc::new(LlmGateway::new());
+        let mock = Arc::new(MockLlmClient::new());
+        mock.default(
+            LlmResponseSpec::text("done")
+                .with_usage(10, 5)
+                .with_delay(300),
+        );
+        // The streaming path replays stream events, whose pacing comes from
+        // the client-level delay: the run stays in flight for the poll.
+        mock.with_stream_delay(300);
+        gateway.register_mock("mock", mock);
+        let registry = Arc::new(wf_tools::create_default_tool_registry());
+        let shared = Arc::new(AgentLoopRegistry::new());
+        let coordinator =
+            AgentLoopCoordinator::new(gateway, registry).with_entity_registry(shared.clone());
+
+        let mut stream = std::pin::pin!(
+            coordinator
+                .execute_stream(agent_config("streamer"), agent_input("run"))
+                .await
+        );
+
+        // While the run is in flight the registered entity carries the
+        // observer; triggered children read it to report upstream.
+        let mut observer_id = None;
+        for _ in 0..100 {
+            let found = shared.get_all_ids().into_iter().find(|id| {
+                shared
+                    .get(id)
+                    .is_some_and(|entity| entity.subagent_tx().is_some())
+            });
+            if let Some(id) = found {
+                observer_id = Some(id);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let observer_id = observer_id.expect("streaming run must install the observer");
+
+        while stream.next().await.is_some() {}
+
+        let entity = shared
+            .get(&observer_id)
+            .expect("settled execution stays as history");
+        assert!(
+            entity.subagent_tx().is_none(),
+            "observer must be cleared when the run settles"
+        );
     }
 
     #[tokio::test]
@@ -1038,12 +1384,12 @@ mod tests {
 
         // Cancelling the parent stops the child too.
         executor
-            .cancel_execution(&parent.execution_id.to_string())
+            .cancel_execution(&parent.execution_id.to_string(), &parent.execution_id)
             .await
             .expect("parent cancel must succeed");
         for _ in 0..100 {
             let status = executor
-                .query_execution_status(&child.execution_id.to_string())
+                .query_execution_status(&child.execution_id.to_string(), &parent.execution_id)
                 .await
                 .expect("child query must succeed");
             if status.status == "cancelled" || status.status == "completed" {
@@ -1146,6 +1492,38 @@ mod tests {
         );
     }
 
+    /// A capacity-rejected linked spawn derives the child onto the parent
+    /// manager before the gate rejects it; the reference must be rolled
+    /// back so the parent's child list tracks adopted children only.
+    #[tokio::test]
+    async fn test_rejected_linked_spawn_leaves_no_parent_reference() {
+        let executor = make_executor().await.with_max_concurrent(1);
+        let parent = Arc::new(AgentLoopEntity::new(Id::from("parent-gate".to_string())));
+        executor
+            .agent_registry()
+            .register(parent.clone())
+            .expect("parent registers");
+        assert_eq!(
+            executor.agent_registry().available_permits(),
+            0,
+            "the parent holds the single slot"
+        );
+
+        let err = executor
+            .spawn_with_parent(
+                agent_config("agent-gate-child"),
+                agent_input("run"),
+                Some(parent_link_for(&parent)),
+            )
+            .await
+            .expect_err("linked spawn must hit the capacity gate");
+        assert!(matches!(err, AgentError::ConcurrencySaturated(_)));
+        assert!(
+            parent.child_ids().is_empty(),
+            "rejected spawn must not leave a child reference on the parent"
+        );
+    }
+
     /// The sync `execute` path is gated through the shared registry too: an
     /// in-flight execution holds the slot, and once it settles the released
     /// permit admits the next run (the fixed capacity lifecycle).
@@ -1197,7 +1575,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     executor
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &spawned.execution_id,
+                        )
                         .await
                         .map(|status| status.status == "failed")
                         .unwrap_or(false)
@@ -1207,7 +1588,7 @@ mod tests {
             "failed build must settle the execution as failed"
         );
         let status = executor
-            .query_execution_status(&spawned.execution_id.to_string())
+            .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("failed execution stays queryable");
         let error = status
@@ -1253,7 +1634,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     executor
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &Id::from("wf-parent".to_string()),
+                        )
                         .await
                         .map(|status| status.status == "completed")
                         .unwrap_or(false)
@@ -1322,7 +1706,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     executor
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &Id::from("foreign-parent".to_string()),
+                        )
                         .await
                         .map(|status| status.status == "cancelled" || status.status == "completed")
                         .unwrap_or(false)

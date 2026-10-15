@@ -523,9 +523,17 @@ impl ExecutionCallback for WorkflowExecutionCallback {
             .map_err(|e| ToolError::ExecutionError(e.to_string()))
     }
 
-    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus> {
+    async fn query_execution_status(
+        &self,
+        execution_id: &str,
+        caller_root: &Id,
+    ) -> ToolResult<ExecutionStatus> {
         match self.executions.get(execution_id) {
             Some(entity) => {
+                wf_tools::callback::require_same_subtree(
+                    &entity.as_ref().hierarchy_manager(),
+                    caller_root,
+                )?;
                 let result = if entity.status().is_terminal() {
                     entity.output().await
                 } else {
@@ -545,12 +553,18 @@ impl ExecutionCallback for WorkflowExecutionCallback {
         }
     }
 
-    async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()> {
+    async fn cancel_execution(&self, execution_id: &str, caller_root: &Id) -> ToolResult<()> {
         match self.executions.get(execution_id) {
-            Some(entity) => entity
-                .stop()
-                .await
-                .map_err(|e| ToolError::ExecutionError(e.to_string())),
+            Some(entity) => {
+                wf_tools::callback::require_same_subtree(
+                    &entity.as_ref().hierarchy_manager(),
+                    caller_root,
+                )?;
+                entity
+                    .stop()
+                    .await
+                    .map_err(|e| ToolError::ExecutionError(e.to_string()))
+            }
             None => Err(ToolError::NotFound(format!(
                 "execution {} not found",
                 execution_id
@@ -648,7 +662,7 @@ mod tests {
         assert!(!output.execution_id.is_empty());
 
         let status = callback
-            .query_execution_status(&output.execution_id.to_string())
+            .query_execution_status(&output.execution_id.to_string(), &output.execution_id)
             .await
             .expect("status should be queryable");
         assert_eq!(status.status, "completed");
@@ -666,7 +680,7 @@ mod tests {
         let _ = result;
 
         callback
-            .cancel_execution(&output.execution_id.to_string())
+            .cancel_execution(&output.execution_id.to_string(), &output.execution_id)
             .await
             .expect("cancel on completed execution should be idempotent");
 
@@ -709,7 +723,10 @@ mod tests {
                 std::time::Duration::from_secs(2),
                 || async {
                     callback
-                        .query_execution_status(&spawned.execution_id.to_string())
+                        .query_execution_status(
+                            &spawned.execution_id.to_string(),
+                            &spawned.execution_id,
+                        )
                         .await
                         .expect("status must be queryable right after spawn")
                         .status
@@ -720,7 +737,7 @@ mod tests {
             "spawned execution did not complete in time"
         );
         let result = callback
-            .query_execution_status(&spawned.execution_id.to_string())
+            .query_execution_status(&spawned.execution_id.to_string(), &spawned.execution_id)
             .await
             .expect("status must be queryable right after spawn")
             .result
@@ -746,7 +763,7 @@ mod tests {
             .expect("sync workflow should execute");
 
         let status = callback
-            .query_execution_status(&output.execution_id.to_string())
+            .query_execution_status(&output.execution_id.to_string(), &output.execution_id)
             .await
             .expect("status must be queryable");
         assert_eq!(status.status, "completed");

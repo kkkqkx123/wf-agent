@@ -52,7 +52,40 @@ fn default_tool_context() -> (
     wf_tools::executor::trait_def::ToolExecutionContext,
     wf_types::tool::ToolExecutionOptions,
 ) {
-    let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("".into());
+    // A real execution id stands in for the calling execution: the
+    // control-plane tools scope queries to the caller's subtree, and
+    // `dispatch_tool_context` roots the tree this id owns.
+    let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("test-host".into());
+    let options = wf_types::tool::ToolExecutionOptions {
+        timeout: None,
+        retries: None,
+        retry_delay: None,
+        exponential_backoff: None,
+    };
+    (ctx, options)
+}
+
+/// Tool context carrying a live parent link rooted at the host execution id,
+/// so dispatched executions join the same tree the query context belongs to,
+/// exactly like production tool calls inside a running execution.
+fn dispatch_tool_context() -> (
+    wf_tools::executor::trait_def::ToolExecutionContext,
+    wf_types::tool::ToolExecutionOptions,
+) {
+    let manager = Arc::new(wf_core::hierarchy::manager::ExecutionHierarchyManager::new(
+        wf_types::Id::from("test-host".to_string()),
+        wf_types::execution::ExecutionType::AgentLoop,
+    ));
+    let link = wf_tools::callback::ParentLink {
+        file_scope: wf_types::config::file_scope::ResolvedExecutionScope::none(),
+        execution_id: wf_types::Id::from("test-host".to_string()),
+        manager,
+        cancellation: None,
+        tool_call_id: None,
+        subagent_tx: None,
+    };
+    let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("test-host".into())
+        .with_parent_link(Some(link));
     let options = wf_types::tool::ToolExecutionOptions {
         timeout: None,
         retries: None,
@@ -684,7 +717,7 @@ async fn test_execution_callback_wired_call_agent_via_tool() {
     register_agent_tools(&runtime);
     mock_llm_gateway(&runtime, "mock", "agent answer");
 
-    let (ctx, options) = default_tool_context();
+    let (ctx, options) = dispatch_tool_context();
 
     // call_agent through the shared tool registry hits the composite
     // callback (previously CallbackNotRegistered in production).
@@ -727,7 +760,7 @@ async fn test_execution_callback_call_agent_wait_false_spawns() {
     register_agent_tools(&runtime);
     mock_llm_gateway(&runtime, "mock", "async answer");
 
-    let (ctx, options) = default_tool_context();
+    let (ctx, options) = dispatch_tool_context();
 
     let result = runtime
         .tool_registry()
@@ -776,7 +809,7 @@ async fn test_execution_callback_execute_workflow_via_tool() {
     mock.default(wf_llm::mock::LlmResponseSpec::text("compressed").with_usage(50, 30));
     runtime.llm_gateway().register_mock("DEFAULT", mock);
 
-    let (ctx, options) = default_tool_context();
+    let (ctx, options) = dispatch_tool_context();
 
     let message = wf_types::message::Message {
         id: wf_common::generate_id(),

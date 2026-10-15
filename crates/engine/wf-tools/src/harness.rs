@@ -555,6 +555,7 @@ impl ExecutionCallback for StubCallback {
     async fn query_execution_status(
         &self,
         execution_id: &str,
+        _caller_root: &wf_types::Id,
     ) -> crate::error::ToolResult<ExecutionStatus> {
         Ok(ExecutionStatus {
             execution_id: execution_id.to_string(),
@@ -564,7 +565,11 @@ impl ExecutionCallback for StubCallback {
         })
     }
 
-    async fn cancel_execution(&self, _execution_id: &str) -> crate::error::ToolResult<()> {
+    async fn cancel_execution(
+        &self,
+        _execution_id: &str,
+        _caller_root: &wf_types::Id,
+    ) -> crate::error::ToolResult<()> {
         Ok(())
     }
 }
@@ -862,9 +867,7 @@ fn normalize_string(s: &str, sandbox: &str, canonical: &str) -> String {
     if canonical != sandbox {
         out = out.replace(canonical, WORKSPACE_MARKER);
     }
-    uuid_regex()
-        .replace_all(&out, ID_MARKER)
-        .to_string()
+    uuid_regex().replace_all(&out, ID_MARKER).to_string()
 }
 
 fn uuid_regex() -> &'static Regex {

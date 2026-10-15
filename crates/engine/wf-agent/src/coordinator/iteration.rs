@@ -258,6 +258,16 @@ impl AgentIterationCoordinator {
         self
     }
 
+    /// The parent-stream observer channel `with_streaming` installed, so
+    /// the run template can publish it on the entity: dispatch paths that
+    /// only hold the registered entity (triggered background children)
+    /// report their lifecycle through it. `None` outside streaming runs.
+    pub fn subagent_tx(
+        &self,
+    ) -> Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>> {
+        self.tool_coordinator.subagent_tx_config()
+    }
+
     /// Attach the event bus token usage and hook events are published to.
     /// Forwarded to the tool execution coordinator (tool-call hooks publish
     /// through it).

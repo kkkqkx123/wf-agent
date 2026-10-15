@@ -78,7 +78,20 @@ impl AgentLoopCoordinator {
         sink: Option<AgentEventSink>,
     ) -> AgentResult<AgentLoopOutput> {
         if let Some(ref registry) = self.entity_registry {
-            registry.register(entity.clone())?;
+            if let Err(e) = registry.register(entity.clone()) {
+                // Entity build derived this child onto the parent manager;
+                // a rejected registration must not leave that reference
+                // behind on a parent that never adopted the execution.
+                if let Some(parent_id) = entity.parent_execution_id() {
+                    if let Some(parent) = registry.get(&parent_id) {
+                        parent.as_ref().hierarchy_manager().remove_child(
+                            entity.id().as_str(),
+                            &wf_types::execution::ExecutionType::AgentLoop,
+                        );
+                    }
+                }
+                return Err(e);
+            }
             // Parent association for agent-to-agent nesting: the manager
             // derive path already registered the child on the parent manager,
             // so only link when the manager has no record yet.
@@ -129,6 +142,9 @@ impl AgentLoopCoordinator {
         if let Some(handle) = consumer {
             handle.abort();
         }
+        // Release the parent-stream observer so the forwarding task exits
+        // with the loop instead of outliving it on the entity's sender.
+        entity.clear_subagent_tx();
         self.persist_agent(&entity).await;
         outcome
     }
@@ -253,6 +269,12 @@ impl AgentLoopCoordinator {
         if mode == IterationMode::Streaming {
             if let Some(sink) = sink {
                 coordinator = coordinator.with_streaming(sink);
+                // Publish the observer on the entity so triggered children,
+                // which resolve the parent through the registry instead of a
+                // tool call, report their lifecycle into the same stream.
+                if let Some(tx) = coordinator.subagent_tx() {
+                    entity.set_subagent_tx(tx);
+                }
             }
         }
         let iteration_coordinator = std::sync::Arc::new(coordinator);

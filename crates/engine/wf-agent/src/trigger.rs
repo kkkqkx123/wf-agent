@@ -169,7 +169,10 @@ impl TriggeredAgentExecutionManager {
             manager: parent.as_ref().hierarchy_manager(),
             cancellation: Some(parent.get_abort_signal()),
             tool_call_id: None,
-            subagent_tx: None,
+            // The parent loop reports triggered children through its own
+            // stream observer when it runs streaming; blocking runs carry
+            // none and the child stays silent.
+            subagent_tx: parent.subagent_tx(),
         };
 
         // Register the child on the parent entity. The child entity id is a
@@ -588,6 +591,64 @@ mod tests {
         Arc::new(|_config, _input, _parent| {
             Box::pin(async move { Err(AgentError::Internal("child boom".to_string())) })
         })
+    }
+
+    /// Triggered children report their lifecycle through the parent's
+    /// stream observer: the manager forwards the parent entity's observer
+    /// into the child's parent link.
+    #[tokio::test]
+    async fn test_triggered_child_inherits_parent_stream_observer() {
+        let (observer_tx, _observer_rx) = tokio::sync::mpsc::channel(4);
+        let parent = make_parent();
+        parent.set_subagent_tx(observer_tx);
+
+        let seen = Arc::new(std::sync::Mutex::new(None::<bool>));
+        let seen_for_child = seen.clone();
+        let executor: AgentExecutorCallback = Arc::new(move |_config, _input, parent_link| {
+            let seen = seen_for_child.clone();
+            Box::pin(async move {
+                *seen.lock().unwrap() = Some(
+                    parent_link
+                        .as_ref()
+                        .is_some_and(|link| link.subagent_tx.is_some()),
+                );
+                Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child".to_string()),
+                    result: Value::from("ok"),
+                    iterations: 1,
+                    finish_reason: LoopFinishReason::Completed,
+                    conversation: Vec::new(),
+                })
+            })
+        });
+        let manager = TriggeredAgentExecutionManager::new(executor);
+
+        manager
+            .submit_triggered_execution(
+                TriggeredAgentExecutionConfig {
+                    parent: parent.clone(),
+                    result_variable: "trigger_result".to_string(),
+                    wait_for_completion: true,
+                    timeout_ms: Some(5000),
+                    anchor: None,
+                    input_mode: Default::default(),
+                    writeback: Default::default(),
+                },
+                child_config("child-observer"),
+                AgentLoopInput {
+                    message: "run".to_string(),
+                    context: std::collections::HashMap::new(),
+                    conversation: Vec::new(),
+                },
+            )
+            .await
+            .expect("sync child must succeed");
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            Some(true),
+            "triggered child must carry the parent stream observer"
+        );
     }
 
     #[tokio::test]

@@ -51,6 +51,13 @@ pub struct AgentLoopEntity {
     /// of this execution. Released when the execution reaches a terminal
     /// state or when the entity is removed from the registry.
     gate_permit: std::sync::RwLock<Option<GatePermit>>,
+    /// Parent-stream observer, installed while this loop runs in streaming
+    /// mode and cleared when the run settles. Dispatch paths that only
+    /// hold the registered entity (triggered background children) read it
+    /// to report their lifecycle upstream.
+    subagent_tx: std::sync::RwLock<
+        Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>>,
+    >,
 }
 
 impl AgentLoopEntity {
@@ -86,6 +93,7 @@ impl AgentLoopEntity {
             pause_timeout_handle: std::sync::RwLock::new(None),
             timeout_metrics: None,
             gate_permit: std::sync::RwLock::new(None),
+            subagent_tx: std::sync::RwLock::new(None),
         }
     }
 
@@ -491,6 +499,29 @@ impl AgentLoopEntity {
     /// failed placeholder registration).
     pub fn release_gate_permit(&self) {
         drop(self.take_gate_permit());
+    }
+
+    /// Install the parent-stream observer for the duration of a streaming
+    /// run. Runs without a stream never carry one, so dispatch paths that
+    /// only hold the entity stay silent.
+    pub fn set_subagent_tx(
+        &self,
+        tx: tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>,
+    ) {
+        *wf_common::lock::write_ok(self.subagent_tx.write()) = Some(tx);
+    }
+
+    /// Drop the parent-stream observer once the run settles, so the
+    /// forwarding task can exit instead of outliving the loop.
+    pub fn clear_subagent_tx(&self) {
+        wf_common::lock::write_ok(self.subagent_tx.write()).take();
+    }
+
+    /// The parent-stream observer of this loop, when it runs streaming.
+    pub fn subagent_tx(
+        &self,
+    ) -> Option<tokio::sync::mpsc::Sender<wf_types::events::ExecutionStreamEvent>> {
+        wf_common::lock::read_ok(self.subagent_tx.read()).clone()
     }
 
     /// Register a pause timeout: if the loop stays paused beyond

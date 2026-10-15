@@ -13,7 +13,7 @@ pub static QUERY_WORKFLOW_STATUS: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "workflow",
     tags: &["query", "status"],
-    description: "Query the status of a running or completed workflow.",
+    description: "Query the status of a running or completed execution in the current execution tree (this run, its ancestors or its descendants).",
     parameters: &[
         ToolParameter {
             name: "workflow_id",

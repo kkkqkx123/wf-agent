@@ -172,8 +172,11 @@ pub trait ExecutionCallback: Send + Sync {
     /// own id when it is a root): the target must share that root, so an
     /// execution can only observe itself, its ancestors, its descendants
     /// and its siblings. An unrelated target is refused instead of exposed.
-    async fn query_execution_status(&self, execution_id: &str, caller_root: &Id)
-        -> ToolResult<ExecutionStatus>;
+    async fn query_execution_status(
+        &self,
+        execution_id: &str,
+        caller_root: &Id,
+    ) -> ToolResult<ExecutionStatus>;
 
     /// Stop one execution, scoped to the caller's execution subtree under
     /// the same rule as [`ExecutionCallback::query_execution_status`].

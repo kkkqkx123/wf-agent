@@ -1,5 +1,5 @@
 {
-  "description": "Query the status of a running or completed workflow.",
+  "description": "Query the status of a running or completed execution in the current execution tree (this run, its ancestors or its descendants).",
   "enabled": true,
   "id": "query_workflow_status",
   "metadata": {

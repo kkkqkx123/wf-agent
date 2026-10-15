@@ -76,9 +76,7 @@ impl SuggestStrategy for MatchPrevCmdStrategy {
     }
 
     fn suggest(&self, buffer: &str, ctx: &SuggestCtx) -> Option<String> {
-        let Some(prev) = ctx.prev_prompt else {
-            return None;
-        };
+        let prev = ctx.prev_prompt?;
         if buffer.is_empty() || buffer.starts_with(' ') {
             return None;
         }
@@ -297,7 +295,10 @@ mod tests {
     #[test]
     fn match_prev_cmd_without_previous_prompt_is_silent() {
         let history = hist(&["cargo test", "cargo nextest run"]);
-        assert_eq!(MatchPrevCmdStrategy.suggest("cargo", &mk_ctx(&history, None)), None);
+        assert_eq!(
+            MatchPrevCmdStrategy.suggest("cargo", &mk_ctx(&history, None)),
+            None
+        );
     }
 
     #[test]
@@ -319,10 +320,7 @@ mod tests {
         let history = Vec::new();
         let ctx = mk_ctx(&history, None);
         // /reasoning, /rerun share "/re".
-        assert_eq!(
-            CommandStrategy.suggest("/r", &ctx),
-            Some("/re".to_string())
-        );
+        assert_eq!(CommandStrategy.suggest("/r", &ctx), Some("/re".to_string()));
         // Buffer already at the ambiguity point: nothing to add.
         assert_eq!(CommandStrategy.suggest("/re", &ctx), None);
         // Slash alone is ambiguous over the whole set.
@@ -351,10 +349,7 @@ mod tests {
         // Command completion wins when history has nothing.
         let history = hist(&[]);
         let ctx = mk_ctx(&history, None);
-        assert_eq!(
-            engine.suggest("/hi", &ctx),
-            Some("/history".to_string())
-        );
+        assert_eq!(engine.suggest("/hi", &ctx), Some("/history".to_string()));
     }
 
     #[test]

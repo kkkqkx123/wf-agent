@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use wf_client::WfClient;
 
+use crossterm::style::{Attribute, Stylize};
+
 use crate::input::LineReader;
 use crate::output::diag_line;
 
@@ -30,6 +32,7 @@ pub struct MiniApprover {
     /// flag as an interrupt so the whole turn stops instead of re-prompting
     /// for the next sensitive tool.
     cancel: tokio::sync::watch::Sender<bool>,
+    stderr_color: bool,
 }
 
 impl MiniApprover {
@@ -44,7 +47,14 @@ impl MiniApprover {
             lines,
             timeout_secs: timeout_secs.max(1),
             cancel,
+            stderr_color: false,
         }
+    }
+
+    /// Same as [`Self::new`] with explicit stderr styling for TTY prompts.
+    pub fn with_stderr_color(mut self, stderr_color: bool) -> Self {
+        self.stderr_color = stderr_color;
+        self
     }
 
     /// Poll pending interactions until `stop` flips, answering tool
@@ -109,11 +119,16 @@ impl MiniApprover {
         {
             let stderr = io::stderr();
             let mut err = stderr.lock();
-            let _ = writeln!(
-                err,
+            let prompt = format!(
                 "Allow tool '{tool_name}'{risk}? [y/N] (default N, {}s timeout)",
                 self.timeout_secs
             );
+            let prompt = if self.stderr_color {
+                prompt.attribute(Attribute::Bold).to_string()
+            } else {
+                prompt
+            };
+            let _ = writeln!(err, "{prompt}");
             let _ = err.flush();
         }
         let answer = tokio::select! {

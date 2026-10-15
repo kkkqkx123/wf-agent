@@ -25,7 +25,7 @@ use wf_cli_shared::turn::{TurnKind, TurnParams};
 
 use crate::approval::MiniApprover;
 use crate::display::DisplayConfig;
-use crate::editor::{EditorSnapshot, PromptEvent};
+use crate::editor::{terminal_cols, EditorSnapshot, PromptEvent};
 use crate::input::{self, History, LineReader, SlashCommand};
 use crate::output::{self};
 use crate::suggest::{SuggestBroker, SuggestEngine};
@@ -126,7 +126,8 @@ impl NativeSession {
             None => History::new(),
         };
         let stdout_tty = std::io::stdout().is_terminal();
-        let display = DisplayConfig::resolve(cli, stdout_tty);
+        let stderr_tty = std::io::stderr().is_terminal();
+        let display = DisplayConfig::resolve(cli, stdout_tty, stderr_tty);
         let raw_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
         Ok(Self {
             client,
@@ -204,28 +205,28 @@ impl NativeSession {
         Ok(())
     }
 
-    /// One prompt through the raw-mode editor. The editor runs on a
-    /// blocking thread and borrows the shared stdin receiver for the
-    /// duration; nothing else reads stdin while a prompt is active.
+    /// One prompt through the raw-mode editor. The event stream is the only
+    /// stdin reader on the TTY pipeline; it is borrowed for the prompt and
+    /// handed back afterwards. Nothing else reads stdin while a prompt is
+    /// active. Pipe sessions never reach here (raw needs dual TTY).
     async fn read_prompt_raw(&mut self) -> CliResult<PromptEvent> {
+        if !self.lines.lock().await.is_tty() {
+            return Ok(PromptEvent::Eof);
+        }
         let snapshot = EditorSnapshot {
             history: self.history.snapshot(),
             prev_prompt: self.prev_prompt.clone(),
             prompt: PROMPT.to_string(),
+            term_cols: terminal_cols(),
         };
         let engine = Arc::clone(&self.suggest);
         let broker = Arc::clone(&self.broker);
-        let rx = self.lines.lock().await.take_receiver();
-        let Some(rx) = rx else {
-            // Defensive: stdin already closed reads as EOF.
+        let stream = self.lines.lock().await.take_event_stream();
+        let Some(stream) = stream else {
             return Ok(PromptEvent::Eof);
         };
-        let (event, rx) = tokio::task::spawn_blocking(move || {
-            crate::editor::run_blocking(rx, snapshot, engine, broker)
-        })
-        .await
-        .map_err(|e| CliError::Io(std::io::Error::other(format!("prompt editor: {e}"))))?;
-        self.lines.lock().await.restore_receiver(rx);
+        let (event, stream) = crate::editor::run_tty(stream, snapshot, engine, broker).await;
+        self.lines.lock().await.restore_event_stream(stream);
         Ok(event)
     }
 
@@ -281,7 +282,7 @@ impl NativeSession {
                 output::diag_line("commands: /help show this help, /clear print a separator, /new start a fresh conversation, /quit exit (Ctrl-D also exits)");
                 output::diag_line("history: /history [prefix] list recent prompts (optional prefix filter), /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("display: /markdown [raw|plain|styled] set or show stdout rendering, /reasoning [on|off], /usage [on|off], /tools [on|off], /display show all");
-                output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
+                output::diag_line("keys: Tab or Right-arrow (at line end) accept the suggestion, Ctrl-Right or Alt-f accept one word, Up/Down browse history by prefix, Alt-b/Alt-f word motion, Alt-d/Alt-Backspace kill word, Alt-. insert history tail word, Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
                     "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
@@ -555,7 +556,8 @@ impl NativeSession {
                     self.approval_timeout_secs,
                     Arc::clone(&self.lines),
                     self.cancel_tx.clone(),
-                );
+                )
+                .with_stderr_color(self.display.stderr_color);
                 let approver_task = tokio::spawn(async move { approver.watch(stop).await });
                 let normalized = map_frames(stream);
                 let outcome = self.pump_stream(&execution_id, normalized).await;

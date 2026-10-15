@@ -15,7 +15,8 @@ pub const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 120;
 
 /// Resolved display settings for one session. `markdown` selects the stdout
 /// presentation; the `show_*` flags gate stderr streams (failures always
-/// show); `color` records whether ANSI styling may be emitted.
+/// show); `color` records whether ANSI styling may be emitted on stdout,
+/// `stderr_color` the same for stderr diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayConfig {
     pub markdown: MarkdownMode,
@@ -23,6 +24,7 @@ pub struct DisplayConfig {
     pub show_usage: bool,
     pub show_tools: bool,
     pub color: bool,
+    pub stderr_color: bool,
     pub approval_timeout_secs: u64,
 }
 
@@ -34,6 +36,7 @@ impl Default for DisplayConfig {
             show_usage: true,
             show_tools: true,
             color: false,
+            stderr_color: false,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
         }
     }
@@ -41,7 +44,7 @@ impl Default for DisplayConfig {
 
 impl DisplayConfig {
     /// Resolve from CLI flags, environment, config file and TTY state.
-    pub fn resolve(cli: &Cli, stdout_tty: bool) -> Self {
+    pub fn resolve(cli: &Cli, stdout_tty: bool, stderr_tty: bool) -> Self {
         let file = load_file_config();
         let markdown = cli
             .markdown
@@ -65,12 +68,14 @@ impl DisplayConfig {
         );
         let approval_timeout_secs = resolve_approval_timeout(file.as_ref());
         let color = color_enabled(cli, stdout_tty);
+        let stderr_color = stderr_color_enabled(cli, stderr_tty);
         Self {
             markdown,
             show_reasoning,
             show_usage,
             show_tools,
             color,
+            stderr_color,
             approval_timeout_secs,
         }
     }
@@ -78,12 +83,13 @@ impl DisplayConfig {
     /// One-line summary for the banner and `/display`.
     pub fn describe(&self) -> String {
         format!(
-            "markdown={} reasoning={} usage={} tools={} color={} approval_timeout={}s",
+            "markdown={} reasoning={} usage={} tools={} color={} stderr_color={} approval_timeout={}s",
             self.markdown.as_str(),
             on_off(self.show_reasoning),
             on_off(self.show_usage),
             on_off(self.show_tools),
             on_off(self.color),
+            on_off(self.stderr_color),
             self.approval_timeout_secs,
         )
     }
@@ -141,14 +147,10 @@ fn load_file_config() -> Option<MiniConfig> {
         .map(|manager| manager.config().mini.clone())
 }
 
-/// ANSI styling is emitted only for human TTY output: an explicit
-/// `--no-color`, a non-TTY stdout, `NO_COLOR` or a `dumb` terminal all force
-/// plain output. Styled mode degrades to plain text under these conditions
-/// instead of emitting escapes into pipes or files.
-pub fn color_enabled(cli: &Cli, stdout_tty: bool) -> bool {
-    if cli.no_color || !stdout_tty {
-        return false;
-    }
+/// Shared ANSI gate: `NO_COLOR` or a `dumb` terminal disables styling on
+/// every stream. TTY and `--no-color` checks stay per-stream so stdout and
+/// stderr gates remain independent.
+pub fn ansi_allowed() -> bool {
     if std::env::var("NO_COLOR")
         .map(|raw| !raw.trim().is_empty())
         .unwrap_or(false)
@@ -162,6 +164,27 @@ pub fn color_enabled(cli: &Cli, stdout_tty: bool) -> bool {
         return false;
     }
     true
+}
+
+/// ANSI styling is emitted only for human TTY output: an explicit
+/// `--no-color`, a non-TTY stdout, `NO_COLOR` or a `dumb` terminal all force
+/// plain output. Styled mode degrades to plain text under these conditions
+/// instead of emitting escapes into pipes or files.
+pub fn color_enabled(cli: &Cli, stdout_tty: bool) -> bool {
+    if cli.no_color || !stdout_tty {
+        return false;
+    }
+    ansi_allowed()
+}
+
+/// Stderr diagnostics follow the same gate but on the stderr TTY, kept
+/// independent from the stdout `color` flag so disabling stdout styling
+/// never silences stderr styling and vice versa.
+pub fn stderr_color_enabled(cli: &Cli, stderr_tty: bool) -> bool {
+    if cli.no_color || !stderr_tty {
+        return false;
+    }
+    ansi_allowed()
 }
 
 #[cfg(test)]

@@ -1,8 +1,8 @@
-//! Raw-mode prompt editor: single-line editing with ghost-text suggestions.
+//! Raw-mode prompt editor: multiline-aware editing with ghost-text suggestions.
 //!
-//! The editor borrows the stdin byte channel for the duration of one
+//! The editor owns the crossterm event stream for the duration of one
 //! prompt, mirrors the zsh-autosuggestions interaction model on a plain
-//! terminal, and hands the channel back afterwards:
+//! terminal, and hands the stream back afterwards:
 //!
 //! - **ghost text** — the suggestion suffix is drawn dim after the cursor
 //!   and never enters the buffer (zsh `POSTDISPLAY`,
@@ -17,21 +17,23 @@
 //!   the typed prefix when browsed past the newest match.
 //!
 //! Structure: [`EditorCore`] is a pure state machine (unit-testable without
-//! a terminal); `run_blocking` wraps it with the crossterm renderer, raw
-//! mode and the Drop-guarded teardown. Non-TTY sessions never reach this
-//! module — the session falls back to the cooked [`crate::input::LineReader`].
-//!
-//! Known limitation: rendering assumes the edited line fits on one terminal
-//! row (long input wraps and redraw degrades), and a lone Escape waits for
-//! the next byte instead of timing out — both acceptable for short prompts.
+//! a terminal); `run_tty` wraps it with the crossterm event source, raw
+//! mode, bracketed paste and the Drop-guarded teardown. Non-TTY sessions
+//! never reach this module — the session falls back to the cooked
+//! [`crate::input::LineReader`] pipe path.
 
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use crossterm::cursor::MoveToColumn;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
-use unicode_width::UnicodeWidthChar;
+use crossterm::cursor::{Hide, MoveLeft, MoveTo, MoveToColumn, MoveUp, Show};
+use crossterm::event::{
+    DisableBracketedPaste, EnableBracketedPaste, Event, EventStream, KeyCode, KeyEvent,
+    KeyModifiers,
+};
+use crossterm::style::Color;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
+use futures::StreamExt;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::suggest::{SuggestBroker, SuggestCtx, SuggestEngine};
 
@@ -55,6 +57,9 @@ pub struct EditorSnapshot {
     pub prev_prompt: Option<String>,
     /// Prompt string, e.g. `"> "`.
     pub prompt: String,
+    /// Terminal width in columns at prompt start; resized live on resize
+    /// events. Zero means unknown and falls back to single-row rendering.
+    pub term_cols: u16,
 }
 
 /// Terminal keys the editor reacts to.
@@ -81,179 +86,69 @@ pub enum Key {
     CtrlU,
     CtrlW,
     AltF,
+    AltB,
+    AltD,
+    AltBackspace,
+    AltDot,
     Unknown,
 }
 
-/// Incremental byte-to-key decoder across chunk boundaries. Escape
-/// sequences and multi-byte UTF-8 characters may arrive split; `next_key`
-/// returns `None` until enough bytes are buffered.
-#[derive(Debug, Default)]
-pub struct KeyDecoder {
-    buf: Vec<u8>,
+/// Translate one crossterm key event into the editor key space. Release
+/// events are ignored (`None`) so held keys do not double-apply; every
+/// other non-bound key maps to [`Key::Unknown`] (redraw, no state change).
+pub fn map_key_event(event: KeyEvent) -> Option<Key> {
+    use KeyCode as C;
+    if event.kind.is_release() {
+        return None;
+    }
+    let ctrl = event.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = event.modifiers.contains(KeyModifiers::ALT);
+    let key = match event.code {
+        C::Enter => Key::Enter,
+        C::Tab | C::BackTab => Key::Tab,
+        C::Backspace if alt => Key::AltBackspace,
+        C::Backspace => Key::Backspace,
+        C::Delete => Key::Delete,
+        C::Left if ctrl => Key::Left(true),
+        C::Left => Key::Left(false),
+        C::Right if ctrl => Key::Right(true),
+        C::Right => Key::Right(false),
+        C::Up => Key::Up,
+        C::Down => Key::Down,
+        C::Home => Key::Home,
+        C::End => Key::End,
+        C::Esc => Key::Unknown,
+        C::Char(c) if ctrl && !alt => match c.to_ascii_lowercase() {
+            'a' => Key::CtrlA,
+            'c' => Key::CtrlC,
+            'd' => Key::CtrlD,
+            'e' => Key::CtrlE,
+            'h' => Key::Backspace,
+            'k' => Key::CtrlK,
+            'l' => Key::CtrlL,
+            'u' => Key::CtrlU,
+            'w' => Key::CtrlW,
+            _ => Key::Unknown,
+        },
+        C::Char(c) if alt && !ctrl => match c.to_ascii_lowercase() {
+            'f' => Key::AltF,
+            'b' => Key::AltB,
+            'd' => Key::AltD,
+            '.' => Key::AltDot,
+            _ => Key::Unknown,
+        },
+        C::Char(c) if !ctrl && !alt => Key::Char(c),
+        _ => Key::Unknown,
+    };
+    Some(key)
 }
 
-impl KeyDecoder {
-    pub fn feed(&mut self, chunk: &[u8]) {
-        self.buf.extend_from_slice(chunk);
-    }
-
-    /// Decode the next complete key, or `None` while more bytes are needed.
-    pub fn next_key(&mut self) -> Option<Key> {
-        if self.buf.is_empty() {
-            return None;
-        }
-        let lead = self.buf[0];
-        match lead {
-            0x1b => self.decode_escape(),
-            0x0d | 0x0a => {
-                self.buf.drain(..1);
-                Some(Key::Enter)
-            }
-            0x09 => {
-                self.buf.drain(..1);
-                Some(Key::Tab)
-            }
-            0x7f | 0x08 => {
-                self.buf.drain(..1);
-                Some(Key::Backspace)
-            }
-            0x03 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlC)
-            }
-            0x04 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlD)
-            }
-            0x01 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlA)
-            }
-            0x05 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlE)
-            }
-            0x0b => {
-                self.buf.drain(..1);
-                Some(Key::CtrlK)
-            }
-            0x0c => {
-                self.buf.drain(..1);
-                Some(Key::CtrlL)
-            }
-            0x15 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlU)
-            }
-            0x17 => {
-                self.buf.drain(..1);
-                Some(Key::CtrlW)
-            }
-            0x00..=0x1f => {
-                self.buf.drain(..1);
-                Some(Key::Unknown)
-            }
-            0x20..=0x7e => {
-                self.buf.drain(..1);
-                Some(Key::Char(lead as char))
-            }
-            _ => self.decode_utf8(),
-        }
-    }
-
-    /// CSI / SS3 / Alt-prefixed sequences after a lone ESC byte.
-    fn decode_escape(&mut self) -> Option<Key> {
-        if self.buf.len() < 2 {
-            // A lone ESC could still grow into a sequence; wait for it.
-            return None;
-        }
-        match self.buf[1] {
-            b'[' => self.decode_csi(),
-            b'O' => {
-                if self.buf.len() < 3 {
-                    return None;
-                }
-                let key = match self.buf[2] {
-                    b'A' => Key::Up,
-                    b'B' => Key::Down,
-                    b'C' => Key::Right(false),
-                    b'D' => Key::Left(false),
-                    b'H' => Key::Home,
-                    b'F' => Key::End,
-                    _ => Key::Unknown,
-                };
-                self.buf.drain(..3);
-                Some(key)
-            }
-            // Alt-modified keys arrive as ESC + byte; only Alt-f is bound.
-            b'f' => {
-                self.buf.drain(..2);
-                Some(Key::AltF)
-            }
-            _ => {
-                self.buf.drain(..2);
-                Some(Key::Unknown)
-            }
-        }
-    }
-
-    /// CSI: `ESC [ <params> <final>` with the final byte in `0x40..=0x7E`.
-    fn decode_csi(&mut self) -> Option<Key> {
-        let end = self.buf[2..]
-            .iter()
-            .position(|byte| (0x40..=0x7e).contains(byte))?
-            + 2;
-        let params = String::from_utf8_lossy(&self.buf[2..end]).to_string();
-        let final_byte = self.buf[end];
-        self.buf.drain(..=end);
-        // Modifier 5 = Ctrl in xterm parameter encoding (`1;5C`).
-        let ctrl = params.split(';').any(|part| part.trim() == "5");
-        let key = match final_byte {
-            b'A' => Key::Up,
-            b'B' => Key::Down,
-            b'C' => Key::Right(ctrl),
-            b'D' => Key::Left(ctrl),
-            b'H' => Key::Home,
-            b'F' => Key::End,
-            b'~' => match params.as_str() {
-                "1" | "7" => Key::Home,
-                "4" | "8" => Key::End,
-                "3" => Key::Delete,
-                _ => Key::Unknown,
-            },
-            _ => Key::Unknown,
-        };
-        Some(key)
-    }
-
-    /// Multi-byte UTF-8: wait for the full sequence, resync by dropping the
-    /// lead byte when it is invalid.
-    fn decode_utf8(&mut self) -> Option<Key> {
-        let lead = self.buf[0];
-        let len = match lead {
-            0xc0..=0xdf => 2,
-            0xe0..=0xef => 3,
-            0xf0..=0xf7 => 4,
-            _ => {
-                self.buf.drain(..1);
-                return Some(Key::Unknown);
-            }
-        };
-        if self.buf.len() < len {
-            return None;
-        }
-        match std::str::from_utf8(&self.buf[..len]) {
-            Ok(text) => {
-                let c = text.chars().next().expect("non-empty valid utf8");
-                self.buf.drain(..len);
-                Some(Key::Char(c))
-            }
-            Err(_) => {
-                self.buf.drain(..1);
-                Some(Key::Unknown)
-            }
-        }
-    }
+/// Current terminal width for prompt layout; zero on failure so callers can
+/// fall back to single-row rendering.
+pub fn terminal_cols() -> u16 {
+    crossterm::terminal::size()
+        .map(|(cols, _)| cols)
+        .unwrap_or(0)
 }
 
 /// What the session loop should do after one key.
@@ -295,7 +190,11 @@ struct Browse {
 }
 
 impl EditorCore {
-    pub fn new(snapshot: EditorSnapshot, engine: Arc<SuggestEngine>, broker: Arc<SuggestBroker>) -> Self {
+    pub fn new(
+        snapshot: EditorSnapshot,
+        engine: Arc<SuggestEngine>,
+        broker: Arc<SuggestBroker>,
+    ) -> Self {
         let mut core = Self {
             prompt: snapshot.prompt.clone(),
             buffer: Vec::new(),
@@ -312,6 +211,18 @@ impl EditorCore {
 
     pub fn buffer(&self) -> &[char] {
         &self.buffer
+    }
+
+    pub fn prompt_text(&self) -> &str {
+        &self.prompt
+    }
+
+    pub fn term_cols(&self) -> u16 {
+        self.snapshot.term_cols
+    }
+
+    pub fn set_term_cols(&mut self, cols: u16) {
+        self.snapshot.term_cols = cols;
     }
 
     /// The submitted line: the typed buffer only.
@@ -333,6 +244,44 @@ impl EditorCore {
             .iter()
             .map(|c| c.width().unwrap_or(0))
             .sum()
+    }
+
+    /// Display width of the prompt plus the buffer head left of the cursor.
+    pub fn width_left_of_cursor(&self) -> usize {
+        let prompt_w = UnicodeWidthStr::width(self.prompt.as_str());
+        let head_w: usize = self.buffer[..self.cursor]
+            .iter()
+            .map(|c| c.width().unwrap_or(0))
+            .sum();
+        prompt_w + head_w
+    }
+
+    /// Display width of the whole visible line (prompt, buffer, ghost).
+    pub fn full_line_width(&self) -> usize {
+        let prompt_w = UnicodeWidthStr::width(self.prompt.as_str());
+        let buf_w: usize = self.buffer.iter().map(|c| c.width().unwrap_or(0)).sum();
+        let ghost_w = self
+            .suggestion
+            .as_deref()
+            .map(UnicodeWidthStr::width)
+            .unwrap_or(0);
+        prompt_w + buf_w + ghost_w
+    }
+
+    /// Insert a bracketed-paste payload as one edit: newlines flatten to
+    /// spaces (history convention), cursor lands after the insert, one
+    /// refetch at the end instead of one per character.
+    pub fn insert_paste(&mut self, text: &str) {
+        let flat = text.replace("\r\n", " ").replace(['\n', '\r'], " ");
+        if flat.is_empty() {
+            return;
+        }
+        for c in flat.chars() {
+            self.buffer.insert(self.cursor, c);
+            self.cursor += 1;
+        }
+        self.browse = None;
+        self.refetch();
     }
 
     pub fn handle_key(&mut self, key: Key) -> CoreAction {
@@ -388,9 +337,25 @@ impl EditorCore {
                 }
                 CoreAction::Continue
             }
-            Key::Left(true) => {
+            Key::Left(true) | Key::AltB => {
                 self.word_left();
                 self.clear_suggestion();
+                CoreAction::Continue
+            }
+            Key::AltD => {
+                self.delete_word_forward();
+                CoreAction::Continue
+            }
+            Key::AltBackspace => {
+                let end = self.cursor;
+                self.word_left();
+                self.buffer.drain(self.cursor..end);
+                self.browse = None;
+                self.refetch();
+                CoreAction::Continue
+            }
+            Key::AltDot => {
+                self.insert_history_tail_word();
                 CoreAction::Continue
             }
             Key::Up => {
@@ -528,6 +493,47 @@ impl EditorCore {
         self.cursor = i;
     }
 
+    fn delete_word_forward(&mut self) {
+        let len = self.buffer.len();
+        let mut end = self.cursor;
+        while end < len && self.buffer[end].is_whitespace() {
+            end += 1;
+        }
+        while end < len && !self.buffer[end].is_whitespace() {
+            end += 1;
+        }
+        if end > self.cursor {
+            self.buffer.drain(self.cursor..end);
+            self.browse = None;
+            self.refetch();
+        }
+    }
+
+    /// Insert the last whitespace-separated word of the newest history
+    /// entry (zsh Alt-.): a pure key semantic, no mode change.
+    fn insert_history_tail_word(&mut self) {
+        let word = self
+            .snapshot
+            .prev_prompt
+            .as_deref()
+            .and_then(|prev| prev.split_whitespace().next_back().map(str::to_string))
+            .or_else(|| {
+                self.snapshot
+                    .history
+                    .last()
+                    .and_then(|entry| entry.split_whitespace().next_back().map(str::to_string))
+            });
+        let Some(word) = word else {
+            return;
+        };
+        for c in word.chars() {
+            self.buffer.insert(self.cursor, c);
+            self.cursor += 1;
+        }
+        self.browse = None;
+        self.refetch();
+    }
+
     /// Walk to the previous (older) prefix match; the first Up starts
     /// browsing from the current buffer as the prefix.
     fn browse_up(&mut self) {
@@ -574,9 +580,7 @@ impl EditorCore {
             .enumerate()
             .filter(|(_, entry)| {
                 let mut chars = entry.chars();
-                prefix
-                    .iter()
-                    .all(|p| chars.next().is_some_and(|c| c == *p))
+                prefix.iter().all(|p| chars.next().is_some_and(|c| c == *p))
             })
             .map(|(index, _)| index)
             .collect()
@@ -622,101 +626,189 @@ fn partial_word_bytes(suffix: &str) -> usize {
     chars.get(i).map(|(byte, _)| *byte).unwrap_or(suffix.len())
 }
 
-/// Run one prompt on the raw terminal. Takes over the stdin receiver,
-/// enables raw mode (flushing any stale half-typed line first), and always
-/// restores the terminal — the guard also covers panics/unwinds.
-pub fn run_blocking(
-    rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+/// Redraw bookkeeping across frames: rows used by the last frame and the
+/// cursor row inside it, so the next frame can return to the block start.
+#[derive(Debug, Default)]
+struct RedrawState {
+    rows: usize,
+    cursor_row: usize,
+}
+
+/// Run one prompt on the raw terminal. Takes over the event stream for the
+/// duration; enables raw mode (flushing any stale half-typed line first)
+/// and bracketed paste, and always restores the terminal — the guard also
+/// covers panics/unwinds.
+pub async fn run_tty(
+    mut stream: EventStream,
     snapshot: EditorSnapshot,
     engine: Arc<SuggestEngine>,
     broker: Arc<SuggestBroker>,
-) -> (PromptEvent, tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) {
+) -> (PromptEvent, EventStream) {
     let mut core = EditorCore::new(snapshot, engine, broker);
     let raw = enable_raw_mode().is_ok();
     if raw {
         // Drop the half-typed line the tty driver may still hold from the
         // previous cooked phase (typed mid-turn); the channel-side drain
-        // already dropped the complete lines.
-        // SAFETY: fd 0 is a valid descriptor for the process lifetime.
-        unsafe { libc::tcflush(0, libc::TCIFLUSH) };
+        // already dropped the complete lines. Crossterm exposes no flush,
+        // so the termios call stays behind a unix gate.
+        #[cfg(unix)]
+        unsafe {
+            libc::tcflush(0, libc::TCIFLUSH);
+        }
     }
-    let guard = RawGuard { active: raw };
-    let mut rx = Some(rx);
-    let event = edit_loop(&mut rx, &mut core, &guard);
+    let mut err = io::stderr();
+    let paste = if raw {
+        crossterm::execute!(err, EnableBracketedPaste).is_ok()
+    } else {
+        false
+    };
+    let guard = RawGuard { active: raw, paste };
+    let event = edit_loop(&mut stream, &mut core).await;
     drop(guard);
-    (event, rx.expect("receiver returned by edit_loop"))
+    let _ = err.flush();
+    (event, stream)
 }
 
-fn edit_loop(
-    rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>,
-    core: &mut EditorCore,
-    _guard: &RawGuard,
-) -> PromptEvent {
+async fn edit_loop(stream: &mut EventStream, core: &mut EditorCore) -> PromptEvent {
     let mut out = io::stderr();
-    let mut decoder = KeyDecoder::default();
-    redraw(&mut out, core);
+    let mut state = RedrawState::default();
+    redraw(&mut out, core, &mut state);
     loop {
-        let Some(chunk) = rx.as_mut().and_then(|rx| rx.blocking_recv()) else {
+        let Some(next) = stream.next().await else {
             return PromptEvent::Eof;
         };
-        decoder.feed(&chunk);
-        while let Some(key) = decoder.next_key() {
-            match core.handle_key(key) {
-                CoreAction::Continue => redraw(&mut out, core),
-                CoreAction::ClearScreen => {
-                    let _ = crossterm::execute!(
-                        out,
-                        Clear(ClearType::All),
-                        crossterm::cursor::MoveTo(0, 0)
-                    );
-                    redraw(&mut out, core);
-                }
-                terminal => {
-                    let _ = out.write_all(b"\r\n");
-                    let _ = out.flush();
-                    return match terminal {
-                        CoreAction::Submit => PromptEvent::Line(core.line()),
-                        CoreAction::Eof => PromptEvent::Eof,
-                        CoreAction::Interrupt => PromptEvent::Interrupt,
-                        CoreAction::Continue | CoreAction::ClearScreen => unreachable!(
-                            "non-terminal actions handled above"
-                        ),
-                    };
+        let event = match next {
+            Ok(event) => event,
+            Err(_) => return PromptEvent::Eof,
+        };
+        match event {
+            Event::Key(key) => {
+                let Some(mapped) = map_key_event(key) else {
+                    continue;
+                };
+                match core.handle_key(mapped) {
+                    CoreAction::Continue => redraw(&mut out, core, &mut state),
+                    CoreAction::ClearScreen => {
+                        let _ = crossterm::execute!(out, Clear(ClearType::All), MoveTo(0, 0));
+                        state = RedrawState::default();
+                        redraw(&mut out, core, &mut state);
+                    }
+                    terminal => {
+                        let _ = out.write_all(b"\r\n");
+                        let _ = out.flush();
+                        return match terminal {
+                            CoreAction::Submit => PromptEvent::Line(core.line()),
+                            CoreAction::Eof => PromptEvent::Eof,
+                            CoreAction::Interrupt => PromptEvent::Interrupt,
+                            CoreAction::Continue | CoreAction::ClearScreen => {
+                                unreachable!("non-terminal actions handled above")
+                            }
+                        };
+                    }
                 }
             }
+            Event::Paste(text) => {
+                core.insert_paste(&text);
+                redraw(&mut out, core, &mut state);
+            }
+            Event::Resize(cols, _) => {
+                if cols > 0 {
+                    core.set_term_cols(cols);
+                }
+                redraw(&mut out, core, &mut state);
+            }
+            _ => {}
         }
     }
 }
 
-/// Restores cooked mode on drop, including across panics/unwinds.
+/// Restores cooked mode and bracketed paste on drop, including across
+/// panics/unwinds.
 struct RawGuard {
     active: bool,
+    paste: bool,
 }
 
 impl Drop for RawGuard {
     fn drop(&mut self) {
+        let mut err = io::stderr();
+        if self.paste {
+            let _ = crossterm::execute!(err, DisableBracketedPaste);
+        }
         if self.active {
             let _ = disable_raw_mode();
         }
     }
 }
 
-/// Redraw the whole prompt line: clear, prompt, buffer, dim suggestion,
-/// then move the cursor back to its position.
-fn redraw(out: &mut impl Write, core: &EditorCore) {
-    let _ = crossterm::queue!(out, MoveToColumn(0), Clear(ClearType::UntilNewLine));
-    let _ = out.write_all(core.prompt.as_bytes());
+/// Redraw the prompt block: return to the block start, clear down, write
+/// prompt plus buffer plus dim ghost, then place the cursor by display
+/// width. Unknown widths fall back to the legacy single-row path.
+fn redraw(out: &mut impl Write, core: &EditorCore, state: &mut RedrawState) {
+    let cols = core.term_cols();
+    if cols == 0 {
+        redraw_single(out, core);
+        state.rows = 1;
+        state.cursor_row = 0;
+        return;
+    }
+    let cols = cols as usize;
+    let _ = crossterm::queue!(out, Hide);
+    if state.rows > 0 {
+        if state.cursor_row > 0 {
+            let _ = crossterm::queue!(out, MoveUp(state.cursor_row as u16));
+        }
+        let _ = crossterm::queue!(out, MoveToColumn(0), Clear(ClearType::FromCursorDown));
+    } else {
+        let _ = crossterm::queue!(out, MoveToColumn(0), Clear(ClearType::UntilNewLine));
+    }
+    let _ = out.write_all(core.prompt_text().as_bytes());
     let buffer: String = core.buffer().iter().collect();
     let _ = out.write_all(buffer.as_bytes());
     if let Some(suffix) = core.suggestion_suffix() {
-        let _ = crossterm::queue!(out, SetForegroundColor(Color::DarkGrey));
+        let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
         let _ = out.write_all(suffix.as_bytes());
-        let _ = crossterm::queue!(out, ResetColor);
+        let _ = crossterm::queue!(out, crossterm::style::ResetColor);
+    }
+    let full_w = core.full_line_width();
+    let rows = full_w.max(1).div_ceil(cols);
+    let cursor_w = core.width_left_of_cursor();
+    let cursor_row = cursor_w / cols;
+    let cursor_col = cursor_w % cols;
+    if rows > 1 || cursor_row > 0 {
+        let end_row = rows - 1;
+        if end_row > cursor_row {
+            let _ = crossterm::queue!(out, MoveUp((end_row - cursor_row) as u16));
+        }
+        let _ = crossterm::queue!(out, MoveToColumn(cursor_col as u16));
+    } else {
+        let back = core.width_right_of_cursor();
+        if back > 0 {
+            let _ = crossterm::queue!(out, MoveLeft(back as u16));
+        }
+    }
+    let _ = crossterm::queue!(out, Show);
+    let _ = out.flush();
+    state.rows = rows.max(1);
+    state.cursor_row = cursor_row;
+}
+
+/// Legacy single-row redraw for unknown terminal widths.
+fn redraw_single(out: &mut impl Write, core: &EditorCore) {
+    let _ = crossterm::queue!(out, Hide, MoveToColumn(0), Clear(ClearType::UntilNewLine));
+    let _ = out.write_all(core.prompt_text().as_bytes());
+    let buffer: String = core.buffer().iter().collect();
+    let _ = out.write_all(buffer.as_bytes());
+    if let Some(suffix) = core.suggestion_suffix() {
+        let _ = crossterm::queue!(out, crossterm::style::SetForegroundColor(Color::DarkGrey));
+        let _ = out.write_all(suffix.as_bytes());
+        let _ = crossterm::queue!(out, crossterm::style::ResetColor);
     }
     let back = core.width_right_of_cursor();
     if back > 0 {
-        let _ = crossterm::queue!(out, crossterm::cursor::MoveLeft(back as u16));
+        let _ = crossterm::queue!(out, MoveLeft(back as u16));
     }
+    let _ = crossterm::queue!(out, Show);
     let _ = out.flush();
 }
 
@@ -724,6 +816,7 @@ fn redraw(out: &mut impl Write, core: &EditorCore) {
 mod tests {
     use super::*;
     use crate::suggest::SuggestEngine;
+    use crossterm::event::KeyEventKind;
 
     fn core(history: &[&str], prev: Option<&str>) -> EditorCore {
         EditorCore::new(
@@ -731,10 +824,15 @@ mod tests {
                 history: history.iter().map(|s| s.to_string()).collect(),
                 prev_prompt: prev.map(|s| s.to_string()),
                 prompt: "> ".to_string(),
+                term_cols: 80,
             },
             Arc::new(SuggestEngine::new()),
             Arc::new(SuggestBroker::new()),
         )
+    }
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new_with_kind(code, modifiers, KeyEventKind::Press)
     }
 
     fn feed(core: &mut EditorCore, keys: &[Key]) {
@@ -752,57 +850,125 @@ mod tests {
     }
 
     #[test]
-    fn decoder_plain_chars_and_enter() {
-        let mut decoder = KeyDecoder::default();
-        decoder.feed(b"ab\r");
-        assert_eq!(decoder.next_key(), Some(Key::Char('a')));
-        assert_eq!(decoder.next_key(), Some(Key::Char('b')));
-        assert_eq!(decoder.next_key(), Some(Key::Enter));
-        assert_eq!(decoder.next_key(), None);
+    fn map_plain_chars_and_enter() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('a'), KeyModifiers::empty())),
+            Some(Key::Char('a'))
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Enter, KeyModifiers::empty())),
+            Some(Key::Enter)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Tab, KeyModifiers::empty())),
+            Some(Key::Tab)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Backspace, KeyModifiers::empty())),
+            Some(Key::Backspace)
+        );
     }
 
     #[test]
-    fn decoder_escape_sequences() {
-        let mut decoder = KeyDecoder::default();
-        decoder.feed(b"\x1b[A\x1b[B\x1b[C\x1b[D\x1b[H\x1b[F\x1b[3~\x1b[1;5C\x1bOF");
-        assert_eq!(decoder.next_key(), Some(Key::Up));
-        assert_eq!(decoder.next_key(), Some(Key::Down));
-        assert_eq!(decoder.next_key(), Some(Key::Right(false)));
-        assert_eq!(decoder.next_key(), Some(Key::Left(false)));
-        assert_eq!(decoder.next_key(), Some(Key::Home));
-        assert_eq!(decoder.next_key(), Some(Key::End));
-        assert_eq!(decoder.next_key(), Some(Key::Delete));
-        assert_eq!(decoder.next_key(), Some(Key::Right(true)));
-        assert_eq!(decoder.next_key(), Some(Key::End));
+    fn map_control_keys() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Some(Key::CtrlC)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Some(Key::CtrlD)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            Some(Key::CtrlA)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('h'), KeyModifiers::CONTROL)),
+            Some(Key::Backspace)
+        );
     }
 
     #[test]
-    fn decoder_waits_for_split_escape_sequence() {
-        let mut decoder = KeyDecoder::default();
-        decoder.feed(&[0x1b]);
-        assert_eq!(decoder.next_key(), None, "lone ESC waits");
-        decoder.feed(&[b'[', b'C']);
-        assert_eq!(decoder.next_key(), Some(Key::Right(false)));
+    fn map_arrows_and_modifiers() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Up, KeyModifiers::empty())),
+            Some(Key::Up)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Down, KeyModifiers::empty())),
+            Some(Key::Down)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Right, KeyModifiers::empty())),
+            Some(Key::Right(false))
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Right, KeyModifiers::CONTROL)),
+            Some(Key::Right(true))
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Left, KeyModifiers::CONTROL)),
+            Some(Key::Left(true))
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Home, KeyModifiers::empty())),
+            Some(Key::Home)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Delete, KeyModifiers::empty())),
+            Some(Key::Delete)
+        );
     }
 
     #[test]
-    fn decoder_handles_utf8_split_across_feeds() {
-        let mut decoder = KeyDecoder::default();
-        let text = "你好";
-        let bytes = text.as_bytes();
-        decoder.feed(&bytes[..2]);
-        assert_eq!(decoder.next_key(), None, "incomplete sequence waits");
-        decoder.feed(&bytes[2..]);
-        assert_eq!(decoder.next_key(), Some(Key::Char('你')));
-        assert_eq!(decoder.next_key(), Some(Key::Char('好')));
+    fn map_alt_family() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('f'), KeyModifiers::ALT)),
+            Some(Key::AltF)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('b'), KeyModifiers::ALT)),
+            Some(Key::AltB)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('d'), KeyModifiers::ALT)),
+            Some(Key::AltD)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('.'), KeyModifiers::ALT)),
+            Some(Key::AltDot)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::Backspace, KeyModifiers::ALT)),
+            Some(Key::AltBackspace)
+        );
     }
 
     #[test]
-    fn decoder_invalid_utf8_resyncs() {
-        let mut decoder = KeyDecoder::default();
-        decoder.feed(&[0xff, b'x']);
-        assert_eq!(decoder.next_key(), Some(Key::Unknown));
-        assert_eq!(decoder.next_key(), Some(Key::Char('x')));
+    fn map_ignores_release_and_reports_unknown() {
+        let release = KeyEvent::new_with_kind(
+            KeyCode::Char('a'),
+            KeyModifiers::empty(),
+            KeyEventKind::Release,
+        );
+        assert_eq!(map_key_event(release), None);
+        assert_eq!(
+            map_key_event(key(KeyCode::Esc, KeyModifiers::empty())),
+            Some(Key::Unknown)
+        );
+        assert_eq!(
+            map_key_event(key(KeyCode::F(1), KeyModifiers::empty())),
+            Some(Key::Unknown)
+        );
+    }
+
+    #[test]
+    fn map_utf8_char() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('你'), KeyModifiers::empty())),
+            Some(Key::Char('你'))
+        );
     }
 
     #[test]
@@ -903,10 +1069,7 @@ mod tests {
     fn editing_keys_modify_buffer() {
         let mut core = core(&[], None);
         type_str(&mut core, "hello world");
-        feed(&mut core, &[
-            Key::CtrlA,
-            Key::CtrlK,
-        ]);
+        feed(&mut core, &[Key::CtrlA, Key::CtrlK]);
         assert_eq!(buffer_str(&core), "");
         type_str(&mut core, "abc def");
         assert_eq!(core.handle_key(Key::CtrlW), CoreAction::Continue);
@@ -948,5 +1111,47 @@ mod tests {
         type_str(&mut core, "你好");
         feed(&mut core, &[Key::Left(false), Key::Left(false)]);
         assert_eq!(core.width_right_of_cursor(), 4, "CJK chars are width 2");
+    }
+
+    #[test]
+    fn paste_inserts_whole_and_flattens_newlines() {
+        let mut core = core(&[], None);
+        core.insert_paste("hello\nworld\r\ntail");
+        assert_eq!(buffer_str(&core), "hello world tail");
+        assert_eq!(core.cursor, "hello world tail".chars().count());
+    }
+
+    #[test]
+    fn alt_word_keys_edit_by_word() {
+        let mut core = core(&[], None);
+        type_str(&mut core, "hello world");
+        assert_eq!(core.handle_key(Key::AltB), CoreAction::Continue);
+        assert_eq!(core.cursor, 6);
+        assert_eq!(core.handle_key(Key::AltD), CoreAction::Continue);
+        assert_eq!(buffer_str(&core), "hello ");
+    }
+
+    #[test]
+    fn alt_backspace_kills_word_backward() {
+        let mut core = core(&[], None);
+        type_str(&mut core, "hello world");
+        assert_eq!(core.handle_key(Key::AltBackspace), CoreAction::Continue);
+        assert_eq!(buffer_str(&core), "hello ");
+    }
+
+    #[test]
+    fn alt_dot_inserts_history_tail_word() {
+        let mut core = core(&["git commit -m msg"], Some("git status"));
+        assert_eq!(core.handle_key(Key::AltDot), CoreAction::Continue);
+        assert_eq!(buffer_str(&core), "status");
+    }
+
+    #[test]
+    fn wrap_layout_counts_rows_by_width() {
+        let mut core = core(&[], None);
+        core.set_term_cols(10);
+        type_str(&mut core, "123456789012345");
+        assert!(core.full_line_width() > 10);
+        assert_eq!(core.width_left_of_cursor(), 2 + 15);
     }
 }

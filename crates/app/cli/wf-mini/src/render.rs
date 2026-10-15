@@ -17,12 +17,10 @@
 //! The transcript always keeps the sanitized raw text, never the rendered
 //! form, so display choices never leak into model context.
 
+use crossterm::style::{Attribute, Color, ContentStyle, StyledContent, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
 use wf_cli_shared::display::MarkdownMode;
-
-const RESET: &str = "\x1b[0m";
-const DIM: &str = "\x1b[2m";
 
 /// Strip terminal escapes from model text so it can never drive the
 /// terminal. CSI (`ESC [ ... final`) and OSC (`ESC ] ... BEL/ST`) sequences
@@ -156,28 +154,47 @@ enum Inline {
 }
 
 /// SGR parameter sequence for the open inline spans, e.g. `1;36`.
-fn inline_params(stack: &[Inline], heading: bool) -> Option<String> {
-    let mut params: Vec<&str> = Vec::new();
+fn inline_style(stack: &[Inline], heading: bool) -> ContentStyle {
+    let mut style = ContentStyle::new();
     if stack.contains(&Inline::Bold) || heading {
-        params.push("1");
+        style.attributes.set(Attribute::Bold);
     }
     if stack.contains(&Inline::Italic) {
-        params.push("3");
+        style.attributes.set(Attribute::Italic);
     }
     if stack.contains(&Inline::Strike) {
-        params.push("9");
+        style.attributes.set(Attribute::CrossedOut);
     }
     if stack.contains(&Inline::Link) {
-        params.push("4");
+        style.attributes.set(Attribute::Underlined);
     }
     if stack.contains(&Inline::Code) {
-        params.push("36");
+        style.foreground_color = Some(Color::Cyan);
     }
-    if params.is_empty() {
-        None
-    } else {
-        Some(params.join(";"))
-    }
+    style
+}
+
+/// Dim helper for fences, quotes and rules.
+fn dim_span(text: &str) -> String {
+    StyledContent::new(
+        {
+            let mut style = ContentStyle::new();
+            style.attributes.set(Attribute::Dim);
+            style
+        },
+        text,
+    )
+    .to_string()
+}
+
+/// Cyan helper for code spans and fenced content.
+fn cyan_span(text: &str) -> String {
+    text.with(Color::Cyan).to_string()
+}
+
+/// Bold helper for headings.
+fn bold_span(text: &str) -> String {
+    text.attribute(Attribute::Bold).to_string()
 }
 
 fn heading_depth(level: HeadingLevel) -> usize {
@@ -202,15 +219,11 @@ fn emit_styled_text(
         out.push('\n');
     }
     *boundary = false;
-    match inline_params(inline, heading) {
-        Some(params) => {
-            out.push_str("\x1b[");
-            out.push_str(&params);
-            out.push('m');
-            out.push_str(text);
-            out.push_str(RESET);
-        }
-        None => out.push_str(text),
+    let style = inline_style(inline, heading);
+    if style.foreground_color.is_none() && style.attributes.is_empty() {
+        out.push_str(text);
+    } else {
+        out.push_str(&style.apply(text).to_string());
     }
 }
 
@@ -240,10 +253,10 @@ pub fn render_styled(src: &str) -> String {
                         out.push('\n');
                     }
                     boundary = false;
-                    out.push_str("\x1b[1m");
-                    out.push_str(&"#".repeat(heading_depth(level)));
-                    out.push(' ');
-                    out.push_str(RESET);
+                    out.push_str(&bold_span(&format!(
+                        "{} ",
+                        "#".repeat(heading_depth(level))
+                    )));
                     heading = true;
                 }
                 Tag::CodeBlock(kind) => {
@@ -256,10 +269,7 @@ pub fn render_styled(src: &str) -> String {
                         CodeBlockKind::Fenced(lang) => lang.to_string(),
                         CodeBlockKind::Indented => String::new(),
                     };
-                    out.push_str(DIM);
-                    out.push_str("```");
-                    out.push_str(lang.as_str());
-                    out.push_str(RESET);
+                    out.push_str(&dim_span(&format!("```{lang}")));
                     out.push('\n');
                 }
                 Tag::BlockQuote(_) => {
@@ -268,9 +278,7 @@ pub fn render_styled(src: &str) -> String {
                     }
                     boundary = false;
                     in_blockquote = true;
-                    out.push_str(DIM);
-                    out.push_str("> ");
-                    out.push_str(RESET);
+                    out.push_str(&dim_span("> "));
                 }
                 Tag::TableHead => {
                     boundary = true;
@@ -303,9 +311,7 @@ pub fn render_styled(src: &str) -> String {
                     if !out.is_empty() && !out.ends_with('\n') {
                         out.push('\n');
                     }
-                    out.push_str(DIM);
-                    out.push_str("```");
-                    out.push_str(RESET);
+                    out.push_str(&dim_span("```"));
                     boundary = true;
                 }
                 TagEnd::BlockQuote(_) => {
@@ -324,9 +330,7 @@ pub fn render_styled(src: &str) -> String {
                         out.push('\n');
                     }
                     boundary = false;
-                    out.push_str("\x1b[36m");
-                    out.push_str(text.as_ref());
-                    out.push_str(RESET);
+                    out.push_str(&cyan_span(text.as_ref()));
                 } else {
                     let head = heading || in_table_head;
                     emit_styled_text(&mut out, &mut boundary, text.as_ref(), &inline, head);
@@ -337,9 +341,7 @@ pub fn render_styled(src: &str) -> String {
                     out.push('\n');
                 }
                 boundary = false;
-                out.push_str("\x1b[36m");
-                out.push_str(code.as_ref());
-                out.push_str(RESET);
+                out.push_str(&cyan_span(code.as_ref()));
             }
             Event::SoftBreak | Event::HardBreak => {
                 if !out.ends_with('\n') {
@@ -347,18 +349,14 @@ pub fn render_styled(src: &str) -> String {
                 }
                 boundary = false;
                 if in_blockquote {
-                    out.push_str(DIM);
-                    out.push_str("> ");
-                    out.push_str(RESET);
+                    out.push_str(&dim_span("> "));
                 }
             }
             Event::Rule => {
                 if !out.is_empty() && !out.ends_with('\n') {
                     out.push('\n');
                 }
-                out.push_str(DIM);
-                out.push_str("---");
-                out.push_str(RESET);
+                out.push_str(&dim_span("---"));
                 boundary = true;
             }
             Event::TaskListMarker(checked) => {
@@ -555,8 +553,8 @@ mod tests {
     fn styled_wraps_spans_and_resets() {
         let styled = render_styled("**bold** and `code`");
         assert!(styled.contains("\x1b[1m"), "{styled:?}");
-        assert!(styled.contains("\x1b[36m"), "{styled:?}");
-        assert!(styled.contains(RESET), "{styled:?}");
+        assert!(styled.contains("38;5;14"), "{styled:?}");
+        assert!(styled.contains("\x1b[0m"), "{styled:?}");
         assert!(!styled.contains("**"), "{styled:?}");
         assert_eq!(strip_terminal_escapes(&styled), "bold and code");
     }
@@ -564,7 +562,22 @@ mod tests {
     #[test]
     fn styled_resets_before_newlines() {
         let styled = render_styled("**bold**\nnext");
-        assert!(styled.contains(&format!("bold{RESET}")), "{styled:?}");
+        assert!(styled.contains("bold\x1b[0m"), "{styled:?}");
+    }
+
+    #[test]
+    fn styled_semantics_match_plain_after_strip() {
+        for src in [
+            "**bold** and `code`",
+            "body *em* text",
+            "**bold** and *em* and `code`",
+        ] {
+            assert_eq!(
+                strip_terminal_escapes(&render_styled(src)),
+                render_plain(src),
+                "{src:?}"
+            );
+        }
     }
 
     #[test]
@@ -607,7 +620,7 @@ mod tests {
         let mut stream = StreamRenderer::new(MarkdownMode::Styled, true);
         let out = stream.push("**hi**\n");
         assert!(out.contains("\x1b[1m"), "{out:?}");
-        assert!(out.contains(RESET), "{out:?}");
+        assert!(out.contains("\x1b[0m"), "{out:?}");
     }
 
     #[test]

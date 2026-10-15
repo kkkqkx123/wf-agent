@@ -4,6 +4,8 @@
 use wf_cli_shared::display::MarkdownMode;
 use wf_types::events::ExecutionStreamEvent;
 
+use crossterm::style::{Attribute, Color, Stylize};
+
 use super::TurnOutcome;
 use crate::display::DisplayConfig;
 use crate::output::{self, AppendWriter};
@@ -21,6 +23,27 @@ pub(super) fn short_execution_id(execution_id: &str) -> String {
     match execution_id.strip_prefix("remote:") {
         Some(rest) => format!("remote:{}", rest.chars().take(8).collect::<String>()),
         None => execution_id.chars().take(8).collect::<String>(),
+    }
+}
+
+/// Stderr diagnostic severity for TTY styling. Failures draw red, benign
+/// lifecycle and usage draw dim, plain streams stay unstyled. Gated by
+/// `DisplayConfig::stderr_color` so piped stderr never carries escapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StderrKind {
+    Plain,
+    Dim,
+    Failure,
+}
+
+fn paint_stderr(text: &str, display: &DisplayConfig, kind: StderrKind) -> String {
+    if !display.stderr_color {
+        return text.to_string();
+    }
+    match kind {
+        StderrKind::Plain => text.to_string(),
+        StderrKind::Dim => text.attribute(Attribute::Dim).to_string(),
+        StderrKind::Failure => text.with(Color::Red).to_string(),
     }
 }
 
@@ -119,7 +142,12 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     return None;
                 }
                 self.end_stdout_line();
-                self.sink.stderr_line(&format!("tool start: {tool_name}"));
+                let line = paint_stderr(
+                    &format!("tool start: {tool_name}"),
+                    &self.display,
+                    StderrKind::Plain,
+                );
+                self.sink.stderr_line(&line);
                 None
             }
             ExecutionStreamEvent::ToolEnd {
@@ -134,21 +162,36 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                             self.background_sessions.push(marker.session_id.clone());
                         }
                         self.end_stdout_line();
-                        self.sink.stderr_line(&format!(
-                            "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
-                            marker.session_id
-                        ));
+                        let line = paint_stderr(
+                            &format!(
+                                "background task: {tool_name} running as {} (follow up with shell_output or shell_wait)",
+                                marker.session_id
+                            ),
+                            &self.display,
+                            StderrKind::Dim,
+                        );
+                        self.sink.stderr_line(&line);
                     }
                 } else {
                     self.end_stdout_line();
-                    self.sink.stderr_line(&format!("tool failed: {tool_name}"));
+                    let line = paint_stderr(
+                        &format!("tool failed: {tool_name}"),
+                        &self.display,
+                        StderrKind::Failure,
+                    );
+                    self.sink.stderr_line(&line);
                     return None;
                 }
                 if !self.display.show_tools {
                     return None;
                 }
                 self.end_stdout_line();
-                self.sink.stderr_line(&format!("tool ok: {tool_name}"));
+                let line = paint_stderr(
+                    &format!("tool ok: {tool_name}"),
+                    &self.display,
+                    StderrKind::Dim,
+                );
+                self.sink.stderr_line(&line);
                 None
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
@@ -168,14 +211,16 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     return None;
                 }
                 self.end_stdout_line();
-                match cost {
-                    Some(value) => self.sink.stderr_line(&format!(
+                let raw = match cost {
+                    Some(value) => format!(
                         "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens (~${value:.4})"
-                    )),
-                    None => self.sink.stderr_line(&format!(
+                    ),
+                    None => format!(
                         "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
-                    )),
-                }
+                    ),
+                };
+                self.sink
+                    .stderr_line(&paint_stderr(&raw, &self.display, StderrKind::Dim));
                 None
             }
             ExecutionStreamEvent::SubAgentStarted { name, .. } => {
@@ -183,20 +228,35 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     return None;
                 }
                 self.end_stdout_line();
-                self.sink.stderr_line(&format!("subagent started: {name}"));
+                let line = paint_stderr(
+                    &format!("subagent started: {name}"),
+                    &self.display,
+                    StderrKind::Dim,
+                );
+                self.sink.stderr_line(&line);
                 None
             }
             ExecutionStreamEvent::SubAgentEnded { name, success, .. } => {
                 if !*success {
                     self.end_stdout_line();
-                    self.sink.stderr_line(&format!("subagent failed: {name}"));
+                    let line = paint_stderr(
+                        &format!("subagent failed: {name}"),
+                        &self.display,
+                        StderrKind::Failure,
+                    );
+                    self.sink.stderr_line(&line);
                     return None;
                 }
                 if !self.display.show_tools {
                     return None;
                 }
                 self.end_stdout_line();
-                self.sink.stderr_line(&format!("subagent done: {name}"));
+                let line = paint_stderr(
+                    &format!("subagent done: {name}"),
+                    &self.display,
+                    StderrKind::Dim,
+                );
+                self.sink.stderr_line(&line);
                 None
             }
             ExecutionStreamEvent::SubAgentProgress { activity, .. } => {
@@ -205,34 +265,53 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                     return None;
                 }
                 self.end_stdout_line();
-                self.sink.stderr_line(&format!("subagent: {text}"));
+                let line =
+                    paint_stderr(&format!("subagent: {text}"), &self.display, StderrKind::Dim);
+                self.sink.stderr_line(&line);
                 None
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
                 self.flush_stdout();
                 if !self.background_sessions.is_empty() {
-                    self.sink.stderr_line(&format!(
-                        "background tasks: {} running ({}) — follow up with shell_output or shell_wait, confirm with shell_ack",
-                        self.background_sessions.len(),
-                        self.background_sessions.join(", "),
-                    ));
+                    let line = paint_stderr(
+                        &format!(
+                            "background tasks: {} running ({}) — follow up with shell_output or shell_wait, confirm with shell_ack",
+                            self.background_sessions.len(),
+                            self.background_sessions.join(", "),
+                        ),
+                        &self.display,
+                        StderrKind::Dim,
+                    );
+                    self.sink.stderr_line(&line);
                 }
                 if self.display.show_tools {
-                    self.sink
-                        .stderr_line(&format!("completed in {iterations} iterations"));
+                    let line = paint_stderr(
+                        &format!("completed in {iterations} iterations"),
+                        &self.display,
+                        StderrKind::Dim,
+                    );
+                    self.sink.stderr_line(&line);
                 }
                 Some(true)
             }
             ExecutionStreamEvent::Failed { error } => {
                 self.flush_stdout();
-                self.sink
-                    .stderr_line(&format!("failed: {}", strip_terminal_escapes(error)));
+                let line = paint_stderr(
+                    &format!("failed: {}", strip_terminal_escapes(error)),
+                    &self.display,
+                    StderrKind::Failure,
+                );
+                self.sink.stderr_line(&line);
                 Some(false)
             }
             ExecutionStreamEvent::Interrupted { reason } => {
                 self.flush_stdout();
-                self.sink
-                    .stderr_line(&format!("interrupted: {}", strip_terminal_escapes(reason)));
+                let line = paint_stderr(
+                    &format!("interrupted: {}", strip_terminal_escapes(reason)),
+                    &self.display,
+                    StderrKind::Failure,
+                );
+                self.sink.stderr_line(&line);
                 Some(false)
             }
         }
@@ -647,5 +726,36 @@ mod tests {
         );
         assert_eq!(stdout, "abc\n");
         assert_eq!(stderr, "tool failed: write_file\n");
+    }
+
+    #[test]
+    fn stderr_color_styles_failures_and_dims_success() {
+        let display = DisplayConfig {
+            stderr_color: true,
+            ..DisplayConfig::default()
+        };
+        let (_, _, stderr, _) = render_with(display, vec![tool_end(false)]);
+        assert!(stderr.contains("\x1b["), "{stderr:?}");
+        assert!(stderr.contains("tool failed"), "{stderr:?}");
+        assert_eq!(
+            crate::render::strip_terminal_escapes(&stderr),
+            "tool failed: write_file\n"
+        );
+        let (_, _, stderr, _) = render_with(display, vec![tool_end(true)]);
+        assert!(stderr.contains("\x1b["), "{stderr:?}");
+        assert_eq!(
+            crate::render::strip_terminal_escapes(&stderr),
+            "tool ok: write_file\n"
+        );
+    }
+
+    #[test]
+    fn stderr_without_color_has_no_escapes() {
+        let display = DisplayConfig {
+            stderr_color: false,
+            ..DisplayConfig::default()
+        };
+        let (_, _, stderr, _) = render_with(display, vec![tool_end(false)]);
+        assert!(!stderr.contains('\x1b'), "{stderr:?}");
     }
 }

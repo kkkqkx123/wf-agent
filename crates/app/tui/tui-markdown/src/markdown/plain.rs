@@ -7,7 +7,7 @@
 
 use pulldown_cmark::{Event, Parser, Tag};
 
-use tui_markdown_dialect::parser_options;
+use super::dialect::parser_options;
 
 /// Render Markdown source to plain text (line-level output): inline markup
 /// is stripped, soft/hard breaks map to `\n`, and code blocks keep their

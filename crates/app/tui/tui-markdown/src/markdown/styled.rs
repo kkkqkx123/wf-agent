@@ -8,7 +8,7 @@
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 use ratatui::text::{Line, Span};
-use tui_markdown_dialect::parser_options;
+use super::dialect::parser_options;
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
 use tui_style::motion::{self, MotionMode};

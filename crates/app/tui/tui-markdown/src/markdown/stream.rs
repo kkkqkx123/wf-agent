@@ -16,10 +16,11 @@
 //! never drags down per-frame re-parsing.
 
 use super::blocks::{
-    extract_code_lang, fence_open, has_reference_definition, last_top_level_block_start,
-    settle_boundary, unclosed_table_start,
+    extract_code_lang, fence_open, last_top_level_block_start, settle_boundary,
+    unclosed_table_start,
 };
 use super::plain::render_plain_text;
+use super::dialect::has_reference_definition;
 
 /// Default source cap for the cumulative buffer (64 KiB).
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
@@ -321,7 +322,7 @@ impl MarkdownStream {
             self.metrics.last_bytes = 0;
             return 0;
         }
-        if has_reference_definition(&self.buffer) || self.buffer.contains("][") {
+        if has_reference_definition(&self.buffer) {
             self.count_full_parse();
             return self.boundary();
         }
@@ -369,7 +370,7 @@ impl MarkdownStream {
         if self.buffer.is_empty() {
             return 0;
         }
-        if has_reference_definition(&self.buffer) || self.buffer.contains("][") {
+        if has_reference_definition(&self.buffer) {
             return 0;
         }
         if !fence_open(&self.buffer) {

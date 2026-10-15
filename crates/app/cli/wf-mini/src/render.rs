@@ -20,8 +20,10 @@
 use crossterm::style::{Attribute, Color, ContentStyle, StyledContent, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
-use tui_markdown_dialect::{has_table_risk, parser_options};
+use tui_markdown::markdown::{has_table_risk, parser_options};
 use wf_cli_shared::display::MarkdownMode;
+
+pub use tui_markdown::markdown::has_reference_definition;
 
 /// Strip terminal escapes from model text so it can never drive the
 /// terminal. CSI (`ESC [ ... final`) and OSC (`ESC ] ... BEL/ST`) sequences
@@ -81,53 +83,8 @@ fn is_csi_body(b: u8) -> bool {
     (0x30..=0x3f).contains(&b) || (0x20..=0x2f).contains(&b)
 }
 
-/// Render markdown source to plain text: inline markup is stripped,
-/// soft/hard breaks map to `\n`, code blocks keep their content lines
-/// verbatim. Mirrors the headless plain-text contract without pulling in
-/// the fullscreen render stack.
-pub fn render_plain(src: &str) -> String {
-    let mut out = String::new();
-    let mut boundary = false;
-    for event in Parser::new_ext(src, parser_options()) {
-        match event {
-            Event::Text(t) => {
-                if boundary && !out.is_empty() && !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                boundary = false;
-                out.push_str(t.as_ref());
-            }
-            Event::Code(t) => {
-                if boundary && !out.is_empty() && !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                boundary = false;
-                out.push_str(t.as_ref());
-            }
-            Event::SoftBreak | Event::HardBreak => {
-                if !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                boundary = false;
-            }
-            Event::Rule | Event::FootnoteReference(_) => {
-                boundary = true;
-            }
-            Event::TaskListMarker(checked) => {
-                if boundary && !out.is_empty() && !out.ends_with('\n') {
-                    out.push('\n');
-                }
-                boundary = false;
-                out.push_str(if checked { "[x] " } else { "[ ] " });
-            }
-            Event::Start(tag) if is_block_start(&tag) => {
-                boundary = true;
-            }
-            _ => {}
-        }
-    }
-    out
-}
+/// Plain-text markdown rendering shared with the TUI (`render_plain_text`).
+pub use tui_markdown::markdown::plain::render_plain_text;
 
 fn is_block_start(tag: &Tag<'_>) -> bool {
     matches!(
@@ -386,27 +343,6 @@ pub fn render_styled(src: &str) -> String {
     out
 }
 
-/// True when the source carries a reference-style link definition or use.
-/// A later definition rewrites earlier link targets, so the whole source
-/// stays held back until finalize instead of emitting prefix lines that a
-/// later line would retroactively change.
-pub fn has_reference_definition(src: &str) -> bool {
-    if src.contains("][") {
-        return true;
-    }
-    for line in src.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('[') {
-            if let Some(close) = trimmed.find(']') {
-                if trimmed[close..].starts_with("]:") {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 fn common_prefix_len(a: &str, b: &str) -> usize {
     let bytes = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
     let mut len = bytes;
@@ -439,6 +375,10 @@ fn restore_trailing_newline(source: &str, rendered: &mut String) {
     }
 }
 
+/// Source cap before the streaming renderer degrades to verbatim
+/// passthrough, mirroring the TUI streaming cap.
+const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
+
 /// Streaming markdown renderer for `Plain`/`Styled` modes. Keeps the full
 /// sanitized source, re-renders on every delta (turn outputs are small; the
 /// parse is microseconds) and diffs against already-emitted output so bytes
@@ -447,11 +387,22 @@ fn restore_trailing_newline(source: &str, rendered: &mut String) {
 /// Two constructs hold the whole source back because a later delta can
 /// retroactively rewrite already-rendered bytes: reference-style link
 /// definitions and unclosed tables (any tail line containing `|`).
+///
+/// When the accumulated source passes [`DEFAULT_MAX_SOURCE_BYTES`], the
+/// renderer emits the settled output once and degrades to verbatim
+/// passthrough: later deltas skip markdown rendering and stream through a
+/// single-line buffer with the same complete-lines-only discipline, so
+/// memory stays bounded (cap plus one line) on oversized outputs. The seam
+/// line at the switch keeps its already-rendered prefix; only inline SGR on
+/// that one line is lost in styled mode.
 pub struct StreamRenderer {
     mode: MarkdownMode,
     color: bool,
     source: String,
     emitted: String,
+    degraded: bool,
+    /// Unsettled line in passthrough mode (rendered seam tail + raw deltas).
+    line_buffer: String,
 }
 
 impl StreamRenderer {
@@ -461,15 +412,17 @@ impl StreamRenderer {
             color,
             source: String::new(),
             emitted: String::new(),
+            degraded: false,
+            line_buffer: String::new(),
         }
     }
 
     fn render_full(&self) -> String {
         match self.mode {
             MarkdownMode::Raw => self.source.clone(),
-            MarkdownMode::Plain => render_plain(&self.source),
+            MarkdownMode::Plain => render_plain_text(&self.source),
             MarkdownMode::Styled if self.color => render_styled(&self.source),
-            MarkdownMode::Styled => render_plain(&self.source),
+            MarkdownMode::Styled => render_plain_text(&self.source),
         }
     }
 
@@ -479,14 +432,26 @@ impl StreamRenderer {
         if clean.is_empty() {
             return String::new();
         }
+        if self.degraded {
+            return self.push_passthrough(&clean);
+        }
         self.source.push_str(&clean);
+        if self.source.len() > DEFAULT_MAX_SOURCE_BYTES {
+            return self.degrade();
+        }
         if has_reference_definition(&self.source) || has_table_risk(&self.source) {
             return String::new();
         }
+        self.emit_settled()
+    }
+
+    /// Emit rendered output up to the last newline, advancing the emitted
+    /// cursor so bytes are never re-sent.
+    fn emit_settled(&mut self) -> String {
         let mut full = self.render_full();
         restore_trailing_newline(&self.source, &mut full);
         let target = if self.source.ends_with('\n') {
-            full
+            full.clone()
         } else {
             match full.rfind('\n') {
                 Some(pos) => full[..=pos].to_string(),
@@ -498,9 +463,42 @@ impl StreamRenderer {
         new
     }
 
+    /// Switch to passthrough at the source cap: emit the settled output
+    /// once, then carry the rendered but not-yet-emitted tail into the line
+    /// buffer so no content is lost across the switch.
+    fn degrade(&mut self) -> String {
+        let out = self.emit_settled();
+        if !self.source.ends_with('\n') {
+            let mut full = self.render_full();
+            restore_trailing_newline(&self.source, &mut full);
+            let remainder = match full.rfind('\n') {
+                Some(pos) => &full[pos + 1..],
+                None => full.as_str(),
+            };
+            self.line_buffer.push_str(remainder);
+        }
+        self.degraded = true;
+        out
+    }
+
+    /// Passthrough after the cap: raw text through a single-line buffer,
+    /// complete lines only.
+    fn push_passthrough(&mut self, clean: &str) -> String {
+        self.line_buffer.push_str(clean);
+        let Some(pos) = self.line_buffer.rfind('\n') else {
+            return String::new();
+        };
+        let out = self.line_buffer[..=pos].to_string();
+        self.line_buffer.drain(..=pos);
+        out
+    }
+
     /// Drain everything, including the in-flight tail, at a boundary
     /// (iteration end, tool event, turn end).
     pub fn flush(&mut self) -> String {
+        if self.degraded {
+            return std::mem::take(&mut self.line_buffer);
+        }
         if self.source.is_empty() {
             return String::new();
         }
@@ -551,13 +549,46 @@ mod tests {
     }
 
     #[test]
+    fn oversized_source_degrades_without_loss_or_reemit() {
+        let mut renderer = StreamRenderer::new(MarkdownMode::Plain, false);
+        let big = "a".repeat(70_000);
+        let mut out = String::new();
+        out.push_str(&renderer.push(&big[..60_000]));
+        out.push_str(&renderer.push(&big[60_000..]));
+        out.push_str(&renderer.push(" END\n"));
+        out.push_str(&renderer.push("more\n"));
+        out.push_str(&renderer.flush());
+        assert_eq!(out.matches('a').count(), 70_000, "no loss, no re-emit");
+        assert!(out.contains(" END\n"));
+        assert!(out.contains("more\n"));
+        // Deltas after the cap never consult the markdown renderer again:
+        // markup passes through verbatim.
+        assert_eq!(renderer.push("**raw**\n"), "**raw**\n");
+    }
+
+    #[test]
+    fn oversized_source_seam_keeps_incomplete_tail_line() {
+        let mut renderer = StreamRenderer::new(MarkdownMode::Plain, false);
+        let mut out = String::new();
+        out.push_str(&renderer.push(&"a".repeat(60_000)));
+        out.push_str(&renderer.push(&"b".repeat(10_000)));
+        // Still one incomplete line crossing the cap; nothing emitted yet.
+        assert_eq!(out, "");
+        out.push_str(&renderer.push(" end\n"));
+        out.push_str(&renderer.flush());
+        assert_eq!(out.matches('a').count(), 60_000);
+        assert_eq!(out.matches('b').count(), 10_000);
+        assert!(out.contains("b end\n"));
+    }
+
+    #[test]
     fn plain_strips_markup_and_keeps_code() {
         assert_eq!(
-            render_plain("**bold** and *em* and `code`"),
+            render_plain_text("**bold** and *em* and `code`"),
             "bold and em and code"
         );
-        assert_eq!(render_plain("```rust\nfn main() {}\n```"), "fn main() {}\n");
-        assert_eq!(render_plain("# Title"), "Title");
+        assert_eq!(render_plain_text("```rust\nfn main() {}\n```"), "fn main() {}\n");
+        assert_eq!(render_plain_text("# Title"), "Title");
     }
 
     #[test]
@@ -585,7 +616,7 @@ mod tests {
         ] {
             assert_eq!(
                 strip_terminal_escapes(&render_styled(src)),
-                render_plain(src),
+                render_plain_text(src),
                 "{src:?}"
             );
         }
@@ -643,14 +674,14 @@ mod tests {
     #[test]
     fn plain_renders_table_cells_and_task_markers() {
         assert_eq!(
-            render_plain("| a | b |\n| --- | --- |\n| 1 | 2 |\n"),
+            render_plain_text("| a | b |\n| --- | --- |\n| 1 | 2 |\n"),
             "a\nb\n1\n2"
         );
         assert_eq!(
-            render_plain("- [x] done\n- [ ] todo\n"),
+            render_plain_text("- [x] done\n- [ ] todo\n"),
             "[x] done\n[ ] todo"
         );
-        assert_eq!(render_plain("~~gone~~"), "gone");
+        assert_eq!(render_plain_text("~~gone~~"), "gone");
     }
 
     #[test]

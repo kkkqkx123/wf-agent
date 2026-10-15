@@ -47,7 +47,6 @@ members = [
     "crates/app/tui/tui-terminal",
     "crates/app/tui/tui-style",
     "crates/app/tui/tui-markdown",
-    "crates/app/tui/tui-markdown-dialect",
     "crates/app/tui/tui-core",
     "crates/app/tui/tui-components",
     "crates/app/tui/tui-render",

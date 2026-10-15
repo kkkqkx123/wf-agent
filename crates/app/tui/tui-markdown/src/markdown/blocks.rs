@@ -8,7 +8,7 @@
 
 use pulldown_cmark::{Event, Parser};
 
-use tui_markdown_dialect::parser_options;
+use super::dialect::parser_options;
 
 /// Locate the byte offset where the last top-level block begins.
 ///
@@ -83,15 +83,6 @@ pub(super) fn fence_open(s: &str) -> bool {
         open = !open;
     }
     open
-}
-
-/// True when the buffer carries a reference-style link definition
-/// (`[label]: destination`). Such definitions rewrite earlier link targets,
-/// so incremental splitting is skipped and the whole source stays streaming
-/// until finalize.
-pub(super) fn has_reference_definition(src: &str) -> bool {
-    src.lines()
-        .any(|line| line.trim_start().starts_with('[') && line.contains("]:"))
 }
 
 /// Table holdback: when the buffer tail holds an *unclosed* table (a header

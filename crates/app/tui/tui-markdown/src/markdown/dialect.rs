@@ -1,11 +1,11 @@
 //! Canonical markdown parser dialect for every wf-agent renderer.
 //!
-//! Both consumers (`tui-markdown` and `wf-mini`) must build their parsers
-//! with [`parser_options`] so the same assistant text renders identically in
-//! the line-discipline stdout and the fullscreen TUI. Changing the dialect
-//! here changes every renderer at once: evaluate both consumers before
-//! adding or removing an option, and keep the member-locking unit tests in
-//! sync with the decision recorded in `docs/plan/markdown-parser-extensions.md`.
+//! Both consumers (`tui-markdown` itself and `wf-mini`) must build their
+//! parsers with [`parser_options`] so the same assistant text renders
+//! identically in the line-discipline stdout and the fullscreen TUI.
+//! Changing the dialect here changes every renderer at once: evaluate both
+//! consumers before adding or removing an option, and keep the
+//! member-locking unit tests in sync with that decision.
 //!
 //! Current dialect: CommonMark plus tables, task lists and strikethrough.
 //! Deliberately excluded: smart punctuation (rewrites literal text),
@@ -33,6 +33,29 @@ pub fn has_table_risk(src: &str) -> bool {
         .is_some_and(|line| line.contains('|'))
 }
 
+/// True when the source carries a reference-style link definition or use.
+/// A later definition rewrites earlier link targets, so streaming renderers
+/// must hold back the whole source until finalize instead of emitting prefix
+/// output that a later line would retroactively change. Conservative by
+/// design: any `][` substring counts as a potential reference use, and any
+/// line starting with `[` and containing `]:` counts as a definition.
+pub fn has_reference_definition(src: &str) -> bool {
+    if src.contains("][") {
+        return true;
+    }
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            if let Some(close) = trimmed.find(']') {
+                if trimmed[close..].starts_with("]:") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,6 +73,14 @@ mod tests {
         assert!(!options.contains(Options::ENABLE_SMART_PUNCTUATION));
         assert!(!options.contains(Options::ENABLE_FOOTNOTES));
         assert!(!options.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
+    }
+
+    #[test]
+    fn reference_definition_detection_is_conservative() {
+        assert!(has_reference_definition("click [here][l]\n\n[l]: https://x.test\n"));
+        assert!(has_reference_definition("see [a][b] now"));
+        assert!(has_reference_definition("[l]: https://x.test\n"));
+        assert!(!has_reference_definition("plain **bold** text\n"));
     }
 
     #[test]

@@ -24,7 +24,7 @@ fn section() -> String {
         mini_render::SAMPLE_MARKDOWN,
     ));
     out.push_str("\nplain text:\n");
-    out.push_str(&mini_render::render_plain(mini_render::SAMPLE_MARKDOWN));
+    out.push_str(&mini_render::render_plain_text(mini_render::SAMPLE_MARKDOWN));
 
     let styled = mini_render::render_styled(mini_render::SAMPLE_MARKDOWN);
     let stripped = mini_render::strip_terminal_escapes(&styled);
@@ -108,7 +108,7 @@ fn section() -> String {
     ));
     out.push_str(&format!(
         "  plain keeps content verbatim: {}\n",
-        mini_render::render_plain("    indented code") == "indented code"
+        mini_render::render_plain_text("    indented code") == "indented code"
     ));
 
     out.push_str("\nheading depth one through six styled bold:\n");

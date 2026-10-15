@@ -14,7 +14,8 @@ wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-client = { path = "../../wf-client" }
 wf-cli-shared = { path = "../wf-cli-shared" }
-tui-markdown-dialect = { path = "../../tui/tui-markdown-dialect" }
+# Shared plain-text markdown renderer (render_plain_text).
+tui-markdown = { path = "../../tui/tui-markdown" }
 # Raw-mode prompt editor: crossterm events, styles and terminal control.
 crossterm.workspace = true
 libc.workspace = true

@@ -7,11 +7,13 @@
 
 pub use wf_mini::output::AppendWriter;
 pub use wf_mini::render::{
-    has_reference_definition, render_plain, render_styled, strip_terminal_escapes, StreamRenderer,
+    has_reference_definition, render_plain_text, render_styled, strip_terminal_escapes,
+    StreamRenderer,
 };
 
 /// Sample document covering heading, emphasis, code, link, fence, two-line
 /// quote, rule, image, inline HTML, strikethrough, table and task list.
-/// Every construct maps to a distinct `render_styled`/`render_plain` branch
-/// reachable with the canonical parser dialect (`tui-markdown-dialect`).
+/// Every construct maps to a distinct `render_styled`/`render_plain_text`
+/// branch reachable with the canonical parser dialect (`tui-markdown`'s
+/// `markdown::dialect` module).
 pub const SAMPLE_MARKDOWN: &str = "# Fix login\n\nRetry with **backoff** and *jitter*, see `login()` and [docs](https://example.com).\n\n```rust\nfn login() {}\n```\n\n> quoted note\n> continued line\n\n---\n\n![logo](https://example.com/logo.png)\n\n<span>inline html dropped</span>\n\n~~strikethrough text~~ removed\n\n| area | status |\n| --- | --- |\n| auth | fixed |\n\n- [x] retry with backoff\n- [ ] alert on failure\n";

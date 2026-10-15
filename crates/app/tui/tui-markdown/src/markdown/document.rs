@@ -8,7 +8,7 @@
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
-use tui_markdown_dialect::parser_options;
+use super::dialect::parser_options;
 
 /// Semantic style role for a span, independent of any backend palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

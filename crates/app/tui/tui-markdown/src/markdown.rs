@@ -12,17 +12,22 @@
 //!   ([`render_styled_lines`], [`render_styled_lines_animated`]).
 //! * [`document`] — backend-neutral semantic model ([`Document`],
 //!   [`StyleRole`], [`StyledSpan`]) shared by every frontend.
+//! * [`dialect`] — the canonical parser dialect (pulldown-cmark options and
+//!   streaming holdback heuristics) shared by every frontend.
 //! * [`reasoning`] — shared reasoning-segment contract (sentinel and escapes).
 //!
 //! The public surface is re-exported here so consumers only ever name
 //! `crate::markdown::*`.
 
 pub mod blocks;
+pub mod dialect;
 pub mod document;
 pub mod plain;
 pub mod reasoning;
 pub mod stream;
 pub mod styled;
+
+pub use dialect::{has_reference_definition, has_table_risk, parser_options};
 
 pub use stream::{
     MarkdownFrame, MarkdownStream, ParseMetrics, DEFAULT_MAX_SOURCE_BYTES,

@@ -10,7 +10,6 @@ pulldown-cmark = { workspace = true }
 unicode-width = { workspace = true }
 unicode-segmentation = { workspace = true }
 tui-style = { path = "../tui-style" }
-tui-markdown-dialect = { path = "../tui-markdown-dialect" }
 
 [features]
 default = []

@@ -8,11 +8,16 @@
 //! * every mode strips incoming terminal escapes first, so model output can
 //!   never drive the terminal (cursor moves, clear, title, hyperlinks);
 //! * `Raw` streams sanitized text verbatim (historical behavior);
-//! * `Plain` strips markdown markup without adding escapes and emits
-//!   complete lines only;
+//! * `Plain` strips markdown markup without adding escapes;
 //! * `Styled` wraps markdown spans in ANSI SGR and degrades to plain text
-//!   when color is unavailable. Like plain it emits complete lines only, so
-//!   a half-typed construct is never styled optimistically.
+//!   when color is unavailable.
+//!
+//! `Plain`/`Styled` emit the *settled* region only: the cut follows
+//! [`settled_boundary`], so a whole in-flight block (the current
+//! paragraph, an open fence, an unclosed table) stays held until a later
+//! delta can no longer rewrite it. `Raw` never re-renders its input, so
+//! it cuts at the last newline instead. Either way a half-typed construct
+//! is never styled optimistically.
 //!
 //! The transcript always keeps the sanitized raw text, never the rendered
 //! form, so display choices never leak into model context.
@@ -20,7 +25,7 @@
 use crossterm::style::{Attribute, Color, ContentStyle, StyledContent, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
-use tui_markdown::markdown::{has_table_risk, parser_options};
+use tui_markdown::markdown::{has_table_risk, parser_options, settled_boundary};
 use wf_cli_shared::display::MarkdownMode;
 
 pub use tui_markdown::markdown::has_reference_definition;
@@ -152,6 +157,19 @@ fn dim_span(text: &str) -> String {
     .to_string()
 }
 
+/// Flush the block-quote marker owed at the current line start.
+///
+/// The marker is owed when a quote opens and again after every break
+/// inside one; it is emitted by the next content event, so a marker can
+/// never sit alone on a line and a quote that ends on a break leaves no
+/// trailing marker behind.
+fn flush_quote_marker(out: &mut String, due: &mut bool) {
+    if *due {
+        out.push_str(&dim_span("> "));
+        *due = false;
+    }
+}
+
 /// Cyan helper for code spans and fenced content.
 fn cyan_span(text: &str) -> String {
     text.with(Color::Cyan).to_string()
@@ -176,6 +194,7 @@ fn heading_depth(level: HeadingLevel) -> usize {
 fn emit_styled_text(
     out: &mut String,
     boundary: &mut bool,
+    quote_due: &mut bool,
     text: &str,
     inline: &[Inline],
     heading: bool,
@@ -184,6 +203,7 @@ fn emit_styled_text(
         out.push('\n');
     }
     *boundary = false;
+    flush_quote_marker(out, quote_due);
     let style = inline_style(inline, heading);
     if style.foreground_color.is_none() && style.attributes.is_empty() {
         out.push_str(text);
@@ -204,6 +224,7 @@ pub fn render_styled(src: &str) -> String {
     let mut in_code_block = false;
     let mut in_table_head = false;
     let mut in_blockquote = false;
+    let mut quote_marker_due = false;
 
     for event in Parser::new_ext(src, parser_options()) {
         match event {
@@ -218,6 +239,7 @@ pub fn render_styled(src: &str) -> String {
                         out.push('\n');
                     }
                     boundary = false;
+                    flush_quote_marker(&mut out, &mut quote_marker_due);
                     out.push_str(&bold_span(&format!(
                         "{} ",
                         "#".repeat(heading_depth(level))
@@ -229,6 +251,7 @@ pub fn render_styled(src: &str) -> String {
                         out.push('\n');
                     }
                     boundary = false;
+                    flush_quote_marker(&mut out, &mut quote_marker_due);
                     in_code_block = true;
                     let lang = match kind {
                         CodeBlockKind::Fenced(lang) => lang.to_string(),
@@ -243,7 +266,10 @@ pub fn render_styled(src: &str) -> String {
                     }
                     boundary = false;
                     in_blockquote = true;
-                    out.push_str(&dim_span("> "));
+                    // The marker is owed at the line start and flushed by
+                    // the first content of the quoted line, so the block
+                    // boundary the paragraph opens with cannot strand it.
+                    quote_marker_due = true;
                 }
                 Tag::TableHead => {
                     boundary = true;
@@ -281,6 +307,7 @@ pub fn render_styled(src: &str) -> String {
                 }
                 TagEnd::BlockQuote(_) => {
                     in_blockquote = false;
+                    quote_marker_due = false;
                     boundary = true;
                 }
                 TagEnd::TableHead => {
@@ -295,10 +322,18 @@ pub fn render_styled(src: &str) -> String {
                         out.push('\n');
                     }
                     boundary = false;
+                    flush_quote_marker(&mut out, &mut quote_marker_due);
                     out.push_str(&cyan_span(text.as_ref()));
                 } else {
                     let head = heading || in_table_head;
-                    emit_styled_text(&mut out, &mut boundary, text.as_ref(), &inline, head);
+                    emit_styled_text(
+                        &mut out,
+                        &mut boundary,
+                        &mut quote_marker_due,
+                        text.as_ref(),
+                        &inline,
+                        head,
+                    );
                 }
             }
             Event::Code(code) => {
@@ -306,6 +341,7 @@ pub fn render_styled(src: &str) -> String {
                     out.push('\n');
                 }
                 boundary = false;
+                flush_quote_marker(&mut out, &mut quote_marker_due);
                 out.push_str(&cyan_span(code.as_ref()));
             }
             Event::SoftBreak | Event::HardBreak => {
@@ -313,14 +349,15 @@ pub fn render_styled(src: &str) -> String {
                     out.push('\n');
                 }
                 boundary = false;
-                if in_blockquote {
-                    out.push_str(&dim_span("> "));
-                }
+                // The marker of the next quoted line is owed, not written:
+                // a quote ending on the break leaves no dangling marker.
+                quote_marker_due = in_blockquote;
             }
             Event::Rule => {
                 if !out.is_empty() && !out.ends_with('\n') {
                     out.push('\n');
                 }
+                flush_quote_marker(&mut out, &mut quote_marker_due);
                 out.push_str(&dim_span("---"));
                 boundary = true;
             }
@@ -329,6 +366,7 @@ pub fn render_styled(src: &str) -> String {
                     out.push('\n');
                 }
                 boundary = false;
+                flush_quote_marker(&mut out, &mut quote_marker_due);
                 out.push_str(if checked { "[x] " } else { "[ ] " });
             }
             Event::Html(_) | Event::InlineHtml(_) => {
@@ -352,6 +390,20 @@ fn common_prefix_len(a: &str, b: &str) -> usize {
     len
 }
 
+/// Newly rendered bytes since `emitted`, for an append-only stdout.
+///
+/// The fast path — `emitted` is a prefix of `target` — is the streaming
+/// contract: settled bytes never change, so a delta appends. The
+/// common-prefix fallback exists because that contract can break: a
+/// construct that opened on an already-settled line and closed on a later
+/// one (emphasis spanning a soft break) rewrites the line, and a setext
+/// underline turns the preceding paragraph into a heading. Bytes already
+/// written to a terminal cannot be retracted, so the fallback re-sends
+/// from the common prefix: the stale prefix stays on screen and the suffix
+/// repeats itself once, then the cursor advances and later deltas diff
+/// cleanly again. It is a last-resort repair, not a normal path — holding
+/// the source back before such a rewrite reaches stdout is the only real
+/// fix.
 fn diff_suffix(emitted: &str, target: &str) -> String {
     if let Some(stripped) = target.strip_prefix(emitted) {
         return stripped.to_string();
@@ -382,11 +434,14 @@ const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
 /// Streaming markdown renderer for `Plain`/`Styled` modes. Keeps the full
 /// sanitized source, re-renders on every delta (turn outputs are small; the
 /// parse is microseconds) and diffs against already-emitted output so bytes
-/// are never re-emitted. Complete lines only: the in-flight tail stays held
-/// back until a newline settles it or `flush` drains it at a boundary.
-/// Two constructs hold the whole source back because a later delta can
-/// retroactively rewrite already-rendered bytes: reference-style link
-/// definitions and unclosed tables (any tail line containing `|`).
+/// are never re-emitted. `Plain`/`Styled` emit the settled region only —
+/// the cut follows [`settled_boundary`], so an in-flight block (the
+/// current paragraph, an open fence, an unclosed table, a pending
+/// reference definition) stays held back until no later delta can rewrite
+/// it. `Raw` never re-renders its input, so it cuts at the last newline
+/// instead. Whatever was emitted is final: bytes on stdout cannot be
+/// retracted, so [`diff_suffix`]'s common-prefix path stays as the
+/// last-resort repair for a rewrite the hold-backs did not foresee.
 ///
 /// When the accumulated source passes [`DEFAULT_MAX_SOURCE_BYTES`], the
 /// renderer emits the settled output once and degrades to verbatim
@@ -417,13 +472,17 @@ impl StreamRenderer {
         }
     }
 
-    fn render_full(&self) -> String {
+    fn render_source(&self, src: &str) -> String {
         match self.mode {
-            MarkdownMode::Raw => self.source.clone(),
-            MarkdownMode::Plain => render_plain_text(&self.source),
-            MarkdownMode::Styled if self.color => render_styled(&self.source),
-            MarkdownMode::Styled => render_plain_text(&self.source),
+            MarkdownMode::Raw => src.to_owned(),
+            MarkdownMode::Plain => render_plain_text(src),
+            MarkdownMode::Styled if self.color => render_styled(src),
+            MarkdownMode::Styled => render_plain_text(src),
         }
+    }
+
+    fn render_full(&self) -> String {
+        self.render_source(&self.source)
     }
 
     /// Feed one delta, returning the newly settled output for stdout.
@@ -439,44 +498,45 @@ impl StreamRenderer {
         if self.source.len() > DEFAULT_MAX_SOURCE_BYTES {
             return self.degrade();
         }
-        if has_reference_definition(&self.source) || has_table_risk(&self.source) {
+        // A tail line with `|` can still turn into a table: the settled
+        // boundary only recognizes a table once its delimiter row arrived,
+        // so this conservative tail check holds the source back until then.
+        if has_table_risk(&self.source) {
             return String::new();
         }
         self.emit_settled()
     }
 
-    /// Emit rendered output up to the last newline, advancing the emitted
-    /// cursor so bytes are never re-sent.
+    /// Render the settled region and return its new bytes.
+    ///
+    /// The cut is the last point a later delta cannot rewrite, so the
+    /// emitted text is stable and `diff_suffix`'s prefix fast path holds.
+    /// `Raw` streams the source verbatim and never re-renders it, so the
+    /// last newline is a safe cut there.
     fn emit_settled(&mut self) -> String {
-        let mut full = self.render_full();
-        restore_trailing_newline(&self.source, &mut full);
-        let target = if self.source.ends_with('\n') {
-            full.clone()
-        } else {
-            match full.rfind('\n') {
-                Some(pos) => full[..=pos].to_string(),
-                None => String::new(),
-            }
+        let cut = match self.mode {
+            MarkdownMode::Raw => self.source.rfind('\n').map_or(0, |pos| pos + 1),
+            _ => settled_boundary(&self.source),
         };
+        if cut == 0 {
+            return String::new();
+        }
+        let target = self.render_source(&self.source[..cut]);
         let new = diff_suffix(&self.emitted, &target);
         self.emitted = target;
         new
     }
 
-    /// Switch to passthrough at the source cap: emit the settled output
-    /// once, then carry the rendered but not-yet-emitted tail into the line
-    /// buffer so no content is lost across the switch.
+    /// Switch to passthrough at the source cap: emit everything up to the
+    /// last newline once, then carry the rendered but not-yet-emitted tail
+    /// into the line buffer so no content is lost across the switch.
     fn degrade(&mut self) -> String {
-        let out = self.emit_settled();
-        if !self.source.ends_with('\n') {
-            let mut full = self.render_full();
-            restore_trailing_newline(&self.source, &mut full);
-            let remainder = match full.rfind('\n') {
-                Some(pos) => &full[pos + 1..],
-                None => full.as_str(),
-            };
-            self.line_buffer.push_str(remainder);
-        }
+        let mut full = self.render_full();
+        restore_trailing_newline(&self.source, &mut full);
+        let seam = full.rfind('\n').map_or(0, |pos| pos + 1);
+        let out = diff_suffix(&self.emitted, &full[..seam]);
+        self.line_buffer.push_str(&full[seam..]);
+        self.emitted = full[..seam].to_string();
         self.degraded = true;
         out
     }
@@ -501,12 +561,6 @@ impl StreamRenderer {
         }
         if self.source.is_empty() {
             return String::new();
-        }
-        if has_reference_definition(&self.source) {
-            let full = self.render_full();
-            let new = diff_suffix(&self.emitted, &full);
-            self.emitted = full;
-            return new;
         }
         let mut full = self.render_full();
         restore_trailing_newline(&self.source, &mut full);
@@ -582,12 +636,68 @@ mod tests {
     }
 
     #[test]
+    fn styled_quote_marker_prepends_every_quoted_line() {
+        let styled = render_styled("> quoted note\n> continued line\n");
+        let plain = strip_terminal_escapes(&styled);
+        assert_eq!(plain, "> quoted note\n> continued line");
+        // The marker is dim and sits on the quoted lines, never alone.
+        assert!(styled.contains("\x1b[2m> \x1b[0mquoted note"), "{styled:?}");
+        assert!(!styled.contains("> \n"), "{styled:?}");
+    }
+
+    #[test]
+    fn styled_quote_marker_covers_headings_and_rules() {
+        let styled = render_styled("> # head\n\n> ---\n");
+        assert_eq!(
+            strip_terminal_escapes(&styled),
+            "> # head\n> ---",
+            "{styled:?}"
+        );
+    }
+
+    #[test]
+    fn styled_quote_ending_on_a_break_leaves_no_marker() {
+        // A quote whose last line break has no content after it must not
+        // emit a dangling marker line.
+        let styled = render_styled("> tail\n> \n");
+        assert_eq!(strip_terminal_escapes(&styled), "> tail");
+    }
+
+    #[test]
+    fn stream_styled_quote_holds_the_marker_until_the_block_settles() {
+        let mut stream = StreamRenderer::new(MarkdownMode::Styled, true);
+        assert_eq!(stream.push("> qu"), "");
+        assert_eq!(stream.push("oted\n"), "");
+        // The quoted paragraph is one in-flight block: it emits whole,
+        // marker included, once a later delta can no longer rewrite it.
+        let out = stream.flush();
+        assert_eq!(strip_terminal_escapes(&out), "> quoted\n");
+        assert!(!out.contains("> \n"), "{out:?}");
+    }
+
+    #[test]
+    fn diff_suffix_falls_back_to_the_common_prefix_on_a_rewrite() {
+        // Reachable through streaming: an emphasis opened on a settled line
+        // and closed on a later one rewrites the emitted line, so the
+        // emitted text is no longer a prefix of the new render.
+        assert_eq!(
+            diff_suffix("hello *wor\n", "hello wor\nld end\n"),
+            "wor\nld end\n"
+        );
+        // The fast path stays the normal case.
+        assert_eq!(diff_suffix("hello ", "hello world\n"), "world\n");
+    }
+
+    #[test]
     fn plain_strips_markup_and_keeps_code() {
         assert_eq!(
             render_plain_text("**bold** and *em* and `code`"),
             "bold and em and code"
         );
-        assert_eq!(render_plain_text("```rust\nfn main() {}\n```"), "fn main() {}\n");
+        assert_eq!(
+            render_plain_text("```rust\nfn main() {}\n```"),
+            "fn main() {}\n"
+        );
         assert_eq!(render_plain_text("# Title"), "Title");
     }
 
@@ -632,12 +742,16 @@ mod tests {
     }
 
     #[test]
-    fn stream_plain_emits_complete_lines_only() {
+    fn stream_plain_holds_the_in_flight_paragraph() {
         let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
         assert_eq!(stream.push("**hello** "), "");
-        assert_eq!(stream.push("world\n"), "hello world\n");
+        assert_eq!(stream.push("world\n"), "");
         assert_eq!(stream.push("tail"), "");
-        assert_eq!(stream.flush(), "tail");
+        // The blank line settles the whole paragraph (the soft-broken
+        // lines are one block); the next open tail stays back.
+        assert_eq!(stream.push("\n\n"), "hello world\ntail");
+        assert_eq!(stream.push("more"), "");
+        assert_eq!(stream.flush(), "\nmore");
     }
 
     #[test]
@@ -654,13 +768,15 @@ mod tests {
     #[test]
     fn stream_styled_without_color_degrades_to_plain() {
         let mut stream = StreamRenderer::new(MarkdownMode::Styled, false);
-        assert_eq!(stream.push("**hi**\n"), "hi\n");
+        assert_eq!(stream.push("**hi**\n"), "");
+        assert_eq!(stream.flush(), "hi\n");
     }
 
     #[test]
     fn stream_styled_with_color_emits_sgr() {
         let mut stream = StreamRenderer::new(MarkdownMode::Styled, true);
-        let out = stream.push("**hi**\n");
+        assert_eq!(stream.push("**hi**\n"), "");
+        let out = stream.flush();
         assert!(out.contains("\x1b[1m"), "{out:?}");
         assert!(out.contains("\x1b[0m"), "{out:?}");
     }
@@ -668,7 +784,30 @@ mod tests {
     #[test]
     fn stream_sanitizes_model_escapes() {
         let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
-        assert_eq!(stream.push("\x1b[2J**hi**\n"), "hi\n");
+        assert_eq!(stream.push("\x1b[2J**hi**\n"), "");
+        assert_eq!(stream.flush(), "hi\n");
+    }
+
+    #[test]
+    fn stream_holds_emphasis_that_spans_a_line_break() {
+        // The emphasis opens on one line and closes on the next: under the
+        // old last-newline cut the first line went out with its literal
+        // `*` and the fallback re-sent the rest. The paragraph now stays
+        // in flight until a later delta cannot rewrite it.
+        let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
+        assert_eq!(stream.push("hello *wor\n"), "");
+        assert_eq!(stream.push("ld* end\n"), "");
+        assert_eq!(stream.flush(), "hello wor\nld end\n");
+    }
+
+    #[test]
+    fn stream_holds_a_setext_underline_until_the_heading_settles() {
+        let mut stream = StreamRenderer::new(MarkdownMode::Styled, true);
+        assert_eq!(stream.push("Title\n"), "");
+        assert_eq!(stream.push("=====\n"), "");
+        // One render, emitted once: the paragraph was never sent out as
+        // plain text before the underline turned it into a heading.
+        assert_eq!(strip_terminal_escapes(&stream.flush()), "# Title\n");
     }
 
     #[test]
@@ -708,6 +847,9 @@ mod tests {
         assert_eq!(stream.push("| a | b |\n"), "");
         assert_eq!(stream.push("| --- | --- |\n"), "");
         assert_eq!(stream.push("| 1 | 2 |\n"), "");
-        assert_eq!(stream.push("\nplain text\n"), "a\nb\n1\n2\nplain text\n");
+        // The blank line closes the table, so the table becomes settled
+        // when the following paragraph opens.
+        assert_eq!(stream.push("\nplain text\n"), "a\nb\n1\n2");
+        assert_eq!(stream.flush(), "\nplain text\n");
     }
 }

@@ -111,18 +111,11 @@ impl MiniApprover {
             .get("tool_name")
             .and_then(|v| v.as_str())
             .unwrap_or("tool");
-        let risk = request
-            .get("risk_level")
-            .and_then(|v| v.as_str())
-            .map(|r| format!(" [{r}]"))
-            .unwrap_or_default();
+        let risk = request.get("risk_level").and_then(|v| v.as_str());
         {
             let stderr = io::stderr();
             let mut err = stderr.lock();
-            let prompt = format!(
-                "Allow tool '{tool_name}'{risk}? [y/N] (default N, {}s timeout)",
-                self.timeout_secs
-            );
+            let prompt = approval_prompt(tool_name, risk, self.timeout_secs);
             let prompt = if self.stderr_color {
                 prompt.attribute(Attribute::Bold).to_string()
             } else {
@@ -170,8 +163,15 @@ impl MiniApprover {
     }
 }
 
+/// Approval prompt text for one tool. The risk level, when the request
+/// carries one, sits in brackets after the tool name.
+pub fn approval_prompt(tool_name: &str, risk: Option<&str>, timeout_secs: u64) -> String {
+    let risk = risk.map(|level| format!(" [{level}]")).unwrap_or_default();
+    format!("Allow tool '{tool_name}'{risk}? [y/N] (default N, {timeout_secs}s timeout)")
+}
+
 /// Accept common affirmative answers; everything else denies.
-fn is_affirmative(answer: &str) -> bool {
+pub fn is_affirmative(answer: &str) -> bool {
     matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 

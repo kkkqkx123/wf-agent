@@ -486,7 +486,7 @@ impl InteractiveController {
     fn apply_stream_frame(&mut self, frame: crate::markdown::MarkdownFrame) {
         if !frame.new_committed.is_empty() {
             self.pending_scroll
-                .push(HistoryLine::new_role(frame.new_committed, Role::Default));
+                .push(HistoryLine::markdown(frame.new_committed));
             self.scroll_cover = self.stream.committed_upto();
         } else {
             let committed_to = self.stream.committed_upto();
@@ -496,8 +496,7 @@ impl InteractiveController {
                     .range_text(self.scroll_cover, committed_to)
                     .to_string();
                 if !chunk.is_empty() {
-                    self.pending_scroll
-                        .push(HistoryLine::new_role(chunk, Role::Default));
+                    self.pending_scroll.push(HistoryLine::markdown(chunk));
                 }
                 self.scroll_cover = committed_to;
             }
@@ -506,7 +505,7 @@ impl InteractiveController {
         if view.is_empty() {
             self.streaming = None;
         } else {
-            self.streaming = Some(HistoryLine::new_with_role(
+            self.streaming = Some(HistoryLine::markdown_with(
                 view,
                 LineState::Streaming,
                 Role::Default,
@@ -564,8 +563,7 @@ impl InteractiveController {
             .range_text(self.scroll_cover, usize::MAX)
             .to_string();
         if !rest.is_empty() {
-            self.pending_scroll
-                .push(HistoryLine::new_role(rest, Role::Default));
+            self.pending_scroll.push(HistoryLine::markdown(rest));
         }
         let _ = self.stream.finish();
         self.scroll_cover = 0;

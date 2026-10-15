@@ -4,7 +4,10 @@
 //! The core type is [`HistoryLine`]: it holds the **source text** (never a
 //! width-fixed render cache) so that `display_lines(width)` recomputes the
 //! line wrapping for the current terminal width on every call — the
-//! resize-reflow ground rule. Two line states
+//! resize-reflow ground rule. A line carries a [`LineRender`] mode: `Plain`
+//! reflows the source verbatim, `Markdown` interprets it as Markdown through
+//! the shared styled renderer so assistant answers show headings, code and
+//! quotes. Two line states
 //! coexist: committed lines and an in-flight streaming line (the final
 //! `commit` tick freezes the streaming text).
 //!
@@ -70,6 +73,19 @@ pub enum LineState {
     Streaming,
 }
 
+/// How a history line's source text becomes display rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineRender {
+    /// Reflow the source text as-is: no Markdown interpretation.
+    #[default]
+    Plain,
+    /// Interpret the source text as Markdown (headings, code, emphasis, block
+    /// quotes) and reflow the styled result to the display width. The source
+    /// text is kept verbatim for `source_text` (copy/search) so rendering
+    /// never leaks back into the data.
+    Markdown,
+}
+
 /// A scrollback entry holding reflowable source text.
 ///
 /// Supports optional animation via [`MotionMode`]. When in animated mode,
@@ -78,6 +94,7 @@ pub enum LineState {
 pub struct HistoryLine {
     pub state: LineState,
     pub role: Role,
+    render: LineRender,
     text: Text<'static>,
     motion_mode: MotionMode,
     /// Start moment (injectable clock ms) for shimmer timing.
@@ -105,11 +122,24 @@ impl HistoryLine {
         Self {
             state,
             role,
+            render: LineRender::Plain,
             text: Text::from(content.into()),
             motion_mode: MotionMode::default(),
             animation_start_ms: None,
             seq_no: 0,
         }
+    }
+
+    /// New committed assistant line rendered as Markdown.
+    pub fn markdown(content: impl Into<String>) -> Self {
+        Self::markdown_with(content, LineState::Committed, Role::Default)
+    }
+
+    /// New line rendered as Markdown with explicit state and role.
+    pub fn markdown_with(content: impl Into<String>, state: LineState, role: Role) -> Self {
+        let mut line = Self::new_with_role(content, state, role);
+        line.render = LineRender::Markdown;
+        line
     }
 
     /// New line with motion mode for animation support.
@@ -122,6 +152,7 @@ impl HistoryLine {
         Self {
             state,
             role,
+            render: LineRender::Plain,
             text: Text::from(content.into()),
             motion_mode,
             animation_start_ms: if state == LineState::Streaming {
@@ -233,6 +264,7 @@ impl HistoryLine {
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         std::mem::discriminant(&self.role).hash(&mut hasher);
+        std::mem::discriminant(&self.render).hash(&mut hasher);
         for line in &self.text.lines {
             for span in &line.spans {
                 span.content.as_ref().hash(&mut hasher);
@@ -255,6 +287,9 @@ impl HistoryLine {
     /// Reflow for an explicit clock value so animation frames stay
     /// deterministic under the injectable clock.
     pub fn display_lines_at(&self, width: u16, now_ms: u64) -> Vec<Line<'static>> {
+        if self.render == LineRender::Markdown {
+            return self.markdown_lines_at(width, now_ms);
+        }
         let w = usize::from(width.max(1));
         let mut out = Vec::new();
 
@@ -287,6 +322,36 @@ impl HistoryLine {
             }
         }
 
+        if out.is_empty() {
+            out.push(Line::from(""));
+        }
+        out
+    }
+
+    /// Render the Markdown source ([`HistoryLine::source_text`]) with the
+    /// shared styled renderer, then reflow the styled rows to `width` so the
+    /// result is a drop-in replacement for the plain reflow path. Shimmer is
+    /// applied only while the line is animating, matching the plain path.
+    fn markdown_lines_at(&self, width: u16, now_ms: u64) -> Vec<Line<'static>> {
+        let w = usize::from(width.max(1));
+        let motion = if self.is_animating_at(now_ms) {
+            self.motion_mode
+        } else {
+            MotionMode::Static
+        };
+        let rendered = tui_markdown::markdown::styled::render_styled_lines_animated(
+            &self.source_text(),
+            u16::try_from(w).unwrap_or(u16::MAX),
+            motion,
+        );
+        let mut out = Vec::new();
+        for line in &rendered {
+            if line.width() <= w {
+                out.push(own_line(line));
+            } else {
+                out.extend(wrap_line(line, w));
+            }
+        }
         if out.is_empty() {
             out.push(Line::from(""));
         }
@@ -514,6 +579,7 @@ mod tests {
         let h = HistoryLine {
             state: LineState::Committed,
             role: Role::Default,
+            render: LineRender::Plain,
             text,
             motion_mode: MotionMode::default(),
             animation_start_ms: None,
@@ -550,6 +616,58 @@ mod tests {
         let h = HistoryLine::new("你好世界");
         let raw = h.raw_lines(4);
         assert_eq!(raw, vec!["你好".to_string(), "世界".to_string()]);
+    }
+
+    #[test]
+    fn markdown_lines_strip_inline_markup_and_keep_source() {
+        let h = HistoryLine::markdown("**bold** and `code`");
+        assert_eq!(
+            lines_to_string(&h.display_lines(80)),
+            "bold and code",
+            "markdown lines render inline markup"
+        );
+        // The displayed form never leaks into the stored source (copy/search).
+        assert_eq!(h.source_text(), "**bold** and `code`");
+    }
+
+    #[test]
+    fn markdown_quote_marker_prefixes_each_quoted_line() {
+        let h = HistoryLine::markdown("> quoted note\n> continued line\n");
+        assert_eq!(
+            lines_to_string(&h.display_lines(80)),
+            "> quoted note\n> continued line"
+        );
+    }
+
+    #[test]
+    fn markdown_lines_stay_width_reflowed() {
+        let h = HistoryLine::markdown("This is a long markdown sentence that must wrap.");
+        for width in [8u16, 12, 30] {
+            for row in &h.raw_lines(width) {
+                assert!(
+                    row.width() <= width.max(1) as usize,
+                    "markdown row must fit width {width}: {row:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn plain_lines_keep_markup_verbatim() {
+        let h = HistoryLine::new("**bold** and `code`");
+        assert_eq!(lines_to_string(&h.display_lines(80)), "**bold** and `code`");
+    }
+
+    #[test]
+    fn markdown_line_renders_every_block_kind() {
+        let src = "# Title\n\nA **bold** line.\n\n> note\n\n```\ncode()\n```";
+        let h = HistoryLine::markdown(src);
+        assert_eq!(
+            lines_to_string(&h.display_lines(80)),
+            "# Title\nA bold line.\n> note\n```\ncode()\n```"
+        );
+        // The stored source is untouched by rendering.
+        assert_eq!(h.source_text(), src);
     }
 
     #[test]

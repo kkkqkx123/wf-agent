@@ -1,9 +1,13 @@
-//! Mini stream demo: complete-lines-only buffering over chunked deltas.
+//! Mini stream demo: settled-region buffering over chunked deltas.
 //!
 //! Shows which bytes are ready after each delta and what `flush` drains at
-//! a boundary, including the reference-link hold-back and the unclosed-table
-//! hold-back (a table that forms mid-stream would rewrite already-emitted
-//! bytes on the append-only stdout, so it drains whole at a boundary).
+//! a boundary. An in-flight block (the current paragraph, an open fence,
+//! an unclosed table) stays held until no later delta can rewrite it —
+//! bytes already written to stdout can never be retracted — so a
+//! multi-line emphasis or a setext underline can no longer emit a stale
+//! line. The demonstration includes the reference-link hold-back and the
+//! table hold-back (a table that forms mid-stream would rewrite
+//! already-emitted bytes, so it drains whole at a boundary).
 //!
 //! Run with:
 //! ```sh
@@ -22,14 +26,22 @@ fn section() -> String {
         plain.push("**hello** ")
     ));
     out.push_str(&format!(
-        "chunk `world\\n` settles a line: {:?}\n",
+        "chunk `world\\n` still inside the paragraph: {:?}\n",
         plain.push("world\n")
     ));
     out.push_str(&format!(
-        "chunk `tail` held back: {:?}\n",
+        "chunk `tail` extends the same paragraph: {:?}\n",
         plain.push("tail")
     ));
-    out.push_str(&format!("flush drains tail: {:?}\n", plain.flush()));
+    out.push_str(&format!(
+        "blank line settles the whole paragraph: {:?}\n",
+        plain.push("\n\n")
+    ));
+    out.push_str(&format!(
+        "chunk `more` starts a new block: {:?}\n",
+        plain.push("more")
+    ));
+    out.push_str(&format!("flush drains the tail: {:?}\n", plain.flush()));
     let mut reference = StreamRenderer::new(MarkdownMode::Plain, false);
     out.push_str(&format!(
         "reference link held back: {:?}\n",
@@ -53,6 +65,32 @@ fn section() -> String {
         "table flush drains whole block: {:?}\n",
         table.flush()
     ));
+    let mut emphasis = StreamRenderer::new(MarkdownMode::Plain, false);
+    out.push_str(&format!(
+        "emphasis opening on a line held back: {:?}\n",
+        emphasis.push("hello *wor\n")
+    ));
+    out.push_str(&format!(
+        "emphasis closing on the next line: {:?}\n",
+        emphasis.push("ld* end\n")
+    ));
+    out.push_str(&format!(
+        "paragraph settles the emphasis whole: {:?}\n",
+        emphasis.push("\n\n")
+    ));
+    let mut heading = StreamRenderer::new(MarkdownMode::Plain, false);
+    out.push_str(&format!(
+        "setext candidate held back: {:?}\n",
+        heading.push("Title\n")
+    ));
+    out.push_str(&format!(
+        "underline extends the same block: {:?}\n",
+        heading.push("=====\n")
+    ));
+    out.push_str(&format!(
+        "heading settles at the blank line: {:?}\n",
+        heading.push("\n")
+    ));
     out
 }
 
@@ -61,6 +99,6 @@ fn main() {
         emit::emit("mini", "stream_lines", &section());
         return;
     }
-    println!("mini stream: deltas settle whole lines only");
+    println!("mini stream: deltas settle whole blocks only");
     print!("{}", section());
 }

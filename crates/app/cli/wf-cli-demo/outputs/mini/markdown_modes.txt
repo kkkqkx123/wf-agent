@@ -47,8 +47,7 @@ Retry with backoff and jitter, see login() and docs.
 fn login() {}
 
 ```
-> 
-quoted note
+> quoted note
 > continued line
 ---
 logo
@@ -88,7 +87,7 @@ heading depth one through six styled bold:
 
 stream renderer mode arms:
   raw streams verbatim: true
-  plain emits complete lines only: true
+  plain holds the in-flight paragraph: true
   styled with color emits sgr: true
   styled without color degrades to plain: true
   unclosed table held back whole: true

@@ -272,7 +272,7 @@ async fn iteration_details(client: &WfClient, session_id: &str) -> Vec<serde_jso
 fn push_iteration_detail(lines: &mut Vec<HistoryLine>, detail: &serde_json::Value) {
     if let Some(content) = detail.get("response_content").and_then(|v| v.as_str()) {
         if !content.trim().is_empty() {
-            lines.push(HistoryLine::new_role(content.to_string(), Role::Default));
+            lines.push(HistoryLine::markdown(content.to_string()));
         }
     }
     push_iteration_tool_calls(lines, detail);
@@ -418,7 +418,7 @@ fn records_to_lines(records: &[Message]) -> Vec<HistoryLine> {
                 push_rich_tool_uses(&mut lines, message, &declared);
             }
             MessageRole::Assistant => {
-                lines.push(HistoryLine::new_role(text.clone(), Role::Default));
+                lines.push(HistoryLine::markdown(text.clone()));
                 let declared = push_declared_tool_calls(&mut lines, message);
                 push_rich_tool_uses(&mut lines, message, &declared);
             }

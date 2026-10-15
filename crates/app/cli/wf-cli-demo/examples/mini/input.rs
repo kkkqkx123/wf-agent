@@ -14,7 +14,7 @@ use unicode_width::UnicodeWidthStr;
 use wf_cli_demo::{
     emit,
     mini_input::{
-        approval_prompt, is_affirmative, parse_slash, partial_word_bytes, PreviewHistory,
+        approval_prompt, is_affirmative, parse_command, partial_word_bytes, seeded_history,
     },
 };
 use wf_cli_shared::display::{parse_toggle, MarkdownMode};
@@ -36,7 +36,7 @@ fn slash_section() -> String {
     ];
     let mut out = String::new();
     for input in inputs {
-        out.push_str(&format!("{input:?} -> {:?}\n", parse_slash(input)));
+        out.push_str(&format!("{input:?} -> {:?}\n", parse_command(input)));
     }
     out.push_str(&format!("toggle off parses: {:?}\n", parse_toggle("off")));
     out.push_str(&format!(
@@ -47,7 +47,7 @@ fn slash_section() -> String {
 }
 
 fn history_section() -> String {
-    let mut history = PreviewHistory::seeded();
+    let mut history = seeded_history();
     history.push("cargo nextest run");
     history.push("cargo nextest run");
     let mut out = String::new();

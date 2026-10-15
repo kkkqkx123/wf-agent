@@ -14,9 +14,10 @@
 //! Shared preview plumbing lives in this library so each example stays
 //! focused on one scenario: `mini_render` (re-exports of the real `wf-mini`
 //! rendering primitives plus the sample document), `mini_turn` (turn
-//! routing), `mini_input` (prompt layer), `mini_memory` (session memory),
-//! `headless_common` (format and sink plumbing), and `emit` (golden captures
-//! under `outputs/<form>/`).
+//! routing), `mini_input` and `mini_memory` (re-exports of the real
+//! `wf-mini` prompt layer and transcript plus demo-only seeds and
+//! summaries), `headless_common` (format and sink plumbing), and `emit`
+//! (golden captures under `outputs/<form>/`).
 
 pub mod emit;
 pub mod headless_common;

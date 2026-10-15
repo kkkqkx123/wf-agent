@@ -19,8 +19,8 @@ use super::blocks::{
     extract_code_lang, fence_open, last_top_level_block_start, settle_boundary,
     unclosed_table_start,
 };
-use super::plain::render_plain_text;
 use super::dialect::has_reference_definition;
+use super::plain::render_plain_text;
 
 /// Default source cap for the cumulative buffer (64 KiB).
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
@@ -38,6 +38,36 @@ pub const DEFAULT_PARSE_INTERVAL_MS: u64 = 16;
 const VIEW_UNSAFE_CHARS: &[char] = &[
     '*', '`', '_', '[', ']', '<', '>', '!', '&', '\\', '|', '#', '-', '+', '~', '=',
 ];
+
+/// Byte offset where the settled region of `src` ends: the last point a
+/// renderer may emit without a later delta rewriting those bytes.
+///
+/// The cut sits at a top-level block boundary — the start of the last
+/// in-flight block, or the end of the source once that block settled —
+/// and never past the last newline. Three hold-backs pull the cut back
+/// when a later line could rewrite what was already rendered:
+/// reference-style link definitions (cut to zero), unclosed tables (cut
+/// to the table start) and open fences (cut to the fence start).
+///
+/// Contract relied on by append-only consumers: rendering
+/// `src[..settled_boundary(src)]` yields a prefix of rendering the whole
+/// `src`, so emitted bytes stay valid as the source grows. The streaming
+/// equivalence tests in this module assert that contract directly.
+pub fn settled_boundary(src: &str) -> usize {
+    if src.is_empty() {
+        return 0;
+    }
+    if has_reference_definition(src) {
+        return 0;
+    }
+    if !fence_open(src) {
+        if let Some(start) = unclosed_table_start(src) {
+            return start;
+        }
+    }
+    let split = last_top_level_block_start(src).unwrap_or(src.len());
+    settle_boundary(src, split)
+}
 
 /// A frame of streaming markdown output for one `push`/`finish` call.
 ///
@@ -352,34 +382,10 @@ impl MarkdownStream {
 
     /// Byte offset that splits committed from streaming for the current
     /// buffer: the start of the last top-level block, or the buffer end when
-    /// the settlement heuristic closed that block.
-    ///
-    /// Three correctness gates apply on top of the block heuristic:
-    ///
-    /// * **reference-definition fallback** — when the buffer carries a
-    ///   reference-style link definition (`[label]: url`) or a potential
-    ///   reference usage (`…][…`), incremental splitting is skipped and
-    ///   the whole source stays streaming until finalize (a later
-    ///   definition rewrites earlier link targets);
-    /// * **table holdback** — an unclosed table (header + delimiter row
-    ///   present, rows still continuing) keeps the whole table streaming
-    ///   until finalize so column widths never shift mid-stream;
-    /// * **newline gate** — the commit point never passes the last newline,
-    ///   so a half line is never committed (see [`settle_boundary`]).
+    /// the settlement heuristic closed that block. The gates live in
+    /// [`settled_boundary`] so every consumer shares one frontier policy.
     fn boundary(&self) -> usize {
-        if self.buffer.is_empty() {
-            return 0;
-        }
-        if has_reference_definition(&self.buffer) {
-            return 0;
-        }
-        if !fence_open(&self.buffer) {
-            if let Some(start) = unclosed_table_start(&self.buffer) {
-                return start;
-            }
-        }
-        let split = last_top_level_block_start(&self.buffer).unwrap_or(self.buffer.len());
-        settle_boundary(&self.buffer, split)
+        settled_boundary(&self.buffer)
     }
 }
 

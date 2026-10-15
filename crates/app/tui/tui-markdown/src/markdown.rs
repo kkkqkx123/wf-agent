@@ -30,7 +30,7 @@ pub mod styled;
 pub use dialect::{has_reference_definition, has_table_risk, parser_options};
 
 pub use stream::{
-    MarkdownFrame, MarkdownStream, ParseMetrics, DEFAULT_MAX_SOURCE_BYTES,
+    settled_boundary, MarkdownFrame, MarkdownStream, ParseMetrics, DEFAULT_MAX_SOURCE_BYTES,
     DEFAULT_PARSE_INTERVAL_MS,
 };
 

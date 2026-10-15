@@ -1,9 +1,12 @@
 //! Mini session memory for demos: what enters the transcript.
 //!
-//! Only completed turns enter memory; interrupted and failed turns never do.
-//! Restore keeps user/assistant text only and drops blanks.
+//! Re-exports the real `wf-mini` transcript so demos exercise the actual
+//! implementation instead of a mirrored copy. Only the demo summaries
+//! below live here.
 
 use wf_types::message::{Message, MessageContentValue, MessageRole};
+
+pub use wf_mini::transcript::Transcript;
 
 fn message(role: MessageRole, text: &str) -> Message {
     Message {
@@ -20,27 +23,6 @@ fn message(role: MessageRole, text: &str) -> Message {
     }
 }
 
-/// One completed round: the question plus the non-blank answer.
-pub fn push_pair(user: &str, assistant: &str) -> Vec<Message> {
-    let mut created = Vec::with_capacity(2);
-    created.push(message(MessageRole::User, user));
-    if !assistant.trim().is_empty() {
-        created.push(message(MessageRole::Assistant, assistant));
-    }
-    created
-}
-
-/// Filter stored messages the way session restore does.
-pub fn restore_filter(stored: &[Message]) -> Vec<&Message> {
-    stored
-        .iter()
-        .filter(|m| {
-            matches!(m.role, MessageRole::User | MessageRole::Assistant)
-                && matches!(&m.content, MessageContentValue::Text(t) if !t.trim().is_empty())
-        })
-        .collect()
-}
-
 /// Human-readable restore summary used by the session demo.
 pub fn restore_summary() -> String {
     let stored = vec![
@@ -50,18 +32,16 @@ pub fn restore_summary() -> String {
         message(MessageRole::Tool, "tool result"),
         message(MessageRole::User, "   "),
     ];
-    let kept = restore_filter(&stored);
-    format!(
-        "restore keeps {}/{} messages (user/assistant text only, blanks dropped)\n",
-        kept.len(),
-        stored.len()
-    )
+    let total = stored.len();
+    let kept = Transcript::new().restore(stored);
+    format!("restore keeps {kept}/{total} messages (user/assistant text only, blanks dropped)\n")
 }
 
 /// Human-readable push summary used by the session demo.
 pub fn push_summary() -> String {
-    let full = push_pair("what changed?", "patched login()");
-    let blank = push_pair("retry?", "   ");
+    let mut transcript = Transcript::new();
+    let full = transcript.push_pair("what changed?", "patched login()");
+    let blank = transcript.push_pair("retry?", "   ");
     format!(
         "completed turn records {} messages; blank answer records {} message (question only)\n",
         full.len(),

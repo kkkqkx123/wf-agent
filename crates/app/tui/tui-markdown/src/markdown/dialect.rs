@@ -77,7 +77,9 @@ mod tests {
 
     #[test]
     fn reference_definition_detection_is_conservative() {
-        assert!(has_reference_definition("click [here][l]\n\n[l]: https://x.test\n"));
+        assert!(has_reference_definition(
+            "click [here][l]\n\n[l]: https://x.test\n"
+        ));
         assert!(has_reference_definition("see [a][b] now"));
         assert!(has_reference_definition("[l]: https://x.test\n"));
         assert!(!has_reference_definition("plain **bold** text\n"));

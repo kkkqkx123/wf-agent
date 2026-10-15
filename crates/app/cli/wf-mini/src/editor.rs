@@ -605,7 +605,7 @@ impl EditorCore {
 
 /// Byte length of the next accept chunk of `suffix`: the leading
 /// whitespace run, or one word plus its trailing whitespace.
-fn partial_word_bytes(suffix: &str) -> usize {
+pub fn partial_word_bytes(suffix: &str) -> usize {
     let chars: Vec<(usize, char)> = suffix.char_indices().collect();
     if chars.is_empty() {
         return suffix.len();

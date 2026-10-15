@@ -112,7 +112,9 @@ pub enum DocBlock {
         language: Option<String>,
         lines: Vec<String>,
     },
-    Quote(Vec<StyledLine>),
+    /// A block quote wrapping the blocks it contains, so quoted headings,
+    /// code, lists and nested quotes keep their own block kind.
+    Quote(Vec<DocBlock>),
     Rule,
     List(Vec<Vec<StyledLine>>),
     Table {
@@ -215,15 +217,30 @@ pub fn wrap_document(
     width: usize,
     cell_width: fn(char) -> usize,
 ) -> Vec<StyledLine> {
+    let mut rows = wrap_blocks(&doc.blocks, width, cell_width);
+    if rows.is_empty() {
+        rows.push(StyledLine::default());
+    }
+    rows
+}
+
+/// Wrap a block sequence into display rows; block quotes recurse into their
+/// wrapped content so a quoted block keeps its inner wrapping.
+fn wrap_blocks(
+    blocks: &[DocBlock],
+    width: usize,
+    cell_width: fn(char) -> usize,
+) -> Vec<StyledLine> {
     let mut rows = Vec::new();
-    for block in &doc.blocks {
+    for block in blocks {
         match block {
-            DocBlock::Paragraph(lines)
-            | DocBlock::Heading { lines, .. }
-            | DocBlock::Quote(lines) => {
+            DocBlock::Paragraph(lines) | DocBlock::Heading { lines, .. } => {
                 for line in lines {
                     rows.extend(wrap_line(line, width, cell_width));
                 }
+            }
+            DocBlock::Quote(inner) => {
+                rows.extend(wrap_blocks(inner, width, cell_width));
             }
             DocBlock::Code { lines, .. } => {
                 for raw in lines {
@@ -254,9 +271,6 @@ pub fn wrap_document(
                 rows.extend(wrap_table(headers, body, width, cell_width));
             }
         }
-    }
-    if rows.is_empty() {
-        rows.push(StyledLine::default());
     }
     rows
 }
@@ -368,6 +382,9 @@ pub fn parse_document(src: &str) -> Document {
     let mut table_cell = String::new();
     let mut in_table_head = false;
     let mut in_table_cell = false;
+    // Insertion index of each open block quote in `blocks`; closing a quote
+    // wraps everything appended since that index.
+    let mut quote_stack: Vec<usize> = Vec::new();
 
     let flush_line = |current: &mut Vec<StyledSpan>, lines: &mut Vec<StyledLine>| {
         if !current.is_empty() {
@@ -384,7 +401,9 @@ pub fn parse_document(src: &str) -> Document {
                 Tag::Heading { level, .. } => {
                     let _ = level;
                 }
-                Tag::BlockQuote(_) => {}
+                Tag::BlockQuote(_) => {
+                    quote_stack.push(blocks.len());
+                }
                 Tag::CodeBlock(kind) => {
                     in_code = true;
                     code_language = match kind {
@@ -445,9 +464,11 @@ pub fn parse_document(src: &str) -> Document {
                     }
                 }
                 TagEnd::BlockQuote(_) => {
-                    flush_line(&mut current, &mut lines);
-                    if !lines.is_empty() {
-                        blocks.push(DocBlock::Quote(std::mem::take(&mut lines)));
+                    if let Some(start) = quote_stack.pop() {
+                        let inner = blocks.split_off(start);
+                        if !inner.is_empty() {
+                            blocks.push(DocBlock::Quote(inner));
+                        }
                     }
                 }
                 TagEnd::CodeBlock => {
@@ -602,28 +623,38 @@ pub fn parse_document(src: &str) -> Document {
 
 /// Plain-text view of a document, used as the wrap and headless ground truth.
 pub fn document_plain_text(doc: &Document) -> String {
-    fn push_line(out: &mut String, text: &str) {
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
-        }
-        out.push_str(text);
-    }
     let mut out = String::new();
-    for block in &doc.blocks {
+    plain_blocks(&doc.blocks, &mut out);
+    out
+}
+
+/// Append one line, separating it from prior output with a newline.
+fn push_plain_line(out: &mut String, text: &str) {
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(text);
+}
+
+/// Flatten a block sequence to plain text; block quotes recurse so the
+/// quoted content stays in document order.
+fn plain_blocks(blocks: &[DocBlock], out: &mut String) {
+    for block in blocks {
         match block {
-            DocBlock::Paragraph(lines)
-            | DocBlock::Heading { lines, .. }
-            | DocBlock::Quote(lines) => {
+            DocBlock::Paragraph(lines) | DocBlock::Heading { lines, .. } => {
                 for line in lines {
-                    push_line(&mut out, &line.plain_text());
+                    push_plain_line(out, &line.plain_text());
                 }
+            }
+            DocBlock::Quote(inner) => {
+                plain_blocks(inner, out);
             }
             DocBlock::Code { lines, .. } => {
                 for raw in lines {
                     if raw.is_empty() {
                         continue;
                     }
-                    push_line(&mut out, raw);
+                    push_plain_line(out, raw);
                 }
             }
             DocBlock::Rule => {
@@ -634,21 +665,20 @@ pub fn document_plain_text(doc: &Document) -> String {
             DocBlock::List(items) => {
                 for item in items {
                     for line in item {
-                        push_line(&mut out, &line.plain_text());
+                        push_plain_line(out, &line.plain_text());
                     }
                 }
             }
             DocBlock::Table { headers, rows } => {
                 if !headers.is_empty() {
-                    push_line(&mut out, &headers.join(" | "));
+                    push_plain_line(out, &headers.join(" | "));
                 }
                 for row in rows {
-                    push_line(&mut out, &row.join(" | "));
+                    push_plain_line(out, &row.join(" | "));
                 }
             }
         }
     }
-    out
 }
 
 #[cfg(test)]
@@ -668,6 +698,20 @@ mod tests {
         let plain = document_plain_text(&doc);
         assert!(plain.contains("bold"));
         assert!(plain.contains("code"));
+    }
+
+    #[test]
+    fn block_quote_becomes_a_quote_wrapping_its_blocks() {
+        let doc = parse_document("> quoted note\n> continued line\n");
+        assert_eq!(doc.blocks.len(), 1, "one top-level quote block");
+        let DocBlock::Quote(inner) = &doc.blocks[0] else {
+            panic!("expected a quote block, got {:?}", doc.blocks[0]);
+        };
+        let DocBlock::Paragraph(lines) = &inner[0] else {
+            panic!("expected a paragraph inside the quote");
+        };
+        assert_eq!(lines.len(), 2, "the soft break keeps two logical lines");
+        assert_eq!(document_plain_text(&doc), "quoted note\ncontinued line");
     }
 
     #[test]

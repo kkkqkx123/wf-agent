@@ -47,7 +47,7 @@ fn headless_stdout_matches_mini_scrollback_from_same_reducer() {
     let mut scrollback = String::new();
     for commit in &commits {
         if let MiniCommit::AssistantText { content } = commit {
-            let line = HistoryLine::new(content.clone());
+            let line = HistoryLine::markdown(content.clone());
             if !scrollback.is_empty() {
                 scrollback.push('\n');
             }

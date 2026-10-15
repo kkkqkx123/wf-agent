@@ -1,14 +1,14 @@
 //! Whole-source Markdown → styled ratatui `Line`s rendering.
 //!
-//! Parses the source and applies theme styles to headings, code, emphasis and
-//! block quotes. This is the only markdown module that depends on `ratatui`,
-//! the theme and the motion layer — the streaming split and plain-text
-//! renderers stay free of presentation concerns.
-
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+//! Renders the neutral [`Document`] model (`document_to_lines`) and applies
+//! theme styles to headings, code, emphasis and block quotes. This is the only
+//! markdown module that depends on `ratatui`, the theme and the motion layer —
+//! the streaming split and plain-text renderers stay free of presentation
+//! concerns. The document model is the single source of truth for block
+//! structure, so the styled renderer cannot disagree with the wrapped and
+//! plain views of the same source.
 
 use ratatui::text::{Line, Span};
-use super::dialect::parser_options;
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
 use tui_style::motion::{self, MotionMode};
@@ -28,109 +28,36 @@ fn degraded_lines(src: &str) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// Style applied to a heading of the given level.
-fn heading_style(level: pulldown_cmark::HeadingLevel) -> ratatui::style::Style {
+/// Style applied to a heading of the given level (1..=6).
+fn heading_style(level: u8) -> ratatui::style::Style {
     match level {
-        pulldown_cmark::HeadingLevel::H1 | pulldown_cmark::HeadingLevel::H2 => {
-            theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
-        }
-        pulldown_cmark::HeadingLevel::H3 => theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+        1 | 2 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+        3 => theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
         _ => theme::muted_style(),
     }
 }
 
-/// Shared event walk behind both styled entry points.
+/// Whole-source styled rendering through the neutral document model.
 ///
-/// Plain text is emitted through [`motion::shimmer_text`]: in
+/// The document model is the single source of truth for block structure, so
+/// the styled, wrapped and plain renderers all derive from the same parse and
+/// cannot drift apart. Plain text goes through [`motion::shimmer_text`]: in
 /// [`MotionMode::Static`]/[`MotionMode::Reduced`] that yields an unstyled
 /// span (the static render), while [`MotionMode::Animated`] sweeps a
-/// time-based shimmer across the streaming content.
-fn styled_lines(src: &str, width: u16, motion_mode: MotionMode) -> Vec<Line<'static>> {
+/// time-based shimmer across the content.
+fn styled_from_source(src: &str, width: u16, motion_mode: MotionMode) -> Vec<Line<'static>> {
     if src.len() > MAX_STYLED_SOURCE_BYTES {
         return degraded_lines(src);
     }
-    let mut lines = Vec::new();
-    let mut current_line = Vec::new();
-    let mut in_code_block = false;
-    let mut in_blockquote = false;
-
-    for event in Parser::new_ext(src, parser_options()) {
-        match event {
-            Event::Start(tag) => match tag {
-                Tag::Heading { level, .. } => {
-                    current_line.push(Span::styled(
-                        "#".repeat(level as usize) + " ",
-                        heading_style(level),
-                    ));
-                }
-                Tag::CodeBlock(_) => {
-                    in_code_block = true;
-                    current_line.push(Span::styled("```", theme::tool_call_style()));
-                }
-                Tag::BlockQuote(_) => {
-                    in_blockquote = true;
-                    current_line.push(Span::styled("> ", theme::success_style()));
-                }
-                Tag::Emphasis | Tag::Strong => {
-                    // Styled when the text is seen.
-                }
-                _ => {}
-            },
-            Event::End(tag_end) => match tag_end {
-                TagEnd::Heading(_) => {
-                    lines.push(Line::from(current_line.clone()));
-                    current_line.clear();
-                }
-                TagEnd::CodeBlock => {
-                    current_line.push(Span::styled("```", theme::tool_call_style()));
-                    lines.push(Line::from(current_line.clone()));
-                    current_line.clear();
-                    in_code_block = false;
-                }
-                TagEnd::BlockQuote(_) => {
-                    in_blockquote = false;
-                }
-                TagEnd::Paragraph if !current_line.is_empty() => {
-                    lines.push(Line::from(current_line.clone()));
-                    current_line.clear();
-                }
-                _ => {}
-            },
-            Event::Text(text) => {
-                if in_code_block {
-                    current_line.push(Span::styled(text.to_string(), theme::tool_call_style()));
-                } else if in_blockquote {
-                    current_line.push(Span::styled(text.to_string(), theme::success_style()));
-                } else {
-                    current_line.extend(motion::shimmer_text(text.as_ref(), motion_mode));
-                }
-            }
-            Event::Code(code) => {
-                current_line.push(Span::styled(code.to_string(), theme::tool_call_style()));
-            }
-            Event::SoftBreak | Event::HardBreak => {
-                lines.push(Line::from(current_line.clone()));
-                current_line.clear();
-            }
-            Event::Rule => {
-                lines.push(Line::raw("─".repeat(width as usize)));
-            }
-            _ => {}
-        }
-    }
-
-    if !current_line.is_empty() {
-        lines.push(Line::from(current_line));
-    }
-
-    lines
+    let doc = super::document::parse_document(src);
+    document_to_lines(&doc, width, motion_mode)
 }
 
 /// Render markdown source to styled ratatui Lines.
 ///
 /// Static rendering: no shimmer animation is applied to text.
 pub fn render_styled_lines(src: &str, width: u16) -> Vec<Line<'static>> {
-    styled_lines(src, width, MotionMode::Static)
+    styled_from_source(src, width, MotionMode::Static)
 }
 
 /// Render markdown source to styled ratatui Lines with animation support.
@@ -142,7 +69,7 @@ pub fn render_styled_lines_animated(
     width: u16,
     motion_mode: MotionMode,
 ) -> Vec<Line<'static>> {
-    styled_lines(src, width, motion_mode)
+    styled_from_source(src, width, motion_mode)
 }
 
 /// Style for a backend-neutral semantic role.
@@ -191,14 +118,41 @@ pub fn document_to_lines(
     width: u16,
     motion_mode: MotionMode,
 ) -> Vec<Line<'static>> {
+    blocks_to_lines(&doc.blocks, width, motion_mode)
+}
+
+/// Convert a block sequence into terminal lines. Block quotes recurse and
+/// prefix every quoted row with the dim `> ` marker — the same quoted-line
+/// convention the append-only `Styled` renderer uses, so both frontends show
+/// quotes identically.
+fn blocks_to_lines(blocks: &[DocBlock], width: u16, motion_mode: MotionMode) -> Vec<Line<'static>> {
     let mut out = Vec::new();
-    for block in &doc.blocks {
+    for block in blocks {
         match block {
-            DocBlock::Paragraph(lines)
-            | DocBlock::Heading { lines, .. }
-            | DocBlock::Quote(lines) => {
+            DocBlock::Paragraph(lines) => {
                 for line in lines {
                     out.push(document_line_to_line(line, motion_mode));
+                }
+            }
+            DocBlock::Heading { level, lines } => {
+                for (index, line) in lines.iter().enumerate() {
+                    let mut spans: Vec<Span<'static>> = Vec::new();
+                    if index == 0 {
+                        spans.push(Span::styled(
+                            "#".repeat(*level as usize) + " ",
+                            heading_style(*level),
+                        ));
+                    }
+                    spans.extend(document_line_to_line(line, motion_mode).spans);
+                    out.push(Line::from(spans));
+                }
+            }
+            DocBlock::Quote(inner) => {
+                let marker = Span::styled("> ".to_string(), style_for_role(StyleRole::Dim));
+                for line in blocks_to_lines(inner, width, motion_mode) {
+                    let mut spans = vec![marker.clone()];
+                    spans.extend(line.spans);
+                    out.push(Line::from(spans));
                 }
             }
             DocBlock::Code { lines, .. } => {
@@ -295,31 +249,58 @@ fn table_block_lines(headers: &[String], rows: &[Vec<String>], width: u16) -> Ve
         .collect()
 }
 
-/// Render markdown through the neutral document model.
-pub fn render_markdown_via_document(
-    src: &str,
-    width: u16,
-    motion_mode: MotionMode,
-) -> Vec<Line<'static>> {
-    if src.len() > MAX_STYLED_SOURCE_BYTES {
-        return degraded_lines(src);
-    }
-    let doc = super::document::parse_document(src);
-    document_to_lines(&doc, width, motion_mode)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text(lines: &[Line<'static>]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
 
     #[test]
     fn oversized_source_degrades_to_verbatim_lines() {
         let src = "x".repeat(MAX_STYLED_SOURCE_BYTES + 1);
         let lines = render_styled_lines(&src, 80);
         assert_eq!(lines.len(), 1);
-        let via_doc = render_markdown_via_document(&src, 80, MotionMode::Static);
-        assert_eq!(via_doc.len(), 1);
         let small = render_styled_lines("# Title", 80);
         assert!(!small.is_empty());
+    }
+
+    #[test]
+    fn quote_marker_prefixes_every_quoted_line() {
+        let lines = render_styled_lines("> quoted note\n> continued line\n", 80);
+        assert_eq!(
+            text(&lines),
+            vec!["> quoted note".to_string(), "> continued line".to_string()]
+        );
+    }
+
+    #[test]
+    fn heading_keeps_hash_prefix() {
+        let lines = render_styled_lines("# Title", 80);
+        assert_eq!(text(&lines), vec!["# Title".to_string()]);
+    }
+
+    #[test]
+    fn quote_marker_covers_a_quoted_heading() {
+        let lines = render_styled_lines("> # head\n", 80);
+        assert_eq!(text(&lines), vec!["> # head".to_string()]);
+    }
+
+    #[test]
+    fn plain_document_view_has_no_quote_marker() {
+        let doc = super::super::document::parse_document("> quoted note\n");
+        assert_eq!(
+            super::super::document::document_plain_text(&doc),
+            "quoted note"
+        );
     }
 }

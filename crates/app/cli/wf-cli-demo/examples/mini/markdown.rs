@@ -24,7 +24,9 @@ fn section() -> String {
         mini_render::SAMPLE_MARKDOWN,
     ));
     out.push_str("\nplain text:\n");
-    out.push_str(&mini_render::render_plain_text(mini_render::SAMPLE_MARKDOWN));
+    out.push_str(&mini_render::render_plain_text(
+        mini_render::SAMPLE_MARKDOWN,
+    ));
 
     let styled = mini_render::render_styled(mini_render::SAMPLE_MARKDOWN);
     let stripped = mini_render::strip_terminal_escapes(&styled);
@@ -125,19 +127,25 @@ fn section() -> String {
     ));
     let mut plain = mini_render::StreamRenderer::new(MarkdownMode::Plain, false);
     let settled = plain.push("**hello** ") == String::new()
-        && plain.push("world\n") == "hello world\n"
-        && plain.flush() == String::new();
-    out.push_str(&format!("  plain emits complete lines only: {settled}\n"));
+        && plain.push("world\n") == String::new()
+        && plain.push("\n\n") == "hello world"
+        && plain.push("tail") == String::new()
+        && plain.flush() == "\ntail";
+    out.push_str(&format!(
+        "  plain holds the in-flight paragraph: {settled}\n"
+    ));
     let mut colored = mini_render::StreamRenderer::new(MarkdownMode::Styled, true);
-    let colorful = colored.push("**hi**\n");
+    colored.push("**hi**\n");
+    let colorful = colored.flush();
     out.push_str(&format!(
         "  styled with color emits sgr: {}\n",
         colorful.contains("\x1b[1m") && colorful.contains("\x1b[0m")
     ));
     let mut degraded = mini_render::StreamRenderer::new(MarkdownMode::Styled, false);
+    degraded.push("**hi**\n");
     out.push_str(&format!(
         "  styled without color degrades to plain: {}\n",
-        degraded.push("**hi**\n") == "hi\n"
+        degraded.flush() == "hi\n"
     ));
     let mut table = mini_render::StreamRenderer::new(MarkdownMode::Plain, false);
     let held = table.push("| area | status |\n") == String::new()

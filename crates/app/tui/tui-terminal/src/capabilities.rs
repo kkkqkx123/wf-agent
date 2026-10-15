@@ -173,6 +173,22 @@ impl TerminalType {
                 | Self::WindowsTerminal
         )
     }
+
+    /// Whether this terminal is known to implement synchronized output
+    /// (DEC private mode 2026), which lets a frame's cell updates land
+    /// atomically instead of tearing mid-stream.
+    pub fn supports_synchronized_output(&self) -> bool {
+        matches!(
+            self,
+            Self::Kitty
+                | Self::WezTerm
+                | Self::Ghostty
+                | Self::Alacritty
+                | Self::ITerm2
+                | Self::Rio
+                | Self::WindowsTerminal
+        )
+    }
 }
 
 /// Orchestrates capability detection with concrete probe functions. No
@@ -207,6 +223,7 @@ impl TerminalProbe {
         probe_keyboard_enhancement(&mut self.capabilities);
         probe_color_depth(&mut self.capabilities);
         probe_terminal_type(&mut self.capabilities);
+        probe_synchronized_output(&mut self.capabilities);
         probe_focus_events(&mut self.capabilities);
         probe_osc52_clipboard(&mut self.capabilities);
     }
@@ -246,6 +263,10 @@ fn probe_terminal_type(caps: &mut TerminalCapabilities) {
 fn probe_focus_events(caps: &mut TerminalCapabilities) {
     let term_type = TerminalType::detect_from_env();
     caps.focus_events = term_type.supports_focus_events();
+}
+
+fn probe_synchronized_output(caps: &mut TerminalCapabilities) {
+    caps.synchronized_output = TerminalType::detect_from_env().supports_synchronized_output();
 }
 
 /// Strict master switch for OSC 52 clipboard writes. Only `1` forces the
@@ -460,6 +481,20 @@ mod tests {
         assert!(TerminalType::Kitty.supports_kitty_keyboard());
         assert!(TerminalType::WezTerm.supports_kitty_keyboard());
         assert!(!TerminalType::ITerm2.supports_kitty_keyboard());
+    }
+
+    #[test]
+    fn synchronized_output_support_is_whitelisted() {
+        assert!(TerminalType::Kitty.supports_synchronized_output());
+        assert!(TerminalType::WezTerm.supports_synchronized_output());
+        assert!(TerminalType::Ghostty.supports_synchronized_output());
+        assert!(TerminalType::ITerm2.supports_synchronized_output());
+        assert!(TerminalType::Rio.supports_synchronized_output());
+        assert!(TerminalType::Alacritty.supports_synchronized_output());
+        assert!(TerminalType::WindowsTerminal.supports_synchronized_output());
+        assert!(!TerminalType::Tmux.supports_synchronized_output());
+        assert!(!TerminalType::Screen.supports_synchronized_output());
+        assert!(!TerminalType::Unknown.supports_synchronized_output());
     }
 
     #[test]

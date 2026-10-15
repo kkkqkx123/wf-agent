@@ -449,9 +449,66 @@ impl AnimRowRecord {
     }
 }
 
+/// Previous composed frame retained for partial redraws.
+///
+/// The renderer composes into a fresh buffer each frame, so a partial scope
+/// must restore the untouched cells itself. [`FrameCache::seed`] copies the
+/// stored frame into the working buffer before a partial composition and
+/// [`FrameCache::capture`] stores the composed frame afterwards. The stored
+/// frame is kept before theme adaptation so adaptation runs once per frame
+/// and seeded cells are never flipped twice.
+#[derive(Debug, Default)]
+pub struct FrameCache {
+    frame: Option<Buffer>,
+}
+
+impl FrameCache {
+    /// Empty cache (first frame has nothing to seed).
+    pub fn new() -> Self {
+        Self { frame: None }
+    }
+
+    /// Whether a stored frame can seed a composition at `area`.
+    pub fn can_seed(&self, area: Rect) -> bool {
+        self.frame.as_ref().is_some_and(|prev| prev.area == area)
+    }
+
+    /// Seed `buf` from the stored frame. Callers must check
+    /// [`Self::can_seed`] first; the copy reuses the working buffer's
+    /// allocation.
+    pub fn seed(&self, buf: &mut Buffer) {
+        if let Some(prev) = self.frame.as_ref() {
+            if prev.area == *buf.area() {
+                buf.content.clear();
+                buf.content.extend_from_slice(&prev.content);
+            }
+        }
+    }
+
+    /// Store the composed frame for the next partial composition, reusing the
+    /// existing allocation.
+    pub fn capture(&mut self, buf: &Buffer) {
+        match self.frame.as_mut() {
+            Some(prev) => {
+                prev.area = buf.area;
+                prev.content.clear();
+                prev.content.extend_from_slice(&buf.content);
+            }
+            None => self.frame = Some(buf.clone()),
+        }
+    }
+
+    /// Drop the stored frame, forcing the next partial scope to compose a
+    /// full frame.
+    pub fn clear(&mut self) {
+        self.frame = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::Cell;
 
     fn snapshot() -> RedrawSnapshot {
         RedrawSnapshot {
@@ -636,7 +693,6 @@ mod tests {
 
     #[test]
     fn changed_cells_counts_only_differences() {
-        use ratatui::buffer::Cell;
         let area = Rect::new(0, 0, 4, 1);
         let prev = Buffer::filled(area, Cell::EMPTY);
         let mut next = prev.clone();
@@ -662,5 +718,116 @@ mod tests {
         assert_eq!(bounds.y, 0);
         assert_eq!(bounds.width, 6);
         assert_eq!(bounds.height, 4);
+    }
+
+    #[test]
+    fn empty_frame_cache_cannot_seed() {
+        let cache = FrameCache::new();
+        assert!(!cache.can_seed(Rect::new(0, 0, 4, 1)));
+        let mut buf = Buffer::filled(Rect::new(0, 0, 4, 1), Cell::EMPTY);
+        cache.seed(&mut buf);
+        assert_eq!(buf.content, Buffer::filled(Rect::new(0, 0, 4, 1), Cell::EMPTY).content);
+    }
+
+    #[test]
+    fn captured_frame_seeds_only_matching_area() {
+        let area = Rect::new(0, 0, 8, 2);
+        let mut composed = Buffer::filled(area, Cell::EMPTY);
+        composed.set_string(0, 0, "HELLO", ratatui::style::Style::default());
+        let mut cache = FrameCache::new();
+        cache.capture(&composed);
+
+        assert!(cache.can_seed(area));
+        assert!(!cache.can_seed(Rect::new(0, 0, 8, 3)));
+
+        let mut blank = Buffer::filled(area, Cell::EMPTY);
+        cache.seed(&mut blank);
+        assert_eq!(blank.content, composed.content);
+
+        // A mismatched area is left untouched so a stale frame never lands.
+        let mut other = Buffer::filled(Rect::new(0, 0, 8, 3), Cell::EMPTY);
+        let before = other.content.clone();
+        cache.seed(&mut other);
+        assert_eq!(other.content, before);
+    }
+
+    #[test]
+    fn cleared_frame_cache_forces_full_composition() {
+        let area = Rect::new(0, 0, 4, 1);
+        let mut cache = FrameCache::new();
+        cache.capture(&Buffer::filled(area, Cell::EMPTY));
+        assert!(cache.can_seed(area));
+        cache.clear();
+        assert!(!cache.can_seed(area));
+    }
+
+    #[test]
+    fn recapture_replaces_previous_frame() {
+        let area = Rect::new(0, 0, 4, 1);
+        let mut first = Buffer::filled(area, Cell::EMPTY);
+        first.set_string(0, 0, "AAAA", ratatui::style::Style::default());
+        let mut second = Buffer::filled(area, Cell::EMPTY);
+        second.set_string(0, 0, "BBBB", ratatui::style::Style::default());
+
+        let mut cache = FrameCache::new();
+        cache.capture(&first);
+        cache.capture(&second);
+        let mut seeded = Buffer::filled(area, Cell::EMPTY);
+        cache.seed(&mut seeded);
+        assert_eq!(seeded.content, second.content);
+    }
+
+    #[test]
+    fn seeding_preserves_untouched_cells_across_frames() {
+        use ratatui::backend::TestBackend;
+        use ratatui::style::Style;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(10, 2);
+        let mut terminal = Terminal::new(backend).expect("backend");
+        let mut cache = FrameCache::new();
+
+        // First frame paints a full surface.
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                if cache.can_seed(area) {
+                    cache.seed(frame.buffer_mut());
+                }
+                frame
+                    .buffer_mut()
+                    .set_string(0, 0, "HELLO", Style::default());
+                cache.capture(frame.buffer_mut());
+            })
+            .expect("first draw");
+
+        // Second frame is animation-only: it touches a single cell. The
+        // terminal resets the working buffer each frame, so without seeding
+        // the rest of the screen would be wiped.
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                if cache.can_seed(area) {
+                    cache.seed(frame.buffer_mut());
+                }
+                frame
+                    .buffer_mut()
+                    .set_string(0, 1, "x", Style::default());
+                cache.capture(frame.buffer_mut());
+            })
+            .expect("second draw");
+
+        let buffer = terminal.backend().buffer();
+        let row0: String = buffer
+            .content
+            .iter()
+            .take(10)
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(row0.starts_with("HELLO"), "row0 was {row0:?}");
+        assert_eq!(
+            buffer.cell((0, 1)).map(|cell| cell.symbol().to_string()),
+            Some("x".to_string())
+        );
     }
 }

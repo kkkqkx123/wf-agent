@@ -103,6 +103,12 @@ pub struct TuiApp {
     /// key / data / resize / theme change requests here, and the submit
     /// point takes it exactly once per frame.
     pending_scope: crate::redraw::PendingScope,
+    /// Previous composed frame before theme adaptation. Local scopes seed
+    /// the composition from it and overwrite only their own cells, so the
+    /// rest of the screen survives instead of relying on the backend to keep
+    /// the prior frame. Stored pre-adaptation so each frame adapts seeded and
+    /// fresh content exactly once.
+    frame_cache: crate::redraw::FrameCache,
     /// Last millisecond an animation-only frame was emitted.
     last_anim_ms: Option<u64>,
     /// Last moment real activity landed; drives the idle poll backoff.
@@ -212,6 +218,7 @@ impl TuiApp {
                 pending.request(crate::redraw::RedrawScope::Full);
                 pending
             },
+            frame_cache: crate::redraw::FrameCache::new(),
             last_anim_ms: None,
             last_active: Instant::now(),
             resize: ResizeDebouncer::default_window(),
@@ -469,55 +476,62 @@ impl TuiApp {
             // terminal supports it so streaming never tears.
             self.frame.set_now(self.now_ms());
             if (interactive || self.pending_scope.is_pending()) && self.frame.deadline().is_none() {
-                let data = self.display_data();
-                let sync_scope = self.grade_frame();
-                let sync = crate::perf::should_sync_output(
-                    self.perf_policy,
-                    self.sync_supported,
-                    sync_scope,
-                );
-                let draw_start = Instant::now();
-                if sync {
-                    use crossterm::execute;
-                    use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
-                    let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
-                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        terminal
-                            .draw(|frame| self.draw_inner(frame, &data))
-                            .map(|_| ())
-                            .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
-                    }));
-                    let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
-                    match outcome {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => return Err(e),
-                        Err(_) => self.draw_recovered(terminal)?,
-                    }
+                let frame_scope = self.resolve_frame_scope();
+                if frame_scope == crate::redraw::RedrawScope::None {
+                    // Nothing changed: advance the frame limiter without
+                    // composing, so an idle loop does not repaint the surface.
+                    self.frame.frame_done();
+                    self.pending_scope.take();
                 } else {
-                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        terminal
-                            .draw(|frame| self.draw_inner(frame, &data))
-                            .map(|_| ())
-                            .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
-                    }));
-                    match outcome {
-                        Ok(Ok(())) => {}
-                        Ok(Err(e)) => return Err(e),
-                        Err(_) => self.draw_recovered(terminal)?,
+                    let data = self.display_data();
+                    let sync = crate::perf::should_sync_output(
+                        self.perf_policy,
+                        self.sync_supported,
+                        frame_scope,
+                    );
+                    let draw_start = Instant::now();
+                    if sync {
+                        use crossterm::execute;
+                        use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
+                        let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            terminal
+                                .draw(|frame| self.draw_inner(frame, &data, frame_scope))
+                                .map(|_| ())
+                                .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
+                        }));
+                        let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
+                        match outcome {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => return Err(e),
+                            Err(_) => self.draw_recovered(terminal)?,
+                        }
+                    } else {
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            terminal
+                                .draw(|frame| self.draw_inner(frame, &data, frame_scope))
+                                .map(|_| ())
+                                .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
+                        }));
+                        match outcome {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => return Err(e),
+                            Err(_) => self.draw_recovered(terminal)?,
+                        }
                     }
+                    self.frame.frame_done();
+                    self.record_prod_budget(draw_start.elapsed());
+                    self.pending_scope.take();
+                    if frame_scope == crate::redraw::RedrawScope::AnimationOnly {
+                        self.last_anim_ms = Some(self.now_ms());
+                    }
+                    if self.interactive.is_some() {
+                        self.last_active = Instant::now();
+                    }
+                    // Post-frame copy flush: OSC 52 bytes always follow a
+                    // complete frame, never interleave it.
+                    self.flush_pending_copy(guard);
                 }
-                self.frame.frame_done();
-                self.record_prod_budget(draw_start.elapsed());
-                let submitted = self.pending_scope.take();
-                if submitted == crate::redraw::RedrawScope::AnimationOnly {
-                    self.last_anim_ms = Some(self.now_ms());
-                }
-                if self.interactive.is_some() {
-                    self.last_active = Instant::now();
-                }
-                // Post-frame copy flush: OSC 52 bytes always follow a
-                // complete frame, never interleave it.
-                self.flush_pending_copy(guard);
             }
 
             // Orphaned client with no live session exits instead of idling.
@@ -556,6 +570,14 @@ impl TuiApp {
         } else {
             RedrawScope::None
         }
+    }
+
+    /// Effective scope for the frame about to be drawn: the merged pending
+    /// request joined with the freshly graded state. The submit point and the
+    /// seeding decision read this single value so a partial frame can never
+    /// be composed onto an unseeded surface.
+    fn resolve_frame_scope(&self) -> crate::redraw::RedrawScope {
+        self.pending_scope.scope().merge(self.grade_frame())
     }
 
     /// Terminal modes for this session: the TUI baseline layered with the
@@ -863,7 +885,22 @@ impl TuiApp {
     /// deferred work and paints its placeholder. The frame tail flushes the
     /// deferred queue unconditionally so the cleanup proof advances every
     /// frame.
-    fn draw_inner(&mut self, frame: &mut Frame, data: &ScreenData) {
+    fn draw_inner(&mut self, frame: &mut Frame, data: &ScreenData, requested: crate::redraw::RedrawScope) {
+        // Partial scopes overwrite only their own cells, so the previous
+        // composed frame seeds the surface first and the rest of the screen
+        // survives. Without a matching previous frame the scope upgrades to
+        // full, so a partial frame can never paint over a stale or blank
+        // surface.
+        let scope =
+            if requested == crate::redraw::RedrawScope::Full || self.frame_cache.can_seed(frame.area())
+            {
+                requested
+            } else {
+                crate::redraw::RedrawScope::Full
+            };
+        if scope != crate::redraw::RedrawScope::Full {
+            self.frame_cache.seed(frame.buffer_mut());
+        }
         let area = frame.area();
         let diagram_requested = self
             .interactive
@@ -885,7 +922,7 @@ impl TuiApp {
 
         // Interactive is always the primary interface
         if let Some(session) = &mut self.interactive {
-            session.draw(frame, chunks[0], &self.theme);
+            session.draw(frame, chunks[0], &self.theme, scope);
         } else {
             // Fallback to screens if no interactive controller is active
             let kind = self.app.screen.navigation.current_kind();
@@ -969,6 +1006,10 @@ impl TuiApp {
         }
 
         let _deferred = self.deferred.flush();
+        // Capture the composed frame before adaptation so the next partial
+        // frame seeds pre-adaptation content and adaptation still runs exactly
+        // once per frame over the whole buffer.
+        self.frame_cache.capture(frame.buffer_mut());
         crate::post_process::finish_frame(
             frame.buffer_mut(),
             self.theme_mode,

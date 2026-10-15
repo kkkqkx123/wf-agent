@@ -19,16 +19,18 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::interactive::InteractiveController;
-use crate::redraw::{decide_scope, AnimationArea, RedrawScope};
+use crate::redraw::{AnimationArea, RedrawScope};
 use crate::theme::Theme;
 use tui_components::scrollbar;
 
 impl InteractiveController {
     /// Render the session into the supplied area. The single submit point
-    /// branches on scope: full rebuilds everything, bottom-only reuses the
-    /// cached scrollback preparation and repaints footer/input, and
-    /// animation-only touches just the recorded animation cells.
-    pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    /// branches on the shell-provided scope: full rebuilds everything,
+    /// bottom-only reuses the cached scrollback preparation and repaints
+    /// footer/input, and animation-only touches just the recorded animation
+    /// cells. The shell seeds the surface with the previous frame before
+    /// calling this, so a partial scope never has to clear the rest.
+    pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme, requested: RedrawScope) {
         self.footer.set_now(self.now_ms());
 
         // Bottom grows with the composer: footer frame plus a mirrored
@@ -62,8 +64,7 @@ impl InteractiveController {
         // grades full through the width change with no restart.
         let text_width = self.estimated_text_width(scroll_area);
         let snapshot = self.redraw_snapshot_for(text_width, scroll_area.height);
-        let scope = decide_scope(self.last_snapshot(), snapshot);
-        let scope = self.coerce_scope(scope);
+        let scope = self.coerce_scope(requested);
         match scope {
             RedrawScope::Full => {
                 self.draw_scrollback_scoped(frame, scroll_area, scope, theme);
@@ -752,13 +753,17 @@ mod tests {
             let backend = TestBackend::new(30, 15);
             let mut terminal = Terminal::new(backend).expect("backend");
             terminal
-                .draw(|frame| closed.draw(frame, frame.area(), &theme))
+                .draw(|frame| {
+                    closed.draw(frame, frame.area(), &theme, crate::redraw::RedrawScope::Full)
+                })
                 .expect("draw closed");
             let closed_buf = terminal.backend().buffer().clone();
             let backend = TestBackend::new(30, 15);
             let mut terminal = Terminal::new(backend).expect("backend");
             terminal
-                .draw(|frame| open.draw(frame, frame.area(), &theme))
+                .draw(|frame| {
+                    open.draw(frame, frame.area(), &theme, crate::redraw::RedrawScope::Full)
+                })
                 .expect("draw open");
             let open_buf = terminal.backend().buffer().clone();
             (closed_buf, open_buf)

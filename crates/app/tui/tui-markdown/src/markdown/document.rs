@@ -8,6 +8,8 @@
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
+use tui_markdown_dialect::parser_options;
+
 /// Semantic style role for a span, independent of any backend palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StyleRole {
@@ -375,7 +377,7 @@ pub fn parse_document(src: &str) -> Document {
         }
     };
 
-    for event in Parser::new(src) {
+    for event in Parser::new_ext(src, parser_options()) {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {}
@@ -566,7 +568,11 @@ pub fn parse_document(src: &str) -> Document {
                 flush_line(&mut current, &mut lines);
                 blocks.push(DocBlock::Rule);
             }
-            Event::FootnoteReference(_) | Event::TaskListMarker(_) => {}
+            Event::FootnoteReference(_) => {}
+            Event::TaskListMarker(checked) => {
+                let marker = if checked { "[x] " } else { "[ ] " };
+                current.push(StyledSpan::text(marker, StyleRole::Text));
+            }
             Event::InlineMath(math) => {
                 current.push(StyledSpan::math(math.to_string(), math.to_string()));
             }

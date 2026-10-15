@@ -33,9 +33,9 @@ engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resourc
 
 app layer: `wf-api` (application-facing API facade), `wf-server` (HTTP transport layer), `wf-runtime` (runtime bootstrap), `cli/` (CLI frontends, peer of a future desktop app), `tui/` (low-level TUI building blocks, no `wf-` prefix)
 
-cli layer: `wf-cli-shared` (TUI-free shared logic), `wf-headless` (headless CLI binary), `wf-mini` (lightweight crossterm TUI binary), `wf-tui` (full ratatui TUI facade: library + `wf` binary), `wf-cli-demo` (runnable examples for all CLI forms)
+cli layer: `wf-cli-shared` (TUI-free shared logic), `wf-headless` (headless CLI binary), `wf-mini` (lightweight crossterm TUI: library + `wf-mini` binary), `wf-tui` (full ratatui TUI facade: library + `wf` binary), `wf-cli-demo` (runnable examples for all CLI forms)
 
-tui layer: `tui-clock` (monotonic clock helper, leaf), `tui-terminal` (terminal backend, capabilities, sigint, stderr guard), `tui-style` (theme, animation, motion), `tui-markdown` (Markdown streaming + render), `tui-core` (reducer, events, pacing, screen data, headless summary kernel), `tui-components` (widgets / overlays), `tui-render` (frame render + screen draw), `tui-debug` (diff recorder / debug views)
+tui layer: `tui-clock` (monotonic clock helper, leaf), `tui-terminal` (terminal backend, capabilities, sigint, stderr guard), `tui-style` (theme, animation, motion), `tui-markdown-dialect` (canonical pulldown-cmark parser options + streaming table-risk helper, leaf), `tui-markdown` (Markdown streaming + render), `tui-core` (reducer, events, pacing, screen data, headless summary kernel), `tui-components` (widgets / overlays), `tui-render` (frame render + screen draw), `tui-debug` (diff recorder / debug views)
 
 ### Rust Crate Dependency DAG
 
@@ -51,7 +51,7 @@ app: wf-api wf-server wf-runtime
 
 cli: wf-cli-shared ← wf-headless / wf-mini / wf-tui ← wf-cli-demo
 
-tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-clock); tui-markdown (→ tui-style); tui-core (→ tui-clock/tui-style/tui-markdown/tui-terminal/wf-api); tui-components (→ tui-core/tui-style/tui-markdown); tui-render (→ tui-components/tui-core/tui-style); tui-debug (→ tui-core)
+tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-clock); tui-markdown-dialect (leaf, pulldown-cmark only; consumed by both tui-markdown and wf-mini); tui-markdown (→ tui-style, tui-markdown-dialect); tui-core (→ tui-clock/tui-style/tui-markdown/tui-terminal/wf-api); tui-components (→ tui-core/tui-style/tui-markdown); tui-render (→ tui-components/tui-core/tui-style); tui-debug (→ tui-core)
 
 `wf-tui` is a thin facade that re-exports every `tui/*` crate and keeps the application shell (`tui/interactive/state/screens/fetch/replay/size`). `wf-mini` may depend directly on low-level `tui/*` crates (e.g. `tui-terminal`, `tui-clock`) without the `wf-` prefix.
 

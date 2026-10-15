@@ -1,16 +1,9 @@
 //! wf-mini binary entry point: native terminal session. Prompts run in a
 //! raw-mode single-row editor with ghost-text suggestions on TTYs and fall
 //! back to the cooked line reader when piped.
-
-mod approval;
-mod display;
-mod editor;
-mod input;
-mod output;
-mod render;
-mod session;
-mod suggest;
-mod transcript;
+//!
+//! All session logic lives in the library target (`wf_mini`); this binary
+//! only parses CLI arguments and dispatches.
 
 use clap::Parser;
 
@@ -46,7 +39,8 @@ async fn main() {
                 std::process::exit(i32::from(err.exit_code()));
             }
         }
-        wf_cli_shared::mode::CliMode::Tui => match session::NativeSession::new(&cli).await {
+        wf_cli_shared::mode::CliMode::Tui => match wf_mini::session::NativeSession::new(&cli).await
+        {
             Ok(session) => {
                 if let Err(err) = session.run().await {
                     eprintln!("wf-mini: {err}");

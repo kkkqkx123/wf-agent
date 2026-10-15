@@ -8,6 +8,8 @@
 
 use pulldown_cmark::{Event, Parser};
 
+use tui_markdown_dialect::parser_options;
+
 /// Locate the byte offset where the last top-level block begins.
 ///
 /// Walks the offset iterator tracking tag depth; the start offset of the
@@ -15,7 +17,7 @@ use pulldown_cmark::{Event, Parser};
 pub(super) fn last_top_level_block_start(src: &str) -> Option<usize> {
     let mut depth = 0u32;
     let mut last = None;
-    for (event, range) in Parser::new(src).into_offset_iter() {
+    for (event, range) in Parser::new_ext(src, parser_options()).into_offset_iter() {
         match event {
             Event::Start(_) => {
                 if depth == 0 {

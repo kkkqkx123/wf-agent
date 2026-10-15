@@ -47,9 +47,7 @@ pub fn parse_slash(line: &str) -> Option<Slash> {
         },
         "/markdown" => match tokens.next() {
             None => Some(Slash::Markdown(None)),
-            Some(mode) if tokens.next().is_none() => {
-                Some(Slash::Markdown(Some(mode.to_string())))
-            }
+            Some(mode) if tokens.next().is_none() => Some(Slash::Markdown(Some(mode.to_string()))),
             _ => None,
         },
         "/reasoning" => match tokens.next() {
@@ -61,16 +59,12 @@ pub fn parse_slash(line: &str) -> Option<Slash> {
         },
         "/usage" => match tokens.next() {
             None => Some(Slash::Usage(None)),
-            Some(toggle) if tokens.next().is_none() => {
-                Some(Slash::Usage(Some(toggle.to_string())))
-            }
+            Some(toggle) if tokens.next().is_none() => Some(Slash::Usage(Some(toggle.to_string()))),
             _ => None,
         },
         "/tools" => match tokens.next() {
             None => Some(Slash::Tools(None)),
-            Some(toggle) if tokens.next().is_none() => {
-                Some(Slash::Tools(Some(toggle.to_string())))
-            }
+            Some(toggle) if tokens.next().is_none() => Some(Slash::Tools(Some(toggle.to_string()))),
             _ => None,
         },
         "/display" if tokens.next().is_none() => Some(Slash::Display),

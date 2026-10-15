@@ -1,7 +1,9 @@
 //! Mini stream demo: complete-lines-only buffering over chunked deltas.
 //!
 //! Shows which bytes are ready after each delta and what `flush` drains at
-//! a boundary, including the reference-link hold-back.
+//! a boundary, including the reference-link hold-back and the unclosed-table
+//! hold-back (a table that forms mid-stream would rewrite already-emitted
+//! bytes on the append-only stdout, so it drains whole at a boundary).
 //!
 //! Run with:
 //! ```sh
@@ -23,7 +25,10 @@ fn section() -> String {
         "chunk `world\\n` settles a line: {:?}\n",
         plain.push("world\n")
     ));
-    out.push_str(&format!("chunk `tail` held back: {:?}\n", plain.push("tail")));
+    out.push_str(&format!(
+        "chunk `tail` held back: {:?}\n",
+        plain.push("tail")
+    ));
     out.push_str(&format!("flush drains tail: {:?}\n", plain.flush()));
     let mut reference = StreamRenderer::new(MarkdownMode::Plain, false);
     out.push_str(&format!(
@@ -31,6 +36,23 @@ fn section() -> String {
         reference.push("see [a][b] now\n")
     ));
     out.push_str(&format!("reference flush: {:?}\n", reference.flush()));
+    let mut table = StreamRenderer::new(MarkdownMode::Plain, false);
+    out.push_str(&format!(
+        "table header held back: {:?}\n",
+        table.push("| area | status |\n")
+    ));
+    out.push_str(&format!(
+        "table delimiter held back: {:?}\n",
+        table.push("| --- | --- |\n")
+    ));
+    out.push_str(&format!(
+        "table row held back: {:?}\n",
+        table.push("| auth | fixed |\n")
+    ));
+    out.push_str(&format!(
+        "table flush drains whole block: {:?}\n",
+        table.flush()
+    ));
     out
 }
 

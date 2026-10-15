@@ -12,7 +12,11 @@
 use wf_cli_demo::{emit, mini_memory};
 
 fn section() -> String {
-    format!("{}{}", mini_memory::push_summary(), mini_memory::restore_summary())
+    format!(
+        "{}{}",
+        mini_memory::push_summary(),
+        mini_memory::restore_summary()
+    )
 }
 
 fn main() {

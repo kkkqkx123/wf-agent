@@ -83,7 +83,10 @@ async fn runnable_cases_match_golden_outputs() {
                 && !SCHEMA_ONLY.contains(&case.fixture.tool.as_str())
         })
         .collect();
-    assert!(!runnable.is_empty(), "no offline/stub fixtures were discovered");
+    assert!(
+        !runnable.is_empty(),
+        "no offline/stub fixtures were discovered"
+    );
 
     let mut outcomes = Vec::new();
     for case in &runnable {

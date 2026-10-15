@@ -10,6 +10,7 @@ ratatui.workspace = true
 pulldown-cmark.workspace = true
 unicode-width.workspace = true
 wf-tui = { path = "../wf-tui" }
+wf-mini = { path = "../wf-mini" }
 wf-types = { workspace = true }
 serde_json.workspace = true
 wf-cli-shared = { path = "../wf-cli-shared" }

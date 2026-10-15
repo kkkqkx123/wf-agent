@@ -13,7 +13,9 @@
 use unicode_width::UnicodeWidthStr;
 use wf_cli_demo::{
     emit,
-    mini_input::{approval_prompt, is_affirmative, parse_slash, partial_word_bytes, PreviewHistory},
+    mini_input::{
+        approval_prompt, is_affirmative, parse_slash, partial_word_bytes, PreviewHistory,
+    },
 };
 use wf_cli_shared::display::{parse_toggle, MarkdownMode};
 
@@ -62,8 +64,9 @@ fn history_section() -> String {
     out.push_str(&format!("rerun 9: {:?}\n", history.get(9)));
     let buffer = "cargo ";
     let ghost = history.suggest(buffer).unwrap_or_default();
-    let width =
-        UnicodeWidthStr::width("> ") + UnicodeWidthStr::width(buffer) + UnicodeWidthStr::width(ghost.as_str());
+    let width = UnicodeWidthStr::width("> ")
+        + UnicodeWidthStr::width(buffer)
+        + UnicodeWidthStr::width(ghost.as_str());
     out.push_str(&format!(
         "prompt view: `> {buffer}` ghost `{ghost}` width {width}\n"
     ));
@@ -72,8 +75,13 @@ fn history_section() -> String {
         "partial accept bytes: {}\n",
         partial_word_bytes(&format!(" {ghost}"))
     ));
-    out.push_str("browse Up from `cargo`: cargo nextest run, then cargo test, then stop at oldest\n");
-    out.push_str(&format!("{}\n", approval_prompt("write_file", Some("low"), 120)));
+    out.push_str(
+        "browse Up from `cargo`: cargo nextest run, then cargo test, then stop at oldest\n",
+    );
+    out.push_str(&format!(
+        "{}\n",
+        approval_prompt("write_file", Some("low"), 120)
+    ));
     out.push_str(&format!(
         "approval y/yes allow, others deny: {:?}\n",
         ["y", "yes", "n", ""]

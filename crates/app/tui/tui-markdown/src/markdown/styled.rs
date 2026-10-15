@@ -6,7 +6,9 @@
 //! renderers stay free of presentation concerns.
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+
 use ratatui::text::{Line, Span};
+use tui_markdown_dialect::parser_options;
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
 use tui_style::motion::{self, MotionMode};
@@ -52,7 +54,7 @@ fn styled_lines(src: &str, width: u16, motion_mode: MotionMode) -> Vec<Line<'sta
     let mut in_code_block = false;
     let mut in_blockquote = false;
 
-    for event in Parser::new(src) {
+    for event in Parser::new_ext(src, parser_options()) {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Heading { level, .. } => {

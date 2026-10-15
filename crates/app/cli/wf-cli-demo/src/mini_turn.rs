@@ -6,58 +6,10 @@
 
 use crossterm::style::{Attribute, Color, Stylize};
 use wf_cli_shared::display::MarkdownMode;
+use wf_mini::display::DisplayConfig;
 use wf_types::events::ExecutionStreamEvent;
 
-use crate::mini_render::{AppendWriter, StreamRenderer, strip_terminal_escapes};
-
-/// Resolved display knobs for one previewed turn.
-#[derive(Debug, Clone, Copy)]
-pub struct PreviewDisplay {
-    pub markdown: MarkdownMode,
-    pub show_reasoning: bool,
-    pub show_usage: bool,
-    pub show_tools: bool,
-    pub color: bool,
-    pub stderr_color: bool,
-}
-
-impl PreviewDisplay {
-    pub fn all_on() -> Self {
-        Self {
-            markdown: MarkdownMode::Raw,
-            show_reasoning: true,
-            show_usage: true,
-            show_tools: true,
-            color: false,
-            stderr_color: false,
-        }
-    }
-
-    pub fn hidden_streams() -> Self {
-        Self {
-            show_tools: false,
-            show_reasoning: false,
-            show_usage: false,
-            ..Self::all_on()
-        }
-    }
-
-    pub fn describe(&self) -> String {
-        format!(
-            "markdown={} reasoning={} usage={} tools={} color={} stderr_color={}",
-            self.markdown.as_str(),
-            on_off(self.show_reasoning),
-            on_off(self.show_usage),
-            on_off(self.show_tools),
-            on_off(self.color),
-            on_off(self.stderr_color),
-        )
-    }
-}
-
-fn on_off(value: bool) -> &'static str {
-    if value { "on" } else { "off" }
-}
+use crate::mini_render::{strip_terminal_escapes, AppendWriter, StreamRenderer};
 
 /// Captured turn output split the way the terminal shows it.
 #[derive(Debug, Default)]
@@ -84,16 +36,18 @@ impl Capture {
     }
 }
 
-/// One turn through the stdout/stderr discipline.
+/// One turn through the stdout/stderr discipline. The display knobs reuse
+/// the real `wf-mini` [`DisplayConfig`] so demos cannot drift from the
+/// production settings.
 pub struct TurnPreview {
     append: AppendWriter,
     stream: StreamRenderer,
-    display: PreviewDisplay,
+    display: DisplayConfig,
     capture: Capture,
 }
 
 impl TurnPreview {
-    pub fn new(display: PreviewDisplay) -> Self {
+    pub fn new(display: DisplayConfig) -> Self {
         let mode = display.markdown;
         let color = display.color;
         Self {
@@ -156,8 +110,14 @@ impl TurnPreview {
             } => {
                 if *success {
                     if let Some(marker) = background {
-                        if !self.capture.background_sessions.contains(&marker.session_id) {
-                            self.capture.background_sessions.push(marker.session_id.clone());
+                        if !self
+                            .capture
+                            .background_sessions
+                            .contains(&marker.session_id)
+                        {
+                            self.capture
+                                .background_sessions
+                                .push(marker.session_id.clone());
                             self.end_stdout_line();
                             let line = self.paint(
                                 &format!(
@@ -382,7 +342,7 @@ pub fn demo_script() -> Vec<ExecutionStreamEvent> {
 }
 
 /// Drive one scripted turn to its terminal event.
-pub fn run_turn(display: PreviewDisplay, events: &[ExecutionStreamEvent]) -> Capture {
+pub fn run_turn(display: DisplayConfig, events: &[ExecutionStreamEvent]) -> Capture {
     let mut turn = TurnPreview::new(display);
     for event in events {
         if turn.on_event(event).is_some() {

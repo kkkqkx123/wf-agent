@@ -44,11 +44,13 @@ fn section() -> String {
     ] {
         out.push_str(&format!(
             "ok {format:?}: {:?}\n",
-            ok.render(format).unwrap_or_else(|| "(no output)".to_string())
+            ok.render(format)
+                .unwrap_or_else(|| "(no output)".to_string())
         ));
         out.push_str(&format!(
             "fail {format:?}: {:?}\n",
-            fail.render(format).unwrap_or_else(|| "(no output)".to_string())
+            fail.render(format)
+                .unwrap_or_else(|| "(no output)".to_string())
         ));
     }
     let mut sink = MemorySink::new();

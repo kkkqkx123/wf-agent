@@ -107,10 +107,14 @@ impl Tier {
 pub fn tool_tier(id: &str) -> Tier {
     match id {
         "read_file_folded" => return Tier::Offline,
-        "execute_workflow" | "query_workflow_status" | "cancel_workflow" | "call_agent"
-        | "skill" | "general" | "ask_followup_question" | "attempt_completion" => {
-            return Tier::Stub
-        }
+        "execute_workflow"
+        | "query_workflow_status"
+        | "cancel_workflow"
+        | "call_agent"
+        | "skill"
+        | "general"
+        | "ask_followup_question"
+        | "attempt_completion" => return Tier::Stub,
         "use_mcp" => return Tier::Mcp,
         _ => {}
     }
@@ -374,7 +378,10 @@ impl Runner {
             tools.sort();
             tools.dedup();
             for id in tools {
-                if let Some(def) = predefined::all_definitions().into_iter().find(|d| d.id == id) {
+                if let Some(def) = predefined::all_definitions()
+                    .into_iter()
+                    .find(|d| d.id == id)
+                {
                     self.write_tool_meta(def.id, &def.tool_def())?;
                 }
             }
@@ -671,9 +678,12 @@ fn substitute_mock_base(value: &Value, base: &str) -> Value {
         Value::String(s) if s.contains(MOCK_HTTP_BASE) => {
             Value::String(s.replace(MOCK_HTTP_BASE, base))
         }
-        Value::Array(items) => {
-            Value::Array(items.iter().map(|v| substitute_mock_base(v, base)).collect())
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|v| substitute_mock_base(v, base))
+                .collect(),
+        ),
         Value::Object(map) => Value::Object(
             map.iter()
                 .map(|(k, v)| (k.clone(), substitute_mock_base(v, base)))
@@ -814,7 +824,10 @@ fn evaluate(
             }
             if let Some(sub) = &expect.error_contains {
                 if !message.contains(sub) {
-                    failures.push(format!("tool error {:?} does not contain {:?}", message, sub));
+                    failures.push(format!(
+                        "tool error {:?} does not contain {:?}",
+                        message, sub
+                    ));
                 }
             }
         }

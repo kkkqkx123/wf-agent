@@ -20,6 +20,7 @@
 use crossterm::style::{Attribute, Color, ContentStyle, StyledContent, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
+use tui_markdown_dialect::{has_table_risk, parser_options};
 use wf_cli_shared::display::MarkdownMode;
 
 /// Strip terminal escapes from model text so it can never drive the
@@ -87,7 +88,7 @@ fn is_csi_body(b: u8) -> bool {
 pub fn render_plain(src: &str) -> String {
     let mut out = String::new();
     let mut boundary = false;
-    for event in Parser::new(src) {
+    for event in Parser::new_ext(src, parser_options()) {
         match event {
             Event::Text(t) => {
                 if boundary && !out.is_empty() && !out.ends_with('\n') {
@@ -109,8 +110,15 @@ pub fn render_plain(src: &str) -> String {
                 }
                 boundary = false;
             }
-            Event::Rule | Event::TaskListMarker(_) | Event::FootnoteReference(_) => {
+            Event::Rule | Event::FootnoteReference(_) => {
                 boundary = true;
+            }
+            Event::TaskListMarker(checked) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                out.push_str(if checked { "[x] " } else { "[ ] " });
             }
             Event::Start(tag) if is_block_start(&tag) => {
                 boundary = true;
@@ -240,7 +248,7 @@ pub fn render_styled(src: &str) -> String {
     let mut in_table_head = false;
     let mut in_blockquote = false;
 
-    for event in Parser::new(src) {
+    for event in Parser::new_ext(src, parser_options()) {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Emphasis => inline.push(Inline::Italic),
@@ -436,6 +444,9 @@ fn restore_trailing_newline(source: &str, rendered: &mut String) {
 /// parse is microseconds) and diffs against already-emitted output so bytes
 /// are never re-emitted. Complete lines only: the in-flight tail stays held
 /// back until a newline settles it or `flush` drains it at a boundary.
+/// Two constructs hold the whole source back because a later delta can
+/// retroactively rewrite already-rendered bytes: reference-style link
+/// definitions and unclosed tables (any tail line containing `|`).
 pub struct StreamRenderer {
     mode: MarkdownMode,
     color: bool,
@@ -469,7 +480,7 @@ impl StreamRenderer {
             return String::new();
         }
         self.source.push_str(&clean);
-        if has_reference_definition(&self.source) {
+        if has_reference_definition(&self.source) || has_table_risk(&self.source) {
             return String::new();
         }
         let mut full = self.render_full();
@@ -627,5 +638,45 @@ mod tests {
     fn stream_sanitizes_model_escapes() {
         let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
         assert_eq!(stream.push("\x1b[2J**hi**\n"), "hi\n");
+    }
+
+    #[test]
+    fn plain_renders_table_cells_and_task_markers() {
+        assert_eq!(
+            render_plain("| a | b |\n| --- | --- |\n| 1 | 2 |\n"),
+            "a\nb\n1\n2"
+        );
+        assert_eq!(
+            render_plain("- [x] done\n- [ ] todo\n"),
+            "[x] done\n[ ] todo"
+        );
+        assert_eq!(render_plain("~~gone~~"), "gone");
+    }
+
+    #[test]
+    fn styled_renders_strikethrough_and_task_markers() {
+        let styled = render_styled("~~gone~~\n\n- [x] done\n- [ ] left\n");
+        assert!(styled.contains("\x1b[9m"), "{styled:?}");
+        assert!(styled.contains("[x] done"), "{styled:?}");
+        assert!(styled.contains("[ ] left"), "{styled:?}");
+        assert_eq!(strip_terminal_escapes(&styled), "gone\n[x] done\n[ ] left");
+    }
+
+    #[test]
+    fn stream_holds_back_unclosed_tables_until_flush() {
+        let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
+        assert_eq!(stream.push("| a | b |\n"), "");
+        assert_eq!(stream.push("| --- | --- |\n"), "");
+        assert_eq!(stream.push("| 1 | 2 |\n"), "");
+        assert_eq!(stream.flush(), "a\nb\n1\n2\n");
+    }
+
+    #[test]
+    fn stream_releases_hold_when_tail_has_no_pipe() {
+        let mut stream = StreamRenderer::new(MarkdownMode::Plain, false);
+        assert_eq!(stream.push("| a | b |\n"), "");
+        assert_eq!(stream.push("| --- | --- |\n"), "");
+        assert_eq!(stream.push("| 1 | 2 |\n"), "");
+        assert_eq!(stream.push("\nplain text\n"), "a\nb\n1\n2\nplain text\n");
     }
 }

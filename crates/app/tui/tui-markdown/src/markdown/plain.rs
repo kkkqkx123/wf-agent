@@ -7,6 +7,8 @@
 
 use pulldown_cmark::{Event, Parser, Tag};
 
+use tui_markdown_dialect::parser_options;
+
 /// Render Markdown source to plain text (line-level output): inline markup
 /// is stripped, soft/hard breaks map to `\n`, and code blocks keep their
 /// content lines verbatim. No styling — that belongs to the interactive
@@ -14,7 +16,7 @@ use pulldown_cmark::{Event, Parser, Tag};
 pub fn render_plain_text(src: &str) -> String {
     let mut out = String::new();
     let mut boundary = false;
-    for event in Parser::new(src) {
+    for event in Parser::new_ext(src, parser_options()) {
         match event {
             Event::Text(t) => {
                 if boundary && !out.is_empty() && !out.ends_with('\n') {
@@ -36,8 +38,15 @@ pub fn render_plain_text(src: &str) -> String {
                 }
                 boundary = false;
             }
-            Event::Rule | Event::TaskListMarker(_) | Event::FootnoteReference(_) => {
+            Event::Rule | Event::FootnoteReference(_) => {
                 boundary = true;
+            }
+            Event::TaskListMarker(checked) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                out.push_str(if checked { "[x] " } else { "[ ] " });
             }
             Event::Start(tag) if is_block_start(&tag) => {
                 // A block-level container (paragraph, heading, list item,

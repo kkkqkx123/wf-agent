@@ -8,17 +8,106 @@ fn login() {}
 ```
 
 > quoted note
+> continued line
 
 ---
+
+![logo](https://example.com/logo.png)
+
+<span>inline html dropped</span>
+
+~~strikethrough text~~ removed
+
+| area | status |
+| --- | --- |
+| auth | fixed |
+
+- [x] retry with backoff
+- [ ] alert on failure
 
 plain text:
 Fix login
 Retry with backoff and jitter, see login() and docs.
 fn login() {}
 quoted note
-styled bytes contain SGR: true
-stripped styled equals plain: true
-styled without color degrades to plain (no SGR in plain): true
-model escapes stripped: "red ok"
-markdown mode parses: Some(Plain)
+continued line
+logo
+inline html dropped
+strikethrough text removed
+area
+status
+auth
+fixed
+[x] retry with backoff
+[ ] alert on failure
+styled text (escapes stripped):
+# Fix login
+Retry with backoff and jitter, see login() and docs.
+```rust
+fn login() {}
+
+```
+> 
+quoted note
+> continued line
+---
+logo
+inline html dropped
+strikethrough text removed
+area
+status
+auth
+fixed
+[x] retry with backoff
+[ ] alert on failure
+styled branch checks:
+  bold span styled: true
+  italic span styled: true
+  inline and fenced code cyan: true
+  link text underlined: true
+  image alt text underlined: true
+  heading printed bold with marker: true
+  fenced block opens dim with language: true
+  fenced block closes dim: true
+  quote marker dim: true
+  quote softbreak repeats marker: true
+  rule rendered dim: true
+  strikethrough crossed out: true
+  task markers emitted: true
+  table cells on their own lines: true
+  inline html tags dropped: true
+  every styled span self-resets: true
+  stripped styled carries no sgr: true
+
+indented code block:
+  opens dim without language: true
+  plain keeps content verbatim: true
+
+heading depth one through six styled bold:
+  all six levels bold: true
+
+stream renderer mode arms:
+  raw streams verbatim: true
+  plain emits complete lines only: true
+  styled with color emits sgr: true
+  styled without color degrades to plain: true
+  unclosed table held back whole: true
+  table flush drains block at boundary: true
+
+escape stripping variants:
+  csi color stripped: "red ok"
+  osc title with bel stripped: "ab"
+  osc hyperlink with st keeps text: "link"
+  bare esc dropped: "ab"
+  trailing partial sequence dropped: "abc"
+  cr dropped, tab and newline kept: "ab\nc\td"
+
+line-buffered raw writer:
+  complete lines only: true
+
+markdown mode parsing:
+  default is raw: true
+  parses raw, plain, styled: true
+  rejects unknown values: true
+  short names round-trip: true
 

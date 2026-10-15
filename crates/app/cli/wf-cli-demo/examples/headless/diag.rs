@@ -16,7 +16,8 @@ fn section() -> String {
     let mut diag = DiagWriter::buffer();
     diag.line("▲ read_file").expect("diag line");
     diag.line("✓ read_file").expect("diag line");
-    diag.line("✗ write_file: permission denied").expect("diag line");
+    diag.line("✗ write_file: permission denied")
+        .expect("diag line");
     diag.line("usage: 10 prompt + 20 completion tokens")
         .expect("diag line");
     let mut out = String::new();

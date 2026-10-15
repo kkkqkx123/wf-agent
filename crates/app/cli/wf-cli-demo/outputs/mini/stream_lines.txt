@@ -4,4 +4,8 @@ chunk `tail` held back: ""
 flush drains tail: "tail"
 reference link held back: ""
 reference flush: "see [a][b] now"
+table header held back: ""
+table delimiter held back: ""
+table row held back: ""
+table flush drains whole block: "area\nstatus\nauth\nfixed\n"
 

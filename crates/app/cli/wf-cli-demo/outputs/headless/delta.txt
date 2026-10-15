@@ -1,0 +1,7 @@
+push `hel`: ""
+push `lo wo<nl>ta`: "hello wo\n"
+push `il<nl>`: "tail\n"
+remaining: ""
+text sink streams chunks: "hello\nbig world"
+json sink drops chunks: ""
+

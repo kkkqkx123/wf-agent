@@ -7,6 +7,8 @@ description = "Demo examples for wf-agent CLI implementations (headless, mini, f
 [dependencies]
 crossterm.workspace = true
 ratatui.workspace = true
+pulldown-cmark.workspace = true
+unicode-width.workspace = true
 wf-tui = { path = "../wf-tui" }
 wf-types = { workspace = true }
 serde_json.workspace = true
@@ -15,3 +17,71 @@ wf-cli-shared = { path = "../wf-cli-shared" }
 [features]
 default = []
 diff-record = ["wf-tui/diff-record"]
+
+[[example]]
+name = "tui_animation"
+path = "examples/tui/animation.rs"
+
+[[example]]
+name = "tui_bench"
+path = "examples/tui/bench.rs"
+
+[[example]]
+name = "tui_components_gallery"
+path = "examples/tui/components_gallery.rs"
+
+[[example]]
+name = "tui_diff_record"
+path = "examples/tui/diff_record.rs"
+
+[[example]]
+name = "tui_key_receiver"
+path = "examples/tui/key_receiver.rs"
+
+[[example]]
+name = "tui_markdown_showcase"
+path = "examples/tui/markdown_showcase.rs"
+
+[[example]]
+name = "tui_screens"
+path = "examples/tui/screens.rs"
+
+[[example]]
+name = "tui_style_gallery"
+path = "examples/tui/style_gallery.rs"
+
+[[example]]
+name = "tui_component_output"
+path = "examples/tui/component_output.rs"
+
+[[example]]
+name = "mini_markdown"
+path = "examples/mini/markdown.rs"
+
+[[example]]
+name = "mini_stream"
+path = "examples/mini/stream.rs"
+
+[[example]]
+name = "mini_turn"
+path = "examples/mini/turn.rs"
+
+[[example]]
+name = "mini_input"
+path = "examples/mini/input.rs"
+
+[[example]]
+name = "mini_session"
+path = "examples/mini/session.rs"
+
+[[example]]
+name = "headless_formats"
+path = "examples/headless/formats.rs"
+
+[[example]]
+name = "headless_stream"
+path = "examples/headless/stream.rs"
+
+[[example]]
+name = "headless_diag"
+path = "examples/headless/diag.rs"

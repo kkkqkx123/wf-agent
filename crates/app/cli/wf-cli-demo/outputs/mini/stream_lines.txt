@@ -1,0 +1,7 @@
+chunk `**hello** ` held back: ""
+chunk `world\n` settles a line: "hello world\n"
+chunk `tail` held back: ""
+flush drains tail: "tail"
+reference link held back: ""
+reference flush: "see [a][b] now"
+

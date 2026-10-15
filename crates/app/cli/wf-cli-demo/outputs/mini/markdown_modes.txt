@@ -1,0 +1,24 @@
+raw verbatim:
+# Fix login
+
+Retry with **backoff** and *jitter*, see `login()` and [docs](https://example.com).
+
+```rust
+fn login() {}
+```
+
+> quoted note
+
+---
+
+plain text:
+Fix login
+Retry with backoff and jitter, see login() and docs.
+fn login() {}
+quoted note
+styled bytes contain SGR: true
+stripped styled equals plain: true
+styled without color degrades to plain (no SGR in plain): true
+model escapes stripped: "red ok"
+markdown mode parses: Some(Plain)
+

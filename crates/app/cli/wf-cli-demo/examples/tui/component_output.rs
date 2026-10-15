@@ -2,12 +2,12 @@
 //!
 //! The lib tests stay side-effect free (pure in-memory assertions). This
 //! example is the single place that *writes* rendering output, regenerating
-//! the reference files in `crates/app/cli/wf-cli-demo/outputs/` so they are reviewable and
-//! diffable without polluting `src/`.
+//! the reference files in `crates/app/cli/wf-cli-demo/outputs/tui/` so they
+//! are reviewable and diffable without polluting `src/`.
 //!
 //! Run with:
 //! ```sh
-//! cargo run -p wf-cli-demo --example component_output
+//! cargo run -p wf-cli-demo --example tui_component_output
 //! ```
 //!
 //! Output is the plain-text rendering of each component at the documented
@@ -20,12 +20,12 @@ use wf_tui::ansi::{plain_text, AnsiParser};
 use wf_tui::select::{Group, GroupItem, SelectList};
 use wf_tui::transcript::{lines_to_string, HistoryLine, LineState, Role};
 
-/// The crate's `outputs/` directory (rooted at the manifest dir, not CWD).
+/// The crate's `outputs/tui/` directory (rooted at the manifest dir, not CWD).
 fn outputs_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("outputs")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("outputs/tui")
 }
 
-/// Write `content` plus a trailing newline to `outputs/<name>.txt`.
+/// Write `content` plus a trailing newline to `outputs/tui/<name>.txt`.
 fn emit(name: &str, content: &str) {
     let dir = outputs_dir();
     fs::create_dir_all(&dir).expect("create outputs dir");

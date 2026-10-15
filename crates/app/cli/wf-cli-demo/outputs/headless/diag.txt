@@ -1,0 +1,6 @@
+stderr channel (uncolored buffer):
+▲ read_file
+✓ read_file
+✗ write_file: permission denied
+usage: 10 prompt + 20 completion tokens
+

@@ -1,0 +1,26 @@
+"/help" -> Some(Help)
+"/history cargo" -> Some(History(Some("cargo")))
+"/history a b" -> None
+"/rerun" -> Some(Rerun(None))
+"/rerun 2" -> Some(Rerun(Some(2)))
+"/rerun 0" -> None
+"/markdown plain" -> Some(Markdown(Some("plain")))
+"/reasoning off" -> Some(Reasoning(Some("off")))
+"/tools maybe" -> Some(Tools(Some("maybe")))
+"/display" -> Some(Display)
+"/unknown" -> None
+"plain prompt" -> None
+toggle off parses: Some(false)
+markdown plain parses: Some(Plain)
+recent: [(1, "cargo test"), (2, "cargo nextest run"), (3, "git status"), (4, "cargo nextest run")]
+suggest cargo prefix: Some("nextest run")
+filter cargo: [(1, "cargo test"), (2, "cargo nextest run"), (4, "cargo nextest run")]
+rerun 2: Some("cargo nextest run")
+rerun 9: None
+prompt view: `> cargo ` ghost `nextest run` width 19
+accept full: "cargo nextest run"
+partial accept bytes: 1
+browse Up from `cargo`: cargo nextest run, then cargo test, then stop at oldest
+Allow tool 'write_file' [low]? [y/N] (default N, 120s timeout)
+approval y/yes allow, others deny: [true, true, false, false]
+

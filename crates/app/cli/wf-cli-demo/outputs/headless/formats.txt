@@ -1,0 +1,27 @@
+format Text:
+user: summarize main.rs
+assistant: done
+free text line
+delta 
+format Json:
+{"role":"user","content":"summarize main.rs"}
+{"role":"assistant","content":"done"}
+
+format JsonLines:
+{"role":"user","content":"summarize main.rs"}
+{"role":"assistant","content":"done"}
+
+format Silent:
+
+ok Text: "[ok] execution: done"
+fail Text: "[failed] execution: boom"
+ok Json: "{\"success\":true,\"type\":\"execution\",\"data\":{\"executionId\":\"e1\"},\"timestamp\":1792050098148}"
+fail Json: "{\"success\":false,\"type\":\"execution\",\"data\":null,\"message\":\"boom\",\"timestamp\":1792050098148}"
+ok JsonLines: "(no output)"
+fail JsonLines: "(no output)"
+ok Silent: "(no output)"
+fail Silent: "(no output)"
+memory text: "hellowor"
+memory messages: 1
+memory flushes: 1
+

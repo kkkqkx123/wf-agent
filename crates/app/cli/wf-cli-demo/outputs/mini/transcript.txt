@@ -1,0 +1,3 @@
+completed turn records 2 messages; blank answer records 1 message (question only)
+restore keeps 2/5 messages (user/assistant text only, blanks dropped)
+

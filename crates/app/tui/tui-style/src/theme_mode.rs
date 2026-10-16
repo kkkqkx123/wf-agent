@@ -95,48 +95,8 @@ fn adapt_color(color: Color) -> Color {
 
 /// Invert the HSV value channel while keeping hue and saturation.
 fn flip_value(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
-    let (h, s, v) = rgb_to_hsv(r, g, b);
-    hsv_to_rgb(h, s, 1.0 - v)
-}
-
-fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
-    let r = f32::from(r) / 255.0;
-    let g = f32::from(g) / 255.0;
-    let b = f32::from(b) / 255.0;
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    let delta = max - min;
-    let h = if delta == 0.0 {
-        0.0
-    } else if max == r {
-        60.0 * (((g - b) / delta) % 6.0)
-    } else if max == g {
-        60.0 * ((b - r) / delta + 2.0)
-    } else {
-        60.0 * ((r - g) / delta + 4.0)
-    };
-    let h = if h < 0.0 { h + 360.0 } else { h };
-    let s = if max == 0.0 { 0.0 } else { delta / max };
-    (h, s, max)
-}
-
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
-    let c = v * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = v - c;
-    let (r, g, b) = match (h / 60.0).floor() as u8 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    (
-        ((r + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-        ((g + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-        ((b + m) * 255.0).round().clamp(0.0, 255.0) as u8,
-    )
+    let (h, s, v) = crate::anim_core::rgb_to_hsv(r, g, b);
+    crate::anim_core::hsv_to_rgb(h, s, 1.0 - v)
 }
 
 #[cfg(test)]

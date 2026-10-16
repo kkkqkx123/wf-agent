@@ -168,7 +168,7 @@ fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
         return Vec::new();
     }
 
-    let sweep = (now_ms % SHIMMER_PERIOD_MS) as f64 / SHIMMER_PERIOD_MS as f64;
+    let sweep = crate::anim_core::shimmer_phase(now_ms, 0, SHIMMER_PERIOD_MS, 1.0) as f64;
     let center = sweep * len as f64;
     let half = (len as f64 * SHIMMER_HALF_WIDTH_FRAC).max(1.0);
     let start = center - half;
@@ -223,9 +223,32 @@ fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
 /// Linear interpolation between two values.
 #[cfg(test)]
 fn lerp(a: u8, b: u8, t: f32) -> u8 {
-    let a = a as f32;
-    let b = b as f32;
-    (a + (b - a) * t).clamp(0.0, 255.0) as u8
+    crate::anim_core::lerp_u8(a, b, t)
+}
+
+/// Whether the optional three-dimensional idle visual is enabled. Disabled by
+/// default so the product pays nothing unless it opts in.
+pub const IDLE_3D_ENABLED: bool = false;
+
+/// Three-dimensional idle glyph at `phase01` when `enabled`. Disabled returns
+/// `None` before touching the angle table, so the off path has zero cost.
+pub fn idle_3d_glyph_at(
+    phase01: f32,
+    enabled: bool,
+    table: &crate::anim_core::AngleTable,
+    kind: crate::anim_core::IdleVisual3D,
+) -> Option<&'static str> {
+    if !enabled {
+        return None;
+    }
+    let sample = crate::anim_core::idle_3d_sample(table, kind, phase01);
+    let length = (sample.x * sample.x + sample.y * sample.y)
+        .sqrt()
+        .max(0.001);
+    Some(crate::anim_core::select_glyph_3x3(
+        sample.x / length,
+        sample.y / length,
+    ))
 }
 
 /// Injected environment snapshot for motion detection. Upper layers build
@@ -494,6 +517,23 @@ mod tests {
         assert_eq!(lerp(0, 100, 0.5), 50);
         assert_eq!(lerp(0, 100, 1.0), 100);
         assert_eq!(lerp(100, 0, 0.5), 50);
+    }
+
+    #[test]
+    fn idle_3d_disabled_has_zero_cost() {
+        let table = crate::anim_core::AngleTable::build();
+        assert_eq!(
+            idle_3d_glyph_at(0.25, false, &table, crate::anim_core::IdleVisual3D::Donut),
+            None
+        );
+        let glyph = idle_3d_glyph_at(
+            0.25,
+            true,
+            &table,
+            crate::anim_core::IdleVisual3D::OrbitRing,
+        )
+        .expect("enabled samples a glyph");
+        assert!(crate::anim_core::IDLE_3X3_GLYPHS.contains(&glyph));
     }
 
     #[test]

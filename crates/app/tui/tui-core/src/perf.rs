@@ -120,6 +120,15 @@ pub struct TuiPerfPolicy {
     pub sync_output: bool,
     /// Simplified transcript rendering (fewer styles, no shimmer).
     pub simplified_render: bool,
+    /// Sidebar refresh interval in milliseconds.
+    pub sidebar_refresh_interval_ms: u64,
+    /// Prompt-enter animation allowed.
+    pub prompt_enter_animation: bool,
+    /// Idle decoration animation allowed.
+    pub idle_animation: bool,
+    /// Quantize per-cell colors to stabilize the glyph atlas instead of
+    /// disabling decoration.
+    pub quantize_glyph_colors: bool,
 }
 
 impl TuiPerfPolicy {
@@ -140,6 +149,10 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
+                sidebar_refresh_interval_ms: 500,
+                prompt_enter_animation: true,
+                idle_animation: true,
+                quantize_glyph_colors: false,
             },
             PerformanceTier::Reduced => Self {
                 redraw_fps: 60,
@@ -152,9 +165,13 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
+                sidebar_refresh_interval_ms: 1_000,
+                prompt_enter_animation: false,
+                idle_animation: false,
+                quantize_glyph_colors: false,
             },
             PerformanceTier::Minimal => Self {
-                redraw_fps: 30,
+                redraw_fps: 12,
                 animation_fps: 2,
                 decorative_animations: false,
                 keep_spinner: false,
@@ -164,7 +181,34 @@ impl TuiPerfPolicy {
                 enable_alternate_scroll: true,
                 sync_output: false,
                 simplified_render: true,
+                sidebar_refresh_interval_ms: 2_000,
+                prompt_enter_animation: false,
+                idle_animation: false,
+                quantize_glyph_colors: false,
             },
+        }
+    }
+
+    /// Policy for the WSL plus Windows Terminal combination: redraw stays at
+    /// or below twenty frames per second, focus and keyboard enhancement are
+    /// off, and the selector renders simplified. Callers check
+    /// [`is_wsl_windows_terminal`] first and use this instead of `for_tier`.
+    pub fn for_wsl_windows_terminal() -> Self {
+        Self {
+            redraw_fps: 20,
+            animation_fps: 5,
+            decorative_animations: false,
+            keep_spinner: true,
+            enable_focus_change: false,
+            enable_mouse_capture: false,
+            enable_keyboard_enhancement: false,
+            enable_alternate_scroll: true,
+            sync_output: true,
+            simplified_render: true,
+            sidebar_refresh_interval_ms: 1_000,
+            prompt_enter_animation: false,
+            idle_animation: false,
+            quantize_glyph_colors: false,
         }
     }
 
@@ -193,16 +237,13 @@ impl TuiPerfPolicy {
         1_000 / self.animation_fps.max(1)
     }
 
-    /// Glyph-safe variant for fragile terminals: suppress decorative
-    /// per-cell animation while keeping the essential spinner, so the GPU
-    /// glyph atlas stays stable under color churn. Also clamps the frame
-    /// rates to the reduced tier so full frames stop churning the atlas.
+    /// Glyph-safe variant for fragile terminals: only clamp the redraw rate
+    /// while keeping animation alive; atlas churn is fixed by quantizing
+    /// per-cell colors instead of disabling decoration.
     pub fn glyph_safe(self) -> Self {
         Self {
-            decorative_animations: false,
-            simplified_render: true,
             redraw_fps: self.redraw_fps.min(60),
-            animation_fps: self.animation_fps.min(5),
+            quantize_glyph_colors: true,
             ..self
         }
     }
@@ -361,6 +402,43 @@ pub fn is_vscode_terminal() -> bool {
         .unwrap_or(false)
 }
 
+/// Pure WSL plus Windows Terminal combination over explicit inputs, so the
+/// matrix is testable without touching process state. True when running
+/// inside WSL and the terminal belongs to the Windows Terminal family.
+pub fn is_wsl_windows_terminal_env(
+    is_wsl: bool,
+    terminal: Option<&str>,
+    wt_session: bool,
+    caps_terminal_is_windows_terminal: bool,
+) -> bool {
+    if !is_wsl {
+        return false;
+    }
+    if wt_session || caps_terminal_is_windows_terminal {
+        return true;
+    }
+    let term = terminal.unwrap_or("").to_ascii_lowercase();
+    term.contains("windows") || term.contains("mintty") || term.contains("conhost")
+}
+
+/// Live WSL plus Windows Terminal combination from the process environment
+/// and the probed terminal type.
+pub fn is_wsl_windows_terminal(profile: &SystemProfile, caps: &TerminalCapabilities) -> bool {
+    let wt_session = std::env::var("WT_SESSION").is_ok();
+    let caps_is_wt = matches!(
+        caps.terminal_type,
+        tui_terminal::capabilities::TerminalType::WindowsTerminal
+    );
+    // WSL detection reads the live environment; the profile terminal string
+    // carries the identity for the family check.
+    is_wsl_windows_terminal_env(
+        is_wsl(),
+        profile.terminal.as_deref(),
+        wt_session,
+        caps_is_wt,
+    )
+}
+
 /// Named synthetic environment for tests: builds terminal profiles without
 /// touching process-wide variables, so glyph-cache and keyboard-matrix
 /// behavior is reproducible in unit tests.
@@ -461,6 +539,10 @@ mod tests {
         assert!(policy.sync_output);
         assert!(!policy.simplified_render);
         assert_eq!(policy.redraw_interval_ms(), 8);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 500);
+        assert!(policy.prompt_enter_animation);
+        assert!(policy.idle_animation);
+        assert!(!policy.quantize_glyph_colors);
     }
 
     #[test]
@@ -471,6 +553,10 @@ mod tests {
         assert!(!policy.enable_mouse_capture);
         assert!(policy.enable_keyboard_enhancement);
         assert!(policy.enable_focus_change);
+        assert_eq!(policy.redraw_fps, 60);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 1_000);
+        assert!(!policy.prompt_enter_animation);
+        assert!(!policy.idle_animation);
     }
 
     #[test]
@@ -483,6 +569,11 @@ mod tests {
         assert!(!policy.enable_mouse_capture);
         assert!(!policy.sync_output);
         assert!(policy.simplified_render);
+        assert_eq!(policy.redraw_fps, 12);
+        assert_eq!(policy.redraw_interval_ms(), 83);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 2_000);
+        assert!(!policy.prompt_enter_animation);
+        assert!(!policy.idle_animation);
     }
 
     #[test]
@@ -638,16 +729,90 @@ mod tests {
     }
 
     #[test]
-    fn glyph_safe_keeps_spinner_but_drops_decoration() {
+    fn glyph_safe_only_clamps_redraw_and_quantizes() {
         let policy = TuiPerfPolicy::for_tier(PerformanceTier::Full).glyph_safe();
-        assert!(!policy.decorative_animations);
+        assert!(policy.decorative_animations);
         assert!(policy.keep_spinner);
-        assert!(policy.simplified_render);
+        assert!(!policy.simplified_render);
+        assert!(policy.quantize_glyph_colors);
+        assert_eq!(policy.redraw_fps, 60);
+        assert_eq!(policy.animation_fps, 10);
         let mut gated = TuiPerfPolicy::for_tier(PerformanceTier::Full);
         gated.apply_glyph_safety(true);
-        assert!(!gated.decorative_animations);
+        assert!(gated.quantize_glyph_colors);
+        assert!(gated.decorative_animations);
         let mut untouched = TuiPerfPolicy::for_tier(PerformanceTier::Full);
         untouched.apply_glyph_safety(false);
         assert!(untouched.decorative_animations);
+        assert!(!untouched.quantize_glyph_colors);
+    }
+
+    #[test]
+    fn wsl_windows_terminal_combo_has_own_matrix() {
+        assert!(is_wsl_windows_terminal_env(
+            true,
+            Some("windows-terminal"),
+            false,
+            false
+        ));
+        assert!(is_wsl_windows_terminal_env(
+            true,
+            Some("mintty-3.6"),
+            false,
+            false
+        ));
+        assert!(is_wsl_windows_terminal_env(
+            true,
+            Some("conhost"),
+            false,
+            false
+        ));
+        assert!(is_wsl_windows_terminal_env(
+            true,
+            Some("xterm-256color"),
+            true,
+            false
+        ));
+        assert!(is_wsl_windows_terminal_env(
+            true,
+            Some("xterm-256color"),
+            false,
+            true
+        ));
+        assert!(!is_wsl_windows_terminal_env(
+            false,
+            Some("windows-terminal"),
+            true,
+            true
+        ));
+        assert!(!is_wsl_windows_terminal_env(
+            true,
+            Some("kitty"),
+            false,
+            false
+        ));
+        assert!(!is_wsl_windows_terminal_env(true, None, false, false));
+        let policy = TuiPerfPolicy::for_wsl_windows_terminal();
+        assert_eq!(policy.redraw_fps, 20);
+        assert_eq!(policy.redraw_interval_ms(), 50);
+        assert!(!policy.enable_focus_change);
+        assert!(!policy.enable_keyboard_enhancement);
+        assert!(policy.simplified_render);
+        assert!(policy.keep_spinner);
+        assert_eq!(policy.sidebar_refresh_interval_ms, 1_000);
+    }
+
+    #[test]
+    fn subdivision_switches_vary_by_tier() {
+        let full = TuiPerfPolicy::for_tier(PerformanceTier::Full);
+        let reduced = TuiPerfPolicy::for_tier(PerformanceTier::Reduced);
+        let minimal = TuiPerfPolicy::for_tier(PerformanceTier::Minimal);
+        assert!(full.sidebar_refresh_interval_ms < reduced.sidebar_refresh_interval_ms);
+        assert!(reduced.sidebar_refresh_interval_ms < minimal.sidebar_refresh_interval_ms);
+        assert!(full.prompt_enter_animation);
+        assert!(!reduced.prompt_enter_animation);
+        assert!(!minimal.prompt_enter_animation);
+        assert!(full.idle_animation);
+        assert!(!reduced.idle_animation);
     }
 }

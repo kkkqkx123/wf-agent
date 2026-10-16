@@ -110,12 +110,8 @@ impl InteractiveController {
         }
     }
 
-    /// Whether the session scrollbar is visible for the given window.
-    /// Combines the explicit switch with the shared overflow and narrow
-    /// guards so hidden frames stay pixel-identical to the no-bar path.
-    fn scrollbar_visible_for(&self, full_area: Rect, total: usize, viewport: usize) -> bool {
-        self.show_session_scrollbar && scrollbar::visible_in(full_area, total, viewport)
-    }
+    // Gutter geometry and drag live in the sibling `scrollbar` module; the
+    // jump badge lives in the sibling `badge` module.
 
     /// Text width for the scrollback: full width minus the one-cell gutter
     /// when the bar shows, otherwise the full width.
@@ -188,7 +184,7 @@ impl InteractiveController {
     /// Accurate total at the preparation width: cached rows plus the tail
     /// rewrapped at the same width. Used to anchor the badge to the text
     /// area when the bar shows.
-    fn accurate_total_rows(&self) -> usize {
+    pub(super) fn accurate_total_rows(&self) -> usize {
         let width = self.prep.width();
         let now_ms = self.now_ms();
         let streaming_len = self
@@ -197,97 +193,6 @@ impl InteractiveController {
             .map(|s| s.display_lines_at(width, now_ms).len())
             .unwrap_or(0);
         self.prep.total_rows() + streaming_len
-    }
-
-    /// Whether the gutter is on screen right now, from the accurate total.
-    fn scrollbar_currently_visible(&self, full_area: Rect) -> bool {
-        if self.scrollback.is_empty() && self.streaming.is_none() {
-            return false;
-        }
-        let viewport = usize::from(full_area.height);
-        let total = self.accurate_total_rows();
-        self.scrollbar_visible_for(full_area, total, viewport) && full_area.width > 1
-    }
-
-    /// Gutter rectangle for the last published viewport, when the bar shows.
-    /// Hidden switches and narrow terminals yield `None` so no click lands.
-    pub(crate) fn session_gutter_rect(&self) -> Option<Rect> {
-        let area = self.last_scroll_area?;
-        if !self.scrollbar_currently_visible(area) {
-            return None;
-        }
-        let (_, gutter) = scrollbar::split_content_gutter(area);
-        if gutter.width == 0 || gutter.height == 0 {
-            return None;
-        }
-        Some(gutter)
-    }
-
-    /// Live total, capacity and top for gutter math. `None` without a
-    /// published viewport.
-    fn gutter_window(&self) -> Option<(usize, usize, usize)> {
-        let area = self.last_scroll_area?;
-        let capacity = usize::from(area.height.max(1));
-        let total = self.accurate_total_rows();
-        if !self.scrollbar_visible_for(area, total, capacity) || area.width <= 1 {
-            return None;
-        }
-        let top = scrollbar::top_for_tail(total, capacity, self.view_scroll);
-        Some((total, capacity, top))
-    }
-
-    /// Whether a press row sits on the thumb. Used to enter drag versus
-    /// track-click.
-    pub(crate) fn gutter_press_on_thumb(&self, press_row: u16) -> bool {
-        let Some(gutter) = self.session_gutter_rect() else {
-            return false;
-        };
-        let Some((total, capacity, top)) = self.gutter_window() else {
-            return false;
-        };
-        let relative = press_row.saturating_sub(gutter.y) as usize;
-        scrollbar::thumb_contains(total, capacity, top, usize::from(gutter.height), relative)
-    }
-
-    /// Jump to a gutter press row by proportion. Returns true when the
-    /// viewport moved.
-    pub(crate) fn scroll_to_gutter_row(&mut self, press_row: u16) -> bool {
-        let Some(gutter) = self.session_gutter_rect() else {
-            return false;
-        };
-        let Some((total, capacity, _)) = self.gutter_window() else {
-            return false;
-        };
-        let top = scrollbar::top_for_gutter_press(press_row, gutter, total, capacity);
-        let offset = scrollbar::tail_offset_for_top(top, total, capacity);
-        self.tail_lag = 0;
-        self.soft_invalidate();
-        self.view_scroll = offset;
-        true
-    }
-
-    /// Whether a thumb drag is in progress.
-    pub(crate) fn is_gutter_dragging(&self) -> bool {
-        self.gutter_drag
-    }
-
-    /// Begin a thumb drag after a press on the thumb.
-    pub(crate) fn begin_gutter_drag(&mut self) {
-        self.gutter_drag = true;
-    }
-
-    /// Update a thumb drag to a new row. Reuses the track proportion with
-    /// the live total so held drags track appends.
-    pub(crate) fn update_gutter_drag(&mut self, row: u16) -> bool {
-        if !self.gutter_drag {
-            return false;
-        }
-        self.scroll_to_gutter_row(row)
-    }
-
-    /// End a thumb drag on release or cancel.
-    pub(crate) fn end_gutter_drag(&mut self) {
-        self.gutter_drag = false;
     }
 
     fn draw_scrollback_scoped(
@@ -711,71 +616,6 @@ impl InteractiveController {
         }
         buf.set_style(Rect::new(area.x, row, text_width, 1), underline);
     }
-
-    /// Whether the detached-history badge belongs on screen.
-    fn should_show_jump_badge(&self) -> bool {
-        self.view_scroll > 0
-    }
-
-    /// Paint the floating jump-to-latest badge over the last scrollback row.
-    /// When the gutter shows, the badge anchors to the text area bottom-right
-    /// so it never covers the bar; otherwise it uses the full scroll area.
-    /// When an anchor sits at or above the viewport top, its kind is
-    /// appended so detached readers see the nearest jump target. Returns the
-    /// hit rectangle when painted so the event layer can match clicks.
-    fn paint_jump_badge(&self, frame: &mut Frame, area: Rect, theme: &Theme) -> Option<Rect> {
-        if !self.should_show_jump_badge() || area.width == 0 || area.height == 0 {
-            return None;
-        }
-        let badge_area = mouse_hit::badge_area_for(area, self.scrollbar_currently_visible(area));
-        let hidden = self.view_scroll;
-        let anchor_hint = self.anchor_above_viewport().map(|entry| entry.kind.label());
-        let full = jump_badge_text_with_anchor(hidden, anchor_hint);
-        let short = jump_badge_short_text(hidden);
-        let rect = mouse_hit::badge_rect(badge_area, &full, &short)?;
-        let text = pick_jump_badge_text(&full, &short, badge_area.width)?;
-        use ratatui::style::Modifier;
-        use tui_style::theme::ColorRole;
-        let style = theme
-            .style_for_role(ColorRole::Accent)
-            .add_modifier(Modifier::BOLD);
-        frame.buffer_mut().set_string(rect.x, rect.y, text, style);
-        Some(rect)
-    }
-}
-
-/// Full badge text carrying the hidden row count and the key hint.
-pub(crate) fn jump_badge_text(hidden: usize) -> String {
-    format!("↓ {hidden} more · End for latest")
-}
-
-/// Full badge text with the nearest anchor kind above the viewport.
-pub(crate) fn jump_badge_text_with_anchor(hidden: usize, anchor: Option<&str>) -> String {
-    match anchor {
-        Some(kind) => format!("↓ {hidden} more · {kind} above · End for latest"),
-        None => jump_badge_text(hidden),
-    }
-}
-
-/// Compact fallback when the viewport is too narrow for the full hint.
-pub(crate) fn jump_badge_short_text(hidden: usize) -> String {
-    format!("↓ {hidden} more")
-}
-
-/// Choose the full or compact badge text for the available width.
-pub(crate) fn pick_jump_badge_text<'a>(
-    full: &'a str,
-    short: &'a str,
-    width: u16,
-) -> Option<&'a str> {
-    use unicode_width::UnicodeWidthStr;
-    if (full.width() as u16) < width {
-        Some(full)
-    } else if (short.width() as u16) < width {
-        Some(short)
-    } else {
-        None
-    }
 }
 
 fn truncate_echo(text: &str, width: u16) -> String {
@@ -829,35 +669,8 @@ fn draw_welcome(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        jump_badge_short_text, jump_badge_text, jump_badge_text_with_anchor, pick_jump_badge_text,
-    };
     use crate::interactive::InteractiveController;
     use ratatui::layout::Rect;
-    use tui_components::scrollbar;
-
-    #[test]
-    fn badge_text_carries_hidden_count_and_hint() {
-        assert_eq!(jump_badge_text(3), "↓ 3 more · End for latest");
-        assert_eq!(jump_badge_short_text(3), "↓ 3 more");
-        assert_eq!(
-            jump_badge_text_with_anchor(3, Some("todo")),
-            "↓ 3 more · todo above · End for latest"
-        );
-        assert_eq!(jump_badge_text_with_anchor(3, None), jump_badge_text(3));
-    }
-
-    #[test]
-    fn badge_text_picks_compact_or_hides_when_narrow() {
-        let full = jump_badge_text(12);
-        let short = jump_badge_short_text(12);
-        assert_eq!(pick_jump_badge_text(&full, &short, 80), Some(full.as_str()));
-        assert_eq!(
-            pick_jump_badge_text(&full, &short, short.len() as u16 + 1),
-            Some(short.as_str())
-        );
-        assert_eq!(pick_jump_badge_text(&full, &short, 3), None);
-    }
 
     #[test]
     fn effective_text_width_reserves_one_gutter_cell() {
@@ -865,23 +678,6 @@ mod tests {
         assert_eq!(InteractiveController::effective_text_width(30, false), 30);
         assert_eq!(InteractiveController::effective_text_width(1, true), 1);
         assert_eq!(InteractiveController::effective_text_width(0, false), 0);
-    }
-
-    #[tokio::test]
-    async fn scrollbar_switch_and_visibility_combos() {
-        let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
-        let mut on = InteractiveController::start(client.clone(), "exec".into()).await;
-        let mut off = InteractiveController::start(client, "exec".into()).await;
-        on.set_session_scrollbar(true);
-        off.set_session_scrollbar(false);
-        let wide = Rect::new(0, 0, 30, 10);
-        let narrow = Rect::new(0, 0, scrollbar::MIN_AREA_WIDTH - 1, 10);
-        let tiny = Rect::new(0, 0, 30, 2);
-        assert!(on.scrollbar_visible_for(wide, 50, 10));
-        assert!(!on.scrollbar_visible_for(wide, 5, 10));
-        assert!(!on.scrollbar_visible_for(narrow, 50, 10));
-        assert!(!on.scrollbar_visible_for(tiny, 50, 2));
-        assert!(!off.scrollbar_visible_for(wide, 50, 10));
     }
 
     #[tokio::test]
@@ -908,17 +704,6 @@ mod tests {
                 .width,
             29
         );
-    }
-
-    #[test]
-    fn tail_conversion_includes_streaming_rows() {
-        let cached = 90usize;
-        let streaming = 10usize;
-        let total = cached + streaming;
-        let capacity = 10usize;
-        assert_eq!(scrollbar::top_for_tail(total, capacity, 0), 90);
-        assert_eq!(scrollbar::top_for_tail(total, capacity, 5), 85);
-        assert_eq!(scrollbar::top_for_tail(total, capacity, usize::MAX), 0);
     }
 
     #[tokio::test]

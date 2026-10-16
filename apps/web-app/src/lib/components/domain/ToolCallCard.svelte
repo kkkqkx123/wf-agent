@@ -3,7 +3,8 @@
 	import { resolve } from '$app/paths';
 	import type { ToolCallEntry } from '$lib/types/models';
 	import type { SubAgentNote } from '$lib/stores/stream-run.svelte';
-	import Icon from '@wf-agent/ui/icons/Icon.svelte';	import type { IconName } from '@wf-agent/ui/icons/paths';
+	import Icon from '@wf-agent/ui/icons/Icon.svelte';
+	import type { IconName } from '@wf-agent/ui/icons/paths';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
@@ -24,6 +25,7 @@
 		previewFor,
 	} from '$lib/utils/tool-output';
 	import type { DisplayPayload } from '$lib/utils/tool-output';
+	import { ansiStyleToCss, hasAnsi, parseAnsi } from '$lib/utils/ansi';
 	import { preferences } from '$lib/stores/preferences.svelte';
 
 	interface Props {
@@ -73,6 +75,14 @@
 	const previewLines = $derived(preview.text.split('\n'));
 	const countText = $derived(countSummary(entry.output, entry.displayPreview));
 	const fullBody = $derived(limitBodyLines(entry.output, budgets.bodyMaxLines));
+	const previewAnsi = $derived(
+		displayKind !== 'diff' && hasAnsi(preview.text)
+			? parseAnsi(preview.text)
+			: null,
+	);
+	const fullBodyAnsi = $derived(
+		hasAnsi(fullBody.text) ? parseAnsi(fullBody.text) : null,
+	);
 	const expandable = $derived(hiddenBody || preview.overflow);
 	const headerHint = $derived(
 		!previews
@@ -110,11 +120,10 @@
 	const isScript = $derived(entry.kind === 'bash' || entry.kind === 'script');
 	const hasLargeOutput = $derived(entry.output.length > INLINE_OUTPUT_LIMIT);
 	/** Dispatch tools host their live children inline below the header. */
-	const isDispatch =
-		$derived(entry.name === 'call_agent' || entry.name === 'execute_workflow');
-	const liveSubagents = $derived(
-		isDispatch ? subagents : [],
+	const isDispatch = $derived(
+		entry.name === 'call_agent' || entry.name === 'execute_workflow',
 	);
+	const liveSubagents = $derived(isDispatch ? subagents : []);
 	const runningSubagents = $derived(
 		liveSubagents.filter((note) => note.success === null),
 	);
@@ -270,11 +279,15 @@
 									{note.name}
 								</span>
 								{#if note.success === null && note.activity}
-									<span class="shrink-0 truncate text-micro text-muted-foreground">
+									<span
+										class="shrink-0 truncate text-micro text-muted-foreground"
+									>
 										{note.activity}
 									</span>
 								{:else if note.preview}
-									<span class="shrink-0 truncate text-micro text-muted-foreground">
+									<span
+										class="shrink-0 truncate text-micro text-muted-foreground"
+									>
 										{note.preview}
 									</span>
 								{/if}
@@ -339,7 +352,9 @@
 					{#if showFullOutput}
 						<pre
 							data-scrollable="true"
-							class={PREVIEW_PRE}>{fullBody.text}</pre>
+							class={PREVIEW_PRE}>{#if fullBodyAnsi}{#each fullBodyAnsi as segment, index (index)}<span
+										style={ansiStyleToCss(segment.style)}>{segment.text}</span
+									>{/each}{:else}{fullBody.text}{/if}</pre>
 						{#if fullBody.capped}
 							<p class="mt-1 font-mono text-micro text-muted-foreground">
 								… {fullBody.hiddenLines} more lines — open Full result for everything
@@ -353,6 +368,12 @@
 							class={PREVIEW_PRE}>{#each previewLines as line, index (index)}<span
 									class={diffToneClass(line)}>{line}</span
 								>{#if index < previewLines.length - 1}<br />{/if}{/each}</pre>
+					{:else if previewAnsi}
+						<pre
+							data-scrollable="true"
+							class={PREVIEW_PRE}>{#each previewAnsi as segment, index (index)}<span
+									style={ansiStyleToCss(segment.style)}>{segment.text}</span
+								>{/each}</pre>
 					{:else}
 						<pre data-scrollable="true" class={PREVIEW_PRE}>{preview.text}</pre>
 					{/if}

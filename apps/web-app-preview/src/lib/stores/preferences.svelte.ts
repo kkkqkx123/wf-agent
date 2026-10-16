@@ -197,6 +197,13 @@ class PreferencesStore {
 		this.persist();
 	}
 
+	/** Rotate the tool output detail preset: compact, balanced, verbose. */
+	cycleToolOutputDetail(): void {
+		const order: ToolOutputDetail[] = ['compact', 'balanced', 'verbose'];
+		const index = order.indexOf(this.toolOutputDetail);
+		this.setToolOutputDetail(order[(index + 1) % order.length]);
+	}
+
 	/** Replace every local field from a validated backup and persist. */
 	applyBackup(backup: LocalPreferencesBackup): void {
 		this.theme = backup.theme;

@@ -5,6 +5,26 @@ import type { BackgroundMarker } from '$lib/utils/stream-parser';
 /** Milliseconds between buffer flushes into the rendered answer. */
 export const STREAM_FLUSH_MS = 80;
 
+/** Backlog at or below which a flush releases everything at once. */
+const RELEASE_FLOOR = 320;
+
+/** Fraction of a larger backlog released per flush, so a burst drains over
+ * several ticks instead of one large layout jump. */
+const RELEASE_RATIO = 0.5;
+
+/**
+ * Number of buffered characters to release into the rendered answer this
+ * flush. Small backlogs pass through whole; large ones drain proportionally
+ * with a floor, which bounds the per-tick layout work.
+ */
+export function streamReleaseChunk(backlog: number): number {
+	if (backlog <= RELEASE_FLOOR) return backlog;
+	return Math.min(
+		backlog,
+		Math.max(RELEASE_FLOOR, Math.ceil(backlog * RELEASE_RATIO)),
+	);
+}
+
 export interface LiveToolCall {
 	id: string;
 	name: string;
@@ -168,14 +188,12 @@ export class StreamRunStore {
 		if (existing) {
 			// Progress frames carry no name; never clobber a known label.
 			if (name) existing.name = name;
-			if (success !== null && success !== undefined)
-				existing.success = success;
+			if (success !== null && success !== undefined) existing.success = success;
 			if (details?.toolCallId) existing.toolCallId = details.toolCallId;
 			if (details?.preview) existing.preview = details.preview;
 			if (details?.background !== undefined)
 				existing.background = details.background;
-			if (details?.activity !== undefined)
-				existing.activity = details.activity;
+			if (details?.activity !== undefined) existing.activity = details.activity;
 			this.subAgents = [...this.subAgents];
 			return;
 		}
@@ -200,14 +218,14 @@ export class StreamRunStore {
 	}
 
 	complete(): void {
-		this.flush();
+		this.flush(true);
 		this.done = true;
 		this.active = false;
 		this.clearTimer();
 	}
 
 	fail(message: string, retryAfterMs: number | null = null): void {
-		this.flush();
+		this.flush(true);
 		this.error = message;
 		this.retryAfterMs = retryAfterMs;
 		this.active = false;
@@ -219,20 +237,32 @@ export class StreamRunStore {
 		this.controller = null;
 		this.clearTimer();
 		if (this.active) {
-			this.flush();
+			this.flush(true);
 			this.active = false;
 			this.cancelled = true;
 		}
 	}
 
-	private flush(): void {
+	private flush(force = false): void {
 		if (this.pending) {
-			this.answer += this.pending;
-			this.pending = '';
+			if (force) {
+				this.answer += this.pending;
+				this.pending = '';
+			} else {
+				const take = streamReleaseChunk(this.pending.length);
+				this.answer += this.pending.slice(0, take);
+				this.pending = this.pending.slice(take);
+			}
 		}
 		if (this.reasoningPending) {
-			this.reasoning += this.reasoningPending;
-			this.reasoningPending = '';
+			if (force) {
+				this.reasoning += this.reasoningPending;
+				this.reasoningPending = '';
+			} else {
+				const take = streamReleaseChunk(this.reasoningPending.length);
+				this.reasoning += this.reasoningPending.slice(0, take);
+				this.reasoningPending = this.reasoningPending.slice(take);
+			}
 		}
 	}
 

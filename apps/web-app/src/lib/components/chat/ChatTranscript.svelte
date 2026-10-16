@@ -11,6 +11,7 @@
 	import BackgroundTasksBar from '$lib/components/domain/BackgroundTasksBar.svelte';
 	import ToolCallGroup from '$lib/components/domain/ToolCallGroup.svelte';
 	import TranscriptScroller from '$lib/components/chat/TranscriptScroller.svelte';
+	import InteractionPrompt from '$lib/components/chat/InteractionPrompt.svelte';
 	import { isTranscriptAnchor } from '$lib/chat/transcript-anchors';
 	import { chatStream } from '$lib/stores/stream-run.svelte';
 	import { NEW_SESSION } from '$lib/stores/sessions.svelte';
@@ -51,6 +52,11 @@
 			/>
 		{/snippet}
 		{#snippet tail()}
+			{#if controller.pendingInteractions.length > 0}
+				<div class="mb-1 flex flex-col gap-2">
+					<InteractionPrompt {controller} />
+				</div>
+			{/if}
 			{#if showLive}
 				<BackgroundTasksBar />
 				{#if chatStream.reasoning}

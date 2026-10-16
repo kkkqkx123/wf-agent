@@ -26,6 +26,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
 	{ id: 'transcript.toBottom', label: 'Scroll transcript to bottom', defaultKeys: 'Mod+End', scope: 'global' },
 	{ id: 'transcript.anchorNext', label: 'Jump to next anchor', defaultKeys: 'Mod+]', scope: 'global' },
 	{ id: 'transcript.anchorPrev', label: 'Jump to previous anchor', defaultKeys: 'Mod+[', scope: 'global' },
+	{ id: 'transcript.detailLevel', label: 'Cycle tool output detail', defaultKeys: 'Mod+d', scope: 'global' },
 	// Graph canvas.
 	{ id: 'canvas.fit', label: 'Fit graph to view', defaultKeys: 'f', scope: 'canvas' },
 	{ id: 'canvas.relayout', label: 'Re-run layout', defaultKeys: 'r', scope: 'canvas' },

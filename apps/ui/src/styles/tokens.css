@@ -58,6 +58,33 @@
 	--chart-4: 280 52% 56%;
 	--chart-5: 0 68% 54%;
 
+	/* ANSI terminal palette for rendered shell output. Values are HSL
+	 * channels so the parser can reference them as hsl(var(--ansi-*)). */
+	--ansi-black: 220 20% 20%;
+	--ansi-red: 0 70% 45%;
+	--ansi-green: 145 60% 32%;
+	--ansi-yellow: 35 85% 36%;
+	--ansi-blue: 215 75% 45%;
+	--ansi-magenta: 290 55% 48%;
+	--ansi-cyan: 190 70% 33%;
+	--ansi-white: 220 12% 52%;
+	--ansi-bright-black: 220 12% 44%;
+	--ansi-bright-red: 0 75% 55%;
+	--ansi-bright-green: 145 55% 40%;
+	--ansi-bright-yellow: 35 85% 46%;
+	--ansi-bright-blue: 215 75% 58%;
+	--ansi-bright-magenta: 290 55% 60%;
+	--ansi-bright-cyan: 190 65% 43%;
+	--ansi-bright-white: 220 15% 34%;
+
+	/* Code syntax roles. Only lexical categories; see highlight.ts. */
+	--code-keyword: 265 55% 48%;
+	--code-string: 145 55% 34%;
+	--code-comment: 215 12% 52%;
+	--code-number: 20 78% 44%;
+	--code-function: 215 75% 46%;
+	--code-type: 32 82% 40%;
+
 	--radius: calc(0.5rem * var(--density-scale));
 	--font-scale: 1;
 	--density-scale: 1;
@@ -126,6 +153,32 @@
 	--chart-3: 32 76% 62%;
 	--chart-4: 280 52% 70%;
 	--chart-5: 0 66% 66%;
+
+	/* ANSI terminal palette for rendered shell output. */
+	--ansi-black: 220 15% 38%;
+	--ansi-red: 0 70% 66%;
+	--ansi-green: 145 50% 58%;
+	--ansi-yellow: 40 80% 66%;
+	--ansi-blue: 215 70% 70%;
+	--ansi-magenta: 290 55% 72%;
+	--ansi-cyan: 190 60% 62%;
+	--ansi-white: 210 12% 80%;
+	--ansi-bright-black: 215 12% 55%;
+	--ansi-bright-red: 0 80% 74%;
+	--ansi-bright-green: 145 55% 68%;
+	--ansi-bright-yellow: 40 85% 74%;
+	--ansi-bright-blue: 215 75% 78%;
+	--ansi-bright-magenta: 290 60% 80%;
+	--ansi-bright-cyan: 190 65% 72%;
+	--ansi-bright-white: 210 12% 92%;
+
+	/* Code syntax roles. Only lexical categories; see highlight.ts. */
+	--code-keyword: 265 70% 76%;
+	--code-string: 145 50% 66%;
+	--code-comment: 215 12% 58%;
+	--code-number: 20 80% 68%;
+	--code-function: 215 72% 74%;
+	--code-type: 32 82% 68%;
 
 	--shadow-frost:
 		0 1px 0 hsl(0 0% 100% / 0.05) inset, 0 8px 28px -18px hsl(0 0% 0% / 0.6);

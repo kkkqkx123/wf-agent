@@ -4,7 +4,19 @@ export interface TextRun {
 	kind: string | null;
 }
 
-const MENTION_PATTERN = /@([a-z][a-z0-9_]*):([\w.-]+)/g;
+/**
+ * Reference syntax `@kind:value`. Entity values keep to word characters and
+ * dots/dashes; file values may also carry path separators and an optional
+ * `#start-end` line segment, matching the CLI mention grammar.
+ */
+const MENTION_PATTERN = /@([a-z][a-z0-9_]*):([\w./-]+(?:#\d+(?:-\d+)?)?)/g;
+
+/** A mention value split into its target and optional 1-based line segment. */
+export interface MentionTarget {
+	value: string;
+	lineStart: number | null;
+	lineEnd: number | null;
+}
 
 /** The value half of a reference keeps to characters the parser accepts. */
 export function mentionRef(kind: string, label: string): string {
@@ -14,6 +26,36 @@ export function mentionRef(kind: string, label: string): string {
 		.replace(/[^\w.-]+/g, '-')
 		.replace(/^-+|-+$/g, '');
 	return value ? `@${kind}:${value}` : `@${kind}`;
+}
+
+/**
+ * Build a file reference from a path and an optional inclusive line range.
+ * Leading `./` and stray `#` are dropped so the reference re-parses cleanly.
+ */
+export function fileMentionRef(
+	path: string,
+	lineStart?: number,
+	lineEnd?: number,
+): string {
+	const clean = path
+		.trim()
+		.replace(/^\.?\/+/, '')
+		.replace(/#/g, '');
+	if (!clean) return '@file';
+	if (lineStart === undefined) return `@file:${clean}`;
+	const end = lineEnd ?? lineStart;
+	return end === lineStart
+		? `@file:${clean}#${lineStart}`
+		: `@file:${clean}#${lineStart}-${end}`;
+}
+
+/** Split a reference value into its target and line segment. */
+export function parseMentionValue(raw: string): MentionTarget {
+	const match = /^(.*?)#(\d+)(?:-(\d+))?$/.exec(raw);
+	if (!match) return { value: raw, lineStart: null, lineEnd: null };
+	const start = Number.parseInt(match[2], 10);
+	const end = match[3] ? Number.parseInt(match[3], 10) : start;
+	return { value: match[1], lineStart: start, lineEnd: end };
 }
 
 /** Split message text so mention markers can be rendered as badges. */

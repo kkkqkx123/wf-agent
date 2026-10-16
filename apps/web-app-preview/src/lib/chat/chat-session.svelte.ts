@@ -17,6 +17,14 @@ import {
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 import { streamLoopRun } from '$lib/services/streaming';
 import { listModelProfiles } from '$lib/services/resources';
+import {
+	cancelInteraction as cancelInteractionRequest,
+	listPendingInteractions,
+	respondToQuestions,
+	respondToolApproval,
+	type InteractionAnswer,
+	type PendingInteraction,
+} from '$lib/services/interactions';
 import type { CommandAction } from '$lib/config/commands';
 import type {
 	LoopMessage,
@@ -36,6 +44,10 @@ import { toasts } from '$lib/stores/toast.svelte';
 import { gotoWithParams } from '$lib/utils/route';
 import { isSessionTab, type SessionTab } from '$lib/config/session-tabs';
 
+/** Minimum gap between interaction polls; the 200ms projection beat drives it
+ * but the network round trip is throttled to this cadence. */
+const INTERACTION_POLL_MS = 600;
+
 /**
  * Per-page chat controller: owns selection, the transcript resource, the
  * live-stream tail state, the mini decision map projection and the send
@@ -50,6 +62,12 @@ export class ChatSessionController {
 
 	/** Inspector tab, mirrored into the address by the route. */
 	tab = $state<SessionTab>('overview');
+
+	/** Interactions the running loop is blocked on, oldest first. */
+	pendingInteractions = $state<PendingInteraction[]>([]);
+	private interactionFetchedAt = 0;
+	private interactionInFlight = false;
+	private interactionDirty = false;
 
 	constructor(initialTab: string | undefined) {
 		this.tab = isSessionTab(initialTab) ?? 'overview';
@@ -77,6 +95,7 @@ export class ChatSessionController {
 				this.projectedTools = [...chatStream.tools];
 				this.projectedSubAgents = [...chatStream.subAgents];
 				this.projectedIteration = chatStream.iteration;
+				this.refreshInteractions();
 			}, 200);
 			return () => window.clearInterval(id);
 		});
@@ -90,18 +109,25 @@ export class ChatSessionController {
 
 		// Converge with the history snapshot once the run settles.
 		$effect(() => {
-			if (chatStream.done && this.selectedId) void this.loopGraph.reload();
+			if (chatStream.done && this.selectedId) {
+				void this.loopGraph.reload();
+				this.interactionFetchedAt = 0;
+				this.refreshInteractions();
+			}
 		});
 
 		// The address is the source of truth for which session is open.
 		$effect(() => {
 			const id = this.selectedId;
+			this.pendingInteractions = [];
+			this.interactionFetchedAt = 0;
 			if (!id) {
 				this.transcript.data = [];
 				return;
 			}
 			sessions.touch(id);
 			void this.transcript.reload();
+			this.refreshInteractions();
 		});
 	}
 
@@ -327,6 +353,84 @@ export class ChatSessionController {
 	recordFeedback(kind: 'up' | 'down'): void {
 		if (kind === 'up') toasts.success('Thanks for the feedback');
 		else toasts.info('Feedback recorded, will improve');
+	}
+
+	/**
+	 * Re-read the interactions blocking the current session. The 200ms
+	 * projection beat calls this, but the network round trip is throttled and
+	 * at most one request is in flight; a request made during an in-flight one
+	 * is coalesced and replayed once it settles.
+	 */
+	refreshInteractions(force = false): void {
+		const id = this.selectedId;
+		if (!id) {
+			this.pendingInteractions = [];
+			return;
+		}
+		if (this.interactionInFlight) {
+			this.interactionDirty = true;
+			return;
+		}
+		const now = Date.now();
+		if (!force && now - this.interactionFetchedAt < INTERACTION_POLL_MS) return;
+		this.interactionFetchedAt = now;
+		this.interactionInFlight = true;
+		void listPendingInteractions(id)
+			.then((items) => {
+				if (this.selectedId !== id) return;
+				this.pendingInteractions = items;
+			})
+			.catch(() => {})
+			.finally(() => {
+				this.interactionInFlight = false;
+				if (this.interactionDirty) {
+					this.interactionDirty = false;
+					this.refreshInteractions(true);
+				}
+			});
+	}
+
+	/** Submit a tool approval; returns false when the request failed. */
+	async respondApproval(
+		interaction: PendingInteraction,
+		approved: boolean,
+		reason?: string,
+	): Promise<boolean> {
+		try {
+			await respondToolApproval(interaction.id, approved, reason);
+		} catch {
+			toasts.error('Could not submit the approval');
+			return false;
+		}
+		this.refreshInteractions(true);
+		return true;
+	}
+
+	/** Submit a follow-up question answer; returns false on failure. */
+	async respondQuestions(
+		interaction: PendingInteraction,
+		answers: InteractionAnswer[],
+	): Promise<boolean> {
+		try {
+			await respondToQuestions(interaction.id, answers);
+		} catch {
+			toasts.error('Could not submit the answer');
+			return false;
+		}
+		this.refreshInteractions(true);
+		return true;
+	}
+
+	/** Decline a follow-up question; returns false on failure. */
+	async cancelInteraction(interaction: PendingInteraction): Promise<boolean> {
+		try {
+			await cancelInteractionRequest(interaction.id);
+		} catch {
+			toasts.error('Could not cancel the interaction');
+			return false;
+		}
+		this.refreshInteractions(true);
+		return true;
 	}
 
 	/** Every slash command maps to one action here; the table owns the vocabulary. */

@@ -34,6 +34,7 @@
 	}}
 	liveNode={controller.miniCurrentNode}
 	focusId={controller.miniSelected}
+	usage={chatStream.sessionKey === selectedId ? chatStream.usage : null}
 	onnodeselect={(id) => {
 		if (id) {
 			controller.focusToolFromNode(id);

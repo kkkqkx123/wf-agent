@@ -11,6 +11,7 @@
 	import { unifiedSearch, type SearchHit } from '$lib/services/search';
 	import { sessions } from '$lib/stores/sessions.svelte';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import ModelPicker from '$lib/components/chat/ModelPicker.svelte';
 	import type { MessageAttachment, OutgoingMessage } from '$lib/types/models';
 	import { mentionRef } from '$lib/utils/mentions';
 
@@ -29,6 +30,10 @@
 	];
 
 	const MENTION_DEBOUNCE_MS = 200;
+
+	/** File references carry a path and optional line range and are typed
+	 * directly; they are not served by the entity search channel. */
+	const FILE_KIND = 'file';
 
 	interface Props {
 		model?: string;
@@ -168,7 +173,7 @@
 	/** The `@…` fragment the caret sits behind, split into kind and term. */
 	const mention = $derived.by(() => {
 		const cursor = box?.selectionStart ?? draft.length;
-		const match = /@([\w.:-]*)$/.exec(draft.slice(0, cursor));
+		const match = /@([\w./:-]*)$/.exec(draft.slice(0, cursor));
 		if (!match) return null;
 		const separator = match[1].indexOf(':');
 		if (separator < 0) return { kind: '', term: match[1] };
@@ -185,9 +190,12 @@
 			: MENTION_KINDS,
 	);
 
-	/** Category chips help before a term exists; they never stand in for hits. */
+	/** Category chips help before a term exists; they never stand in for hits.
+	 * File references are not searchable, so they get their own chip. */
 	const kindHints = $derived(
-		mention && mention.term === '' && mention.kind === '' ? MENTION_KINDS : [],
+		mention && mention.term === '' && mention.kind === ''
+			? [...MENTION_KINDS, FILE_KIND]
+			: [],
 	);
 
 	const commandHints = $derived(
@@ -199,7 +207,7 @@
 		const term = mention?.term ?? '';
 		const types = mentionTypes.join(',');
 		if (timer) clearTimeout(timer);
-		if (!term) {
+		if (mention?.kind === FILE_KIND || !term) {
 			candidates = [];
 			searching = false;
 			return;
@@ -226,10 +234,36 @@
 
 	function insertReference(reference: string): void {
 		const cursor = box?.selectionStart ?? draft.length;
-		const before = draft.slice(0, cursor).replace(/@[\w.:-]*$/, reference);
-		draft = `${before} ${draft.slice(cursor)}`;
+		const before = draft.slice(0, cursor).replace(/@[\w./:-]*$/, reference);
+		// A full reference is followed by a separator; a bare kind prefix stays
+		// open so the value flows straight into the mention.
+		const separator = reference.endsWith(':') ? '' : ' ';
+		draft = `${before}${separator}${draft.slice(cursor)}`;
 		box?.focus();
-		box?.setSelectionRange(before.length + 1, before.length + 1);
+		const caret = before.length + separator.length;
+		box?.setSelectionRange(caret, caret);
+	}
+
+	/** Move a queued message one slot toward the head or tail. */
+	function moveQueued(index: number, delta: number): void {
+		const target = index + delta;
+		if (target < 0 || target >= queue.length) return;
+		const next = [...queue];
+		const [item] = next.splice(index, 1);
+		next.splice(target, 0, item);
+		queue = next;
+	}
+
+	/** Pull a queued message back into the editor for editing; its
+	 * attachments return with it so nothing is lost. */
+	function editQueued(index: number): void {
+		const item = queue[index];
+		if (!item) return;
+		draft = draft.trim() ? `${draft}\n${item.text}` : item.text;
+		attachments = [...attachments, ...item.attachments];
+		queue = queue.filter((_, current) => current !== index);
+		sessions.setDraft(activeKey, draft);
+		box?.focus();
 	}
 </script>
 
@@ -264,6 +298,32 @@
 							+{item.attachments.length} file
 						</span>
 					{/if}
+					<button
+						type="button"
+						aria-label="Move queued message up"
+						disabled={index === 0}
+						class="shrink-0 hover:text-foreground disabled:opacity-40"
+						onclick={() => moveQueued(index, -1)}
+					>
+						<Icon name="chevron-up" size={13} />
+					</button>
+					<button
+						type="button"
+						aria-label="Move queued message down"
+						disabled={index === queue.length - 1}
+						class="shrink-0 hover:text-foreground disabled:opacity-40"
+						onclick={() => moveQueued(index, 1)}
+					>
+						<Icon name="chevron-down" size={13} />
+					</button>
+					<button
+						type="button"
+						aria-label="Edit queued message"
+						class="shrink-0 hover:text-foreground"
+						onclick={() => editQueued(index)}
+					>
+						<Icon name="pencil" size={13} />
+					</button>
 					<button
 						type="button"
 						aria-label="Remove queued message"
@@ -328,6 +388,10 @@
 						</button>
 					{/each}
 				</div>
+			{:else if mention.kind === FILE_KIND}
+				<p class="px-2 text-micro text-muted-foreground">
+					Type a path, optionally with a line range (e.g. @file:src/a.ts#10-20).
+				</p>
 			{:else if mention.term && candidates.length === 0}
 				<p class="px-2 text-micro text-muted-foreground">
 					No {mention.kind || 'matching'} results for “{mention.term}”.
@@ -359,12 +423,7 @@
 	{/if}
 
 	<div class="flex items-center gap-2">
-		<input
-			bind:value={model}
-			placeholder="Model"
-			aria-label="Model"
-			class="h-9 w-44 shrink-0 rounded-md border border-input bg-card px-2 font-mono text-caption text-foreground placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
-		/>
+		<ModelPicker bind:value={model} class="shrink-0" />
 		<textarea
 			bind:this={box}
 			bind:value={draft}

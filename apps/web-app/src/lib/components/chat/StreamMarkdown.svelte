@@ -1,8 +1,9 @@
 <script lang="ts">
-	import MarkdownRender from 'markstream-svelte';
+	import MarkdownRender, { type CustomComponentMap } from 'markstream-svelte';
 	import 'markstream-svelte/index.css';
 	import { resolvedTheme } from '$lib/stores/theme.svelte';
 	import { cn } from '@wf-agent/ui/cn';
+	import CodeBlock from './CodeBlock.svelte';
 
 	interface Props {
 		content: string;
@@ -13,8 +14,17 @@
 	let { content, done = true, class: className = '' }: Props = $props();
 
 	const isDark = $derived(resolvedTheme() === 'dark');
+
+	/** The app paints fenced code blocks itself so they carry lexical
+	 * highlighting without pulling in an optional markstream peer. */
+	const components = { code_block: CodeBlock } as CustomComponentMap;
 </script>
 
 <div class={cn('text-body', className)}>
-	<MarkdownRender {content} final={done} {isDark} />
+	<MarkdownRender
+		{content}
+		final={done}
+		{isDark}
+		customComponents={components}
+	/>
 </div>

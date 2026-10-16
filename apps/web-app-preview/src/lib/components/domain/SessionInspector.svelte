@@ -55,6 +55,7 @@
 		formatDuration,
 		formatNumber,
 	} from '$lib/utils/format';
+	import type { UsageSnapshot } from '$lib/utils/stream-parser';
 	import { cn } from '@wf-agent/ui/cn';
 
 	interface TabState {
@@ -78,6 +79,8 @@
 		liveNode?: string | null;
 		/** Focusing a node from outside (tool card clicks). */
 		focusId?: string | null;
+		/** Live token usage of the active run, when it belongs to this session. */
+		usage?: UsageSnapshot | null;
 		/** Bubble graph selection up (tool list filtering). */
 		onnodeselect?: (id: string | null) => void;
 		/** When absent the checkpoint list stays read-only. */
@@ -94,6 +97,7 @@
 		liveStatuses = {},
 		liveNode = null,
 		focusId = null,
+		usage = null,
 		onnodeselect,
 		onrestore,
 		class: className = '',
@@ -156,6 +160,10 @@
 	);
 
 	const loop = $derived(summary.data);
+	/** Total tokens of the live run; zero when no usage frame arrived yet. */
+	const usageTotal = $derived(
+		usage ? usage.promptTokens + usage.completionTokens : 0,
+	);
 	const iterationList = $derived(iterations.data?.items ?? []);
 	const toolCalls = $derived(iterationList.flatMap((row) => row.toolCalls));
 	const failedCalls = $derived(
@@ -368,6 +376,29 @@
 						]}
 					/>
 				</Card>
+				{#if usage}
+					<Card title="Usage (this run)" class="mt-3">
+						<KeyValueList
+							items={[
+								{
+									key: 'prompt tokens',
+									value: formatNumber(usage.promptTokens),
+								},
+								{
+									key: 'completion tokens',
+									value: formatNumber(usage.completionTokens),
+								},
+								{ key: 'total tokens', value: formatNumber(usageTotal) },
+								{
+									key: 'cost',
+									value:
+										usage.cost === null ? '—' : `$${usage.cost.toFixed(4)}`,
+								},
+							]}
+							dense
+						/>
+					</Card>
+				{/if}
 			{/if}
 		{:else if tab === 'graph'}
 			<GraphExplorer

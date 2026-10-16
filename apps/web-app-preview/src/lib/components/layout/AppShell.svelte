@@ -10,6 +10,7 @@
 	import { resolve } from '$app/paths';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
+	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
 	import { createHotkey } from '@tanstack/svelte-hotkeys';
 	import { effectiveHotkey, isShortcutDisabled } from '$lib/shortcuts/registry';
@@ -58,13 +59,20 @@
 	// from any layout. createHotkey manages its own lifecycle and is a
 	// no-op during SSR.
 	createHotkey(effectiveHotkey('app.help'), () => ui.toggleHelp(), {
-		enabled: !isShortcutDisabled('app.help')
+		enabled: !isShortcutDisabled('app.help'),
 	});
 	createHotkey('?', (event) => {
 		if (isTypingTarget(event.target)) return;
 		event.preventDefault();
 		ui.toggleHelp();
 	});
+	// Tool output detail cycles through the same presets the settings page
+	// exposes, so the transcript can be tightened without leaving it.
+	createHotkey(
+		effectiveHotkey('transcript.detailLevel'),
+		() => preferences.cycleToolOutputDetail(),
+		{ enabled: !isShortcutDisabled('transcript.detailLevel') },
+	);
 </script>
 
 <div class="flex h-screen w-full overflow-hidden bg-background text-foreground">

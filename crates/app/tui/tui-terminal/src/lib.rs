@@ -2,6 +2,7 @@
 
 pub mod capabilities;
 pub mod editor;
+pub mod image_emit;
 pub mod liveness;
 pub mod probe;
 pub mod sigint;

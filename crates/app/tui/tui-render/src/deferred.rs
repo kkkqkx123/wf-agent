@@ -26,11 +26,15 @@ pub struct DeferredItem {
 }
 
 /// End-of-frame work queue: registrations drained once per frame plus a
-/// cleanup counter proving the per-frame image cleanup ran.
+/// cleanup counter proving the per-frame image cleanup ran. The backend
+/// epoch counts image-raster completions: the shell folds it into the redraw
+/// image signature, where the existing comparison already forces a full
+/// frame. Epoch zero means no backend event yet.
 #[derive(Debug, Default)]
 pub struct DeferredFrameWork {
     items: Vec<DeferredItem>,
     cleanups: usize,
+    backend_epoch: u64,
 }
 
 impl DeferredFrameWork {
@@ -84,6 +88,19 @@ impl DeferredFrameWork {
     /// Number of cleanup runs recorded.
     pub fn cleanups(&self) -> usize {
         self.cleanups
+    }
+
+    /// Backend epoch: raster completions observed since startup.
+    pub fn backend_epoch(&self) -> u64 {
+        self.backend_epoch
+    }
+
+    /// Note one image-raster backend completion. Returns the new epoch for
+    /// the shell to fold into the redraw image signature; placeholder
+    /// geometry is untouched.
+    pub fn note_backend_completed(&mut self) -> u64 {
+        self.backend_epoch = self.backend_epoch.saturating_add(1).max(1);
+        self.backend_epoch
     }
 }
 
@@ -173,6 +190,18 @@ mod tests {
         assert!(is_diagram_source(Some("MERMAID")));
         assert!(!is_diagram_source(Some("rust")));
         assert!(!is_diagram_source(None));
+    }
+
+    #[test]
+    fn backend_epoch_advances_without_touching_geometry() {
+        let mut work = DeferredFrameWork::new();
+        assert_eq!(work.backend_epoch(), 0);
+        assert_eq!(work.note_backend_completed(), 1);
+        assert_eq!(work.note_backend_completed(), 2);
+        let before = diagram_placeholder_lines("flow", 20, 5);
+        work.note_backend_completed();
+        let after = diagram_placeholder_lines("flow", 20, 5);
+        assert_eq!(before, after);
     }
 
     #[test]

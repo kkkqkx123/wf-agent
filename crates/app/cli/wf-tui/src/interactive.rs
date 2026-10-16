@@ -294,6 +294,13 @@ impl InteractiveController {
         self.bump_version();
     }
 
+    /// Note an image-raster backend completion: same invalidation contract
+    /// as a collection change, so a newly rasterized diagram repaints on the
+    /// next full frame while placeholders keep their geometry until then.
+    pub fn note_image_raster_completed(&mut self) {
+        self.note_image_collection_changed();
+    }
+
     /// Set the expanded image level; same invalidation contract as above.
     pub fn set_expanded_version(&mut self, version: u64) {
         if version != self.expanded_version {

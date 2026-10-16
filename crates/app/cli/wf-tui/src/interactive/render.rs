@@ -771,7 +771,12 @@ mod tests {
             let mut terminal = Terminal::new(backend).expect("backend");
             terminal
                 .draw(|frame| {
-                    closed.draw(frame, frame.area(), &theme, crate::redraw::RedrawScope::Full)
+                    closed.draw(
+                        frame,
+                        frame.area(),
+                        &theme,
+                        crate::redraw::RedrawScope::Full,
+                    )
                 })
                 .expect("draw closed");
             let closed_buf = terminal.backend().buffer().clone();
@@ -779,7 +784,12 @@ mod tests {
             let mut terminal = Terminal::new(backend).expect("backend");
             terminal
                 .draw(|frame| {
-                    open.draw(frame, frame.area(), &theme, crate::redraw::RedrawScope::Full)
+                    open.draw(
+                        frame,
+                        frame.area(),
+                        &theme,
+                        crate::redraw::RedrawScope::Full,
+                    )
                 })
                 .expect("draw open");
             let open_buf = terminal.backend().buffer().clone();

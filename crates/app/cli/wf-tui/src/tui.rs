@@ -539,9 +539,9 @@ impl TuiApp {
                     // no intermediate clear behind placeholders.
                     match self.invalidation.take() {
                         crate::redraw::InvalidationKind::Hard => {
-                            terminal.clear().map_err(|e| {
-                                CliError::Terminal(format!("clear failed: {e}"))
-                            })?;
+                            terminal
+                                .clear()
+                                .map_err(|e| CliError::Terminal(format!("clear failed: {e}")))?;
                             self.frame_cache
                                 .invalidate(crate::redraw::InvalidationKind::Hard);
                         }
@@ -562,12 +562,13 @@ impl TuiApp {
                         use crossterm::execute;
                         use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
                         let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
-                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            terminal
-                                .draw(|frame| self.draw_inner(frame, &data, frame_scope))
-                                .map(|_| ())
-                                .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
-                        }));
+                        let outcome =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                terminal
+                                    .draw(|frame| self.draw_inner(frame, &data, frame_scope))
+                                    .map(|_| ())
+                                    .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
+                            }));
                         let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
                         match outcome {
                             Ok(Ok(())) => {}
@@ -575,12 +576,13 @@ impl TuiApp {
                             Err(_) => self.draw_recovered(terminal)?,
                         }
                     } else {
-                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            terminal
-                                .draw(|frame| self.draw_inner(frame, &data, frame_scope))
-                                .map(|_| ())
-                                .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
-                        }));
+                        let outcome =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                terminal
+                                    .draw(|frame| self.draw_inner(frame, &data, frame_scope))
+                                    .map(|_| ())
+                                    .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
+                            }));
                         match outcome {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => return Err(e),
@@ -661,19 +663,21 @@ impl TuiApp {
     /// Schedule inputs for the current state under the injectable clock.
     fn schedule_inputs(&self, now_ms: u64) -> crate::redraw::ScheduleInputs {
         let (processing, streaming_empty, tail_catchup, animation_on_screen, composer_nonempty) =
-            self.interactive.as_ref().map_or((false, true, false, false, false), |session| {
-                (
-                    session.is_processing(),
-                    session.streaming_empty(),
-                    session.tail_catchup_active(),
-                    session.has_anim_cells(),
-                    !session.composer_empty(),
-                )
-            });
+            self.interactive
+                .as_ref()
+                .map_or((false, true, false, false, false), |session| {
+                    (
+                        session.is_processing(),
+                        session.streaming_empty(),
+                        session.tail_catchup_active(),
+                        session.has_anim_cells(),
+                        !session.composer_empty(),
+                    )
+                });
         let composing = composer_nonempty
-            && self
-                .last_interaction_clock_ms
-                .is_some_and(|last| now_ms.saturating_sub(last) < crate::redraw::COMPOSING_BACKOFF_MS);
+            && self.last_interaction_clock_ms.is_some_and(|last| {
+                now_ms.saturating_sub(last) < crate::redraw::COMPOSING_BACKOFF_MS
+            });
         crate::redraw::ScheduleInputs {
             tail_catchup,
             overscroll: false,
@@ -710,7 +714,11 @@ impl TuiApp {
                 if self.perf_policy.animation_fps == 0 {
                     u64::MAX
                 } else {
-                    1_000 / self.perf_policy.animation_fps.clamp(1, crate::redraw::DECORATIVE_FPS_CAP)
+                    1_000
+                        / self
+                            .perf_policy
+                            .animation_fps
+                            .clamp(1, crate::redraw::DECORATIVE_FPS_CAP)
                 }
             }
             RedrawCadence::DecorativeComposing | RedrawCadence::StaticChrome => {
@@ -1038,19 +1046,24 @@ impl TuiApp {
     /// deferred work and paints its placeholder. The frame tail flushes the
     /// deferred queue unconditionally so the cleanup proof advances every
     /// frame.
-    fn draw_inner(&mut self, frame: &mut Frame, data: &ScreenData, requested: crate::redraw::RedrawScope) {
+    fn draw_inner(
+        &mut self,
+        frame: &mut Frame,
+        data: &ScreenData,
+        requested: crate::redraw::RedrawScope,
+    ) {
         // Partial scopes overwrite only their own cells, so the previous
         // composed frame seeds the surface first and the rest of the screen
         // survives. Without a matching previous frame the scope upgrades to
         // full, so a partial frame can never paint over a stale or blank
         // surface.
-        let scope =
-            if requested == crate::redraw::RedrawScope::Full || self.frame_cache.can_seed(frame.area())
-            {
-                requested
-            } else {
-                crate::redraw::RedrawScope::Full
-            };
+        let scope = if requested == crate::redraw::RedrawScope::Full
+            || self.frame_cache.can_seed(frame.area())
+        {
+            requested
+        } else {
+            crate::redraw::RedrawScope::Full
+        };
         if scope != crate::redraw::RedrawScope::Full {
             self.frame_cache.seed(frame.buffer_mut());
         }

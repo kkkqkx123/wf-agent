@@ -216,10 +216,7 @@ impl InteractiveController {
         let full_area = area;
 
         if self.scrollback.is_empty() && self.streaming.is_none() {
-            frame.render_widget(
-                Paragraph::new("Type a prompt and press Enter to start an agent turn."),
-                full_area,
-            );
+            draw_welcome(frame, full_area, theme);
             return;
         }
 
@@ -374,10 +371,7 @@ impl InteractiveController {
     fn draw_scrollback_cached(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let full_area = area;
         if self.scrollback.is_empty() && self.streaming.is_none() {
-            frame.render_widget(
-                Paragraph::new("Type a prompt and press Enter to start an agent turn."),
-                full_area,
-            );
+            draw_welcome(frame, full_area, theme);
             return;
         }
         // Steady-state width: the preparation already sits at the text width
@@ -825,4 +819,33 @@ mod tests {
             "closed frame must not carry bar symbols: {closed_right:?}"
         );
     }
+}
+
+fn draw_welcome(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, theme: &crate::theme::Theme) {
+    use ratatui::layout::Alignment;
+    use ratatui::style::Modifier;
+    use ratatui::text::{Line, Span};
+
+    let title_style = theme
+        .bold_style_for_role(crate::theme::ColorRole::Accent)
+        .add_modifier(Modifier::BOLD);
+    let subtitle_style = theme.dim_style_for_role(crate::theme::ColorRole::Muted);
+    let body_style = theme.style_for_role(crate::theme::ColorRole::Default);
+
+    let content: Vec<Line<'static>> = vec![
+        Line::from(Span::styled("wf-agent", title_style)),
+        Line::from(Span::styled("Modular agent framework", subtitle_style)),
+        Line::from(""),
+        Line::from("Type a prompt and press Enter to start an agent turn."),
+        Line::from("Digit keys open management screens; Ctrl-C twice exits."),
+    ];
+    let content_height = content.len() as u16;
+    let top = area.height.saturating_sub(content_height) / 2;
+    let mut lines: Vec<Line<'static>> = (0..top).map(|_| Line::from("")).collect();
+    lines.extend(content);
+
+    let paragraph = ratatui::widgets::Paragraph::new(lines)
+        .alignment(Alignment::Center)
+        .style(body_style);
+    frame.render_widget(paragraph, area);
 }

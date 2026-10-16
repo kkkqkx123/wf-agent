@@ -8,9 +8,9 @@ use wf_client::WfClient;
 
 use crate::error::CliResult;
 use crate::screens::{
-    short_id, CheckpointRow, DashboardData, EventRow, ExecRow, ExecStatusFilter, ExecView, GitRow,
-    InsightTable, InsightsData, LocalSettings, ProfileRow, ResourceRow, ScreenData, ScreenKind,
-    SearchRow, SettingsData, TemplateRow, TriggerRow, WorkflowRow, WorkflowView,
+    short_id, CatalogKind, CatalogRow, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter,
+    ExecView, GitRow, InsightTable, InsightsData, LocalSettings, ProfileRow, ScreenData,
+    ScreenKind, SearchRow, SettingsData, WorkflowRow, WorkflowView,
 };
 
 /// Fetch data for the given screen kind. The flag reports server-side
@@ -27,10 +27,7 @@ pub async fn fetch_for(
         ScreenKind::Insights => Ok((fetch_insights(client).await?, false)),
         ScreenKind::Checkpoints => fetch_checkpoints(client).await,
         ScreenKind::Settings => Ok((fetch_settings(client).await?, false)),
-        ScreenKind::Templates => fetch_templates(client).await,
-        ScreenKind::Resources => fetch_resources(client).await,
-        ScreenKind::Triggers => fetch_triggers(client).await,
-        ScreenKind::Events => fetch_events(client).await,
+        ScreenKind::Catalog => fetch_catalog(client).await,
         ScreenKind::Git => fetch_git(client).await,
         ScreenKind::Interactive => Ok((ScreenData::None, false)),
     }
@@ -513,94 +510,122 @@ fn pretty_detail(value: &serde_json::Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
-async fn fetch_templates(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/templates/library").await?;
-    let (items, has_more) = page_of(&data);
-    let rows = items
-        .into_iter()
-        .map(|item| {
-            let id = text_of(&item, &["id"]);
-            let name = text_of(&item, &["name", "title"]);
-            let kind = text_of(&item, &["kind", "type", "category"]);
-            TemplateRow {
-                id: if id.is_empty() { name.clone() } else { id },
-                name,
-                kind,
-                detail: pretty_detail(&item),
-            }
-        })
-        .collect();
-    Ok((ScreenData::Templates(rows), has_more))
-}
-
-async fn fetch_resources(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/tools").await?;
-    let (items, has_more) = page_of(&data);
-    let rows = items
-        .into_iter()
-        .map(|item| {
-            let id = text_of(&item, &["id", "name"]);
-            let name = text_of(&item, &["name", "title", "display_name"]);
-            let status = item
-                .get("enabled")
-                .and_then(|v| v.as_bool())
-                .map(|enabled| {
-                    if enabled {
-                        "enabled".to_string()
-                    } else {
-                        "disabled".to_string()
-                    }
-                })
-                .unwrap_or_else(|| text_of(&item, &["status"]));
-            ResourceRow {
-                id: if id.is_empty() { name.clone() } else { id },
-                name,
-                status,
-                detail: pretty_detail(&item),
-            }
-        })
-        .collect();
-    Ok((ScreenData::Resources(rows), has_more))
-}
-
-async fn fetch_triggers(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/trigger-executions").await?;
-    let (items, has_more) = page_of(&data);
-    let rows = items
-        .into_iter()
-        .map(|item| {
-            let id = text_of(&item, &["id"]);
-            let name = text_of(&item, &["trigger_name", "name", "hook"]);
-            let status = text_of(&item, &["status"]);
-            TriggerRow {
-                id: if id.is_empty() { name.clone() } else { id },
-                name,
-                status,
-                detail: pretty_detail(&item),
-            }
-        })
-        .collect();
-    Ok((ScreenData::Triggers(rows), has_more))
-}
-
-async fn fetch_events(client: &WfClient) -> CliResult<(ScreenData, bool)> {
-    let data: serde_json::Value = client.get_json("/api/v1/events").await?;
-    let (items, has_more) = page_of(&data);
-    let rows = items
-        .into_iter()
-        .map(|item| {
-            let id = text_of(&item, &["id"]);
-            let kind = text_of(&item, &["event_type", "type", "kind"]);
-            let summary = text_of(&item, &["message", "summary", "description"]);
-            EventRow {
-                id,
-                kind,
-                summary,
-                detail: pretty_detail(&item),
-            }
-        })
-        .collect();
-    Ok((ScreenData::Events(rows), has_more))
+/// Fetch the unified catalog: the four former screens load in parallel
+/// and merge into one row list. Each source degrades independently so a
+/// single failing endpoint still renders the other groups.
+async fn fetch_catalog(client: &WfClient) -> CliResult<(ScreenData, bool)> {
+    let (templates, resources, triggers, events) = tokio::join!(
+        client.get_json::<serde_json::Value>("/api/v1/templates/library"),
+        client.get_json::<serde_json::Value>("/api/v1/tools"),
+        client.get_json::<serde_json::Value>("/api/v1/trigger-executions"),
+        client.get_json::<serde_json::Value>("/api/v1/events"),
+    );
+    let mut rows: Vec<CatalogRow> = Vec::new();
+    let mut has_more = false;
+    let mut failures = 0u32;
+    let mut first_err: Option<wf_client::ClientError> = None;
+    let mut record_failure = |err: wf_client::ClientError| {
+        failures += 1;
+        if first_err.is_none() {
+            first_err = Some(err);
+        }
+    };
+    match templates {
+        Ok(data) => {
+            let (items, more) = page_of(&data);
+            has_more |= more;
+            rows.extend(items.into_iter().map(|item| {
+                let id = text_of(&item, &["id"]);
+                let name = text_of(&item, &["name", "title"]);
+                let summary = text_of(&item, &["kind", "type", "category"]);
+                CatalogRow {
+                    kind: CatalogKind::Templates,
+                    id: if id.is_empty() { name.clone() } else { id },
+                    name,
+                    status: String::new(),
+                    summary,
+                    detail: pretty_detail(&item),
+                }
+            }));
+        }
+        Err(err) => record_failure(err),
+    }
+    match resources {
+        Ok(data) => {
+            let (items, more) = page_of(&data);
+            has_more |= more;
+            rows.extend(items.into_iter().map(|item| {
+                let id = text_of(&item, &["id", "name"]);
+                let name = text_of(&item, &["name", "title", "display_name"]);
+                let status = item
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .map(|enabled| {
+                        if enabled {
+                            "enabled".to_string()
+                        } else {
+                            "disabled".to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| text_of(&item, &["status"]));
+                CatalogRow {
+                    kind: CatalogKind::Resources,
+                    id: if id.is_empty() { name.clone() } else { id },
+                    name,
+                    status,
+                    summary: String::new(),
+                    detail: pretty_detail(&item),
+                }
+            }));
+        }
+        Err(err) => record_failure(err),
+    }
+    match triggers {
+        Ok(data) => {
+            let (items, more) = page_of(&data);
+            has_more |= more;
+            rows.extend(items.into_iter().map(|item| {
+                let id = text_of(&item, &["id"]);
+                let name = text_of(&item, &["trigger_name", "name", "hook"]);
+                let status = text_of(&item, &["status"]);
+                CatalogRow {
+                    kind: CatalogKind::Triggers,
+                    id: if id.is_empty() { name.clone() } else { id },
+                    name,
+                    status,
+                    summary: String::new(),
+                    detail: pretty_detail(&item),
+                }
+            }));
+        }
+        Err(err) => record_failure(err),
+    }
+    match events {
+        Ok(data) => {
+            let (items, more) = page_of(&data);
+            has_more |= more;
+            rows.extend(items.into_iter().map(|item| {
+                let id = text_of(&item, &["id"]);
+                let kind = text_of(&item, &["event_type", "type", "kind"]);
+                let summary = text_of(&item, &["message", "summary", "description"]);
+                CatalogRow {
+                    kind: CatalogKind::Events,
+                    id,
+                    name: kind,
+                    status: String::new(),
+                    summary,
+                    detail: pretty_detail(&item),
+                }
+            }));
+        }
+        Err(err) => record_failure(err),
+    }
+    if rows.is_empty() && failures == 4 {
+        if let Some(err) = first_err {
+            return Err(crate::error::CliError::from(err));
+        }
+    }
+    Ok((ScreenData::Catalog(rows), has_more))
 }
 
 async fn fetch_git(client: &WfClient) -> CliResult<(ScreenData, bool)> {

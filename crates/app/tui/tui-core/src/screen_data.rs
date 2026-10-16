@@ -15,10 +15,7 @@ pub enum ScreenKind {
     Interactive,
     Checkpoints,
     Settings,
-    Templates,
-    Resources,
-    Triggers,
-    Events,
+    Catalog,
     Git,
 }
 
@@ -32,10 +29,7 @@ impl ScreenKind {
             Self::Interactive => "Chat",
             Self::Checkpoints => "Checkpoints",
             Self::Settings => "Settings",
-            Self::Templates => "Templates",
-            Self::Resources => "Resources",
-            Self::Triggers => "Triggers",
-            Self::Events => "Events",
+            Self::Catalog => "Catalog",
             Self::Git => "Git",
         }
     }
@@ -49,10 +43,7 @@ impl ScreenKind {
             Self::Interactive,
             Self::Checkpoints,
             Self::Settings,
-            Self::Templates,
-            Self::Resources,
-            Self::Triggers,
-            Self::Events,
+            Self::Catalog,
             Self::Git,
         ]
     }
@@ -78,11 +69,7 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         ScreenKind::Interactive => Some('4'),
         ScreenKind::Checkpoints => Some('5'),
         ScreenKind::Settings => Some('6'),
-        ScreenKind::Templates
-        | ScreenKind::Resources
-        | ScreenKind::Triggers
-        | ScreenKind::Events
-        | ScreenKind::Git => None,
+        ScreenKind::Catalog | ScreenKind::Git => None,
     }
 }
 
@@ -214,6 +201,7 @@ impl WorkflowView {
 pub struct ScreenContext<'a> {
     pub exec_view: ExecView,
     pub workflow_view: WorkflowView,
+    pub catalog_tab: Option<CatalogKind>,
     pub detail_lines: &'a [String],
     pub detail_scroll: usize,
     pub has_more: bool,
@@ -274,41 +262,96 @@ pub struct CheckpointRow {
     pub status: String,
 }
 
-/// One template row rendered on the templates screen. `detail` carries the
-/// pre-rendered read-only viewer text so opening it needs no extra fetch.
-#[derive(Debug, Clone)]
-pub struct TemplateRow {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub detail: String,
+/// Catalog entry kind: the four merged source groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CatalogKind {
+    Templates,
+    Resources,
+    Triggers,
+    Events,
 }
 
-/// One tool row rendered on the resources screen.
+impl CatalogKind {
+    pub const ALL: &'static [CatalogKind] = &[
+        Self::Templates,
+        Self::Resources,
+        Self::Triggers,
+        Self::Events,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Templates => "Templates",
+            Self::Resources => "Resources",
+            Self::Triggers => "Triggers",
+            Self::Events => "Events",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|kind| *kind == self).unwrap_or(0)
+    }
+
+    pub fn from_index(idx: usize) -> Self {
+        Self::ALL.get(idx).copied().unwrap_or(Self::Templates)
+    }
+
+    pub fn next(self) -> Self {
+        Self::from_index((self.index() + 1) % Self::ALL.len())
+    }
+
+    pub fn prev(self) -> Self {
+        Self::from_index((self.index() + Self::ALL.len() - 1) % Self::ALL.len())
+    }
+}
+
+/// Tab selected on the catalog screen: `None` is the merged All view.
+pub fn catalog_tab_label(tab: Option<CatalogKind>) -> &'static str {
+    match tab {
+        None => "All",
+        Some(kind) => kind.label(),
+    }
+}
+
+/// Tab slot index: 0 is All, 1-4 follow [`CatalogKind::ALL`] order.
+pub fn catalog_tab_index(tab: Option<CatalogKind>) -> usize {
+    match tab {
+        None => 0,
+        Some(kind) => kind.index() + 1,
+    }
+}
+
+/// Tab for a slot index, wrapping around the five groups.
+pub fn catalog_tab_from_index(idx: usize) -> Option<CatalogKind> {
+    match idx % (CatalogKind::ALL.len() + 1) {
+        0 => None,
+        n => Some(CatalogKind::from_index(n - 1)),
+    }
+}
+
+/// One unified catalog row. `detail` carries the pre-rendered read-only
+/// viewer text so opening it needs no extra fetch. Field conventions:
+/// templates use `summary` for the template kind, resources and triggers
+/// use `status`, events use `name` for the event kind and `summary` for
+/// the message.
 #[derive(Debug, Clone)]
-pub struct ResourceRow {
+pub struct CatalogRow {
+    pub kind: CatalogKind,
     pub id: String,
     pub name: String,
     pub status: String,
-    pub detail: String,
-}
-
-/// One trigger execution row rendered on the triggers screen.
-#[derive(Debug, Clone)]
-pub struct TriggerRow {
-    pub id: String,
-    pub name: String,
-    pub status: String,
-    pub detail: String,
-}
-
-/// One event row rendered on the events screen.
-#[derive(Debug, Clone)]
-pub struct EventRow {
-    pub id: String,
-    pub kind: String,
     pub summary: String,
     pub detail: String,
+}
+
+impl CatalogRow {
+    pub fn qualifier(&self) -> &str {
+        match self.kind {
+            CatalogKind::Templates => self.summary.as_str(),
+            CatalogKind::Resources | CatalogKind::Triggers => self.status.as_str(),
+            CatalogKind::Events => self.summary.as_str(),
+        }
+    }
 }
 
 /// One repository file row rendered on the git screen.
@@ -386,10 +429,7 @@ pub enum ScreenData {
     Insights(InsightsData),
     Checkpoints(Vec<CheckpointRow>),
     Settings(SettingsData),
-    Templates(Vec<TemplateRow>),
-    Resources(Vec<ResourceRow>),
-    Triggers(Vec<TriggerRow>),
-    Events(Vec<EventRow>),
+    Catalog(Vec<CatalogRow>),
     Git(Vec<GitRow>),
 }
 
@@ -403,10 +443,7 @@ impl ScreenData {
             Self::Executions(rows) => rows.len(),
             Self::Checkpoints(rows) => rows.len(),
             Self::Settings(data) => data.profiles.len(),
-            Self::Templates(rows) => rows.len(),
-            Self::Resources(rows) => rows.len(),
-            Self::Triggers(rows) => rows.len(),
-            Self::Events(rows) => rows.len(),
+            Self::Catalog(rows) => rows.len(),
             Self::Git(rows) => rows.len(),
         }
     }
@@ -451,27 +488,9 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
                 .cloned()
                 .collect(),
         ),
-        ScreenData::Templates(rows) => ScreenData::Templates(
+        ScreenData::Catalog(rows) => ScreenData::Catalog(
             rows.iter()
-                .filter(|r| hits(&[&r.id, &r.name, &r.kind]))
-                .cloned()
-                .collect(),
-        ),
-        ScreenData::Resources(rows) => ScreenData::Resources(
-            rows.iter()
-                .filter(|r| hits(&[&r.id, &r.name, &r.status]))
-                .cloned()
-                .collect(),
-        ),
-        ScreenData::Triggers(rows) => ScreenData::Triggers(
-            rows.iter()
-                .filter(|r| hits(&[&r.id, &r.name, &r.status]))
-                .cloned()
-                .collect(),
-        ),
-        ScreenData::Events(rows) => ScreenData::Events(
-            rows.iter()
-                .filter(|r| hits(&[&r.id, &r.kind, &r.summary]))
+                .filter(|r| hits(&[&r.id, &r.name, &r.status, &r.summary, r.kind.label()]))
                 .cloned()
                 .collect(),
         ),
@@ -494,6 +513,54 @@ pub fn short_id(id: &str) -> String {
     } else {
         head
     }
+}
+
+/// Filter catalog rows by tab plus a case-insensitive substring query.
+/// `None` keeps all kinds; a concrete kind keeps only that group. The
+/// query matches across the kind label and every display field so the All
+/// view behaves as cross-kind search.
+pub fn filter_catalog(
+    rows: &[CatalogRow],
+    tab: Option<CatalogKind>,
+    query: &str,
+) -> Vec<CatalogRow> {
+    let needle = query.to_lowercase();
+    let has_query = !needle.trim().is_empty();
+    rows.iter()
+        .filter(|row| tab.is_none_or(|kind| row.kind == kind))
+        .filter(|row| {
+            if !has_query {
+                return true;
+            }
+            let haystack = format!(
+                "{} {} {} {} {}",
+                row.kind.label(),
+                row.id,
+                row.name,
+                row.status,
+                row.summary
+            )
+            .to_lowercase();
+            haystack.contains(&needle)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Per-kind counts in [`CatalogKind::ALL`] order, for the tab strip.
+pub fn catalog_counts(rows: &[CatalogRow]) -> [(CatalogKind, usize); 4] {
+    let mut counts = [
+        (CatalogKind::Templates, 0),
+        (CatalogKind::Resources, 0),
+        (CatalogKind::Triggers, 0),
+        (CatalogKind::Events, 0),
+    ];
+    for row in rows {
+        if let Some(entry) = counts.iter_mut().find(|(kind, _)| *kind == row.kind) {
+            entry.1 += 1;
+        }
+    }
+    counts
 }
 
 #[cfg(test)]
@@ -540,5 +607,39 @@ mod tests {
         assert_eq!(apply_list_filter(&data, "EXEC").row_count(), 2);
         assert_eq!(apply_list_filter(&data, "").row_count(), 2);
         assert_eq!(apply_list_filter(&data, "nope").row_count(), 0);
+    }
+
+    #[test]
+    fn catalog_tab_cycles_and_filters() {
+        let rows = vec![
+            CatalogRow {
+                kind: CatalogKind::Templates,
+                id: "tmpl-1".into(),
+                name: "Review".into(),
+                status: String::new(),
+                summary: "workflow".into(),
+                detail: String::new(),
+            },
+            CatalogRow {
+                kind: CatalogKind::Events,
+                id: "evt-1".into(),
+                name: "execution".into(),
+                status: String::new(),
+                summary: "done".into(),
+                detail: String::new(),
+            },
+        ];
+        assert_eq!(filter_catalog(&rows, None, "").len(), 2);
+        assert_eq!(
+            filter_catalog(&rows, Some(CatalogKind::Templates), "").len(),
+            1
+        );
+        assert_eq!(filter_catalog(&rows, None, "done").len(), 1);
+        assert_eq!(catalog_tab_from_index(0), None);
+        assert_eq!(catalog_tab_from_index(1), Some(CatalogKind::Templates));
+        assert_eq!(catalog_tab_index(None), 0);
+        assert_eq!(catalog_tab_label(Some(CatalogKind::Events)), "Events");
+        assert_eq!(CatalogKind::Templates.next(), CatalogKind::Resources);
+        assert_eq!(CatalogKind::Templates.prev(), CatalogKind::Events);
     }
 }

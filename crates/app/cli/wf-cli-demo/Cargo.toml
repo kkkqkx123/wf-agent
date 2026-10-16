@@ -48,8 +48,8 @@ name = "tui_markdown_showcase"
 path = "examples/tui/markdown_showcase.rs"
 
 [[example]]
-name = "tui_screens"
-path = "examples/tui/screens.rs"
+name = "tui_management_showcase"
+path = "examples/tui/management_showcase.rs"
 
 [[example]]
 name = "tui_style_gallery"

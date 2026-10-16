@@ -12,7 +12,7 @@
 | `tui_bench.rs` | 无头吞吐探针（prep cache / markdown 稳态行，性能回归） |
 | `tui_diff_record.rs` | DiffRecorderBackend 集成演示，录制每帧 ANSI 字节 |
 | `tui_key_receiver.rs` | 按键解析与 KeymapContext 手动测试工具 |
-| `tui_screens.rs` | 全屏各页面（Dashboard/Workflow/...）带合成数据的展示 |
+| `tui_management_showcase.rs` | 统一 Screen 导航壳层 smoke test（Dashboard/Workflow/.../Catalog） |
 
 **缺口**：仅覆盖了 screens、按键、动画与性能；markdown 渲染、style/主题/动效、components 各弹窗/浮层、render 管线细节均缺少专门的渲染审查示例。
 
@@ -95,50 +95,26 @@
 |---|---|
 | `diff_recorder` | 后端装饰器：录制每帧 ANSI diff 字节 + FrameMetrics（`diff-record` feature 门控） |
 
-## 三、需要补充的 Examples（用于人工渲染审查）
+## 三、当前结论（2026-10-16 更新）
 
-原则：每个示例都以"合成数据 + 可交互/可退出 + 展示该 crate 全部视觉状态"为标准；优先放在 `wf-cli-demo/examples/`，命名沿用 `tui_*` 前缀。
+在最近 TUI 统一期之后，demo 组织建议如下：
 
-### 1. tui-markdown：`tui_markdown_showcase.rs`（高优先级）
-- 展示：标题/列表/代码块/表格/引用/分隔线的 `styled` 与 `plain` 两种整篇渲染；
-- 同一文档分别以"一次性渲染"和"逐块流式喂入 `stream`"渲染，左右分屏对照，人工检查流式拼接结果与整篇渲染一致；
-- 覆盖 reasoning 段落折叠/展开样式。
+1. `tui_management_showcase` 作为**集成 smoke test** 保留，不拆分成每个 screen 单例 demo。它覆盖的内容包括 `Screens` 导航栈、合成 `ScreenData`、`ScreenContext.filter`、Catalog tab/filter 及详情选中，所有这些实际上都依赖 screen stack 联动，拆开会丢失高风险交互。
+2. 不 recomend 为每个 `ScreenKind` 或每个 crate 新建独立 demo，除已经存在的 focused 演示：
+   - `tui_components_gallery`：TUI 组件画廊；
+   - `tui_style_gallery`：主题、动画、motion；
+   - `tui_markdown_showcase`：markdown 整篇与流式渲染对照；
+   - `tui_diff_record` / `tui_bench` / `tui_key_receiver` / `tui_scenario` / `component_output`：工具链与交互 parse/perf 回归。
+3. 仅当同时满足以下 2 项以上时，才新增 demo：
+   - 独占交互模式（例如 Catalog tab + filter、command palette completion、Markdown streaming）；
+   - 集成 demo 难以稳定复现；
+   - 新 demo 可以使用 synthetic data，低成本搭建；
+   - 风险/审查收益明显。
+4. 其余画廊补充优先在现有 demo 中扩展（`tab_bar`、`property_list`、`footer`、`history cell` 等 visual surface），而不是新增 example。
 
-### 2. tui-style：`tui_style_gallery.rs`（高优先级）
-- 展示：theme 调色板色样、`theme_mode` light/dark 双模式同屏切换（如按 `t` 切换）、动画/motion 各关键帧状态（提供暂停/步进键逐帧审查，而非仅实时播放）；
-- `anim_core` 为纯数值核心无视觉，可在文档中说明不设示例。
+## 四、长期规范
 
-### 3. tui-components：`tui_components_gallery.rs`（高优先级，可拆分）
-- 每个弹窗/浮层一个按键入口：confirm / password / help / approval / question / model_picker / file_selection / file_viewer(文本+diff) / select / panels / mention / composer / footer / queue；
-- 每个组件展示默认态 + 关键中间态（焦点、选中、空态、错误态）；
-- 若单文件过大，按现有 `component_output.rs` 黄金输出机制补充对应 outputs 快照，交互示例仅演示操作路径。
-
-### 4. tui-render：`tui_render_pipeline.rs`（中优先级）
-- 展示：layout 三种分栏模式（chat / diagram / management）的合成帧；
-- `ansi` 管线：喂入带 ANSI 转义的文本检查着色还原；
-- `post_process` 收尾前后对照（可用分屏或按键切换）；
-- prep_cache 增量命中/失效可通过 diff-record 日志观察（联动 tui-debug）。
-
-### 5. tui-terminal：`tui_terminal_capabilities.rs`（中优先级）
-- 展示：能力探测结果面板（键盘增强、色彩深度、bracketed paste 实测）；
-- 演示 sigint 双击判定、stderr 守卫激活/解除、editor 挂起/恢复全程视觉状态。
-
-### 6. tui-core：`tui_core_visual_signals.rs`（低优先级）
-- core 多为逻辑 kernel；仅对有视觉后果的模块设示例：anchor 滚动稳定性（构造滚动+流式并发场景）、stream_pacer 节奏（快/慢到达对照）、redraw 分级（注入不同级别事件观察重绘范围）；
-- framer/frame_metrics/perf/keymap 已有 `tui_bench` / `tui_key_receiver` 覆盖，无需重复。
-
-### 7. tui-clock / tui-debug：无需新示例
-- tui-clock 是纯叶子设施，其效果在 style 动画示例中体现；
-- tui-debug 已有 `tui_diff_record` 示例覆盖。
-
-## 四、优先级汇总
-
-| 优先级 | Example | 覆盖 crate |
-|---|---|---|
-| P0 | `tui_markdown_showcase.rs` | tui-markdown |
-| P0 | `tui_style_gallery.rs` | tui-style |
-| P0 | `tui_components_gallery.rs` | tui-components |
-| P1 | `tui_render_pipeline.rs` | tui-render |
-| P1 | `tui_terminal_capabilities.rs` | tui-terminal |
-| P2 | `tui_core_visual_signals.rs` | tui-core（仅视觉相关模块） |
-| — | 无需补充 | tui-clock, tui-debug |
+- 每个新 demo 必须在 `examples/tui/README.md` 和 Cargo `[[example]]` 块中注册，避免 demo 孤岛化。
+- 命名沿用 `tui_<surface>_showcase` / `tui_<tool>` 规则，不使用泛化 `screen`（screen 适合作为 Screen stack 的总览命名例外）。
+- 所有 demo 使用合成数据；不要在 example 中接真实 server。
+- 涉及 TUI 交互时必须更新 `docs/plan/tui-interface-reference-alignment-design.md` 里的人工验收 Checklist。

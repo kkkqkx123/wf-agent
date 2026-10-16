@@ -296,13 +296,7 @@ mod tests {
         assert!(screen_for_digit('9').is_none());
         assert!(screen_for_digit('z').is_none());
         // Screens added after the original seven carry no digit.
-        for screen in [
-            ScreenKind::Templates,
-            ScreenKind::Resources,
-            ScreenKind::Triggers,
-            ScreenKind::Events,
-            ScreenKind::Git,
-        ] {
+        for screen in [ScreenKind::Catalog, ScreenKind::Git] {
             assert_eq!(screen_digit(screen), None);
         }
     }
@@ -338,10 +332,7 @@ mod tests {
             ScreenKind::Insights,
             ScreenKind::Checkpoints,
             ScreenKind::Settings,
-            ScreenKind::Templates,
-            ScreenKind::Resources,
-            ScreenKind::Triggers,
-            ScreenKind::Events,
+            ScreenKind::Catalog,
             ScreenKind::Git,
         ] {
             assert_eq!(classify_paste(false, screen), PasteTarget::Ignored);

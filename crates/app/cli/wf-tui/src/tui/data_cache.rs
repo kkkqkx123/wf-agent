@@ -23,11 +23,7 @@ pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
         ScreenKind::Workflow => Duration::from_secs(5),
         ScreenKind::Executions | ScreenKind::Checkpoints => Duration::from_secs(3),
         ScreenKind::Insights => Duration::from_secs(10),
-        ScreenKind::Templates
-        | ScreenKind::Resources
-        | ScreenKind::Triggers
-        | ScreenKind::Events
-        | ScreenKind::Git => Duration::from_secs(5),
+        ScreenKind::Catalog | ScreenKind::Git => Duration::from_secs(5),
         ScreenKind::Settings => DEFAULT_DATA_TTL,
         ScreenKind::Interactive => DEFAULT_DATA_TTL,
     }

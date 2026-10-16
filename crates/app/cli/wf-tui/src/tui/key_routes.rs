@@ -238,11 +238,7 @@ impl TuiApp {
                 ScreenKind::Checkpoints => {
                     self.open_selected_checkpoint_detail();
                 }
-                ScreenKind::Templates
-                | ScreenKind::Resources
-                | ScreenKind::Triggers
-                | ScreenKind::Events
-                | ScreenKind::Git => {
+                ScreenKind::Catalog | ScreenKind::Git => {
                     self.open_selected_cached_detail();
                 }
                 _ => {}
@@ -267,7 +263,7 @@ impl TuiApp {
             CKey::Char('[')
                 if matches!(
                     self.app.screen.navigation.current_kind(),
-                    ScreenKind::Executions | ScreenKind::Workflow
+                    ScreenKind::Executions | ScreenKind::Workflow | ScreenKind::Catalog
                 ) =>
             {
                 self.cycle_detail_view(false);
@@ -275,10 +271,17 @@ impl TuiApp {
             CKey::Char(']')
                 if matches!(
                     self.app.screen.navigation.current_kind(),
-                    ScreenKind::Executions | ScreenKind::Workflow
+                    ScreenKind::Executions | ScreenKind::Workflow | ScreenKind::Catalog
                 ) =>
             {
                 self.cycle_detail_view(true);
+            }
+            CKey::Tab
+                if !key.ctrl
+                    && !key.alt
+                    && self.app.screen.navigation.current_kind() == ScreenKind::Catalog =>
+            {
+                self.cycle_detail_view(!key.shift);
             }
             CKey::Char('/')
                 if !key.ctrl
@@ -539,12 +542,12 @@ impl TuiApp {
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 
-    /// Scroll the executions/workflow detail pane. Reports whether the
-    /// current screen owns a detail pane so callers can fall through.
+    /// Scroll the executions/workflow/catalog detail pane. Reports whether
+    /// the current screen owns a detail pane so callers can fall through.
     fn scroll_detail(&mut self, delta: isize) -> bool {
         if !matches!(
             self.app.screen.navigation.current_kind(),
-            ScreenKind::Executions | ScreenKind::Workflow
+            ScreenKind::Executions | ScreenKind::Workflow | ScreenKind::Catalog
         ) {
             return false;
         }
@@ -563,6 +566,7 @@ impl TuiApp {
     }
 
     /// Cycle the executions/workflow subview and fetch its detail lines.
+    /// On the catalog screen the same keys cycle the kind tab instead.
     fn cycle_detail_view(&mut self, forward: bool) {
         match self.app.screen.navigation.current_kind() {
             ScreenKind::Executions => {
@@ -577,8 +581,27 @@ impl TuiApp {
                 self.request_detail_for_current();
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
+            ScreenKind::Catalog => {
+                self.cycle_catalog_tab(forward);
+            }
             _ => {}
         }
+    }
+
+    /// Cycle the catalog kind tab, wrapping around the five groups.
+    fn cycle_catalog_tab(&mut self, forward: bool) {
+        use tui_core::screen_data::catalog_tab_from_index;
+        let total = tui_core::screen_data::CatalogKind::ALL.len() + 1;
+        let current = tui_core::screen_data::catalog_tab_index(self.app.screen.catalog_tab);
+        let next = if forward {
+            (current + 1) % total
+        } else {
+            (current + total - 1) % total
+        };
+        self.app
+            .screen
+            .switch_catalog_tab(catalog_tab_from_index(next));
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
     }
 
     /// Number of selectable rows on the current screen.
@@ -594,6 +617,9 @@ impl TuiApp {
         self.app.screen.settings_scroll = 0;
         self.app.screen.detail_scroll = 0;
         self.app.screen.list_filter.clear();
+        if kind == ScreenKind::Catalog {
+            self.app.screen.reset_catalog();
+        }
         self.request_data(kind);
         self.request_detail_for_current();
     }

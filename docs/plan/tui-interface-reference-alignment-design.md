@@ -233,7 +233,8 @@
 - [x] Git diff viewer 与 file tree 基础组件。
 - [x] Insights 使用共享 aligned table 渲染。
 - [x] Workflow 与 Executions 的 detail 摘要使用 `property_list`。
-- [x] Git、Checkpoints、Templates、Resources、Triggers、Events 统一为 master-detail 两栏布局，并从选中行展示 detail。
+- [x] Git、Checkpoints 与 Catalog 统一为 master-detail 两栏布局，并从选中行展示 detail。
+- [x] Unified Catalog：Templates/Resources/Triggers/Events 合并为单个 Catalog 视图，按 All/Templates/Resources/Triggers/Events 分 tab，跨类过滤，详情走 `property_list`，`Tab`/`[`/`]` 切换 tab 并记忆各 tab 选中。
 - [x] 子视图 tab 文本统一经 `tab_bar::format_tabs` 生成。
 - [x] Settings 布尔配置采用 checkbox 风格显示。
 - [x] Navigation overlay 标题与术语对齐为 “Navigation”。
@@ -246,17 +247,17 @@
 
 ### 待开始
 
-- [ ] Unified catalog（Templates/Resources/Triggers/Events 合并）。
-- [ ] Context sidebar（files/todo/context/mcp/git）。
-- [ ] HistoryCell 模型与 transcript virtualization。
-- [ ] Terminal palette / 明暗背景 / adaptive style。
-- [ ] Git diff viewer tree 与 hunk 渲染。
+- [ ] Context sidebar（files/todo/context/mcp/git）：已做范围决策，外部 git/lazygit 覆盖 diff；仅在 session workspace 有真实上下文数据后再实现。
+- [ ] HistoryCell 模型与 transcript virtualization：已做范围决策，延期到 copy/search/raw 成为强需求。
+- [ ] Terminal palette / 明暗背景 / adaptive style：已有部分基础，延期到主题系统专项。
+- [~] Git viewer：范围决策为只读 status summary + detail；不实现 tree/hunk viewer，外部 git/lazygit 承担交互式 git。
 - [ ] dialog family 的 endpoint 与交互改造。
 
 ### 已执行验证
 
 - `cargo test -p tui-components --lib`
 - `cargo test -p tui-render`
+- `cargo test -p tui-core -p tui-render -p wf-tui --lib`
 - `cargo build -p wf-tui`
-- `cargo build -p wf-cli-demo --example tui_screens`
-- `cargo clippy -p tui-components -p tui-render --all-targets`
+- `cargo build -p wf-cli-demo --example tui_management_showcase`
+- `cargo clippy -p tui-core -p tui-render -p tui-components -p wf-tui -p wf-cli-demo --all-targets`

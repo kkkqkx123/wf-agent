@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::screens::{
-    apply_list_filter, ExecStatusFilter, ExecView, ScreenData, ScreenKind, Screens, WorkflowView,
+    apply_list_filter, catalog_tab_index, filter_catalog, CatalogKind, ExecStatusFilter, ExecView,
+    ScreenData, ScreenKind, Screens, WorkflowView,
 };
 
 /// Unified application state: navigation data, interface notices and client
@@ -76,6 +77,11 @@ pub struct ScreenState {
     pub exec_view: ExecView,
     /// Active subview on the workflow screen.
     pub workflow_view: WorkflowView,
+    /// Active catalog tab: `None` is the merged All view.
+    pub catalog_tab: Option<CatalogKind>,
+    /// Per-tab selection memory, slot 0 is All and slots 1-4 follow
+    /// [`CatalogKind::ALL`] order.
+    pub catalog_positions: [usize; 5],
     /// Client-side substring filter applied to list screens; cleared on
     /// navigation.
     pub list_filter: String,
@@ -99,6 +105,8 @@ impl ScreenState {
             settings_scroll: 0,
             exec_view: ExecView::Overview,
             workflow_view: WorkflowView::Summary,
+            catalog_tab: None,
+            catalog_positions: [0; 5],
             list_filter: String::new(),
             detail_scroll: 0,
             detail: None,
@@ -143,8 +151,16 @@ impl ScreenState {
 
     /// Cached data with the client-side filter applied. Selection,
     /// navigation and detail fetching all use this so indices stay aligned
-    /// with what the screen draws.
+    /// with what the screen draws. The catalog additionally applies its
+    /// active tab here so the same index drives keys and rendering.
     pub fn display_data(&self) -> ScreenData {
+        if self.current_kind() == ScreenKind::Catalog {
+            let rows = match self.current_data() {
+                ScreenData::Catalog(rows) => rows,
+                other => return other,
+            };
+            return ScreenData::Catalog(filter_catalog(&rows, self.catalog_tab, &self.list_filter));
+        }
         let data = self.current_data();
         if self.list_filter.trim().is_empty() {
             data
@@ -156,6 +172,30 @@ impl ScreenState {
     /// Whether the cached list for `kind` was server-truncated.
     pub fn is_truncated(&self, kind: ScreenKind) -> bool {
         self.truncated.get(&kind).copied().unwrap_or(false)
+    }
+
+    /// Switch the catalog tab, remembering the old tab position and
+    /// restoring the new one. The filter stays untouched so a query in
+    /// All carries over to the single-kind view.
+    pub fn switch_catalog_tab(&mut self, next: Option<CatalogKind>) {
+        if self.catalog_tab == next {
+            return;
+        }
+        let old = catalog_tab_index(self.catalog_tab);
+        if old < self.catalog_positions.len() {
+            self.catalog_positions[old] = self.navigation.selected();
+        }
+        self.catalog_tab = next;
+        self.detail_scroll = 0;
+        let slot = catalog_tab_index(next);
+        let restored = self.catalog_positions.get(slot).copied().unwrap_or(0);
+        self.navigation.set_selected(restored);
+    }
+
+    /// Reset the catalog to the All tab with cleared per-tab positions.
+    pub fn reset_catalog(&mut self) {
+        self.catalog_tab = None;
+        self.catalog_positions = [0; 5];
     }
 
     /// Cached detail lines when they belong to `key`.

@@ -1,10 +1,14 @@
-//! Full-TUI screens showcase: renders every screen (Dashboard, Workflows,
-//! Executions, Insights, Checkpoints, Settings, Templates, Resources,
-//! Triggers, Events, Git) with synthetic data
-//! in a full-screen TUI. Navigate between screens with `0`-`6` / `j`/`k`,
-//! select items with Enter, and press `q` to quit.
+//! Full-TUI management surface showcase: renders every management surface
+//! (Dashboard, Workflows, Executions, Insights, Checkpoints, Settings,
+//! Catalog, Git) with synthetic data in one integrated navigation shell.
+//! Navigate surfaces with `0`-`6` / `j`/`k` / Enter; on Catalog use `Tab` /
+//! `[` / `]` to switch kind tabs, `/` to cycle filters, `X` to clear.
 //!
-//! Run with: `cargo run -p wf-cli-demo --example tui_screens`
+//! Use this as a broad TUI smoke test, not as a per-feature component demo.
+//! Component-level visuals live in `tui_components_gallery`, markdown rendering
+//! in `tui_markdown_showcase`, theme/animation in `tui_style_gallery`.
+//!
+//! Run with: `cargo run -p wf-cli-demo --example tui_management_showcase`
 
 use std::io;
 
@@ -17,9 +21,10 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use wf_tui::screens::{
-    CheckpointRow, DashboardData, EventRow, ExecRow, ExecView, GitRow, InsightTable, InsightsData,
-    LocalSettings, ProfileRow, ResourceRow, ScreenContext, ScreenData, ScreenKind, Screens,
-    SettingsData, TemplateRow, TriggerRow, WorkflowRow, WorkflowView,
+    catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, CatalogKind,
+    CatalogRow, CheckpointRow, DashboardData, ExecRow, ExecView, GitRow, InsightTable,
+    InsightsData, LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind, Screens,
+    SettingsData, WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -31,10 +36,7 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Settings,
-    ScreenKind::Templates,
-    ScreenKind::Resources,
-    ScreenKind::Triggers,
-    ScreenKind::Events,
+    ScreenKind::Catalog,
     ScreenKind::Git,
 ];
 
@@ -199,60 +201,69 @@ fn synthetic_settings() -> ScreenData {
             tool_output_level: "medium".into(),
             preview_max_lines: 10,
             preview_max_chars: 320,
+            appearance_theme: "auto".into(),
+            motion_performance: "auto".into(),
+            notification_enabled: None,
         },
     })
 }
 
-fn synthetic_templates() -> ScreenData {
-    ScreenData::Templates(vec![
-        TemplateRow {
-            id: "tmpl-code-review".into(),
-            name: "Code Review".into(),
-            kind: "workflow".into(),
-            detail: "Code Review · workflow".into(),
+fn synthetic_catalog() -> ScreenData {
+    let template = |id: &str, name: &str, kind: &str| CatalogRow {
+        kind: CatalogKind::Templates,
+        id: id.into(),
+        name: name.into(),
+        status: String::new(),
+        summary: kind.into(),
+        detail: format!("{name} · {kind}"),
+    };
+    let resource = |id: &str, name: &str, status: &str| CatalogRow {
+        kind: CatalogKind::Resources,
+        id: id.into(),
+        name: name.into(),
+        status: status.into(),
+        summary: String::new(),
+        detail: format!("{name} · {status}"),
+    };
+    ScreenData::Catalog(vec![
+        template("tmpl-code-review", "Code Review", "workflow"),
+        template("tmpl-summarize", "Summarize", "agent"),
+        resource("tool-read", "read", "enabled"),
+        resource("tool-write", "write", "disabled"),
+        resource("tool-shell", "shell", "enabled"),
+        CatalogRow {
+            kind: CatalogKind::Triggers,
+            id: "trg-nightly".into(),
+            name: "nightly-build".into(),
+            status: "completed".into(),
+            summary: String::new(),
+            detail: "nightly-build · completed".into(),
         },
-        TemplateRow {
-            id: "tmpl-summarize".into(),
-            name: "Summarize".into(),
-            kind: "agent".into(),
-            detail: "Summarize · agent".into(),
+        CatalogRow {
+            kind: CatalogKind::Triggers,
+            id: "trg-pr".into(),
+            name: "pr-check".into(),
+            status: "running".into(),
+            summary: String::new(),
+            detail: "pr-check · running".into(),
+        },
+        CatalogRow {
+            kind: CatalogKind::Events,
+            id: "evt-001".into(),
+            name: "execution".into(),
+            status: String::new(),
+            summary: "execution completed".into(),
+            detail: "execution · execution completed".into(),
+        },
+        CatalogRow {
+            kind: CatalogKind::Events,
+            id: "evt-002".into(),
+            name: "trigger".into(),
+            status: String::new(),
+            summary: "nightly-build fired".into(),
+            detail: "trigger · nightly-build fired".into(),
         },
     ])
-}
-
-fn synthetic_resources() -> ScreenData {
-    ScreenData::Resources(vec![
-        ResourceRow {
-            id: "tool-read".into(),
-            name: "read".into(),
-            status: "enabled".into(),
-            detail: "read · enabled".into(),
-        },
-        ResourceRow {
-            id: "tool-write".into(),
-            name: "write".into(),
-            status: "disabled".into(),
-            detail: "write · disabled".into(),
-        },
-    ])
-}
-
-fn synthetic_triggers() -> ScreenData {
-    ScreenData::Triggers(vec![TriggerRow {
-        id: "trg-001".into(),
-        name: "nightly-build".into(),
-        status: "completed".into(),
-        detail: "nightly-build · completed".into(),
-    }])
-}
-
-fn synthetic_events() -> ScreenData {
-    ScreenData::Events(vec![EventRow {
-        id: "evt-001".into(),
-        kind: "execution".into(),
-        summary: "execution completed".into(),
-        detail: "execution · execution completed".into(),
-    }])
 }
 
 fn synthetic_git() -> ScreenData {
@@ -272,10 +283,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Interactive => "Chat (live)",
         ScreenKind::Checkpoints => "Checkpoints",
         ScreenKind::Settings => "Settings",
-        ScreenKind::Templates => "Templates",
-        ScreenKind::Resources => "Resources",
-        ScreenKind::Triggers => "Triggers",
-        ScreenKind::Events => "Events",
+        ScreenKind::Catalog => "Catalog",
         ScreenKind::Git => "Git",
     }
 }
@@ -289,10 +297,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Interactive => Color::Cyan,
         ScreenKind::Checkpoints => Color::Blue,
         ScreenKind::Settings => Color::White,
-        ScreenKind::Templates => Color::Green,
-        ScreenKind::Resources => Color::Green,
-        ScreenKind::Triggers => Color::Yellow,
-        ScreenKind::Events => Color::LightBlue,
+        ScreenKind::Catalog => Color::Green,
         ScreenKind::Git => Color::Blue,
     }
 }
@@ -375,9 +380,15 @@ struct DemoState {
     dashboard_selected: usize,
     data: ScreenData,
     screen_selected: usize,
+    catalog_tab: Option<CatalogKind>,
+    catalog_positions: [usize; 5],
+    catalog_filter: String,
     quit: bool,
     theme: Theme,
 }
+
+/// Preset filters the demo cycles with `/` to showcase cross-kind search.
+const DEMO_CATALOG_FILTERS: &[&str] = &["", "enabled", "nightly", "zzz-no-match"];
 
 impl DemoState {
     fn new() -> Self {
@@ -386,6 +397,9 @@ impl DemoState {
             dashboard_selected: 0,
             data: synthetic_dashboard(),
             screen_selected: 0,
+            catalog_tab: None,
+            catalog_positions: [0; 5],
+            catalog_filter: String::new(),
             quit: false,
             theme: probe_theme(),
         }
@@ -400,13 +414,42 @@ impl DemoState {
             ScreenKind::Interactive => ScreenData::None,
             ScreenKind::Checkpoints => synthetic_checkpoints(),
             ScreenKind::Settings => synthetic_settings(),
-            ScreenKind::Templates => synthetic_templates(),
-            ScreenKind::Resources => synthetic_resources(),
-            ScreenKind::Triggers => synthetic_triggers(),
-            ScreenKind::Events => synthetic_events(),
+            ScreenKind::Catalog => synthetic_catalog(),
             ScreenKind::Git => synthetic_git(),
         };
         self.screen_selected = 0;
+        self.catalog_tab = None;
+        self.catalog_positions = [0; 5];
+        self.catalog_filter.clear();
+    }
+
+    /// Catalog rows with the active tab plus filter applied, mirroring
+    /// `ScreenState::display_data` in the real shell.
+    fn catalog_rows(&self) -> Vec<CatalogRow> {
+        match &self.data {
+            ScreenData::Catalog(rows) => {
+                filter_catalog(rows, self.catalog_tab, &self.catalog_filter)
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn cycle_catalog_tab(&mut self, forward: bool) {
+        let total = CatalogKind::ALL.len() + 1;
+        let current = catalog_tab_index(self.catalog_tab);
+        let next = if forward {
+            (current + 1) % total
+        } else {
+            (current + total - 1) % total
+        };
+        let old = catalog_tab_index(self.catalog_tab);
+        self.catalog_positions[old] = self.screen_selected;
+        self.catalog_tab = catalog_tab_from_index(next);
+        let slot = catalog_tab_index(self.catalog_tab);
+        let restored =
+            self.catalog_positions[slot].min(self.catalog_rows().len().saturating_sub(1));
+        self.screen_selected = restored;
+        self.screens.set_selected(restored);
     }
 
     fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
@@ -450,6 +493,10 @@ impl DemoState {
     }
 
     fn handle_screen_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
+        if self.screens.current_kind() == ScreenKind::Catalog {
+            self.handle_catalog_key(code);
+            return;
+        }
         let row_count = self.data.row_count();
         match code {
             KeyCode::Char('q') | KeyCode::Esc => {
@@ -460,6 +507,7 @@ impl DemoState {
             KeyCode::Char('j') | KeyCode::Down => {
                 if row_count > 0 {
                     self.screen_selected = (self.screen_selected + 1) % row_count;
+                    self.screens.select_next(row_count);
                 }
             }
             KeyCode::Char('k') | KeyCode::Up if row_count > 0 => {
@@ -468,6 +516,53 @@ impl DemoState {
                 } else {
                     self.screen_selected - 1
                 };
+                self.screens.select_prev(row_count);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_catalog_key(&mut self, code: KeyCode) {
+        let row_count = self.catalog_rows().len();
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.screens.go_back();
+                self.data = synthetic_dashboard();
+                self.screen_selected = 0;
+                self.catalog_tab = None;
+                self.catalog_filter.clear();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if row_count > 0 {
+                    self.screen_selected = (self.screen_selected + 1) % row_count;
+                    self.screens.select_next(row_count);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up if row_count > 0 => {
+                self.screen_selected = if self.screen_selected == 0 {
+                    row_count - 1
+                } else {
+                    self.screen_selected - 1
+                };
+                self.screens.select_prev(row_count);
+            }
+            KeyCode::Tab => self.cycle_catalog_tab(true),
+            KeyCode::Char(']') => self.cycle_catalog_tab(true),
+            KeyCode::Char('[') => self.cycle_catalog_tab(false),
+            KeyCode::Char('/') => {
+                let idx = DEMO_CATALOG_FILTERS
+                    .iter()
+                    .position(|preset| *preset == self.catalog_filter.as_str())
+                    .unwrap_or(0);
+                self.catalog_filter =
+                    DEMO_CATALOG_FILTERS[(idx + 1) % DEMO_CATALOG_FILTERS.len()].to_string();
+                self.screen_selected = 0;
+                self.screens.set_selected(0);
+            }
+            KeyCode::Char('X') | KeyCode::Char('x') => {
+                self.catalog_filter.clear();
+                self.screen_selected = 0;
+                self.screens.set_selected(0);
             }
             _ => {}
         }
@@ -485,33 +580,48 @@ impl DemoState {
                 .constraints([Constraint::Min(3), Constraint::Length(1)])
                 .split(area);
 
+            let catalog_data;
+            let (data, filter, catalog_tab) = if kind == ScreenKind::Catalog {
+                catalog_data = ScreenData::Catalog(self.catalog_rows());
+                (
+                    &catalog_data,
+                    self.catalog_filter.as_str(),
+                    self.catalog_tab,
+                )
+            } else {
+                (&self.data, "", None)
+            };
             self.screens.draw(
                 frame,
                 chunks[0],
-                &self.data,
+                data,
                 &self.theme,
                 &ScreenContext {
                     exec_view: ExecView::Overview,
                     workflow_view: WorkflowView::Summary,
+                    catalog_tab,
                     detail_lines: &[],
                     detail_scroll: 0,
                     has_more: false,
-                    filter: "",
+                    filter,
                 },
             );
 
+            let hints = if kind == ScreenKind::Catalog {
+                format!(
+                    "j/k navigate · Tab/[] tab ({}) · / filter · X clear · q/Esc back",
+                    catalog_tab_label(catalog_tab)
+                )
+            } else {
+                "j/k navigate · q/Esc back to dashboard".to_string()
+            };
             let footer = Paragraph::new(Line::from(vec![
                 Span::styled(
                     format!(" Screen: {} ", kind.title()),
                     Style::default().fg(Color::Cyan),
                 ),
                 Span::raw(" │ "),
-                Span::styled("j/k navigate", Style::default().fg(Color::DarkGray)),
-                Span::raw(" │ "),
-                Span::styled(
-                    "q/Esc back to dashboard",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(hints, Style::default().fg(Color::DarkGray)),
             ]))
             .block(
                 Block::default()

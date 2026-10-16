@@ -85,6 +85,10 @@ impl Screens {
         self.selected
     }
 
+    pub fn set_selected(&mut self, idx: usize) {
+        self.selected = idx;
+    }
+
     pub fn select_next(&mut self, len: usize) {
         if len == 0 {
             return;
@@ -152,17 +156,8 @@ impl Screens {
             ScreenKind::Checkpoints => {
                 screen_draw::draw_checkpoints(frame, area, data, self.selected, theme, ctx)
             }
-            ScreenKind::Templates => {
-                screen_draw::draw_templates(frame, area, data, self.selected, theme, ctx)
-            }
-            ScreenKind::Resources => {
-                screen_draw::draw_resources(frame, area, data, self.selected, theme, ctx)
-            }
-            ScreenKind::Triggers => {
-                screen_draw::draw_triggers(frame, area, data, self.selected, theme, ctx)
-            }
-            ScreenKind::Events => {
-                screen_draw::draw_events(frame, area, data, self.selected, theme, ctx)
+            ScreenKind::Catalog => {
+                screen_draw::draw_catalog(frame, area, data, self.selected, theme, ctx)
             }
             ScreenKind::Git => screen_draw::draw_git(frame, area, data, self.selected, theme, ctx),
             ScreenKind::Settings => {
@@ -224,20 +219,19 @@ mod tests {
             ScreenKind::all().len()
         );
         assert_eq!(ScreenData::Insights(Default::default()).row_count(), 0);
-        assert_eq!(ScreenData::Templates(vec![]).row_count(), 0);
+        assert_eq!(ScreenData::Catalog(vec![]).row_count(), 0);
         assert_eq!(
-            ScreenData::Templates(vec![TemplateRow {
+            ScreenData::Catalog(vec![crate::screens::CatalogRow {
+                kind: crate::screens::CatalogKind::Templates,
                 id: "t-1".into(),
                 name: "demo".into(),
-                kind: "workflow".into(),
+                status: String::new(),
+                summary: "workflow".into(),
                 detail: String::new(),
             }])
             .row_count(),
             1
         );
-        assert_eq!(ScreenData::Resources(vec![]).row_count(), 0);
-        assert_eq!(ScreenData::Triggers(vec![]).row_count(), 0);
-        assert_eq!(ScreenData::Events(vec![]).row_count(), 0);
         assert_eq!(ScreenData::Git(vec![]).row_count(), 0);
     }
 

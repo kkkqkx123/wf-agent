@@ -821,7 +821,11 @@ mod tests {
     }
 }
 
-fn draw_welcome(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, theme: &crate::theme::Theme) {
+fn draw_welcome(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    theme: &crate::theme::Theme,
+) {
     use ratatui::layout::Alignment;
     use ratatui::style::Modifier;
     use ratatui::text::{Line, Span};

@@ -205,33 +205,14 @@ impl TuiApp {
     pub(super) fn open_selected_cached_detail(&mut self) {
         let selected = self.app.screen.navigation.selected();
         let detail = match self.display_data() {
-            ScreenData::Templates(rows) => {
+            ScreenData::Catalog(rows) => {
                 let idx = selected.min(rows.len().saturating_sub(1));
                 rows.get(idx).map(|row| {
                     (
-                        format!("Template {}", short_id(&row.id)),
+                        format!("Catalog {} {}", row.kind.label(), short_id(&row.id)),
                         row.detail.clone(),
                     )
                 })
-            }
-            ScreenData::Resources(rows) => {
-                let idx = selected.min(rows.len().saturating_sub(1));
-                rows.get(idx).map(|row| {
-                    (
-                        format!("Resource {}", short_id(&row.id)),
-                        row.detail.clone(),
-                    )
-                })
-            }
-            ScreenData::Triggers(rows) => {
-                let idx = selected.min(rows.len().saturating_sub(1));
-                rows.get(idx)
-                    .map(|row| (format!("Trigger {}", short_id(&row.id)), row.detail.clone()))
-            }
-            ScreenData::Events(rows) => {
-                let idx = selected.min(rows.len().saturating_sub(1));
-                rows.get(idx)
-                    .map(|row| (format!("Event {}", short_id(&row.id)), row.detail.clone()))
             }
             ScreenData::Git(rows) => {
                 let idx = selected.min(rows.len().saturating_sub(1));

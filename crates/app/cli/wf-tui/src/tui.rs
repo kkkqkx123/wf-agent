@@ -62,10 +62,7 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Settings,
-    ScreenKind::Templates,
-    ScreenKind::Resources,
-    ScreenKind::Triggers,
-    ScreenKind::Events,
+    ScreenKind::Catalog,
     ScreenKind::Git,
 ];
 
@@ -1133,6 +1130,7 @@ impl TuiApp {
             let ctx = crate::screens::ScreenContext {
                 exec_view: self.app.screen.exec_view,
                 workflow_view: self.app.screen.workflow_view,
+                catalog_tab: self.app.screen.catalog_tab,
                 detail_lines,
                 detail_scroll: self.app.screen.detail_scroll,
                 has_more: self.app.screen.is_truncated(kind),

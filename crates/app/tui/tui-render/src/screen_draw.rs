@@ -14,8 +14,8 @@ use super::layout::split_management;
 use tui_components::scrollbar;
 use tui_components::transcript::HistoryLine;
 use tui_core::screen_data::{
-    screen_digit, short_id, ExecView, ScreenContext, ScreenData, ScreenKind, SearchRow,
-    WorkflowView,
+    catalog_counts, catalog_tab_label, screen_digit, short_id, CatalogKind, CatalogRow, ExecView,
+    ScreenContext, ScreenData, ScreenKind, SearchRow, WorkflowView,
 };
 use tui_style::theme::{ColorRole, Theme};
 
@@ -481,7 +481,7 @@ pub fn draw_checkpoints(
     );
 }
 
-pub fn draw_templates(
+pub fn draw_catalog(
     frame: &mut Frame,
     area: Rect,
     data: &ScreenData,
@@ -489,196 +489,92 @@ pub fn draw_templates(
     theme: &Theme,
     ctx: &ScreenContext,
 ) {
-    let rows = match data {
-        ScreenData::Templates(rows) => rows
-            .iter()
-            .map(|r| format!("{} · {} · {}", r.name, r.kind, short_id(&r.id)))
-            .collect::<Vec<_>>(),
-        _ => Vec::new(),
+    let rows: &[CatalogRow] = match data {
+        ScreenData::Catalog(rows) => rows,
+        _ => &[],
     };
-    let title = format!(
-        "Templates ({}) (r refresh, Enter detail, Esc back)",
-        list_suffix(rows.len(), ctx)
+    let counts = catalog_counts(rows);
+    let labels: Vec<String> = std::iter::once(format!("All ({})", rows.len()))
+        .chain(
+            counts
+                .iter()
+                .map(|(kind, count)| format!("{} ({count})", kind.label())),
+        )
+        .collect();
+    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let tabs = view_tabs(catalog_tab_label(ctx.catalog_tab), &label_refs);
+    let header_text = format!(
+        "tabs: {tabs}\nTab / [ ] switch tab - / find - X clear - r refresh - Enter detail - Esc back"
     );
-    let display_rows = rows.clone();
-    let (list_area, detail_area) = split_list_detail(area);
+    let (header_area, body_area) = split_management(area, 4);
+    let header = Paragraph::new(header_text).block(titled_block("Catalog", ColorRole::Add, theme));
+    frame.render_widget(header, header_area);
+
+    let (list_area, detail_area) = split_list_detail(body_area);
+    let list_rows: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            let qualifier = row.qualifier();
+            let qualifier = if qualifier.is_empty() { "-" } else { qualifier };
+            format!(
+                "{} · {} · {} · {}",
+                row.kind.label(),
+                row.name,
+                qualifier,
+                short_id(&row.id)
+            )
+        })
+        .collect();
+    let statuses: Vec<String> = rows
+        .iter()
+        .map(|row| match row.kind {
+            CatalogKind::Resources | CatalogKind::Triggers => row.status.clone(),
+            CatalogKind::Templates | CatalogKind::Events => String::new(),
+        })
+        .collect();
+    let title = format!(
+        "Catalog [{}] ({})",
+        catalog_tab_label(ctx.catalog_tab),
+        list_suffix(list_rows.len(), ctx)
+    );
     let block = titled_block(&title, ColorRole::Add, theme);
-    render_rows(frame, list_area, block, &display_rows, selected, theme);
+    render_status_rows(
+        frame, list_area, block, &list_rows, &statuses, selected, theme,
+    );
 
     let detail = match data {
-        ScreenData::Templates(rows) => rows
+        ScreenData::Catalog(rows) => rows
             .get(selected.min(rows.len().saturating_sub(1)))
             .map(|row| {
-                if row.detail.trim().is_empty() {
-                    vec![
-                        format!("id: {}", row.id),
-                        format!("name: {}", row.name),
-                        format!("kind: {}", row.kind),
-                    ]
-                } else {
-                    row.detail.lines().map(str::to_string).collect()
+                let mut props = vec![
+                    ("id".to_string(), row.id.clone()),
+                    ("kind".to_string(), row.kind.label().to_string()),
+                    ("name".to_string(), row.name.clone()),
+                ];
+                if !row.status.is_empty() {
+                    props.push(("status".to_string(), row.status.clone()));
                 }
-            })
-            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
-        _ => vec![LOADING_TEXT.to_string()],
-    };
-    draw_detail_pane(
-        frame,
-        detail_area,
-        "Detail (Enter full)".to_string(),
-        &detail,
-        ctx.detail_scroll,
-        theme,
-    );
-}
-
-pub fn draw_resources(
-    frame: &mut Frame,
-    area: Rect,
-    data: &ScreenData,
-    selected: usize,
-    theme: &Theme,
-    ctx: &ScreenContext,
-) {
-    let rows: Vec<String> = match data {
-        ScreenData::Resources(rows) => rows
-            .iter()
-            .map(|r| format!("{} · {} · {}", r.name, r.status, short_id(&r.id)))
-            .collect(),
-        _ => Vec::new(),
-    };
-    let statuses: Vec<String> = match data {
-        ScreenData::Resources(rows) => rows.iter().map(|r| r.status.clone()).collect(),
-        _ => Vec::new(),
-    };
-    let title = format!(
-        "Resources ({}) (r refresh, Enter detail, Esc back)",
-        list_suffix(rows.len(), ctx)
-    );
-    let (list_area, detail_area) = split_list_detail(area);
-    let block = titled_block(&title, ColorRole::Add, theme);
-    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
-
-    let detail = match data {
-        ScreenData::Resources(rows) => rows
-            .get(selected.min(rows.len().saturating_sub(1)))
-            .map(|row| {
-                if row.detail.trim().is_empty() {
-                    tui_components::property_list::format_properties(&[
-                        ("id".to_string(), row.id.clone()),
-                        ("name".to_string(), row.name.clone()),
-                        ("status".to_string(), row.status.clone()),
-                    ])
-                } else {
-                    row.detail.lines().map(str::to_string).collect()
+                if !row.summary.is_empty() {
+                    let key = match row.kind {
+                        CatalogKind::Templates => "kind",
+                        _ => "summary",
+                    };
+                    props.push((key.to_string(), row.summary.clone()));
                 }
-            })
-            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
-        _ => vec![LOADING_TEXT.to_string()],
-    };
-    draw_detail_pane(
-        frame,
-        detail_area,
-        "Detail (Enter full)".to_string(),
-        &detail,
-        ctx.detail_scroll,
-        theme,
-    );
-}
-
-pub fn draw_triggers(
-    frame: &mut Frame,
-    area: Rect,
-    data: &ScreenData,
-    selected: usize,
-    theme: &Theme,
-    ctx: &ScreenContext,
-) {
-    let rows: Vec<String> = match data {
-        ScreenData::Triggers(rows) => rows
-            .iter()
-            .map(|r| format!("{} · {} · {}", r.name, r.status, short_id(&r.id)))
-            .collect(),
-        _ => Vec::new(),
-    };
-    let statuses: Vec<String> = match data {
-        ScreenData::Triggers(rows) => rows.iter().map(|r| r.status.clone()).collect(),
-        _ => Vec::new(),
-    };
-    let title = format!(
-        "Triggers ({}) (r refresh, Enter detail, Esc back)",
-        list_suffix(rows.len(), ctx)
-    );
-    let (list_area, detail_area) = split_list_detail(area);
-    let block = titled_block(&title, ColorRole::Warning, theme);
-    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
-
-    let detail = match data {
-        ScreenData::Triggers(rows) => rows
-            .get(selected.min(rows.len().saturating_sub(1)))
-            .map(|row| {
-                if row.detail.trim().is_empty() {
-                    tui_components::property_list::format_properties(&[
-                        ("id".to_string(), row.id.clone()),
-                        ("name".to_string(), row.name.clone()),
-                        ("status".to_string(), row.status.clone()),
-                    ])
-                } else {
-                    row.detail.lines().map(str::to_string).collect()
+                let mut out = tui_components::property_list::format_properties(&props);
+                if !row.detail.trim().is_empty() {
+                    out.push(String::new());
+                    out.extend(row.detail.lines().map(str::to_string));
                 }
+                out
             })
-            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
-        _ => vec![LOADING_TEXT.to_string()],
-    };
-    draw_detail_pane(
-        frame,
-        detail_area,
-        "Detail (Enter full)".to_string(),
-        &detail,
-        ctx.detail_scroll,
-        theme,
-    );
-}
-
-pub fn draw_events(
-    frame: &mut Frame,
-    area: Rect,
-    data: &ScreenData,
-    selected: usize,
-    theme: &Theme,
-    ctx: &ScreenContext,
-) {
-    let rows = match data {
-        ScreenData::Events(rows) => rows
-            .iter()
-            .map(|r| format!("{} · {} · {}", r.kind, r.summary, short_id(&r.id)))
-            .collect::<Vec<_>>(),
-        _ => Vec::new(),
-    };
-    let title = format!(
-        "Events ({}) (r refresh, Enter detail, Esc back)",
-        list_suffix(rows.len(), ctx)
-    );
-    let display_rows = rows.clone();
-    let (list_area, detail_area) = split_list_detail(area);
-    let block = titled_block(&title, ColorRole::Highlight, theme);
-    render_rows(frame, list_area, block, &display_rows, selected, theme);
-
-    let detail = match data {
-        ScreenData::Events(rows) => rows
-            .get(selected.min(rows.len().saturating_sub(1)))
-            .map(|row| {
-                if row.detail.trim().is_empty() {
-                    tui_components::property_list::format_properties(&[
-                        ("id".to_string(), row.id.clone()),
-                        ("kind".to_string(), row.kind.clone()),
-                        ("summary".to_string(), row.summary.clone()),
-                    ])
+            .unwrap_or_else(|| {
+                if !ctx.filter.trim().is_empty() {
+                    vec![format!("No matches for {:?} (X clear).", ctx.filter)]
                 } else {
-                    row.detail.lines().map(str::to_string).collect()
+                    vec![EMPTY_TEXT.to_string()]
                 }
-            })
-            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+            }),
         _ => vec![LOADING_TEXT.to_string()],
     };
     draw_detail_pane(
@@ -711,7 +607,7 @@ pub fn draw_git(
         _ => Vec::new(),
     };
     let title = format!(
-        "Git status ({}) (r refresh, Enter detail, Esc back)",
+        "Git status (read-only) ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let (list_area, detail_area) = split_list_detail(area);
@@ -910,7 +806,7 @@ pub fn draw_search_palette(
     frame.render_stateful_widget(list, chunks[1], &mut state);
 }
 
-/// Sidebar overlay: screen list taking 30% of the width. Moved here from the
+/// Navigation overlay: screen list taking 30% of the width. Moved here from the
 /// application shell so management drawing lives in the screen module; the
 /// shell only decides when the overlay is active.
 pub fn draw_sidebar_overlay(

@@ -63,72 +63,72 @@ fn usage(
 
 fn scenarios() -> [Scenario; 5] {
     [
-    Scenario {
-        name: "1 · idle (no usage yet)",
-        usage: None,
-        model: None,
-        iteration: 0,
-        messages: 0,
-        execution_id: None,
-        streaming: false,
-        note: "Context section stays hidden; footer shows no usage block.",
-    },
-    Scenario {
-        name: "2 · basic (no cache, unknown window)",
-        usage: Some(usage(8_400, 1_200, None, None, None, None, None)),
-        model: Some("gpt-4o-mini"),
-        iteration: 1,
-        messages: 3,
-        execution_id: Some("exec-e5f6g7h8i9j0"),
-        streaming: true,
-        note: "Matched profile has no window: absolute counts only, no percentage.",
-    },
-    Scenario {
-        name: "3 · full (cache hit, reasoning, known window)",
-        usage: Some(usage(
-            48_000,
-            12_000,
-            Some(0.0234),
-            Some(3_000),
-            Some(30_000),
-            Some(2_000),
-            Some(65_000),
-        )),
-        model: Some("claude-4-5"),
-        iteration: 5,
-        messages: 34,
-        execution_id: Some("exec-a1b2c3d4e5f6"),
-        streaming: true,
-        note: "Window resolved from the matched profile: split + hit rate + bar + cost.",
-    },
-    Scenario {
-        name: "4 · partial (cache write only, default window)",
-        usage: Some(usage(
-            12_000,
-            3_000,
-            Some(0.004),
-            None,
-            None,
-            Some(1_500),
-            None,
-        )),
-        model: Some("unknown-model"),
-        iteration: 2,
-        messages: 8,
-        execution_id: Some("exec-q7r8s9t0u1v2"),
-        streaming: false,
-        note: "No label match: falls back to the default profile window.",
-    },
-    Scenario {
-        name: "5 · over budget (used exceeds window)",
-        usage: Some(usage(190_000, 25_000, Some(0.11), None, None, None, None)),
-        model: Some("claude-4-5"),
-        iteration: 9,
-        messages: 61,
-        execution_id: Some("exec-y5z6a7b8c9d0"),
-        streaming: true,
-        note: "Fraction clamps: the bar saturates, the percentage exceeds 100%.",
-    },
+        Scenario {
+            name: "1 · idle (no usage yet)",
+            usage: None,
+            model: None,
+            iteration: 0,
+            messages: 0,
+            execution_id: None,
+            streaming: false,
+            note: "Context section stays hidden; footer shows no usage block.",
+        },
+        Scenario {
+            name: "2 · basic (no cache, unknown window)",
+            usage: Some(usage(8_400, 1_200, None, None, None, None, None)),
+            model: Some("gpt-4o-mini"),
+            iteration: 1,
+            messages: 3,
+            execution_id: Some("exec-e5f6g7h8i9j0"),
+            streaming: true,
+            note: "Matched profile has no window: absolute counts only, no percentage.",
+        },
+        Scenario {
+            name: "3 · full (cache hit, reasoning, known window)",
+            usage: Some(usage(
+                48_000,
+                12_000,
+                Some(0.0234),
+                Some(3_000),
+                Some(30_000),
+                Some(2_000),
+                Some(65_000),
+            )),
+            model: Some("claude-4-5"),
+            iteration: 5,
+            messages: 34,
+            execution_id: Some("exec-a1b2c3d4e5f6"),
+            streaming: true,
+            note: "Window resolved from the matched profile: split + hit rate + bar + cost.",
+        },
+        Scenario {
+            name: "4 · partial (cache write only, default window)",
+            usage: Some(usage(
+                12_000,
+                3_000,
+                Some(0.004),
+                None,
+                None,
+                Some(1_500),
+                None,
+            )),
+            model: Some("unknown-model"),
+            iteration: 2,
+            messages: 8,
+            execution_id: Some("exec-q7r8s9t0u1v2"),
+            streaming: false,
+            note: "No label match: falls back to the default profile window.",
+        },
+        Scenario {
+            name: "5 · over budget (used exceeds window)",
+            usage: Some(usage(190_000, 25_000, Some(0.11), None, None, None, None)),
+            model: Some("claude-4-5"),
+            iteration: 9,
+            messages: 61,
+            execution_id: Some("exec-y5z6a7b8c9d0"),
+            streaming: true,
+            note: "Fraction clamps: the bar saturates, the percentage exceeds 100%.",
+        },
     ]
 }
 
@@ -204,8 +204,7 @@ fn draw(frame: &mut ratatui::Frame, theme: &Theme, selected: usize) {
     let scenarios = scenarios();
     let scenario = &scenarios[selected.min(scenarios.len() - 1)];
     let (profiles, default_id) = synthetic_profiles();
-    let window =
-        resolve_context_window(&profiles, default_id.as_deref(), scenario.model);
+    let window = resolve_context_window(&profiles, default_id.as_deref(), scenario.model);
 
     let area = frame.area();
     let rows = Layout::default()

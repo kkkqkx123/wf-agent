@@ -601,6 +601,16 @@ pub struct ChatTabMeta {
     pub id: String,
     pub title: String,
     pub last_active_ms: u64,
+    /// Pinned tabs survive LRU eviction and persist across restarts.
+    pub pinned: bool,
+    /// Parent session id for sub-agent spawned tabs.
+    pub parent_id: Option<String>,
+    /// Model label driving the tab, when known.
+    pub model: Option<String>,
+    /// Agent name driving the tab, when known.
+    pub agent: Option<String>,
+    /// Workspace or project context the tab belongs to.
+    pub workspace: Option<String>,
 }
 
 impl ChatTabMeta {
@@ -609,6 +619,11 @@ impl ChatTabMeta {
             id: id.into(),
             title: title.into(),
             last_active_ms: now_ms,
+            pinned: false,
+            parent_id: None,
+            model: None,
+            agent: None,
+            workspace: None,
         }
     }
 }
@@ -650,8 +665,11 @@ impl ChatTabs {
         self.tabs.iter().map(|tab| tab.title.clone()).collect()
     }
 
-    /// Append a tab. When full, evicts the least-recently-active inactive
-    /// tab and returns its index. The new tab becomes active.
+    /// Append a tab. When full, evicts the least-recently-active
+    /// unpinned inactive tab and returns its index. Pinned tabs never
+    /// become eviction victims unless every background tab is pinned, in
+    /// which case the oldest pinned background tab is evicted. The new
+    /// tab becomes active.
     pub fn add(&mut self, tab: ChatTabMeta) -> Option<usize> {
         let mut evicted = None;
         if self.tabs.len() >= MAX_CHAT_TABS {
@@ -660,8 +678,17 @@ impl ChatTabs {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| *index != self.active)
+                .filter(|(_, tab)| !tab.pinned)
                 .min_by_key(|(_, tab)| tab.last_active_ms)
                 .map(|(index, _)| index)
+                .or_else(|| {
+                    self.tabs
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| *index != self.active)
+                        .min_by_key(|(_, tab)| tab.last_active_ms)
+                        .map(|(index, _)| index)
+                })
                 .unwrap_or(0);
             self.tabs.remove(victim);
             if victim < self.active {
@@ -730,6 +757,188 @@ impl ChatTabs {
         }
         self.tabs[index].title = title.into();
         true
+    }
+
+    /// Toggle the pinned flag of the tab at `index`. Returns the new flag,
+    /// or `None` on an out-of-range index.
+    pub fn toggle_pin(&mut self, index: usize) -> Option<bool> {
+        let tab = self.tabs.get_mut(index)?;
+        tab.pinned = !tab.pinned;
+        Some(tab.pinned)
+    }
+
+    pub fn set_pinned(&mut self, index: usize, pinned: bool) -> bool {
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return false;
+        };
+        tab.pinned = pinned;
+        true
+    }
+
+    /// Attach parent linkage for sub-agent spawned tabs.
+    pub fn set_parent(&mut self, index: usize, parent_id: Option<String>) -> bool {
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return false;
+        };
+        tab.parent_id = parent_id;
+        true
+    }
+
+    /// Record display metadata (model, agent, workspace) for a tab.
+    pub fn set_meta(
+        &mut self,
+        index: usize,
+        model: Option<String>,
+        agent: Option<String>,
+        workspace: Option<String>,
+    ) -> bool {
+        let Some(tab) = self.tabs.get_mut(index) else {
+            return false;
+        };
+        if model.is_some() {
+            tab.model = model;
+        }
+        if agent.is_some() {
+            tab.agent = agent;
+        }
+        if workspace.is_some() {
+            tab.workspace = workspace;
+        }
+        true
+    }
+
+    /// Index of the tab with `id`, if present.
+    pub fn index_of(&self, id: &str) -> Option<usize> {
+        self.tabs.iter().position(|tab| tab.id == id)
+    }
+
+    /// Indices of direct children of the tab with `id`.
+    pub fn children_of(&self, id: &str) -> Vec<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.parent_id.as_deref() == Some(id))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Focus the parent of the active tab. Returns false when the active
+    /// tab has no parent or the parent is not open.
+    pub fn focus_parent(&mut self, now_ms: u64) -> bool {
+        let parent = self
+            .active()
+            .and_then(|tab| tab.parent_id.clone())
+            .and_then(|id| self.index_of(&id));
+        let Some(index) = parent else {
+            return false;
+        };
+        self.switch(index, now_ms)
+    }
+
+    /// Focus the first child of the active tab. Returns false with no open
+    /// children.
+    pub fn focus_child_first(&mut self, now_ms: u64) -> bool {
+        let id = match self.active() {
+            Some(tab) => tab.id.clone(),
+            None => return false,
+        };
+        let child = self.children_of(&id).into_iter().next();
+        match child {
+            Some(index) => self.switch(index, now_ms),
+            None => false,
+        }
+    }
+
+    /// Cycle through children of the active tab's parent (siblings plus
+    /// self when the active tab itself is a child, otherwise own
+    /// children). Returns false with no sibling set.
+    pub fn focus_child_next(&mut self, now_ms: u64) -> bool {
+        self.focus_sibling_or_child(1, now_ms)
+    }
+
+    pub fn focus_child_prev(&mut self, now_ms: u64) -> bool {
+        self.focus_sibling_or_child(-1, now_ms)
+    }
+
+    fn focus_sibling_or_child(&mut self, delta: i32, now_ms: u64) -> bool {
+        let active_id = match self.active() {
+            Some(tab) => tab.id.clone(),
+            None => return false,
+        };
+        let scope_id = self
+            .active()
+            .and_then(|tab| tab.parent_id.clone())
+            .unwrap_or_else(|| active_id.clone());
+        let mut peers = self.children_of(&scope_id);
+        if peers.is_empty() {
+            return false;
+        }
+        peers.sort_unstable();
+        let pos = peers
+            .iter()
+            .position(|index| self.tabs.get(*index).is_some_and(|tab| tab.id == active_id))
+            .unwrap_or(0);
+        let next = if delta >= 0 {
+            peers[(pos + 1) % peers.len()]
+        } else {
+            peers[(pos + peers.len() - 1) % peers.len()]
+        };
+        self.switch(next, now_ms)
+    }
+
+    /// Move the tab at `from` to position `to`. Returns false on an
+    /// out-of-range index. The active tab follows its tab.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return false;
+        }
+        let active_id = self.active().map(|tab| tab.id.clone());
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        if let Some(id) = active_id {
+            if let Some(index) = self.index_of(&id) {
+                self.active = index;
+            }
+        }
+        true
+    }
+
+    /// Remove every tab whose id is absent from `live`. Returns the removed
+    /// ids in removal order. The active index stays valid.
+    pub fn prune_missing(&mut self, live: &std::collections::HashSet<String>) -> Vec<String> {
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < self.tabs.len() {
+            if live.contains(&self.tabs[index].id) {
+                index += 1;
+            } else {
+                removed.push(self.tabs.remove(index).id);
+                if self.tabs.is_empty() {
+                    self.active = 0;
+                    break;
+                }
+                if index < self.active {
+                    self.active -= 1;
+                } else if self.active >= self.tabs.len() {
+                    self.active = self.tabs.len() - 1;
+                }
+            }
+        }
+        removed
+    }
+
+    /// Group tab indices by workspace. Tabs without workspace land in the
+    /// empty group.
+    pub fn workspace_groups(&self) -> Vec<(String, Vec<usize>)> {
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        for (index, tab) in self.tabs.iter().enumerate() {
+            let key = tab.workspace.clone().unwrap_or_default();
+            match groups.iter_mut().find(|(name, _)| *name == key) {
+                Some((_, indices)) => indices.push(index),
+                None => groups.push((key, vec![index])),
+            }
+        }
+        groups
     }
 }
 
@@ -896,5 +1105,55 @@ mod tests {
         assert!(evicted.is_some_and(|index| index != 8));
         assert_eq!(tabs.active().map(|tab| tab.id.as_str()), Some("new"));
         assert!(tabs.iter().all(|tab| tab.id != "id-0"));
+    }
+
+    #[test]
+    fn chat_tabs_pin_skips_eviction_and_toggles() {
+        let mut tabs = ChatTabs::new();
+        for index in 0..MAX_CHAT_TABS {
+            let mut meta = ChatTabMeta::new(
+                format!("id-{index}"),
+                format!("tab-{index}"),
+                100 + index as u64,
+            );
+            if index == 0 {
+                meta.pinned = true;
+            }
+            tabs.add(meta);
+        }
+        tabs.switch(MAX_CHAT_TABS - 1, 1000);
+        tabs.add(ChatTabMeta::new("new", "fresh", 2000));
+        assert!(tabs.iter().any(|tab| tab.id == "id-0"));
+        assert_eq!(tabs.toggle_pin(0), Some(false));
+        assert_eq!(tabs.toggle_pin(0), Some(true));
+        assert!(!tabs.set_parent(99, None));
+        let parent_id = tabs
+            .iter()
+            .next()
+            .map(|tab| tab.id.clone())
+            .expect("tabs open");
+        let active = tabs.active_index();
+        assert!(tabs.set_parent(active, Some(parent_id.clone())));
+        assert_eq!(tabs.children_of(&parent_id).len(), 1);
+        assert!(tabs.focus_parent(3000));
+        assert!(tabs.focus_child_first(4000));
+    }
+
+    #[test]
+    fn chat_tabs_move_prune_and_groups() {
+        let mut tabs = ChatTabs::new();
+        tabs.add(ChatTabMeta::new("a", "A", 10));
+        tabs.add(ChatTabMeta::new("b", "B", 20));
+        tabs.add(ChatTabMeta::new("c", "C", 30));
+        assert!(tabs.move_tab(0, 2));
+        assert_eq!(tabs.titles(), vec!["B", "C", "A"]);
+        assert!(!tabs.move_tab(0, 9));
+        let live: std::collections::HashSet<String> =
+            ["b".to_string(), "c".to_string()].into_iter().collect();
+        let removed = tabs.prune_missing(&live);
+        assert_eq!(removed, vec!["a".to_string()]);
+        assert!(tabs.set_meta(0, Some("m".to_string()), None, Some("ws".to_string())));
+        let groups = tabs.workspace_groups();
+        assert!(groups.iter().any(|(name, _)| name == "ws"));
     }
 }

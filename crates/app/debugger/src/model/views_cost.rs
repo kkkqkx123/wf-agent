@@ -149,10 +149,7 @@ impl CompressionView {
         }
         if self.degraded {
             if self.degraded_dropped > 0 {
-                parts.push(format!(
-                    "degraded(dropped={})",
-                    self.degraded_dropped
-                ));
+                parts.push(format!("degraded(dropped={})", self.degraded_dropped));
             } else {
                 parts.push("degraded".to_string());
             }

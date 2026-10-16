@@ -260,7 +260,10 @@ mod tests {
         assert!(lines[3].starts_with("██"));
         assert!(lines[3].contains("17.5K of 100K (18% used)"));
         assert_eq!(lines[4], "$0.0025 spent");
-        assert_eq!(lines[5], "iter 3 · msgs 12 · exec exec-a1b... · model claude-4-5");
+        assert_eq!(
+            lines[5],
+            "iter 3 · msgs 12 · exec exec-a1b... · model claude-4-5"
+        );
     }
 
     #[test]

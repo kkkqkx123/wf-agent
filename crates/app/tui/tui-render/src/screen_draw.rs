@@ -747,6 +747,61 @@ pub struct SearchPaletteView<'a> {
     pub error: Option<&'a str>,
 }
 
+/// One session row for the session list browser.
+pub struct SessionListRow<'a> {
+    pub title: &'a str,
+    pub session_id: &'a str,
+    pub streaming: bool,
+    pub pinned: bool,
+    pub active: bool,
+}
+
+/// Session list browser overlay: centered floating list of open tabs with
+/// pin/streaming markers. Keys: j/k move, Enter switch, d close, p pin,
+//  x prune closed, Esc close.
+pub fn draw_session_list(
+    frame: &mut Frame,
+    area: Rect,
+    rows: &[SessionListRow<'_>],
+    selected: usize,
+    theme: &Theme,
+) {
+    let popup = tui_components::modal::centered_rect(70, 60, area);
+    frame.render_widget(Clear, popup);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3)])
+        .split(popup);
+    let hint = Paragraph::new("Enter switch · d close · p pin · x prune · Esc close")
+        .block(titled_block("Sessions", ColorRole::Accent, theme));
+    frame.render_widget(hint, chunks[0]);
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| {
+            let pin = if row.pinned { "◆" } else { " " };
+            let stream = if row.streaming { " …" } else { "" };
+            let current = if row.active { " ●" } else { "" };
+            let text = format!(
+                "{} {} {} {}{}{}",
+                idx + 1,
+                pin,
+                row.title,
+                short_id(row.session_id),
+                stream,
+                current,
+            );
+            ListItem::new(text).style(selected_style(idx == selected, theme))
+        })
+        .collect();
+    let mut state = ListState::default();
+    if !rows.is_empty() {
+        state.select(Some(selected.min(rows.len() - 1)));
+    }
+    let list = List::new(items).block(titled_block("Open tabs", ColorRole::Accent, theme));
+    frame.render_stateful_widget(list, chunks[1], &mut state);
+}
+
 /// Search palette overlay: centered floating input plus result list.
 pub fn draw_search_palette(
     frame: &mut Frame,

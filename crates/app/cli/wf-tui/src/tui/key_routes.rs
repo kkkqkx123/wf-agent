@@ -52,7 +52,7 @@ impl TuiApp {
         }
 
         if self.overlay != OverlayMode::None {
-            return self.handle_overlay_key(key);
+            return self.handle_overlay_key(key).await;
         }
 
         match key.code {
@@ -100,20 +100,71 @@ impl TuiApp {
                     }
                     TabKeyAction::TabNext => {
                         self.sessions.next(self.now_ms());
+                        self.save_tabs();
                         true
                     }
                     TabKeyAction::TabPrev => {
                         self.sessions.prev(self.now_ms());
+                        self.save_tabs();
                         true
                     }
                     TabKeyAction::TabPick(slot) => {
                         let index = usize::from(slot).saturating_sub(1);
                         if self.sessions.switch(index, self.now_ms()) {
+                            self.save_tabs();
                             true
                         } else {
                             self.app.notice.set(format!("no tab {slot}"));
                             true
                         }
+                    }
+                    TabKeyAction::TabPin => {
+                        self.toggle_pin_active();
+                        true
+                    }
+                    TabKeyAction::TabMovePrev => {
+                        self.move_active(-1);
+                        true
+                    }
+                    TabKeyAction::TabMoveNext => {
+                        self.move_active(1);
+                        true
+                    }
+                    TabKeyAction::TabParent => {
+                        if !self.sessions.focus_parent(self.now_ms()) {
+                            self.app.notice.set("no parent tab".to_string());
+                        } else {
+                            self.save_tabs();
+                        }
+                        true
+                    }
+                    TabKeyAction::TabChild => {
+                        if !self.sessions.focus_child_first(self.now_ms()) {
+                            self.app.notice.set("no child tab".to_string());
+                        } else {
+                            self.save_tabs();
+                        }
+                        true
+                    }
+                    TabKeyAction::TabChildNext => {
+                        if !self.sessions.focus_child_next(self.now_ms()) {
+                            self.app.notice.set("no child tab".to_string());
+                        } else {
+                            self.save_tabs();
+                        }
+                        true
+                    }
+                    TabKeyAction::TabChildPrev => {
+                        if !self.sessions.focus_child_prev(self.now_ms()) {
+                            self.app.notice.set("no child tab".to_string());
+                        } else {
+                            self.save_tabs();
+                        }
+                        true
+                    }
+                    TabKeyAction::SessionList => {
+                        self.open_session_list();
+                        true
                     }
                     _ => false,
                 };
@@ -420,9 +471,12 @@ impl TuiApp {
         Ok(LoopAction::Continue)
     }
 
-    pub(super) fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(super) async fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
         if self.overlay == OverlayMode::SearchPalette {
             return Ok(self.handle_search_palette_key(key));
+        }
+        if self.overlay == OverlayMode::SessionList {
+            return self.handle_session_list_key(key).await;
         }
         match key.code {
             CKey::Esc | CKey::Char('q') if !key.ctrl => {
@@ -564,6 +618,84 @@ impl TuiApp {
             _ => {}
         }
         LoopAction::Continue
+    }
+
+    async fn handle_session_list_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        let len = self.sessions.len();
+        match key.code {
+            CKey::Esc => {
+                self.overlay = OverlayMode::None;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Enter => {
+                let index = self.session_list.selected().min(len.saturating_sub(1));
+                self.overlay = OverlayMode::None;
+                if self.sessions.switch(index, self.now_ms()) {
+                    self.save_tabs();
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('j') | CKey::Down if !key.ctrl && !key.alt => {
+                self.session_list.move_next(len);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('k') | CKey::Up if !key.ctrl && !key.alt => {
+                self.session_list.move_prev(len);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('p') if !key.ctrl && !key.alt => {
+                let index = self.session_list.selected();
+                if let Some(pinned) = self.sessions.toggle_pin(index) {
+                    self.app.notice.set(if pinned {
+                        format!("tab {} pinned", index + 1)
+                    } else {
+                        format!("tab {} unpinned", index + 1)
+                    });
+                    self.save_tabs();
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('d') if !key.ctrl && !key.alt => {
+                let index = self.session_list.selected();
+                self.close_tab(index).await;
+                self.session_list
+                    .open(self.sessions.active_index(), self.sessions.len());
+                if self.sessions.is_empty() {
+                    self.overlay = OverlayMode::None;
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char('x') if !key.ctrl && !key.alt => {
+                let Some(live) = self.live_execution_ids() else {
+                    self.app
+                        .notice
+                        .set("no executions snapshot yet".to_string());
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                };
+                let pruned = self.prune_closed_tabs(&live).await;
+                self.session_list
+                    .open(self.sessions.active_index(), self.sessions.len());
+                self.app.notice.set(if pruned == 0 {
+                    "no closed tabs to prune".to_string()
+                } else {
+                    format!("pruned {pruned} closed tab(s)")
+                });
+                if self.sessions.is_empty() {
+                    self.overlay = OverlayMode::None;
+                }
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            }
+            CKey::Char(c) if c.is_ascii_digit() && !key.ctrl && !key.alt => {
+                if let Some(digit) = c.to_digit(10) {
+                    let index = (digit as usize).saturating_sub(1);
+                    self.session_list.select(index, len);
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                }
+            }
+            _ => {}
+        }
+        Ok(LoopAction::Continue)
     }
 
     fn scroll_settings(&mut self, delta: isize) {

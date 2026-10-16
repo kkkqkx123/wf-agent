@@ -43,9 +43,11 @@ pub mod replay;
 pub mod screens;
 pub mod search_palette;
 pub mod session_holder;
+pub mod session_list;
 pub mod session_tabs;
 pub mod size;
 pub mod state;
+pub mod tab_persistence;
 pub mod tui;
 
 use wf_cli_shared::mode::{CliMode, ModeResolver};

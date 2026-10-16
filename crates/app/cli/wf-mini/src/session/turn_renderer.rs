@@ -596,7 +596,10 @@ mod tests {
             cache_write_tokens: None,
             total_tokens: None,
         }]);
-        assert_eq!(stderr, "usage: 10 prompt + 20 completion tokens (7 cached)\n");
+        assert_eq!(
+            stderr,
+            "usage: 10 prompt + 20 completion tokens (7 cached)\n"
+        );
     }
 
     #[test]

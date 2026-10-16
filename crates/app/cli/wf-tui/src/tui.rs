@@ -107,6 +107,8 @@ pub struct TuiApp {
     history: crate::history_overlay::HistoryOverlay,
     /// Transient global search state backing the search palette overlay.
     search_palette: crate::search_palette::SearchPalette,
+    /// Transient session list browser backing the session list overlay.
+    session_list: crate::session_list::SessionList,
     data_tx: mpsc::UnboundedSender<DataResult>,
     data_rx: mpsc::UnboundedReceiver<DataResult>,
     feedback_tx: mpsc::UnboundedSender<crate::overlay::Feedback>,
@@ -201,6 +203,9 @@ pub struct TuiApp {
     last_click_col: Option<u16>,
     last_click_row: Option<u16>,
     last_click_count: u8,
+    /// Tab strip hit rectangle published by the last full frame. Clicking
+    /// a cell switches to that tab.
+    tab_strip_area: Option<Rect>,
 }
 
 impl TuiApp {
@@ -283,6 +288,7 @@ impl TuiApp {
             overlay: OverlayMode::None,
             history: crate::history_overlay::HistoryOverlay::default(),
             search_palette: crate::search_palette::SearchPalette::new(),
+            session_list: crate::session_list::SessionList::new(),
             data_tx,
             data_rx,
             feedback_tx,
@@ -329,6 +335,7 @@ impl TuiApp {
             last_click_col: None,
             last_click_row: None,
             last_click_count: 0,
+            tab_strip_area: None,
         }
     }
 
@@ -1055,7 +1062,7 @@ impl TuiApp {
         }
         matches!(
             self.overlay,
-            OverlayMode::Sidebar | OverlayMode::SearchPalette
+            OverlayMode::Sidebar | OverlayMode::SearchPalette | OverlayMode::SessionList
         )
     }
 
@@ -1241,6 +1248,21 @@ impl TuiApp {
         }
     }
 
+    /// Tab index under a terminal cell, if the cell lands on the tab
+    /// strip. Cells divide evenly across open tabs.
+    fn tab_index_at(&self, col: u16, row: u16) -> Option<usize> {
+        let area = self.tab_strip_area?;
+        if self.sessions.len() < 2 {
+            return None;
+        }
+        if row != area.y || col < area.x || col >= area.x.saturating_add(area.width) {
+            return None;
+        }
+        let width = usize::from(area.width.max(1));
+        let len = self.sessions.len();
+        Some(((usize::from(col - area.x) * len) / width).min(len - 1))
+    }
+
     /// Route one button press, release or drag. Thin dispatcher over the
     /// three press / release / drag paths below. Column decides gutter
     /// first so the bar never competes with row hits.
@@ -1267,6 +1289,18 @@ impl TuiApp {
         }
         if self.mouse_layer_suppressed() {
             return false;
+        }
+        if !is_right
+            && self.overlay == OverlayMode::None
+            && self.app.screen.navigation.current_kind() == ScreenKind::Interactive
+        {
+            if let Some(index) = self.tab_index_at(mouse.column, mouse.row) {
+                if self.sessions.switch(index, self.now_ms()) {
+                    self.save_tabs();
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                }
+                return true;
+            }
         }
         // A fresh press drops any previous drag selection.
         if let Some(session) = self.sessions.active_mut() {
@@ -1780,12 +1814,16 @@ impl TuiApp {
     /// Create the first tab or park all tabs to match the current screen.
     /// Tabs survive navigation: leaving the Interactive screen only detaches
     /// the per-tab holders, and returning re-attaches the active one, so no
-    /// scrollback or stream state is lost.
+    /// scrollback or stream state is lost. The first open restores pinned
+    /// tabs from the persisted snapshot before creating a fresh tab.
     async fn ensure_interactive(&mut self) -> CliResult<()> {
         let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
         if on_interactive {
             if self.sessions.is_empty() {
-                self.new_tab().await;
+                self.restore_pinned_tabs().await;
+                if self.sessions.is_empty() {
+                    self.new_tab().await;
+                }
             } else {
                 self.sessions.attach_active();
             }
@@ -1796,9 +1834,15 @@ impl TuiApp {
     }
 
     /// Create a new chat session tab over the shared client and focus it.
-    /// When the tab list is full the least-recently-active background tab
-    /// is evicted first.
+    /// When the tab list is full the least-recently-active unpinned
+    /// background tab is evicted first.
     async fn new_tab(&mut self) {
+        self.new_tab_with_parent(None).await;
+    }
+
+    /// Create a new tab optionally linked to a parent session id. Child
+    /// tabs record the linkage so parent/child navigation can find them.
+    async fn new_tab_with_parent(&mut self, parent_id: Option<String>) {
         if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
             if let Some(victim) = self.sessions.eviction_victim() {
                 if let Some(tab) = self.sessions.remove(victim) {
@@ -1806,7 +1850,7 @@ impl TuiApp {
                 }
                 self.app
                     .notice
-                    .set("tab limit reached: oldest tab closed".to_string());
+                    .set("tab limit reached: oldest unpinned tab closed".to_string());
             }
         }
         let id = wf_common::generate_id();
@@ -1816,8 +1860,14 @@ impl TuiApp {
         session.apply_copy_policy(self.copy_policy);
         session.set_tool_config(load_tool_output_config());
         session.set_session_scrollbar(load_session_scrollbar_opt_in());
-        self.sessions
-            .push(SessionTab::new(session, id, self.now_ms()));
+        let workspace = std::env::current_dir()
+            .ok()
+            .and_then(|dir| dir.to_str().map(str::to_string));
+        let mut tab = SessionTab::new(session, id, self.now_ms());
+        tab.parent_id = parent_id;
+        tab.workspace = workspace;
+        self.sessions.push(tab);
+        self.save_tabs();
     }
 
     /// Close the tab at `index`, shutting its stream tasks down.
@@ -1825,9 +1875,181 @@ impl TuiApp {
         if let Some(tab) = self.sessions.remove(index) {
             tab.controller.shutdown().await;
         }
+        self.save_tabs();
         if self.sessions.is_empty() {
             self.go_back();
         }
+    }
+
+    /// Toggle pin on the active tab. Pinned tabs skip LRU eviction and are
+    /// persisted across restarts.
+    fn toggle_pin_active(&mut self) {
+        let index = self.sessions.active_index();
+        if let Some(pinned) = self.sessions.toggle_pin(index) {
+            self.app.notice.set(if pinned {
+                format!("tab {} pinned", index + 1)
+            } else {
+                format!("tab {} unpinned", index + 1)
+            });
+            self.save_tabs();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        }
+    }
+
+    /// Move the active tab one slot toward the start or end.
+    fn move_active(&mut self, delta: i32) {
+        let from = self.sessions.active_index();
+        let len = self.sessions.len();
+        if len < 2 {
+            return;
+        }
+        let to = if delta >= 0 {
+            (from + 1) % len
+        } else {
+            (from + len - 1) % len
+        };
+        if self.sessions.move_tab(from, to) {
+            self.app.notice.set(format!("tab moved to {}", to + 1));
+            self.save_tabs();
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+        }
+    }
+
+    /// Open the session list browser over the current tab set.
+    fn open_session_list(&mut self) {
+        self.session_list
+            .open(self.sessions.active_index(), self.sessions.len());
+        self.overlay = OverlayMode::SessionList;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
+    }
+
+    /// Snapshot the open tabs for persistence.
+    fn tabs_snapshot(&self) -> crate::tab_persistence::SavedTabs {
+        crate::tab_persistence::SavedTabs {
+            version: crate::tab_persistence::TABS_SNAPSHOT_VERSION,
+            active: self.sessions.active_index(),
+            tabs: self
+                .sessions
+                .iter()
+                .map(|tab| crate::tab_persistence::SavedTab {
+                    session_id: tab
+                        .execution_id()
+                        .or_else(|| tab.holder.session_id())
+                        .unwrap_or_default()
+                        .to_string(),
+                    title: tab.title.clone(),
+                    pinned: tab.pinned,
+                    parent_id: tab.parent_id.clone(),
+                    model: tab.model.clone(),
+                    agent: tab.agent.clone(),
+                    workspace: tab.workspace.clone(),
+                    last_active_ms: tab.last_active_ms,
+                })
+                .collect(),
+        }
+    }
+
+    fn save_tabs(&self) {
+        crate::tab_persistence::save(&self.tabs_snapshot());
+    }
+
+    /// Live execution ids known from the cached executions screen. Used
+    /// to prune tabs whose server sessions vanished. Returns `None` when
+    /// no executions snapshot is cached yet so callers prune nothing.
+    fn live_execution_ids(&self) -> Option<std::collections::HashSet<String>> {
+        let (data, _) = self.app.screen.data_cache.get(&ScreenKind::Executions)?;
+        let ScreenData::Executions(rows) = data else {
+            return None;
+        };
+        Some(rows.iter().map(|row| row.id.clone()).collect())
+    }
+
+    /// Restore pinned tabs from the persisted snapshot. Called once when
+    /// the first interactive screen opens with an empty tab list.
+    async fn restore_pinned_tabs(&mut self) {
+        let Some(saved) = crate::tab_persistence::load() else {
+            return;
+        };
+        if saved.tabs.is_empty() {
+            return;
+        }
+        for entry in saved
+            .tabs
+            .into_iter()
+            .take(tui_core::screen_data::MAX_CHAT_TABS)
+        {
+            if entry.session_id.is_empty() {
+                continue;
+            }
+            if self
+                .sessions
+                .index_of_execution(&entry.session_id)
+                .is_some()
+            {
+                continue;
+            }
+            let mut session =
+                InteractiveController::start(self.client.clone(), entry.session_id.clone()).await;
+            session.set_perf_tier(self.perf_tier.marker());
+            session.apply_perf_policy(self.perf_policy);
+            session.apply_copy_policy(self.copy_policy);
+            session.set_tool_config(load_tool_output_config());
+            session.set_session_scrollbar(load_session_scrollbar_opt_in());
+            session.load_replay(&entry.session_id);
+            let mut tab = SessionTab::new(session, entry.session_id.clone(), entry.last_active_ms);
+            tab.title = entry.title;
+            tab.pinned = entry.pinned;
+            tab.parent_id = entry.parent_id;
+            tab.model = entry.model;
+            tab.agent = entry.agent;
+            tab.workspace = entry.workspace;
+            self.sessions.push(tab);
+        }
+        let active = saved.active.min(self.sessions.len().saturating_sub(1));
+        self.sessions.switch(active, self.now_ms());
+    }
+
+    /// Drop tabs whose sessions vanished from the server list. Only
+    /// idle unpinned background tabs are eligible: the active tab,
+    /// streaming tabs, pinned tabs and tabs touched in the last minute
+    /// (fresh local tabs without a server record yet) are always kept.
+    /// Returns the number of pruned tabs for notice reporting.
+    async fn prune_closed_tabs(&mut self, live: &std::collections::HashSet<String>) -> usize {
+        if self.sessions.is_empty() {
+            return 0;
+        }
+        let now = self.now_ms();
+        let active = self.sessions.active_index();
+        let mut victims = Vec::new();
+        for (index, tab) in self.sessions.iter().enumerate() {
+            if index == active || tab.pinned || tab.streaming() {
+                continue;
+            }
+            let id = tab
+                .execution_id()
+                .or_else(|| tab.holder.session_id())
+                .unwrap_or_default();
+            if live.contains(id) {
+                continue;
+            }
+            if now.saturating_sub(tab.last_active_ms) < 60_000 {
+                continue;
+            }
+            victims.push(index);
+        }
+        let mut count = 0;
+        for index in victims.into_iter().rev() {
+            if self.sessions.get(index).is_some() {
+                if let Some(tab) = self.sessions.remove(index) {
+                    tab.controller.shutdown().await;
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            self.save_tabs();
+        }
+        count
     }
 
     /// Queue a session restore from `--session` / `--resume`: the replay
@@ -1940,10 +2162,15 @@ impl TuiApp {
             (None, vec![parts[0], parts[1]])
         };
         if let Some(tab_area) = tab_area {
+            self.tab_strip_area = Some(tab_area);
             let snapshot = self.sessions.snapshot();
             let items: Vec<crate::tab_bar::SessionTabItem> = snapshot
                 .into_iter()
-                .map(|(title, streaming)| crate::tab_bar::SessionTabItem::new(title, streaming))
+                .map(|(title, streaming, pinned)| {
+                    let mut item = crate::tab_bar::SessionTabItem::new(title, streaming);
+                    item.pinned = pinned;
+                    item
+                })
                 .collect();
             crate::tab_bar::draw_session_tab_bar(
                 frame,
@@ -1952,6 +2179,8 @@ impl TuiApp {
                 self.sessions.active_index(),
                 &self.theme,
             );
+        } else {
+            self.tab_strip_area = None;
         }
 
         // Interactive is always the primary interface
@@ -2034,6 +2263,31 @@ impl TuiApp {
                     error: self.search_palette.error(),
                 };
                 crate::screen_draw::draw_search_palette(frame, area, &palette, &self.theme);
+            }
+            OverlayMode::SessionList => {
+                let active = self.sessions.active_index();
+                let rows: Vec<crate::screen_draw::SessionListRow<'_>> = self
+                    .sessions
+                    .iter()
+                    .enumerate()
+                    .map(|(index, tab)| crate::screen_draw::SessionListRow {
+                        title: tab.title.as_str(),
+                        session_id: tab
+                            .execution_id()
+                            .or_else(|| tab.holder.session_id())
+                            .unwrap_or("?"),
+                        streaming: tab.streaming(),
+                        pinned: tab.pinned,
+                        active: index == active,
+                    })
+                    .collect();
+                crate::screen_draw::draw_session_list(
+                    frame,
+                    area,
+                    &rows,
+                    self.session_list.selected(),
+                    &self.theme,
+                );
             }
             OverlayMode::None => {}
         }

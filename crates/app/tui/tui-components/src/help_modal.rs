@@ -42,7 +42,7 @@ impl Modal for HelpModal {
 
     fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let mut help_text = String::from(
-            "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - navigation overlay (all screens incl. Catalog/Git)\n  Ctrl-K or 7 - search palette\n  Ctrl-T - history transcript overlay\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] / Tab - switch exec/workflow views, catalog tabs\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Ctrl-Z - suspend (fg to resume)",
+            "Keys:\n  q / Esc - quit / close\n  0-6 - switch screens\n  Ctrl-B - navigation overlay (all screens incl. Catalog/Git)\n  Ctrl-K or 7 - search palette\n  Ctrl-T - history transcript overlay\n  ? - help\n  j/k - navigate / scroll settings\n  [ ] / Tab - switch exec/workflow views, catalog tabs\n  / filter · X clear filter\n  PgUp/PgDn - detail scroll\n  Enter - select\n  y/n - confirm/cancel\n  o/c/e/l/+/- - settings local keys\n  Alt-T new tab · Alt-W close · Alt-1..9 pick · Alt-[/] prev/next\n  Alt-P pin · Alt-,/. move · Alt-Up parent · Alt-Down child · Alt-S sessions\n  Ctrl-Z - suspend (fg to resume)",
         );
         if !self.overrides.is_empty() {
             help_text.push_str("\n\nCustom bindings:");

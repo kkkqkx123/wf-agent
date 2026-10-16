@@ -60,6 +60,15 @@ mod tests {
     }
 
     #[test]
+    fn session_cells_marks_pinned_tabs() {
+        let tabs = vec![SessionTabItem::pinned("alpha", false)];
+        assert_eq!(
+            session_tab_cells(&tabs, 24),
+            vec![format!("1 {PINNED_MARKER}alpha")]
+        );
+    }
+
+    #[test]
     fn truncate_title_clips_with_ellipsis() {
         assert_eq!(truncate_title("abcdef", 6), "abcdef");
         assert_eq!(truncate_title("abcdef", 4), "abc\u{2026}");
@@ -73,6 +82,7 @@ mod tests {
 pub struct SessionTabItem {
     pub title: String,
     pub streaming: bool,
+    pub pinned: bool,
 }
 
 impl SessionTabItem {
@@ -80,6 +90,15 @@ impl SessionTabItem {
         Self {
             title: title.into(),
             streaming,
+            pinned: false,
+        }
+    }
+
+    pub fn pinned(title: impl Into<String>, streaming: bool) -> Self {
+        Self {
+            title: title.into(),
+            streaming,
+            pinned: true,
         }
     }
 }
@@ -87,15 +106,20 @@ impl SessionTabItem {
 /// Streaming marker appended to a streaming tab's title.
 pub const STREAMING_MARKER: &str = " \u{2026}";
 
-/// Build the plain-text cells for the session tab strip: `n title[ …]` per
-/// tab. Pure so the truncation policy is unit-testable without a terminal.
+/// Pinned marker prefixed to a pinned tab's cell.
+pub const PINNED_MARKER: &str = "◆";
+
+/// Build the plain-text cells for the session tab strip: `n [◆]title[ …]`
+/// per tab. Pure so the truncation policy is unit-testable without a
+/// terminal.
 pub fn session_tab_cells(tabs: &[SessionTabItem], max_title_width: usize) -> Vec<String> {
     tabs.iter()
         .enumerate()
         .map(|(index, tab)| {
             let title = truncate_title(&tab.title, max_title_width);
+            let pin = if tab.pinned { PINNED_MARKER } else { "" };
             let marker = if tab.streaming { STREAMING_MARKER } else { "" };
-            format!("{} {title}{marker}", index + 1)
+            format!("{} {pin}{title}{marker}", index + 1)
         })
         .collect()
 }
@@ -126,8 +150,9 @@ pub fn truncate_title(title: &str, max_width: usize) -> String {
 }
 
 /// Draw the chat session tab strip into a one-row area. The active tab is
-/// highlighted; streaming tabs carry an ellipsis marker. Titles share the
-/// row evenly and truncate when the row is narrow.
+/// highlighted; streaming tabs carry an ellipsis marker and pinned tabs
+/// carry a diamond prefix. Titles share the row evenly and truncate when
+/// the row is narrow.
 pub fn draw_session_tab_bar(
     frame: &mut Frame,
     area: Rect,
@@ -148,6 +173,7 @@ pub fn draw_session_tab_bar(
     let mut spans = Vec::with_capacity(tabs.len() * 2);
     for (index, cell) in cells.iter().enumerate() {
         let is_active = index == active;
+        let pinned = tabs.get(index).is_some_and(|tab| tab.pinned);
         let style = if is_active {
             Style::default()
                 .fg(Color::Rgb(
@@ -156,6 +182,10 @@ pub fn draw_session_tab_bar(
                     theme.highlight.b,
                 ))
                 .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else if pinned {
+            Style::default()
+                .fg(Color::Rgb(theme.muted.r, theme.muted.g, theme.muted.b))
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Rgb(theme.muted.r, theme.muted.g, theme.muted.b))
         };

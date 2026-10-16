@@ -75,6 +75,14 @@ fn parse_action(name: &str) -> Option<KeyAction> {
         "tab_close" => KeyAction::TabClose,
         "tab_next" => KeyAction::TabNext,
         "tab_prev" => KeyAction::TabPrev,
+        "tab_pin" => KeyAction::TabPin,
+        "tab_move_prev" => KeyAction::TabMovePrev,
+        "tab_move_next" => KeyAction::TabMoveNext,
+        "tab_parent" => KeyAction::TabParent,
+        "tab_child" => KeyAction::TabChild,
+        "tab_child_next" => KeyAction::TabChildNext,
+        "tab_child_prev" => KeyAction::TabChildPrev,
+        "session_list" => KeyAction::SessionList,
         _ => {
             if let Some(slot) = name
                 .strip_prefix("tab_pick_")
@@ -173,6 +181,11 @@ mod tests {
         assert_eq!(parse_action("quit"), Some(KeyAction::Quit));
         assert_eq!(parse_action("deny_once"), Some(KeyAction::DenyOnce));
         assert_eq!(parse_action("tab_new"), Some(KeyAction::TabNew));
+        assert_eq!(parse_action("tab_pin"), Some(KeyAction::TabPin));
+        assert_eq!(parse_action("tab_move_prev"), Some(KeyAction::TabMovePrev));
+        assert_eq!(parse_action("tab_parent"), Some(KeyAction::TabParent));
+        assert_eq!(parse_action("tab_child"), Some(KeyAction::TabChild));
+        assert_eq!(parse_action("session_list"), Some(KeyAction::SessionList));
         assert_eq!(parse_action("tab_pick_1"), Some(KeyAction::TabPick(1)));
         assert_eq!(parse_action("tab_pick_9"), Some(KeyAction::TabPick(9)));
         assert_eq!(parse_action("tab_pick_0"), None);

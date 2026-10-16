@@ -194,6 +194,22 @@ pub enum KeyAction {
     TabPrev,
     /// Focus the n-th chat session tab (1..=9).
     TabPick(u8),
+    /// Toggle pin on the active chat session tab.
+    TabPin,
+    /// Move the active tab one slot toward the start.
+    TabMovePrev,
+    /// Move the active tab one slot toward the end.
+    TabMoveNext,
+    /// Focus the parent tab of the active sub-agent tab.
+    TabParent,
+    /// Focus the first child tab of the active tab.
+    TabChild,
+    /// Cycle to the next sibling/child tab.
+    TabChildNext,
+    /// Cycle to the previous sibling/child tab.
+    TabChildPrev,
+    /// Open the session list browser overlay.
+    SessionList,
 }
 
 /// Key resolution context.
@@ -365,6 +381,26 @@ fn tab_defaults() -> Vec<(Key, KeyAction)> {
             TabPick(n),
         ));
     }
+    let alt = |code: CKey| Key {
+        code,
+        ctrl: false,
+        alt: true,
+        shift: false,
+    };
+    binds.extend([
+        (alt(CKey::Char('p')), TabPin),
+        (alt(CKey::Char('P')), TabPin),
+        (alt(CKey::Char('s')), SessionList),
+        (alt(CKey::Char('S')), SessionList),
+        (alt(CKey::Char(',')), TabMovePrev),
+        (alt(CKey::Char('.')), TabMoveNext),
+        (alt(CKey::Up), TabParent),
+        (alt(CKey::Down), TabChild),
+        (alt(CKey::Char('j')), TabChildNext),
+        (alt(CKey::Char('J')), TabChildNext),
+        (alt(CKey::Char('k')), TabChildPrev),
+        (alt(CKey::Char('K')), TabChildPrev),
+    ]);
     binds
 }
 
@@ -695,6 +731,26 @@ mod tests {
         assert_eq!(
             km.resolve(KeymapContext::Chat, alt(CKey::Left)),
             Some(TabPrev)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('p'))),
+            Some(TabPin)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('s'))),
+            Some(SessionList)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char(','))),
+            Some(TabMovePrev)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Up)),
+            Some(TabParent)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Down)),
+            Some(TabChild)
         );
     }
 

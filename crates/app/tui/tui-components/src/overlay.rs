@@ -27,4 +27,6 @@ pub enum OverlayMode {
     History,
     /// Search palette for global search
     SearchPalette,
+    /// Session list browser for open chat tabs
+    SessionList,
 }

@@ -20,6 +20,11 @@ pub struct SessionTab {
     pub holder: SessionHolder,
     pub title: String,
     pub last_active_ms: u64,
+    pub pinned: bool,
+    pub parent_id: Option<String>,
+    pub model: Option<String>,
+    pub agent: Option<String>,
+    pub workspace: Option<String>,
 }
 
 impl SessionTab {
@@ -38,11 +43,27 @@ impl SessionTab {
             holder,
             title,
             last_active_ms: now_ms,
+            pinned: false,
+            parent_id: None,
+            model: None,
+            agent: None,
+            workspace: None,
         }
+    }
+
+    pub fn with_parent(mut self, parent_id: Option<String>) -> Self {
+        self.parent_id = parent_id;
+        self
     }
 
     pub fn streaming(&self) -> bool {
         self.controller.is_processing()
+    }
+
+    pub fn execution_id(&self) -> Option<&str> {
+        self.controller
+            .session_id()
+            .or_else(|| self.holder.session_id())
     }
 }
 
@@ -88,6 +109,22 @@ impl SessionTabs {
             .map(|tab| &mut tab.controller)
     }
 
+    pub fn active_tab(&self) -> Option<&SessionTab> {
+        self.tabs.get(self.active)
+    }
+
+    pub fn active_tab_mut(&mut self) -> Option<&mut SessionTab> {
+        self.tabs.get_mut(self.active)
+    }
+
+    pub fn get(&self, index: usize) -> Option<&SessionTab> {
+        self.tabs.get(index)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, SessionTab> {
+        self.tabs.iter()
+    }
+
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, SessionTab> {
         self.tabs.iter_mut()
     }
@@ -96,12 +133,20 @@ impl SessionTabs {
         self.tabs.iter().map(|tab| tab.title.clone()).collect()
     }
 
-    /// Per-tab `(title, streaming)` snapshot for the tab strip. The strip
-    /// only reads this; it never borrows a controller mutably.
-    pub fn snapshot(&self) -> Vec<(String, bool)> {
+    /// Per-tab `(title, streaming, pinned)` snapshot for the tab strip.
+    /// The strip only reads this; it never borrows a controller mutably.
+    pub fn snapshot(&self) -> Vec<(String, bool, bool)> {
         self.tabs
             .iter()
-            .map(|tab| (tab.title.clone(), tab.streaming()))
+            .map(|tab| (tab.title.clone(), tab.streaming(), tab.pinned))
+            .collect()
+    }
+
+    /// Execution ids of all open tabs, oldest first.
+    pub fn execution_ids(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter_map(|tab| tab.execution_id().map(str::to_string))
             .collect()
     }
 
@@ -111,6 +156,176 @@ impl SessionTabs {
             .iter()
             .enumerate()
             .any(|(index, tab)| index != self.active && tab.streaming())
+    }
+
+    /// Toggle the pinned flag of the tab at `index`.
+    pub fn toggle_pin(&mut self, index: usize) -> Option<bool> {
+        let tab = self.tabs.get_mut(index)?;
+        tab.pinned = !tab.pinned;
+        Some(tab.pinned)
+    }
+
+    pub fn set_active_meta(
+        &mut self,
+        model: Option<String>,
+        agent: Option<String>,
+        workspace: Option<String>,
+    ) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return false;
+        };
+        if model.is_some() {
+            tab.model = model;
+        }
+        if agent.is_some() {
+            tab.agent = agent;
+        }
+        if workspace.is_some() {
+            tab.workspace = workspace;
+        }
+        true
+    }
+
+    /// Index of the tab holding `execution_id`, if open.
+    pub fn index_of_execution(&self, execution_id: &str) -> Option<usize> {
+        self.tabs.iter().position(|tab| {
+            tab.execution_id().is_some_and(|id| id == execution_id)
+                || tab.holder.session_id().is_some_and(|id| id == execution_id)
+        })
+    }
+
+    /// Indices of direct children of `execution_id`.
+    pub fn children_of(&self, execution_id: &str) -> Vec<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.parent_id.as_deref() == Some(execution_id))
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Focus the parent of the active tab.
+    pub fn focus_parent(&mut self, now_ms: u64) -> bool {
+        let parent = self
+            .active_tab()
+            .and_then(|tab| tab.parent_id.clone())
+            .and_then(|id| self.index_of_execution(&id));
+        match parent {
+            Some(index) => self.switch(index, now_ms),
+            None => false,
+        }
+    }
+
+    /// Focus the first child of the active tab.
+    pub fn focus_child_first(&mut self, now_ms: u64) -> bool {
+        let id = match self.active_tab() {
+            Some(tab) => tab.execution_id().map(str::to_string),
+            None => None,
+        };
+        let Some(id) = id else {
+            return false;
+        };
+        match self.children_of(&id).into_iter().next() {
+            Some(index) => self.switch(index, now_ms),
+            None => false,
+        }
+    }
+
+    pub fn focus_child_next(&mut self, now_ms: u64) -> bool {
+        self.focus_sibling_or_child(1, now_ms)
+    }
+
+    pub fn focus_child_prev(&mut self, now_ms: u64) -> bool {
+        self.focus_sibling_or_child(-1, now_ms)
+    }
+
+    fn focus_sibling_or_child(&mut self, delta: i32, now_ms: u64) -> bool {
+        let active_id = match self.active_tab().and_then(|tab| tab.execution_id()) {
+            Some(id) => id.to_string(),
+            None => return false,
+        };
+        let scope_id = self
+            .active_tab()
+            .and_then(|tab| tab.parent_id.clone())
+            .unwrap_or_else(|| active_id.clone());
+        let mut peers = self.children_of(&scope_id);
+        if peers.is_empty() {
+            return false;
+        }
+        peers.sort_unstable();
+        let pos = peers
+            .iter()
+            .position(|index| {
+                self.tabs.get(*index).and_then(|tab| tab.execution_id()) == Some(active_id.as_str())
+            })
+            .unwrap_or(0);
+        let next = if delta >= 0 {
+            peers[(pos + 1) % peers.len()]
+        } else {
+            peers[(pos + peers.len() - 1) % peers.len()]
+        };
+        self.switch(next, now_ms)
+    }
+
+    /// Move the tab at `from` to position `to`, keeping the active tab
+    /// attached to its session.
+    pub fn move_tab(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return false;
+        }
+        let active_id = self
+            .active_tab()
+            .and_then(|tab| tab.execution_id().map(str::to_string));
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        if let Some(id) = active_id {
+            if let Some(index) = self.index_of_execution(&id) {
+                self.active = index;
+                self.touch_active();
+                for (pos, tab) in self.tabs.iter_mut().enumerate() {
+                    if pos == self.active {
+                        tab.holder.reattached();
+                    } else {
+                        tab.holder.detach();
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Remove tabs whose execution id is absent from `live`. Returns the
+    /// removed tabs so the caller can shut their controllers down.
+    pub fn prune_missing(&mut self, live: &std::collections::HashSet<String>) -> Vec<SessionTab> {
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < self.tabs.len() {
+            let alive = self.tabs[index]
+                .execution_id()
+                .is_some_and(|id| live.contains(id))
+                || self.tabs[index]
+                    .holder
+                    .session_id()
+                    .is_some_and(|id| live.contains(id));
+            if alive {
+                index += 1;
+            } else {
+                removed.push(self.tabs.remove(index));
+                if self.tabs.is_empty() {
+                    self.active = 0;
+                    break;
+                }
+                if index < self.active {
+                    self.active -= 1;
+                } else if self.active >= self.tabs.len() {
+                    self.active = self.tabs.len() - 1;
+                }
+            }
+        }
+        if let Some(active) = self.tabs.get_mut(self.active) {
+            active.holder.reattached();
+        }
+        removed
     }
 
     /// Push a tab and focus it.
@@ -181,14 +396,24 @@ impl SessionTabs {
     }
 
     /// Index of the eviction victim when the tab list is full: the
-    /// least-recently-active non-active tab.
+    /// least-recently-active unpinned non-active tab. Pinned tabs are
+    /// skipped unless every background tab is pinned.
     pub fn eviction_victim(&self) -> Option<usize> {
         self.tabs
             .iter()
             .enumerate()
             .filter(|(index, _)| *index != self.active)
+            .filter(|(_, tab)| !tab.pinned)
             .min_by_key(|(_, tab)| tab.last_active_ms)
             .map(|(index, _)| index)
+            .or_else(|| {
+                self.tabs
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != self.active)
+                    .min_by_key(|(_, tab)| tab.last_active_ms)
+                    .map(|(index, _)| index)
+            })
     }
 
     /// Detach every holder (leaving the Interactive screen). Controllers
@@ -286,6 +511,25 @@ mod tests {
         let removed = tabs.remove(victim).expect("victim index is valid");
         assert_eq!(removed.title, title_for_execution("exec-00"));
         removed.controller.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn pin_move_and_parent_navigation() {
+        let mut tabs = SessionTabs::new();
+        tabs.push(test_tab("exec-a", 10).await);
+        tabs.push(test_tab("exec-b", 20).await);
+        assert_eq!(tabs.toggle_pin(0), Some(true));
+        assert_eq!(tabs.toggle_pin(0), Some(false));
+        assert!(tabs.move_tab(0, 1));
+        assert_eq!(tabs.index_of_execution("exec-a"), Some(1));
+        tabs.switch(1, 30);
+        if let Some(tab) = tabs.active_tab_mut() {
+            tab.parent_id = Some("exec-b".to_string());
+        }
+        assert!(tabs.focus_parent(40));
+        assert_eq!(tabs.active_index(), 0);
+        assert!(tabs.focus_child_first(50));
+        assert_eq!(tabs.active_index(), 1);
     }
 
     #[test]

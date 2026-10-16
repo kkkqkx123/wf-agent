@@ -11,6 +11,7 @@
 use ratatui::text::{Line, Span};
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
+use super::highlight::{CodeTokenKind, HighlightCache};
 use tui_style::motion::{self, MotionMode};
 use tui_style::theme;
 
@@ -45,12 +46,33 @@ fn heading_style(level: u8) -> ratatui::style::Style {
 /// [`MotionMode::Static`]/[`MotionMode::Reduced`] that yields an unstyled
 /// span (the static render), while [`MotionMode::Animated`] sweeps a
 /// time-based shimmer across the content.
+///
+/// Code blocks highlight through a throwaway cache; repeat callers should use
+/// [`render_styled_lines_lazy`] with a shared cache and a visible window so
+/// offscreen blocks skip highlighting.
 fn styled_from_source(src: &str, width: u16, motion_mode: MotionMode) -> Vec<Line<'static>> {
     if src.len() > MAX_STYLED_SOURCE_BYTES {
         return degraded_lines(src);
     }
     let doc = super::document::parse_document(src);
     document_to_lines(&doc, width, motion_mode)
+}
+
+/// Whole-source styled rendering with a shared highlight cache and an
+/// optional visible display-row window for offscreen laziness.
+pub fn render_styled_lines_lazy(
+    src: &str,
+    width: u16,
+    motion_mode: MotionMode,
+    cache: &mut HighlightCache,
+    highlight: bool,
+    visible: Option<std::ops::Range<usize>>,
+) -> Vec<Line<'static>> {
+    if src.len() > MAX_STYLED_SOURCE_BYTES {
+        return degraded_lines(src);
+    }
+    let doc = super::document::parse_document(src);
+    document_to_lines_lazy(&doc, width, motion_mode, cache, highlight, visible)
 }
 
 /// Render markdown source to styled ratatui Lines.
@@ -112,26 +134,67 @@ fn document_line_to_line(line: &StyledLine, motion_mode: MotionMode) -> Line<'st
     Line::from(spans)
 }
 
-/// Convert a neutral document into terminal lines.
+/// Convert a neutral document into terminal lines, highlighting every code
+/// block through a throwaway cache. Callers that lay out repeatedly (the
+/// scrollback preparation) should use [`document_to_lines_lazy`] with a
+/// shared cache instead.
 pub fn document_to_lines(
     doc: &Document,
     width: u16,
     motion_mode: MotionMode,
 ) -> Vec<Line<'static>> {
-    blocks_to_lines(&doc.blocks, width, motion_mode)
+    document_to_lines_lazy(doc, width, motion_mode, &mut HighlightCache::new(), true, None)
+}
+
+/// Convert a neutral document into terminal lines with a shared highlight
+/// cache and optional offscreen laziness.
+///
+/// `highlight` selects the highlighted form for fenced code; the placeholder
+/// form keeps the identical row count so lazy and highlighted layouts share
+/// geometry. `visible` is a display-row window into the final output: fenced
+/// code blocks lying fully outside it render as placeholders and highlight on
+/// demand once scrolled into view. A `None` window highlights every block.
+pub fn document_to_lines_lazy(
+    doc: &Document,
+    width: u16,
+    motion_mode: MotionMode,
+    cache: &mut HighlightCache,
+    highlight: bool,
+    visible: Option<std::ops::Range<usize>>,
+) -> Vec<Line<'static>> {
+    blocks_to_lines_lazy(
+        &doc.blocks,
+        width,
+        motion_mode,
+        cache,
+        highlight,
+        &mut 0usize,
+        visible.as_ref(),
+    )
 }
 
 /// Convert a block sequence into terminal lines. Block quotes recurse and
 /// prefix every quoted row with the dim `> ` marker — the same quoted-line
 /// convention the append-only `Styled` renderer uses, so both frontends show
 /// quotes identically.
-fn blocks_to_lines(blocks: &[DocBlock], width: u16, motion_mode: MotionMode) -> Vec<Line<'static>> {
+/// Lazy block rendering: `row` tracks the display-row offset of the next
+/// emitted line so code blocks outside `visible` can skip highlighting.
+fn blocks_to_lines_lazy(
+    blocks: &[DocBlock],
+    width: u16,
+    motion_mode: MotionMode,
+    cache: &mut HighlightCache,
+    highlight: bool,
+    row: &mut usize,
+    visible: Option<&std::ops::Range<usize>>,
+) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     for block in blocks {
         match block {
             DocBlock::Paragraph(lines) => {
                 for line in lines {
                     out.push(document_line_to_line(line, motion_mode));
+                    *row += 1;
                 }
             }
             DocBlock::Heading { level, lines } => {
@@ -145,70 +208,136 @@ fn blocks_to_lines(blocks: &[DocBlock], width: u16, motion_mode: MotionMode) -> 
                     }
                     spans.extend(document_line_to_line(line, motion_mode).spans);
                     out.push(Line::from(spans));
+                    *row += 1;
                 }
             }
             DocBlock::Quote(inner) => {
                 let marker = Span::styled("> ".to_string(), style_for_role(StyleRole::Dim));
-                for line in blocks_to_lines(inner, width, motion_mode) {
+                for line in blocks_to_lines_lazy(
+                    inner, width, motion_mode, cache, highlight, row, visible,
+                ) {
                     let mut spans = vec![marker.clone()];
                     spans.extend(line.spans);
                     out.push(Line::from(spans));
                 }
             }
-            DocBlock::Code { lines, .. } => {
-                out.extend(code_block_lines(lines));
+            DocBlock::Code { language, lines } => {
+                let highlighted =
+                    code_block_lines_highlighted(language.as_deref(), lines, cache, highlight);
+                let start = *row;
+                let end = start + highlighted.len();
+                let show = visible.is_none_or(|range| range.start < end && start < range.end);
+                *row = end;
+                if show {
+                    out.extend(highlighted);
+                } else {
+                    out.extend(code_block_lines_plain(lines));
+                }
             }
             DocBlock::Rule => {
                 out.push(Line::raw("─".repeat(width as usize)));
+                *row += 1;
             }
             DocBlock::List(items) => {
                 for item in items {
                     for line in item {
                         out.push(document_line_to_line(line, motion_mode));
+                        *row += 1;
                     }
                 }
             }
             DocBlock::Table { headers, rows } => {
-                out.extend(table_block_lines(headers, rows, width));
+                let table = table_block_lines(headers, rows, width);
+                *row += table.len();
+                out.extend(table);
             }
         }
     }
     out
 }
 
+/// Style for one highlighted code token, expressed through theme roles so
+/// user palettes keep covering code once the buffer-level remap lands.
+fn style_for_token(kind: CodeTokenKind) -> ratatui::style::Style {
+    use ratatui::style::Modifier;
+    use tui_style::theme::ColorRole;
+    let theme = theme::Theme::dark_default();
+    match kind {
+        CodeTokenKind::Plain => theme::tool_call_style(),
+        CodeTokenKind::Keyword => theme
+            .style_for_role(ColorRole::Highlight)
+            .add_modifier(Modifier::BOLD),
+        CodeTokenKind::String => theme.style_for_role(ColorRole::Add),
+        CodeTokenKind::Comment => theme::muted_style(),
+        CodeTokenKind::Number => theme.style_for_role(ColorRole::Warning),
+        CodeTokenKind::Function => theme.style_for_role(ColorRole::Accent),
+        CodeTokenKind::Type => theme.style_for_role(ColorRole::Highlight),
+    }
+}
+
 /// Code block lines with volume caps: beyond `MAX_HIGHLIGHT_LINES` rows or
 /// `MAX_HIGHLIGHT_LINE_BYTES` bytes per row the block degrades to verbatim
-/// plain rows instead of styled spans, bounding per-frame work. No external
-/// highlighter is bundled; code renders in the single tool-call color.
+/// plain rows instead of styled spans, bounding per-frame work.
 pub const MAX_HIGHLIGHT_LINES: usize = 10_000;
 /// Per-row byte cap for styled code rendering.
 pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 4 * 1024;
 
-fn code_block_lines(lines: &[String]) -> Vec<Line<'static>> {
+/// Placeholder (unhighlighted) code block lines: the same row count as the
+/// highlighted form in the single tool-call color, used for offscreen blocks
+/// and oversized degradation.
+fn code_block_lines_plain(lines: &[String]) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     out.push(Line::from(vec![Span::styled(
         "```",
         theme::tool_call_style(),
     )]));
-    if lines.len() > MAX_HIGHLIGHT_LINES
+    for raw in lines {
+        if raw.is_empty() {
+            continue;
+        }
+        out.push(Line::from(vec![Span::styled(
+            raw.clone(),
+            theme::tool_call_style(),
+        )]));
+    }
+    out.push(Line::from(vec![Span::styled(
+        "```",
+        theme::tool_call_style(),
+    )]));
+    out
+}
+
+/// Highlighted code block lines through the shared cache. Oversized blocks
+/// degrade to the placeholder form; disabling highlight (offscreen) yields
+/// the placeholder form with an identical row count so geometry never shifts
+/// between the lazy and highlighted views.
+fn code_block_lines_highlighted(
+    language: Option<&str>,
+    lines: &[String],
+    cache: &mut HighlightCache,
+    enabled: bool,
+) -> Vec<Line<'static>> {
+    if !enabled
+        || lines.len() > MAX_HIGHLIGHT_LINES
         || lines.iter().any(|row| row.len() > MAX_HIGHLIGHT_LINE_BYTES)
     {
-        for raw in lines {
-            if raw.is_empty() {
-                continue;
-            }
-            out.push(Line::raw(raw.clone()));
+        return code_block_lines_plain(lines);
+    }
+    let mut out = Vec::new();
+    out.push(Line::from(vec![Span::styled(
+        "```",
+        theme::tool_call_style(),
+    )]));
+    for raw in lines {
+        if raw.is_empty() {
+            continue;
         }
-    } else {
-        for raw in lines {
-            if raw.is_empty() {
-                continue;
-            }
-            out.push(Line::from(vec![Span::styled(
-                raw.clone(),
-                theme::tool_call_style(),
-            )]));
-        }
+        let spans: Vec<Span<'static>> = cache
+            .highlight(language, raw)
+            .into_iter()
+            .map(|token| Span::styled(token.text, style_for_token(token.kind)))
+            .collect();
+        out.push(Line::from(spans));
     }
     out.push(Line::from(vec![Span::styled(
         "```",
@@ -302,5 +431,98 @@ mod tests {
             super::super::document::document_plain_text(&doc),
             "quoted note"
         );
+    }
+
+    #[test]
+    fn code_block_highlights_keywords_per_language() {
+        use super::super::highlight::HighlightCache;
+        let mut cache = HighlightCache::new();
+        let lines = render_styled_lines_lazy(
+            "```rust\nfn main() { let s = \"hi\"; }\n```\n",
+            80,
+            MotionMode::Static,
+            &mut cache,
+            true,
+            None,
+        );
+        let code_row = lines
+            .iter()
+            .find(|line| {
+                line.spans
+                    .iter()
+                    .any(|span| span.content.as_ref().contains("main"))
+            })
+            .expect("code row present");
+        assert!(
+            code_row.spans.len() > 1,
+            "highlighted code splits into token spans"
+        );
+        assert!(cache.misses() > 0);
+        let text: String = code_row
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(text.contains("fn main()"));
+    }
+
+    #[test]
+    fn offscreen_code_keeps_row_count_without_highlight() {
+        use super::super::highlight::HighlightCache;
+        let src = "head\n\n```rust\nfn a() {}\nfn b() {}\n```\n\ntail\n";
+        let mut full_cache = HighlightCache::new();
+        let full = render_styled_lines_lazy(src, 80, MotionMode::Static, &mut full_cache, true, None);
+        // Visible window covers only the head: the code block stays a
+        // placeholder with identical geometry, highlighted on scroll-in.
+        let mut lazy_cache = HighlightCache::new();
+        let lazy = render_styled_lines_lazy(
+            src,
+            80,
+            MotionMode::Static,
+            &mut lazy_cache,
+            true,
+            Some(0..1),
+        );
+        assert_eq!(full.len(), lazy.len(), "lazy view keeps row count");
+        assert_eq!(text(&full), text(&lazy), "lazy view keeps text");
+        let full_code = full
+            .iter()
+            .filter(|line| {
+                let row: String = line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect();
+                row.contains("fn a")
+            })
+            .count();
+        assert_eq!(full_code, 1);
+        let lazy_row = lazy
+            .iter()
+            .find(|line| {
+                let row: String = line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect();
+                row.contains("fn a")
+            })
+            .expect("placeholder row present");
+        assert_eq!(
+            lazy_row.spans.len(),
+            1,
+            "offscreen code renders as one placeholder span"
+        );
+        // Scrolling the block into view highlights it through the same cache.
+        let mut scrolled_cache = HighlightCache::new();
+        let scrolled = render_styled_lines_lazy(
+            src,
+            80,
+            MotionMode::Static,
+            &mut scrolled_cache,
+            true,
+            Some(0..full.len()),
+        );
+        assert_eq!(text(&scrolled), text(&full));
     }
 }

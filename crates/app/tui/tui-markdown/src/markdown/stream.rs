@@ -31,12 +31,12 @@ pub const DEFAULT_PARSE_INTERVAL_MS: u64 = 16;
 /// Characters that can open (or sit inside) a markdown construct whose
 /// partial parse renders differently from the final one: emphasis `* _`,
 /// code spans/backticks, links/images/refs `[ ] !`, autolinks/entities
-/// `< > &`, escapes `\`, tables `|`, headings `#`, list bullets `- + ~`
-/// and setext/rules `= - ~`. The streaming view is truncated at the first
+/// `< > &`, escapes `\`, tables `|`, headings `#`, list bullets `- + ~`,
+/// setext/rules `= - ~` and math `$`. The streaming view is truncated at the first
 /// occurrence (see [`MarkdownStream::streaming_text`]) so the visible
 /// text can never run ahead of the final plain render.
 const VIEW_UNSAFE_CHARS: &[char] = &[
-    '*', '`', '_', '[', ']', '<', '>', '!', '&', '\\', '|', '#', '-', '+', '~', '=',
+    '*', '`', '_', '[', ']', '<', '>', '!', '&', '\\', '|', '#', '-', '+', '~', '=', '$',
 ];
 
 /// Byte offset where the settled region of `src` ends: the last point a
@@ -698,8 +698,18 @@ mod tests {
     }
 
     #[test]
-    fn streamed_equals_full_mixed_document() {
+    fn streamed_equals_full_math_footnote_and_definition() {
         for seed in 0..8u64 {
+            assert_streamed_equals_full(
+                "Euler $e^{i\\pi} + 1 = 0$ holds\n\nclaim[^n] here\n\n[^n]: the proof\n",
+                seed,
+            );
+            assert_streamed_equals_full("term\n: definition text\n\nafter\n", seed);
+        }
+    }
+
+    #[test]
+    fn streamed_equals_full_mixed_document() {        for seed in 0..8u64 {
             assert_streamed_equals_full(
                 "# Title\n\nSome **bold** text with `code`.\n\n\
                  | A | B |\n| - | - |\n| 1 | 2 |\n\n\

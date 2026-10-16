@@ -142,7 +142,8 @@ impl InteractiveController {
     /// Scroll the scrollback viewport up by one page. When the viewport is
     /// already pinned to the oldest loaded row and the replay is `Partial`,
     /// request the next (older) page instead: the only way to reveal history
-    /// behind the loaded window is to load it.
+    /// behind the loaded window is to load it. Taking manual control abandons
+    /// streaming catch-up through a soft invalidation only.
     pub fn scroll_history_up(&mut self) {
         if self.scroll_at_top {
             if self.pager.is_partial() {
@@ -150,18 +151,25 @@ impl InteractiveController {
             }
             return;
         }
+        self.tail_lag = 0;
+        self.soft_invalidate();
         self.view_scroll = self.view_scroll.saturating_add(10);
     }
 
     /// Scroll the scrollback viewport down by one page towards the live tail.
     pub fn scroll_history_down(&mut self) {
+        self.tail_lag = 0;
+        self.soft_invalidate();
         self.view_scroll = self.view_scroll.saturating_sub(10);
     }
 
-    /// Jump back to the live tail after reading history.
+    /// Jump back to the live tail after reading history. Explicit navigation
+    /// snaps instantly, abandoning any catch-up slide.
     pub fn jump_to_latest(&mut self) {
         self.view_scroll = 0;
+        self.tail_lag = 0;
         self.scroll_at_top = false;
+        self.soft_invalidate();
     }
 
     /// Jump to the oldest loaded row. The offset is pinned beyond the top
@@ -171,7 +179,9 @@ impl InteractiveController {
     pub fn jump_to_oldest(&mut self) {
         let was_at_top = self.scroll_at_top;
         self.view_scroll = usize::MAX;
+        self.tail_lag = 0;
         self.scroll_at_top = true;
+        self.soft_invalidate();
         if was_at_top && self.pager.is_partial() {
             self.request_earlier_page();
         }

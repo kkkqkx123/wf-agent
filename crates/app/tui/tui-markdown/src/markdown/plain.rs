@@ -8,6 +8,7 @@
 use pulldown_cmark::{Event, Parser, Tag};
 
 use super::dialect::parser_options;
+use super::math::latex_to_unicode;
 
 /// Render Markdown source to plain text (line-level output): inline markup
 /// is stripped, soft/hard breaks map to `\n`, and code blocks keep their
@@ -38,8 +39,22 @@ pub fn render_plain_text(src: &str) -> String {
                 }
                 boundary = false;
             }
-            Event::Rule | Event::FootnoteReference(_) => {
+            Event::Rule => {
                 boundary = true;
+            }
+            Event::FootnoteReference(name) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                out.push_str(&format!("[^{name}]"));
+            }
+            Event::InlineMath(math) | Event::DisplayMath(math) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                out.push_str(&latex_to_unicode(math.as_ref()));
             }
             Event::TaskListMarker(checked) => {
                 if boundary && !out.is_empty() && !out.ends_with('\n') {

@@ -95,4 +95,27 @@
 - `wf-tui/src/interactive/render.rs`：`draw` 接收外壳判定的范围（仅做缓存冷启动的升级），不再自行重判，保证播种与渲染使用同一范围。
 - `tui-terminal/src/capabilities.rs`：新增 `TerminalType::supports_synchronized_output` 与探测，使同步输出分支可达。
 
-阶段二至六尚未实现，按上表推进。
+阶段二已实现，涉及：
+
+- `tui-markdown/src/markdown/dialect.rs`：方言启用数学、脚注、定义列表，新增 `DIALECT_VERSION` 并纳入缓存键。
+- `tui-markdown/src/markdown/highlight.rs`（新增）：无依赖按语言分词高亮后端与 256 项有界缓存，含预算统计。
+- `tui-markdown/src/markdown/math.rs`（新增）：LaTeX 到 Unicode 可读回退渲染，原文保留于 `latex` 字段。
+- `tui-markdown/src/markdown/document.rs`：数学显示文本、脚注引用/定义、定义列表折叠为列表块。
+- `tui-markdown/src/markdown/plain.rs` 与 `wf-mini/src/render.rs`：纯文本与行规程前端同步支持数学/脚注。
+- `tui-markdown/src/markdown/styled.rs`：代码块按语言着色（主题角色表达），`document_to_lines_lazy` 支持共享缓存、占位开关与可见窗口懒渲染（占位与高亮行数一致）。
+- `tui-markdown/src/markdown/stream.rs`：`$` 纳入流式不安全字符，新增数学/脚注/定义列表的流式一致性测试。
+- `tui-components/src/transcript.rs`：`contains_code_fence` 与缓存感知的 `display_lines_highlighted`。
+- `tui-core/src/prep_keys.rs`：准备/行缓存键新增方言与高亮版本输入。
+- `tui-render/src/prep_cache/scrollback.rs`：围栏代码延迟高亮、`ensure_highlighted_for_window` 可见即高亮（几何不变）、`highlight_stats` 预算观测。
+
+阶段三已实现，涉及：
+
+- `tui-core/src/tail.rs`（新增）：追赶步长与单视口滞后上限的纯函数，含逐帧曲线测试。
+- `wf-tui/src/interactive.rs`：`tail_lag` 滞后量、`advance_tail_catchup` 逐帧滑动（静态渲染瞬时贴底）、`soft_invalidate` 软失效；快照采用有效滚动偏移。
+- `wf-tui/src/interactive/turn.rs`：新回合/回放重置滞后，追加按视口上限增长滞后。
+- `wf-tui/src/interactive/keys.rs` 与 `anchors.rs`：显式导航瞬时贴底并 abandon 滞后，滚动接管仅经软失效。
+- `wf-tui/src/interactive/render.rs`：绘制采用追赶后的有效偏移，窗口确定后升级可见高亮。
+- `tui-core/src/redraw.rs`：`InvalidationKind`（软/硬）与 `InvalidationSentinel`，`FrameCache::invalidate`。
+- `wf-tui/src/tui.rs`：外壳持有哨兵并在提交点统一应用（硬清屏仅来自绘制崩溃恢复与挂起恢复，重排/缩放仅软失效）。
+
+阶段四至六尚未实现，按上表推进。

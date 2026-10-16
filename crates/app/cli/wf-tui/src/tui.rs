@@ -103,6 +103,11 @@ pub struct TuiApp {
     /// key / data / resize / theme change requests here, and the submit
     /// point takes it exactly once per frame.
     pending_scope: crate::redraw::PendingScope,
+    /// Pending surface invalidation merged by severity (Hard > Soft): hard
+    /// clears the terminal before recomposing (real desynchronization only),
+    /// soft replays fully from retained state so scroll and reflow never
+    /// flash placeholders with an intermediate clear.
+    invalidation: crate::redraw::InvalidationSentinel,
     /// Previous composed frame before theme adaptation. Local scopes seed
     /// the composition from it and overwrite only their own cells, so the
     /// rest of the screen survives instead of relying on the backend to keep
@@ -218,6 +223,7 @@ impl TuiApp {
                 pending.request(crate::redraw::RedrawScope::Full);
                 pending
             },
+            invalidation: crate::redraw::InvalidationSentinel::new(),
             frame_cache: crate::redraw::FrameCache::new(),
             last_anim_ms: None,
             last_active: Instant::now(),
@@ -449,7 +455,11 @@ impl TuiApp {
             self.check_suspend(guard, terminal)?;
 
             // Settle a debounced resize once the storm passes; force one reflow.
+            // Reflow only needs a soft invalidation: the next frame replays
+            // fully from retained state with no intermediate clear.
             if self.resize.settle_if_elapsed(self.now_ms()).is_some() {
+                self.invalidation
+                    .request(crate::redraw::InvalidationKind::Soft);
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 self.pending_scope
                     .note_source(crate::redraw::EventSource::Input);
@@ -483,6 +493,24 @@ impl TuiApp {
                     self.frame.frame_done();
                     self.pending_scope.take();
                 } else {
+                    // Apply one pending surface invalidation before composing:
+                    // hard clears once (real desynchronization only), soft
+                    // drops the retained seed so the frame replays fully with
+                    // no intermediate clear behind placeholders.
+                    match self.invalidation.take() {
+                        crate::redraw::InvalidationKind::Hard => {
+                            terminal.clear().map_err(|e| {
+                                CliError::Terminal(format!("clear failed: {e}"))
+                            })?;
+                            self.frame_cache
+                                .invalidate(crate::redraw::InvalidationKind::Hard);
+                        }
+                        crate::redraw::InvalidationKind::Soft => {
+                            self.frame_cache
+                                .invalidate(crate::redraw::InvalidationKind::Soft);
+                        }
+                        crate::redraw::InvalidationKind::None => {}
+                    }
                     let data = self.display_data();
                     let sync = crate::perf::should_sync_output(
                         self.perf_policy,
@@ -797,7 +825,11 @@ impl TuiApp {
         // while we were stopped.
         let (cols, rows) = size()?;
         terminal.resize(Rect::new(0, 0, cols, rows))?;
-        terminal.clear()?;
+        // A suspend cycle truly desynchronizes the surface (the shell below
+        // painted over it), so this is a hard invalidation: the submit point
+        // clears once before recomposing. Nothing else requests hard.
+        self.invalidation
+            .request(crate::redraw::InvalidationKind::Hard);
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
         Ok(())
     }
@@ -1020,7 +1052,9 @@ impl TuiApp {
     }
 
     /// Render the panic fallback after a draw panic: the loop survives and
-    /// the next frame paints normally again.
+    /// the next frame paints normally again. A panicking widget truly
+    /// desynchronizes the surface, so the next frame hard-clears before
+    /// recomposing.
     fn draw_recovered(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -1031,6 +1065,8 @@ impl TuiApp {
                 crate::render_model::draw_recovered_frame(frame.buffer_mut(), area);
             })
             .map_err(|e| CliError::Terminal(format!("recovered draw failed: {e}")))?;
+        self.invalidation
+            .request(crate::redraw::InvalidationKind::Hard);
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
         Ok(())
     }

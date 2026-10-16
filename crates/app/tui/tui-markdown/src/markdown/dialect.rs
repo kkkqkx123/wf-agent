@@ -7,17 +7,29 @@
 //! consumers before adding or removing an option, and keep the
 //! member-locking unit tests in sync with that decision.
 //!
-//! Current dialect: CommonMark plus tables, task lists and strikethrough.
-//! Deliberately excluded: smart punctuation (rewrites literal text),
-//! metadata blocks (front matter would leak into rendered output), math,
-//! wikilinks, GFM blockquote tags, footnotes and definition lists (no
+//! Current dialect: CommonMark plus tables, task lists, strikethrough,
+//! math, footnotes and definition lists. Deliberately excluded: smart
+//! punctuation (rewrites literal text), metadata blocks (front matter would
+//! leak into rendered output), wikilinks and GFM blockquote tags (no
 //! rendering branches designed yet).
+//!
+//! [`DIALECT_VERSION`] identifies this option set for preparation and render
+//! cache keys: any option change must bump it so stale laid-out rows never
+//! survive a dialect switch.
 
 use pulldown_cmark::Options;
 
+/// Version of the canonical option set, folded into cache keys.
+pub const DIALECT_VERSION: u64 = 2;
+
 /// Canonical parser options shared by every renderer.
 pub fn parser_options() -> Options {
-    Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH
+    Options::ENABLE_TABLES
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_MATH
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_DEFINITION_LIST
 }
 
 /// True when the source tail is table-risky: the last non-blank line
@@ -61,18 +73,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dialect_enables_exactly_three_extensions() {
+    fn dialect_enables_the_canonical_extensions() {
         let options = parser_options();
         assert!(options.contains(Options::ENABLE_TABLES));
         assert!(options.contains(Options::ENABLE_TASKLISTS));
         assert!(options.contains(Options::ENABLE_STRIKETHROUGH));
+        assert!(options.contains(Options::ENABLE_MATH));
+        assert!(options.contains(Options::ENABLE_FOOTNOTES));
+        assert!(options.contains(Options::ENABLE_DEFINITION_LIST));
         assert_eq!(
             options,
-            Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_STRIKETHROUGH
+            Options::ENABLE_TABLES
+                | Options::ENABLE_TASKLISTS
+                | Options::ENABLE_STRIKETHROUGH
+                | Options::ENABLE_MATH
+                | Options::ENABLE_FOOTNOTES
+                | Options::ENABLE_DEFINITION_LIST
         );
         assert!(!options.contains(Options::ENABLE_SMART_PUNCTUATION));
-        assert!(!options.contains(Options::ENABLE_FOOTNOTES));
         assert!(!options.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
+        assert_eq!(DIALECT_VERSION, 2);
     }
 
     #[test]

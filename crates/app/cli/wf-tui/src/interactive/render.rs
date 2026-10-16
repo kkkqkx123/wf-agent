@@ -264,12 +264,20 @@ impl InteractiveController {
         // row is reached when it equals the surplus over the viewport. The
         // scroll pin is refreshed here so key handling (which cannot know the
         // terminal size) can decide whether another page is reachable. Only
-        // the visible window is cloned; the cached rows stay shared.
+        // the visible window is cloned; the cached rows stay shared. While
+        // tail-following, streaming catch-up slides the window down a few
+        // rows per frame instead of teleporting it.
         let max_scroll = total.saturating_sub(capacity);
         self.view_scroll = self.view_scroll.min(max_scroll);
         self.scroll_at_top = self.view_scroll >= max_scroll;
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+        let effective = self.advance_tail_catchup(capacity);
+        let start = scrollbar::top_for_tail(total, capacity, effective);
         let end = start.saturating_add(capacity).min(total);
+        // Upgrade deferred code highlights intersecting the window. Geometry
+        // matches by construction, so the window stays valid and placeholders
+        // never flash.
+        self.prep
+            .ensure_highlighted_for_window(&self.scrollback, start..end);
         let mut visible: Vec<Line<'static>> = Vec::with_capacity(end.saturating_sub(start));
         if start < cached_len {
             let cached_end = end.min(cached_len);
@@ -310,7 +318,7 @@ impl InteractiveController {
             width,
             height,
             render_mode: 0,
-            view_scroll: self.view_scroll,
+            view_scroll: self.view_scroll.saturating_add(self.tail_lag),
             anim_tick: crate::clock::anim_bucket(now_ms),
             image_signature: self.image_signature,
             expanded_version: self.expanded_version,
@@ -385,8 +393,11 @@ impl InteractiveController {
         self.scroll_cache_key = Some(self.prep.key());
         let max_scroll = total.saturating_sub(capacity);
         self.view_scroll = self.view_scroll.min(max_scroll);
-        let start = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+        let effective = self.advance_tail_catchup(capacity);
+        let start = scrollbar::top_for_tail(total, capacity, effective);
         let end = start.saturating_add(capacity).min(total);
+        self.prep
+            .ensure_highlighted_for_window(&self.scrollback, start..end);
         let mut visible: Vec<Line<'static>> = Vec::with_capacity(end.saturating_sub(start));
         if start < cached_len {
             let cached_end = end.min(cached_len);

@@ -275,6 +275,17 @@ impl HistoryLine {
         hasher.finish()
     }
 
+    /// Whether the source holds a fenced code block: the preparation cache
+    /// defers highlighting for such lines and upgrades the visible window at
+    /// draw time, so offscreen code never pays the tokenizer cost.
+    pub fn contains_code_fence(&self) -> bool {
+        self.text.lines.iter().any(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.content.as_ref().contains("```"))
+        })
+    }
+
     /// Reflow the source text to `width` columns. Always returns at least
     /// one line per source line; empty content yields a single empty line.
     ///
@@ -333,18 +344,40 @@ impl HistoryLine {
     /// result is a drop-in replacement for the plain reflow path. Shimmer is
     /// applied only while the line is animating, matching the plain path.
     fn markdown_lines_at(&self, width: u16, now_ms: u64) -> Vec<Line<'static>> {
+        self.markdown_lines_at_highlighted(
+            width,
+            now_ms,
+            &mut tui_markdown::markdown::highlight::HighlightCache::new(),
+            true,
+        )
+    }
+
+    /// Markdown rendering through a shared highlight cache.
+    ///
+    /// `highlight` selects the highlighted form for fenced code; the
+    /// placeholder form keeps the identical row count so lazy and highlighted
+    /// layouts share geometry.
+    pub fn markdown_lines_at_highlighted(
+        &self,
+        width: u16,
+        now_ms: u64,
+        cache: &mut tui_markdown::markdown::highlight::HighlightCache,
+        highlight: bool,
+    ) -> Vec<Line<'static>> {
         let w = usize::from(width.max(1));
         let motion = if self.is_animating_at(now_ms) {
             self.motion_mode
         } else {
             MotionMode::Static
         };
-        let rendered = tui_markdown::markdown::styled::render_styled_lines_animated(
+        let rendered = tui_markdown::markdown::styled::render_styled_lines_lazy(
             &self.source_text(),
             u16::try_from(w).unwrap_or(u16::MAX),
             motion,
-        );
-        let mut out = Vec::new();
+            cache,
+            highlight,
+            None,
+        );        let mut out = Vec::new();
         for line in &rendered {
             if line.width() <= w {
                 out.push(own_line(line));
@@ -356,6 +389,32 @@ impl HistoryLine {
             out.push(Line::from(""));
         }
         out
+    }
+
+    /// Reflow with a shared highlight cache: Markdown fence lines highlight
+    /// when `highlight` holds and render as same-geometry placeholders
+    /// otherwise; plain lines ignore both and reflow verbatim.
+    pub fn display_lines_highlighted(
+        &self,
+        width: u16,
+        cache: &mut tui_markdown::markdown::highlight::HighlightCache,
+        highlight: bool,
+    ) -> Vec<Line<'static>> {
+        self.display_lines_highlighted_at(width, tui_clock::clock::now_ms(), cache, highlight)
+    }
+
+    /// Reflow with a shared highlight cache for an explicit clock value.
+    pub fn display_lines_highlighted_at(
+        &self,
+        width: u16,
+        now_ms: u64,
+        cache: &mut tui_markdown::markdown::highlight::HighlightCache,
+        highlight: bool,
+    ) -> Vec<Line<'static>> {
+        if self.render == LineRender::Markdown {
+            return self.markdown_lines_at_highlighted(width, now_ms, cache, highlight);
+        }
+        self.display_lines_at(width, now_ms)
     }
 
     /// Number of viewport rows this line occupies at `width`.
@@ -668,6 +727,20 @@ mod tests {
         );
         // The stored source is untouched by rendering.
         assert_eq!(h.source_text(), src);
+    }
+
+    #[test]
+    fn markdown_highlight_toggle_keeps_geometry_and_text() {
+        use tui_markdown::markdown::highlight::HighlightCache;
+        let h = HistoryLine::markdown("```rust\nfn main() {}\n```");
+        assert!(h.contains_code_fence());
+        assert!(!HistoryLine::new("plain text").contains_code_fence());
+        let mut highlighted_cache = HighlightCache::new();
+        let highlighted = h.display_lines_highlighted(40, &mut highlighted_cache, true);
+        let mut plain_cache = HighlightCache::new();
+        let plain = h.display_lines_highlighted(40, &mut plain_cache, false);
+        assert_eq!(highlighted.len(), plain.len());
+        assert_eq!(lines_to_string(&highlighted), lines_to_string(&plain));
     }
 
     #[test]

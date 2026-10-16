@@ -232,7 +232,9 @@ impl InteractiveController {
         let max_scroll = full_total.saturating_sub(capacity);
         let desired_top = above.saturating_sub(JUMP_CONTEXT_ROWS);
         self.view_scroll = max_scroll.saturating_sub(desired_top);
+        self.tail_lag = 0;
         self.scroll_at_top = false;
+        self.soft_invalidate();
     }
 
     /// Cycle through one kind newest-first. Trimmed rows drop their

@@ -25,6 +25,7 @@
 use crossterm::style::{Attribute, Color, ContentStyle, StyledContent, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd};
 
+use tui_markdown::markdown::math::latex_to_unicode;
 use tui_markdown::markdown::{has_table_risk, parser_options, settled_boundary};
 use wf_cli_shared::display::MarkdownMode;
 
@@ -375,7 +376,30 @@ pub fn render_styled(src: &str) -> String {
                 }
                 boundary = false;
             }
-            _ => {}
+            Event::FootnoteReference(name) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                flush_quote_marker(&mut out, &mut quote_marker_due);
+                out.push_str(&dim_span(&format!("[^{name}]")));
+            }
+            Event::InlineMath(math) => {
+                if boundary && !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                boundary = false;
+                flush_quote_marker(&mut out, &mut quote_marker_due);
+                out.push_str(&cyan_span(&latex_to_unicode(math.as_ref())));
+            }
+            Event::DisplayMath(math) => {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                flush_quote_marker(&mut out, &mut quote_marker_due);
+                out.push_str(&cyan_span(&latex_to_unicode(math.as_ref())));
+                boundary = true;
+            }
         }
     }
     out

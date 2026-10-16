@@ -5,7 +5,11 @@
 //! content changes advance through incremental append/prepend paths. Theme
 //! and animation changes never invalidate the layout: the discretized
 //! animation tick lives in the redraw snapshot and the render view, not in
-//! this key.
+//! this key. Highlight backend and markdown dialect versions ride along so a
+//! highlighter or dialect switch never reuses stale laid-out rows.
+
+use tui_markdown::markdown::dialect::DIALECT_VERSION;
+use tui_markdown::markdown::highlight::HIGHLIGHT_VERSION;
 
 /// Key identifying one prepared scrollback revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -18,15 +22,27 @@ pub struct ScrollPrepKey {
     /// absolute numbering continuity, so a hidden-count mismatch forces a
     /// full relayout instead of reusing numbered rows.
     pub hidden: u64,
+    /// Canonical markdown dialect version (see `dialect::DIALECT_VERSION`).
+    pub dialect: u64,
+    /// Code highlight backend version (see `highlight::HIGHLIGHT_VERSION`).
+    pub highlight: u64,
 }
 
 impl ScrollPrepKey {
+    /// Current dialect and highlight inputs for a fresh key.
+    pub fn inputs() -> (u64, u64) {
+        (DIALECT_VERSION, HIGHLIGHT_VERSION)
+    }
+
     /// Header portion of the key: pinned head rows depend only on width and
-    /// version, never on hidden compaction or streaming state.
+    /// version, never on hidden compaction or streaming state. Dialect and
+    /// highlight inputs still participate: they change laid-out rows.
     pub fn header_key(self) -> HeaderPrepKey {
         HeaderPrepKey {
             width: self.width,
             version: self.version,
+            dialect: self.dialect,
+            highlight: self.highlight,
         }
     }
 
@@ -38,6 +54,8 @@ impl ScrollPrepKey {
             width: self.width,
             version: self.version,
             hidden: self.hidden,
+            dialect: self.dialect,
+            highlight: self.highlight,
         }
     }
 }
@@ -50,6 +68,10 @@ pub struct HeaderPrepKey {
     pub width: u16,
     /// Content version of the header section.
     pub version: u64,
+    /// Canonical markdown dialect version.
+    pub dialect: u64,
+    /// Code highlight backend version.
+    pub highlight: u64,
 }
 
 /// Body cache key: scrollable tail rows. Hidden compaction participates
@@ -63,6 +85,10 @@ pub struct BodyPrepKey {
     pub version: u64,
     /// Compacted hidden prompt count.
     pub hidden: u64,
+    /// Canonical markdown dialect version.
+    pub dialect: u64,
+    /// Code highlight backend version.
+    pub highlight: u64,
 }
 
 /// Render mode bits folded into the full-frame identity (overlay, diff and
@@ -75,21 +101,29 @@ pub const RENDER_MODE_DIAGRAM: u8 = 0b0100;
 
 /// Identity of one cached message row: content hash plus layout width.
 /// Width changes invalidate every entry; content changes only miss the
-/// affected messages.
+/// affected messages. Dialect and highlight inputs participate so a backend
+/// switch never reuses stale rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AuxMapKey {
     /// Content identity of the message (see `HistoryLine::identity`).
     pub message_hash: u64,
     /// Layout width in columns.
     pub width: u16,
+    /// Canonical markdown dialect version.
+    pub dialect: u64,
+    /// Code highlight backend version.
+    pub highlight: u64,
 }
 
 impl AuxMapKey {
-    /// New auxiliary-map identity.
+    /// New auxiliary-map identity under the current dialect and highlight
+    /// backend.
     pub fn new(message_hash: u64, width: u16) -> Self {
         Self {
             message_hash,
             width,
+            dialect: DIALECT_VERSION,
+            highlight: HIGHLIGHT_VERSION,
         }
     }
 }
@@ -160,5 +194,15 @@ mod tests {
         assert_eq!(AuxMapKey::new(1, 80), AuxMapKey::new(1, 80));
         assert_ne!(AuxMapKey::new(1, 80), AuxMapKey::new(2, 80));
         assert_ne!(AuxMapKey::new(1, 80), AuxMapKey::new(1, 100));
+    }
+
+    #[test]
+    fn keys_carry_dialect_and_highlight_inputs() {
+        let key = AuxMapKey::new(1, 80);
+        assert_eq!(key.dialect, super::DIALECT_VERSION);
+        assert_eq!(key.highlight, super::HIGHLIGHT_VERSION);
+        let (dialect, highlight) = super::ScrollPrepKey::inputs();
+        assert_eq!(dialect, super::DIALECT_VERSION);
+        assert_eq!(highlight, super::HIGHLIGHT_VERSION);
     }
 }

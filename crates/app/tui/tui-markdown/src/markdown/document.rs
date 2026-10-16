@@ -9,6 +9,7 @@
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 use super::dialect::parser_options;
+use super::math::latex_to_unicode;
 
 /// Semantic style role for a span, independent of any backend palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -372,6 +373,13 @@ pub fn parse_document(src: &str) -> Document {
     let mut list_items: Vec<Vec<StyledLine>> = Vec::new();
     let mut in_item = false;
     let mut item_lines: Vec<StyledLine> = Vec::new();
+    // Dedicated buffers for definition lists so they never clobber an open
+    // bullet list: titles render as their own rows, definitions as indented
+    // rows, all folded into a plain list block.
+    let mut def_items: Vec<Vec<StyledLine>> = Vec::new();
+    let mut in_def_item = false;
+    let mut def_lines: Vec<StyledLine> = Vec::new();
+    let mut def_indent = false;
     let mut bold_depth = 0usize;
     let mut italic_depth = 0usize;
     let mut strike_depth = 0usize;
@@ -424,6 +432,25 @@ pub fn parse_document(src: &str) -> Document {
                 Tag::Item => {
                     in_item = true;
                     item_lines.clear();
+                }
+                Tag::DefinitionList => {
+                    def_items.clear();
+                }
+                Tag::DefinitionListTitle => {
+                    in_def_item = true;
+                    def_lines.clear();
+                    def_indent = false;
+                }
+                Tag::DefinitionListDefinition => {
+                    in_def_item = true;
+                    def_lines.clear();
+                    def_indent = true;
+                }
+                Tag::FootnoteDefinition(label) => {
+                    current.push(StyledSpan::text(
+                        format!("[^{label}]: "),
+                        StyleRole::Dim,
+                    ));
                 }
                 Tag::Emphasis => italic_depth += 1,
                 Tag::Strong => bold_depth += 1,
@@ -488,6 +515,26 @@ pub fn parse_document(src: &str) -> Document {
                 TagEnd::List(_) => {
                     if !list_items.is_empty() {
                         blocks.push(DocBlock::List(std::mem::take(&mut list_items)));
+                    }
+                }
+                TagEnd::DefinitionListTitle | TagEnd::DefinitionListDefinition => {
+                    flush_line(&mut current, &mut def_lines);
+                    if def_indent {
+                        for line in &mut def_lines {
+                            line.spans.insert(
+                                0,
+                                StyledSpan::text("  ".to_string(), StyleRole::Dim),
+                            );
+                        }
+                    }
+                    if !def_lines.is_empty() {
+                        def_items.push(std::mem::take(&mut def_lines));
+                    }
+                    in_def_item = false;
+                }
+                TagEnd::DefinitionList => {
+                    if !def_items.is_empty() {
+                        blocks.push(DocBlock::List(std::mem::take(&mut def_items)));
                     }
                 }
                 TagEnd::Emphasis => {
@@ -584,23 +631,33 @@ pub fn parse_document(src: &str) -> Document {
                 if in_item {
                     flush_line(&mut current, &mut item_lines);
                 }
+                if in_def_item {
+                    flush_line(&mut current, &mut def_lines);
+                }
             }
             Event::Rule => {
                 flush_line(&mut current, &mut lines);
                 blocks.push(DocBlock::Rule);
             }
-            Event::FootnoteReference(_) => {}
+            Event::FootnoteReference(name) => {
+                current.push(StyledSpan::text(
+                    format!("[^{name}]"),
+                    StyleRole::Dim,
+                ));
+            }
             Event::TaskListMarker(checked) => {
                 let marker = if checked { "[x] " } else { "[ ] " };
                 current.push(StyledSpan::text(marker, StyleRole::Text));
             }
             Event::InlineMath(math) => {
-                current.push(StyledSpan::math(math.to_string(), math.to_string()));
+                let display = latex_to_unicode(math.as_ref());
+                current.push(StyledSpan::math(display, math.to_string()));
             }
             Event::DisplayMath(math) => {
                 flush_line(&mut current, &mut lines);
+                let display = latex_to_unicode(math.as_ref());
                 lines.push(StyledLine {
-                    spans: vec![StyledSpan::math(math.to_string(), math.to_string())],
+                    spans: vec![StyledSpan::math(display, math.to_string())],
                 });
                 if !lines.is_empty() {
                     blocks.push(DocBlock::Paragraph(std::mem::take(&mut lines)));
@@ -617,6 +674,12 @@ pub fn parse_document(src: &str) -> Document {
     }
     if !list_items.is_empty() {
         blocks.push(DocBlock::List(list_items));
+    }
+    if !def_lines.is_empty() {
+        def_items.push(def_lines);
+    }
+    if !def_items.is_empty() {
+        blocks.push(DocBlock::List(def_items));
     }
     Document { blocks }
 }
@@ -712,6 +775,54 @@ mod tests {
         };
         assert_eq!(lines.len(), 2, "the soft break keeps two logical lines");
         assert_eq!(document_plain_text(&doc), "quoted note\ncontinued line");
+    }
+
+    #[test]
+    fn math_spans_keep_unicode_display_beside_raw_latex() {
+        let doc = parse_document("Euler: $e^{i\\\\pi} + 1 = 0$ end\n");
+        let mut found = false;
+        for block in &doc.blocks {
+            let DocBlock::Paragraph(lines) = block else {
+                continue;
+            };
+            for line in lines {
+                for span in &line.spans {
+                    if let Some(latex) = &span.latex {
+                        found = true;
+                        assert!(!span.text.is_empty());
+                        assert!(latex.contains('e'));
+                    }
+                }
+            }
+        }
+        assert!(found, "inline math must produce a latex span");
+        assert!(document_plain_text(&doc).contains('e'));
+    }
+
+    #[test]
+    fn footnote_reference_renders_inline_marker() {
+        let doc = parse_document("claim[^note] done\n\n[^note]: the proof\n");
+        let plain = document_plain_text(&doc);
+        assert!(plain.contains("[^note]"), "plain was {plain:?}");
+    }
+
+    #[test]
+    fn definition_list_folds_into_list_rows() {
+        let doc = parse_document("term\n: definition text\n");
+        let kinds: Vec<&str> = doc
+            .blocks
+            .iter()
+            .map(|block| match block {
+                DocBlock::List(_) => "list",
+                DocBlock::Paragraph(_) => "para",
+                _ => "other",
+            })
+            .collect();
+        assert!(
+            kinds.contains(&"list"),
+            "definition list must fold into a list block, got {kinds:?}"
+        );
+        assert!(document_plain_text(&doc).contains("definition text"));
     }
 
     #[test]

@@ -7,6 +7,7 @@ use tui_components::transcript::HistoryLine;
 use tui_core::prep_keys::{
     estimate_bytes, is_oversize, AuxMapKey, ScrollPrepKey, PREP_CACHE_MAX_BYTES,
 };
+use tui_markdown::markdown::highlight::HighlightCache;
 
 use super::aux_map::AuxLineMap;
 use super::oversize::OversizeCache;
@@ -33,11 +34,16 @@ pub struct PreparedScrollback {
     /// Per-source-line identity fingerprints parallel to `index`; lets
     /// `sync_body_edit` find the first changed line without string compares.
     identities: Vec<u64>,
+    /// Per-source highlight state parallel to `index`: fenced code lines lay
+    /// out as same-geometry placeholders and upgrade on demand when the draw
+    /// path reports them visible.
+    plain: Vec<bool>,
     last_layout_source_lines: usize,
     last_layout_rows: usize,
     row_cache: RowCache,
     aux_map: AuxLineMap,
     oversize: OversizeCache,
+    highlight: HighlightCache,
 }
 
 impl PreparedScrollback {
@@ -52,20 +58,25 @@ impl PreparedScrollback {
             rows: Vec::new(),
             index: Vec::new(),
             identities: Vec::new(),
+            plain: Vec::new(),
             last_layout_source_lines: 0,
             last_layout_rows: 0,
             row_cache: RowCache::new(),
             aux_map: AuxLineMap::new(),
             oversize: OversizeCache::new(),
+            highlight: HighlightCache::new(),
         }
     }
 
     /// Cache key for the current revision.
     pub fn key(&self) -> ScrollPrepKey {
+        let (dialect, highlight) = ScrollPrepKey::inputs();
         ScrollPrepKey {
             width: self.width,
             version: self.version,
             hidden: self.hidden,
+            dialect,
+            highlight,
         }
     }
 
@@ -73,19 +84,25 @@ impl PreparedScrollback {
     /// version but reuse header rows when the leading `header_len` identities
     /// are unchanged (checked in `sync_body_edit`).
     pub fn header_key(&self) -> tui_core::prep_keys::HeaderPrepKey {
+        let (dialect, highlight) = ScrollPrepKey::inputs();
         tui_core::prep_keys::HeaderPrepKey {
             width: self.width,
             version: self.version,
+            dialect,
+            highlight,
         }
     }
 
     /// Body-section effective key: width, version and hidden compaction. The
     /// streaming tail never participates; it only joins the frame assembly.
     pub fn body_key(&self) -> tui_core::prep_keys::BodyPrepKey {
+        let (dialect, highlight) = ScrollPrepKey::inputs();
         tui_core::prep_keys::BodyPrepKey {
             width: self.width,
             version: self.version,
             hidden: self.hidden,
+            dialect,
+            highlight,
         }
     }
 
@@ -150,18 +167,96 @@ impl PreparedScrollback {
     }
 
     /// Lay out one source line, reusing the row cache on a hit. Returns the
-    /// display rows and whether a real layout ran.
-    fn lay_out_row(&mut self, source: &HistoryLine, width: u16) -> (Vec<Line<'static>>, bool) {
-        let identity = source.identity();
-        let key = AuxMapKey::new(identity, width);
-        if let Some(cached) = self.row_cache.get(key).map(|rows| rows.to_vec()) {
-            self.aux_map.record(identity, width, cached.len());
-            return (cached, false);
+    /// display rows and whether a real layout ran. Fenced code lays out as a
+    /// same-geometry placeholder when `highlight` is false and upgrades on
+    /// demand once the draw path reports it visible.
+    fn lay_out_row(
+        &mut self,
+        source: &HistoryLine,
+        width: u16,
+        highlight: bool,
+    ) -> (Vec<Line<'static>>, bool) {
+        if highlight {
+            let identity = source.identity();
+            let key = AuxMapKey::new(identity, width);
+            if let Some(cached) = self.row_cache.get(key).map(|rows| rows.to_vec()) {
+                self.aux_map.record(identity, width, cached.len());
+                return (cached, false);
+            }
+            let laid = source.display_lines_highlighted(width, &mut self.highlight, true);
+            self.aux_map.record(identity, width, laid.len());
+            self.row_cache.insert(key, laid.clone());
+            return (laid, true);
         }
-        let laid = source.display_lines(width);
-        self.aux_map.record(identity, width, laid.len());
-        self.row_cache.insert(key, laid.clone());
+        let laid = source.display_lines_highlighted(width, &mut self.highlight, false);
+        self.aux_map.record(source.identity(), width, laid.len());
         (laid, true)
+    }
+
+    /// Whether `source` defers highlighting to the visible-window upgrade:
+    /// only fenced code pays the tokenizer cost, everything else lays out
+    /// highlighted immediately.
+    fn defer_highlight(source: &HistoryLine) -> bool {
+        source.contains_code_fence()
+    }
+
+    /// Upgrade placeholder rows intersecting `window` (display-row units) to
+    /// their highlighted form. Row counts match by construction, so the index
+    /// stays valid and the viewport never shifts; a geometry drift falls back
+    /// to a full highlighted relayout. Returns whether any row changed.
+    pub fn ensure_highlighted_for_window(
+        &mut self,
+        full: &[HistoryLine],
+        window: std::ops::Range<usize>,
+    ) -> bool {
+        if self.rows.is_empty() || window.start >= self.rows.len() || full.len() != self.source_len
+        {
+            return false;
+        }
+        let end = window.end.min(self.rows.len());
+        let mut targets = Vec::new();
+        for (idx, range) in self.index.iter().enumerate() {
+            if !self.plain.get(idx).copied().unwrap_or(false) || full.get(idx).is_none() {
+                continue;
+            }
+            if range.start < end && range.start + range.len > window.start {
+                targets.push(idx);
+            }
+        }
+        if targets.is_empty() {
+            return false;
+        }
+        let width = self.width;
+        let mut changed = false;
+        for idx in targets {
+            let range = self.index[idx];
+            let (laid, _) = self.lay_out_row(&full[idx], width, true);
+            if laid.len() != range.len {
+                self.relayout_all_highlighted(full, width, self.version, self.hidden);
+                return true;
+            }
+            self.rows
+                .splice(range.start..range.start + range.len, laid);
+            self.plain[idx] = false;
+            changed = true;
+        }
+        changed
+    }
+
+    /// Highlight cache usage for frame-budget asserts: entries, bytes, hits,
+    /// misses.
+    pub fn highlight_stats(&self) -> (usize, usize, u64, u64) {
+        (
+            self.highlight.len(),
+            self.highlight.bytes(),
+            self.highlight.hits(),
+            self.highlight.misses(),
+        )
+    }
+
+    /// Placeholder (unhighlighted) source rows currently retained.
+    pub fn plain_count(&self) -> usize {
+        self.plain.iter().filter(|slot| **slot).count()
     }
     /// True when the cached content exceeds the byte budget and runs in
     /// degraded single-entry mode.
@@ -241,13 +336,15 @@ impl PreparedScrollback {
         let mut misses = 0usize;
         for source in fresh {
             let start = self.rows.len();
-            let (laid, miss) = self.lay_out_row(source, width);
+            let highlight = !Self::defer_highlight(source);
+            let (laid, miss) = self.lay_out_row(source, width, highlight);
             laid_rows += laid.len();
             misses += usize::from(miss);
             let len = laid.len();
             self.rows.extend(laid);
             self.index.push(RowRange { start, len });
             self.identities.push(source.identity());
+            self.plain.push(!highlight);
         }
         self.source_len = full.len();
         self.version = version;
@@ -257,6 +354,8 @@ impl PreparedScrollback {
         self.last_layout_rows = laid_rows;
         self.enforce_byte_budget();
         self.retain_oversize();
+        debug_assert_eq!(self.plain.len(), self.index.len());
+        debug_assert_eq!(self.identities.len(), self.index.len());
     }
 
     /// Tail-only rebuild for in-place edits: find the first body source line
@@ -298,17 +397,20 @@ impl PreparedScrollback {
         self.rows.truncate(base);
         self.index.truncate(first_changed);
         self.identities.truncate(first_changed);
+        self.plain.truncate(first_changed);
         let mut laid_rows = 0usize;
         let mut misses = 0usize;
         for source in &full[first_changed..] {
             let start = self.rows.len();
-            let (laid, miss) = self.lay_out_row(source, width);
+            let highlight = !Self::defer_highlight(source);
+            let (laid, miss) = self.lay_out_row(source, width, highlight);
             laid_rows += laid.len();
             misses += usize::from(miss);
             let len = laid.len();
             self.rows.extend(laid);
             self.index.push(RowRange { start, len });
             self.identities.push(source.identity());
+            self.plain.push(!highlight);
         }
         self.version = version;
         self.hidden = hidden;
@@ -316,6 +418,8 @@ impl PreparedScrollback {
         self.last_layout_rows = laid_rows;
         self.enforce_byte_budget();
         self.retain_oversize();
+        debug_assert_eq!(self.plain.len(), self.index.len());
+        debug_assert_eq!(self.identities.len(), self.index.len());
     }
 
     /// Prepend path: lay out the new head then splice it in front, shifting
@@ -368,36 +472,44 @@ impl PreparedScrollback {
         let mut head_rows: Vec<Line<'static>> = Vec::new();
         let mut head_index: Vec<RowRange> = Vec::with_capacity(added);
         let mut head_identities: Vec<u64> = Vec::with_capacity(added);
+        let mut head_plain: Vec<bool> = Vec::with_capacity(added);
         let mut misses = 0usize;
         for source in &full[..added] {
             let start = head_rows.len();
-            let (laid, miss) = self.lay_out_row(source, width);
+            let highlight = !Self::defer_highlight(source);
+            let (laid, miss) = self.lay_out_row(source, width, highlight);
             misses += usize::from(miss);
             let len = laid.len();
             head_rows.extend(laid);
             head_index.push(RowRange { start, len });
             head_identities.push(source.identity());
+            head_plain.push(!highlight);
         }
         let shift = head_rows.len();
         let mut rows = std::mem::take(&mut self.rows);
         let mut index = std::mem::take(&mut self.index);
         let mut identities = std::mem::take(&mut self.identities);
+        let mut plain = std::mem::take(&mut self.plain);
         for range in &mut index {
             range.start += shift;
         }
         head_rows.append(&mut rows);
         head_index.append(&mut index);
         head_identities.append(&mut identities);
+        head_plain.append(&mut plain);
         let laid_rows = shift;
         self.rows = head_rows;
         self.index = head_index;
         self.identities = head_identities;
+        self.plain = head_plain;
         self.source_len = full.len();
         self.version = version;
         self.hidden = hidden;
         self.last_layout_source_lines = misses;
         self.last_layout_rows = laid_rows;
         self.retain_oversize();
+        debug_assert_eq!(self.plain.len(), self.index.len());
+        debug_assert_eq!(self.identities.len(), self.index.len());
         laid_rows
     }
 
@@ -413,6 +525,7 @@ impl PreparedScrollback {
             self.rows.clear();
             self.index.clear();
             self.identities.clear();
+            self.plain.clear();
             self.source_len = 0;
             self.header_len = 0;
             self.version = version;
@@ -428,6 +541,7 @@ impl PreparedScrollback {
         self.rows.drain(0..dropped_rows);
         self.index.drain(0..dropped_sources);
         self.identities.drain(0..dropped_sources);
+        self.plain.drain(0..dropped_sources);
         for range in &mut self.index {
             range.start -= dropped_rows;
         }
@@ -436,6 +550,8 @@ impl PreparedScrollback {
         self.version = version;
         self.last_layout_source_lines = 0;
         self.last_layout_rows = 0;
+        debug_assert_eq!(self.plain.len(), self.index.len());
+        debug_assert_eq!(self.identities.len(), self.index.len());
     }
 
     /// Draw-time safety net: fix width drift with a full relayout and repair
@@ -484,27 +600,56 @@ impl PreparedScrollback {
         version: u64,
         hidden: u64,
     ) {
+        self.relayout_all_inner(full, width, version, hidden, false);
+    }
+
+    /// Full relayout highlighting every source line, used as the geometry
+    /// drift fallback for the visible-window upgrade.
+    fn relayout_all_highlighted(
+        &mut self,
+        full: &[HistoryLine],
+        width: u16,
+        version: u64,
+        hidden: u64,
+    ) {
+        self.relayout_all_inner(full, width, version, hidden, true);
+    }
+
+    /// Shared full-relayout core: `highlight_all` forces the highlighted form
+    /// even for fenced code, otherwise code defers to the window upgrade.
+    fn relayout_all_inner(
+        &mut self,
+        full: &[HistoryLine],
+        width: u16,
+        version: u64,
+        hidden: u64,
+        highlight_all: bool,
+    ) {
         if width != self.width {
             self.row_cache.clear();
         }
         let mut rows: Vec<Line<'static>> = Vec::new();
         let mut index: Vec<RowRange> = Vec::with_capacity(full.len());
         let mut identities: Vec<u64> = Vec::with_capacity(full.len());
+        let mut plain: Vec<bool> = Vec::with_capacity(full.len());
         let mut misses = 0usize;
         for source in full {
             let start = rows.len();
-            let (laid, miss) = self.lay_out_row(source, width);
+            let highlight = highlight_all || !Self::defer_highlight(source);
+            let (laid, miss) = self.lay_out_row(source, width, highlight);
             misses += usize::from(miss);
             let len = laid.len();
             rows.extend(laid);
             index.push(RowRange { start, len });
             identities.push(source.identity());
+            plain.push(!highlight);
         }
         self.last_layout_source_lines = misses;
         self.last_layout_rows = rows.len();
         self.rows = rows;
         self.index = index;
         self.identities = identities;
+        self.plain = plain;
         self.width = width;
         self.version = version;
         self.hidden = hidden;

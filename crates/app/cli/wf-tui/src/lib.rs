@@ -23,7 +23,8 @@ pub use tui_components::{
 };
 pub use tui_core::{
     anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw,
-    reducer, render_model, renderable, screen_data, status_line, stream_pacer, tool_output, width,
+    reducer, render_model, renderable, screen_data, status_line, stream_pacer, tail, tool_output,
+    width,
 };
 pub use tui_debug::tui_debug;
 pub use tui_markdown::markdown;

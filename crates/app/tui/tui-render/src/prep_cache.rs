@@ -303,4 +303,42 @@ mod tests {
         cache.sync_replace(&full, 12, 2);
         assert_eq!(cache.last_layout_count(), 0);
     }
+
+    #[test]
+    fn fenced_code_defers_highlight_until_visible() {
+        let mut cache = PreparedScrollback::new();
+        let code = HistoryLine::markdown("```rust\nfn main() {}\n```\n");
+        let full = vec![HistoryLine::new("head line"), code];
+        cache.sync_replace(&full, 20, 1);
+        assert_eq!(cache.plain_count(), 1, "fenced code lays out deferred");
+        let before = cached_text(&cache);
+        let total = cache.total_rows();
+        // Offscreen window: nothing upgrades and geometry holds.
+        assert!(!cache.ensure_highlighted_for_window(&full, 0..1));
+        assert_eq!(cache.total_rows(), total);
+        // Visible window covering the tail upgrades the block in place.
+        assert!(cache.ensure_highlighted_for_window(&full, 0..total));
+        assert_eq!(cache.plain_count(), 0);
+        assert_eq!(cache.total_rows(), total, "upgrade keeps geometry");
+        assert_eq!(cached_text(&cache), before, "upgrade keeps text");
+        let (entries, bytes, _, misses) = cache.highlight_stats();
+        assert!(entries >= 1);
+        assert!(bytes <= tui_markdown::markdown::highlight::HIGHLIGHT_CACHE_CAPACITY
+            * tui_markdown::markdown::highlight::BYTES_PER_HIGHLIGHT_LINE_ESTIMATE);
+        assert!(misses >= 1);
+    }
+
+    #[test]
+    fn prep_keys_carry_dialect_and_highlight_versions() {
+        let mut cache = PreparedScrollback::new();
+        let full = vec![line("head"), line("body")];
+        cache.sync_replace_with_hidden(&full, 10, 7, 3);
+        let key = cache.key();
+        assert_eq!(
+            (key.dialect, key.highlight),
+            tui_core::prep_keys::ScrollPrepKey::inputs()
+        );
+        assert_eq!(cache.header_key().dialect, key.dialect);
+        assert_eq!(cache.body_key().highlight, key.highlight);
+    }
 }

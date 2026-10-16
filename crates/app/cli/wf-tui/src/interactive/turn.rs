@@ -54,6 +54,7 @@ impl InteractiveController {
         self.reducer = crate::reducer::SessionReducer::new(self.execution_id.clone());
         self.scroll_cover = 0;
         self.view_scroll = 0;
+        self.tail_lag = 0;
         self.scroll_at_top = false;
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
@@ -255,6 +256,7 @@ impl InteractiveController {
                     self.prep.sync_replace(&scrollback, width, version);
                     self.scrollback = scrollback;
                     self.view_scroll = 0;
+                    self.tail_lag = 0;
                     self.scroll_at_top = false;
                     self.rebuild_anchors_from_scrollback();
                 }
@@ -604,7 +606,10 @@ impl InteractiveController {
     }
 
     /// Move pending rows into the persistent scrollback, trimming history
-    /// to a generous ceiling so rendering stays bounded.
+    /// to a generous ceiling so rendering stays bounded. While tail-following,
+    /// appended rows grow the catch-up lag (capped to one viewport) instead
+    /// of teleporting the window; the draw path closes it a few rows per
+    /// frame.
     pub(crate) fn settle_scrollback(&mut self) {
         const MAX_SCROLLBACK: usize = 10_000;
         if !self.pending_scroll.is_empty() {
@@ -616,6 +621,11 @@ impl InteractiveController {
             let scrollback = std::mem::take(&mut self.scrollback);
             self.prep.sync_append(&scrollback, width, version);
             self.scrollback = scrollback;
+            if self.view_scroll == 0 {
+                let grown = self.prep.last_layout_rows();
+                let viewport = usize::from(self.last_layout_height.max(1));
+                self.tail_lag = crate::tail::cap_lag(self.tail_lag.saturating_add(grown), viewport);
+            }
             if self.scrollback.len() > MAX_SCROLLBACK {
                 let drop = self.scrollback.len() - MAX_SCROLLBACK;
                 self.scrollback.drain(0..drop);

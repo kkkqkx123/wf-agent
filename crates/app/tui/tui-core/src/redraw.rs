@@ -144,6 +144,82 @@ pub fn decide_scope(prev: Option<RedrawSnapshot>, next: RedrawSnapshot) -> Redra
     RedrawScope::None
 }
 
+/// Invalidation severity for a redraw request: soft replays the frame from
+/// the retained preparation while hard also drops the terminal surface.
+///
+/// Scrolling, reflow and viewport changes only need a soft invalidation (the
+/// next frame recomposes fully without an intermediate clear, so image and
+/// diagram placeholders never flash). Only a real desynchronization — a draw
+/// panic, a suspend/resume cycle or a geometry reset — escalates to hard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InvalidationKind {
+    /// No invalidation pending.
+    #[default]
+    None,
+    /// Replay the next frame fully from retained state, no terminal clear.
+    Soft,
+    /// Clear the terminal surface, then replay fully.
+    Hard,
+}
+
+impl InvalidationKind {
+    /// Severity rank used for merging; larger wins.
+    pub fn severity(self) -> u8 {
+        match self {
+            InvalidationKind::None => 0,
+            InvalidationKind::Soft => 1,
+            InvalidationKind::Hard => 2,
+        }
+    }
+
+    /// Merge two requests, keeping the more severe one.
+    pub fn merge(self, other: InvalidationKind) -> InvalidationKind {
+        if other.severity() > self.severity() {
+            other
+        } else {
+            self
+        }
+    }
+
+    /// True when the terminal surface must be cleared before recomposing.
+    pub fn needs_hard_clear(self) -> bool {
+        matches!(self, InvalidationKind::Hard)
+    }
+}
+
+/// Pending invalidation merged by severity (`Hard > Soft > None`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InvalidationSentinel {
+    kind: InvalidationKind,
+}
+
+impl InvalidationSentinel {
+    /// Empty sentinel.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Merge a new request, keeping the most severe kind.
+    pub fn request(&mut self, kind: InvalidationKind) {
+        self.kind = self.kind.merge(kind);
+    }
+
+    /// Current pending kind.
+    pub fn kind(&self) -> InvalidationKind {
+        self.kind
+    }
+
+    /// Take and clear the pending kind.
+    pub fn take(&mut self) -> InvalidationKind {
+        std::mem::replace(&mut self.kind, InvalidationKind::None)
+    }
+
+    /// True when an invalidation is pending.
+    pub fn is_pending(&self) -> bool {
+        self.kind != InvalidationKind::None
+    }
+}
+
 /// Pending redraw request merged by severity.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PendingScope {
@@ -503,6 +579,15 @@ impl FrameCache {
     pub fn clear(&mut self) {
         self.frame = None;
     }
+
+    /// Apply an invalidation: soft and hard both drop the stored frame so the
+    /// next partial scope upgrades to full; the terminal clear behind a hard
+    /// invalidation stays with the shell, which owns the terminal.
+    pub fn invalidate(&mut self, kind: InvalidationKind) {
+        if kind != InvalidationKind::None {
+            self.clear();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -629,6 +714,37 @@ mod tests {
         pending.request(RedrawScope::Full);
         assert_eq!(pending.take(), RedrawScope::Full);
         assert!(!pending.is_pending());
+    }
+
+    #[test]
+    fn invalidation_sentinel_merges_hard_over_soft() {
+        let mut sentinel = InvalidationSentinel::new();
+        assert!(!sentinel.is_pending());
+        sentinel.request(InvalidationKind::Soft);
+        assert_eq!(sentinel.kind(), InvalidationKind::Soft);
+        sentinel.request(InvalidationKind::None);
+        assert_eq!(sentinel.kind(), InvalidationKind::Soft);
+        sentinel.request(InvalidationKind::Hard);
+        assert_eq!(sentinel.kind(), InvalidationKind::Hard);
+        assert!(sentinel.kind().needs_hard_clear());
+        assert!(!InvalidationKind::Soft.needs_hard_clear());
+        assert_eq!(sentinel.take(), InvalidationKind::Hard);
+        assert!(!sentinel.is_pending());
+    }
+
+    #[test]
+    fn invalidate_drops_seed_without_touching_none() {
+        use ratatui::layout::Rect;
+        let area = Rect::new(0, 0, 4, 1);
+        let mut cache = FrameCache::new();
+        cache.capture(&Buffer::filled(area, Cell::EMPTY));
+        cache.invalidate(InvalidationKind::None);
+        assert!(cache.can_seed(area));
+        cache.invalidate(InvalidationKind::Soft);
+        assert!(!cache.can_seed(area));
+        cache.capture(&Buffer::filled(area, Cell::EMPTY));
+        cache.invalidate(InvalidationKind::Hard);
+        assert!(!cache.can_seed(area));
     }
 
     #[test]

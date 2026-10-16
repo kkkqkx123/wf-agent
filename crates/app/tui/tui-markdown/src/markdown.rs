@@ -12,6 +12,10 @@
 //!   ([`render_styled_lines`], [`render_styled_lines_animated`]).
 //! * [`document`] — backend-neutral semantic model ([`Document`],
 //!   [`StyleRole`], [`StyledSpan`]) shared by every frontend.
+//! * [`highlight`] — dependency-free per-language code tokenizer plus the
+//!   bounded [`highlight::HighlightCache`] behind fenced code coloring.
+//! * [`math`] — LaTeX to Unicode fallback ([`math::latex_to_unicode`]) for
+//!   the readable text beside each raw `latex` expression.
 //! * [`dialect`] — the canonical parser dialect (pulldown-cmark options and
 //!   streaming holdback heuristics) shared by every frontend.
 //! * [`reasoning`] — shared reasoning-segment contract (sentinel and escapes).
@@ -22,6 +26,8 @@
 pub mod blocks;
 pub mod dialect;
 pub mod document;
+pub mod highlight;
+pub mod math;
 pub mod plain;
 pub mod reasoning;
 pub mod stream;

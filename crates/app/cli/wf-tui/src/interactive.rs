@@ -171,6 +171,10 @@ pub struct InteractiveController {
     /// `0` is tail-follow; scrolling up grows it until the loaded content
     /// starts, at which point a `Partial` replay page loads older history.
     view_scroll: usize,
+    /// Rows the tail-follow window lags behind the live tail while streaming
+    /// catch-up slides it down. Zero while detached or snapped; the badge and
+    /// pause rules only read `view_scroll`, so catch-up never looks detached.
+    tail_lag: usize,
     /// Whether the last draw already showed the oldest loaded row (the user
     /// pressed scroll-up at the very top and can page further back).
     scroll_at_top: bool,
@@ -359,6 +363,7 @@ impl InteractiveController {
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
             pager: ReplayPager::default(),
             view_scroll: 0,
+            tail_lag: 0,
             scroll_at_top: false,
             show_session_scrollbar: false,
             graceful: false,
@@ -419,6 +424,7 @@ impl InteractiveController {
         self.pager.begin();
         self.scrollback.clear();
         self.view_scroll = 0;
+        self.tail_lag = 0;
         self.scroll_at_top = false;
         self.scrollback.push(HistoryLine::new_role(
             format!("▦ Loading history for {session_id}…"),
@@ -505,6 +511,27 @@ impl InteractiveController {
         });
     }
 
+    /// Advance streaming catch-up for a `viewport`-row window. Returns the
+    /// effective rows-above-tail offset for this frame and closes the lag by
+    /// one bounded step; static rendering snaps instantly. Detached windows
+    /// (`view_scroll > 0`) keep user control and never advance the lag.
+    pub(crate) fn advance_tail_catchup(&mut self, viewport: usize) -> usize {
+        if self.view_scroll > 0 {
+            return self.view_scroll;
+        }
+        let animated = !self.simplified_render;
+        let step = crate::tail::catchup_step(self.tail_lag, viewport, animated);
+        self.tail_lag = self.tail_lag.saturating_sub(step.min(self.tail_lag));
+        self.view_scroll.saturating_add(self.tail_lag)
+    }
+
+    /// Drop the retained preparation key so the next partial scope replays
+    /// fully. Scroll and reflow paths use this soft invalidation: no terminal
+    /// clear ever runs here, so placeholders never flash.
+    pub(crate) fn soft_invalidate(&mut self) {
+        self.scroll_cache_key = None;
+    }
+
     /// Current redraw snapshot for scope grading. The animation tick is
     /// bucketed so spinner progress alone grades animation-only and never
     /// invalidates the preparation cache inside a bucket.
@@ -519,7 +546,7 @@ impl InteractiveController {
             width: self.last_layout_width,
             height: self.last_layout_height,
             render_mode: 0,
-            view_scroll: self.view_scroll,
+            view_scroll: self.view_scroll.saturating_add(self.tail_lag),
             anim_tick: crate::clock::anim_bucket(now_ms),
             image_signature: self.image_signature,
             expanded_version: self.expanded_version,
@@ -642,6 +669,58 @@ impl InteractiveController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn started_controller() -> InteractiveController {
+        let client = wf_client::WfClient::new(wf_client::ClientConfig::new("http://127.0.0.1:1"));
+        InteractiveController::start(client, "exec".into()).await
+    }
+
+    #[tokio::test]
+    async fn tail_catchup_slides_large_appends_in_bounded_steps() {
+        let mut ctl = started_controller().await;
+        ctl.simplified_render = false;
+        ctl.tail_lag = 10;
+        let first = ctl.advance_tail_catchup(10);
+        assert_eq!(first, 7, "one frame advances at most three rows");
+        assert_eq!(ctl.tail_lag, 7);
+        // Fixed append sequence follows the curve without overshooting.
+        let mut offsets = vec![first];
+        while ctl.tail_lag > 0 {
+            offsets.push(ctl.advance_tail_catchup(10));
+        }
+        assert_eq!(*offsets.last().unwrap_or(&1), 0);
+        assert!(offsets.len() > 2, "large lags must span frames");
+        for pair in offsets.windows(2) {
+            assert!(pair[0] - pair[1] <= crate::tail::TAIL_CATCHUP_MAX_STEP);
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_navigation_snaps_tail_instantly() {
+        let mut ctl = started_controller().await;
+        ctl.simplified_render = false;
+        ctl.tail_lag = 9;
+        ctl.jump_to_latest();
+        assert_eq!(ctl.tail_lag, 0);
+        assert_eq!(ctl.advance_tail_catchup(10), 0);
+    }
+
+    #[tokio::test]
+    async fn static_rendering_snaps_catchup_instantly() {
+        let mut ctl = started_controller().await;
+        ctl.simplified_render = true;
+        ctl.tail_lag = 9;
+        assert_eq!(ctl.advance_tail_catchup(10), 0);
+    }
+
+    #[tokio::test]
+    async fn manual_scroll_abandons_catchup_softly() {
+        let mut ctl = started_controller().await;
+        ctl.tail_lag = 6;
+        ctl.scroll_history_up();
+        assert_eq!(ctl.tail_lag, 0);
+        assert!(ctl.view_scroll > 0);
+    }
 
     // ── graceful-exit error suppression ─────────────────────────────────
 

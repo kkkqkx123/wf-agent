@@ -58,6 +58,11 @@ pub use tui_markdown::markdown::reasoning::{
 /// Arrival vs display decoupling: `buffer` holds every arrived byte while
 /// `released` marks the visible prefix length. `fed` is not stored here;
 /// callers track how much of the visible prefix they already consumed.
+///
+/// Release uses two independent budgets: a backlog-proportional budget and a
+/// hard-ceiling budget. Both accumulate with wall time and the smaller one
+/// wins, so bursts stay capped at the ceiling rate instead of drifting with
+/// per-chunk accounting. An empty backlog resets both budgets.
 #[derive(Debug, Clone)]
 pub struct StreamPacer {
     config: PacerConfig,
@@ -65,6 +70,118 @@ pub struct StreamPacer {
     released: usize,
     last_advance_ms: Option<u64>,
     bypass: bool,
+    carry: f32,
+    ceiling_carry: f32,
+    jitter: JitterRecorder,
+}
+
+/// Maximum arrival and reveal events retained per jitter series.
+pub const MAX_JITTER_EVENTS: usize = 256;
+
+/// Arrival and reveal throughput statistics for one event series.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct SeriesStats {
+    /// Number of recorded events.
+    pub count: usize,
+    /// Mean bytes per event.
+    pub mean: f64,
+    /// 95th percentile bytes per event.
+    pub p95: u32,
+    /// Maximum bytes in one event.
+    pub max: u32,
+}
+
+impl SeriesStats {
+    /// Compute statistics over `values` (order-independent).
+    pub fn compute(values: &std::collections::VecDeque<u32>) -> Self {
+        if values.is_empty() {
+            return Self::default();
+        }
+        let mut sorted: Vec<u32> = values.iter().copied().collect();
+        sorted.sort_unstable();
+        let count = sorted.len();
+        let total: u64 = sorted.iter().map(|value| u64::from(*value)).sum();
+        let rank = ((count as f64 * 0.95).ceil() as usize)
+            .saturating_sub(1)
+            .min(count - 1);
+        Self {
+            count,
+            mean: total as f64 / count as f64,
+            p95: sorted[rank],
+            max: sorted[count - 1],
+        }
+    }
+}
+
+/// Jitter profile pairing arrival and reveal throughput statistics.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct JitterProfile {
+    /// Per-arrival byte statistics.
+    pub arrivals: SeriesStats,
+    /// Per-release byte statistics.
+    pub reveals: SeriesStats,
+}
+
+impl JitterProfile {
+    /// One-line human-readable summary for logs and regression reports.
+    pub fn report(&self) -> String {
+        format!(
+            "arrivals n={} mean={:.1} p95={} max={} reveals n={} mean={:.1} p95={} max={}",
+            self.arrivals.count,
+            self.arrivals.mean,
+            self.arrivals.p95,
+            self.arrivals.max,
+            self.reveals.count,
+            self.reveals.mean,
+            self.reveals.p95,
+            self.reveals.max,
+        )
+    }
+}
+
+/// Throughput jitter recorder: arrival and reveal byte counts per event.
+/// Observation only; never feeds back into release decisions.
+#[derive(Debug, Clone, Default)]
+pub struct JitterRecorder {
+    arrivals: std::collections::VecDeque<u32>,
+    reveals: std::collections::VecDeque<u32>,
+}
+
+impl JitterRecorder {
+    /// Empty recorder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record one arrival of `bytes` bytes.
+    pub fn record_arrival(&mut self, bytes: usize) {
+        self.arrivals.push_back(bytes.min(u32::MAX as usize) as u32);
+        while self.arrivals.len() > MAX_JITTER_EVENTS {
+            self.arrivals.pop_front();
+        }
+    }
+
+    /// Record one release of `bytes` bytes.
+    pub fn record_reveal(&mut self, bytes: usize) {
+        self.reveals.push_back(bytes.min(u32::MAX as usize) as u32);
+        while self.reveals.len() > MAX_JITTER_EVENTS {
+            self.reveals.pop_front();
+        }
+    }
+
+    /// Current throughput profile over the retained events.
+    pub fn profile(&self) -> JitterProfile {
+        JitterProfile {
+            arrivals: SeriesStats::compute(&self.arrivals),
+            reveals: SeriesStats::compute(&self.reveals),
+        }
+    }
+
+    /// Drop all retained events (per-turn measurement boundary).
+    pub fn reset(&mut self) {
+        self.arrivals.clear();
+        self.reveals.clear();
+    }
 }
 
 impl Default for StreamPacer {
@@ -82,6 +199,9 @@ impl StreamPacer {
             released: 0,
             last_advance_ms: None,
             bypass: false,
+            carry: 0.0,
+            ceiling_carry: 0.0,
+            jitter: JitterRecorder::new(),
         }
     }
 
@@ -90,7 +210,13 @@ impl StreamPacer {
     pub fn set_bypass(&mut self, bypass: bool) {
         self.bypass = bypass;
         if bypass {
+            let newly = self.buffer.len().saturating_sub(self.released);
             self.released = self.buffer.len();
+            self.carry = 0.0;
+            self.ceiling_carry = 0.0;
+            if newly > 0 {
+                self.jitter.record_reveal(newly);
+            }
         }
     }
 
@@ -105,20 +231,29 @@ impl StreamPacer {
             return;
         }
         self.buffer.push_str(delta);
+        self.jitter.record_arrival(delta.len());
         if self.bypass {
+            let newly = self.buffer.len().saturating_sub(self.released);
             self.released = self.buffer.len();
+            self.jitter.record_reveal(newly);
         }
     }
 
     /// Advance the visible prefix toward `now_ms` and return newly visible
     /// bytes. The clock is caller-supplied so tests assert exact per-frame
-    /// curves without sleeping.
+    /// curves without sleeping. Both budgets accumulate with capped wall time
+    /// and the smaller one wins; the remainder carries over so small ticks
+    /// converge instead of stalling.
     pub fn advance(&mut self, now_ms: u64) -> usize {
         let before = self.released;
         if self.bypass {
             self.released = self.buffer.len();
             self.last_advance_ms = Some(now_ms);
-            return self.released.saturating_sub(before);
+            let newly = self.released.saturating_sub(before);
+            if newly > 0 {
+                self.jitter.record_reveal(newly);
+            }
+            return newly;
         }
         let Some(last) = self.last_advance_ms else {
             self.last_advance_ms = Some(now_ms);
@@ -127,25 +262,45 @@ impl StreamPacer {
         let mut dt_ms = now_ms.saturating_sub(last);
         if dt_ms == 0 || self.released >= self.buffer.len() {
             self.last_advance_ms = Some(now_ms);
+            if self.released >= self.buffer.len() {
+                self.carry = 0.0;
+                self.ceiling_carry = 0.0;
+            }
             return 0;
         }
         dt_ms = dt_ms.min(self.config.max_step_ms);
         let backlog = self.buffer.len().saturating_sub(self.released) as f64;
-        let cps = (self.config.base_cps + backlog * self.config.backlog_gain)
-            .min(self.config.max_cps)
-            .max(1.0);
-        let mut allow = (f64::from(dt_ms as u32) / 1000.0 * cps).floor() as usize;
-        allow = allow.max(1).min(self.buffer.len() - self.released);
+        let proportional = self.config.base_cps + backlog * self.config.backlog_gain;
+        self.carry += dt_ms as f32 / 1000.0 * proportional as f32;
+        self.ceiling_carry += dt_ms as f32 / 1000.0 * self.config.max_cps as f32;
+        let mut allow = (self.carry.floor().min(self.ceiling_carry.floor()) as usize)
+            .min(self.buffer.len() - self.released);
+        if allow == 0 {
+            self.last_advance_ms = Some(now_ms);
+            return 0;
+        }
         let mut end = self.released + allow;
         while end > self.released && !self.buffer.is_char_boundary(end) {
             end -= 1;
+            allow -= 1;
         }
         if end == self.released {
             end = next_char_boundary(&self.buffer, self.released).min(self.buffer.len());
+            allow = end.saturating_sub(self.released);
         }
         self.released = end;
+        self.carry = (self.carry - allow as f32).max(0.0);
+        self.ceiling_carry = (self.ceiling_carry - allow as f32).max(0.0);
+        if self.released >= self.buffer.len() {
+            self.carry = 0.0;
+            self.ceiling_carry = 0.0;
+        }
         self.last_advance_ms = Some(now_ms);
-        self.released.saturating_sub(before)
+        let newly = self.released.saturating_sub(before);
+        if newly > 0 {
+            self.jitter.record_reveal(newly);
+        }
+        newly
     }
 
     /// Currently visible prefix.
@@ -173,7 +328,13 @@ impl StreamPacer {
     pub fn drain(&mut self) -> usize {
         let before = self.released;
         self.released = self.buffer.len();
-        self.released.saturating_sub(before)
+        self.carry = 0.0;
+        self.ceiling_carry = 0.0;
+        let newly = self.released.saturating_sub(before);
+        if newly > 0 {
+            self.jitter.record_reveal(newly);
+        }
+        newly
     }
 
     /// Drop the released prefix once the consumer has fully consumed it.
@@ -192,6 +353,19 @@ impl StreamPacer {
         self.buffer.clear();
         self.released = 0;
         self.last_advance_ms = None;
+        self.carry = 0.0;
+        self.ceiling_carry = 0.0;
+        self.jitter.reset();
+    }
+
+    /// Current throughput profile over the retained arrival and reveal events.
+    pub fn jitter_profile(&self) -> JitterProfile {
+        self.jitter.profile()
+    }
+
+    /// Drop retained jitter events (per-turn measurement boundary).
+    pub fn reset_jitter(&mut self) {
+        self.jitter.reset();
     }
 }
 
@@ -322,6 +496,22 @@ impl SegmentedPacer {
         self.order.clear();
         self.text_taken = 0;
         self.reasoning_taken = 0;
+    }
+
+    /// Throughput profile for the answer-text segment.
+    pub fn jitter_profile_text(&self) -> JitterProfile {
+        self.text.jitter_profile()
+    }
+
+    /// Throughput profile for the reasoning segment.
+    pub fn jitter_profile_reasoning(&self) -> JitterProfile {
+        self.reasoning.jitter_profile()
+    }
+
+    /// Drop retained jitter events on both segments.
+    pub fn reset_jitter(&mut self) {
+        self.text.reset_jitter();
+        self.reasoning.reset_jitter();
     }
 
     /// Take newly visible operations in arrival order. Each entry releases
@@ -612,5 +802,62 @@ mod tests {
         let ops = pacer.take_visible_ops();
         assert_eq!(ops.len(), 2);
         assert_eq!(pacer.pending_len(), 0);
+    }
+
+    #[test]
+    fn ceiling_budget_caps_large_bursts() {
+        let mut pacer = StreamPacer::default();
+        pacer.push(&"x".repeat(5_000));
+        pacer.advance(0);
+        let first = pacer.advance(50);
+        assert!(first > 0 && first <= 60, "ceiling caps burst, got {first}");
+        assert!(pacer.pending_len() > 0);
+    }
+
+    #[test]
+    fn small_ticks_carry_over_instead_of_stalling() {
+        let mut pacer = StreamPacer::new(PacerConfig {
+            base_cps: 100.0,
+            backlog_gain: 0.0,
+            max_cps: 100.0,
+            max_step_ms: 50,
+        });
+        pacer.push(&"x".repeat(100));
+        pacer.advance(0);
+        assert_eq!(pacer.advance(1), 0, "1ms tick banks budget without releasing");
+        let mut total = 0usize;
+        for step in 2..=20u64 {
+            total += pacer.advance(step);
+        }
+        assert!(total > 0, "banked budget converges");
+    }
+
+    #[test]
+    fn jitter_profile_reports_arrivals_and_reveals() {
+        let mut pacer = StreamPacer::default();
+        pacer.push("hello ");
+        pacer.push("world");
+        pacer.advance(0);
+        pacer.advance(50);
+        pacer.drain();
+        let profile = pacer.jitter_profile();
+        assert_eq!(profile.arrivals.count, 2);
+        assert!(profile.reveals.count >= 1);
+        assert!(profile.reveals.max <= 11);
+        assert!(!profile.report().is_empty());
+        pacer.reset_jitter();
+        assert_eq!(pacer.jitter_profile().arrivals.count, 0);
+    }
+
+    #[test]
+    fn series_stats_compute_percentiles() {
+        use std::collections::VecDeque;
+        let values: VecDeque<u32> = (1..=100u32).collect();
+        let stats = super::SeriesStats::compute(&values);
+        assert_eq!(stats.count, 100);
+        assert_eq!(stats.max, 100);
+        assert_eq!(stats.p95, 95);
+        assert!((stats.mean - 50.5).abs() < 1e-9);
+        assert_eq!(super::SeriesStats::compute(&VecDeque::new()).count, 0);
     }
 }

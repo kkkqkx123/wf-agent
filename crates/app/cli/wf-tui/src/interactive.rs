@@ -538,14 +538,20 @@ impl InteractiveController {
     pub fn redraw_snapshot(&self) -> crate::redraw::RedrawSnapshot {
         let now_ms = self.now_ms();
         let streaming_text = self.stream.streaming_text();
+        let render_mode = if self.diagram_requested > 0 {
+            crate::prep_keys::RENDER_MODE_DIAGRAM
+        } else {
+            0
+        };
         crate::redraw::RedrawSnapshot {
             content_version: self.content_version,
             streaming_len: streaming_text.len(),
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            input_hash: crate::prep_keys::hash_prefix(self.footer.composer.content()),
             width: self.last_layout_width,
             height: self.last_layout_height,
-            render_mode: 0,
+            render_mode,
             view_scroll: self.view_scroll.saturating_add(self.tail_lag),
             anim_tick: crate::clock::anim_bucket(now_ms),
             image_signature: self.image_signature,
@@ -663,6 +669,53 @@ impl InteractiveController {
     /// Visible answer-text prefix length in bytes.
     pub fn pacer_visible_len(&self) -> usize {
         self.pacer.text_visible_len()
+    }
+
+    /// Whether tail-follow catch-up still lags behind the live tail.
+    pub fn tail_catchup_active(&self) -> bool {
+        self.tail_lag > 0
+    }
+
+    /// Whether a turn is actively processing.
+    pub fn is_processing(&self) -> bool {
+        self.footer.state.phase == Phase::Streaming
+    }
+
+    /// Whether any streaming text is currently visible.
+    pub fn streaming_empty(&self) -> bool {
+        self.stream.streaming_text().is_empty()
+    }
+
+    /// Whether recorded animation cells exist for a cheap tick.
+    pub fn has_anim_cells(&self) -> bool {
+        !self.anim_rows.is_empty()
+    }
+
+    /// Whether the composer holds any input text.
+    pub fn composer_empty(&self) -> bool {
+        self.footer.composer.is_empty()
+    }
+
+    /// Whether an approval overlay forces a full frame.
+    pub fn approval_active(&self) -> bool {
+        self.footer.approval.is_some() || self.pending_approval.is_some()
+    }
+
+    /// Single-cell fast-path inputs for the current state. The shell supplies
+    /// the overlay flag; input staleness is already covered because any input
+    /// change grades a full frame before this is consulted.
+    pub fn single_cell_inputs(&self, overlay_full: bool) -> crate::redraw::SingleCellInputs {
+        crate::redraw::SingleCellInputs {
+            processing: self.is_processing(),
+            primary_spinner: self.spinner_enabled,
+            streaming_empty: self.streaming_empty(),
+            centered: false,
+            mouse_scroll: false,
+            remote_startup: false,
+            overlay_full,
+            input_changed: false,
+            animation_cells: self.has_anim_cells(),
+        }
     }
 }
 

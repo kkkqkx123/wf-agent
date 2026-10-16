@@ -310,14 +310,20 @@ impl InteractiveController {
     fn redraw_snapshot_for(&self, width: u16, height: u16) -> crate::redraw::RedrawSnapshot {
         let now_ms = self.now_ms();
         let streaming_text = self.stream.streaming_text();
+        let render_mode = if self.diagram_requested > 0 {
+            crate::prep_keys::RENDER_MODE_DIAGRAM
+        } else {
+            0
+        };
         crate::redraw::RedrawSnapshot {
             content_version: self.content_version,
             streaming_len: streaming_text.len(),
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            input_hash: crate::prep_keys::hash_prefix(self.footer.composer.content()),
             width,
             height,
-            render_mode: 0,
+            render_mode,
             view_scroll: self.view_scroll.saturating_add(self.tail_lag),
             anim_tick: crate::clock::anim_bucket(now_ms),
             image_signature: self.image_signature,

@@ -11,7 +11,8 @@
 use ratatui::text::{Line, Span};
 
 use super::document::{DocBlock, Document, StyleRole, StyledLine};
-use super::highlight::{CodeTokenKind, HighlightCache};
+use super::highlight::{CodeTokenKind, HighlightBlockState, HighlightCache};
+use super::render_options::{ChartMode, RenderOptions};
 use tui_style::motion::{self, MotionMode};
 use tui_style::theme;
 
@@ -68,11 +69,43 @@ pub fn render_styled_lines_lazy(
     highlight: bool,
     visible: Option<std::ops::Range<usize>>,
 ) -> Vec<Line<'static>> {
+    render_styled_lines_lazy_with_options(
+        src,
+        width,
+        motion_mode,
+        cache,
+        highlight,
+        visible,
+        &RenderOptions::default(),
+    )
+}
+
+/// Whole-source styled rendering under explicit render options. Spacing,
+/// chart and latex modes ride along from the caller: the document parses
+/// under the latex mode while chart mode selects the mermaid presentation.
+/// Defaults preserve the legacy output byte-for-byte.
+pub fn render_styled_lines_lazy_with_options(
+    src: &str,
+    width: u16,
+    motion_mode: MotionMode,
+    cache: &mut HighlightCache,
+    highlight: bool,
+    visible: Option<std::ops::Range<usize>>,
+    options: &RenderOptions,
+) -> Vec<Line<'static>> {
     if src.len() > MAX_STYLED_SOURCE_BYTES {
         return degraded_lines(src);
     }
-    let doc = super::document::parse_document(src);
-    document_to_lines_lazy(&doc, width, motion_mode, cache, highlight, visible)
+    let doc = super::document::parse_document_with_options(src, options);
+    document_to_lines_lazy_with_options(
+        &doc,
+        width,
+        motion_mode,
+        cache,
+        highlight,
+        visible,
+        options,
+    )
 }
 
 /// Render markdown source to styled ratatui Lines.
@@ -143,7 +176,14 @@ pub fn document_to_lines(
     width: u16,
     motion_mode: MotionMode,
 ) -> Vec<Line<'static>> {
-    document_to_lines_lazy(doc, width, motion_mode, &mut HighlightCache::new(), true, None)
+    document_to_lines_lazy(
+        doc,
+        width,
+        motion_mode,
+        &mut HighlightCache::new(),
+        true,
+        None,
+    )
 }
 
 /// Convert a neutral document into terminal lines with a shared highlight
@@ -162,7 +202,30 @@ pub fn document_to_lines_lazy(
     highlight: bool,
     visible: Option<std::ops::Range<usize>>,
 ) -> Vec<Line<'static>> {
-    blocks_to_lines_lazy(
+    document_to_lines_lazy_with_options(
+        doc,
+        width,
+        motion_mode,
+        cache,
+        highlight,
+        visible,
+        &RenderOptions::default(),
+    )
+}
+
+/// Convert a neutral document under explicit render options. Chart mode
+/// selects the mermaid presentation; other modes ride along for cache
+/// identity while the block layout stays shared.
+pub fn document_to_lines_lazy_with_options(
+    doc: &Document,
+    width: u16,
+    motion_mode: MotionMode,
+    cache: &mut HighlightCache,
+    highlight: bool,
+    visible: Option<std::ops::Range<usize>>,
+    options: &RenderOptions,
+) -> Vec<Line<'static>> {
+    blocks_to_lines_lazy_with_options(
         &doc.blocks,
         width,
         motion_mode,
@@ -170,16 +233,15 @@ pub fn document_to_lines_lazy(
         highlight,
         &mut 0usize,
         visible.as_ref(),
+        options,
     )
 }
 
-/// Convert a block sequence into terminal lines. Block quotes recurse and
-/// prefix every quoted row with the dim `> ` marker — the same quoted-line
-/// convention the append-only `Styled` renderer uses, so both frontends show
-/// quotes identically.
-/// Lazy block rendering: `row` tracks the display-row offset of the next
-/// emitted line so code blocks outside `visible` can skip highlighting.
-fn blocks_to_lines_lazy(
+/// Block rendering under explicit render options. Mermaid fences keep their
+/// source text in both chart modes; graphical mode prepends one header row
+/// so the mode visibly changes geometry without dropping source text.
+#[allow(clippy::too_many_arguments)]
+fn blocks_to_lines_lazy_with_options(
     blocks: &[DocBlock],
     width: u16,
     motion_mode: MotionMode,
@@ -187,6 +249,7 @@ fn blocks_to_lines_lazy(
     highlight: bool,
     row: &mut usize,
     visible: Option<&std::ops::Range<usize>>,
+    options: &RenderOptions,
 ) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     for block in blocks {
@@ -213,8 +276,15 @@ fn blocks_to_lines_lazy(
             }
             DocBlock::Quote(inner) => {
                 let marker = Span::styled("> ".to_string(), style_for_role(StyleRole::Dim));
-                for line in blocks_to_lines_lazy(
-                    inner, width, motion_mode, cache, highlight, row, visible,
+                for line in blocks_to_lines_lazy_with_options(
+                    inner,
+                    width,
+                    motion_mode,
+                    cache,
+                    highlight,
+                    row,
+                    visible,
+                    options,
                 ) {
                     let mut spans = vec![marker.clone()];
                     spans.extend(line.spans);
@@ -222,8 +292,13 @@ fn blocks_to_lines_lazy(
                 }
             }
             DocBlock::Code { language, lines } => {
-                let highlighted =
-                    code_block_lines_highlighted(language.as_deref(), lines, cache, highlight);
+                let highlighted = code_block_lines_highlighted_with_options(
+                    language.as_deref(),
+                    lines,
+                    cache,
+                    highlight,
+                    options,
+                );
                 let start = *row;
                 let end = start + highlighted.len();
                 let show = visible.is_none_or(|range| range.start < end && start < range.end);
@@ -231,7 +306,11 @@ fn blocks_to_lines_lazy(
                 if show {
                     out.extend(highlighted);
                 } else {
-                    out.extend(code_block_lines_plain(lines));
+                    out.extend(code_block_lines_plain_with_options(
+                        language.as_deref(),
+                        lines,
+                        options,
+                    ));
                 }
             }
             DocBlock::Rule => {
@@ -282,11 +361,33 @@ pub const MAX_HIGHLIGHT_LINES: usize = 10_000;
 /// Per-row byte cap for styled code rendering.
 pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 4 * 1024;
 
-/// Placeholder (unhighlighted) code block lines: the same row count as the
-/// highlighted form in the single tool-call color, used for offscreen blocks
-/// and oversized degradation.
+/// Placeholder code lines: the same row count as the highlighted form in
+/// the single tool-call color, used for offscreen blocks and oversized
+/// degradation. Kept for offscreen geometry parity in tests.
+#[allow(dead_code)]
 fn code_block_lines_plain(lines: &[String]) -> Vec<Line<'static>> {
+    code_block_lines_plain_inner(lines, &RenderOptions::default(), None)
+}
+
+/// Placeholder code lines under explicit chart mode. Graphical mermaid
+/// blocks prepend one header row; the source text itself is always kept.
+fn code_block_lines_plain_with_options(
+    language: Option<&str>,
+    lines: &[String],
+    options: &RenderOptions,
+) -> Vec<Line<'static>> {
+    code_block_lines_plain_inner(lines, options, language)
+}
+
+fn code_block_lines_plain_inner(
+    lines: &[String],
+    options: &RenderOptions,
+    language: Option<&str>,
+) -> Vec<Line<'static>> {
     let mut out = Vec::new();
+    if options.chart == ChartMode::Graphical && is_diagram_fence(language) {
+        out.push(mermaid_header_line());
+    }
     out.push(Line::from(vec![Span::styled(
         "```",
         theme::tool_call_style(),
@@ -307,33 +408,54 @@ fn code_block_lines_plain(lines: &[String]) -> Vec<Line<'static>> {
     out
 }
 
-/// Highlighted code block lines through the shared cache. Oversized blocks
-/// degrade to the placeholder form; disabling highlight (offscreen) yields
-/// the placeholder form with an identical row count so geometry never shifts
-/// between the lazy and highlighted views.
-fn code_block_lines_highlighted(
+/// Whether a fenced block holds a diagram source (mermaid only): graphical
+/// mode adds a header row while keeping every source line.
+fn is_diagram_fence(language: Option<&str>) -> bool {
+    super::document::is_mermaid_block(language)
+}
+
+/// Header row marking a graphical diagram block. The source lines follow
+/// unchanged, so the source text is never dropped.
+fn mermaid_header_line() -> Line<'static> {
+    Line::from(vec![Span::styled(
+        "[mermaid diagram]",
+        theme::muted_style(),
+    )])
+}
+
+/// Highlighted code lines under explicit chart mode. Graphical mermaid
+/// blocks prepend the diagram header while keeping the highlighted source.
+/// Block comment and multiline string state threads across lines through
+/// the cache; oversized blocks degrade to the placeholder form with
+/// identical geometry.
+fn code_block_lines_highlighted_with_options(
     language: Option<&str>,
     lines: &[String],
     cache: &mut HighlightCache,
     enabled: bool,
+    options: &RenderOptions,
 ) -> Vec<Line<'static>> {
     if !enabled
         || lines.len() > MAX_HIGHLIGHT_LINES
         || lines.iter().any(|row| row.len() > MAX_HIGHLIGHT_LINE_BYTES)
     {
-        return code_block_lines_plain(lines);
+        return code_block_lines_plain_inner(lines, options, language);
     }
     let mut out = Vec::new();
+    if options.chart == ChartMode::Graphical && is_diagram_fence(language) {
+        out.push(mermaid_header_line());
+    }
     out.push(Line::from(vec![Span::styled(
         "```",
         theme::tool_call_style(),
     )]));
+    let mut state = HighlightBlockState::new();
     for raw in lines {
         if raw.is_empty() {
             continue;
         }
         let spans: Vec<Span<'static>> = cache
-            .highlight(language, raw)
+            .highlight_with_state(language, raw, &mut state)
             .into_iter()
             .map(|token| Span::styled(token.text, style_for_token(token.kind)))
             .collect();
@@ -471,7 +593,8 @@ mod tests {
         use super::super::highlight::HighlightCache;
         let src = "head\n\n```rust\nfn a() {}\nfn b() {}\n```\n\ntail\n";
         let mut full_cache = HighlightCache::new();
-        let full = render_styled_lines_lazy(src, 80, MotionMode::Static, &mut full_cache, true, None);
+        let full =
+            render_styled_lines_lazy(src, 80, MotionMode::Static, &mut full_cache, true, None);
         // Visible window covers only the head: the code block stays a
         // placeholder with identical geometry, highlighted on scroll-in.
         let mut lazy_cache = HighlightCache::new();
@@ -524,5 +647,65 @@ mod tests {
             Some(0..full.len()),
         );
         assert_eq!(text(&scrolled), text(&full));
+    }
+
+    #[test]
+    fn chart_modes_keep_mermaid_text_with_different_geometry() {
+        use super::super::highlight::HighlightCache;
+        use super::super::render_options::{ChartMode, LatexMode, RenderOptions, SpacingMode};
+        let src = "```mermaid\ngraph TD; A-->B;\n```\n";
+        let text_mode =
+            RenderOptions::with_modes(SpacingMode::Compact, ChartMode::Text, LatexMode::Unicode);
+        let graphical = RenderOptions::with_modes(
+            SpacingMode::Compact,
+            ChartMode::Graphical,
+            LatexMode::Unicode,
+        );
+        let mut text_cache = HighlightCache::new();
+        let text_lines = render_styled_lines_lazy_with_options(
+            src,
+            80,
+            MotionMode::Static,
+            &mut text_cache,
+            true,
+            None,
+            &text_mode,
+        );
+        let mut graphical_cache = HighlightCache::new();
+        let graphical_lines = render_styled_lines_lazy_with_options(
+            src,
+            80,
+            MotionMode::Static,
+            &mut graphical_cache,
+            true,
+            None,
+            &graphical,
+        );
+        let text_joined = text(&text_lines).join("\n");
+        let graphical_joined = text(&graphical_lines).join("\n");
+        assert!(
+            text_joined.contains("A-->B"),
+            "text fallback keeps source: {text_joined:?}"
+        );
+        assert!(
+            graphical_joined.contains("A-->B"),
+            "graphical keeps source without backend: {graphical_joined:?}"
+        );
+        assert_ne!(
+            text_lines.len(),
+            graphical_lines.len(),
+            "chart mode changes geometry"
+        );
+    }
+
+    #[test]
+    fn block_comments_highlight_across_code_lines() {
+        use super::super::highlight::HighlightCache;
+        let src = "```rust\n/* open\nmiddle\nclose */ done\n```\n";
+        let mut cache = HighlightCache::new();
+        let lines = render_styled_lines_lazy(src, 80, MotionMode::Static, &mut cache, true, None);
+        let joined = text(&lines).join("\n");
+        assert!(joined.contains("middle"));
+        assert!(cache.misses() >= 3);
     }
 }

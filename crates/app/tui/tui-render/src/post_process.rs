@@ -39,26 +39,25 @@ pub fn finish_frame(
 /// preserving each literal's lightness/chroma offset. Runs after
 /// brightness adaptation so seeded and fresh cells converge to the same
 /// pixels. Default palettes map exactly (zero delta), keeping output
-/// byte-identical when unconfigured.
+/// byte-identical when unconfigured. Indexed and named colors follow the
+/// same adsorb path through a per-frame memo cache.
 pub fn adapt_buffer_for_palette(buf: &mut Buffer, theme: &Theme) {
     if palette_is_default(theme) {
         return;
     }
+    let mut cache = tui_style::theme::FrameColorCache::new();
     for cell in buf.content.iter_mut() {
-        cell.fg = remap_cell_color(cell.fg, theme);
-        cell.bg = remap_cell_color(cell.bg, theme);
+        cell.fg = remap_cell_color_cached(cell.fg, theme, &mut cache);
+        cell.bg = remap_cell_color_cached(cell.bg, theme, &mut cache);
     }
 }
 
-fn remap_cell_color(color: Color, theme: &Theme) -> Color {
-    match color {
-        Color::Rgb(r, g, b) => {
-            let mapped =
-                tui_style::theme::remap_literal_relative(tui_style::theme::Rgb::new(r, g, b), theme);
-            Color::Rgb(mapped.r, mapped.g, mapped.b)
-        }
-        other => other,
-    }
+fn remap_cell_color_cached(
+    color: Color,
+    theme: &Theme,
+    cache: &mut tui_style::theme::FrameColorCache,
+) -> Color {
+    cache.remap(color, theme)
 }
 
 /// True when every role color matches the built-in dark default, ignoring
@@ -195,12 +194,7 @@ mod tests {
         // the custom adsorb both apply exactly once.
         let area = Rect::new(0, 0, 1, 1);
         let mut buf = Buffer::filled(area, ratatui::buffer::Cell::EMPTY);
-        buf.set_string(
-            0,
-            0,
-            "a",
-            Style::default().fg(Color::Rgb(0x22, 0xD3, 0xEE)),
-        );
+        buf.set_string(0, 0, "a", Style::default().fg(Color::Rgb(0x22, 0xD3, 0xEE)));
         let mut custom = Theme::dark_default();
         custom.accent = tui_style::theme::Rgb::new(0x11, 0x22, 0x33);
         let mut once = buf.clone();
@@ -242,5 +236,33 @@ mod tests {
             );
             assert_eq!(cleanups, 1);
         }
+    }
+
+    #[test]
+    fn indexed_and_named_colors_follow_custom_palette() {
+        use ratatui::style::{Color, Style};
+        let area = Rect::new(0, 0, 3, 1);
+        let mut buf = Buffer::filled(area, ratatui::buffer::Cell::EMPTY);
+        buf[(0, 0)].set_symbol("a");
+        buf[(0, 0)].set_style(Style::default().fg(Color::Indexed(14)));
+        buf[(1, 0)].set_symbol("b");
+        buf[(1, 0)].set_style(Style::default().fg(Color::Cyan));
+        buf[(2, 0)].set_symbol("c");
+        buf[(2, 0)].set_style(Style::default().fg(Color::Rgb(0xFF, 0x00, 0xFF)));
+        let mut custom = Theme::dark_default();
+        custom.accent = tui_style::theme::Rgb::new(0x11, 0x22, 0x33);
+        let mut cleanups = 0usize;
+        finish_frame(
+            &mut buf,
+            &custom,
+            ThemeMode::Dark,
+            false,
+            EmojiPreference::Native,
+            &mut cleanups,
+        );
+        assert_ne!(buf[(0, 0)].fg, Color::Rgb(0x00, 0xFF, 0xFF));
+        assert_ne!(buf[(0, 0)].fg, Color::Rgb(0x22, 0xD3, 0xEE));
+        assert_eq!(buf[(1, 0)].fg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(buf[(2, 0)].fg, Color::Rgb(0xFF, 0x00, 0xFF));
     }
 }

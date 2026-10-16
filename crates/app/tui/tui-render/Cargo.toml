@@ -7,6 +7,7 @@ description = "Low-level TUI implementation crate (tui-render)"
 [dependencies]
 ratatui = { workspace = true }
 unicode-width = { workspace = true }
+tui-clock = { path = "../tui-clock" }
 tui-core = { path = "../tui-core" }
 tui-style = { path = "../tui-style" }
 tui-components = { path = "../tui-components" }

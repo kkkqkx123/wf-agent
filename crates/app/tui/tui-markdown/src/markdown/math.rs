@@ -4,8 +4,131 @@
 //! this module derives the readable fallback shown on screen. Only widely
 //! supported single-cell glyphs are used so the output survives the terminal
 //! cell measurement unchanged.
+//!
+//! Display math follows [`LatexMode`]: inline math always renders Unicode,
+//! display math renders Unicode in [`LatexMode::Unicode`] and requests an
+//! external TeX-to-image backend in [`LatexMode::TexImage`]. No raster backend
+//! is bundled, so the image path keeps the Unicode text plus an explanatory
+//! reason instead of dropping the expression.
 
 use std::fmt::Write;
+
+use super::render_options::LatexMode;
+
+/// Reason reported when display math requests an image backend that is not
+/// bundled. The Unicode fallback stays on screen beside the raw expression.
+pub const TEX_IMAGE_UNAVAILABLE_REASON: &str = "tex backend unavailable; showing unicode";
+
+/// Whether an external TeX-to-image backend is available. Always false in
+/// this version: the crate ships no raster backend, so image requests fall
+/// back to Unicode with [`TEX_IMAGE_UNAVAILABLE_REASON`].
+pub fn is_tex_backend_available() -> bool {
+    false
+}
+
+/// Rendered display math: readable text plus an optional backend reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayMathRender {
+    /// Readable Unicode text shown on screen.
+    pub text: String,
+    /// Why an image was not produced (`None` when Unicode was requested or
+    /// a backend handled the expression).
+    pub reason: Option<String>,
+}
+
+/// Render display math under `mode`. Unicode mode returns text with no
+/// reason; image mode without a backend keeps the Unicode text and reports
+/// why no image was produced, so the expression stays readable and the raw
+/// LaTeX remains in the span.
+pub fn render_display_math(latex: &str, mode: LatexMode) -> DisplayMathRender {
+    let text = latex_to_unicode(latex);
+    match mode {
+        LatexMode::Unicode => DisplayMathRender { text, reason: None },
+        LatexMode::TexImage => {
+            if is_tex_backend_available() {
+                DisplayMathRender { text, reason: None }
+            } else {
+                DisplayMathRender {
+                    text,
+                    reason: Some(TEX_IMAGE_UNAVAILABLE_REASON.to_string()),
+                }
+            }
+        }
+    }
+}
+
+/// Normalize math delimiters, fences and environments in full markdown
+/// source to one canonical form before parsing.
+///
+/// * `\[...\]` becomes `$$...$$`, `\(...\)` becomes `$...$`;
+/// * known display environments (`equation`, `align`, `gather`,
+///   `multline`, `math`, `displaymath`, starred variants) become `$$...$$`;
+/// * ` ```math ` fences become `$$...$$`.
+///
+/// The rewrite is prefix-preserving and idempotent: normalizing a growing
+/// stream prefix yields a prefix of the normalized whole, so streaming and
+/// whole-source renders agree and repeated normalization is a no-op.
+pub fn normalize_math_source(src: &str) -> String {
+    let mut out = normalize_math_fences(src);
+    out = normalize_math_environments(&out);
+    out = out.replace("\\[", "$$").replace("\\]", "$$");
+    out = out.replace("\\(", "$").replace("\\)", "$");
+    out
+}
+
+/// Normalize ` ```math ` fenced blocks to `$$` display delimiters.
+fn normalize_math_fences(src: &str) -> String {
+    let mut lines: Vec<&str> = Vec::new();
+    let mut in_math_fence = false;
+    for line in src.split_inclusive('\n') {
+        let (body, newline) = match line.strip_suffix('\n') {
+            Some(body) => (body, "\n"),
+            None => (line, ""),
+        };
+        let trimmed = body.trim();
+        if !in_math_fence
+            && (trimmed.eq_ignore_ascii_case("```math") || trimmed.eq_ignore_ascii_case("~~~math"))
+        {
+            in_math_fence = true;
+            lines.push("$$");
+            lines.push(newline);
+            continue;
+        }
+        if in_math_fence && (trimmed == "```" || trimmed == "~~~") {
+            in_math_fence = false;
+            lines.push("$$");
+            lines.push(newline);
+            continue;
+        }
+        lines.push(body);
+        lines.push(newline);
+    }
+    lines.concat()
+}
+
+/// Math environments normalized to `$$` delimiters.
+const MATH_ENVIRONMENTS: &[&str] = &[
+    "equation",
+    "equation*",
+    "align",
+    "align*",
+    "gather",
+    "gather*",
+    "multline",
+    "multline*",
+    "math",
+    "displaymath",
+];
+
+/// Replace known `\begin{...}` and `\end{...}` math environments with `$$`.
+fn normalize_math_environments(src: &str) -> String {
+    let mut out = src.to_string();
+    for env in MATH_ENVIRONMENTS {
+        out = out.replace(&format!("\\begin{{{env}}}"), "$$");
+        out = out.replace(&format!("\\end{{{env}}}"), "$$");
+    }
+    out
+}
 
 /// Render a raw LaTeX expression to readable Unicode text.
 pub fn latex_to_unicode(latex: &str) -> String {
@@ -84,7 +207,12 @@ fn render_command(name: &str, chars: &[char], i: &mut usize) -> Option<String> {
             let (den, next) = take_braced(chars, next);
             *i = next;
             let mut rendered = String::new();
-            let _ = write!(rendered, "({})/({})", num.unwrap_or_default(), den.unwrap_or_default());
+            let _ = write!(
+                rendered,
+                "({})/({})",
+                num.unwrap_or_default(),
+                den.unwrap_or_default()
+            );
             Some(rendered)
         }
         "sqrt" => {
@@ -329,5 +457,42 @@ mod tests {
     fn plain_text_passes_through() {
         assert_eq!(latex_to_unicode("E = mc^2"), "E = mc²");
         assert_eq!(latex_to_unicode(""), "");
+    }
+
+    #[test]
+    fn display_modes_keep_unicode_readable() {
+        use super::super::render_options::LatexMode;
+        let unicode = super::render_display_math("x^2", LatexMode::Unicode);
+        assert_eq!(unicode.text, "x²");
+        assert_eq!(unicode.reason, None);
+        let image = super::render_display_math("x^2", LatexMode::TexImage);
+        assert_eq!(image.text, "x²");
+        assert_eq!(
+            image.reason.as_deref(),
+            Some(super::TEX_IMAGE_UNAVAILABLE_REASON)
+        );
+        assert!(!super::is_tex_backend_available());
+    }
+
+    #[test]
+    fn normalization_canonicalizes_delimiters_and_envs() {
+        let src = "\\[a\\] and \\(b\\) with \\begin{equation}c\\end{equation}\n";
+        let normalized = super::normalize_math_source(src);
+        assert!(normalized.contains("$$a$$"));
+        assert!(normalized.contains("$b$"));
+        assert!(normalized.contains("$$c$$"));
+        assert_eq!(
+            super::normalize_math_source(&normalized),
+            normalized,
+            "normalization must be idempotent"
+        );
+    }
+
+    #[test]
+    fn math_fences_become_display_delimiters() {
+        let src = "```math\nx^2\n```\n";
+        let normalized = super::normalize_math_source(src);
+        assert!(normalized.contains("$$"));
+        assert!(!normalized.contains("```math"));
     }
 }

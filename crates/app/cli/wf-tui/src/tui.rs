@@ -118,6 +118,11 @@ pub struct TuiApp {
     last_anim_ms: Option<u64>,
     /// Last moment real activity landed; drives the idle poll backoff.
     last_active: Instant,
+    /// Last activity in injectable clock millis for schedule dormancy math.
+    last_activity_clock_ms: Option<u64>,
+    /// Last user interaction in injectable clock millis. Held separately so
+    /// deep idle requires both clocks to age out.
+    last_interaction_clock_ms: Option<u64>,
     /// Debouncer collapsing a burst of `Event::Resize` into one final size.
     resize: ResizeDebouncer,
     /// Live theme; refreshed on SIGUSR2 via the event loop.
@@ -227,6 +232,8 @@ impl TuiApp {
             frame_cache: crate::redraw::FrameCache::new(),
             last_anim_ms: None,
             last_active: Instant::now(),
+            last_activity_clock_ms: None,
+            last_interaction_clock_ms: None,
             resize: ResizeDebouncer::default_window(),
             theme,
             theme_mode,
@@ -351,12 +358,25 @@ impl TuiApp {
                     self.pending_scope.request(scope);
                     self.frame.request_scope(scope);
                     self.last_active = Instant::now();
+                    self.last_activity_clock_ms = Some(now);
+                    let inputs = self.schedule_inputs(now);
+                    if let Some(reason) = crate::redraw::current_full_frame_reason(&inputs) {
+                        crate::redraw::record_full_frame_reason(reason);
+                    }
                 }
                 crate::redraw::RedrawScope::AnimationOnly => {
                     // An unfocused idle window skips decorative frames; live
-                    // activity grades Full/BottomOnly and still paints. Reuses
-                    // the existing animation rate, no new timer.
-                    if self.app.focused
+                    // activity grades Full/BottomOnly and still paints. Empty
+                    // animation geometry skips as well so idle loops never pay
+                    // a full diff for zero changed cells. Unfocused throttling
+                    // keeps the pending request (nothing is taken here), so a
+                    // throttled frame is delayed, never lost.
+                    let has_cells = self
+                        .interactive
+                        .as_ref()
+                        .is_some_and(|session| session.has_anim_cells());
+                    if has_cells
+                        && self.app.focused
                         && crate::redraw::animation_frame_due_with(
                             now,
                             self.last_anim_ms,
@@ -407,6 +427,7 @@ impl TuiApp {
                                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                                 self.pending_scope
                                     .note_source(crate::redraw::EventSource::Input);
+                                self.last_interaction_clock_ms = Some(self.now_ms());
                                 self.apply_interactive_exit().await;
                                 self.apply_pending_replay().await?;
                             }
@@ -431,6 +452,7 @@ impl TuiApp {
                             self.pending_scope
                                 .note_source(crate::redraw::EventSource::Input);
                             self.last_active = Instant::now();
+                            self.last_interaction_clock_ms = Some(self.now_ms());
                         }
                     }
                     Event::Mouse(mouse) => {
@@ -445,6 +467,7 @@ impl TuiApp {
                                 self.pending_scope
                                     .note_source(crate::redraw::EventSource::Input);
                                 self.last_active = Instant::now();
+                                self.last_interaction_clock_ms = Some(self.now_ms());
                             }
                         }
                     }
@@ -486,7 +509,24 @@ impl TuiApp {
             // terminal supports it so streaming never tears.
             self.frame.set_now(self.now_ms());
             if (interactive || self.pending_scope.is_pending()) && self.frame.deadline().is_none() {
-                let frame_scope = self.resolve_frame_scope();
+                let mut frame_scope = self.resolve_frame_scope();
+                if frame_scope == crate::redraw::RedrawScope::AnimationOnly {
+                    // The cheap tick needs every gate: processing with the
+                    // essential spinner, no streaming, no overlay, recorded
+                    // cells. Otherwise there is nothing cheap to paint, so
+                    // skip composing instead of paying a full diff for zero
+                    // cells. The ratatui diff already emits cursor-addressed
+                    // single-cell output for the eligible tick.
+                    let overlay_full = self.overlay_full();
+                    let available = self.interactive.as_ref().is_some_and(|session| {
+                        crate::redraw::single_cell_spinner_available(
+                            &session.single_cell_inputs(overlay_full),
+                        )
+                    });
+                    if !available {
+                        frame_scope = crate::redraw::RedrawScope::None;
+                    }
+                }
                 if frame_scope == crate::redraw::RedrawScope::None {
                     // Nothing changed: advance the frame limiter without
                     // composing, so an idle loop does not repaint the surface.
@@ -608,6 +648,84 @@ impl TuiApp {
         self.pending_scope.scope().merge(self.grade_frame())
     }
 
+    /// Whether overlays or modals force a full frame at the submit point.
+    fn overlay_full(&self) -> bool {
+        self.overlay != OverlayMode::None
+            || !self.modals.is_empty()
+            || self
+                .interactive
+                .as_ref()
+                .is_some_and(|session| session.approval_active())
+    }
+
+    /// Schedule inputs for the current state under the injectable clock.
+    fn schedule_inputs(&self, now_ms: u64) -> crate::redraw::ScheduleInputs {
+        let (processing, streaming_empty, tail_catchup, animation_on_screen, composer_nonempty) =
+            self.interactive.as_ref().map_or((false, true, false, false, false), |session| {
+                (
+                    session.is_processing(),
+                    session.streaming_empty(),
+                    session.tail_catchup_active(),
+                    session.has_anim_cells(),
+                    !session.composer_empty(),
+                )
+            });
+        let composing = composer_nonempty
+            && self
+                .last_interaction_clock_ms
+                .is_some_and(|last| now_ms.saturating_sub(last) < crate::redraw::COMPOSING_BACKOFF_MS);
+        crate::redraw::ScheduleInputs {
+            tail_catchup,
+            overscroll: false,
+            focused: self.app.focused,
+            processing,
+            streaming_empty,
+            mouse_scroll: false,
+            copy_autoscroll: false,
+            notification: false,
+            rate_limit: false,
+            remote_startup: false,
+            status_notice: self.app.notice.is_active(),
+            status_animation: false,
+            decorative_enabled: self.perf_policy.decorative_animations,
+            animation_on_screen,
+            composing,
+            now_ms,
+            last_activity_ms: self.last_activity_clock_ms,
+            last_interaction_ms: self.last_interaction_clock_ms,
+        }
+    }
+
+    /// Millisecond interval for a cadence under the active policy. Decorative
+    /// animation is capped so its cost stays linear-bounded; deep-idle states
+    /// sleep instead of spinning.
+    fn cadence_interval_ms(&self, cadence: crate::redraw::RedrawCadence) -> u64 {
+        use crate::redraw::RedrawCadence;
+        match cadence {
+            RedrawCadence::TailCatchup
+            | RedrawCadence::Overscroll
+            | RedrawCadence::LiveFast
+            | RedrawCadence::StatusAnimation => self.perf_policy.redraw_interval_ms(),
+            RedrawCadence::Decorative => {
+                if self.perf_policy.animation_fps == 0 {
+                    u64::MAX
+                } else {
+                    1_000 / self.perf_policy.animation_fps.clamp(1, crate::redraw::DECORATIVE_FPS_CAP)
+                }
+            }
+            RedrawCadence::DecorativeComposing | RedrawCadence::StaticChrome => {
+                crate::redraw::REDRAW_IDLE_MS
+            }
+            RedrawCadence::PassiveLiveness | RedrawCadence::RemoteStartup => {
+                crate::redraw::REDRAW_PASSIVE_MS
+            }
+            RedrawCadence::UnfocusedDeepIdle | RedrawCadence::DeepIdle => {
+                crate::redraw::REDRAW_DEEP_IDLE_MS
+            }
+            RedrawCadence::Idle => crate::redraw::REDRAW_IDLE_MS,
+        }
+    }
+
     /// Terminal modes for this session: the TUI baseline layered with the
     /// policy input switches. Every enter / resume path reads the policy;
     /// nothing hardcodes sequences at the call site.
@@ -659,14 +777,17 @@ impl TuiApp {
     }
 
     /// Reconcile the frame timer with the current policy. The loop calls this
-    /// every iteration: the expected period is derived from the live policy
-    /// (unfocused windows back off to the idle period), and the timer is
+    /// every iteration: the expected period derives from the live schedule
+    /// cadence (catch-up, focus, dormancy, decorative load), and the timer is
     /// rebuilt only when the period actually changes, so steady states never
     /// churn the scheduler.
     fn refresh_frame_rate(&mut self) {
-        let mut expected = self.perf_policy.redraw_interval_ms();
-        if !self.app.focused {
-            expected = expected.max(crate::redraw::REDRAW_IDLE_MS);
+        let now_ms = self.now_ms();
+        let inputs = self.schedule_inputs(now_ms);
+        let cadence = crate::redraw::redraw_cadence(&inputs);
+        let mut expected = self.cadence_interval_ms(cadence);
+        if expected == u64::MAX {
+            expected = crate::redraw::REDRAW_DEEP_IDLE_MS;
         }
         if self.frame.min_interval_ms() != expected {
             self.frame.set_min_interval_ms(expected);

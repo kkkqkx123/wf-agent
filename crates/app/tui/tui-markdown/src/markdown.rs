@@ -15,7 +15,10 @@
 //! * [`highlight`] — dependency-free per-language code tokenizer plus the
 //!   bounded [`highlight::HighlightCache`] behind fenced code coloring.
 //! * [`math`] — LaTeX to Unicode fallback ([`math::latex_to_unicode`]) for
-//!   the readable text beside each raw `latex` expression.
+//!   the readable text beside each raw `latex` expression, plus delimiter
+//!   normalization and display-math render modes.
+//! * [`render_options`] — explicit spacing, chart and latex switches
+//!   threaded through parsing and layout and folded into cache keys.
 //! * [`dialect`] — the canonical parser dialect (pulldown-cmark options and
 //!   streaming holdback heuristics) shared by every frontend.
 //! * [`reasoning`] — shared reasoning-segment contract (sentinel and escapes).
@@ -30,6 +33,7 @@ pub mod highlight;
 pub mod math;
 pub mod plain;
 pub mod reasoning;
+pub mod render_options;
 pub mod stream;
 pub mod styled;
 

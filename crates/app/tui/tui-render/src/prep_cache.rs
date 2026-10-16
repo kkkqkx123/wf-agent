@@ -323,8 +323,11 @@ mod tests {
         assert_eq!(cached_text(&cache), before, "upgrade keeps text");
         let (entries, bytes, _, misses) = cache.highlight_stats();
         assert!(entries >= 1);
-        assert!(bytes <= tui_markdown::markdown::highlight::HIGHLIGHT_CACHE_CAPACITY
-            * tui_markdown::markdown::highlight::BYTES_PER_HIGHLIGHT_LINE_ESTIMATE);
+        assert!(
+            bytes
+                <= tui_markdown::markdown::highlight::HIGHLIGHT_CACHE_CAPACITY
+                    * tui_markdown::markdown::highlight::BYTES_PER_HIGHLIGHT_LINE_ESTIMATE
+        );
         assert!(misses >= 1);
     }
 
@@ -340,5 +343,106 @@ mod tests {
         );
         assert_eq!(cache.header_key().dialect, key.dialect);
         assert_eq!(cache.body_key().highlight, key.highlight);
+    }
+
+    #[test]
+    fn row_mode_change_forces_relayout() {
+        let mut cache = PreparedScrollback::new();
+        let full = vec![line("head"), line("body")];
+        cache.sync_replace(&full, 10, 1);
+        let before = cache.key();
+        cache.set_row_modes(0, 1);
+        assert_eq!(cache.latex(), 1);
+        assert_ne!(cache.key(), before);
+        assert_ne!(cache.key().latex, before.latex);
+        cache.sync_replace(&full, 10, 3);
+        assert_eq!(cache.key().latex, 1);
+    }
+
+    #[test]
+    fn render_modes_each_invalidate_geometry() {
+        use tui_markdown::markdown::render_options::RenderOptions;
+        let mut cache = PreparedScrollback::new();
+        let full = vec![line("head"), line("body")];
+        cache.sync_replace(&full, 10, 1);
+        let before = cache.key();
+        cache.set_render_modes(1, 0, 0);
+        assert_ne!(cache.key(), before);
+        let spacing_key = cache.key();
+        cache.set_render_modes(1, 1, 0);
+        assert_ne!(cache.key(), spacing_key);
+        assert_eq!(cache.chart(), 1);
+        cache.set_render_options(&RenderOptions::from_key_bytes(0, 0, 1));
+        assert_eq!(cache.latex(), 1);
+        assert_eq!(cache.spacing(), 0);
+    }
+
+    #[test]
+    fn comfortable_spacing_adds_row_gaps() {
+        let mut cache = PreparedScrollback::new();
+        let full = vec![line("head"), line("body")];
+        cache.sync_replace(&full, 20, 1);
+        let compact_rows = cache.total_rows();
+        cache.set_render_modes(1, 0, 0);
+        cache.sync_replace(&full, 20, 2);
+        assert_eq!(cache.total_rows(), compact_rows + full.len());
+    }
+
+    #[test]
+    fn highlight_profile_participates_in_budget() {
+        let mut cache = PreparedScrollback::new();
+        let code = HistoryLine::markdown("```rust\nfn main() {}\n```\n");
+        let full = vec![code];
+        cache.sync_replace(&full, 20, 1);
+        let total = cache.total_rows();
+        assert!(total > 0);
+        let _ = cache.ensure_highlighted_for_window(&full, 0..total);
+        let profile = cache.highlight_profile();
+        assert!(profile.entries >= 1);
+        assert!(profile.spans >= 1);
+        assert!(profile.text_bytes > 0);
+        assert_eq!(profile.estimated_bytes, cache.highlight_stats().1);
+        assert!(cache.total_cached_bytes() >= profile.estimated_bytes);
+    }
+
+    #[test]
+    fn ensure_recovers_append_without_full_relayout() {
+        let mut cache = PreparedScrollback::new();
+        let mut full = vec![line("alpha beta gamma"), line("second line")];
+        cache.sync_replace(&full, 10, 1);
+        full.push(line("brand new tail"));
+        let repaired = cache.ensure_for_draw_with_hidden(&full, 10, 2, 0);
+        assert!(repaired);
+        assert_eq!(cached_text(&cache), full_layout(&full, 10));
+        assert_eq!(cache.last_layout_count(), 1);
+        assert_index_consistent(&cache);
+    }
+
+    #[test]
+    fn ensure_recovers_prepend_without_full_relayout() {
+        let mut cache = PreparedScrollback::new();
+        let tail = vec![line("tail one two"), line("tail two")];
+        cache.sync_replace(&tail, 10, 1);
+        let mut full = vec![line("head newcomer")];
+        full.extend(tail.clone());
+        let repaired = cache.ensure_for_draw_with_hidden(&full, 10, 2, 0);
+        assert!(repaired);
+        assert_eq!(cached_text(&cache), full_layout(&full, 10));
+        assert_index_consistent(&cache);
+    }
+
+    #[test]
+    fn ensure_recovers_trim_without_full_relayout() {
+        let mut cache = PreparedScrollback::new();
+        let full: Vec<HistoryLine> = (0..5)
+            .map(|i| line(&format!("line number {i} content")))
+            .collect();
+        cache.sync_replace(&full, 12, 1);
+        let trimmed = full[2..].to_vec();
+        let repaired = cache.ensure_for_draw_with_hidden(&trimmed, 12, 2, 0);
+        assert!(repaired);
+        assert_eq!(cached_text(&cache), full_layout(&trimmed, 12));
+        assert_eq!(cache.last_layout_count(), 0);
+        assert_index_consistent(&cache);
     }
 }

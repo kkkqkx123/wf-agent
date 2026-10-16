@@ -31,10 +31,14 @@ pub use data::{
     to_bold_style, to_dim_style, to_ratatui_color, to_style, ColorDomain, ColorRole, Rgb, Theme,
     ThemeKind, ThemeOverrides, ThemeSource,
 };
-pub use derive::{blend_rgb, derive_theme, is_light, luminance};
-pub use literal::{nearest_role, remap_literal, remap_literal_relative};
+pub use derive::{
+    blend_rgb, derive_theme, is_light, luminance, suggest_summary, suggest_theme_from_seed,
+};
+pub use literal::{
+    indexed_to_rgb, named_color_role, nearest_role, remap_color, remap_indexed, remap_literal,
+    remap_literal_relative, within_family, FrameColorCache, FAMILY_RADIUS,
+};
 pub use oklab::{contrast_ratio, oklab_distance, rgb_to_oklab};
-pub use validate::{validate_theme, ThemeCheck, ThemeReport, ThemeWarning};
 pub use osc::{parse_osc_response, OscColorParser};
 pub use resolve::{
     fallback_theme, probe_theme, probe_theme_with_timeout, resolve_theme, OSC_PROBE_TIMEOUT,
@@ -42,6 +46,10 @@ pub use resolve::{
 pub use style::{
     accent_style, assistant_message_style, error_style, highlight_style, muted_style,
     success_style, table_separator_style, tool_call_style, user_message_style, warning_style,
+};
+pub use validate::{
+    hue_distance_deg, oklab_chroma, oklab_hue_deg, validate_theme, ThemeCheck, ThemeReport,
+    ThemeWarning,
 };
 
 #[cfg(test)]

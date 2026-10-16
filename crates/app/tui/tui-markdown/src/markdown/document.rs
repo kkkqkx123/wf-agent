@@ -9,7 +9,8 @@
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 use super::dialect::parser_options;
-use super::math::latex_to_unicode;
+use super::math::{latex_to_unicode, normalize_math_source, render_display_math};
+use super::render_options::RenderOptions;
 
 /// Semantic style role for a span, independent of any backend palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -364,6 +365,23 @@ fn pad_to(text: &str, width: usize) -> String {
 
 /// Parse markdown source into a backend-neutral document.
 pub fn parse_document(src: &str) -> Document {
+    parse_document_with_options(src, &RenderOptions::default())
+}
+
+/// Whether a fenced code block holds a diagram source. Diagram fences keep
+/// their source lines verbatim as a text fallback, so the原文 is never
+/// dropped even when no raster backend is available.
+pub fn is_mermaid_block(language: Option<&str>) -> bool {
+    language.is_some_and(|lang| lang.trim().eq_ignore_ascii_case("mermaid"))
+}
+
+/// Parse markdown source under explicit render options. Math delimiters,
+/// fences and environments normalize first so streaming and whole-source
+/// renders agree; inline math always renders Unicode while display math
+/// follows the latex mode (image requests keep Unicode plus a reason since
+/// no backend is bundled). Spacing and chart modes do not change the parsed
+/// blocks; they ride along to layout through the preparation keys.
+pub fn parse_document_with_options(src: &str, options: &RenderOptions) -> Document {
     let mut blocks: Vec<DocBlock> = Vec::new();
     let mut current: Vec<StyledSpan> = Vec::new();
     let mut lines: Vec<StyledLine> = Vec::new();
@@ -402,7 +420,8 @@ pub fn parse_document(src: &str) -> Document {
         }
     };
 
-    for event in Parser::new_ext(src, parser_options()) {
+    let normalized = normalize_math_source(src);
+    for event in Parser::new_ext(&normalized, parser_options()) {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {}
@@ -447,10 +466,7 @@ pub fn parse_document(src: &str) -> Document {
                     def_indent = true;
                 }
                 Tag::FootnoteDefinition(label) => {
-                    current.push(StyledSpan::text(
-                        format!("[^{label}]: "),
-                        StyleRole::Dim,
-                    ));
+                    current.push(StyledSpan::text(format!("[^{label}]: "), StyleRole::Dim));
                 }
                 Tag::Emphasis => italic_depth += 1,
                 Tag::Strong => bold_depth += 1,
@@ -521,10 +537,8 @@ pub fn parse_document(src: &str) -> Document {
                     flush_line(&mut current, &mut def_lines);
                     if def_indent {
                         for line in &mut def_lines {
-                            line.spans.insert(
-                                0,
-                                StyledSpan::text("  ".to_string(), StyleRole::Dim),
-                            );
+                            line.spans
+                                .insert(0, StyledSpan::text("  ".to_string(), StyleRole::Dim));
                         }
                     }
                     if !def_lines.is_empty() {
@@ -640,10 +654,7 @@ pub fn parse_document(src: &str) -> Document {
                 blocks.push(DocBlock::Rule);
             }
             Event::FootnoteReference(name) => {
-                current.push(StyledSpan::text(
-                    format!("[^{name}]"),
-                    StyleRole::Dim,
-                ));
+                current.push(StyledSpan::text(format!("[^{name}]"), StyleRole::Dim));
             }
             Event::TaskListMarker(checked) => {
                 let marker = if checked { "[x] " } else { "[ ] " };
@@ -655,9 +666,9 @@ pub fn parse_document(src: &str) -> Document {
             }
             Event::DisplayMath(math) => {
                 flush_line(&mut current, &mut lines);
-                let display = latex_to_unicode(math.as_ref());
+                let rendered = render_display_math(math.as_ref(), options.latex);
                 lines.push(StyledLine {
-                    spans: vec![StyledSpan::math(display, math.to_string())],
+                    spans: vec![StyledSpan::math(rendered.text, math.to_string())],
                 });
                 if !lines.is_empty() {
                     blocks.push(DocBlock::Paragraph(std::mem::take(&mut lines)));
@@ -858,5 +869,47 @@ mod tests {
         };
         let rows = wrap_line(&line, 4, double_width);
         assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn mermaid_fences_keep_source_as_text_fallback() {
+        let src = "```mermaid\ngraph TD; A-->B;\n```\n";
+        let doc = parse_document(src);
+        let found = doc.blocks.iter().any(|block| match block {
+            DocBlock::Code { language, lines } => {
+                language.as_deref() == Some("mermaid")
+                    && lines.iter().any(|line| line.contains("A-->B"))
+            }
+            _ => false,
+        });
+        assert!(found, "mermaid source must survive as text fallback");
+        assert!(is_mermaid_block(Some("mermaid")));
+        assert!(!is_mermaid_block(Some("rust")));
+        assert!(document_plain_text(&doc).contains("A-->B"));
+    }
+
+    #[test]
+    fn normalized_math_parses_like_canonical_form() {
+        use super::super::math::normalize_math_source;
+        use super::super::render_options::{LatexMode, RenderOptions};
+        let raw = "\\[x^2\\] and \\begin{equation}y\\end{equation}\n";
+        let normalized = normalize_math_source(raw);
+        let from_raw = parse_document(raw);
+        let from_normalized = parse_document(&normalized);
+        assert_eq!(
+            document_plain_text(&from_raw),
+            document_plain_text(&from_normalized)
+        );
+        let options = RenderOptions::with_modes(
+            super::super::render_options::SpacingMode::Compact,
+            super::super::render_options::ChartMode::Text,
+            LatexMode::TexImage,
+        );
+        let with_image = parse_document_with_options("$$x^2$$", &options);
+        let plain = document_plain_text(&with_image);
+        assert!(
+            plain.contains("x"),
+            "tex-image fallback stays readable: {plain:?}"
+        );
     }
 }

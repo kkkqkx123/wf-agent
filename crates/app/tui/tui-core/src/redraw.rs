@@ -73,6 +73,9 @@ pub struct RedrawSnapshot {
     pub streaming_hash: u64,
     /// Digest of the footer state (status text, phase, notice).
     pub footer_digest: u64,
+    /// Hash of the composer input text. Typing must force a full frame so a
+    /// single-cell spinner never paints over a stale input row.
+    pub input_hash: u64,
     /// Layout width in columns.
     pub width: u16,
     /// Viewport height in rows (frame identity only; body layout is
@@ -129,6 +132,7 @@ pub fn decide_scope(prev: Option<RedrawSnapshot>, next: RedrawSnapshot) -> Redra
         || prev.view_scroll != next.view_scroll
         || prev.streaming_len != next.streaming_len
         || prev.streaming_hash != next.streaming_hash
+        || prev.input_hash != next.input_hash
         || prev.image_signature != next.image_signature
         || prev.expanded_version != next.expanded_version
         || prev.aspect_bucket != next.aspect_bucket
@@ -317,6 +321,412 @@ pub fn animation_frame_due_with(now_ms: u64, last_anim_ms: Option<u64>, interval
         None => true,
         Some(last) => now_ms.saturating_sub(last) >= interval_ms.max(1),
     }
+}
+
+/// How long after the last keystroke typing still holds decorative animation
+/// back. Covers a continuous typing burst without pinning a stale draft.
+pub const COMPOSING_BACKOFF_MS: u64 = 600;
+
+/// Frame rate cap for purely decorative animation. Functional motion keeps
+/// the configured animation rate; decoration costs scale linearly with rate
+/// while perceived smoothness saturates early.
+pub const DECORATIVE_FPS_CAP: u64 = 30;
+
+/// Why a tick needs a full frame beyond decorative animation. Names stay
+/// stable so diagnostics can report the exact predicate keeping the loop on
+/// the expensive path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullFrameReason {
+    Processing,
+    Streaming,
+    TailCatchup,
+    StatusNotice,
+    MouseScroll,
+    CopyAutoscroll,
+    Overscroll,
+    Notification,
+    RateLimitCountdown,
+    RemoteStartup,
+    StatusAnimation,
+}
+
+impl FullFrameReason {
+    /// Stable diagnostic name for the reason.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FullFrameReason::Processing => "processing",
+            FullFrameReason::Streaming => "streaming",
+            FullFrameReason::TailCatchup => "tail_catchup",
+            FullFrameReason::StatusNotice => "status_notice",
+            FullFrameReason::MouseScroll => "mouse_scroll_animation",
+            FullFrameReason::CopyAutoscroll => "copy_autoscroll",
+            FullFrameReason::Overscroll => "chat_overscroll",
+            FullFrameReason::Notification => "notification",
+            FullFrameReason::RateLimitCountdown => "rate_limit_countdown",
+            FullFrameReason::RemoteStartup => "remote_startup",
+            FullFrameReason::StatusAnimation => "status_animation",
+        }
+    }
+
+    /// Reason from its diagnostic name, if known.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "processing" => Some(FullFrameReason::Processing),
+            "streaming" => Some(FullFrameReason::Streaming),
+            "tail_catchup" => Some(FullFrameReason::TailCatchup),
+            "status_notice" => Some(FullFrameReason::StatusNotice),
+            "mouse_scroll_animation" => Some(FullFrameReason::MouseScroll),
+            "copy_autoscroll" => Some(FullFrameReason::CopyAutoscroll),
+            "chat_overscroll" => Some(FullFrameReason::Overscroll),
+            "notification" => Some(FullFrameReason::Notification),
+            "rate_limit_countdown" => Some(FullFrameReason::RateLimitCountdown),
+            "remote_startup" => Some(FullFrameReason::RemoteStartup),
+            "status_animation" => Some(FullFrameReason::StatusAnimation),
+            _ => None,
+        }
+    }
+}
+
+/// Fixed diagnostic table backing the atomic reason slot. Every reason
+/// recorded through `record_full_frame_reason` must appear here so a rename
+/// cannot silently blind the diagnostics.
+pub const FULL_FRAME_REDRAW_REASONS: &[&str] = &[
+    "processing",
+    "streaming",
+    "tail_catchup",
+    "status_notice",
+    "mouse_scroll_animation",
+    "copy_autoscroll",
+    "chat_overscroll",
+    "notification",
+    "rate_limit_countdown",
+    "remote_startup",
+    "status_animation",
+];
+
+static LAST_FULL_FRAME_REDRAW_REASON: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+
+/// Record the last reason a tick demanded a full frame. Lock-free so the
+/// redraw hot path never blocks on diagnostics.
+pub fn record_full_frame_reason(reason: FullFrameReason) {
+    if let Some(idx) = FULL_FRAME_REDRAW_REASONS
+        .iter()
+        .position(|name| *name == reason.as_str())
+    {
+        LAST_FULL_FRAME_REDRAW_REASON.store(idx, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Last recorded full-frame reason, if any.
+pub fn last_full_frame_reason() -> Option<FullFrameReason> {
+    FULL_FRAME_REDRAW_REASONS
+        .get(LAST_FULL_FRAME_REDRAW_REASON.load(std::sync::atomic::Ordering::Relaxed))
+        .copied()
+        .and_then(FullFrameReason::from_name)
+}
+
+/// Inputs driving the redraw cadence. All time is caller-supplied
+/// milliseconds so tests advance deterministically without sleeping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScheduleInputs {
+    /// Tail-follow catch-up still sliding toward the live tail.
+    pub tail_catchup: bool,
+    /// Elastic overscroll countdown still depleting.
+    pub overscroll: bool,
+    /// Terminal window currently focused.
+    pub focused: bool,
+    /// Turn actively processing.
+    pub processing: bool,
+    /// True when no streaming text is visible.
+    pub streaming_empty: bool,
+    /// Mouse scroll animation in flight.
+    pub mouse_scroll: bool,
+    /// Copy selection edge autoscroll active.
+    pub copy_autoscroll: bool,
+    /// Persistent notification line present.
+    pub notification: bool,
+    /// Rate-limit countdown inside its final minute.
+    pub rate_limit: bool,
+    /// Remote startup phase active.
+    pub remote_startup: bool,
+    /// Transient status notice visible.
+    pub status_notice: bool,
+    /// Full-line status animation visible (countdown, build progress).
+    pub status_animation: bool,
+    /// Decorative animation allowed by policy and configuration.
+    pub decorative_enabled: bool,
+    /// Renderer published animated rows on its last frame.
+    pub animation_on_screen: bool,
+    /// User actively typing within the backoff window.
+    pub composing: bool,
+    /// Current clock for dormancy math.
+    pub now_ms: u64,
+    /// Last real activity (frames, stream events) in clock millis.
+    pub last_activity_ms: Option<u64>,
+    /// Last user interaction (key, mouse, paste) in clock millis.
+    pub last_interaction_ms: Option<u64>,
+}
+
+impl Default for ScheduleInputs {
+    fn default() -> Self {
+        Self {
+            tail_catchup: false,
+            overscroll: false,
+            focused: true,
+            processing: false,
+            streaming_empty: true,
+            mouse_scroll: false,
+            copy_autoscroll: false,
+            notification: false,
+            rate_limit: false,
+            remote_startup: false,
+            status_notice: false,
+            status_animation: false,
+            decorative_enabled: false,
+            animation_on_screen: false,
+            composing: false,
+            now_ms: 0,
+            last_activity_ms: None,
+            last_interaction_ms: None,
+        }
+    }
+}
+
+/// Whether the session counts as dormant: no stream activity and no user
+/// interaction for the deep-idle window. A fresh client with no interaction
+/// recorded falls back to the activity clock alone.
+pub fn deep_idle_dormant(
+    now_ms: u64,
+    last_activity_ms: Option<u64>,
+    last_interaction_ms: Option<u64>,
+) -> bool {
+    let stream_dormant = last_activity_ms
+        .map(|last| now_ms.saturating_sub(last) >= REDRAW_DEEP_IDLE_AFTER_MS)
+        .unwrap_or(false);
+    let user_dormant = last_interaction_ms
+        .map(|last| now_ms.saturating_sub(last) >= REDRAW_DEEP_IDLE_AFTER_MS)
+        .unwrap_or(true);
+    stream_dormant && user_dormant
+}
+
+/// Whether decorative animation paces redraws: actually on screen, allowed,
+/// focused, and nothing live competes with it.
+pub fn decorative_paces(inputs: &ScheduleInputs) -> bool {
+    inputs.animation_on_screen
+        && inputs.decorative_enabled
+        && inputs.focused
+        && !inputs.processing
+        && inputs.streaming_empty
+        && !inputs.remote_startup
+        && !deep_idle_dormant(
+            inputs.now_ms,
+            inputs.last_activity_ms,
+            inputs.last_interaction_ms,
+        )
+}
+
+/// Why a tick needs a full frame beyond decorative animation, if anything.
+/// Named instead of a bare boolean chain so diagnostics report the exact
+/// predicate keeping the loop on the expensive path.
+pub fn live_activity_reason(inputs: &ScheduleInputs) -> Option<FullFrameReason> {
+    if inputs.processing {
+        return Some(FullFrameReason::Processing);
+    }
+    if !inputs.streaming_empty {
+        return Some(FullFrameReason::Streaming);
+    }
+    if inputs.tail_catchup {
+        return Some(FullFrameReason::TailCatchup);
+    }
+    if inputs.status_notice {
+        return Some(FullFrameReason::StatusNotice);
+    }
+    if inputs.mouse_scroll {
+        return Some(FullFrameReason::MouseScroll);
+    }
+    if inputs.copy_autoscroll {
+        return Some(FullFrameReason::CopyAutoscroll);
+    }
+    if inputs.overscroll {
+        return Some(FullFrameReason::Overscroll);
+    }
+    if inputs.notification {
+        return Some(FullFrameReason::Notification);
+    }
+    if inputs.rate_limit {
+        return Some(FullFrameReason::RateLimitCountdown);
+    }
+    if inputs.remote_startup {
+        return Some(FullFrameReason::RemoteStartup);
+    }
+    None
+}
+
+/// Reason a full frame is required right now, checking status animation
+/// before live activity. Returns `None` when nothing is live.
+pub fn current_full_frame_reason(inputs: &ScheduleInputs) -> Option<FullFrameReason> {
+    if inputs.status_animation {
+        return Some(FullFrameReason::StatusAnimation);
+    }
+    live_activity_reason(inputs)
+}
+
+/// Tick cadence for the current state. Returns a symbolic cadence so the
+/// capability policy maps it to milliseconds without a crate cycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedrawCadence {
+    TailCatchup,
+    Overscroll,
+    UnfocusedDeepIdle,
+    DeepIdle,
+    Decorative,
+    DecorativeComposing,
+    StatusAnimation,
+    PassiveLiveness,
+    LiveFast,
+    StaticChrome,
+    RemoteStartup,
+    Idle,
+}
+
+/// Cadence for `inputs` in priority order: catch-up and overscroll first,
+/// then unfocused and deep-idle short-circuits, then decorative, then status
+/// animation, then passive liveness, then live output, then static chrome.
+pub fn redraw_cadence(inputs: &ScheduleInputs) -> RedrawCadence {
+    if inputs.tail_catchup {
+        return RedrawCadence::TailCatchup;
+    }
+    if inputs.overscroll {
+        return RedrawCadence::Overscroll;
+    }
+    if !inputs.focused
+        && !inputs.processing
+        && inputs.streaming_empty
+        && !inputs.mouse_scroll
+        && !inputs.copy_autoscroll
+        && !inputs.remote_startup
+        && !inputs.rate_limit
+    {
+        return RedrawCadence::UnfocusedDeepIdle;
+    }
+    let deep_idle = deep_idle_dormant(
+        inputs.now_ms,
+        inputs.last_activity_ms,
+        inputs.last_interaction_ms,
+    );
+    if deep_idle
+        && !inputs.processing
+        && inputs.streaming_empty
+        && !inputs.mouse_scroll
+        && !inputs.copy_autoscroll
+        && !inputs.remote_startup
+        && !inputs.rate_limit
+    {
+        return RedrawCadence::DeepIdle;
+    }
+    if decorative_paces(inputs) {
+        if inputs.composing {
+            return RedrawCadence::DecorativeComposing;
+        }
+        return RedrawCadence::Decorative;
+    }
+    if inputs.status_animation {
+        return RedrawCadence::StatusAnimation;
+    }
+    if !inputs.mouse_scroll && inputs.streaming_empty && (inputs.processing || inputs.rate_limit) {
+        return RedrawCadence::PassiveLiveness;
+    }
+    if inputs.processing
+        || !inputs.streaming_empty
+        || inputs.mouse_scroll
+        || inputs.copy_autoscroll
+        || inputs.rate_limit
+    {
+        return RedrawCadence::LiveFast;
+    }
+    if inputs.status_notice {
+        return RedrawCadence::StaticChrome;
+    }
+    if inputs.remote_startup {
+        return RedrawCadence::RemoteStartup;
+    }
+    if deep_idle {
+        return RedrawCadence::DeepIdle;
+    }
+    RedrawCadence::Idle
+}
+
+/// Whether a periodic tick needs a full frame, ignoring decorative-only
+/// ticks. Records the reason so diagnostics stay queryable. Deep-idle quiet
+/// sessions need nothing.
+pub fn periodic_needs_full_excluding_decorative(inputs: &ScheduleInputs) -> bool {
+    let deep_idle = deep_idle_dormant(
+        inputs.now_ms,
+        inputs.last_activity_ms,
+        inputs.last_interaction_ms,
+    );
+    if deep_idle
+        && !inputs.processing
+        && inputs.streaming_empty
+        && !inputs.mouse_scroll
+        && !inputs.copy_autoscroll
+        && !inputs.overscroll
+        && !inputs.remote_startup
+        && !inputs.rate_limit
+    {
+        return false;
+    }
+    if inputs.status_animation {
+        record_full_frame_reason(FullFrameReason::StatusAnimation);
+        return true;
+    }
+    if let Some(reason) = live_activity_reason(inputs) {
+        record_full_frame_reason(reason);
+        return true;
+    }
+    false
+}
+
+/// Inputs gating the single-cell spinner fast path. All conditions must hold;
+/// anything else upgrades to a wider scope so a cheap tick never leaves stale
+/// cells behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SingleCellInputs {
+    /// Turn actively processing.
+    pub processing: bool,
+    /// Essential spinner kept on by the capability policy.
+    pub primary_spinner: bool,
+    /// No streaming text visible.
+    pub streaming_empty: bool,
+    /// Composer centered (spinner cell not at a stable address).
+    pub centered: bool,
+    /// Mouse scroll animation in flight.
+    pub mouse_scroll: bool,
+    /// Remote startup phase active.
+    pub remote_startup: bool,
+    /// Overlay, modal, or approval forcing a full frame.
+    pub overlay_full: bool,
+    /// Composer input changed since the last frame.
+    pub input_changed: bool,
+    /// Recorded animation cells exist.
+    pub animation_cells: bool,
+}
+
+/// Whether the cheap single-cell tick may run. The ratatui diff already emits
+/// cursor-addressed single-cell output, so this gates eligibility for the
+/// seeded animation-only composition instead of bypassing the backend (which
+/// would desynchronize the retained backend buffers).
+pub fn single_cell_spinner_available(inputs: &SingleCellInputs) -> bool {
+    inputs.processing
+        && inputs.primary_spinner
+        && inputs.streaming_empty
+        && !inputs.centered
+        && !inputs.mouse_scroll
+        && !inputs.remote_startup
+        && !inputs.overlay_full
+        && !inputs.input_changed
+        && inputs.animation_cells
 }
 
 /// Count cells whose symbol or style differs between two buffers.
@@ -588,6 +998,39 @@ impl FrameCache {
             self.clear();
         }
     }
+
+    /// Patch one stored cell in place so a single-cell tick keeps the seed in
+    /// sync with what the backend painted. Out-of-bounds writes are ignored.
+    /// Returns true when a cell was patched.
+    pub fn patch_cell(
+        &mut self,
+        x: u16,
+        y: u16,
+        symbol: &str,
+        style: ratatui::style::Style,
+    ) -> bool {
+        let Some(prev) = self.frame.as_mut() else {
+            return false;
+        };
+        if x >= prev.area.width || y >= prev.area.height {
+            return false;
+        }
+        prev[(x, y)].set_symbol(symbol);
+        prev[(x, y)].set_style(style);
+        true
+    }
+
+    /// Fill the stored frame with a sentinel symbol so the next composition
+    /// treats every cell as dirty without clearing the terminal surface.
+    /// Used as the soft-path equivalent of a hard clear for image and diagram
+    /// placeholders that must never flash through an intermediate clear.
+    pub fn fill_sentinel(&mut self, area: Rect, symbol: &str) {
+        let mut sentinel = Buffer::filled(area, ratatui::buffer::Cell::EMPTY);
+        for cell in sentinel.content.iter_mut() {
+            cell.set_symbol(symbol);
+        }
+        self.frame = Some(sentinel);
+    }
 }
 
 #[cfg(test)]
@@ -601,6 +1044,7 @@ mod tests {
             streaming_len: 0,
             streaming_hash: 0,
             footer_digest: 7,
+            input_hash: 0,
             width: 80,
             height: 24,
             render_mode: 0,
@@ -945,5 +1389,275 @@ mod tests {
             buffer.cell((0, 1)).map(|cell| cell.symbol().to_string()),
             Some("x".to_string())
         );
+    }
+
+    #[test]
+    fn deep_idle_needs_both_clocks() {
+        assert!(deep_idle_dormant(60_000, Some(0), Some(0)));
+        assert!(!deep_idle_dormant(60_000, Some(0), Some(59_000)));
+        assert!(!deep_idle_dormant(10_000, Some(0), Some(0)));
+        assert!(!deep_idle_dormant(60_000, None, Some(0)));
+        assert!(deep_idle_dormant(60_000, Some(0), None));
+    }
+
+    #[test]
+    fn decorative_paces_only_when_on_screen_and_allowed() {
+        let base = ScheduleInputs {
+            decorative_enabled: true,
+            animation_on_screen: true,
+            now_ms: 1_000,
+            last_activity_ms: Some(900),
+            last_interaction_ms: Some(900),
+            ..ScheduleInputs::default()
+        };
+        assert!(decorative_paces(&base));
+        assert!(!decorative_paces(&ScheduleInputs {
+            animation_on_screen: false,
+            ..base
+        }));
+        assert!(!decorative_paces(&ScheduleInputs {
+            decorative_enabled: false,
+            ..base
+        }));
+        assert!(!decorative_paces(&ScheduleInputs {
+            focused: false,
+            ..base
+        }));
+        assert!(!decorative_paces(&ScheduleInputs {
+            processing: true,
+            ..base
+        }));
+    }
+
+    #[test]
+    fn cadence_priority_orders_catchup_first() {
+        let catchup = ScheduleInputs {
+            tail_catchup: true,
+            processing: true,
+            ..ScheduleInputs::default()
+        };
+        assert_eq!(redraw_cadence(&catchup), RedrawCadence::TailCatchup);
+        let overscroll = ScheduleInputs {
+            overscroll: true,
+            processing: true,
+            ..ScheduleInputs::default()
+        };
+        assert_eq!(redraw_cadence(&overscroll), RedrawCadence::Overscroll);
+    }
+
+    #[test]
+    fn unfocused_idle_falls_to_deep_idle_cadence() {
+        let inputs = ScheduleInputs {
+            focused: false,
+            now_ms: 1_000,
+            ..ScheduleInputs::default()
+        };
+        assert_eq!(
+            redraw_cadence(&inputs),
+            RedrawCadence::UnfocusedDeepIdle
+        );
+    }
+
+    #[test]
+    fn composing_backs_decorative_off_fast_path() {
+        let base = ScheduleInputs {
+            decorative_enabled: true,
+            animation_on_screen: true,
+            now_ms: 1_000,
+            last_activity_ms: Some(900),
+            last_interaction_ms: Some(900),
+            ..ScheduleInputs::default()
+        };
+        assert_eq!(redraw_cadence(&base), RedrawCadence::Decorative);
+        assert_eq!(
+            redraw_cadence(&ScheduleInputs {
+                composing: true,
+                ..base
+            }),
+            RedrawCadence::DecorativeComposing
+        );
+    }
+
+    #[test]
+    fn live_activity_reason_names_each_predicate() {
+        assert_eq!(
+            live_activity_reason(&ScheduleInputs {
+                processing: true,
+                ..ScheduleInputs::default()
+            }),
+            Some(FullFrameReason::Processing)
+        );
+        assert_eq!(
+            live_activity_reason(&ScheduleInputs {
+                streaming_empty: false,
+                ..ScheduleInputs::default()
+            }),
+            Some(FullFrameReason::Streaming)
+        );
+        assert_eq!(
+            live_activity_reason(&ScheduleInputs {
+                tail_catchup: true,
+                ..ScheduleInputs::default()
+            }),
+            Some(FullFrameReason::TailCatchup)
+        );
+        assert_eq!(
+            live_activity_reason(&ScheduleInputs::default()),
+            None
+        );
+        assert_eq!(
+            current_full_frame_reason(&ScheduleInputs {
+                status_animation: true,
+                processing: true,
+                ..ScheduleInputs::default()
+            }),
+            Some(FullFrameReason::StatusAnimation)
+        );
+    }
+
+    #[test]
+    fn reason_table_round_trips() {
+        for reason in [
+            FullFrameReason::Processing,
+            FullFrameReason::Streaming,
+            FullFrameReason::TailCatchup,
+            FullFrameReason::StatusNotice,
+            FullFrameReason::MouseScroll,
+            FullFrameReason::CopyAutoscroll,
+            FullFrameReason::Overscroll,
+            FullFrameReason::Notification,
+            FullFrameReason::RateLimitCountdown,
+            FullFrameReason::RemoteStartup,
+            FullFrameReason::StatusAnimation,
+        ] {
+            assert!(FULL_FRAME_REDRAW_REASONS.contains(&reason.as_str()));
+            assert_eq!(FullFrameReason::from_name(reason.as_str()), Some(reason));
+            record_full_frame_reason(reason);
+            assert_eq!(last_full_frame_reason(), Some(reason));
+        }
+        assert_eq!(FullFrameReason::from_name("not-a-reason"), None);
+    }
+
+    #[test]
+    fn periodic_excluding_decorative_skips_quiet_deep_idle() {
+        let quiet = ScheduleInputs {
+            now_ms: 120_000,
+            last_activity_ms: Some(0),
+            last_interaction_ms: Some(0),
+            ..ScheduleInputs::default()
+        };
+        assert!(!periodic_needs_full_excluding_decorative(&quiet));
+        let live = ScheduleInputs {
+            processing: true,
+            now_ms: 1_000,
+            last_activity_ms: Some(900),
+            last_interaction_ms: Some(900),
+            ..ScheduleInputs::default()
+        };
+        assert!(periodic_needs_full_excluding_decorative(&live));
+        let decorative_only = ScheduleInputs {
+            decorative_enabled: true,
+            animation_on_screen: true,
+            now_ms: 1_000,
+            last_activity_ms: Some(900),
+            last_interaction_ms: Some(900),
+            ..ScheduleInputs::default()
+        };
+        assert!(!periodic_needs_full_excluding_decorative(&decorative_only));
+    }
+
+    #[test]
+    fn input_change_forces_full() {
+        let prev = snapshot();
+        let mut next = prev;
+        next.input_hash = 0x9e37;
+        assert_eq!(decide_scope(Some(prev), next), RedrawScope::Full);
+    }
+
+    #[test]
+    fn single_cell_needs_every_gate() {
+        let base = SingleCellInputs {
+            processing: true,
+            primary_spinner: true,
+            streaming_empty: true,
+            animation_cells: true,
+            ..SingleCellInputs::default()
+        };
+        assert!(single_cell_spinner_available(&base));
+        for blocked in [
+            SingleCellInputs {
+                processing: false,
+                ..base
+            },
+            SingleCellInputs {
+                primary_spinner: false,
+                ..base
+            },
+            SingleCellInputs {
+                streaming_empty: false,
+                ..base
+            },
+            SingleCellInputs {
+                centered: true,
+                ..base
+            },
+            SingleCellInputs {
+                mouse_scroll: true,
+                ..base
+            },
+            SingleCellInputs {
+                remote_startup: true,
+                ..base
+            },
+            SingleCellInputs {
+                overlay_full: true,
+                ..base
+            },
+            SingleCellInputs {
+                input_changed: true,
+                ..base
+            },
+            SingleCellInputs {
+                animation_cells: false,
+                ..base
+            },
+        ] {
+            assert!(
+                !single_cell_spinner_available(&blocked),
+                "gate must hold: {blocked:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn patch_cell_keeps_seed_in_sync() {
+        use ratatui::style::{Color, Modifier, Style};
+        let area = Rect::new(0, 0, 4, 1);
+        let mut cache = FrameCache::new();
+        assert!(!cache.patch_cell(0, 0, "x", Style::default()));
+        cache.capture(&Buffer::filled(area, Cell::EMPTY));
+        let style = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+        assert!(cache.patch_cell(1, 0, "x", style));
+        assert!(!cache.patch_cell(9, 0, "x", style));
+        let mut seeded = Buffer::filled(area, Cell::EMPTY);
+        cache.seed(&mut seeded);
+        assert_eq!(seeded[(1, 0)].symbol(), "x");
+        assert_eq!(seeded[(1, 0)].style().fg, Some(Color::Cyan));
+        assert!(seeded[(1, 0)].style().add_modifier.contains(Modifier::BOLD));
+        assert_eq!(seeded[(0, 0)].symbol(), " ");
+    }
+
+    #[test]
+    fn sentinel_fill_forces_repaint_without_clear() {
+        let area = Rect::new(0, 0, 4, 1);
+        let mut cache = FrameCache::new();
+        cache.capture(&Buffer::filled(area, Cell::EMPTY));
+        cache.fill_sentinel(area, "\u{0}");
+        assert!(cache.can_seed(area));
+        let mut seeded = Buffer::filled(area, Cell::EMPTY);
+        cache.seed(&mut seeded);
+        assert!(seeded.content.iter().all(|cell| cell.symbol() == "\u{0}"));
     }
 }

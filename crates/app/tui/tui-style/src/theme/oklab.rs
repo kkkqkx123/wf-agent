@@ -90,7 +90,14 @@ pub fn contrast_ratio(a: Rgb, b: Rgb) -> f32 {
 
 /// Simulate protanopia (red-blind) in linear RGB with the Machado matrix.
 pub fn simulate_protanopia(rgb: Rgb) -> Rgb {
-    simulate(rgb, [[0.567, 0.433, 0.0], [0.558, 0.442, 0.0], [0.0, 0.242, 0.758]])
+    simulate(
+        rgb,
+        [
+            [0.567, 0.433, 0.0],
+            [0.558, 0.442, 0.0],
+            [0.0, 0.242, 0.758],
+        ],
+    )
 }
 
 /// Simulate deuteranopia (green-blind) in linear RGB.
@@ -100,7 +107,10 @@ pub fn simulate_deuteranopia(rgb: Rgb) -> Rgb {
 
 /// Simulate tritanopia (blue-blind) in linear RGB.
 pub fn simulate_tritanopia(rgb: Rgb) -> Rgb {
-    simulate(rgb, [[0.95, 0.05, 0.0], [0.0, 0.433, 0.567], [0.0, 0.475, 0.525]])
+    simulate(
+        rgb,
+        [[0.95, 0.05, 0.0], [0.0, 0.433, 0.567], [0.0, 0.475, 0.525]],
+    )
 }
 
 fn simulate(rgb: Rgb, m: [[f32; 3]; 3]) -> Rgb {

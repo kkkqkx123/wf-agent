@@ -26,6 +26,12 @@ pub struct PreparedScrollback {
     width: u16,
     version: u64,
     hidden: u64,
+    /// Spacing mode affecting row gaps.
+    spacing: u8,
+    /// Chart display mode for diagram fences.
+    chart: u8,
+    /// Latex rendering mode.
+    latex: u8,
     source_len: usize,
     /// Pinned leading source lines forming the header section.
     header_len: usize,
@@ -53,6 +59,9 @@ impl PreparedScrollback {
             width: 80,
             version: 0,
             hidden: 0,
+            spacing: 0,
+            chart: 0,
+            latex: 0,
             source_len: 0,
             header_len: 0,
             rows: Vec::new(),
@@ -77,6 +86,9 @@ impl PreparedScrollback {
             hidden: self.hidden,
             dialect,
             highlight,
+            spacing: self.spacing,
+            chart: self.chart,
+            latex: self.latex,
         }
     }
 
@@ -90,6 +102,9 @@ impl PreparedScrollback {
             version: self.version,
             dialect,
             highlight,
+            spacing: self.spacing,
+            chart: self.chart,
+            latex: self.latex,
         }
     }
 
@@ -103,6 +118,9 @@ impl PreparedScrollback {
             hidden: self.hidden,
             dialect,
             highlight,
+            spacing: self.spacing,
+            chart: self.chart,
+            latex: self.latex,
         }
     }
 
@@ -134,6 +152,61 @@ impl PreparedScrollback {
     /// Compacted hidden prompt count the cached rows were built from.
     pub fn hidden(&self) -> u64 {
         self.hidden
+    }
+
+    /// Spacing mode the cached rows were built from.
+    pub fn spacing(&self) -> u8 {
+        self.spacing
+    }
+
+    /// Chart display mode the cached rows were built from.
+    pub fn chart(&self) -> u8 {
+        self.chart
+    }
+
+    /// Latex rendering mode the cached rows were built from.
+    pub fn latex(&self) -> u8 {
+        self.latex
+    }
+
+    /// Current render options as a single context.
+    pub fn render_options(&self) -> tui_markdown::markdown::render_options::RenderOptions {
+        tui_markdown::markdown::render_options::RenderOptions::from_key_bytes(
+            self.spacing,
+            self.chart,
+            self.latex,
+        )
+    }
+
+    /// Set the row modes (spacing, latex). A change bumps the version so the
+    /// next draw relays out instead of reusing stale rows. Chart mode is
+    /// preserved; use [`Self::set_render_modes`] to change all three.
+    pub fn set_row_modes(&mut self, spacing: u8, latex: u8) {
+        if spacing != self.spacing || latex != self.latex {
+            self.spacing = spacing;
+            self.latex = latex;
+            self.version = self.version.wrapping_add(1);
+        }
+    }
+
+    /// Set all render modes (spacing, chart, latex) as one context. Any
+    /// change bumps the version so the next draw relays out.
+    pub fn set_render_modes(&mut self, spacing: u8, chart: u8, latex: u8) {
+        if spacing != self.spacing || chart != self.chart || latex != self.latex {
+            self.spacing = spacing;
+            self.chart = chart;
+            self.latex = latex;
+            self.version = self.version.wrapping_add(1);
+        }
+    }
+
+    /// Set the render options context. Any change bumps the version.
+    pub fn set_render_options(
+        &mut self,
+        options: &tui_markdown::markdown::render_options::RenderOptions,
+    ) {
+        let (spacing, chart, latex) = options.as_key_bytes();
+        self.set_render_modes(spacing, chart, latex);
     }
 
     /// Number of source lines currently laid out.
@@ -174,26 +247,53 @@ impl PreparedScrollback {
     /// Lay out one source line, reusing the row cache on a hit. Returns the
     /// display rows and whether a real layout ran. Fenced code lays out as a
     /// same-geometry placeholder when `highlight` is false and upgrades on
-    /// demand once the draw path reports it visible.
+    /// demand once the draw path reports it visible. Spacing, chart and latex
+    /// modes ride along through the row key and the render options context;
+    /// comfortable spacing appends one blank row per source line.
     fn lay_out_row(
         &mut self,
         source: &HistoryLine,
         width: u16,
         highlight: bool,
     ) -> (Vec<Line<'static>>, bool) {
+        let options = self.render_options();
         if highlight {
             let identity = source.identity();
-            let key = AuxMapKey::new(identity, width);
+            let key = AuxMapKey::new_with_render_modes(
+                identity,
+                width,
+                self.spacing,
+                self.chart,
+                self.latex,
+            );
             if let Some(cached) = self.row_cache.get(key).map(|rows| rows.to_vec()) {
                 self.aux_map.record(identity, width, cached.len());
                 return (cached, false);
             }
-            let laid = source.display_lines_highlighted(width, &mut self.highlight, true);
+            let mut laid = source.display_lines_highlighted_with_options(
+                width,
+                tui_clock::clock::now_ms(),
+                &mut self.highlight,
+                true,
+                &options,
+            );
+            if self.spacing == 1 {
+                laid.push(Line::from(""));
+            }
             self.aux_map.record(identity, width, laid.len());
             self.row_cache.insert(key, laid.clone());
             return (laid, true);
         }
-        let laid = source.display_lines_highlighted(width, &mut self.highlight, false);
+        let mut laid = source.display_lines_highlighted_with_options(
+            width,
+            tui_clock::clock::now_ms(),
+            &mut self.highlight,
+            false,
+            &options,
+        );
+        if self.spacing == 1 {
+            laid.push(Line::from(""));
+        }
         self.aux_map.record(source.identity(), width, laid.len());
         (laid, true)
     }
@@ -240,8 +340,7 @@ impl PreparedScrollback {
                 self.relayout_all_highlighted(full, width, self.version, self.hidden);
                 return true;
             }
-            self.rows
-                .splice(range.start..range.start + range.len, laid);
+            self.rows.splice(range.start..range.start + range.len, laid);
             self.plain[idx] = false;
             changed = true;
         }
@@ -257,6 +356,18 @@ impl PreparedScrollback {
             self.highlight.hits(),
             self.highlight.misses(),
         )
+    }
+
+    /// Full highlight memory profile for budget asserts: hits, entries,
+    /// lines, spans, text bytes and estimated bytes.
+    pub fn highlight_profile(&self) -> tui_markdown::markdown::highlight::HighlightMemoryProfile {
+        self.highlight.memory_profile()
+    }
+
+    /// Total cached bytes for budget asserts: display rows plus highlight
+    /// entries, so highlight growth participates in the preparation budget.
+    pub fn total_cached_bytes(&self) -> usize {
+        estimate_bytes(self.rows.len()).saturating_add(self.highlight.bytes())
     }
 
     /// Placeholder (unhighlighted) source rows currently retained.
@@ -565,7 +676,10 @@ impl PreparedScrollback {
         self.ensure_for_draw_with_hidden(full, width, version, self.hidden)
     }
 
-    /// Draw-time safety net with an explicit hidden-prompt count.
+    /// Draw-time safety net with an explicit hidden-prompt count. Steady
+    /// states do nothing; drift repairs incrementally when message-boundary
+    /// identities show a tail append, head prepend or head trim, and only
+    /// falls back to a full relayout otherwise.
     pub fn ensure_for_draw_with_hidden(
         &mut self,
         full: &[HistoryLine],
@@ -573,15 +687,50 @@ impl PreparedScrollback {
         version: u64,
         hidden: u64,
     ) -> bool {
-        if width != self.width
-            || version != self.version
-            || hidden != self.hidden
-            || full.len() != self.source_len
+        if width == self.width
+            && version == self.version
+            && hidden == self.hidden
+            && full.len() == self.source_len
         {
-            self.relayout_all_with_hidden(full, width, version, hidden);
-            return true;
+            return false;
         }
-        false
+        if width == self.width && hidden == self.hidden {
+            let full_ids: Vec<u64> = full.iter().map(|line| line.identity()).collect();
+            match tui_core::prep_keys::find_incremental_base(&self.identities, &full_ids) {
+                tui_core::prep_keys::IncrementalBase::Tail { shared }
+                    if shared == self.source_len && full.len() >= self.source_len =>
+                {
+                    self.sync_append_with_hidden(full, width, version, hidden);
+                    return true;
+                }
+                tui_core::prep_keys::IncrementalBase::Prepend { shared }
+                    if shared == self.source_len && full.len() >= self.source_len =>
+                {
+                    let added = full.len() - self.source_len;
+                    self.sync_prepend_with_hidden(full, added, width, version, hidden);
+                    return true;
+                }
+                _ => {}
+            }
+            if full.len() < self.source_len
+                && !full.is_empty()
+                && self.identities.len() >= full.len()
+                && self.identities[self.identities.len() - full.len()..] == full_ids[..]
+            {
+                let dropped = self.source_len - full.len();
+                self.sync_trim(dropped, version);
+                return true;
+            }
+            if full.is_empty() && self.source_len == 0 {
+                self.version = version;
+                self.hidden = hidden;
+                self.last_layout_source_lines = 0;
+                self.last_layout_rows = 0;
+                return true;
+            }
+        }
+        self.relayout_all_with_hidden(full, width, version, hidden);
+        true
     }
 
     /// Display rows contributed by the first `added` source lines under the
@@ -668,12 +817,17 @@ impl PreparedScrollback {
     /// oldest generation first: row-cache entries, then the oversize FIFO
     /// keeps at most one newest entry. The live `rows` vector stays readable;
     /// oversize frames only set the degraded bit. Callers invoke this after
-    /// every mutation that grows cached state.
+    /// every mutation that grows cached state. Highlight bytes participate:
+    /// display rows plus highlight entries must fit, otherwise row-cache
+    /// entries age out first.
     fn enforce_byte_budget(&mut self) {
-        if estimate_bytes(self.rows.len()) <= PREP_CACHE_MAX_BYTES {
+        if self.total_cached_bytes() <= PREP_CACHE_MAX_BYTES {
             return;
         }
         self.row_cache.clear();
+        if self.total_cached_bytes() <= PREP_CACHE_MAX_BYTES {
+            return;
+        }
         self.oversize.retain_newest();
     }
 

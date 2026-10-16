@@ -364,20 +364,42 @@ impl HistoryLine {
         cache: &mut tui_markdown::markdown::highlight::HighlightCache,
         highlight: bool,
     ) -> Vec<Line<'static>> {
+        self.markdown_lines_at_highlighted_with_options(
+            width,
+            now_ms,
+            cache,
+            highlight,
+            &tui_markdown::markdown::render_options::RenderOptions::default(),
+        )
+    }
+
+    /// Markdown rendering under explicit render options. Spacing, chart and
+    /// latex modes ride along from the preparation cache through the styled
+    /// renderer; defaults preserve the legacy output.
+    pub fn markdown_lines_at_highlighted_with_options(
+        &self,
+        width: u16,
+        now_ms: u64,
+        cache: &mut tui_markdown::markdown::highlight::HighlightCache,
+        highlight: bool,
+        options: &tui_markdown::markdown::render_options::RenderOptions,
+    ) -> Vec<Line<'static>> {
         let w = usize::from(width.max(1));
         let motion = if self.is_animating_at(now_ms) {
             self.motion_mode
         } else {
             MotionMode::Static
         };
-        let rendered = tui_markdown::markdown::styled::render_styled_lines_lazy(
+        let rendered = tui_markdown::markdown::styled::render_styled_lines_lazy_with_options(
             &self.source_text(),
             u16::try_from(w).unwrap_or(u16::MAX),
             motion,
             cache,
             highlight,
             None,
-        );        let mut out = Vec::new();
+            options,
+        );
+        let mut out = Vec::new();
         for line in &rendered {
             if line.width() <= w {
                 out.push(own_line(line));
@@ -413,6 +435,25 @@ impl HistoryLine {
     ) -> Vec<Line<'static>> {
         if self.render == LineRender::Markdown {
             return self.markdown_lines_at_highlighted(width, now_ms, cache, highlight);
+        }
+        self.display_lines_at(width, now_ms)
+    }
+
+    /// Reflow with explicit render options for an explicit clock value.
+    /// Markdown lines parse and highlight under the options; plain lines
+    /// ignore them and reflow verbatim.
+    pub fn display_lines_highlighted_with_options(
+        &self,
+        width: u16,
+        now_ms: u64,
+        cache: &mut tui_markdown::markdown::highlight::HighlightCache,
+        highlight: bool,
+        options: &tui_markdown::markdown::render_options::RenderOptions,
+    ) -> Vec<Line<'static>> {
+        if self.render == LineRender::Markdown {
+            return self.markdown_lines_at_highlighted_with_options(
+                width, now_ms, cache, highlight, options,
+            );
         }
         self.display_lines_at(width, now_ms)
     }

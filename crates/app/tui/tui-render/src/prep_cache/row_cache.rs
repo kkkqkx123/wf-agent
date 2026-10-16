@@ -41,18 +41,19 @@ impl RowCache {
         Self::default()
     }
 
-    /// Cached rows for `key`, if present.
+    /// Cached rows for `key`, if present. Hits promote the entry to the
+    /// newest generation so steady content survives churn.
     pub fn get(&mut self, key: AuxMapKey) -> Option<&[Line<'static>]> {
-        match self.entries.get(&key) {
-            Some(entry) => {
-                self.hits += 1;
-                Some(entry.rows.as_slice())
+        if self.entries.contains_key(&key) {
+            self.generation = self.generation.wrapping_add(1);
+            if let Some(entry) = self.entries.get_mut(&key) {
+                entry.generation = self.generation;
             }
-            None => {
-                self.misses += 1;
-                None
-            }
+            self.hits += 1;
+            return self.entries.get(&key).map(|entry| entry.rows.as_slice());
         }
+        self.misses += 1;
+        None
     }
 
     /// Store laid-out rows. When full, evict the oldest generation instead

@@ -709,7 +709,8 @@ mod tests {
     }
 
     #[test]
-    fn streamed_equals_full_mixed_document() {        for seed in 0..8u64 {
+    fn streamed_equals_full_mixed_document() {
+        for seed in 0..8u64 {
             assert_streamed_equals_full(
                 "# Title\n\nSome **bold** text with `code`.\n\n\
                  | A | B |\n| - | - |\n| 1 | 2 |\n\n\

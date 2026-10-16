@@ -71,6 +71,28 @@ pub(super) enum MouseAction {
     IgnoredButton,
 }
 
+/// Outcome of one handled mouse event: drives the frame decision at the
+/// single submit point without overloading a boolean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MouseOutcome {
+    /// Wheel or button path moved content: a full frame is due.
+    Scrolled,
+    /// A click landed (badge, gutter, content, copy): a full frame is due.
+    Clicked,
+    /// Nothing landed: no focus mark, no interaction, no frame.
+    Ignored,
+}
+
+impl MouseOutcome {
+    /// Whether the outcome warrants a full frame request.
+    pub(super) fn needs_frame(self) -> bool {
+        match self {
+            MouseOutcome::Scrolled | MouseOutcome::Clicked => true,
+            MouseOutcome::Ignored => false,
+        }
+    }
+}
+
 /// Classify a mouse event kind. Motion never reaches this function: the
 /// event loop filters it out before any focus mark or frame request.
 pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
@@ -145,6 +167,18 @@ pub(super) fn mouse_is_left_button(kind: MouseEventKind) -> bool {
         MouseEventKind::Down(MouseButton::Left)
             | MouseEventKind::Up(MouseButton::Left)
             | MouseEventKind::Drag(MouseButton::Left)
+    )
+}
+
+/// Whether a mouse event kind carries the right button. Right drags stay
+/// native; only a same-cell right release copies.
+pub(super) fn mouse_is_right_button(kind: MouseEventKind) -> bool {
+    use crossterm::event::MouseButton;
+    matches!(
+        kind,
+        MouseEventKind::Down(MouseButton::Right)
+            | MouseEventKind::Up(MouseButton::Right)
+            | MouseEventKind::Drag(MouseButton::Right)
     )
 }
 
@@ -454,6 +488,27 @@ mod tests {
     }
 
     #[test]
+    fn right_button_detection_covers_press_release_drag() {
+        assert!(mouse_is_right_button(MouseEventKind::Down(
+            MouseButton::Right
+        )));
+        assert!(mouse_is_right_button(MouseEventKind::Up(
+            MouseButton::Right
+        )));
+        assert!(mouse_is_right_button(MouseEventKind::Drag(
+            MouseButton::Right
+        )));
+        assert!(!mouse_is_right_button(MouseEventKind::Down(
+            MouseButton::Left
+        )));
+        assert!(!mouse_is_right_button(MouseEventKind::Up(
+            MouseButton::Middle
+        )));
+        assert!(!mouse_is_right_button(MouseEventKind::ScrollUp));
+        assert!(!mouse_is_right_button(MouseEventKind::Moved));
+    }
+
+    #[test]
     fn multi_click_chains_same_cell_inside_window() {
         assert_eq!(next_click_count(0, None, None, None, 1000, 5, 5), 1);
         assert_eq!(
@@ -480,6 +535,13 @@ mod tests {
         assert_eq!(click_kind_for_count(2), ClickKind::Double);
         assert_eq!(click_kind_for_count(3), ClickKind::Triple);
         assert_eq!(click_kind_for_count(9), ClickKind::Triple);
+    }
+
+    #[test]
+    fn mouse_outcome_drives_frame_decision() {
+        assert!(MouseOutcome::Scrolled.needs_frame());
+        assert!(MouseOutcome::Clicked.needs_frame());
+        assert!(!MouseOutcome::Ignored.needs_frame());
     }
 
     #[test]

@@ -39,9 +39,12 @@ pub(crate) fn badge_rect(badge_area: Rect, full: &str, short: &str) -> Option<Re
     if text_width >= badge_area.width {
         return None;
     }
-    let x = badge_area
-        .x
-        .saturating_add(badge_area.width.saturating_sub(text_width).saturating_sub(1));
+    let x = badge_area.x.saturating_add(
+        badge_area
+            .width
+            .saturating_sub(text_width)
+            .saturating_sub(1),
+    );
     let y = badge_area
         .y
         .saturating_add(badge_area.height.saturating_sub(1));
@@ -51,6 +54,27 @@ pub(crate) fn badge_rect(badge_area: Rect, full: &str, short: &str) -> Option<Re
 /// Whether a terminal cell hits the badge rectangle.
 pub(crate) fn badge_contains(rect: &Rect, col: u16, row: u16) -> bool {
     row == rect.y && col >= rect.x && col < rect.x.saturating_add(rect.width)
+}
+
+/// Slice a display row text by character columns `[start, end)`.
+/// Columns count characters, matching `word_at_col`.
+pub(crate) fn slice_row_chars(text: &str, start: usize, end: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let end = end.min(chars.len());
+    let start = start.min(end);
+    chars[start..end].iter().collect()
+}
+
+/// Whether a terminal cell hits the composer input area (the bottom prompt
+/// viewport). The two-column `"> "` prefix counts as inside: clicks there
+/// land at the row start.
+pub(crate) fn composer_contains(input_area: &Rect, col: u16, row: u16) -> bool {
+    input_area.width > 2
+        && input_area.height > 0
+        && col >= input_area.x
+        && col < input_area.x.saturating_add(input_area.width)
+        && row >= input_area.y
+        && row < input_area.y.saturating_add(input_area.height)
 }
 
 /// Whether a press and release belong to one click: same cell and same
@@ -211,6 +235,52 @@ impl InteractiveController {
         }
     }
 
+    /// Text covered by a transcript drag between anchor and head cells
+    /// (display rows plus in-row character columns). Joins partial edge
+    /// rows with full middle rows; returns `None` when nothing readable
+    /// is covered.
+    pub(crate) fn transcript_text_in(
+        &self,
+        anchor_row: usize,
+        anchor_col: usize,
+        head_row: usize,
+        head_col: usize,
+    ) -> Option<String> {
+        let (lo_row, hi_row) = if anchor_row <= head_row {
+            (anchor_row, head_row)
+        } else {
+            (head_row, anchor_row)
+        };
+        let (lo_col, hi_col) = if anchor_row <= head_row {
+            (anchor_col, head_col)
+        } else {
+            (head_col, anchor_col)
+        };
+        if lo_row == hi_row {
+            let text = self.plain_text_for_display_row(lo_row)?;
+            let (start, end) = if lo_col <= hi_col {
+                (lo_col, hi_col)
+            } else {
+                (hi_col, lo_col)
+            };
+            let sliced = slice_row_chars(&text, start, end);
+            return (!sliced.trim().is_empty()).then_some(sliced);
+        }
+        let mut parts = Vec::new();
+        for row in lo_row..=hi_row {
+            let text = self.plain_text_for_display_row(row)?;
+            if row == lo_row {
+                parts.push(slice_row_chars(&text, lo_col, usize::MAX));
+            } else if row == hi_row {
+                parts.push(slice_row_chars(&text, 0, hi_col));
+            } else {
+                parts.push(text);
+            }
+        }
+        let joined = parts.join("\n");
+        (!joined.trim().is_empty()).then_some(joined)
+    }
+
     /// Plain text of one visible display row for word selection. Returns
     /// `None` for streaming rows and outside rows.
     pub(crate) fn plain_text_for_display_row(&self, display_row: usize) -> Option<String> {
@@ -318,6 +388,29 @@ mod tests {
         assert!(!badge_contains(&rect, 9, 5));
         assert!(!badge_contains(&rect, 12, 4));
         assert!(!badge_contains(&rect, 12, 6));
+    }
+
+    #[test]
+    fn composer_contains_checks_input_viewport() {
+        let area = Rect::new(0, 20, 40, 3);
+        assert!(composer_contains(&area, 0, 20));
+        assert!(composer_contains(&area, 39, 22));
+        assert!(!composer_contains(&area, 40, 20));
+        assert!(!composer_contains(&area, 5, 19));
+        assert!(!composer_contains(&area, 5, 23));
+        let narrow = Rect::new(0, 20, 2, 3);
+        assert!(!composer_contains(&narrow, 0, 20));
+        let flat = Rect::new(0, 20, 40, 0);
+        assert!(!composer_contains(&flat, 5, 20));
+    }
+
+    #[test]
+    fn row_slicing_covers_edges_and_empty() {
+        assert_eq!(slice_row_chars("hello world", 0, 5), "hello");
+        assert_eq!(slice_row_chars("hello world", 6, 11), "world");
+        assert_eq!(slice_row_chars("hello", 3, 99), "lo");
+        assert_eq!(slice_row_chars("hello", 5, 5), "");
+        assert_eq!(slice_row_chars("", 0, 3), "");
     }
 
     #[test]

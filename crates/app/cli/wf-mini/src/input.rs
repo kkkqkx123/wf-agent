@@ -543,6 +543,17 @@ async fn tty_next_line(tty: &mut TtyReader) -> Option<String> {
                     _ => {}
                 }
             }
+            Some(Ok(Event::Mouse(mouse))) => {
+                // No mouse capture in mini: buttons stay native and wheel
+                // notches have no cooked-line target (history browsing
+                // lives in the raw editor path). Named explicitly so a
+                // future capture change lands here first.
+                use crossterm::event::MouseEventKind;
+                match mouse.kind {
+                    MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {}
+                    _ => {}
+                }
+            }
             Some(Ok(Event::Paste(_))) | Some(Ok(Event::Resize(_, _))) | Some(Ok(_)) => {}
             Some(Err(_)) | None => {
                 tty.finished = true;

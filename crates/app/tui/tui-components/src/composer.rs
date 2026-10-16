@@ -962,6 +962,107 @@ impl Composer {
             self.scroll_x.set(cursor_col);
         }
     }
+
+    /// Snap an arbitrary byte offset to the nearest grapheme boundary at or
+    /// below it, clamped into the buffer.
+    fn snap_to_boundary(&self, byte: usize) -> usize {
+        let clamped = byte.min(self.buf.len());
+        if self.buf.is_char_boundary(clamped) {
+            return clamped;
+        }
+        let mut at = clamped;
+        while at > 0 && !self.buf.is_char_boundary(at) {
+            at -= 1;
+        }
+        at
+    }
+
+    /// Set the cursor to a byte offset, snapped to a grapheme boundary.
+    /// Returns whether the cursor moved.
+    pub fn set_cursor(&mut self, byte: usize) -> bool {
+        let snapped = self.snap_to_boundary(byte);
+        if snapped == self.cursor {
+            return false;
+        }
+        self.cursor = snapped;
+        self.scroll_x.set(0);
+        self.prefer_col = None;
+        true
+    }
+
+    /// Byte offset for a click cell inside the input `area` drawn by the
+    /// session `draw_input` path (two-column `"> "` / `"  "` prefix, same
+    /// visible-window start math). Returns `None` outside the area, in the
+    /// prefix gutter, or when the target visual row does not exist.
+    pub fn byte_at_input_cell(&self, area: Rect, col: u16, row: u16) -> Option<usize> {
+        if area.width <= 2 || area.height == 0 {
+            return None;
+        }
+        if col < area.x || col >= area.x.saturating_add(area.width) {
+            return None;
+        }
+        if row < area.y || row >= area.y.saturating_add(area.height) {
+            return None;
+        }
+        let available = area.width.saturating_sub(2).max(1);
+        let rows = self.visual_rows(available);
+        if rows.is_empty() {
+            return None;
+        }
+        let cursor_idx = self.cursor_visual_index_for_rows(&rows);
+        let visible = usize::from(area.height);
+        let start = if rows.len() <= visible {
+            0
+        } else {
+            (cursor_idx + 1)
+                .saturating_sub(visible)
+                .min(rows.len() - visible)
+        };
+        let slot = usize::from(row.saturating_sub(area.y));
+        let idx = start.saturating_add(slot);
+        let target = rows.get(idx)?;
+        let text_col = col.saturating_sub(area.x).saturating_sub(2);
+        Some(Self::byte_for_column(&self.buf, target, text_col))
+    }
+
+    /// Visual row text plus the in-row display column for a click cell.
+    /// Used for word extraction on double-click.
+    pub fn visual_text_at_input_cell(
+        &self,
+        area: Rect,
+        col: u16,
+        row: u16,
+    ) -> Option<(String, usize)> {
+        if area.width <= 2 || area.height == 0 {
+            return None;
+        }
+        if col < area.x || col >= area.x.saturating_add(area.width) {
+            return None;
+        }
+        if row < area.y || row >= area.y.saturating_add(area.height) {
+            return None;
+        }
+        let available = area.width.saturating_sub(2).max(1);
+        let texts = self.visual_text_rows(available);
+        if texts.is_empty() {
+            return None;
+        }
+        let rows = self.visual_rows(available);
+        let cursor_idx = self.cursor_visual_index_for_rows(&rows);
+        let visible = usize::from(area.height);
+        let start = if texts.len() <= visible {
+            0
+        } else {
+            (cursor_idx + 1)
+                .saturating_sub(visible)
+                .min(texts.len() - visible)
+        };
+        let slot = usize::from(row.saturating_sub(area.y));
+        let idx = start.saturating_add(slot);
+        let text = texts.get(idx)?.clone();
+        let display_col = usize::from(col.saturating_sub(area.x).saturating_sub(2));
+        Some((text, display_col))
+    }
 }
 
 impl tui_core::renderable::Renderable for Composer {
@@ -1020,6 +1121,23 @@ fn truncate_graphemes(text: &str, width: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn click_cell_maps_to_cursor_byte() {
+        let mut c = Composer::new();
+        c.set_text("hello");
+        let area = Rect::new(0, 0, 40, 3);
+        assert_eq!(c.byte_at_input_cell(area, 2, 0), Some(0));
+        assert_eq!(c.byte_at_input_cell(area, 7, 0), Some(5));
+        assert_eq!(c.byte_at_input_cell(area, 0, 0), Some(0));
+        assert_eq!(c.byte_at_input_cell(area, 50, 0), None);
+        assert_eq!(c.byte_at_input_cell(area, 5, 9), None);
+        assert!(c.set_cursor(2));
+        assert!(!c.set_cursor(2));
+        assert_eq!(c.byte_at_input_cell(area, 4, 0), Some(2));
+        let narrow = Rect::new(0, 0, 2, 3);
+        assert_eq!(c.byte_at_input_cell(narrow, 0, 0), None);
+    }
 
     #[test]
     fn inserts_characters_at_the_cursor() {

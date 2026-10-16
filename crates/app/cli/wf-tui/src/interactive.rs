@@ -94,6 +94,42 @@ pub enum InteractiveAction {
     Exit,
 }
 
+/// Transcript drag selection in viewport display-row space. The anchor is
+/// the press cell, the head is the latest drag cell; both are display rows
+/// plus in-row display columns for text slicing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TranscriptSelection {
+    /// Press display row.
+    pub anchor_row: usize,
+    /// Press in-row display column.
+    pub anchor_col: usize,
+    /// Latest drag display row.
+    pub head_row: usize,
+    /// Latest drag in-row display column.
+    pub head_col: usize,
+}
+
+impl TranscriptSelection {
+    /// Row span covered by the selection, ordered low to high inclusive.
+    pub fn row_span(self) -> (usize, usize) {
+        if self.anchor_row <= self.head_row {
+            (self.anchor_row, self.head_row)
+        } else {
+            (self.head_row, self.anchor_row)
+        }
+    }
+
+    /// Edge columns oriented with the row span: first element belongs to
+    /// the low row, second to the high row.
+    pub fn edge_cols(self) -> (usize, usize) {
+        if self.anchor_row <= self.head_row {
+            (self.anchor_col, self.head_col)
+        } else {
+            (self.head_col, self.anchor_col)
+        }
+    }
+}
+
 /// State machine for one interactive session in the full TUI.
 pub struct InteractiveController {
     client: WfClient,
@@ -192,6 +228,15 @@ pub struct InteractiveController {
     last_badge_rect: Option<ratatui::layout::Rect>,
     /// Scrollback viewport published on the last frame for hit translation.
     last_scroll_area: Option<ratatui::layout::Rect>,
+    /// Composer input viewport published on the last frame.
+    last_input_area: Option<ratatui::layout::Rect>,
+    /// Transcript drag selection in viewport display-row space. Set while a
+    /// content drag is in progress, cleared on release, scroll or resize.
+    transcript_selection: Option<TranscriptSelection>,
+    /// Last hovered terminal cell from motion events. Affordance only:
+    /// never requests a frame, only read by full frames. Cleared on
+    /// scroll, resize or button activity.
+    hover_cell: Option<(u16, u16)>,
     /// Whether a gutter thumb drag is in progress. Only set by a press on
     /// the thumb; track presses never enter drag.
     gutter_drag: bool,
@@ -422,6 +467,9 @@ impl InteractiveController {
             hit_generation: 0,
             last_badge_rect: None,
             last_scroll_area: None,
+            last_input_area: None,
+            transcript_selection: None,
+            hover_cell: None,
             gutter_drag: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
@@ -684,16 +732,23 @@ impl InteractiveController {
         self.last_scroll_area
     }
 
-    /// Publish one hit snapshot: the badge rectangle plus the viewport that
+    /// Composer input viewport published on the last frame.
+    pub fn last_input_area(&self) -> Option<ratatui::layout::Rect> {
+        self.last_input_area
+    }
+
+    /// Publish one hit snapshot: the badge rectangle plus the viewports that
     /// produced it. Bumps the generation so stale presses never land.
     pub(crate) fn record_hit_frame(
         &mut self,
         scroll_area: ratatui::layout::Rect,
         badge: Option<ratatui::layout::Rect>,
+        input_area: ratatui::layout::Rect,
     ) {
         self.hit_generation = self.hit_generation.wrapping_add(1);
         self.last_scroll_area = Some(scroll_area);
         self.last_badge_rect = badge;
+        self.last_input_area = Some(input_area);
     }
 
     /// Drop any published hit snapshot (resize or overlay switch): presses
@@ -701,6 +756,62 @@ impl InteractiveController {
     pub(crate) fn clear_hit_frame(&mut self) {
         self.last_badge_rect = None;
         self.last_scroll_area = None;
+        self.last_input_area = None;
+        self.transcript_selection = None;
+        self.hover_cell = None;
+    }
+
+    /// Move the composer cursor to a click cell. Returns whether the cursor
+    /// moved and a frame is due.
+    pub fn move_composer_cursor_to_cell(&mut self, col: u16, row: u16) -> bool {
+        let Some(area) = self.last_input_area else {
+            return false;
+        };
+        let Some(byte) = self.footer.composer.byte_at_input_cell(area, col, row) else {
+            return false;
+        };
+        self.footer.composer.set_cursor(byte)
+    }
+
+    /// Word at a composer click cell for double-click copy.
+    pub fn composer_word_at_cell(&self, col: u16, row: u16) -> Option<String> {
+        let area = self.last_input_area?;
+        let (text, display_col) = self
+            .footer
+            .composer
+            .visual_text_at_input_cell(area, col, row)?;
+        crate::interactive::mouse_hit::word_at_col(&text, display_col)
+    }
+
+    /// Full composer buffer for triple-click copy.
+    pub fn composer_text(&self) -> String {
+        self.footer.composer.content().to_string()
+    }
+
+    /// Current transcript drag selection, if a content drag is in progress.
+    pub fn transcript_selection(&self) -> Option<TranscriptSelection> {
+        self.transcript_selection
+    }
+
+    /// Set the transcript drag selection for highlight and release copy.
+    pub fn set_transcript_selection(&mut self, selection: TranscriptSelection) {
+        self.transcript_selection = Some(selection);
+    }
+
+    /// Clear the transcript drag selection on release, scroll or resize.
+    pub fn clear_transcript_selection(&mut self) {
+        self.transcript_selection = None;
+    }
+
+    /// Record one hover cell for affordance highlights. Never requests a
+    /// frame; cleared alongside the hit snapshot.
+    pub fn set_hover_cell(&mut self, col: u16, row: u16) {
+        self.hover_cell = Some((col, row));
+    }
+
+    /// Clear the hover cell after scroll, resize or button activity.
+    pub fn clear_hover_cell(&mut self) {
+        self.hover_cell = None;
     }
 
     /// Apply a capability policy: minimal tiers drop the spinner and shimmer,

@@ -18,8 +18,8 @@ use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::interactive::InteractiveController;
 use crate::interactive::mouse_hit;
+use crate::interactive::InteractiveController;
 use crate::redraw::{AnimationArea, RedrawScope};
 use crate::theme::Theme;
 use tui_components::scrollbar;
@@ -75,14 +75,14 @@ impl InteractiveController {
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
                 let badge = self.paint_jump_badge(frame, scroll_area, theme);
-                self.record_hit_frame(scroll_area, badge);
+                self.record_hit_frame(scroll_area, badge, input_area);
             }
             RedrawScope::BottomOnly => {
                 self.draw_scrollback_cached(frame, scroll_area, theme);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
                 let badge = self.paint_jump_badge(frame, scroll_area, theme);
-                self.record_hit_frame(scroll_area, badge);
+                self.record_hit_frame(scroll_area, badge, input_area);
             }
             RedrawScope::AnimationOnly => {
                 self.draw_anim_cells_only(frame);
@@ -246,13 +246,7 @@ impl InteractiveController {
             return false;
         };
         let relative = press_row.saturating_sub(gutter.y) as usize;
-        scrollbar::thumb_contains(
-            total,
-            capacity,
-            top,
-            usize::from(gutter.height),
-            relative,
-        )
+        scrollbar::thumb_contains(total, capacity, top, usize::from(gutter.height), relative)
     }
 
     /// Jump to a gutter press row by proportion. Returns true when the
@@ -390,6 +384,8 @@ impl InteractiveController {
         } else {
             frame.render_widget(Paragraph::new(visible), full_area);
         }
+        self.paint_transcript_selection(frame, full_area, show_bar);
+        self.paint_hover_cell(frame, full_area, show_bar);
     }
 
     /// Snapshot variant pinned to the draw size so width or height drift
@@ -516,6 +512,7 @@ impl InteractiveController {
         } else {
             frame.render_widget(Paragraph::new(visible), full_area);
         }
+        self.paint_transcript_selection(frame, full_area, show_bar);
     }
 
     /// Animation-only path: repaint exactly the recorded animation cells.
@@ -619,6 +616,100 @@ impl InteractiveController {
             }
         }
         frame.render_widget(Paragraph::new(lines), area);
+    }
+
+    /// Paint the transcript drag selection as reversed cells over the
+    /// scrollback viewport. Runs after the scrollback paragraph so it only
+    /// restyles; middle rows cover the text width, edge rows are sliced by
+    /// column. The gutter column never highlights.
+    fn paint_transcript_selection(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
+        let Some(sel) = self.transcript_selection else {
+            return;
+        };
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        use ratatui::style::{Modifier, Style};
+        let text_width = Self::effective_text_width(area.width, show_bar);
+        if text_width == 0 {
+            return;
+        }
+        let (lo_row, hi_row) = sel.row_span();
+        let (lo_col, hi_col) = sel.edge_cols();
+        let buf = frame.buffer_mut();
+        for row in lo_row..=hi_row {
+            let y = area.y.saturating_add(row as u16);
+            if y >= area.y.saturating_add(area.height) {
+                continue;
+            }
+            let (start, end) = if lo_row == hi_row {
+                let (a, b) = if lo_col <= hi_col {
+                    (lo_col, hi_col)
+                } else {
+                    (hi_col, lo_col)
+                };
+                (a, b)
+            } else if row == lo_row {
+                (lo_col, usize::MAX)
+            } else if row == hi_row {
+                (0, hi_col)
+            } else {
+                (0, usize::MAX)
+            };
+            let width_cells = usize::from(text_width);
+            let start = start.min(width_cells);
+            let end = end.min(width_cells);
+            if start >= end {
+                continue;
+            }
+            let x = area.x.saturating_add(start as u16);
+            let w = (end - start) as u16;
+            buf.set_style(
+                Rect::new(x, y, w, 1),
+                Style::default().add_modifier(Modifier::REVERSED),
+            );
+        }
+    }
+
+    /// Paint the hover affordance for the last motion cell. Full frames
+    /// only: hover never requests a frame itself. Clickable content rows
+    /// and the jump badge get an underline; everything else stays plain.
+    /// Stale cells (outside the viewport, in the gutter, over streaming
+    /// rows) simply paint nothing.
+    fn paint_hover_cell(&self, frame: &mut Frame, area: Rect, show_bar: bool) {
+        use ratatui::style::{Modifier, Style};
+        let Some((col, row)) = self.hover_cell else {
+            return;
+        };
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let buf = frame.buffer_mut();
+        let underline = Style::default().add_modifier(Modifier::UNDERLINED);
+        if let Some(rect) = self.last_badge_rect {
+            if mouse_hit::badge_contains(&rect, col, row) {
+                buf.set_style(rect, underline);
+                return;
+            }
+        }
+        if row < area.y || row >= area.y.saturating_add(area.height) {
+            return;
+        }
+        let text_width = Self::effective_text_width(area.width, show_bar);
+        if text_width == 0 {
+            return;
+        }
+        if col < area.x || col >= area.x.saturating_add(text_width) {
+            return;
+        }
+        let display_row = row.saturating_sub(area.y) as usize;
+        if display_row >= usize::from(area.height) {
+            return;
+        }
+        if self.content_click_target(display_row).is_none() {
+            return;
+        }
+        buf.set_style(Rect::new(area.x, row, text_width, 1), underline);
     }
 
     /// Whether the detached-history badge belongs on screen.

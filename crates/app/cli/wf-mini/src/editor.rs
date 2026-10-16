@@ -717,6 +717,39 @@ async fn edit_loop(stream: &mut EventStream, core: &mut EditorCore) -> PromptEve
                 }
                 redraw(&mut out, core, &mut state);
             }
+            Event::Mouse(mouse) => {
+                // No mouse capture is enabled in mini: button presses stay
+                // native. Wheel notches (when the terminal forwards them)
+                // browse history like Up/Down without touching selection.
+                use crossterm::event::MouseEventKind;
+                let key = match mouse.kind {
+                    MouseEventKind::ScrollUp => Some(Key::Up),
+                    MouseEventKind::ScrollDown => Some(Key::Down),
+                    _ => None,
+                };
+                if let Some(key) = key {
+                    match core.handle_key(key) {
+                        CoreAction::Continue => redraw(&mut out, core, &mut state),
+                        CoreAction::ClearScreen => {
+                            let _ = crossterm::execute!(out, Clear(ClearType::All), MoveTo(0, 0));
+                            state = RedrawState::default();
+                            redraw(&mut out, core, &mut state);
+                        }
+                        terminal => {
+                            let _ = out.write_all(b"\r\n");
+                            let _ = out.flush();
+                            return match terminal {
+                                CoreAction::Submit => PromptEvent::Line(core.line()),
+                                CoreAction::Eof => PromptEvent::Eof,
+                                CoreAction::Interrupt => PromptEvent::Interrupt,
+                                CoreAction::Continue | CoreAction::ClearScreen => {
+                                    unreachable!("non-terminal actions handled above")
+                                }
+                            };
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }

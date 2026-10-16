@@ -589,6 +589,150 @@ pub fn catalog_counts(rows: &[CatalogRow]) -> [(CatalogKind, usize); 4] {
     counts
 }
 
+/// Maximum concurrent chat session tabs in one TUI process. Aligns with
+/// the nine quick-switch slots in the reference implementation.
+pub const MAX_CHAT_TABS: usize = 9;
+
+/// Metadata for one chat session tab. The live scrollback, reducer and
+/// stream tasks stay in the shell-owned controller; this pure model only
+/// tracks what the tab strip renders and which tab is active.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTabMeta {
+    pub id: String,
+    pub title: String,
+    pub last_active_ms: u64,
+}
+
+impl ChatTabMeta {
+    pub fn new(id: impl Into<String>, title: impl Into<String>, now_ms: u64) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            last_active_ms: now_ms,
+        }
+    }
+}
+
+/// Ordered chat tabs with an active index. Index bookkeeping keeps the
+/// active tab valid whenever the list is non-empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChatTabs {
+    tabs: Vec<ChatTabMeta>,
+    active: usize,
+}
+
+impl ChatTabs {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.tabs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tabs.is_empty()
+    }
+
+    pub fn active_index(&self) -> usize {
+        self.active
+    }
+
+    pub fn active(&self) -> Option<&ChatTabMeta> {
+        self.tabs.get(self.active)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, ChatTabMeta> {
+        self.tabs.iter()
+    }
+
+    pub fn titles(&self) -> Vec<String> {
+        self.tabs.iter().map(|tab| tab.title.clone()).collect()
+    }
+
+    /// Append a tab. When full, evicts the least-recently-active inactive
+    /// tab and returns its index. The new tab becomes active.
+    pub fn add(&mut self, tab: ChatTabMeta) -> Option<usize> {
+        let mut evicted = None;
+        if self.tabs.len() >= MAX_CHAT_TABS {
+            let victim = self
+                .tabs
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != self.active)
+                .min_by_key(|(_, tab)| tab.last_active_ms)
+                .map(|(index, _)| index)
+                .unwrap_or(0);
+            self.tabs.remove(victim);
+            if victim < self.active {
+                self.active = self.active.saturating_sub(1);
+            }
+            evicted = Some(victim);
+        }
+        self.tabs.push(tab);
+        self.active = self.tabs.len().saturating_sub(1);
+        evicted
+    }
+
+    /// Switch the active tab. Returns false on an out-of-range index.
+    pub fn switch(&mut self, index: usize, now_ms: u64) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.active = index;
+        self.tabs[index].last_active_ms = now_ms;
+        true
+    }
+
+    pub fn next(&mut self, now_ms: u64) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let index = (self.active + 1) % self.tabs.len();
+        self.switch(index, now_ms);
+    }
+
+    pub fn prev(&mut self, now_ms: u64) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let index = (self.active + self.tabs.len().saturating_sub(1)) % self.tabs.len();
+        self.switch(index, now_ms);
+    }
+
+    /// Close the tab at `index`. Returns false on an out-of-range index.
+    pub fn close(&mut self, index: usize) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.tabs.remove(index);
+        if self.tabs.is_empty() {
+            self.active = 0;
+        } else if index < self.active {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
+        }
+        true
+    }
+
+    pub fn touch(&mut self, index: usize, now_ms: u64) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.tabs[index].last_active_ms = now_ms;
+        true
+    }
+
+    pub fn set_title(&mut self, index: usize, title: impl Into<String>) -> bool {
+        if index >= self.tabs.len() {
+            return false;
+        }
+        self.tabs[index].title = title.into();
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,7 +810,10 @@ mod tests {
             "falls back to the default profile"
         );
         assert_eq!(resolve_context_window(&rows, None, None), None);
-        assert_eq!(resolve_context_window(&[], Some("default"), Some("x")), None);
+        assert_eq!(
+            resolve_context_window(&[], Some("default"), Some("x")),
+            None
+        );
     }
 
     #[test]
@@ -701,5 +848,53 @@ mod tests {
         assert_eq!(catalog_tab_label(Some(CatalogKind::Events)), "Events");
         assert_eq!(CatalogKind::Templates.next(), CatalogKind::Resources);
         assert_eq!(CatalogKind::Templates.prev(), CatalogKind::Events);
+    }
+
+    #[test]
+    fn chat_tabs_switch_next_prev_and_close() {
+        let mut tabs = ChatTabs::new();
+        assert!(tabs.is_empty());
+        tabs.next(1);
+        tabs.prev(1);
+        assert!(!tabs.switch(0, 1));
+        assert!(!tabs.close(0));
+
+        tabs.add(ChatTabMeta::new("a", "Alpha", 10));
+        tabs.add(ChatTabMeta::new("b", "Beta", 20));
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs.active_index(), 1);
+        assert!(tabs.switch(0, 30));
+        assert_eq!(tabs.active().map(|tab| tab.id.as_str()), Some("a"));
+        tabs.next(40);
+        assert_eq!(tabs.active_index(), 1);
+        tabs.prev(50);
+        assert_eq!(tabs.active_index(), 0);
+
+        assert!(tabs.close(0));
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs.active_index(), 0);
+        assert_eq!(tabs.titles(), vec!["Beta".to_string()]);
+        assert!(tabs.close(0));
+        assert!(tabs.is_empty());
+    }
+
+    #[test]
+    fn chat_tabs_evicts_least_recently_active_when_full() {
+        let mut tabs = ChatTabs::new();
+        for index in 0..MAX_CHAT_TABS {
+            tabs.add(ChatTabMeta::new(
+                format!("id-{index}"),
+                format!("tab-{index}"),
+                100 + index as u64,
+            ));
+        }
+        assert_eq!(tabs.len(), MAX_CHAT_TABS);
+        tabs.switch(8, 1000);
+        tabs.touch(0, 10);
+        let evicted = tabs.add(ChatTabMeta::new("new", "fresh", 2000));
+        assert_eq!(tabs.len(), MAX_CHAT_TABS);
+        assert!(evicted.is_some_and(|index| index != 8));
+        assert_eq!(tabs.active().map(|tab| tab.id.as_str()), Some("new"));
+        assert!(tabs.iter().all(|tab| tab.id != "id-0"));
     }
 }

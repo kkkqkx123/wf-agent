@@ -184,6 +184,16 @@ pub enum KeyAction {
     Deny,
     /// Pick the n-th option in the question view (1..=9).
     Pick(u8),
+    /// Open a new chat session tab.
+    TabNew,
+    /// Close the active chat session tab.
+    TabClose,
+    /// Focus the next chat session tab.
+    TabNext,
+    /// Focus the previous chat session tab.
+    TabPrev,
+    /// Focus the n-th chat session tab (1..=9).
+    TabPick(u8),
 }
 
 /// Key resolution context.
@@ -254,13 +264,108 @@ impl Keymap {
 /// still resolved for any context.
 fn builtin_global() -> Vec<(Key, KeyAction)> {
     use KeyAction::*;
-    vec![
+    let mut binds = vec![
         (Key::ctrl(CKey::Char('q')), Quit),
         (Key::ctrl(CKey::Char('c')), Interrupt),
         (Key::ctrl(CKey::Char('l')), Redraw),
         (Key::plain(CKey::Char('?')), Help),
         (Key::plain(CKey::Char('/')), Palette),
-    ]
+    ];
+    binds.extend(tab_defaults());
+    binds
+}
+
+/// Default chat-tab chords. Letters register both cases so the binding
+/// matches regardless of how the terminal reports the shift state.
+fn tab_defaults() -> Vec<(Key, KeyAction)> {
+    use KeyAction::*;
+    let mut binds = vec![
+        (
+            Key {
+                code: CKey::Char('t'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabNew,
+        ),
+        (
+            Key {
+                code: CKey::Char('T'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabNew,
+        ),
+        (
+            Key {
+                code: CKey::Char('w'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabClose,
+        ),
+        (
+            Key {
+                code: CKey::Char('W'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabClose,
+        ),
+        (
+            Key {
+                code: CKey::Char(']'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabNext,
+        ),
+        (
+            Key {
+                code: CKey::Char('['),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabPrev,
+        ),
+        (
+            Key {
+                code: CKey::Right,
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabNext,
+        ),
+        (
+            Key {
+                code: CKey::Left,
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabPrev,
+        ),
+    ];
+    for n in 1..=9u8 {
+        let ch = char::from(b'0' + n);
+        binds.push((
+            Key {
+                code: CKey::Char(ch),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            },
+            TabPick(n),
+        ));
+    }
+    binds
 }
 
 /// Builtin bindings specific to a context. Global keys
@@ -543,6 +648,53 @@ mod tests {
         assert_eq!(
             km.resolve(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
             km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y')))
+        );
+    }
+
+    #[test]
+    fn tab_chords_resolve_globally() {
+        let km = builtin_keymap();
+        let alt = |code| Key {
+            code,
+            ctrl: false,
+            alt: true,
+            shift: false,
+        };
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('1'))),
+            Some(TabPick(1))
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::List, alt(CKey::Char('9'))),
+            Some(TabPick(9))
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('t'))),
+            Some(TabNew)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('T'))),
+            Some(TabNew)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('w'))),
+            Some(TabClose)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char(']'))),
+            Some(TabNext)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Char('['))),
+            Some(TabPrev)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Right)),
+            Some(TabNext)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Chat, alt(CKey::Left)),
+            Some(TabPrev)
         );
     }
 

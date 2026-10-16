@@ -11,10 +11,11 @@ use crate::screens::{ScreenData, ScreenKind};
 use super::input_classify::next_filter;
 use super::signals::SUSPEND_PENDING;
 use super::{TuiApp, DASHBOARD_ENTRIES};
+use tui_core::keymap::{KeyAction as TabKeyAction, KeymapContext};
 use tui_core::screen_data::screen_for_digit;
 
 impl TuiApp {
-    pub(super) fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
+    pub(super) async fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
         if key.ctrl && key.code == CKey::Char('z') {
             SUSPEND_PENDING.store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(LoopAction::Continue);
@@ -81,7 +82,47 @@ impl TuiApp {
         }
 
         if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
-            if let Some(session) = &mut self.interactive {
+            // Tab chords are intercepted before the session sees them so a
+            // tab switch never leaks into the composer or the overlays.
+            if let Some(action) = self.keymap.resolve(KeymapContext::Global, key) {
+                let tab_handled = match action {
+                    TabKeyAction::TabNew => {
+                        self.new_tab().await;
+                        self.app
+                            .notice
+                            .set(format!("tab {} opened", self.sessions.active_index() + 1));
+                        true
+                    }
+                    TabKeyAction::TabClose => {
+                        let index = self.sessions.active_index();
+                        self.close_tab(index).await;
+                        true
+                    }
+                    TabKeyAction::TabNext => {
+                        self.sessions.next(self.now_ms());
+                        true
+                    }
+                    TabKeyAction::TabPrev => {
+                        self.sessions.prev(self.now_ms());
+                        true
+                    }
+                    TabKeyAction::TabPick(slot) => {
+                        let index = usize::from(slot).saturating_sub(1);
+                        if self.sessions.switch(index, self.now_ms()) {
+                            true
+                        } else {
+                            self.app.notice.set(format!("no tab {slot}"));
+                            true
+                        }
+                    }
+                    _ => false,
+                };
+                if tab_handled {
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                    return Ok(LoopAction::Continue);
+                }
+            }
+            if let Some(session) = self.sessions.active_mut() {
                 match session.handle_key(key) {
                     InteractiveAction::Continue => {}
                     InteractiveAction::Exit => {

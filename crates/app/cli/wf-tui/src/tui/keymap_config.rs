@@ -71,7 +71,20 @@ fn parse_action(name: &str) -> Option<KeyAction> {
         "approve_all" => KeyAction::ApproveAll,
         "deny_once" => KeyAction::DenyOnce,
         "deny" => KeyAction::Deny,
-        _ => return None,
+        "tab_new" => KeyAction::TabNew,
+        "tab_close" => KeyAction::TabClose,
+        "tab_next" => KeyAction::TabNext,
+        "tab_prev" => KeyAction::TabPrev,
+        _ => {
+            if let Some(slot) = name
+                .strip_prefix("tab_pick_")
+                .and_then(|rest| rest.parse::<u8>().ok())
+                .filter(|slot| (1..=9).contains(slot))
+            {
+                return Some(KeyAction::TabPick(slot));
+            }
+            return None;
+        }
     })
 }
 
@@ -159,6 +172,10 @@ mod tests {
         assert_eq!(parse_context("nope"), None);
         assert_eq!(parse_action("quit"), Some(KeyAction::Quit));
         assert_eq!(parse_action("deny_once"), Some(KeyAction::DenyOnce));
+        assert_eq!(parse_action("tab_new"), Some(KeyAction::TabNew));
+        assert_eq!(parse_action("tab_pick_1"), Some(KeyAction::TabPick(1)));
+        assert_eq!(parse_action("tab_pick_9"), Some(KeyAction::TabPick(9)));
+        assert_eq!(parse_action("tab_pick_0"), None);
         assert_eq!(parse_action("nope"), None);
     }
 

@@ -343,7 +343,7 @@ impl TuiApp {
     /// while one is attached, otherwise the row selected on the executions
     /// screen.
     pub(super) fn history_session_id(&self) -> Option<String> {
-        if let Some(session) = &self.interactive {
+        if let Some(session) = self.sessions.active() {
             if let Some(id) = session.session_id() {
                 return Some(id.to_owned());
             }

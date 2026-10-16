@@ -34,6 +34,7 @@ use crate::interactive::InteractiveController;
 use crate::modal::ModalStack;
 use crate::overlay::OverlayMode;
 use crate::screens::{ScreenData, ScreenKind};
+use crate::session_tabs::{SessionTab, SessionTabs};
 use crate::size::{ResizeDebouncer, Size};
 use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalControl, TerminalGuard, TerminalModes};
@@ -101,8 +102,9 @@ pub struct TuiApp {
     feedback_tx: mpsc::UnboundedSender<crate::overlay::Feedback>,
     feedback_rx: mpsc::UnboundedReceiver<crate::overlay::Feedback>,
     tasks: Vec<JoinHandle<()>>,
-    /// Live interactive controller shown on the Interactive screen.
-    interactive: Option<InteractiveController>,
+    /// Live chat session tabs shown on the Interactive screen. The active
+    /// tab receives input and paints; background tabs keep streaming.
+    sessions: SessionTabs,
     /// Set by the interactive controller when the user wants to leave it (Ctrl-C twice).
     interactive_exit: bool,
     /// Execution id selected on the executions screen to replay in Session.
@@ -157,8 +159,6 @@ pub struct TuiApp {
     /// finished-frame cleanup counter proving image cleanup ran.
     deferred: crate::deferred::DeferredFrameWork,
     finish_cleanups: usize,
-    /// Held remote session outliving any single attached renderer.
-    held_session: crate::session_holder::SessionHolder,
     /// Orphan probe for detached clients.
     liveness: crate::liveness::LivenessProbe,
     /// Key resolution table: builtin defaults merged with user overrides.
@@ -274,7 +274,7 @@ impl TuiApp {
             feedback_tx,
             feedback_rx,
             tasks: Vec::new(),
-            interactive: None,
+            sessions: SessionTabs::new(),
             interactive_exit: false,
             pending_replay: None,
             frame,
@@ -300,7 +300,6 @@ impl TuiApp {
             sync_supported: caps.synchronized_output,
             deferred: crate::deferred::DeferredFrameWork::new(),
             finish_cleanups: 0,
-            held_session: crate::session_holder::SessionHolder::new(),
             liveness: crate::liveness::LivenessProbe::new(),
             keymap,
             keymap_overrides,
@@ -371,11 +370,13 @@ impl TuiApp {
             task.abort();
             let _ = task.await;
         }
-        if let Some(session) = self.interactive.as_mut() {
+        if let Some(session) = self.sessions.active_mut() {
             session.begin_graceful_exit();
         }
-        if let Some(session) = self.interactive.take() {
-            session.shutdown().await;
+        while !self.sessions.is_empty() {
+            if let Some(tab) = self.sessions.remove(0) {
+                tab.controller.shutdown().await;
+            }
         }
         result
     }
@@ -394,8 +395,13 @@ impl TuiApp {
             // the guard only flips the delta, so steady states pay no cost.
             self.sync_terminal_modes(guard);
 
-            if let Some(session) = &mut self.interactive {
-                session.handle_events();
+            // Pump every tab: background tabs keep their stream tasks
+            // advancing while only the active tab paints.
+            for tab in self.sessions.iter_mut() {
+                tab.controller.handle_events();
+            }
+            if self.sessions.background_streaming() {
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             if self.drain_data() {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
@@ -410,7 +416,7 @@ impl TuiApp {
 
             // A live interactive controller streams, so it always wants a redraw; otherwise
             // only redraw when a pending scope was requested.
-            let interactive = self.interactive.is_some();
+            let interactive = !self.sessions.is_empty();
             self.app.notice.expire();
             if self.app.notice.is_active() {
                 // Keep repainting while a transient notice is visible so it
@@ -437,8 +443,8 @@ impl TuiApp {
                     // keeps the pending request (nothing is taken here), so a
                     // throttled frame is delayed, never lost.
                     let has_cells = self
-                        .interactive
-                        .as_ref()
+                        .sessions
+                        .active()
                         .is_some_and(|session| session.has_anim_cells());
                     if has_cells
                         && self.app.focused
@@ -484,7 +490,7 @@ impl TuiApp {
                                 // now (focus-gained reports get dropped by
                                 // some compositors/multiplexers).
                                 self.mark_client_focused();
-                                if self.handle_key(map_key(key))?
+                                if self.handle_key(map_key(key)).await?
                                     == crate::overlay::LoopAction::Quit
                                 {
                                     break;
@@ -504,7 +510,7 @@ impl TuiApp {
                         // Any pending press is stale from this point on.
                         self.mouse_press = None;
                         self.clear_click_chain();
-                        if let Some(session) = self.interactive.as_mut() {
+                        if let Some(session) = self.sessions.active_mut() {
                             session.end_gutter_drag();
                         }
                         self.resize.push(Size::new(w, h), self.now_ms());
@@ -560,7 +566,7 @@ impl TuiApp {
                 // Resize invalidates every published hit rectangle.
                 self.mouse_press = None;
                 self.clear_click_chain();
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     session.clear_hit_frame();
                     session.end_gutter_drag();
                 }
@@ -597,7 +603,7 @@ impl TuiApp {
                     // cells. The ratatui diff already emits cursor-addressed
                     // single-cell output for the eligible tick.
                     let overlay_full = self.overlay_full();
-                    let available = self.interactive.as_ref().is_some_and(|session| {
+                    let available = self.sessions.active().is_some_and(|session| {
                         crate::redraw::single_cell_spinner_available(
                             &session.single_cell_inputs(overlay_full),
                         )
@@ -674,7 +680,7 @@ impl TuiApp {
                     if frame_scope == crate::redraw::RedrawScope::AnimationOnly {
                         self.last_anim_ms = Some(self.now_ms());
                     }
-                    if self.interactive.is_some() {
+                    if !self.sessions.is_empty() {
                         self.last_active = Instant::now();
                     }
                     // Post-frame copy flush: OSC 52 bytes always follow a
@@ -687,7 +693,7 @@ impl TuiApp {
             let sample = crate::liveness::LivenessSample {
                 input_eof: false,
                 control_tty_gone: false,
-                has_live_session: self.interactive.is_some(),
+                has_live_session: !self.sessions.is_empty(),
             };
             if self.liveness.poll(sample) {
                 break;
@@ -709,7 +715,7 @@ impl TuiApp {
     /// `pending_scope`, so grading never consults a separate dirty flag.
     fn grade_frame(&self) -> crate::redraw::RedrawScope {
         use crate::redraw::RedrawScope;
-        if let Some(session) = &self.interactive {
+        if let Some(session) = self.sessions.active() {
             if self.overlay != OverlayMode::None || !self.modals.is_empty() {
                 return RedrawScope::Full;
             }
@@ -734,16 +740,16 @@ impl TuiApp {
         self.overlay != OverlayMode::None
             || !self.modals.is_empty()
             || self
-                .interactive
-                .as_ref()
+                .sessions
+                .active()
                 .is_some_and(|session| session.approval_active())
     }
 
     /// Schedule inputs for the current state under the injectable clock.
     fn schedule_inputs(&self, now_ms: u64) -> crate::redraw::ScheduleInputs {
         let (processing, streaming_empty, tail_catchup, animation_on_screen, composer_nonempty) =
-            self.interactive
-                .as_ref()
+            self.sessions
+                .active()
                 .map_or((false, true, false, false, false), |session| {
                     (
                         session.is_processing(),
@@ -828,10 +834,7 @@ impl TuiApp {
     /// Reconcile the live terminal with the runtime policy. Runtime toggles
     /// (mouse capture) update the policy inline; the next loop applies the
     /// delta through the guard without a restart.
-    fn sync_terminal_modes(
-        &self,
-        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
-    ) {
+    fn sync_terminal_modes(&self, guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>) {
         if guard.modes() != self.active_modes() {
             let _ = guard.enter(self.active_modes());
         }
@@ -964,7 +967,7 @@ impl TuiApp {
         match classify_paste(false, self.app.screen.navigation.current_kind()) {
             PasteTarget::Swallowed | PasteTarget::Ignored => false,
             PasteTarget::Session => {
-                if let Some(session) = &mut self.interactive {
+                if let Some(session) = self.sessions.active_mut() {
                     session.insert_paste(text)
                 } else {
                     false
@@ -988,7 +991,7 @@ impl TuiApp {
             MouseAction::ScrollUp => {
                 self.mouse_press = None;
                 self.clear_click_chain();
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     session.end_gutter_drag();
                 }
                 self.scroll_by_wheel(true);
@@ -997,7 +1000,7 @@ impl TuiApp {
             MouseAction::ScrollDown => {
                 self.mouse_press = None;
                 self.clear_click_chain();
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     session.end_gutter_drag();
                 }
                 self.scroll_by_wheel(false);
@@ -1013,8 +1016,8 @@ impl TuiApp {
             return true;
         }
         if self
-            .interactive
-            .as_ref()
+            .sessions
+            .active()
             .is_some_and(|session| session.approval_active())
         {
             return true;
@@ -1035,7 +1038,7 @@ impl TuiApp {
 
     /// Copy the word at a visible display row and terminal column.
     fn copy_word_at(&mut self, display_row: usize, col: u16) -> bool {
-        let (text, display_col) = match self.interactive.as_ref().and_then(|session| {
+        let (text, display_col) = match self.sessions.active().and_then(|session| {
             let area = session.last_scroll_area()?;
             let text = session.plain_text_for_display_row(display_row)?;
             Some((text, col.saturating_sub(area.x) as usize))
@@ -1062,8 +1065,8 @@ impl TuiApp {
     /// Copy the full logical line behind a visible display row.
     fn copy_line_at(&mut self, display_row: usize) -> bool {
         let Some(text) = self
-            .interactive
-            .as_ref()
+            .sessions
+            .active()
             .and_then(|session| session.source_text_for_display_row(display_row))
         else {
             return false;
@@ -1102,7 +1105,7 @@ impl TuiApp {
                     return false;
                 }
                 if !in_history {
-                    let inside = self.interactive.as_ref().is_some_and(|session| {
+                    let inside = self.sessions.active().is_some_and(|session| {
                         session.last_scroll_area().is_some_and(|area| {
                             mouse.column >= area.x
                                 && mouse.column < area.x.saturating_add(area.width)
@@ -1115,14 +1118,14 @@ impl TuiApp {
                     }
                 }
                 let session_gen = self
-                    .interactive
-                    .as_ref()
+                    .sessions
+                    .active()
                     .map(|session| session.hit_generation())
                     .unwrap_or(0);
                 let (in_gutter, gutter_thumb) = if in_history {
                     (false, false)
                 } else {
-                    self.interactive.as_ref().map_or((false, false), |session| {
+                    self.sessions.active().map_or((false, false), |session| {
                         let gutter = session.session_gutter_rect();
                         let hit = gutter.is_some_and(|rect| {
                             tui_components::scrollbar::gutter_contains(
@@ -1140,7 +1143,7 @@ impl TuiApp {
                     })
                 };
                 if in_gutter && gutter_thumb {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.begin_gutter_drag();
                     }
                 }
@@ -1157,26 +1160,26 @@ impl TuiApp {
             }
             MouseEventKind::Up(_) => {
                 let Some(press) = self.mouse_press.take() else {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
                 };
                 if !mouse_is_left_button(mouse.kind) {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
                 }
                 if self.mouse_layer_suppressed() {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
                 }
                 let in_history = self.overlay == OverlayMode::History;
                 if press.in_history != in_history {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
@@ -1202,22 +1205,22 @@ impl TuiApp {
                     return false;
                 }
                 if self.app.screen.navigation.current_kind() != ScreenKind::Interactive {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
                 }
                 let session_gen = self
-                    .interactive
-                    .as_ref()
+                    .sessions
+                    .active()
                     .map(|session| session.hit_generation())
                     .unwrap_or(0);
                 if press.in_gutter {
                     let dragging = self
-                        .interactive
-                        .as_ref()
+                        .sessions
+                        .active()
                         .is_some_and(|session| session.is_gutter_dragging());
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     if press.gutter_thumb || dragging {
@@ -1229,7 +1232,7 @@ impl TuiApp {
                     if press.session_gen != session_gen {
                         return false;
                     }
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         return session.scroll_to_gutter_row(mouse.row);
                     }
                     return false;
@@ -1250,7 +1253,7 @@ impl TuiApp {
                 ) {
                     return false;
                 }
-                let hit = self.interactive.as_ref().is_some_and(|session| {
+                let hit = self.sessions.active().is_some_and(|session| {
                     session.last_badge_rect().is_some_and(|rect| {
                         crate::interactive::mouse_hit::badge_contains(
                             &rect,
@@ -1260,12 +1263,12 @@ impl TuiApp {
                     })
                 });
                 if hit {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.jump_to_latest();
                     }
                     return true;
                 }
-                let display_row = self.interactive.as_ref().and_then(|session| {
+                let display_row = self.sessions.active().and_then(|session| {
                     let area = session.last_scroll_area()?;
                     if mouse.row < area.y || mouse.row >= area.y.saturating_add(area.height) {
                         return None;
@@ -1307,7 +1310,7 @@ impl TuiApp {
                     }
                     ClickKind::Single => {}
                 }
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     return session.handle_content_click(display_row);
                 }
                 false
@@ -1321,14 +1324,14 @@ impl TuiApp {
                 self.clear_click_chain();
                 if !mouse_is_left_button(mouse.kind) {
                     self.mouse_press = None;
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
                 }
                 if self.mouse_layer_suppressed() {
                     self.mouse_press = None;
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         session.end_gutter_drag();
                     }
                     return false;
@@ -1339,13 +1342,13 @@ impl TuiApp {
                     return false;
                 }
                 if press.in_gutter && press.gutter_thumb {
-                    if let Some(session) = self.interactive.as_mut() {
+                    if let Some(session) = self.sessions.active_mut() {
                         return session.update_gutter_drag(mouse.row);
                     }
                     return false;
                 }
                 self.mouse_press = None;
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     session.end_gutter_drag();
                 }
                 false
@@ -1357,7 +1360,7 @@ impl TuiApp {
     /// Apply one wheel notch to the content under the cursor.
     fn scroll_by_wheel(&mut self, up: bool) {
         if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
-            if let Some(session) = &mut self.interactive {
+            if let Some(session) = self.sessions.active_mut() {
                 if up {
                     session.scroll_history_up();
                 } else {
@@ -1416,35 +1419,57 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Create or tear down the live interactive controller to match the current
-    /// screen. The holder keeps the session id across attach and detach so a
-    /// reconnecting client re-attaches without losing the session.
+    /// Create the first tab or park all tabs to match the current screen.
+    /// Tabs survive navigation: leaving the Interactive screen only detaches
+    /// the per-tab holders, and returning re-attaches the active one, so no
+    /// scrollback or stream state is lost.
     async fn ensure_interactive(&mut self) -> CliResult<()> {
         let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
-        match (on_interactive, self.interactive.is_some()) {
-            (true, false) => {
-                let id = wf_common::generate_id();
-                self.held_session.hold(id.clone());
-                let mut session = InteractiveController::start(self.client.clone(), id).await;
-                session.set_perf_tier(self.perf_tier.marker());
-                session.apply_perf_policy(self.perf_policy);
-                session.apply_copy_policy(self.copy_policy);
-                session.set_tool_config(load_tool_output_config());
-                session.set_session_scrollbar(load_session_scrollbar_opt_in());
-                self.interactive = Some(session);
-                self.held_session.attach();
+        if on_interactive {
+            if self.sessions.is_empty() {
+                self.new_tab().await;
+            } else {
+                self.sessions.attach_active();
             }
-            (false, true) => {
-                if let Some(session) = self.interactive.take() {
-                    session.shutdown().await;
-                }
-                self.held_session.detach();
-                self.held_session.release();
-                self.held_session.detach();
-            }
-            _ => {}
+        } else {
+            self.sessions.detach_all();
         }
         Ok(())
+    }
+
+    /// Create a new chat session tab over the shared client and focus it.
+    /// When the tab list is full the least-recently-active background tab
+    /// is evicted first.
+    async fn new_tab(&mut self) {
+        if self.sessions.len() >= tui_core::screen_data::MAX_CHAT_TABS {
+            if let Some(victim) = self.sessions.eviction_victim() {
+                if let Some(tab) = self.sessions.remove(victim) {
+                    tab.controller.shutdown().await;
+                }
+                self.app
+                    .notice
+                    .set("tab limit reached: oldest tab closed".to_string());
+            }
+        }
+        let id = wf_common::generate_id();
+        let mut session = InteractiveController::start(self.client.clone(), id.clone()).await;
+        session.set_perf_tier(self.perf_tier.marker());
+        session.apply_perf_policy(self.perf_policy);
+        session.apply_copy_policy(self.copy_policy);
+        session.set_tool_config(load_tool_output_config());
+        session.set_session_scrollbar(load_session_scrollbar_opt_in());
+        self.sessions
+            .push(SessionTab::new(session, id, self.now_ms()));
+    }
+
+    /// Close the tab at `index`, shutting its stream tasks down.
+    async fn close_tab(&mut self, index: usize) {
+        if let Some(tab) = self.sessions.remove(index) {
+            tab.controller.shutdown().await;
+        }
+        if self.sessions.is_empty() {
+            self.go_back();
+        }
     }
 
     /// Queue a session restore from `--session` / `--resume`: the replay
@@ -1461,28 +1486,30 @@ impl TuiApp {
         }
     }
 
-    /// Leave the interactive screen when the interactive controller requests it.
+    /// Leave the interactive screen when the active tab requests it: close
+    /// the active tab and go back. Other tabs keep streaming.
     async fn apply_interactive_exit(&mut self) {
         if !self.interactive_exit {
             return;
         }
         self.interactive_exit = false;
-        if let Some(session) = self.interactive.as_mut() {
+        if let Some(session) = self.sessions.active_mut() {
             session.begin_graceful_exit();
         }
-        if let Some(session) = self.interactive.take() {
-            session.shutdown().await;
-        }
-        self.go_back();
+        let active = self.sessions.active_index();
+        self.close_tab(active).await;
     }
 
-    /// Load replay history into the interactive controller after navigating from Executions.
+    /// Load replay history into the active tab after navigating from
+    /// Executions. The replay replaces the active tab's scrollback exactly
+    /// like the previous single-session behavior; open a new tab first
+    /// when the current session must be kept.
     async fn apply_pending_replay(&mut self) -> CliResult<()> {
         let Some(id) = self.pending_replay.take() else {
             return Ok(());
         };
         self.ensure_interactive().await?;
-        if let Some(session) = &mut self.interactive {
+        if let Some(session) = self.sessions.active_mut() {
             // `load_replay` fetches asynchronously; the `ReplayLoaded` event
             // replaces the loading placeholder when the history lands.
             session.load_replay(&id);
@@ -1522,8 +1549,8 @@ impl TuiApp {
         }
         let area = frame.area();
         let diagram_requested = self
-            .interactive
-            .as_ref()
+            .sessions
+            .active()
             .map(|s| s.diagram_requested())
             .unwrap_or(0);
         let panes = crate::layout::split_panes(
@@ -1532,17 +1559,50 @@ impl TuiApp {
             crate::layout::DiagramPosition::Side,
             0.4,
         );
-        // Reserve the bottom line for the transient notice, if any.
+        // Reserve the bottom line for the transient notice, if any. With
+        // more than one chat tab open the top line shows the tab strip.
         let notice = self.app.notice.current_text();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(1)])
-            .split(panes.chat);
+        let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
+        let show_tabs = on_interactive && self.sessions.len() > 1;
+        let (tab_area, chunks) = if show_tabs {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Min(3),
+                    Constraint::Length(1),
+                ])
+                .split(panes.chat);
+            (Some(parts[0]), vec![parts[1], parts[2]])
+        } else {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(3), Constraint::Length(1)])
+                .split(panes.chat);
+            (None, vec![parts[0], parts[1]])
+        };
+        if let Some(tab_area) = tab_area {
+            let snapshot = self.sessions.snapshot();
+            let items: Vec<crate::tab_bar::SessionTabItem> = snapshot
+                .into_iter()
+                .map(|(title, streaming)| crate::tab_bar::SessionTabItem::new(title, streaming))
+                .collect();
+            crate::tab_bar::draw_session_tab_bar(
+                frame,
+                tab_area,
+                &items,
+                self.sessions.active_index(),
+                &self.theme,
+            );
+        }
 
         // Interactive is always the primary interface
-        if let Some(session) = &mut self.interactive {
-            session.draw(frame, chunks[0], &self.theme, scope);
-        } else {
+        if on_interactive {
+            if let Some(session) = self.sessions.active_mut() {
+                session.draw(frame, chunks[0], &self.theme, scope);
+            }
+        }
+        if !on_interactive || self.sessions.is_empty() {
             // Fallback to screens if no interactive controller is active
             let kind = self.app.screen.navigation.current_kind();
             let detail_key = self.current_detail_key();

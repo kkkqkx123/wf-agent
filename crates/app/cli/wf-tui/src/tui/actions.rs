@@ -372,7 +372,7 @@ impl TuiApp {
         match crate::app_config::ConfigManager::save(&path, &config) {
             Ok(()) => {
                 self.invalidate(ScreenKind::Settings);
-                if let Some(session) = self.interactive.as_mut() {
+                if let Some(session) = self.sessions.active_mut() {
                     session.set_session_scrollbar(enabled);
                 }
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);

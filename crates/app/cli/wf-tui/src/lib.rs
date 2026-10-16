@@ -18,8 +18,8 @@ pub use wf_cli_shared::{
 pub use tui_clock::clock;
 pub use tui_components::{
     approval_overlay, bottom_pane, composer, confirm_modal, context_sidebar, file_selection,
-    file_viewer, footer, help_modal, mention, modal, model_picker, overlay, panels,
-    password_modal, prompt_modal, question_overlay, queue, select, transcript,
+    file_viewer, footer, help_modal, mention, modal, model_picker, overlay, panels, password_modal,
+    prompt_modal, question_overlay, queue, select, tab_bar, transcript,
 };
 pub use tui_core::{
     anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw,
@@ -43,6 +43,7 @@ pub mod replay;
 pub mod screens;
 pub mod search_palette;
 pub mod session_holder;
+pub mod session_tabs;
 pub mod size;
 pub mod state;
 pub mod tui;

@@ -229,6 +229,10 @@ impl AgentIterationCoordinator {
                         prompt_tokens: usage.prompt_tokens,
                         completion_tokens: usage.completion_tokens,
                         cost: usage.total_cost,
+                        reasoning_tokens: usage.reasoning_tokens,
+                        cache_read_tokens: usage.cache_read_tokens,
+                        cache_write_tokens: usage.cache_write_tokens,
+                        total_tokens: Some(usage.total_tokens).filter(|total| *total > 0),
                     },
                 )
                 .await;

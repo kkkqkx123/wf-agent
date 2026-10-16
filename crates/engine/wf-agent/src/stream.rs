@@ -84,10 +84,15 @@ pub enum AgentStreamEvent {
     },
     /// Cumulative token usage + estimated cost for the run. Carried so the
     /// status line can show `tokens · cost` without re-deriving it.
+    /// Breakdown fields stay `None` when the provider does not report them.
     Usage {
         prompt_tokens: u32,
         completion_tokens: u32,
         cost: Option<f64>,
+        reasoning_tokens: Option<u32>,
+        cache_read_tokens: Option<u32>,
+        cache_write_tokens: Option<u32>,
+        total_tokens: Option<u32>,
     },
     /// A sub-agent (dispatched child agent) started. `id` is the child
     /// execution id. The linkage fields stay `None` when the dispatcher

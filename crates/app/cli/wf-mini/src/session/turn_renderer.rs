@@ -206,19 +206,23 @@ impl<S: TurnSink + Default> TurnRenderer<S> {
                 prompt_tokens,
                 completion_tokens,
                 cost,
+                cache_read_tokens,
+                ..
             } => {
                 if !self.display.show_usage {
                     return None;
                 }
                 self.end_stdout_line();
-                let raw = match cost {
-                    Some(value) => format!(
-                        "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens (~${value:.4})"
-                    ),
-                    None => format!(
-                        "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
-                    ),
-                };
+                let mut raw = format!(
+                    "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
+                );
+                if let Some(cached) = cache_read_tokens {
+                    raw.push_str(&format!(" ({cached} cached)"));
+                }
+                if let Some(value) = cost {
+                    raw.push_str(&format!(" (~${value:.4}"));
+                    raw.push(')');
+                }
                 self.sink
                     .stderr_line(&paint_stderr(&raw, &self.display, StderrKind::Dim));
                 None
@@ -563,14 +567,36 @@ mod tests {
             prompt_tokens: 10,
             completion_tokens: 20,
             cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
         }]);
         assert_eq!(stderr, "usage: 10 prompt + 20 completion tokens\n");
         let (_, _, stderr, _) = render(vec![ExecutionStreamEvent::Usage {
             prompt_tokens: 10,
             completion_tokens: 20,
             cost: Some(0.001),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
         }]);
         assert!(stderr.contains("usage: 10 prompt + 20 completion tokens (~$0.0010)"));
+    }
+
+    #[test]
+    fn usage_line_annotates_reported_cache() {
+        let (_, _, stderr, _) = render(vec![ExecutionStreamEvent::Usage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: Some(7),
+            cache_write_tokens: None,
+            total_tokens: None,
+        }]);
+        assert_eq!(stderr, "usage: 10 prompt + 20 completion tokens (7 cached)\n");
     }
 
     #[test]
@@ -718,6 +744,10 @@ mod tests {
                     prompt_tokens: 1,
                     completion_tokens: 2,
                     cost: None,
+                    reasoning_tokens: None,
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                    total_tokens: None,
                 },
                 tool_start(),
                 tool_end(true),

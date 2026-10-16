@@ -52,6 +52,10 @@ name = "tui_management_showcase"
 path = "examples/tui/management_showcase.rs"
 
 [[example]]
+name = "tui_context_usage_showcase"
+path = "examples/tui/context_usage_showcase.rs"
+
+[[example]]
 name = "tui_style_gallery"
 path = "examples/tui/style_gallery.rs"
 

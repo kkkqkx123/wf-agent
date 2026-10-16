@@ -137,7 +137,7 @@ pub fn panel_gradient(base: Rgb, steps: usize) -> Vec<Rgb> {
 /// Derive upgraded warning/error colors from a base accent.
 pub fn escalate(base: Rgb) -> (Rgb, Rgb) {
     let (h, s, v) = rgb_to_hsv(base);
-    let warning = hsv_to_rgb(h.max(30.0).min(60.0), s.max(0.6), v.max(0.7));
+    let warning = hsv_to_rgb(h.clamp(30.0, 60.0), s.max(0.6), v.max(0.7));
     let error = hsv_to_rgb(0.0, s.max(0.7), v.max(0.6));
     (warning, error)
 }

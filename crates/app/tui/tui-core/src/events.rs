@@ -44,11 +44,16 @@ pub enum UnifiedEvent {
     Interrupted { reason: String },
     /// Incremental reasoning / thinking text delta.
     ReasoningDelta { content: String },
-    /// Cumulative token usage + estimated cost for the run.
+    /// Cumulative token usage + estimated cost for the run. Breakdown
+    /// fields stay `None` when the provider did not report them.
     Usage {
         prompt_tokens: u32,
         completion_tokens: u32,
         cost: Option<f64>,
+        reasoning_tokens: Option<u32>,
+        cache_read_tokens: Option<u32>,
+        cache_write_tokens: Option<u32>,
+        total_tokens: Option<u32>,
     },
     /// A sub-agent (dispatched child agent) started.
     SubAgentStarted {
@@ -147,10 +152,18 @@ pub fn unified_from_execution_stream(event: ExecutionStreamEvent) -> Option<Unif
             prompt_tokens,
             completion_tokens,
             cost,
+            reasoning_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+            total_tokens,
         } => Some(UnifiedEvent::Usage {
             prompt_tokens,
             completion_tokens,
             cost,
+            reasoning_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+            total_tokens,
         }),
         ExecutionStreamEvent::SubAgentStarted {
             id,

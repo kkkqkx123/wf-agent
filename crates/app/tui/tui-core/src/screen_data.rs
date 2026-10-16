@@ -377,6 +377,32 @@ pub struct ProfileRow {
     pub id: String,
     pub name: String,
     pub model: String,
+    /// Model context window in tokens, when the server reports it
+    /// (`context_window_size` on the profile; absent on older servers).
+    pub context_window: Option<u32>,
+}
+
+/// Resolve the context window for `model_label` from cached profiles:
+/// exact id/name/model match wins (a positive match with no window means
+/// unknown, never another profile's window); otherwise the default
+/// profile's window applies. `None` means unknown (render absolute token
+/// counts, no percentage).
+pub fn resolve_context_window(
+    profiles: &[ProfileRow],
+    default_id: Option<&str>,
+    model_label: Option<&str>,
+) -> Option<u32> {
+    if let Some(label) = model_label.filter(|label| !label.is_empty()) {
+        if let Some(row) = profiles
+            .iter()
+            .find(|row| row.id == label || row.name == label || row.model == label)
+        {
+            return row.context_window;
+        }
+    }
+    default_id
+        .and_then(|id| profiles.iter().find(|row| row.id == id))
+        .and_then(|row| row.context_window)
 }
 
 /// Local configuration snapshot shown on the settings screen.
@@ -607,6 +633,40 @@ mod tests {
         assert_eq!(apply_list_filter(&data, "EXEC").row_count(), 2);
         assert_eq!(apply_list_filter(&data, "").row_count(), 2);
         assert_eq!(apply_list_filter(&data, "nope").row_count(), 0);
+    }
+
+    #[test]
+    fn context_window_resolves_by_label_then_default() {
+        let rows = vec![
+            ProfileRow {
+                id: "default".into(),
+                name: "Default".into(),
+                model: "claude-4-5".into(),
+                context_window: Some(200_000),
+            },
+            ProfileRow {
+                id: "fast".into(),
+                name: "Fast".into(),
+                model: "gpt-4o-mini".into(),
+                context_window: None,
+            },
+        ];
+        assert_eq!(
+            resolve_context_window(&rows, Some("default"), Some("gpt-4o-mini")),
+            None,
+            "exact label match wins even without a window"
+        );
+        assert_eq!(
+            resolve_context_window(&rows, Some("default"), Some("claude-4-5")),
+            Some(200_000)
+        );
+        assert_eq!(
+            resolve_context_window(&rows, Some("default"), None),
+            Some(200_000),
+            "falls back to the default profile"
+        );
+        assert_eq!(resolve_context_window(&rows, None, None), None);
+        assert_eq!(resolve_context_window(&[], Some("default"), Some("x")), None);
     }
 
     #[test]

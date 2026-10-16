@@ -99,10 +99,18 @@ impl ExecutionEventStream {
                         prompt_tokens,
                         completion_tokens,
                         cost,
+                        reasoning_tokens,
+                        cache_read_tokens,
+                        cache_write_tokens,
+                        total_tokens,
                     } => ExecutionStreamEvent::Usage {
                         prompt_tokens,
                         completion_tokens,
                         cost,
+                        reasoning_tokens,
+                        cache_read_tokens,
+                        cache_write_tokens,
+                        total_tokens,
                     },
                     AgentStreamEvent::SubAgentStarted {
                         id,

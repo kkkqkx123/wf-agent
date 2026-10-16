@@ -82,10 +82,18 @@ pub(crate) fn stream_event_line(event: &ExecutionStreamEvent) -> String {
             prompt_tokens,
             completion_tokens,
             cost,
-        } => match cost {
-            Some(cost) => format!("usage {prompt_tokens}+{completion_tokens} cost={cost:.4}"),
-            None => format!("usage {prompt_tokens}+{completion_tokens}"),
-        },
+            cache_read_tokens,
+            ..
+        } => {
+            let mut line = format!("usage {prompt_tokens}+{completion_tokens}");
+            if let Some(cached) = cache_read_tokens {
+                line.push_str(&format!(" cached={cached}"));
+            }
+            match cost {
+                Some(cost) => format!("{line} cost={cost:.4}"),
+                None => line,
+            }
+        }
         ExecutionStreamEvent::SubAgentStarted {
             id,
             name,

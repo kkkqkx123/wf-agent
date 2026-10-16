@@ -135,7 +135,7 @@ pub fn indexed_to_rgb(index: u8) -> Rgb {
         return SYSTEM[usize::from(index)];
     }
     if index >= 232 {
-        let step = u8::try_from(index).unwrap_or(255).saturating_sub(232);
+        let step = index.saturating_sub(232);
         let level = 8u8.saturating_add(step.saturating_mul(10));
         return Rgb::new(level, level, level);
     }

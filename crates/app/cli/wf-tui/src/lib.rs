@@ -17,9 +17,9 @@ pub use wf_cli_shared::{
 // external references keep working after the split.
 pub use tui_clock::clock;
 pub use tui_components::{
-    approval_overlay, bottom_pane, composer, confirm_modal, file_selection, file_viewer, footer,
-    help_modal, mention, modal, model_picker, overlay, panels, password_modal, prompt_modal,
-    question_overlay, queue, select, transcript,
+    approval_overlay, bottom_pane, composer, confirm_modal, context_sidebar, file_selection,
+    file_viewer, footer, help_modal, mention, modal, model_picker, overlay, panels,
+    password_modal, prompt_modal, question_overlay, queue, select, transcript,
 };
 pub use tui_core::{
     anchor, copy, event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw,

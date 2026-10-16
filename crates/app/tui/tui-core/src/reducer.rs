@@ -74,12 +74,48 @@ pub enum MiniCommit {
 }
 
 /// Cumulative token usage for a run, surfaced in the status line.
+/// Breakdown fields are `None` when the provider did not report them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UsageMeta {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     /// Estimated cost in USD, when the provider reports it.
     pub cost: Option<f64>,
+    pub reasoning_tokens: Option<u32>,
+    pub cache_read_tokens: Option<u32>,
+    pub cache_write_tokens: Option<u32>,
+    /// Provider's coherent request total (reasoning and cached tokens
+    /// included) when it differs from the plain prompt + completion sum.
+    pub total_tokens: Option<u32>,
+}
+
+impl UsageMeta {
+    /// Coherent token count for context-window math: the provider total
+    /// when present, otherwise the prompt + completion sum.
+    pub fn used_tokens(&self) -> u64 {
+        match self.total_tokens {
+            Some(total) => u64::from(total),
+            None => u64::from(self.prompt_tokens) + u64::from(self.completion_tokens),
+        }
+    }
+
+    /// Cache-hit share of the prompt (`None` when the provider reports no
+    /// cache figures or the prompt count is zero).
+    pub fn cache_hit_rate(&self) -> Option<f64> {
+        let read = u64::from(self.cache_read_tokens?);
+        let prompt = u64::from(self.prompt_tokens);
+        if prompt == 0 {
+            return None;
+        }
+        Some(read as f64 / prompt as f64)
+    }
+
+    /// Share of `window` consumed by [`UsageMeta::used_tokens`]
+    /// (`None` when the window is unknown or zero).
+    pub fn window_fraction(&self, window: Option<u32>) -> Option<f64> {
+        let window = u64::from(window.filter(|window| *window > 0)?);
+        Some(self.used_tokens() as f64 / window as f64)
+    }
 }
 
 /// Footer lifecycle phase.
@@ -387,11 +423,19 @@ impl SessionReducer {
                 prompt_tokens,
                 completion_tokens,
                 cost,
+                reasoning_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                total_tokens,
             } => {
                 self.footer.usage = Some(UsageMeta {
                     prompt_tokens: *prompt_tokens,
                     completion_tokens: *completion_tokens,
                     cost: *cost,
+                    reasoning_tokens: *reasoning_tokens,
+                    cache_read_tokens: *cache_read_tokens,
+                    cache_write_tokens: *cache_write_tokens,
+                    total_tokens: *total_tokens,
                 });
             }
             ExecutionStreamEvent::SubAgentStarted {
@@ -939,6 +983,59 @@ mod tests {
         }
         assert_eq!(stream_commits, fold_commits);
         assert_eq!(reducer.footer(), &fold_footer);
+    }
+
+    #[test]
+    fn usage_replaces_the_running_snapshot_with_breakdown() {
+        let first = ExecutionStreamEvent::Usage {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
+        };
+        let second = ExecutionStreamEvent::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 250,
+            cost: Some(0.0012),
+            reasoning_tokens: Some(50),
+            cache_read_tokens: Some(800),
+            cache_write_tokens: Some(100),
+            total_tokens: Some(1_400),
+        };
+        let (_, footer) = fold(&[first, second], "exec-1");
+        let usage = footer.usage.expect("usage snapshot recorded");
+        assert_eq!(usage.prompt_tokens, 1_000);
+        assert_eq!(usage.completion_tokens, 250);
+        assert_eq!(usage.cost, Some(0.0012));
+        assert_eq!(usage.reasoning_tokens, Some(50));
+        assert_eq!(usage.cache_read_tokens, Some(800));
+        assert_eq!(usage.cache_write_tokens, Some(100));
+        assert_eq!(usage.total_tokens, Some(1_400));
+        assert_eq!(usage.used_tokens(), 1_400);
+        assert!((usage.cache_hit_rate().unwrap_or(0.0) - 0.8).abs() < f64::EPSILON);
+        assert!((usage.window_fraction(Some(10_000)).unwrap_or(0.0) - 0.14).abs() < 1e-9);
+        assert_eq!(usage.window_fraction(None), None);
+        assert_eq!(usage.window_fraction(Some(0)), None);
+    }
+
+    #[test]
+    fn usage_without_total_falls_back_to_the_plain_sum() {
+        let event = ExecutionStreamEvent::Usage {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
+        };
+        let (_, footer) = fold(&[event], "exec-1");
+        let usage = footer.usage.expect("usage snapshot recorded");
+        assert_eq!(usage.used_tokens(), 120);
+        assert_eq!(usage.cache_hit_rate(), None);
     }
 
     #[test]

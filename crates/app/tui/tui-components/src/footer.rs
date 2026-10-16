@@ -33,7 +33,7 @@ use crate::panels::{
 };
 use crate::question_overlay::QuestionView;
 use crate::transcript::Role;
-use tui_core::reducer::Phase;
+use tui_core::reducer::{Phase, UsageMeta};
 use tui_core::status_line::FooterState;
 use tui_style::theme::Theme;
 
@@ -369,13 +369,8 @@ impl Footer {
                 ));
             }
             if let Some(usage) = &self.state.usage {
-                let total = usage.prompt_tokens + usage.completion_tokens;
-                let cost = usage
-                    .cost
-                    .map(|c| format!(" · ${c:.4}"))
-                    .unwrap_or_default();
                 spans.push(Span::styled(
-                    format!(" ◧ {total} tok{cost}"),
+                    format!(" ◧ {}", usage_summary(usage)),
                     theme_style(theme, Role::Muted),
                 ));
             }
@@ -432,6 +427,61 @@ pub fn format_duration(ms: u64) -> String {
     } else {
         format!("{ms}ms")
     }
+}
+
+/// Compact token count ("0", "999", "1.2K", "3.4M"): the footer summary
+/// stays narrow while large context tallies stay readable.
+pub fn format_tokens_compact(value: u64) -> String {
+    if value < 1_000 {
+        return value.to_string();
+    }
+    let scaled_value = value as f64;
+    let (scaled, suffix) = if value >= 1_000_000_000 {
+        (scaled_value / 1_000_000_000.0, "B")
+    } else if value >= 1_000_000 {
+        (scaled_value / 1_000_000.0, "M")
+    } else {
+        (scaled_value / 1_000.0, "K")
+    };
+    let decimals = if scaled < 10.0 {
+        2
+    } else if scaled < 100.0 {
+        1
+    } else {
+        0
+    };
+    let mut text = format!("{scaled:.decimals$}");
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    format!("{text}{suffix}")
+}
+
+/// Compact footer usage summary: input/output split with cache-hit and
+/// cost annotations only when the provider reports them.
+pub fn usage_summary(usage: &UsageMeta) -> String {
+    let mut text = format!(
+        "{} in · {} out",
+        format_tokens_compact(u64::from(usage.prompt_tokens)),
+        format_tokens_compact(u64::from(usage.completion_tokens)),
+    );
+    if let Some(rate) = usage.cache_hit_rate() {
+        let cached = usage.cache_read_tokens.unwrap_or(0);
+        text.push_str(&format!(
+            " · {} cached ({:.0}%)",
+            format_tokens_compact(u64::from(cached)),
+            rate * 100.0,
+        ));
+    }
+    if let Some(cost) = usage.cost {
+        text.push_str(&format!(" · ${cost:.4}"));
+    }
+    text
 }
 
 /// Map a scrollback role to a theme style.
@@ -772,6 +822,66 @@ mod tests {
         assert_eq!(format_duration(500), "500ms");
         assert_eq!(format_duration(2_100), "2.1s");
         assert_eq!(format_duration(0), "0ms");
+    }
+
+    #[test]
+    fn compact_token_counts() {
+        assert_eq!(format_tokens_compact(0), "0");
+        assert_eq!(format_tokens_compact(999), "999");
+        assert_eq!(format_tokens_compact(1_000), "1K");
+        assert_eq!(format_tokens_compact(1_234), "1.23K");
+        assert_eq!(format_tokens_compact(12_340), "12.3K");
+        assert_eq!(format_tokens_compact(1_234_567), "1.23M");
+        assert_eq!(format_tokens_compact(100_000), "100K");
+        assert_eq!(format_tokens_compact(2_000_000_000), "2B");
+    }
+
+    #[test]
+    fn usage_summary_splits_input_output() {
+        use tui_core::reducer::UsageMeta;
+        let usage = UsageMeta {
+            prompt_tokens: 1_234,
+            completion_tokens: 56,
+            cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
+        };
+        assert_eq!(usage_summary(&usage), "1.23K in · 56 out");
+    }
+
+    #[test]
+    fn usage_summary_annotates_cache_and_cost() {
+        use tui_core::reducer::UsageMeta;
+        let usage = UsageMeta {
+            prompt_tokens: 1_000,
+            completion_tokens: 250,
+            cost: Some(0.0012),
+            reasoning_tokens: None,
+            cache_read_tokens: Some(800),
+            cache_write_tokens: None,
+            total_tokens: None,
+        };
+        assert_eq!(
+            usage_summary(&usage),
+            "1K in · 250 out · 800 cached (80%) · $0.0012"
+        );
+    }
+
+    #[test]
+    fn usage_summary_hides_cache_without_prompt() {
+        use tui_core::reducer::UsageMeta;
+        let usage = UsageMeta {
+            prompt_tokens: 0,
+            completion_tokens: 10,
+            cost: None,
+            reasoning_tokens: None,
+            cache_read_tokens: Some(5),
+            cache_write_tokens: None,
+            total_tokens: None,
+        };
+        assert_eq!(usage_summary(&usage), "0 in · 10 out");
     }
 
     #[test]

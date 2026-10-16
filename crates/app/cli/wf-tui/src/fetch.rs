@@ -482,6 +482,10 @@ async fn fetch_settings(client: &WfClient) -> CliResult<ScreenData> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
+                context_window: p
+                    .get("context_window_size")
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok()),
             })
         })
         .collect();

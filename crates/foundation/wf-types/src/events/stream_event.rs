@@ -72,10 +72,24 @@ pub enum ExecutionStreamEvent {
     /// loop; rendered distinctly from the assistant answer).
     ReasoningDelta { content: String },
     /// Cumulative token usage + estimated cost for the run.
+    ///
+    /// `prompt_tokens` / `completion_tokens` are always present; the
+    /// breakdown fields ride along only when the provider reports them
+    /// (`None` means unknown, never zero-fill). `total_tokens` is the
+    /// provider's coherent request total when it differs from the plain
+    /// sum (reasoning and cached tokens included).
     Usage {
         prompt_tokens: u32,
         completion_tokens: u32,
         cost: Option<f64>,
+        #[serde(default)]
+        reasoning_tokens: Option<u32>,
+        #[serde(default)]
+        cache_read_tokens: Option<u32>,
+        #[serde(default)]
+        cache_write_tokens: Option<u32>,
+        #[serde(default)]
+        total_tokens: Option<u32>,
     },
     /// A sub-agent (triggered child agent) started. `id` is the child
     /// execution id. The linkage fields are `None` on older servers;

@@ -156,19 +156,22 @@ impl TurnPreview {
                 prompt_tokens,
                 completion_tokens,
                 cost,
+                cache_read_tokens,
+                ..
             } => {
                 if !self.display.show_usage {
                     return None;
                 }
                 self.end_stdout_line();
-                let raw = match cost {
-                    Some(value) => format!(
-                        "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens (~${value:.4})"
-                    ),
-                    None => format!(
-                        "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
-                    ),
-                };
+                let mut raw = format!(
+                    "usage: {prompt_tokens} prompt + {completion_tokens} completion tokens"
+                );
+                if let Some(cached) = cache_read_tokens {
+                    raw.push_str(&format!(" ({cached} cached)"));
+                }
+                if let Some(value) = cost {
+                    raw.push_str(&format!(" (~${value:.4})"));
+                }
                 let line = self.paint(&raw, false, true);
                 self.capture.stderr_line(&line);
                 None
@@ -311,6 +314,10 @@ pub fn demo_script() -> Vec<ExecutionStreamEvent> {
             prompt_tokens: 120,
             completion_tokens: 45,
             cost: Some(0.0012),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_tokens: None,
         },
         ExecutionStreamEvent::SubAgentStarted {
             id: "s1".to_string(),

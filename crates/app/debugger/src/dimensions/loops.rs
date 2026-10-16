@@ -77,7 +77,6 @@ pub fn analyze(trace: &Trace) -> SectionReport {
 mod tests {
     use super::*;
     use crate::model::{LoopRoundView, StepRecord, TraceKind, TRACE_SCHEMA_V1};
-    use std::collections::HashMap;
 
     fn trace_with_rounds(rounds: Vec<LoopRoundView>) -> Trace {
         let steps = rounds
@@ -86,57 +85,17 @@ mod tests {
             .map(|(index, loop_round)| StepRecord {
                 index,
                 node_id: "loop-node".to_string(),
-                node_name: String::new(),
                 node_type: "LOOP".to_string(),
-                input: serde_json::Value::Null,
-                result: serde_json::Value::Null,
                 success: !loop_round.failed,
-                error: None,
-                error_kind: None,
-                retryable: None,
-                recovery_hint: None,
-                branch_id: None,
-                route_target: None,
-                start_time: None,
-                end_time: None,
-                variable_before: HashMap::new(),
-                variable_after: HashMap::new(),
-                messages_before: HashMap::new(),
-                messages_after: HashMap::new(),
-                tool_calls: vec![],
-                llm_calls: vec![],
-                approval: None,
-                visibility: None,
                 loop_round: Some(loop_round),
-                merge: None,
-                interruption: None,
-                checkpoint: None,
-                interaction: None,
-                hooks_fired: vec![],
-                triggers_seen: vec![],
-                compressions: vec![],
-                exec_id: None,
-                parent_exec_id: None,
-                root_exec_id: None,
-                depth: None,
-                result_var: None,
-                wait_for_child: None,
-                child_timeout_ms: None,
-                dialog_anchor: None,
-                writeback: None,
-                children: vec![],
+                ..Default::default()
             })
             .collect();
         Trace {
             schema: TRACE_SCHEMA_V1.to_string(),
             kind: TraceKind::Workflow,
-            graph_ref: String::new(),
-            agent_template: String::new(),
-            initial_variables: HashMap::new(),
             steps,
-            assertions: vec![],
-            trigger_templates: vec![],
-            budget: None,
+            ..Default::default()
         }
     }
 

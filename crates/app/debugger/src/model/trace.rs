@@ -9,14 +9,15 @@ use crate::model::views_runtime::TriggerTemplateView;
 
 pub const TRACE_SCHEMA_V1: &str = "wf-debug-trace/v1";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceKind {
+    #[default]
     Workflow,
     Agent,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Trace {
     #[serde(default = "default_schema")]
     pub schema: String,

@@ -14,7 +14,7 @@ use crate::model::views_runtime::{
 /// Core identity, inputs, outputs and nested structure of one recorded step.
 /// Dimension-specific detail lives in the view structs; this record only
 /// references them so new dimensions do not reshape the core.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct StepRecord {
     pub index: usize,
     pub node_id: String,

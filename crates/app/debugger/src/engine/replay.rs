@@ -165,71 +165,30 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{StepRecord, TraceKind};
-    use std::collections::HashMap;
+    use crate::model::{StepRecord, ToolCallView, TraceKind};
 
     #[test]
     fn counts_failures_and_tool_errors() {
         let trace = Trace {
             schema: crate::model::TRACE_SCHEMA_V1.to_string(),
             kind: TraceKind::Workflow,
-            graph_ref: String::new(),
-            agent_template: String::new(),
-            initial_variables: HashMap::new(),
             steps: vec![StepRecord {
                 index: 0,
                 node_id: "n1".to_string(),
-                node_name: String::new(),
                 node_type: "SCRIPT".to_string(),
-                input: serde_json::Value::Null,
-                result: serde_json::Value::Null,
                 success: false,
                 error: Some("boom".to_string()),
-                error_kind: None,
-                retryable: None,
-                recovery_hint: None,
-                branch_id: None,
-                route_target: None,
                 start_time: Some(1),
                 end_time: Some(4),
-                variable_before: HashMap::new(),
-                variable_after: HashMap::new(),
-                messages_before: HashMap::new(),
-                messages_after: HashMap::new(),
-                tool_calls: vec![crate::model::ToolCallView {
+                tool_calls: vec![ToolCallView {
                     name: "t".to_string(),
-                    call_id: String::new(),
-                    arguments: serde_json::Value::Null,
-                    result: None,
                     error: Some("e".to_string()),
-                    duration_ms: None,
                     success: false,
+                    ..Default::default()
                 }],
-                llm_calls: vec![],
-                approval: None,
-                visibility: None,
-                loop_round: None,
-                merge: None,
-                interruption: None,
-                checkpoint: None,
-                interaction: None,
-                hooks_fired: vec![],
-                triggers_seen: vec![],
-                compressions: vec![],
-                exec_id: None,
-                parent_exec_id: None,
-                root_exec_id: None,
-                depth: None,
-                result_var: None,
-                wait_for_child: None,
-                child_timeout_ms: None,
-                dialog_anchor: None,
-                writeback: None,
-                children: vec![],
+                ..Default::default()
             }],
-            assertions: vec![],
-            trigger_templates: vec![],
-            budget: None,
+            ..Default::default()
         };
         let outcome = replay_trace(&trace);
         assert_eq!(outcome.summary.failures, 1);

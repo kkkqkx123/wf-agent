@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::model::util::cap_payload_text;
+
 /// Trace-level LLM budget. Limits are hard gates; `warn_at` is a fraction
 /// (0 to 1) of the token limit that raises an early warning. `context_limit`
 /// is the per-request model-window budget compression decisions compare
@@ -119,4 +121,64 @@ pub struct CompressionView {
     /// on old traces predating the key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<String>,
+}
+
+impl CompressionView {
+    /// Build the trailing detail string for text rendering, carrying token
+    /// counts, degradation notes, phase markers, run identity and failure
+    /// reasons in a single human-readable fragment.
+    pub fn summary_suffix(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(tokens) = self.tokens_used {
+            parts.push(format!(
+                "tokens={}/{}",
+                tokens,
+                self.token_limit
+                    .map(|limit| limit.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            ));
+        }
+        if let Some(tokens_after) = self.tokens_after {
+            parts.push(format!("after={tokens_after}"));
+        }
+        if self.forced {
+            parts.push("forced".to_string());
+        }
+        if self.no_taker {
+            parts.push("no_taker".to_string());
+        }
+        if self.degraded {
+            if self.degraded_dropped > 0 {
+                parts.push(format!(
+                    "degraded(dropped={})",
+                    self.degraded_dropped
+                ));
+            } else {
+                parts.push("degraded".to_string());
+            }
+        }
+        if self.still_over_budget {
+            parts.push("still_over_budget".to_string());
+        }
+        if self.phase == CompressionPhase::Discarded {
+            parts.push("discarded".to_string());
+        }
+        if self.phase == CompressionPhase::Routed {
+            parts.push("routed".to_string());
+        }
+        if let Some(run_id) = self.run_id.as_deref() {
+            parts.push(format!("run={}", cap_payload_text(run_id)));
+        }
+        if let Some(reason) = self.discard_reason.as_deref() {
+            parts.push(format!("reason={}", cap_payload_text(reason)));
+        }
+        if let Some(error) = self.error.as_deref() {
+            parts.push(format!("error={}", cap_payload_text(error)));
+        }
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", parts.join(" "))
+        }
+    }
 }

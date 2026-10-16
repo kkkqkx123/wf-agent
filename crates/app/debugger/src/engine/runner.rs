@@ -4,7 +4,7 @@ use crate::dimensions::analyze_all;
 use crate::engine::assert::run_assertions;
 use crate::engine::format::{format_json, format_text};
 use crate::engine::replay::{replay_trace, ReplayOutcome};
-use crate::model::report::{unify, UnifiedReport};
+use crate::model::report::{format_step_path, unify, UnifiedReport};
 use crate::model::{AssertOutcome, FindingLevel, Trace};
 use crate::probes::agent::{analyze_agent_trace, AgentAnalysis};
 
@@ -63,16 +63,12 @@ pub fn render_check_text(trace: &Trace, outcome: &CheckOutcome, no_color: bool) 
         for finding in &section.findings {
             let level = match finding.level {
                 FindingLevel::Info => "info",
-                FindingLevel::Warning => "WARN",
-                FindingLevel::Error => "ERROR",
+                FindingLevel::Warning => "warn",
+                FindingLevel::Error => "error",
             };
             buf.push_str(&format!(
                 "  [{level}] {}{}\n",
-                if finding.path.is_empty() {
-                    String::new()
-                } else {
-                    format!("step-{}: ", finding.path)
-                },
+                format_step_path(&finding.path),
                 finding.message,
             ));
             if finding.expected.is_some() || finding.actual.is_some() {

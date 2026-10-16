@@ -2,6 +2,16 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Prefix a finding path with the standard step-path label used in text
+/// output, returning an empty string for trace-level findings.
+pub fn format_step_path(path: &str) -> String {
+    if path.is_empty() {
+        String::new()
+    } else {
+        format!("step-{path}: ")
+    }
+}
+
 /// Severity of a single analyzer conclusion. Only `Error` findings fail the
 /// unified check; warnings highlight risks worth inspecting.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

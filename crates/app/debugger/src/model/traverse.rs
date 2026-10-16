@@ -42,51 +42,15 @@ mod tests {
     use super::*;
     use crate::model::TraceKind;
     use crate::model::TRACE_SCHEMA_V1;
-    use std::collections::HashMap;
 
     fn step(index: usize, children: Vec<StepRecord>) -> StepRecord {
         StepRecord {
             index,
             node_id: format!("n{index}"),
-            node_name: String::new(),
             node_type: "SCRIPT".to_string(),
-            input: serde_json::Value::Null,
-            result: serde_json::Value::Null,
             success: true,
-            error: None,
-            error_kind: None,
-            retryable: None,
-            recovery_hint: None,
-            branch_id: None,
-            route_target: None,
-            start_time: None,
-            end_time: None,
-            variable_before: HashMap::new(),
-            variable_after: HashMap::new(),
-            messages_before: HashMap::new(),
-            messages_after: HashMap::new(),
-            tool_calls: vec![],
-            llm_calls: vec![],
-            approval: None,
-            visibility: None,
-            loop_round: None,
-            merge: None,
-            interruption: None,
-            checkpoint: None,
-            interaction: None,
-            hooks_fired: vec![],
-            triggers_seen: vec![],
-            compressions: vec![],
-            exec_id: None,
-            parent_exec_id: None,
-            root_exec_id: None,
-            depth: None,
-            result_var: None,
-            wait_for_child: None,
-            child_timeout_ms: None,
-            dialog_anchor: None,
-            writeback: None,
             children,
+            ..Default::default()
         }
     }
 
@@ -95,13 +59,8 @@ mod tests {
         let trace = Trace {
             schema: TRACE_SCHEMA_V1.to_string(),
             kind: TraceKind::Workflow,
-            graph_ref: String::new(),
-            agent_template: String::new(),
-            initial_variables: HashMap::new(),
             steps: vec![step(0, vec![step(0, vec![])]), step(1, vec![])],
-            assertions: vec![],
-            trigger_templates: vec![],
-            budget: None,
+            ..Default::default()
         };
         let visits = walk(&trace);
         let paths: Vec<&str> = visits.iter().map(|visit| visit.path.as_str()).collect();

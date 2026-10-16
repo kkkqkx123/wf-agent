@@ -221,16 +221,12 @@ fn cmd_compression(args: CompressionArgs) -> Result<i32> {
         for finding in &report.findings {
             let level = match finding.level {
                 crate::model::FindingLevel::Info => "info",
-                crate::model::FindingLevel::Warning => "WARN",
-                crate::model::FindingLevel::Error => "ERROR",
+                crate::model::FindingLevel::Warning => "warn",
+                crate::model::FindingLevel::Error => "error",
             };
             println!(
                 "[{level}] {}{}",
-                if finding.path.is_empty() {
-                    String::new()
-                } else {
-                    format!("step-{}: ", finding.path)
-                },
+                crate::model::format_step_path(&finding.path),
                 finding.message,
             );
         }
@@ -255,16 +251,12 @@ fn cmd_spec(args: SpecArgs) -> Result<i32> {
         for finding in &report.findings {
             let level = match finding.level {
                 crate::model::FindingLevel::Info => "info",
-                crate::model::FindingLevel::Warning => "WARN",
-                crate::model::FindingLevel::Error => "ERROR",
+                crate::model::FindingLevel::Warning => "warn",
+                crate::model::FindingLevel::Error => "error",
             };
             println!(
                 "[{level}] {}{}",
-                if finding.path.is_empty() {
-                    String::new()
-                } else {
-                    format!("step-{}: ", finding.path)
-                },
+                crate::model::format_step_path(&finding.path),
                 finding.message,
             );
         }

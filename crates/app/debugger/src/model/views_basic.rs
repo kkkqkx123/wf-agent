@@ -9,7 +9,7 @@ pub struct MessageView {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ToolCallView {
     pub name: String,
     #[serde(default)]

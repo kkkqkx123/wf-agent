@@ -85,7 +85,7 @@ pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> St
                 compression.target_context_id,
                 compression.phase.label(),
                 compression.array_version,
-                compression_summary_suffix(compression),
+                compression.summary_suffix(),
             ));
         }
         if let Some(round) = record.loop_round.as_ref() {
@@ -153,62 +153,6 @@ trait DiffKindLabel {
     fn kind_label(&self) -> &'static str;
 }
 
-fn compression_summary_suffix(compression: &crate::model::CompressionView) -> String {
-    let mut parts = Vec::new();
-    if let Some(tokens) = compression.tokens_used {
-        parts.push(format!(
-            "tokens={}/{}",
-            tokens,
-            compression
-                .token_limit
-                .map(|limit| limit.to_string())
-                .unwrap_or_else(|| "?".to_string())
-        ));
-    }
-    if let Some(tokens_after) = compression.tokens_after {
-        parts.push(format!("after={tokens_after}"));
-    }
-    if compression.forced {
-        parts.push("forced".to_string());
-    }
-    if compression.no_taker {
-        parts.push("no_taker".to_string());
-    }
-    if compression.degraded {
-        if compression.degraded_dropped > 0 {
-            parts.push(format!(
-                "degraded(dropped={})",
-                compression.degraded_dropped
-            ));
-        } else {
-            parts.push("degraded".to_string());
-        }
-    }
-    if compression.still_over_budget {
-        parts.push("still_over_budget".to_string());
-    }
-    if compression.phase == crate::model::CompressionPhase::Discarded {
-        parts.push("discarded".to_string());
-    }
-    if compression.phase == crate::model::CompressionPhase::Routed {
-        parts.push("routed".to_string());
-    }
-    if let Some(run_id) = compression.run_id.as_deref() {
-        parts.push(format!("run={}", cap_payload_text(run_id)));
-    }
-    if let Some(reason) = compression.discard_reason.as_deref() {
-        parts.push(format!("reason={}", cap_payload_text(reason)));
-    }
-    if let Some(error) = compression.error.as_deref() {
-        parts.push(format!("error={}", cap_payload_text(error)));
-    }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", parts.join(" "))
-    }
-}
-
 impl DiffKindLabel for VariableDiff {
     fn kind_label(&self) -> &'static str {
         match self.kind {
@@ -222,19 +166,14 @@ impl DiffKindLabel for VariableDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::TraceKind;
 
     #[test]
     fn text_header_mentions_steps() {
         let trace = Trace {
             schema: crate::model::TRACE_SCHEMA_V1.to_string(),
-            kind: crate::model::TraceKind::Workflow,
-            graph_ref: String::new(),
-            agent_template: String::new(),
-            initial_variables: Default::default(),
-            steps: vec![],
-            assertions: vec![],
-            trigger_templates: vec![],
-            budget: None,
+            kind: TraceKind::Workflow,
+            ..Default::default()
         };
         let outcome = ReplayOutcome {
             steps: vec![],
@@ -248,14 +187,8 @@ mod tests {
     fn json_carries_assertion_results() {
         let trace = Trace {
             schema: crate::model::TRACE_SCHEMA_V1.to_string(),
-            kind: crate::model::TraceKind::Workflow,
-            graph_ref: String::new(),
-            agent_template: String::new(),
-            initial_variables: Default::default(),
-            steps: vec![],
-            assertions: vec![],
-            trigger_templates: vec![],
-            budget: None,
+            kind: TraceKind::Workflow,
+            ..Default::default()
         };
         let outcome = ReplayOutcome {
             steps: vec![],

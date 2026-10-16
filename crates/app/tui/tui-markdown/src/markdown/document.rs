@@ -118,6 +118,8 @@ pub enum DocBlock {
     /// code, lists and nested quotes keep their own block kind.
     Quote(Vec<DocBlock>),
     Rule,
+    /// A standalone display-math block rendered as a framed expression.
+    Math(Vec<StyledLine>),
     List(Vec<Vec<StyledLine>>),
     Table {
         headers: Vec<String>,
@@ -243,6 +245,11 @@ fn wrap_blocks(
             }
             DocBlock::Quote(inner) => {
                 rows.extend(wrap_blocks(inner, width, cell_width));
+            }
+            DocBlock::Math(lines) => {
+                for line in lines {
+                    rows.extend(wrap_line(line, width, cell_width));
+                }
             }
             DocBlock::Code { lines, .. } => {
                 for raw in lines {
@@ -666,13 +673,13 @@ pub fn parse_document_with_options(src: &str, options: &RenderOptions) -> Docume
             }
             Event::DisplayMath(math) => {
                 flush_line(&mut current, &mut lines);
-                let rendered = render_display_math(math.as_ref(), options.latex);
-                lines.push(StyledLine {
-                    spans: vec![StyledSpan::math(rendered.text, math.to_string())],
-                });
                 if !lines.is_empty() {
                     blocks.push(DocBlock::Paragraph(std::mem::take(&mut lines)));
                 }
+                let rendered = render_display_math(math.as_ref(), options.latex);
+                blocks.push(DocBlock::Math(vec![StyledLine {
+                    spans: vec![StyledSpan::math(rendered.text, math.to_string())],
+                }]));
             }
         }
     }
@@ -722,6 +729,11 @@ fn plain_blocks(blocks: &[DocBlock], out: &mut String) {
             }
             DocBlock::Quote(inner) => {
                 plain_blocks(inner, out);
+            }
+            DocBlock::Math(lines) => {
+                for line in lines {
+                    push_plain_line(out, &line.plain_text());
+                }
             }
             DocBlock::Code { lines, .. } => {
                 for raw in lines {

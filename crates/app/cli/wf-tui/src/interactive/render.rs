@@ -49,6 +49,9 @@ impl InteractiveController {
         }
         let footer_h = crate::footer::FOOTER_BASE_HEIGHT.saturating_add(composer_rows);
         let input_h = composer_rows;
+        // Record the headless geometry probe for this frame so debug and
+        // replay paths can assert layout without inspecting rendered pixels.
+        self.layout_probe = Some(crate::render_model::probe_layout(area, footer_h, input_h));
         // Top: scrollback. Middle: footer. Bottom: prompt line.
         let [scroll_area, footer_area, input_area] = Layout::default()
             .direction(Direction::Vertical)

@@ -36,6 +36,10 @@ name = "tui_diff_record"
 path = "examples/tui/diff_record.rs"
 
 [[example]]
+name = "tui_scenario"
+path = "examples/tui/scenario.rs"
+
+[[example]]
 name = "tui_key_receiver"
 path = "examples/tui/key_receiver.rs"
 

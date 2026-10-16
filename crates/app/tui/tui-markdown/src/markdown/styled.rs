@@ -153,6 +153,12 @@ fn document_line_to_line(line: &StyledLine, motion_mode: MotionMode) -> Line<'st
         } else {
             base
         };
+        let style = if span.fill == super::document::FillRole::Code {
+            use tui_style::theme;
+            style.bg(theme::to_ratatui_color(theme::Rgb::new(0x1F, 0x29, 0x37)))
+        } else {
+            style
+        };
         if span.role == StyleRole::Text
             && span.latex.is_none()
             && !span.attrs.bold
@@ -290,6 +296,32 @@ fn blocks_to_lines_lazy_with_options(
                     spans.extend(line.spans);
                     out.push(Line::from(spans));
                 }
+            }
+            DocBlock::Math(lines) => {
+                use ratatui::text::Line as RLine;
+                out.push(RLine::from(ratatui::text::Span::styled(
+                    "┌─ math ".to_string(),
+                    tui_style::theme::muted_style(),
+                )));
+                *row += 1;
+                for line in lines {
+                    out.push(RLine::from(vec![
+                        ratatui::text::Span::styled(
+                            "│ ".to_string(),
+                            tui_style::theme::muted_style(),
+                        ),
+                        ratatui::text::Span::styled(
+                            line.plain_text(),
+                            tui_style::theme::tool_call_style(),
+                        ),
+                    ]));
+                    *row += 1;
+                }
+                out.push(RLine::from(ratatui::text::Span::styled(
+                    "└─".to_string(),
+                    tui_style::theme::muted_style(),
+                )));
+                *row += 1;
             }
             DocBlock::Code { language, lines } => {
                 let highlighted = code_block_lines_highlighted_with_options(

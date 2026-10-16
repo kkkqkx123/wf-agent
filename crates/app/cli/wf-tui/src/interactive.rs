@@ -227,6 +227,8 @@ pub struct InteractiveController {
     /// Requested diagram width in columns (0 means no diagram pane). Flows
     /// into the unified layout split and the redraw snapshot aspect bucket.
     diagram_requested: u16,
+    /// Last recorded headless geometry probe; `None` until the first frame.
+    layout_probe: Option<crate::render_model::LayoutProbe>,
     /// Inline image collection signature: bumping it forces a full frame and
     /// invalidates the body preparation, so image set changes never reuse
     /// stale rows.
@@ -284,6 +286,38 @@ impl InteractiveController {
     /// column and the redraw snapshot aspect bucket follows the geometry.
     pub fn set_diagram_requested(&mut self, requested: u16) {
         self.diagram_requested = requested;
+    }
+
+    /// Last geometry probe recorded for the interactive layout.
+    pub fn layout_probe(&self) -> Option<crate::render_model::LayoutProbe> {
+        self.layout_probe
+    }
+
+    /// Serialize the recorded geometry probe as JSON for debug and replay.
+    pub fn layout_probe_json(&self) -> Option<String> {
+        self.layout_probe.as_ref().map(|probe| {
+            serde_json::json!({
+                "viewport": {
+                    "x": probe.viewport.x,
+                    "y": probe.viewport.y,
+                    "width": probe.viewport.width,
+                    "height": probe.viewport.height,
+                },
+                "footer": {
+                    "x": probe.footer.x,
+                    "y": probe.footer.y,
+                    "width": probe.footer.width,
+                    "height": probe.footer.height,
+                },
+                "input": {
+                    "x": probe.input.x,
+                    "y": probe.input.y,
+                    "width": probe.input.width,
+                    "height": probe.input.height,
+                },
+            })
+            .to_string()
+        })
     }
 
     /// Note an inline image collection change: bumps the signature and the
@@ -388,6 +422,7 @@ impl InteractiveController {
             turn_prompt: String::new(),
             next_seq: 1,
             diagram_requested: 0,
+            layout_probe: None,
             image_signature: 0,
             expanded_version: 0,
         }

@@ -10,6 +10,7 @@
 //! decisions (tiers, environment switches) live above in `tui-core::perf`.
 
 pub mod anim_core;
+pub mod harmony;
 pub mod animation;
 pub mod motion;
 pub mod theme;

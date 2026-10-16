@@ -189,17 +189,7 @@ fn split_list_detail(area: Rect) -> (Rect, Rect) {
 
 /// Tab strip rendering for subview switching.
 fn view_tabs(current: &str, labels: &[&str]) -> String {
-    labels
-        .iter()
-        .map(|label| {
-            if *label == current {
-                format!("[{label}]")
-            } else {
-                (*label).to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    tui_components::tab_bar::format_tabs(current, labels)
 }
 
 pub fn draw_dashboard(
@@ -302,12 +292,15 @@ pub fn draw_workflow(
             ScreenData::Workflow(rows) => rows
                 .get(selected.min(rows.len().saturating_sub(1)))
                 .map(|r| {
-                    vec![
-                        format!("id: {}", r.id),
-                        format!("name: {}", r.name),
-                        format!("description: {}", r.description.as_deref().unwrap_or("-")),
-                        format!("nodes: {}", r.node_count),
-                    ]
+                    tui_components::property_list::format_properties(&[
+                        ("id".to_string(), r.id.clone()),
+                        ("name".to_string(), r.name.clone()),
+                        (
+                            "description".to_string(),
+                            r.description.as_deref().unwrap_or("-").to_string(),
+                        ),
+                        ("nodes".to_string(), r.node_count.to_string()),
+                    ])
                 })
                 .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
             _ => vec![LOADING_TEXT.to_string()],
@@ -380,13 +373,13 @@ pub fn draw_executions(
             ScreenData::Executions(rows) => rows
                 .get(selected.min(rows.len().saturating_sub(1)))
                 .map(|r| {
-                    vec![
-                        format!("id: {}", r.id),
-                        format!("status: {}", r.status),
-                        format!("iteration: {}", r.iteration),
-                        format!("tool calls: {}", r.tool_calls),
-                        format!("started: {}", r.started),
-                    ]
+                    tui_components::property_list::format_properties(&[
+                        ("id".to_string(), r.id.clone()),
+                        ("status".to_string(), r.status.clone()),
+                        ("iteration".to_string(), r.iteration.to_string()),
+                        ("tool calls".to_string(), r.tool_calls.to_string()),
+                        ("started".to_string(), r.started.clone()),
+                    ])
                 })
                 .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
             _ => vec![LOADING_TEXT.to_string()],
@@ -414,39 +407,7 @@ pub fn draw_insights(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &T
         ScreenData::Insights(d) => {
             let mut out = String::new();
             for table in &d.tables {
-                // Column widths from the widest cell so the table aligns.
-                let width = table.rows.iter().map(Vec::len).max().unwrap_or(0);
-                let col_widths = (0..width).map(|c| {
-                    table
-                        .rows
-                        .iter()
-                        .map(|row| row.get(c).map_or(0, String::len))
-                        .max()
-                        .unwrap_or(0)
-                });
-                let fmt_row = |row: &[String]| {
-                    row.iter()
-                        .enumerate()
-                        .map(|(c, cell)| {
-                            let pad = col_widths.clone().nth(c).unwrap_or(0);
-                            format!("{cell:<pad$}")
-                        })
-                        .collect::<Vec<_>>()
-                        .join("  ")
-                };
-                out.push_str(&fmt_row(&table.rows[0]));
-                out.push('\n');
-                let dashes = col_widths
-                    .clone()
-                    .map(|w| "-".repeat(w))
-                    .collect::<Vec<_>>()
-                    .join("--");
-                out.push_str(&dashes);
-                out.push('\n');
-                for row in table.rows.iter().skip(1) {
-                    out.push_str(&fmt_row(row));
-                    out.push('\n');
-                }
+                out.push_str(&tui_components::data_table::format_table(&table.rows));
                 out.push('\n');
             }
             out
@@ -491,7 +452,33 @@ pub fn draw_checkpoints(
         list_suffix(rows.len(), ctx)
     );
     let block = titled_block(&title, ColorRole::Highlight, theme);
-    render_status_rows(frame, area, block, &rows, &statuses, selected, theme);
+    let (list_area, detail_area) = split_list_detail(area);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::Checkpoints(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                tui_components::property_list::format_properties(&[
+                    ("id".to_string(), row.id.clone()),
+                    ("entity".to_string(), row.entity.clone()),
+                    ("entity type".to_string(), row.entity_type.clone()),
+                    ("checkpoint type".to_string(), row.checkpoint_type.clone()),
+                    ("status".to_string(), row.status.clone()),
+                    ("timestamp".to_string(), row.timestamp.clone()),
+                ])
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_templates(
@@ -513,8 +500,36 @@ pub fn draw_templates(
         "Templates ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
+    let display_rows = rows.clone();
+    let (list_area, detail_area) = split_list_detail(area);
     let block = titled_block(&title, ColorRole::Add, theme);
-    render_rows(frame, area, block, &rows, selected, theme);
+    render_rows(frame, list_area, block, &display_rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::Templates(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                if row.detail.trim().is_empty() {
+                    vec![
+                        format!("id: {}", row.id),
+                        format!("name: {}", row.name),
+                        format!("kind: {}", row.kind),
+                    ]
+                } else {
+                    row.detail.lines().map(str::to_string).collect()
+                }
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_resources(
@@ -540,8 +555,35 @@ pub fn draw_resources(
         "Resources ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
+    let (list_area, detail_area) = split_list_detail(area);
     let block = titled_block(&title, ColorRole::Add, theme);
-    render_status_rows(frame, area, block, &rows, &statuses, selected, theme);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::Resources(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                if row.detail.trim().is_empty() {
+                    tui_components::property_list::format_properties(&[
+                        ("id".to_string(), row.id.clone()),
+                        ("name".to_string(), row.name.clone()),
+                        ("status".to_string(), row.status.clone()),
+                    ])
+                } else {
+                    row.detail.lines().map(str::to_string).collect()
+                }
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_triggers(
@@ -567,8 +609,35 @@ pub fn draw_triggers(
         "Triggers ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
+    let (list_area, detail_area) = split_list_detail(area);
     let block = titled_block(&title, ColorRole::Warning, theme);
-    render_status_rows(frame, area, block, &rows, &statuses, selected, theme);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::Triggers(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                if row.detail.trim().is_empty() {
+                    tui_components::property_list::format_properties(&[
+                        ("id".to_string(), row.id.clone()),
+                        ("name".to_string(), row.name.clone()),
+                        ("status".to_string(), row.status.clone()),
+                    ])
+                } else {
+                    row.detail.lines().map(str::to_string).collect()
+                }
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_events(
@@ -590,8 +659,36 @@ pub fn draw_events(
         "Events ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
+    let display_rows = rows.clone();
+    let (list_area, detail_area) = split_list_detail(area);
     let block = titled_block(&title, ColorRole::Highlight, theme);
-    render_rows(frame, area, block, &rows, selected, theme);
+    render_rows(frame, list_area, block, &display_rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::Events(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                if row.detail.trim().is_empty() {
+                    tui_components::property_list::format_properties(&[
+                        ("id".to_string(), row.id.clone()),
+                        ("kind".to_string(), row.kind.clone()),
+                        ("summary".to_string(), row.summary.clone()),
+                    ])
+                } else {
+                    row.detail.lines().map(str::to_string).collect()
+                }
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_git(
@@ -617,8 +714,34 @@ pub fn draw_git(
         "Git status ({}) (r refresh, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
+    let (list_area, detail_area) = split_list_detail(area);
     let block = titled_block(&title, ColorRole::Highlight, theme);
-    render_status_rows(frame, area, block, &rows, &statuses, selected, theme);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::Git(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                if row.detail.trim().is_empty() {
+                    vec![
+                        format!("path: {}", row.path),
+                        format!("status: {}", row.status),
+                    ]
+                } else {
+                    row.detail.lines().map(str::to_string).collect()
+                }
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
 }
 
 pub fn draw_settings(
@@ -649,25 +772,26 @@ pub fn draw_settings(
             out.push(String::new());
             out.push(format!("Local config ({}):", d.local.config_path));
             out.push(format!(
-                "  [o] mouse_capture: {}",
-                if d.local.mouse_capture { "on" } else { "off" }
+                "  [o] {}",
+                tui_components::property_list::format_toggle(
+                    "mouse capture",
+                    d.local.mouse_capture
+                )
             ));
             out.push(format!(
-                "  [s] session_scrollbar: {} (instant)",
-                if d.local.session_scrollbar {
-                    "on"
-                } else {
-                    "off"
-                }
+                "  [s] {} (instant)",
+                tui_components::property_list::format_toggle(
+                    "session scrollbar",
+                    d.local.session_scrollbar
+                )
             ));
             out.push(format!("  [c] copy_target: {}", d.local.copy_target));
             out.push(format!(
-                "  [e] tool_output: {} · [l] level {}",
-                if d.local.tool_output_enabled {
-                    "on"
-                } else {
-                    "off"
-                },
+                "  [e] {} · [l] level {}",
+                tui_components::property_list::format_toggle(
+                    "tool output",
+                    d.local.tool_output_enabled
+                ),
                 d.local.tool_output_level
             ));
             out.push(format!(
@@ -794,7 +918,7 @@ pub fn draw_sidebar_overlay(
     };
     frame.render_widget(Clear, sidebar_area);
     let block = Block::default()
-        .title(" Screens ")
+        .title(" Navigation ")
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::Cyan));
     let screens: Vec<String> = entries

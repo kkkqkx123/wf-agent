@@ -824,7 +824,11 @@ mod tests {
         });
         pacer.push(&"x".repeat(100));
         pacer.advance(0);
-        assert_eq!(pacer.advance(1), 0, "1ms tick banks budget without releasing");
+        assert_eq!(
+            pacer.advance(1),
+            0,
+            "1ms tick banks budget without releasing"
+        );
         let mut total = 0usize;
         for step in 2..=20u64 {
             total += pacer.advance(step);

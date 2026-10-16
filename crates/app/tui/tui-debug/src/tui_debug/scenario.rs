@@ -35,7 +35,12 @@ impl Default for TuiScenario {
 
 impl TuiScenario {
     /// Build a scenario from an existing recorder and terminal size.
-    pub fn from_recorder(name: impl Into<String>, width: u16, height: u16, recorder: &EventRecorder) -> Self {
+    pub fn from_recorder(
+        name: impl Into<String>,
+        width: u16,
+        height: u16,
+        recorder: &EventRecorder,
+    ) -> Self {
         Self {
             name: name.into(),
             width: width.max(1),

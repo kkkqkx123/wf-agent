@@ -414,17 +414,26 @@ impl FrameMetrics {
 
     /// Budget check: every steady frame parses at most `max_bytes`.
     pub fn steady_parse_within(&self, max_bytes: usize) -> bool {
-        self.frames.iter().skip(1).all(|f| f.parsed_bytes <= max_bytes)
+        self.frames
+            .iter()
+            .skip(1)
+            .all(|f| f.parsed_bytes <= max_bytes)
     }
 
     /// Budget check: every steady frame changes at most `max_cells`.
     pub fn steady_changed_within(&self, max_cells: usize) -> bool {
-        self.frames.iter().skip(1).all(|f| f.changed_cells <= max_cells)
+        self.frames
+            .iter()
+            .skip(1)
+            .all(|f| f.changed_cells <= max_cells)
     }
 
     /// Budget check: every steady frame stays under `max_rate` flicker.
     pub fn steady_flicker_within(&self, max_rate: f64) -> bool {
-        self.frames.iter().skip(1).all(|f| f.flicker_rate() <= max_rate)
+        self.frames
+            .iter()
+            .skip(1)
+            .all(|f| f.flicker_rate() <= max_rate)
     }
 
     /// Budget check: every painted key lands within `max_ms`.
@@ -499,7 +508,11 @@ impl FrameMetrics {
             }
         }
         let passed = violations.is_empty();
-        let summary = format!("{} | {}", self.report(), if passed { "PASS" } else { "FAIL" });
+        let summary = format!(
+            "{} | {}",
+            self.report(),
+            if passed { "PASS" } else { "FAIL" }
+        );
         RegressionReport {
             passed,
             violations,

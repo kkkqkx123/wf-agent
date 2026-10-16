@@ -425,9 +425,7 @@ pub fn copy_wrapped_range(
     }
     let last_text = source_lines.get(last_logical)?;
     out.push(crate::wrap_map::WrappedColumnMap::slice_columns(
-        last_text,
-        0,
-        last_end,
+        last_text, 0, last_end,
     ));
     Some(out.join("\n"))
 }

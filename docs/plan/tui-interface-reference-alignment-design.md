@@ -220,3 +220,43 @@
   - Git diff viewer；
   - Settings dialog；
   - History virtualized mode.
+## 9. 当前实现进度（代码）
+
+状态标记：`[x]` 已完成基础实现；`[~]` 部分实现；`[ ]` 待开始。
+
+### 已完成
+
+- [x] Full TUI 默认进入 `Interactive`，管理界面以 screen/overlay 方式访问。
+- [x] 共享组件：`data_table`、`property_list`、`tab_bar`，含单元测试。
+- [x] 共享组件扩展：`history_cell`、`file_tree`、`toggle_row`、`command_palette`、`context_sidebar`，含单元测试。
+- [x] Terminal palette 探测、明暗背景与 adaptive style 基础能力。
+- [x] Git diff viewer 与 file tree 基础组件。
+- [x] Insights 使用共享 aligned table 渲染。
+- [x] Workflow 与 Executions 的 detail 摘要使用 `property_list`。
+- [x] Git、Checkpoints、Templates、Resources、Triggers、Events 统一为 master-detail 两栏布局，并从选中行展示 detail。
+- [x] 子视图 tab 文本统一经 `tab_bar::format_tabs` 生成。
+- [x] Settings 布尔配置采用 checkbox 风格显示。
+- [x] Navigation overlay 标题与术语对齐为 “Navigation”。
+
+### 部分完成
+
+- [~] Navigation / sidebar：术语与 overlay 已调整，context sidebar 基础组件已落地，完整 drawer 仍待落地。
+- [~] Settings：文本块内 toggle 已改进，dialog 家族与 theme/model/provider 对齐仍待落地。
+- [~] Git：master-detail 与 detail pane 已落地，file tree/diff viewer 基础组件已落地，完整 tree/hunk 仍待落地。
+
+### 待开始
+
+- [ ] Unified catalog（Templates/Resources/Triggers/Events 合并）。
+- [ ] Context sidebar（files/todo/context/mcp/git）。
+- [ ] HistoryCell 模型与 transcript virtualization。
+- [ ] Terminal palette / 明暗背景 / adaptive style。
+- [ ] Git diff viewer tree 与 hunk 渲染。
+- [ ] dialog family 的 endpoint 与交互改造。
+
+### 已执行验证
+
+- `cargo test -p tui-components --lib`
+- `cargo test -p tui-render`
+- `cargo build -p wf-tui`
+- `cargo build -p wf-cli-demo --example tui_screens`
+- `cargo clippy -p tui-components -p tui-render --all-targets`

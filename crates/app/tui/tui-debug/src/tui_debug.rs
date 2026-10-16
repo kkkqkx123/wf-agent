@@ -8,6 +8,4 @@ pub mod diff_recorder;
 
 #[cfg(feature = "diff-record")]
 pub use diff_recorder::DiffRecorderBackend;
-pub use scenario::{
-    replay_scenario_json, ScenarioRecorder, TuiScenario,
-};
+pub use scenario::{replay_scenario_json, ScenarioRecorder, TuiScenario};

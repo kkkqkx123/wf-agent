@@ -1286,7 +1286,10 @@ mod tests {
         assert!(!cache.can_seed(Rect::new(0, 0, 4, 1)));
         let mut buf = Buffer::filled(Rect::new(0, 0, 4, 1), Cell::EMPTY);
         cache.seed(&mut buf);
-        assert_eq!(buf.content, Buffer::filled(Rect::new(0, 0, 4, 1), Cell::EMPTY).content);
+        assert_eq!(
+            buf.content,
+            Buffer::filled(Rect::new(0, 0, 4, 1), Cell::EMPTY).content
+        );
     }
 
     #[test]
@@ -1370,9 +1373,7 @@ mod tests {
                 if cache.can_seed(area) {
                     cache.seed(frame.buffer_mut());
                 }
-                frame
-                    .buffer_mut()
-                    .set_string(0, 1, "x", Style::default());
+                frame.buffer_mut().set_string(0, 1, "x", Style::default());
                 cache.capture(frame.buffer_mut());
             })
             .expect("second draw");
@@ -1452,10 +1453,7 @@ mod tests {
             now_ms: 1_000,
             ..ScheduleInputs::default()
         };
-        assert_eq!(
-            redraw_cadence(&inputs),
-            RedrawCadence::UnfocusedDeepIdle
-        );
+        assert_eq!(redraw_cadence(&inputs), RedrawCadence::UnfocusedDeepIdle);
     }
 
     #[test]
@@ -1501,10 +1499,7 @@ mod tests {
             }),
             Some(FullFrameReason::TailCatchup)
         );
-        assert_eq!(
-            live_activity_reason(&ScheduleInputs::default()),
-            None
-        );
+        assert_eq!(live_activity_reason(&ScheduleInputs::default()), None);
         assert_eq!(
             current_full_frame_reason(&ScheduleInputs {
                 status_animation: true,

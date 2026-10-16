@@ -124,13 +124,13 @@ impl WrappedColumnMap {
         // selection continues, else to the last interval end.
         let first_text = source_lines.get(first.logical)?;
         if first.logical == last.logical {
-            out.push(Self::slice_columns(first_text, first.col_start, last.col_end));
-        } else {
             out.push(Self::slice_columns(
                 first_text,
                 first.col_start,
-                usize::MAX,
+                last.col_end,
             ));
+        } else {
+            out.push(Self::slice_columns(first_text, first.col_start, usize::MAX));
             current += 1;
             while current < last.logical {
                 out.push(source_lines.get(current)?.clone());
@@ -203,10 +203,7 @@ mod tests {
         let mut map = WrappedColumnMap::new();
         map.push_line(0, &[5, 5]);
         let source = vec!["abcdefghij".to_string()];
-        assert_eq!(
-            map.copy_range(&source, 0, 1).as_deref(),
-            Some("abcdefghij")
-        );
+        assert_eq!(map.copy_range(&source, 0, 1).as_deref(), Some("abcdefghij"));
         assert_eq!(map.copy_range(&source, 0, 9), None);
     }
 }

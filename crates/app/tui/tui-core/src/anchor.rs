@@ -189,10 +189,9 @@ impl AnchorStabilityRecorder {
         frame: AnchorFrame,
         viewport_h: usize,
     ) -> (AnchorShift, bool) {
-        let shift = self
-            .previous
-            .as_ref()
-            .map_or(AnchorShift::Stable, |prev| classify_shift(prev, &frame, viewport_h));
+        let shift = self.previous.as_ref().map_or(AnchorShift::Stable, |prev| {
+            classify_shift(prev, &frame, viewport_h)
+        });
         let stable = shift == AnchorShift::Stable;
         if self.previous.is_some() {
             if stable {
@@ -303,9 +302,7 @@ mod tests {
     }
 
     fn rows(words: &[&str]) -> AnchorFrame {
-        AnchorFrame::from_rows(
-            &words.iter().map(|w| (*w).to_string()).collect::<Vec<_>>(),
-        )
+        AnchorFrame::from_rows(&words.iter().map(|w| (*w).to_string()).collect::<Vec<_>>())
     }
 
     #[test]
@@ -313,10 +310,7 @@ mod tests {
         let base = rows(&["a", "b", "c", "d", "e", "f", "g", "h"]);
         assert_eq!(classify_shift(&base, &base, 8), AnchorShift::Stable);
         let appended = rows(&["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
-        assert_eq!(
-            classify_shift(&base, &appended, 8),
-            AnchorShift::Relocated
-        );
+        assert_eq!(classify_shift(&base, &appended, 8), AnchorShift::Relocated);
         let prepended = rows(&["z", "a", "b", "c", "d", "e", "f", "g", "h"]);
         assert_eq!(
             classify_shift(&base, &prepended, 8),
@@ -340,7 +334,10 @@ mod tests {
         assert!(stable);
         assert_eq!(recorder.stable_frames, 1);
         recorder.record_classified(rows(&["x", "a", "b", "c", "d"]), 4);
-        assert_eq!(recorder.inserted_above_frames + recorder.relocated_frames, 1);
+        assert_eq!(
+            recorder.inserted_above_frames + recorder.relocated_frames,
+            1
+        );
         assert!(recorder.stability() < 1.0);
     }
 }

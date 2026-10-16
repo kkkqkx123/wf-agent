@@ -109,4 +109,9 @@ pub struct FileCheckpointConfig {
     /// versus explicit-empty-denies convention.
     #[serde(default)]
     pub default_scope: Option<ExecutionFileScope>,
+    /// Keep the checkpoint object store inside the workspace
+    /// (`<workspace>/.wf-checkpoint-git`) instead of the global data
+    /// directory. Default (`false` / missing) stores outside the workspace.
+    #[serde(default)]
+    pub store_in_workspace: Option<bool>,
 }

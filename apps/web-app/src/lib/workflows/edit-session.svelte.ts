@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { goto } from '$app/navigation';
 import { page } from '$app/state';
-import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
+import type { CanvasPosition } from '$lib/graph/canvas-model';
 import type { DisplayEdge, DisplayNode } from '$lib/graph/display-model';
 import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 import {

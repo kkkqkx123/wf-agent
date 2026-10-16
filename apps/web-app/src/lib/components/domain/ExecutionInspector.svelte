@@ -26,9 +26,8 @@
 	import ExecutionHistoryPanel from './ExecutionHistoryPanel.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
 	import { extractMarkdownText } from '$lib/utils/markdown';
-	import GraphExplorer, {
-		type GraphOverlay,
-	} from '$lib/components/domain/GraphExplorer.svelte';
+	import GraphExplorer from '$lib/components/domain/GraphExplorer.svelte';
+	import type { GraphOverlay } from '$lib/graph/display-model';
 	import {
 		getExecutionTimeline,
 		getExecutionToolCalls,

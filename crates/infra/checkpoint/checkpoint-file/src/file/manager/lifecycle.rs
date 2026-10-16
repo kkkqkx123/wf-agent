@@ -65,7 +65,10 @@ impl FileCheckpointManager {
     /// Open a manager from the full file-checkpoint config: storage backend
     /// plus the workspace context (workspace root, ignore patterns and
     /// per-file failure behavior) used by scoped captures (script diff /
-    /// manual watcher).
+    /// manual watcher). Without an explicit storage config a workspace-root
+    /// binding allocates the metadata database in the global checkpoint
+    /// data dir instead of falling back to an in-memory store, so history
+    /// survives restarts.
     pub fn open_from_config(
         config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
     ) -> Result<Self, CheckpointError> {
@@ -88,7 +91,10 @@ impl FileCheckpointManager {
                 };
                 Self::open(&effective)?
             }
-            None => Self::new_in_memory()?,
+            None => Self::open(&default_storage_config(
+                &config.workspace_root,
+                config.store_in_workspace.unwrap_or(false),
+            )?)?,
         };
         manager.workspace_root = config.workspace_root.as_ref().map(PathBuf::from);
         manager.default_scope = config.default_scope.clone().or_else(|| {
@@ -114,7 +120,8 @@ impl FileCheckpointManager {
         });
         manager.check_workspace_root_binding(config)?;
         if let Some(root) = &config.workspace_root {
-            manager.bind_git_for_workspace(Path::new(root))?;
+            let in_workspace = config.store_in_workspace.unwrap_or(false);
+            manager.bind_git_for_workspace(Path::new(root), in_workspace)?;
         }
         Ok(manager)
     }
@@ -199,11 +206,49 @@ impl FileCheckpointManager {
     }
 
     /// Bind (creating if needed) the bare repository for a workspace root.
-    pub fn bind_git_for_workspace(&mut self, workspace_root: &Path) -> Result<(), CheckpointError> {
-        let git = crate::git_store::GitStore::init_for_workspace(workspace_root).map_err(|e| {
+    /// `in_workspace` keeps the legacy `<workspace>/.wf-checkpoint-git`
+    /// layout; the default resolves into the global checkpoint data dir.
+    pub fn bind_git_for_workspace(
+        &mut self,
+        workspace_root: &Path,
+        in_workspace: bool,
+    ) -> Result<(), CheckpointError> {
+        let git = if in_workspace {
+            crate::git_store::GitStore::init_in_workspace(workspace_root)
+        } else {
+            crate::git_store::GitStore::init_for_workspace(workspace_root)
+        }
+        .map_err(|e| {
             CheckpointError::Internal(format!("failed to init checkpoint git store: {e}"))
         })?;
         self.store.git = Some(Arc::new(git));
         Ok(())
     }
+}
+
+/// Storage config used when the user configures none: the SQLite metadata
+/// database lives beside the bare repository — in the global checkpoint
+/// store dir for the workspace, or in the legacy in-workspace layout when
+/// `in_workspace` is set. Without a workspace root there is nothing to key
+/// the store on, so the in-memory fallback applies.
+fn default_storage_config(
+    workspace_root: &Option<String>,
+    in_workspace: bool,
+) -> Result<wf_types::config::file_checkpoint::FileCheckpointStorageConfig, CheckpointError> {
+    let Some(root) = workspace_root else {
+        return Ok(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: None,
+        });
+    };
+    let store_dir = if in_workspace {
+        Path::new(root).join(crate::git_store::CHECKPOINT_GIT_DIR_NAME)
+    } else {
+        crate::store_path::global_store_dir(Path::new(root))
+    };
+    std::fs::create_dir_all(&store_dir).map_err(CheckpointError::Io)?;
+    Ok(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+        storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+        db_path: Some(store_dir.join("meta.db").to_string_lossy().into_owned()),
+    })
 }

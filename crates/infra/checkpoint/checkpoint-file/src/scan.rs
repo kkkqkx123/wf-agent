@@ -38,6 +38,94 @@ pub struct WorkspaceScan {
     pub dirs: Vec<String>,
     /// Directories that contain no files (recreated on restore).
     pub empty_dirs: Vec<String>,
+    /// Nested Git boundaries found during the scan (submodule checkouts
+    /// and independent embedded repositories), each with its resolved
+    /// HEAD pointer. Their contents are opaque to the outer workspace.
+    pub nested_repos: Vec<NestedRepoState>,
+}
+
+/// One nested Git boundary found inside the workspace: a directory
+/// containing `.git` (a submodule checkout or an independent embedded
+/// repository). Real Git treats such a directory as opaque to the outer
+/// repository — its working files are never tracked, its `.gitignore`
+/// files are never read, and only the pointer (HEAD commit) belongs to
+/// the outer history. The checkpoint model mirrors that contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NestedRepoState {
+    /// Workspace-relative directory that contains `.git`.
+    pub path: String,
+    /// HEAD commit id when resolvable (loose ref, packed-refs or detached
+    /// HEAD); `None` when the nested store cannot be read.
+    pub head_commit: Option<String>,
+    /// `.git` is a gitfile pointer (submodule / linked worktree) rather
+    /// than a repository directory.
+    pub is_gitfile: bool,
+}
+
+/// Probe one directory for a nested Git boundary and resolve its HEAD.
+/// Best effort: any read failure yields `head_commit: None` instead of
+/// blocking the scan.
+pub(crate) fn probe_nested_repo(root: &Path, dir_relative: &str) -> Option<NestedRepoState> {
+    let dir = root.join(dir_relative);
+    let git = dir.join(".git");
+    let metadata = fs::symlink_metadata(&git).ok()?;
+    let is_gitfile = metadata.is_file();
+    let git_dir = if metadata.is_dir() {
+        git
+    } else if is_gitfile {
+        let content = fs::read_to_string(&git).ok()?;
+        let target = content.strip_prefix("gitdir:")?.trim();
+        let target_path = std::path::Path::new(target);
+        if target_path.is_absolute() {
+            target_path.to_path_buf()
+        } else {
+            dir.join(target_path)
+        }
+    } else {
+        return None;
+    };
+    Some(NestedRepoState {
+        path: dir_relative.to_string(),
+        head_commit: read_nested_head(&git_dir),
+        is_gitfile,
+    })
+}
+
+/// Whether a string is a 40-char hex object id (nested HEAD / ref targets).
+fn is_loose_object_id(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Resolve the HEAD commit of a nested repository: detached HEAD is read
+/// directly; a symbolic HEAD is resolved through the loose ref file and
+/// then `packed-refs`. `None` when nothing resolves.
+fn read_nested_head(git_dir: &Path) -> Option<String> {
+    let head = fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    if is_loose_object_id(head) {
+        return Some(head.to_string());
+    }
+    let refname = head.strip_prefix("ref: ")?.trim();
+    if let Ok(id) = fs::read_to_string(git_dir.join(refname)) {
+        let id = id.trim();
+        if is_loose_object_id(id) {
+            return Some(id.to_string());
+        }
+    }
+    let packed = fs::read_to_string(git_dir.join("packed-refs")).ok()?;
+    for line in packed.lines() {
+        if line.starts_with('#') || line.starts_with('^') {
+            continue;
+        }
+        let mut parts = line.splitn(2, ' ');
+        let (Some(id), Some(name)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        if name.trim() == refname && is_loose_object_id(id) {
+            return Some(id.to_string());
+        }
+    }
+    None
 }
 
 /// Whether a workspace-relative path is protected by the hardcoded ignore
@@ -155,6 +243,15 @@ fn collect_gitignore_files(root: &Path, current: &Path, search: &mut gix_ignore:
         if HARDCODED_IGNORE_DIRS.contains(&name.to_string_lossy().as_ref()) {
             continue;
         }
+        // Nested repositories are opaque: their `.gitignore` files are
+        // never folded into the outer workspace's ignore stack.
+        let relative = path_to_relative(root, &entry.path());
+        if relative
+            .as_deref()
+            .is_some_and(|rel| probe_nested_repo(root, rel).is_some())
+        {
+            continue;
+        }
         collect_gitignore_files(root, &entry.path(), search);
     }
 }
@@ -171,6 +268,24 @@ fn ancestors(relative_path: &str) -> Vec<String> {
         current = parent.to_path_buf();
     }
     out
+}
+
+/// Mutable outputs threaded through the recursive directory scan: hashed
+/// files, visited directories and the nested Git boundaries found.
+struct ScanOutputs {
+    files: Vec<FileState>,
+    dirs: Vec<String>,
+    nested_repos: Vec<NestedRepoState>,
+}
+
+impl ScanOutputs {
+    fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            dirs: Vec::new(),
+            nested_repos: Vec::new(),
+        }
+    }
 }
 
 /// Recursive workspace scanner: enumerates files, applies ignore rules
@@ -228,14 +343,14 @@ impl WorkspaceScanner {
             );
         }
 
-        let mut files = Vec::new();
-        let mut dirs = Vec::new();
-        self.scan_dir(root, root, &search, baseline, &mut files, &mut dirs)?;
-        let empty_dirs = find_empty_dirs(&dirs, &files);
+        let mut out = ScanOutputs::new();
+        self.scan_dir(root, root, &search, baseline, &mut out)?;
+        let empty_dirs = find_empty_dirs(&out.dirs, &out.files);
         Ok(WorkspaceScan {
-            files,
-            dirs,
+            files: out.files,
+            dirs: out.dirs,
             empty_dirs,
+            nested_repos: out.nested_repos,
         })
     }
 
@@ -287,6 +402,15 @@ impl WorkspaceScanner {
             if HARDCODED_IGNORE_DIRS.contains(&name.as_ref()) {
                 continue;
             }
+            // Nested repositories are opaque: their `.gitignore` files are
+            // never folded into the outer workspace's ignore stack.
+            let relative = path_to_relative(root, &entry.path());
+            if relative
+                .as_deref()
+                .is_some_and(|rel| probe_nested_repo(root, rel).is_some())
+            {
+                continue;
+            }
             self.collect_gitignore(root, &entry.path(), search)?;
         }
         Ok(())
@@ -298,8 +422,7 @@ impl WorkspaceScanner {
         current: &Path,
         search: &gix_ignore::Search,
         baseline: &HashMap<String, FileState>,
-        files: &mut Vec<FileState>,
-        dirs: &mut Vec<String>,
+        out: &mut ScanOutputs,
     ) -> Result<(), CheckpointError> {
         let entries = match fs::read_dir(current) {
             Ok(entries) => entries,
@@ -342,11 +465,18 @@ impl WorkspaceScanner {
                 continue;
             }
             if file_type.is_dir() {
-                dirs.push(relative);
-                self.scan_dir(root, &entry.path(), search, baseline, files, dirs)?;
+                // A directory with its own `.git` (dir or gitfile) is a
+                // nested repository: opaque to the outer workspace. Record
+                // the pointer and do not traverse its contents.
+                if let Some(nested) = probe_nested_repo(root, &relative) {
+                    out.nested_repos.push(nested);
+                    continue;
+                }
+                out.dirs.push(relative);
+                self.scan_dir(root, &entry.path(), search, baseline, out)?;
             } else if file_type.is_file() {
                 match self.hash_file_with_baseline(&relative, &entry.path(), baseline) {
-                    Ok(state) => files.push(state),
+                    Ok(state) => out.files.push(state),
                     Err(CheckpointError::Io(err)) => {
                         self.handle_failure(&format!("failed to hash '{}'", relative), &err)?;
                     }
@@ -634,5 +764,90 @@ mod tests {
         let scanner = make_scanner(vec!["build/"], FailureBehavior::Warn);
         assert!(scanner.is_ignored("build/out.o"));
         assert!(scanner.is_ignored("a/build/x.o"));
+    }
+
+    const NESTED_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    /// Build a fake nested repository at `rel` with `.git` as a directory.
+    fn write_nested_dir_repo(root: &Path, rel: &str) {
+        write(root, &format!("{rel}/.git/HEAD"), b"ref: refs/heads/main\n");
+        write(
+            root,
+            &format!("{rel}/.git/refs/heads/main"),
+            format!("{NESTED_SHA}\n").as_bytes(),
+        );
+        write(root, &format!("{rel}/inner.txt"), b"nested content");
+    }
+
+    #[test]
+    fn scan_skips_nested_repo_contents_and_records_pointer() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a.txt", b"outer");
+        write_nested_dir_repo(dir.path(), "nested/sub");
+
+        let scanner = make_scanner(vec![], FailureBehavior::Warn);
+        let scan = scanner.scan(dir.path()).unwrap();
+
+        let paths: Vec<_> = scan.files.iter().map(|f| f.path.clone()).collect();
+        assert_eq!(paths, vec!["a.txt".to_string()], "nested content is opaque");
+        assert_eq!(scan.nested_repos.len(), 1);
+        let nested = &scan.nested_repos[0];
+        assert_eq!(nested.path, "nested/sub");
+        assert_eq!(nested.head_commit.as_deref(), Some(NESTED_SHA));
+        assert!(!nested.is_gitfile);
+    }
+
+    #[test]
+    fn scan_detects_gitfile_submodule_form() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "app/.git", b"gitdir: .git-real\n");
+        write(
+            dir.path(),
+            "app/.git-real/HEAD",
+            b"ref: refs/heads/main\n",
+        );
+        write(
+            dir.path(),
+            "app/.git-real/refs/heads/main",
+            format!("{NESTED_SHA}\n").as_bytes(),
+        );
+        write(dir.path(), "app/code.rs", b"fn main() {}");
+
+        let scanner = make_scanner(vec![], FailureBehavior::Warn);
+        let scan = scanner.scan(dir.path()).unwrap();
+
+        let paths: Vec<_> = scan.files.iter().map(|f| f.path.clone()).collect();
+        assert_eq!(paths, Vec::<String>::new(), "submodule worktree is opaque");
+        assert_eq!(scan.nested_repos.len(), 1);
+        let nested = &scan.nested_repos[0];
+        assert_eq!(nested.path, "app");
+        assert_eq!(nested.head_commit.as_deref(), Some(NESTED_SHA));
+        assert!(nested.is_gitfile);
+    }
+
+    #[test]
+    fn scan_does_not_fold_nested_gitignore_into_outer_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        write_nested_dir_repo(dir.path(), "vendor/lib");
+        write(dir.path(), "vendor/lib/.gitignore", b"**/outer.txt\n");
+        write(dir.path(), "outer.txt", b"outer");
+
+        let scanner = make_scanner(vec![], FailureBehavior::Warn);
+        let scan = scanner.scan(dir.path()).unwrap();
+
+        let paths: Vec<_> = scan.files.iter().map(|f| f.path.clone()).collect();
+        assert_eq!(paths, vec!["outer.txt".to_string()]);
+    }
+
+    #[test]
+    fn scan_detached_nested_head_resolves_directly() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "repo/.git/HEAD", format!("{NESTED_SHA}\n").as_bytes());
+
+        let scanner = make_scanner(vec![], FailureBehavior::Warn);
+        let scan = scanner.scan(dir.path()).unwrap();
+
+        assert_eq!(scan.nested_repos.len(), 1);
+        assert_eq!(scan.nested_repos[0].head_commit.as_deref(), Some(NESTED_SHA));
     }
 }

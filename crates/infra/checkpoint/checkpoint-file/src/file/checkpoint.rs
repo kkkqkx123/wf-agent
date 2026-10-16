@@ -178,7 +178,7 @@ mod tests {
         use std::sync::Arc;
 
         let dir = tempfile::tempdir().unwrap();
-        let git = Arc::new(crate::git_store::GitStore::init_for_workspace(dir.path()).unwrap());
+        let git = Arc::new(crate::git_store::GitStore::init_in_workspace(dir.path()).unwrap());
         let mut manager_a = FileCheckpointManager::new_in_memory().unwrap();
         manager_a.store.git = Some(git.clone());
         let mut manager_b = FileCheckpointManager::new_in_memory().unwrap();

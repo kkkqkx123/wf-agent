@@ -248,6 +248,85 @@ fn restore_workspace_aligns_files_dirs_and_protects_ignored() {
 }
 
 #[test]
+fn nested_repo_is_opaque_but_pointer_is_captured() {
+    let manager = manager();
+    let opts = FileCheckpointOptions::default();
+    let dir = tempfile::tempdir().unwrap();
+
+    let nested_sha = "0123456789abcdef0123456789abcdef01234567";
+    std::fs::write(dir.path().join("a.txt"), b"v1").unwrap();
+    std::fs::create_dir_all(dir.path().join("sub/.git/refs/heads")).unwrap();
+    std::fs::write(dir.path().join("sub/.git/HEAD"), b"ref: refs/heads/main\n").unwrap();
+    std::fs::write(
+        dir.path().join("sub/.git/refs/heads/main"),
+        format!("{nested_sha}\n").as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("sub/inner.txt"), b"nested").unwrap();
+
+    let cp = manager
+        .create_workspace_checkpoint("exec-1", dir.path(), &opts)
+        .unwrap();
+
+    // Nested working files are opaque; the pointer is a gitlink pseudo blob.
+    let files = manager.restore_checkpoint("exec-1", &cp.id).unwrap();
+    assert!(
+        files.iter().all(|f| !f.path.starts_with("sub/inner")),
+        "nested working files must not enter the outer history"
+    );
+    let pointer = manager
+        .read_file_at(&cp.id, "sub/.git")
+        .unwrap()
+        .expect("gitlink pseudo blob recorded");
+    assert_eq!(pointer, format!("gitlink:{nested_sha}").into_bytes());
+}
+
+#[test]
+fn restore_never_touches_nested_repo_contents() {
+    let manager = manager();
+    let opts = FileCheckpointOptions::default();
+    let dir = tempfile::tempdir().unwrap();
+
+    let nested_sha = "0123456789abcdef0123456789abcdef01234567";
+    std::fs::write(dir.path().join("a.txt"), b"v1").unwrap();
+    std::fs::create_dir_all(dir.path().join("sub/.git/refs/heads")).unwrap();
+    std::fs::write(dir.path().join("sub/.git/HEAD"), b"ref: refs/heads/main\n").unwrap();
+    std::fs::write(
+        dir.path().join("sub/.git/refs/heads/main"),
+        format!("{nested_sha}\n").as_bytes(),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("sub/inner.txt"), b"nested").unwrap();
+
+    let cp = manager
+        .create_workspace_checkpoint("exec-1", dir.path(), &opts)
+        .unwrap();
+
+    // Mutate outer workspace and the nested repo's working tree.
+    std::fs::write(dir.path().join("a.txt"), b"v2").unwrap();
+    std::fs::write(dir.path().join("extra.txt"), b"extra").unwrap();
+    std::fs::write(dir.path().join("sub/inner.txt"), b"changed by user").unwrap();
+
+    let result = manager
+        .restore_workspace("exec-1", &cp.id, dir.path(), &opts)
+        .unwrap();
+    assert_eq!(result.restored, 1, "a.txt written back");
+    assert_eq!(result.deleted, 1, "extra.txt removed");
+    assert!(
+        std::fs::read(dir.path().join("sub/inner.txt")).unwrap() == b"changed by user",
+        "nested repo contents are never overwritten"
+    );
+    assert!(
+        std::fs::read(dir.path().join("sub/.git/HEAD")).unwrap() == b"ref: refs/heads/main\n",
+        "nested repo internals are never rewritten"
+    );
+    // The gitlink pseudo blob targets a fake commit; the best-effort
+    // checkout fails and the path is counted as skipped, never written.
+    assert!(result.skipped_nested >= 1);
+    assert_eq!(result.restored_gitlinks, 0);
+}
+
+#[test]
 fn restore_workspace_via_latest_resolves_latest_state() {
     let manager = manager();
     let opts = FileCheckpointOptions::default();
@@ -701,6 +780,7 @@ fn open_from_config_binds_workspace_root_to_db() {
             },
         ),
         workspace_root: Some(root.to_string()),
+        store_in_workspace: Some(true),
         ..Default::default()
     };
 

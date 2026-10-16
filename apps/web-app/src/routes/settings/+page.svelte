@@ -423,7 +423,9 @@
 							Export settings
 						</Button>
 						{#if backupMessage && !pendingBackup}
-							<p class="mt-2 text-caption text-muted-foreground">{backupMessage}</p>
+							<p class="mt-2 text-caption text-muted-foreground">
+								{backupMessage}
+							</p>
 						{/if}
 					</Card>
 					<Card
@@ -445,8 +447,8 @@
 							</p>
 							{#if serverUnreachable}
 								<p class="mt-2 text-caption text-warning">
-									Server is unreachable, so only the local part can be
-									restored now. Retry the server part later.
+									Server is unreachable, so only the local part can be restored
+									now. Retry the server part later.
 								</p>
 							{/if}
 							<div class="mt-3 flex flex-wrap gap-2">
@@ -473,7 +475,9 @@
 								</Button>
 							</div>
 						{:else if backupMessage}
-							<p class="mt-2 text-caption text-muted-foreground">{backupMessage}</p>
+							<p class="mt-2 text-caption text-muted-foreground">
+								{backupMessage}
+							</p>
 						{/if}
 					</Card>
 				</div>

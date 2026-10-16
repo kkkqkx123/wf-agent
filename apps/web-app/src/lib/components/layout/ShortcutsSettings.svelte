@@ -52,9 +52,13 @@
 				return;
 			}
 			const conflicts = findShortcutConflicts(candidate).filter(
-				(conflict) => conflict.type === 'hotkey' && !conflict.registration.id.includes(id),
+				(conflict) =>
+					conflict.type === 'hotkey' && !conflict.registration.id.includes(id),
 			);
-			setShortcutOverride(id, candidate === action?.defaultKeys ? null : candidate);
+			setShortcutOverride(
+				id,
+				candidate === action?.defaultKeys ? null : candidate,
+			);
 			message = conflicts.length
 				? `${action?.label ?? id} saved, but it conflicts with an active binding.`
 				: `${action?.label ?? id} remapped to ${candidate}.`;
@@ -100,25 +104,40 @@
 		{#each rows as row (row.id)}
 			<div class="flex items-center justify-between gap-3 rounded px-2 py-1.5">
 				<div class="min-w-0">
-					<p class="truncate text-sm" class:opacity-50={row.disabled}>{row.label}</p>
+					<p class="truncate text-sm" class:opacity-50={row.disabled}>
+						{row.label}
+					</p>
 					<p class="text-caption text-muted-foreground">{row.scope}</p>
 				</div>
 				<div class="flex shrink-0 items-center gap-2">
 					{#if recordingId === row.id}
-						<kbd class="animate-pulse rounded border px-2 py-0.5 text-xs">Recording… Esc to cancel</kbd>
+						<kbd class="animate-pulse rounded border px-2 py-0.5 text-xs"
+							>Recording… Esc to cancel</kbd
+						>
 					{:else}
-						<kbd class="rounded border px-2 py-0.5 text-xs" class:opacity-50={row.disabled}>
+						<kbd
+							class="rounded border px-2 py-0.5 text-xs"
+							class:opacity-50={row.disabled}
+						>
 							{row.disabled ? 'Disabled' : row.keys}
 						</kbd>
 					{/if}
-					<Button size="sm" variant="outline" onclick={() => startRecording(row.id)}>
+					<Button
+						size="sm"
+						variant="outline"
+						onclick={() => startRecording(row.id)}
+					>
 						<Icon name="pencil" size={12} />
 						Record
 					</Button>
 					{#if row.disabled || row.keys !== (SHORTCUT_ACTIONS.find((a) => a.id === row.id)?.defaultKeys ?? '')}
-						<Button size="sm" variant="ghost" onclick={() => restore(row.id)}>Reset</Button>
+						<Button size="sm" variant="ghost" onclick={() => restore(row.id)}
+							>Reset</Button
+						>
 					{:else}
-						<Button size="sm" variant="ghost" onclick={() => disable(row.id)}>Disable</Button>
+						<Button size="sm" variant="ghost" onclick={() => disable(row.id)}
+							>Disable</Button
+						>
 					{/if}
 				</div>
 			</div>
@@ -126,7 +145,8 @@
 	</div>
 	{#if recordingId}
 		<p class="mt-2 text-caption text-muted-foreground">
-			Press any key combination. Backspace/Delete clears the binding; Escape cancels.
+			Press any key combination. Backspace/Delete clears the binding; Escape
+			cancels.
 		</p>
 	{/if}
 	{#if message}

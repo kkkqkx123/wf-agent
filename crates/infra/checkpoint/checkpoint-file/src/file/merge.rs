@@ -132,11 +132,15 @@ impl FileCheckpointManager {
     ) -> Result<crate::gc::GcStats, CheckpointError> {
         let start = std::time::Instant::now();
         let (commits, trees, blobs) = self.prune_unreachable_objects(&retention, grace)?;
-        let stats = crate::gc::GcStats {
+        let mut stats = crate::gc::GcStats {
             removed_checkpoints: commits as u64,
             removed_snapshots: trees as u64,
             reclaimed_snapshots: blobs as u64,
+            removed_edit_refs: 0,
+            packed_objects: 0,
         };
+        stats.removed_edit_refs = self.collect_merged_edit_refs() as u64;
+        stats.packed_objects = self.pack_loose_objects().unwrap_or(0) as u64;
         if let Some(ref metrics) = self.checkpoint_metrics() {
             metrics.record_cleanup(
                 stats.removed_checkpoints,
@@ -313,5 +317,112 @@ impl FileCheckpointManager {
             return true;
         };
         modified.elapsed().map(|age| age < grace).unwrap_or(true)
+    }
+
+    /// Drop edit refs whose full history is already contained in the
+    /// mainline: after an approval merge the actor line has no future and
+    /// keeping its ref only pins ancestors against reclamation forever.
+    /// Mainline containment is judged by ancestry against `refs/wf/main`;
+    /// unresolvable states keep the ref (cleanup favors safety).
+    fn collect_merged_edit_refs(&self) -> usize {
+        let git = match self.git_ref() {
+            Ok(git) => git,
+            Err(_) => return 0,
+        };
+        let Some(main_head) = git
+            .read_ref(crate::git_store::REF_MAIN)
+            .ok()
+            .flatten()
+        else {
+            return 0;
+        };
+        let edit_refs = match git.list_refs(crate::git_store::REF_EDIT_PREFIX) {
+            Ok(refs) => refs,
+            Err(_) => return 0,
+        };
+        let mut removed = 0usize;
+        for (name, head) in edit_refs {
+            let merged = git
+                .is_ancestor(&head, &main_head)
+                .or_else(|_| -> Result<bool, crate::git_store::GitStoreError> {
+                    let equal = git.read_ref(&name).ok().flatten().as_deref() == Some(head.as_str())
+                        && head == main_head;
+                    Ok(equal)
+                })
+                .unwrap_or(false);
+            if merged && git.delete_ref(&name).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
+    /// Loose-object count above which a packfile compaction is worth its
+    /// cost. Below the threshold the per-object fan-out is harmless and
+    /// packing would churn the store on every GC run.
+    const PACK_THRESHOLD: usize = 1024;
+
+    /// Fold loose objects into one packfile to cut inode and directory
+    /// pressure on long-running stores. Best effort via the `git` binary
+    /// (`pack-objects`): the object store is read back through gix either
+    /// way, and any failure simply leaves the store unpacked. Only objects
+    /// still present at pack time are deleted, so a concurrent writer never
+    /// loses an object.
+    fn pack_loose_objects(&self) -> Option<usize> {
+        use std::io::Write as _;
+        let git = self.git_ref().ok()?;
+        let ids = Self::list_object_ids(git);
+        if ids.len() < Self::PACK_THRESHOLD {
+            return Some(0);
+        }
+        let git_dir = git.git_dir();
+        let staging = tempfile::tempdir().ok()?;
+        let mut child = std::process::Command::new("git")
+            .arg("--git-dir")
+            .arg(git_dir)
+            .arg("pack-objects")
+            .arg("-q")
+            .arg(staging.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        {
+            // Object names are fed line by line; closing stdin (end of
+            // scope) signals pack-objects to finish and exit.
+            let stdin = child.stdin.as_mut()?;
+            for id in &ids {
+                if writeln!(stdin, "{id}").is_err() {
+                    return None;
+                }
+            }
+        }
+        let status = child.wait().ok()?;
+        if !status.success() {
+            tracing::warn!("loose-object packing failed; leaving the store unpacked");
+            return None;
+        }
+        let pack_name = std::fs::read_dir(staging.path())
+            .ok()?
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|name| name.ends_with(".pack"))?;
+        let idx_name = pack_name.replace(".pack", ".idx");
+        if !staging.path().join(&idx_name).exists() {
+            return None;
+        }
+        let pack_dir = git_dir.join("objects/pack");
+        std::fs::create_dir_all(&pack_dir).ok()?;
+        std::fs::rename(staging.path().join(&pack_name), pack_dir.join(&pack_name)).ok()?;
+        std::fs::rename(staging.path().join(&idx_name), pack_dir.join(&idx_name)).ok()?;
+        // Drop the loose copies only after both pack files are in place.
+        let mut packed = 0usize;
+        for id in &ids {
+            if Self::remove_object_file(git, id) {
+                packed += 1;
+            }
+        }
+        Some(packed)
     }
 }

@@ -32,6 +32,7 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         // A missing default scope stays missing; it is never materialized
         // into an empty (deny-all) scope here.
         default_scope: user.default_scope.clone(),
+        store_in_workspace: user.store_in_workspace,
     }
 }
 
@@ -160,6 +161,7 @@ mod tests {
             gc_interval_secs: None,
             gc_retention: None,
             default_scope: None,
+            store_in_workspace: None,
         }
     }
 
@@ -226,6 +228,7 @@ mod tests {
             gc_interval_secs: None,
             gc_retention: None,
             default_scope: None,
+            store_in_workspace: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
     }
@@ -244,6 +247,7 @@ mod tests {
             gc_interval_secs: None,
             gc_retention: None,
             default_scope: None,
+            store_in_workspace: None,
         }
     }
 

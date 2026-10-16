@@ -1,7 +1,3 @@
-<script module lang="ts">
-	export type TemplateEditTab = 'json' | 'form' | 'graph';
-</script>
-
 <script lang="ts">
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
@@ -15,6 +11,7 @@
 	import type { CanvasPosition } from '$lib/components/domain/GraphCanvas.svelte';
 	import { GraphEditStore } from '$lib/graph/edit-store.svelte';
 	import type { DisplayNode } from '$lib/graph/display-model';
+	import type { TemplateEditTab } from '$lib/types/models';
 	import {
 		jsonErrorLine,
 		jsonFieldLine,

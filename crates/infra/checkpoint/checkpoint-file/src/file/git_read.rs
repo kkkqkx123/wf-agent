@@ -18,6 +18,57 @@ use crate::file::{FileCheckpointManager, FileCheckpointOptions, WorkspaceRestore
 use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 use checkpoint_base::error::CheckpointError;
 
+/// Pseudo-blob prefix marking a nested repository checkout pointer
+/// (`gitlink:<40-hex-commit>`, stored at `<dir>/.git`).
+const GITLINK_PREFIX: &str = "gitlink:";
+
+/// Extract the commit id from a `gitlink:` pseudo blob, if the bytes are
+/// one and the id is well-formed.
+fn gitlink_commit(bytes: &[u8]) -> Option<&str> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let id = text.strip_prefix(GITLINK_PREFIX)?;
+    crate::git_store::is_hex_id(id).then_some(id)
+}
+
+/// Best-effort checkout of a nested repository at its recorded commit.
+/// Only a local checkout happens — no fetch, no remote access, and the
+/// nested repository's own branches are never moved. Failures (missing
+/// `git` binary, missing checkout, dirty state) are reported as `false`
+/// so the caller counts the path as skipped instead of failing the
+/// restore.
+fn restore_gitlink(base_dir: &Path, pointer_path: &str, commit: &str) -> bool {
+    let Some(dir_relative) = pointer_path.strip_suffix("/.git") else {
+        return false;
+    };
+    let dir = base_dir.join(dir_relative);
+    if !dir.join(".git").exists() {
+        return false;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .arg("checkout")
+        .arg("-q")
+        .arg(commit)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => true,
+        Ok(out) => {
+            tracing::warn!(
+                path = %dir_relative,
+                commit,
+                stderr = %String::from_utf8_lossy(&out.stderr),
+                "nested repository checkout failed"
+            );
+            false
+        }
+        Err(err) => {
+            tracing::warn!(path = %dir_relative, commit, error = %err, "gitlink restore failed to spawn git");
+            false
+        }
+    }
+}
+
 impl FileCheckpointManager {
     /// Expand a commit's tree into `base_dir`: write changed files (skip
     /// identical), delete extras outside the target set (protected ignore
@@ -91,12 +142,40 @@ impl FileCheckpointManager {
         let mut result = WorkspaceRestoreResult::default();
         let canonical_base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
 
+        // Nested repositories found on disk are opaque to the outer
+        // workspace: their contents are never written, deleted or
+        // overwritten by a restore. Only their checkout pointer
+        // (`gitlink:` pseudo blob) is restored, best effort.
+        let nested_dirs: Vec<String> = current
+            .nested_repos
+            .iter()
+            .map(|nested| nested.path.clone())
+            .collect();
+        let under_nested = |relative: &str| -> bool {
+            nested_dirs.iter().any(|dir| {
+                relative == dir
+                    || relative.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+            })
+        };
+
         // Write target files, skipping identical content (idempotent). Only
         // in-range paths are expanded; the hash map holds exactly that set.
         let mut target_paths: Vec<&String> = target_hash.keys().collect();
         target_paths.sort();
         for path in target_paths {
             let bytes = &target_bytes[path];
+            if let Some(gitlink) = gitlink_commit(bytes) {
+                if restore_gitlink(base_dir, path, gitlink) {
+                    result.restored_gitlinks += 1;
+                } else {
+                    result.skipped_nested += 1;
+                }
+                continue;
+            }
+            if under_nested(path) {
+                result.skipped_nested += 1;
+                continue;
+            }
             let want = &target_hash[path];
             if current_map
                 .get(path.as_str())
@@ -112,15 +191,19 @@ impl FileCheckpointManager {
             }
         }
 
-        // Delete extras not in the target set; protected ignore names are
-        // never deleted, and files outside the checkpoint range are never
-        // deleted so parallel instances do not clean each other's workspaces.
+        // Delete extras not in the target set; protected ignore names and
+        // anything inside a nested repository are never deleted, and files
+        // outside the checkpoint range are never deleted so parallel
+        // instances do not clean each other's workspaces.
         let mut extras: Vec<&str> = current
             .files
             .iter()
             .map(|f| f.path.as_str())
             .filter(|path| {
-                !target_hash.contains_key(*path) && !is_hardcoded_ignored(path) && in_range(path)
+                !target_hash.contains_key(*path)
+                    && !is_hardcoded_ignored(path)
+                    && !under_nested(path)
+                    && in_range(path)
             })
             .collect();
         extras.sort_unstable();

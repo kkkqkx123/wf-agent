@@ -25,12 +25,11 @@ import {
 	type TemplateDetail,
 	type TemplateIssue,
 } from '$lib/services/templates';
-import type { TemplateKind } from '$lib/types/models';
+import type { TemplateEditTab, TemplateKind } from '$lib/types/models';
 import { normalizeNodeType } from '$lib/graph/node-kind';
 import { nodeInsertStore } from '$lib/stores/node-insert.svelte';
 import { toasts } from '$lib/stores/toast.svelte';
 import { slugify } from '$lib/utils/format';
-import type { TemplateEditTab } from '$lib/components/domain/TemplateEditPanel.svelte';
 
 export const VIEWS = ['preview', 'edit', 'graph'] as const;
 export type DetailView = (typeof VIEWS)[number];

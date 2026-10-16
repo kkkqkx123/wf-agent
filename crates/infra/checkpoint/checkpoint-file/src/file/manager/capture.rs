@@ -99,6 +99,10 @@ impl FileCheckpointManager {
                 entries.push(FileContentEntry::deleted(path));
             }
         }
+        // Nested repositories are opaque to the outer history, but their
+        // checkout pointer (HEAD commit) belongs to it: record one gitlink
+        // pseudo blob per resolvable nested repo.
+        entries.extend(Self::nested_gitlink_entries(&scan));
         let mut checkpoint = self.create_checkpoint(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
         if let Err(err) = self
@@ -108,6 +112,30 @@ impl FileCheckpointManager {
             tracing::warn!("storing empty dir manifest failed: {err}");
         }
         Ok(checkpoint)
+    }
+
+    /// Gitlink pointer entries for the nested repositories found by a
+    /// scan: each becomes a pseudo blob at `<dir>/.git` with the content
+    /// `gitlink:<head-commit>`, so the outer history records which commit
+    /// each nested repo / submodule was checked out at. Repositories
+    /// whose HEAD cannot be resolved are skipped (nothing trustworthy to
+    /// record).
+    pub(crate) fn nested_gitlink_entries(
+        scan: &crate::scan::WorkspaceScan,
+    ) -> Vec<FileContentEntry> {
+        scan.nested_repos
+            .iter()
+            .filter_map(|nested| {
+                let head = nested.head_commit.as_deref()?;
+                let path = format!("{}/.git", nested.path);
+                let relative =
+                    crate::file::util::validate_workspace_relative_path(&path).ok()?;
+                Some(FileContentEntry::new(
+                    relative,
+                    format!("gitlink:{head}").into_bytes(),
+                ))
+            })
+            .collect()
     }
 
     pub fn compute_file_hash(data: &[u8]) -> String {

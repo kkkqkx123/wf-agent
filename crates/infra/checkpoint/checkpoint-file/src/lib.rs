@@ -25,6 +25,7 @@ pub mod provenance;
 pub mod scan;
 pub mod scope;
 pub mod script_capture;
+pub mod store_path;
 pub mod session;
 pub(crate) mod storage;
 pub mod watcher;

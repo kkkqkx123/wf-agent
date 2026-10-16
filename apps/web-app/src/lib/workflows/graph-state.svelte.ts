@@ -1,6 +1,6 @@
 import { getGraphAnalysis, getGraphNeighbors } from '$lib/services/graph';
 import type { GraphAnalysisResult } from '$lib/types/models';
-import type { GraphOverlay } from '$lib/components/domain/GraphExplorer.svelte';
+import type { GraphOverlay } from '$lib/graph/display-model';
 import { toasts } from '$lib/stores/toast.svelte';
 
 /**

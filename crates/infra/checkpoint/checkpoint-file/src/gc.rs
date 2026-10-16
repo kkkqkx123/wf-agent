@@ -14,6 +14,14 @@ pub struct GcStats {
     pub removed_snapshots: u64,
     /// Unreachable blobs dropped by the reclaim sweep.
     pub reclaimed_snapshots: u64,
+    /// Edit refs removed because their history is already contained in the
+    /// mainline (post-merge dead lines).
+    #[serde(default)]
+    pub removed_edit_refs: u64,
+    /// Loose objects folded into a packfile (reduces inode pressure on
+    /// long-running stores).
+    #[serde(default)]
+    pub packed_objects: u64,
 }
 
 impl GcStats {
@@ -22,6 +30,8 @@ impl GcStats {
             removed_checkpoints: 0,
             removed_snapshots: 0,
             reclaimed_snapshots: 0,
+            removed_edit_refs: 0,
+            packed_objects: 0,
         }
     }
 }

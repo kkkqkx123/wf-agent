@@ -15,7 +15,11 @@
 //!   `.wf-checkpoint-git`, checkpoint database file), then the workspace's
 //!   own `.gitignore` files, then custom patterns;
 //! - conflicts land on disk with standard `<<<<<<<` / `=======` / `>>>>>>>`
-//!   markers and block the corresponding merge until resolved.
+//!   markers and block the corresponding merge until resolved;
+//! - crash consistency: loose objects are written first (gix-odb tmp+rename,
+//!   atomic) and refs are CAS-updated second (gix-lock transactions), so a
+//!   crash can only leave an unreachable object, never a ref pointing at a
+//!   missing one; unreachable objects are reclaimed by the GC sweep.
 //!
 
 /// Directory name of the bare repository inside the workspace root.
@@ -110,8 +114,19 @@ impl GitStore {
         })
     }
 
-    /// Open the default bare repository location for a workspace root.
+    /// Open the default bare repository location for a workspace root:
+    /// the global data dir keyed by the normalized workspace path
+    /// (`store_path::global_store_dir`). Keeps private checkpoint state
+    /// out of the user's workspace so nested workspaces, backup tools and
+    /// `git status` never see it.
     pub fn init_for_workspace(workspace_root: &Path) -> Result<Self, GitStoreError> {
+        let git_dir = crate::store_path::global_store_dir(workspace_root).join("repo.git");
+        Self::init(workspace_root, &git_dir)
+    }
+
+    /// Legacy in-workspace layout (`<workspace>/.wf-checkpoint-git`),
+    /// opt-in via configuration for self-contained deliveries.
+    pub fn init_in_workspace(workspace_root: &Path) -> Result<Self, GitStoreError> {
         let git_dir = Self::default_git_dir(workspace_root);
         Self::init(workspace_root, &git_dir)
     }

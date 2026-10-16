@@ -139,4 +139,10 @@ pub struct WorkspaceRestoreResult {
     pub deleted: usize,
     /// Files already matching the target state (skipped).
     pub skipped: usize,
+    /// Target paths inside nested repositories that were left untouched
+    /// (nested repos are opaque to the outer workspace).
+    pub skipped_nested: usize,
+    /// Nested repository checkout pointers restored from `gitlink:` pseudo
+    /// blobs (best-effort local checkout of the recorded commit).
+    pub restored_gitlinks: usize,
 }

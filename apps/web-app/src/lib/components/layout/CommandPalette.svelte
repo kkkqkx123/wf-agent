@@ -195,7 +195,7 @@
 			event.preventDefault();
 			ui.toggleCommand();
 		},
-		{ enabled: !isShortcutDisabled('app.commandPalette') }
+		{ enabled: !isShortcutDisabled('app.commandPalette') },
 	);
 
 	$effect(() => {

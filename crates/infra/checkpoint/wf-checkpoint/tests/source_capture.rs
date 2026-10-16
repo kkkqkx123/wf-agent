@@ -29,6 +29,9 @@ fn manager_for(dir: &Path) -> FileCheckpointManager {
         enabled: true,
         workspace_root: Some(dir.to_string_lossy().to_string()),
         storage: None,
+        // Keep the store inside the tempdir: tests must never write the
+        // real per-user data directory.
+        store_in_workspace: Some(true),
         failure_behavior: FailureBehavior::Error,
         ..FileCheckpointConfig::default()
     };

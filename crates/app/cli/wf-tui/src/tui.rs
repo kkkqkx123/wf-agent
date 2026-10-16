@@ -178,7 +178,8 @@ impl TuiApp {
         // input capabilities on constrained terminals.
         let caps = crate::capabilities::TerminalProbe::detect().into_capabilities();
         let profile = crate::perf::SystemProfile::detect();
-        let perf_tier = crate::perf::select_tier(&profile, &caps);
+        let perf_tier = input_classify::load_performance_tier_override()
+            .unwrap_or_else(|| crate::perf::select_tier(&profile, &caps));
         let mut perf_policy = crate::perf::TuiPerfPolicy::for_tier(perf_tier);
         // Input capabilities are gated by the environment, not the tier:
         // mouse needs explicit user opt-in, focus and keyboard need probe
@@ -194,6 +195,20 @@ impl TuiApp {
         // animation last so either path alone reproduces the same bytes.
         perf_policy.apply_glyph_safety(crate::perf::fragile_glyph_cache_with_caps(&profile, &caps));
         perf_policy.apply_env_overrides();
+        if let Some(path) = crate::app_config::config_file_path() {
+            if let Ok(manager) = crate::app_config::ConfigManager::load(&path) {
+                let motion = &manager.config().motion;
+                if let Some(fps) = motion.redraw_fps {
+                    perf_policy.redraw_fps = fps as u64;
+                }
+                if let Some(fps) = motion.animation_fps {
+                    perf_policy.animation_fps = fps as u64;
+                }
+                if let Some(ms) = motion.sidebar_refresh_interval_ms {
+                    perf_policy.sidebar_refresh_interval_ms = ms;
+                }
+            }
+        }
         // Copy policy resolves once beside the perf policy: the configured
         // default target gated by the OSC 52 capability and the live TTY.
         let copy_policy = crate::copy::CopyPolicy::resolve(
@@ -201,8 +216,25 @@ impl TuiApp {
             &caps,
             std::io::IsTerminal::is_terminal(&std::io::stdout()),
         );
+        let mut probed_theme = theme::probe_theme();
+        if let Some(choice) = input_classify::load_theme_choice() {
+            use crate::app_config::ThemeChoice;
+            match choice {
+                ThemeChoice::Dark => {
+                    let mut theme = Theme::dark_default();
+                    theme.source = crate::theme::ThemeSource::File;
+                    probed_theme = theme;
+                }
+                ThemeChoice::Light => {
+                    let mut theme = Theme::light_default();
+                    theme.source = crate::theme::ThemeSource::File;
+                    probed_theme = theme;
+                }
+                ThemeChoice::Auto => {}
+            }
+        }
         let (theme, theme_mode, theme_explicit) =
-            crate::theme_mode::resolve_render_theme(theme::probe_theme());
+            crate::theme_mode::resolve_render_theme(probed_theme);
         // The frame ceiling follows the capability policy so constrained
         // terminals never spin at the full rate.
         let mut frame = FrameRequester::new(0);

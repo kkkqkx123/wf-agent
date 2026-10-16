@@ -347,6 +347,9 @@ pub struct LocalSettings {
     pub tool_output_level: String,
     pub preview_max_lines: usize,
     pub preview_max_chars: usize,
+    pub appearance_theme: String,
+    pub motion_performance: String,
+    pub notification_enabled: Option<bool>,
 }
 
 /// Settings screen state.

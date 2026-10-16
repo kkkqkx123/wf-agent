@@ -25,7 +25,7 @@ pub struct AppConfig {
     /// Behavioral settings.
     #[serde(default)]
     pub behavior: BehaviorConfig,
-    /// Terminal channel settings (clipboard copy target).
+    /// Terminal channel settings (clipboard copy target and terminal UX).
     #[serde(default)]
     pub terminal: TerminalConfig,
     /// Mini interactive-form display settings.
@@ -34,6 +34,21 @@ pub struct AppConfig {
     /// Tool-output detail settings shared by the TUI frontends.
     #[serde(default)]
     pub tool_output: ToolOutputFileConfig,
+    /// Appearance settings.
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
+    /// Rendering settings.
+    #[serde(default)]
+    pub rendering: RenderingConfig,
+    /// Motion and animation settings.
+    #[serde(default)]
+    pub motion: MotionConfig,
+    /// Notification settings.
+    #[serde(default)]
+    pub notifications: NotificationConfig,
+    /// History and diagnostic settings.
+    #[serde(default)]
+    pub history: HistoryConfig,
 }
 
 /// Behavioral configuration.
@@ -49,6 +64,8 @@ pub struct BehaviorConfig {
     /// because the width change grades a full frame.
     #[serde(default)]
     pub session_scrollbar: bool,
+    #[serde(default)]
+    pub approval_timeout_secs: Option<u64>,
 }
 
 /// Default copy target name for the config file. Lowercase in TOML.
@@ -57,16 +74,6 @@ pub struct BehaviorConfig {
 pub enum CopyTargetName {
     Message,
     Code,
-}
-
-/// Terminal channel configuration from the config file. Every field is
-/// optional so a missing file or missing key falls back to the built-in
-/// default.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TerminalConfig {
-    /// Default copy target for explicit copy actions. Defaults to message.
-    #[serde(default)]
-    pub copy_target: Option<CopyTargetName>,
 }
 
 /// Mini display settings from the config file. Every field is optional so a
@@ -130,6 +137,260 @@ pub struct ToolOutputFileConfig {
     /// reserve it for inspecting retrieval behavior.
     #[serde(default)]
     pub level: Option<ToolDetailLevelName>,
+    #[serde(default)]
+    pub tool_call_details: Option<bool>,
+    #[serde(default)]
+    pub compact_notifications: Option<bool>,
+    #[serde(default)]
+    pub show_bash_output: Option<bool>,
+    #[serde(default)]
+    pub show_agentgrep_output: Option<bool>,
+    #[serde(default)]
+    pub diff_line_wrap: Option<bool>,
+}
+
+/// Theme choice for the TUI. `auto` (default) probes the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeChoice {
+    Auto,
+    Dark,
+    Light,
+}
+
+/// Cursor glyph shape. `default` preserves the terminal setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorStyleName {
+    Block,
+    Underline,
+    Line,
+    Default,
+}
+
+/// Motion mode requested by the user. `auto` keeps the environment-driven
+/// default selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MotionModeName {
+    Animated,
+    Reduced,
+    Static,
+    Auto,
+}
+
+/// Performance tier override. `auto` keeps the capability-driven selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PerformanceTierName {
+    Auto,
+    Full,
+    Reduced,
+    Minimal,
+}
+
+/// Reasoning display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningDisplayModeName {
+    Off,
+    Full,
+    Current,
+}
+
+/// Markdown block spacing mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkdownSpacingModeName {
+    Compact,
+    Document,
+}
+
+/// LaTeX rendering mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LatexRenderingModeName {
+    None,
+    Unicode,
+    Image,
+}
+
+/// Mermaid/diagram display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagramModeName {
+    None,
+    Margin,
+    Pinned,
+}
+
+/// Usage percentage wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageDisplayModeName {
+    Left,
+    Used,
+}
+
+/// Overscroll status line visibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverscrollStatusModeName {
+    Off,
+    On,
+    Overscroll,
+}
+
+/// Diff display mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiffDisplayModeName {
+    Auto,
+    Stacked,
+    Inline,
+    Off,
+    Full,
+    Pinned,
+    File,
+}
+
+/// Terminal-plus-UX settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    /// Default copy target for explicit copy actions. Defaults to message.
+    #[serde(default)]
+    pub copy_target: Option<CopyTargetName>,
+    /// Cursor shape. `None` keeps the terminal default (block).
+    #[serde(default)]
+    pub cursor_style: Option<CursorStyleName>,
+    /// Whether the cursor blinks. `None` keeps the terminal default.
+    #[serde(default)]
+    pub cursor_blinking: Option<bool>,
+    /// Scroll speed multiplier. `None` keeps the built-in default.
+    #[serde(default)]
+    pub scroll_speed: Option<f64>,
+    /// Enable scroll acceleration. `None` keeps the built-in default.
+    #[serde(default)]
+    pub scroll_acceleration: Option<bool>,
+    /// Enable keyboard enhancement probing/resolution. `None` keeps auto.
+    #[serde(default)]
+    pub keyboard_enhancement: Option<bool>,
+}
+
+/// Appearance settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppearanceConfig {
+    #[serde(default)]
+    pub theme: Option<ThemeChoice>,
+    /// Color role overrides as `#rrggbb` strings.
+    #[serde(default)]
+    pub colors: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub emoji: Option<bool>,
+    #[serde(default)]
+    pub centered: Option<bool>,
+    #[serde(default)]
+    pub idle_animation: Option<bool>,
+    #[serde(default)]
+    pub prompt_entry_animation: Option<bool>,
+    #[serde(default)]
+    pub prompt_preview: Option<bool>,
+    #[serde(default)]
+    pub keybinding_hints: Option<bool>,
+}
+
+/// Rendering settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RenderingConfig {
+    #[serde(default)]
+    pub show_thinking: Option<bool>,
+    #[serde(default)]
+    pub reasoning_display: Option<ReasoningDisplayModeName>,
+    #[serde(default)]
+    pub markdown_spacing: Option<MarkdownSpacingModeName>,
+    #[serde(default)]
+    pub latex_rendering: Option<LatexRenderingModeName>,
+    #[serde(default)]
+    pub diagram_mode: Option<DiagramModeName>,
+    #[serde(default)]
+    pub pin_images: Option<bool>,
+    #[serde(default)]
+    pub pin_todos: Option<bool>,
+    #[serde(default)]
+    pub usage_display: Option<UsageDisplayModeName>,
+    #[serde(default)]
+    pub overscroll_status: Option<OverscrollStatusModeName>,
+    #[serde(default)]
+    pub diff_mode: Option<DiffDisplayModeName>,
+    #[serde(default)]
+    pub diff_line_wrap: Option<bool>,
+    #[serde(default)]
+    pub tool_call_details: Option<bool>,
+    #[serde(default)]
+    pub compact_notifications: Option<bool>,
+    #[serde(default)]
+    pub show_bash_output: Option<bool>,
+    #[serde(default)]
+    pub show_agentgrep_output: Option<bool>,
+    #[serde(default)]
+    pub external_sessions: Option<bool>,
+    #[serde(default)]
+    pub active_sessions_manager: Option<bool>,
+}
+
+/// Motion and animation settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MotionConfig {
+    #[serde(default)]
+    pub mode: Option<MotionModeName>,
+    #[serde(default)]
+    pub disabled_animations: Vec<String>,
+    #[serde(default)]
+    pub animation_fps: Option<u32>,
+    #[serde(default)]
+    pub redraw_fps: Option<u32>,
+    #[serde(default)]
+    pub performance: Option<PerformanceTierName>,
+    #[serde(default)]
+    pub sidebar_refresh_interval_ms: Option<u64>,
+}
+
+/// Notification settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NotificationConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub turn_complete: Option<bool>,
+    #[serde(default)]
+    pub turn_complete_min_secs: Option<u64>,
+    #[serde(default)]
+    pub turn_complete_todo_min_secs: Option<u64>,
+    #[serde(default)]
+    pub terminal: Option<bool>,
+    #[serde(default)]
+    pub system: Option<bool>,
+    #[serde(default)]
+    pub bell: Option<bool>,
+    #[serde(default)]
+    pub background_only: Option<bool>,
+    #[serde(default)]
+    pub sound: Option<bool>,
+    #[serde(default)]
+    pub volume: Option<f64>,
+    #[serde(default)]
+    pub sound_pack: Option<String>,
+}
+
+/// History and diagnostic settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HistoryConfig {
+    #[serde(default)]
+    pub replay_max_rows: Option<u64>,
+    #[serde(default)]
+    pub debug_socket: Option<bool>,
+    #[serde(default)]
+    pub slow_frame_ms: Option<u64>,
 }
 
 /// Configuration load error.
@@ -218,6 +479,70 @@ pub fn config_file_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_config_sections_roundtrip_via_toml() {
+        let parsed: AppConfig = toml::from_str(
+            r#"
+[appearance]
+theme = "light"
+emoji = false
+idle_animation = true
+
+[rendering]
+tool_call_details = true
+compact_notifications = true
+show_bash_output = true
+show_agentgrep_output = false
+usage_display = "used"
+overscroll_status = "on"
+
+[motion]
+mode = "reduced"
+performance = "minimal"
+animation_fps = 30
+redraw_fps = 60
+disabled_animations = ["donut"]
+
+[notifications]
+enabled = true
+turn_complete = true
+bell = true
+
+[history]
+replay_max_rows = 1000
+debug_socket = false
+"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.appearance.theme, Some(ThemeChoice::Light));
+        assert_eq!(parsed.appearance.emoji, Some(false));
+        assert_eq!(parsed.rendering.tool_call_details, Some(true));
+        assert_eq!(parsed.rendering.compact_notifications, Some(true));
+        assert_eq!(parsed.rendering.show_bash_output, Some(true));
+        assert_eq!(parsed.rendering.show_agentgrep_output, Some(false));
+        assert_eq!(
+            parsed.rendering.usage_display,
+            Some(UsageDisplayModeName::Used)
+        );
+        assert_eq!(
+            parsed.rendering.overscroll_status,
+            Some(OverscrollStatusModeName::On)
+        );
+        assert_eq!(parsed.motion.mode, Some(MotionModeName::Reduced));
+        assert_eq!(
+            parsed.motion.performance,
+            Some(PerformanceTierName::Minimal)
+        );
+        assert_eq!(parsed.motion.animation_fps, Some(30));
+        assert_eq!(parsed.motion.redraw_fps, Some(60));
+        assert_eq!(parsed.motion.disabled_animations, vec!["donut"]);
+        assert_eq!(parsed.notifications.enabled, Some(true));
+        assert_eq!(parsed.notifications.turn_complete, Some(true));
+        assert_eq!(parsed.notifications.bell, Some(true));
+        assert_eq!(parsed.history.replay_max_rows, Some(1000));
+        assert_eq!(parsed.history.debug_socket, Some(false));
+    }
 
     #[test]
     fn missing_fields_use_defaults() {

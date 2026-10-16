@@ -809,6 +809,22 @@ fn load_local_settings() -> LocalSettings {
     let copy_target = crate::tui::input_classify::load_copy_target();
     let mouse_capture = crate::tui::input_classify::load_mouse_opt_in();
     let session_scrollbar = crate::tui::input_classify::load_session_scrollbar_opt_in();
+    let manager = path.as_ref().and_then(|_| {
+        crate::app_config::ConfigManager::load(&crate::app_config::config_file_path().unwrap()).ok()
+    });
+    let appearance_theme = manager
+        .as_ref()
+        .and_then(|m| m.config().appearance.theme)
+        .map(|v| format!("{v:?}").to_lowercase())
+        .unwrap_or_else(|| "auto".to_string());
+    let motion_performance = manager
+        .as_ref()
+        .and_then(|m| m.config().motion.performance)
+        .map(|v| format!("{v:?}").to_lowercase())
+        .unwrap_or_else(|| "auto".to_string());
+    let notification_enabled = manager
+        .as_ref()
+        .and_then(|m| m.config().notifications.enabled);
     LocalSettings {
         config_path: path.unwrap_or_else(|| "unavailable".to_string()),
         mouse_capture,
@@ -818,6 +834,9 @@ fn load_local_settings() -> LocalSettings {
         tool_output_level: tool_config.level.label().to_string(),
         preview_max_lines: tool_config.preview_max_lines,
         preview_max_chars: tool_config.preview_max_chars,
+        appearance_theme,
+        motion_performance,
+        notification_enabled,
     }
 }
 

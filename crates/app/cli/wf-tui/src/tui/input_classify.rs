@@ -178,6 +178,53 @@ pub(crate) fn load_copy_target() -> crate::copy::CopyDefaultTarget {
     }
 }
 
+/// Best-effort performance tier override from the config file. Auto/missing
+/// returns None so the caller keeps capability-driven selection.
+pub(crate) fn load_performance_tier_override() -> Option<crate::perf::PerformanceTier> {
+    use crate::app_config::PerformanceTierName;
+    let path = crate::app_config::config_file_path()?;
+    let manager = crate::app_config::ConfigManager::load(&path).ok()?;
+    match manager.config().motion.performance {
+        Some(PerformanceTierName::Full) => Some(crate::perf::PerformanceTier::Full),
+        Some(PerformanceTierName::Reduced) => Some(crate::perf::PerformanceTier::Reduced),
+        Some(PerformanceTierName::Minimal) => Some(crate::perf::PerformanceTier::Minimal),
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
+/// Best-effort motion mode override from the config file.
+pub(crate) fn load_motion_mode_override() -> Option<tui_style::motion::MotionMode> {
+    use crate::app_config::MotionModeName;
+    let path = crate::app_config::config_file_path()?;
+    let manager = crate::app_config::ConfigManager::load(&path).ok()?;
+    match manager.config().motion.mode {
+        Some(MotionModeName::Animated) => Some(tui_style::motion::MotionMode::Animated),
+        Some(MotionModeName::Reduced) => Some(tui_style::motion::MotionMode::Reduced),
+        Some(MotionModeName::Static) => Some(tui_style::motion::MotionMode::Static),
+        _ => None,
+    }
+}
+
+/// Best-effort theme choice from the config file.
+pub(crate) fn load_theme_choice() -> Option<crate::app_config::ThemeChoice> {
+    let path = crate::app_config::config_file_path()?;
+    let manager = crate::app_config::ConfigManager::load(&path).ok()?;
+    manager.config().appearance.theme
+}
+
+#[allow(dead_code)]
+/// Best-effort approval timeout from behavior config or mini config.
+pub(crate) fn load_approval_timeout_secs() -> Option<u64> {
+    let path = crate::app_config::config_file_path()?;
+    let manager = crate::app_config::ConfigManager::load(&path).ok()?;
+    manager
+        .config()
+        .behavior
+        .approval_timeout_secs
+        .or(manager.config().mini.approval_timeout_secs)
+}
+
 pub(super) fn map_key(key: crossterm::event::KeyEvent) -> Key {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);

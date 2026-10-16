@@ -798,6 +798,17 @@ pub fn draw_settings(
                 "  [+/-] preview: {} lines · {} chars",
                 d.local.preview_max_lines, d.local.preview_max_chars
             ));
+            out.push(format!(
+                "  appearance theme: {} · motion performance: {}",
+                d.local.appearance_theme, d.local.motion_performance
+            ));
+            out.push(format!(
+                "  notifications: {}",
+                d.local
+                    .notification_enabled
+                    .map(|v| if v { "on" } else { "off" })
+                    .unwrap_or("auto")
+            ));
             out.push(String::new());
             out.push(
                 "Local changes save to the config file; restart applies them (session_scrollbar instant)."

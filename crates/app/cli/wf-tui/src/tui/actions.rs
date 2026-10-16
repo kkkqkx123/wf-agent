@@ -336,17 +336,27 @@ impl TuiApp {
     }
 
     pub(super) fn toggle_mouse_capture(&mut self) {
-        self.update_local_config(|config| {
-            config.behavior.mouse_capture = !config.behavior.mouse_capture;
-            format!(
-                "mouse_capture {}",
-                if config.behavior.mouse_capture {
-                    "on"
-                } else {
-                    "off"
-                }
-            )
-        });
+        let Some(path) = crate::app_config::config_file_path() else {
+            self.app.notice.set("Config path unavailable.".to_string());
+            return;
+        };
+        let mut config = crate::app_config::ConfigManager::load(&path)
+            .map(|manager| manager.config().clone())
+            .unwrap_or_default();
+        config.behavior.mouse_capture = !config.behavior.mouse_capture;
+        let enabled = config.behavior.mouse_capture;
+        match crate::app_config::ConfigManager::save(&path, &config) {
+            Ok(()) => {
+                self.invalidate(ScreenKind::Settings);
+                self.perf_policy.enable_mouse_capture = enabled;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                self.app.notice.set(format!(
+                    "mouse_capture {} (applies instantly)",
+                    if enabled { "on" } else { "off" }
+                ));
+            }
+            Err(err) => self.app.notice.set(format!("Save failed: {err}")),
+        }
     }
 
     pub(super) fn toggle_session_scrollbar(&mut self) {

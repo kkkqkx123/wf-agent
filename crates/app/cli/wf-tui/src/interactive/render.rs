@@ -19,6 +19,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::interactive::InteractiveController;
+use crate::interactive::mouse_hit;
 use crate::redraw::{AnimationArea, RedrawScope};
 use crate::theme::Theme;
 use tui_components::scrollbar;
@@ -73,13 +74,15 @@ impl InteractiveController {
                 self.draw_scrollback_scoped(frame, scroll_area, scope, theme);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
-                self.paint_jump_badge(frame, scroll_area, theme);
+                let badge = self.paint_jump_badge(frame, scroll_area, theme);
+                self.record_hit_frame(scroll_area, badge);
             }
             RedrawScope::BottomOnly => {
                 self.draw_scrollback_cached(frame, scroll_area, theme);
                 self.footer.draw(footer_area, frame.buffer_mut(), theme);
                 self.draw_input(frame, input_area);
-                self.paint_jump_badge(frame, scroll_area, theme);
+                let badge = self.paint_jump_badge(frame, scroll_area, theme);
+                self.record_hit_frame(scroll_area, badge);
             }
             RedrawScope::AnimationOnly => {
                 self.draw_anim_cells_only(frame);
@@ -204,6 +207,93 @@ impl InteractiveController {
         let viewport = usize::from(full_area.height);
         let total = self.accurate_total_rows();
         self.scrollbar_visible_for(full_area, total, viewport) && full_area.width > 1
+    }
+
+    /// Gutter rectangle for the last published viewport, when the bar shows.
+    /// Hidden switches and narrow terminals yield `None` so no click lands.
+    pub(crate) fn session_gutter_rect(&self) -> Option<Rect> {
+        let area = self.last_scroll_area?;
+        if !self.scrollbar_currently_visible(area) {
+            return None;
+        }
+        let (_, gutter) = scrollbar::split_content_gutter(area);
+        if gutter.width == 0 || gutter.height == 0 {
+            return None;
+        }
+        Some(gutter)
+    }
+
+    /// Live total, capacity and top for gutter math. `None` without a
+    /// published viewport.
+    fn gutter_window(&self) -> Option<(usize, usize, usize)> {
+        let area = self.last_scroll_area?;
+        let capacity = usize::from(area.height.max(1));
+        let total = self.accurate_total_rows();
+        if !self.scrollbar_visible_for(area, total, capacity) || area.width <= 1 {
+            return None;
+        }
+        let top = scrollbar::top_for_tail(total, capacity, self.view_scroll);
+        Some((total, capacity, top))
+    }
+
+    /// Whether a press row sits on the thumb. Used to enter drag versus
+    /// track-click.
+    pub(crate) fn gutter_press_on_thumb(&self, press_row: u16) -> bool {
+        let Some(gutter) = self.session_gutter_rect() else {
+            return false;
+        };
+        let Some((total, capacity, top)) = self.gutter_window() else {
+            return false;
+        };
+        let relative = press_row.saturating_sub(gutter.y) as usize;
+        scrollbar::thumb_contains(
+            total,
+            capacity,
+            top,
+            usize::from(gutter.height),
+            relative,
+        )
+    }
+
+    /// Jump to a gutter press row by proportion. Returns true when the
+    /// viewport moved.
+    pub(crate) fn scroll_to_gutter_row(&mut self, press_row: u16) -> bool {
+        let Some(gutter) = self.session_gutter_rect() else {
+            return false;
+        };
+        let Some((total, capacity, _)) = self.gutter_window() else {
+            return false;
+        };
+        let top = scrollbar::top_for_gutter_press(press_row, gutter, total, capacity);
+        let offset = scrollbar::tail_offset_for_top(top, total, capacity);
+        self.tail_lag = 0;
+        self.soft_invalidate();
+        self.view_scroll = offset;
+        true
+    }
+
+    /// Whether a thumb drag is in progress.
+    pub(crate) fn is_gutter_dragging(&self) -> bool {
+        self.gutter_drag
+    }
+
+    /// Begin a thumb drag after a press on the thumb.
+    pub(crate) fn begin_gutter_drag(&mut self) {
+        self.gutter_drag = true;
+    }
+
+    /// Update a thumb drag to a new row. Reuses the track proportion with
+    /// the live total so held drags track appends.
+    pub(crate) fn update_gutter_drag(&mut self, row: u16) -> bool {
+        if !self.gutter_drag {
+            return false;
+        }
+        self.scroll_to_gutter_row(row)
+    }
+
+    /// End a thumb drag on release or cancel.
+    pub(crate) fn end_gutter_drag(&mut self) {
+        self.gutter_drag = false;
     }
 
     fn draw_scrollback_scoped(
@@ -540,44 +630,26 @@ impl InteractiveController {
     /// When the gutter shows, the badge anchors to the text area bottom-right
     /// so it never covers the bar; otherwise it uses the full scroll area.
     /// When an anchor sits at or above the viewport top, its kind is
-    /// appended so detached readers see the nearest jump target.
-    fn paint_jump_badge(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    /// appended so detached readers see the nearest jump target. Returns the
+    /// hit rectangle when painted so the event layer can match clicks.
+    fn paint_jump_badge(&self, frame: &mut Frame, area: Rect, theme: &Theme) -> Option<Rect> {
         if !self.should_show_jump_badge() || area.width == 0 || area.height == 0 {
-            return;
+            return None;
         }
-        let badge_area = if self.scrollbar_currently_visible(area) && area.width > 1 {
-            Rect::new(area.x, area.y, area.width - 1, area.height)
-        } else {
-            area
-        };
+        let badge_area = mouse_hit::badge_area_for(area, self.scrollbar_currently_visible(area));
         let hidden = self.view_scroll;
         let anchor_hint = self.anchor_above_viewport().map(|entry| entry.kind.label());
         let full = jump_badge_text_with_anchor(hidden, anchor_hint);
         let short = jump_badge_short_text(hidden);
-        let text = pick_jump_badge_text(&full, &short, badge_area.width);
-        let Some(text) = text else {
-            return;
-        };
-        use unicode_width::UnicodeWidthStr;
-        let text_width = text.width() as u16;
-        if text_width >= badge_area.width {
-            return;
-        }
-        let x = badge_area.x.saturating_add(
-            badge_area
-                .width
-                .saturating_sub(text_width)
-                .saturating_sub(1),
-        );
-        let y = badge_area
-            .y
-            .saturating_add(badge_area.height.saturating_sub(1));
+        let rect = mouse_hit::badge_rect(badge_area, &full, &short)?;
+        let text = pick_jump_badge_text(&full, &short, badge_area.width)?;
         use ratatui::style::Modifier;
         use tui_style::theme::ColorRole;
         let style = theme
             .style_for_role(ColorRole::Accent)
             .add_modifier(Modifier::BOLD);
-        frame.buffer_mut().set_string(x, y, text, style);
+        frame.buffer_mut().set_string(rect.x, rect.y, text, style);
+        Some(rect)
     }
 }
 

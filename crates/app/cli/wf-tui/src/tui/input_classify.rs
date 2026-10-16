@@ -86,6 +86,68 @@ pub(super) fn classify_mouse(kind: MouseEventKind) -> MouseAction {
     }
 }
 
+/// Whether a mouse event bypasses capture and keeps native selection.
+/// Shift plus any button or drag always returns to the terminal so the
+/// user keeps one native copy path while capture is on.
+pub(super) fn mouse_bypasses_capture(modifiers: KeyModifiers) -> bool {
+    modifiers.contains(KeyModifiers::SHIFT)
+}
+
+/// Multi-click kind for selection compensation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClickKind {
+    Single,
+    Double,
+    Triple,
+}
+
+/// Click kind for a consecutive count (capped at triple).
+pub(super) fn click_kind_for_count(count: u8) -> ClickKind {
+    match count {
+        2 => ClickKind::Double,
+        3.. => ClickKind::Triple,
+        _ => ClickKind::Single,
+    }
+}
+
+/// Multi-click window in milliseconds.
+pub(super) const MULTI_CLICK_WINDOW_MS: u64 = 500;
+
+/// Next consecutive click count: same cell inside the window continues the
+/// chain (capped at triple), otherwise a new single starts. Scroll and
+/// resize clear the chain through the caller dropping the stored state.
+pub(super) fn next_click_count(
+    prev_count: u8,
+    prev_ms: Option<u64>,
+    prev_col: Option<u16>,
+    prev_row: Option<u16>,
+    now_ms: u64,
+    col: u16,
+    row: u16,
+) -> u8 {
+    let (Some(prev_ms), Some(prev_col), Some(prev_row)) = (prev_ms, prev_col, prev_row) else {
+        return 1;
+    };
+    if col != prev_col || row != prev_row {
+        return 1;
+    }
+    if now_ms.saturating_sub(prev_ms) > MULTI_CLICK_WINDOW_MS {
+        return 1;
+    }
+    (prev_count.saturating_add(1)).clamp(1, 3)
+}
+
+/// Whether a mouse event kind carries the left button.
+pub(super) fn mouse_is_left_button(kind: MouseEventKind) -> bool {
+    use crossterm::event::MouseButton;
+    matches!(
+        kind,
+        MouseEventKind::Down(MouseButton::Left)
+            | MouseEventKind::Up(MouseButton::Left)
+            | MouseEventKind::Drag(MouseButton::Left)
+    )
+}
+
 /// Best-effort tool-output thresholds from the user config file. A missing
 /// or unreadable config means built-in defaults; individual keys fall back
 /// independently so a partial `[tool_output]` section still applies.
@@ -360,6 +422,64 @@ mod tests {
         ] {
             assert_eq!(classify_mouse(kind), MouseAction::IgnoredButton);
         }
+    }
+
+    #[test]
+    fn shift_bypasses_capture_for_native_selection() {
+        assert!(mouse_bypasses_capture(KeyModifiers::SHIFT));
+        assert!(mouse_bypasses_capture(
+            KeyModifiers::SHIFT | KeyModifiers::CONTROL
+        ));
+        assert!(!mouse_bypasses_capture(KeyModifiers::empty()));
+        assert!(!mouse_bypasses_capture(KeyModifiers::CONTROL));
+    }
+
+    #[test]
+    fn left_button_detection_covers_press_release_drag() {
+        assert!(mouse_is_left_button(MouseEventKind::Down(
+            MouseButton::Left
+        )));
+        assert!(mouse_is_left_button(MouseEventKind::Up(MouseButton::Left)));
+        assert!(mouse_is_left_button(MouseEventKind::Drag(
+            MouseButton::Left
+        )));
+        assert!(!mouse_is_left_button(MouseEventKind::Down(
+            MouseButton::Right
+        )));
+        assert!(!mouse_is_left_button(MouseEventKind::Up(
+            MouseButton::Middle
+        )));
+        assert!(!mouse_is_left_button(MouseEventKind::ScrollUp));
+        assert!(!mouse_is_left_button(MouseEventKind::Moved));
+    }
+
+    #[test]
+    fn multi_click_chains_same_cell_inside_window() {
+        assert_eq!(next_click_count(0, None, None, None, 1000, 5, 5), 1);
+        assert_eq!(
+            next_click_count(1, Some(1000), Some(5), Some(5), 1200, 5, 5),
+            2
+        );
+        assert_eq!(
+            next_click_count(2, Some(1200), Some(5), Some(5), 1300, 5, 5),
+            3
+        );
+        assert_eq!(
+            next_click_count(3, Some(1300), Some(5), Some(5), 1400, 5, 5),
+            3
+        );
+        assert_eq!(
+            next_click_count(2, Some(1000), Some(5), Some(5), 2000, 5, 5),
+            1
+        );
+        assert_eq!(
+            next_click_count(2, Some(1200), Some(5), Some(5), 1300, 6, 5),
+            1
+        );
+        assert_eq!(click_kind_for_count(1), ClickKind::Single);
+        assert_eq!(click_kind_for_count(2), ClickKind::Double);
+        assert_eq!(click_kind_for_count(3), ClickKind::Triple);
+        assert_eq!(click_kind_for_count(9), ClickKind::Triple);
     }
 
     #[test]

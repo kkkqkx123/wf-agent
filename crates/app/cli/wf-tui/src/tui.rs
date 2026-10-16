@@ -43,8 +43,9 @@ use wf_client::WfClient;
 
 use data_cache::DataResult;
 use input_classify::{
-    classify_mouse, classify_paste, load_copy_target, load_mouse_opt_in,
-    load_session_scrollbar_opt_in, load_tool_output_config, map_key,
+    classify_mouse, classify_paste, click_kind_for_count, load_copy_target, load_mouse_opt_in,
+    load_session_scrollbar_opt_in, load_tool_output_config, map_key, mouse_bypasses_capture,
+    mouse_is_left_button, next_click_count, ClickKind,
 };
 use input_classify::{focus_transition, FocusInput, MouseAction, PasteTarget};
 use signals::{sigtstp_handler, theme_reload_signals, SUSPEND_PENDING};
@@ -65,6 +66,20 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Catalog,
     ScreenKind::Git,
 ];
+
+/// Press record for click matching: the cell plus the snapshot generations
+/// of both layers and which layer was on top. A release lands only on the
+/// same cell of the same generation, otherwise it is a drag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MousePress {
+    col: u16,
+    row: u16,
+    session_gen: u64,
+    history_gen: u64,
+    in_history: bool,
+    in_gutter: bool,
+    gutter_thumb: bool,
+}
 
 /// Full-screen TUI application shell: owns the server client, the screen
 /// data cache and the interactive controller, and drives the event loop.
@@ -161,6 +176,17 @@ pub struct TuiApp {
     prod_frame_no: u64,
     /// Frames exceeding the production time budget (count-only alarm).
     over_budget_frames: u64,
+    /// Pending press for click matching; cleared on scroll, resize or drag.
+    mouse_press: Option<MousePress>,
+    /// Badge hit rectangle published by the last history overlay frame.
+    history_badge: Option<Rect>,
+    /// History hit generation bumped on full or bottom overlay frames.
+    history_hit_generation: u64,
+    /// Last click for multi-click chains; cleared on scroll or resize.
+    last_click_ms: Option<u64>,
+    last_click_col: Option<u16>,
+    last_click_row: Option<u16>,
+    last_click_count: u8,
 }
 
 impl TuiApp {
@@ -282,6 +308,13 @@ impl TuiApp {
             prod_metrics: crate::frame_metrics::FrameMetrics::new(),
             prod_frame_no: 0,
             over_budget_frames: 0,
+            mouse_press: None,
+            history_badge: None,
+            history_hit_generation: 0,
+            last_click_ms: None,
+            last_click_col: None,
+            last_click_row: None,
+            last_click_count: 0,
         }
     }
 
@@ -357,6 +390,9 @@ impl TuiApp {
             // Honor a pending Ctrl-Z suspend / resume cycle (top of loop so a
             // resume re-enters the terminal cleanly).
             self.check_suspend(guard, terminal)?;
+            // Apply runtime input-policy changes (mouse toggle is instant):
+            // the guard only flips the delta, so steady states pay no cost.
+            self.sync_terminal_modes(guard);
 
             if let Some(session) = &mut self.interactive {
                 session.handle_events();
@@ -465,6 +501,12 @@ impl TuiApp {
                     Event::Resize(w, h) => {
                         // Debounce: remember the latest size; the final settle
                         // (after the drag storm) triggers the actual reflow.
+                        // Any pending press is stale from this point on.
+                        self.mouse_press = None;
+                        self.clear_click_chain();
+                        if let Some(session) = self.interactive.as_mut() {
+                            session.end_gutter_drag();
+                        }
                         self.resize.push(Size::new(w, h), self.now_ms());
                     }
                     Event::FocusGained => {
@@ -515,6 +557,14 @@ impl TuiApp {
                 self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 self.pending_scope
                     .note_source(crate::redraw::EventSource::Input);
+                // Resize invalidates every published hit rectangle.
+                self.mouse_press = None;
+                self.clear_click_chain();
+                if let Some(session) = self.interactive.as_mut() {
+                    session.clear_hit_frame();
+                    session.end_gutter_drag();
+                }
+                self.history_badge = None;
             }
 
             // Apply a hot-reloaded theme (SIGUSR2) and repaint. Explicit
@@ -775,6 +825,18 @@ impl TuiApp {
         )
     }
 
+    /// Reconcile the live terminal with the runtime policy. Runtime toggles
+    /// (mouse capture) update the policy inline; the next loop applies the
+    /// delta through the guard without a restart.
+    fn sync_terminal_modes(
+        &self,
+        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+    ) {
+        if guard.modes() != self.active_modes() {
+            let _ = guard.enter(self.active_modes());
+        }
+    }
+
     /// Focus gained: reassert the terminal modes (terminals may clear them
     /// while backgrounded), mark focused, and request one differential
     /// catch-up frame. Never invalidates the backend: the terminal still
@@ -914,19 +976,381 @@ impl TuiApp {
     /// Handle a non-move mouse event. Motion is filtered by the caller.
     /// Wheel scrolls the scrollback on the session screen (reusing the
     /// pager-aware scroll methods) or moves the selection elsewhere.
-    /// Press, release and drag are ignored in this version so terminal
+    /// Shift plus any button keeps native selection and never requests a
+    /// frame. A badge click (same cell and same snapshot generation inside
+    /// the badge rectangle) jumps to the tail; anything else is ignored so
     /// native selection keeps working. Returns whether a frame is due.
     fn handle_mouse(&mut self, mouse: MouseEvent) -> bool {
+        if mouse_bypasses_capture(mouse.modifiers) {
+            return false;
+        }
         match classify_mouse(mouse.kind) {
             MouseAction::ScrollUp => {
+                self.mouse_press = None;
+                self.clear_click_chain();
+                if let Some(session) = self.interactive.as_mut() {
+                    session.end_gutter_drag();
+                }
                 self.scroll_by_wheel(true);
                 true
             }
             MouseAction::ScrollDown => {
+                self.mouse_press = None;
+                self.clear_click_chain();
+                if let Some(session) = self.interactive.as_mut() {
+                    session.end_gutter_drag();
+                }
                 self.scroll_by_wheel(false);
                 true
             }
-            MouseAction::IgnoredButton => false,
+            MouseAction::IgnoredButton => self.handle_mouse_button(mouse),
+        }
+    }
+
+    /// Whether all mouse hits are suppressed by a covering layer.
+    fn mouse_layer_suppressed(&self) -> bool {
+        if !self.modals.is_empty() {
+            return true;
+        }
+        if self
+            .interactive
+            .as_ref()
+            .is_some_and(|session| session.approval_active())
+        {
+            return true;
+        }
+        matches!(
+            self.overlay,
+            OverlayMode::Sidebar | OverlayMode::SearchPalette
+        )
+    }
+
+    /// Clear the multi-click chain after scroll, resize or drag.
+    fn clear_click_chain(&mut self) {
+        self.last_click_ms = None;
+        self.last_click_col = None;
+        self.last_click_row = None;
+        self.last_click_count = 0;
+    }
+
+    /// Copy the word at a visible display row and terminal column.
+    fn copy_word_at(&mut self, display_row: usize, col: u16) -> bool {
+        let (text, display_col) = match self.interactive.as_ref().and_then(|session| {
+            let area = session.last_scroll_area()?;
+            let text = session.plain_text_for_display_row(display_row)?;
+            Some((text, col.saturating_sub(area.x) as usize))
+        }) {
+            Some(pair) => pair,
+            None => return false,
+        };
+        let Some(word) = crate::interactive::mouse_hit::word_at_col(&text, display_col) else {
+            return false;
+        };
+        if !self.copy_policy.allowed {
+            self.app
+                .notice
+                .set(self.copy_policy.deny_notice().to_string());
+            return true;
+        }
+        let Some(clean) = crate::terminal::sanitize_copy_text(&word) else {
+            return false;
+        };
+        self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
+        true
+    }
+
+    /// Copy the full logical line behind a visible display row.
+    fn copy_line_at(&mut self, display_row: usize) -> bool {
+        let Some(text) = self
+            .interactive
+            .as_ref()
+            .and_then(|session| session.source_text_for_display_row(display_row))
+        else {
+            return false;
+        };
+        if !self.copy_policy.allowed {
+            self.app
+                .notice
+                .set(self.copy_policy.deny_notice().to_string());
+            return true;
+        }
+        let Some(clean) = crate::terminal::sanitize_copy_text(&text) else {
+            return false;
+        };
+        self.pending_copy = Some(crate::copy::PendingCopy::new(clean, "selection"));
+        true
+    }
+
+    /// Route one button press, release or drag. Only the left button
+    /// participates; presses only record, releases may land a badge or
+    /// gutter click. Column decides gutter first so the bar never competes
+    /// with row hits.
+    fn handle_mouse_button(&mut self, mouse: MouseEvent) -> bool {
+        use crossterm::event::MouseEventKind;
+        if !self.perf_policy.enable_mouse_capture {
+            return false;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(_) => {
+                if !mouse_is_left_button(mouse.kind) || self.mouse_layer_suppressed() {
+                    return false;
+                }
+                let in_history = self.overlay == OverlayMode::History;
+                if !in_history
+                    && self.app.screen.navigation.current_kind() != ScreenKind::Interactive
+                {
+                    return false;
+                }
+                if !in_history {
+                    let inside = self.interactive.as_ref().is_some_and(|session| {
+                        session.last_scroll_area().is_some_and(|area| {
+                            mouse.column >= area.x
+                                && mouse.column < area.x.saturating_add(area.width)
+                                && mouse.row >= area.y
+                                && mouse.row < area.y.saturating_add(area.height)
+                        })
+                    });
+                    if !inside {
+                        return false;
+                    }
+                }
+                let session_gen = self
+                    .interactive
+                    .as_ref()
+                    .map(|session| session.hit_generation())
+                    .unwrap_or(0);
+                let (in_gutter, gutter_thumb) = if in_history {
+                    (false, false)
+                } else {
+                    self.interactive.as_ref().map_or((false, false), |session| {
+                        let gutter = session.session_gutter_rect();
+                        let hit = gutter.is_some_and(|rect| {
+                            tui_components::scrollbar::gutter_contains(
+                                rect,
+                                mouse.column,
+                                mouse.row,
+                            )
+                        });
+                        if hit {
+                            let thumb = session.gutter_press_on_thumb(mouse.row);
+                            (true, thumb)
+                        } else {
+                            (false, false)
+                        }
+                    })
+                };
+                if in_gutter && gutter_thumb {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.begin_gutter_drag();
+                    }
+                }
+                self.mouse_press = Some(MousePress {
+                    col: mouse.column,
+                    row: mouse.row,
+                    session_gen,
+                    history_gen: self.history_hit_generation,
+                    in_history,
+                    in_gutter,
+                    gutter_thumb,
+                });
+                false
+            }
+            MouseEventKind::Up(_) => {
+                let Some(press) = self.mouse_press.take() else {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                };
+                if !mouse_is_left_button(mouse.kind) {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                if self.mouse_layer_suppressed() {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                let in_history = self.overlay == OverlayMode::History;
+                if press.in_history != in_history {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                if in_history {
+                    if press.history_gen != self.history_hit_generation {
+                        return false;
+                    }
+                    if press.col != mouse.column || press.row != mouse.row {
+                        return false;
+                    }
+                    let hit = self.history_badge.is_some_and(|rect| {
+                        crate::interactive::mouse_hit::badge_contains(
+                            &rect,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    });
+                    if hit {
+                        self.history.jump_to_latest();
+                        return true;
+                    }
+                    return false;
+                }
+                if self.app.screen.navigation.current_kind() != ScreenKind::Interactive {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                let session_gen = self
+                    .interactive
+                    .as_ref()
+                    .map(|session| session.hit_generation())
+                    .unwrap_or(0);
+                if press.in_gutter {
+                    let dragging = self
+                        .interactive
+                        .as_ref()
+                        .is_some_and(|session| session.is_gutter_dragging());
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    if press.gutter_thumb || dragging {
+                        return false;
+                    }
+                    if press.col != mouse.column || press.row != mouse.row {
+                        return false;
+                    }
+                    if press.session_gen != session_gen {
+                        return false;
+                    }
+                    if let Some(session) = self.interactive.as_mut() {
+                        return session.scroll_to_gutter_row(mouse.row);
+                    }
+                    return false;
+                }
+                if press.col != mouse.column || press.row != mouse.row {
+                    return false;
+                }
+                if press.session_gen != session_gen {
+                    return false;
+                }
+                if !crate::interactive::mouse_hit::press_matches_release(
+                    press.col,
+                    press.row,
+                    press.session_gen,
+                    mouse.column,
+                    mouse.row,
+                    session_gen,
+                ) {
+                    return false;
+                }
+                let hit = self.interactive.as_ref().is_some_and(|session| {
+                    session.last_badge_rect().is_some_and(|rect| {
+                        crate::interactive::mouse_hit::badge_contains(
+                            &rect,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    })
+                });
+                if hit {
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.jump_to_latest();
+                    }
+                    return true;
+                }
+                let display_row = self.interactive.as_ref().and_then(|session| {
+                    let area = session.last_scroll_area()?;
+                    if mouse.row < area.y || mouse.row >= area.y.saturating_add(area.height) {
+                        return None;
+                    }
+                    if let Some(gutter) = session.session_gutter_rect() {
+                        if mouse.column >= gutter.x {
+                            return None;
+                        }
+                    } else if mouse.column < area.x
+                        || mouse.column >= area.x.saturating_add(area.width)
+                    {
+                        return None;
+                    }
+                    Some(mouse.row.saturating_sub(area.y) as usize)
+                });
+                let Some(display_row) = display_row else {
+                    return false;
+                };
+                let now_ms = crate::clock::now_ms();
+                let count = next_click_count(
+                    self.last_click_count,
+                    self.last_click_ms,
+                    self.last_click_col,
+                    self.last_click_row,
+                    now_ms,
+                    mouse.column,
+                    mouse.row,
+                );
+                self.last_click_ms = Some(now_ms);
+                self.last_click_col = Some(mouse.column);
+                self.last_click_row = Some(mouse.row);
+                self.last_click_count = count;
+                match click_kind_for_count(count) {
+                    ClickKind::Double => {
+                        return self.copy_word_at(display_row, mouse.column);
+                    }
+                    ClickKind::Triple => {
+                        return self.copy_line_at(display_row);
+                    }
+                    ClickKind::Single => {}
+                }
+                if let Some(session) = self.interactive.as_mut() {
+                    return session.handle_content_click(display_row);
+                }
+                false
+            }
+            MouseEventKind::Drag(_) | MouseEventKind::Moved => {
+                let Some(press) = self.mouse_press else {
+                    return false;
+                };
+                // Any drag breaks the multi-click chain; scrolling drags
+                // additionally move the viewport through the gutter path.
+                self.clear_click_chain();
+                if !mouse_is_left_button(mouse.kind) {
+                    self.mouse_press = None;
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                if self.mouse_layer_suppressed() {
+                    self.mouse_press = None;
+                    if let Some(session) = self.interactive.as_mut() {
+                        session.end_gutter_drag();
+                    }
+                    return false;
+                }
+                let in_history = self.overlay == OverlayMode::History;
+                if press.in_history != in_history || in_history {
+                    self.mouse_press = None;
+                    return false;
+                }
+                if press.in_gutter && press.gutter_thumb {
+                    if let Some(session) = self.interactive.as_mut() {
+                        return session.update_gutter_drag(mouse.row);
+                    }
+                    return false;
+                }
+                self.mouse_press = None;
+                if let Some(session) = self.interactive.as_mut() {
+                    session.end_gutter_drag();
+                }
+                false
+            }
+            _ => false,
         }
     }
 
@@ -1167,13 +1591,19 @@ impl TuiApp {
             }
             OverlayMode::History => {
                 let mut view = self.history.view();
-                let at_top = crate::screen_draw::draw_transcript_overlay(
+                let (at_top, badge) = crate::screen_draw::draw_transcript_overlay(
                     frame,
                     area,
                     &mut view,
                     &self.theme,
                 );
                 self.history.set_viewport(view.scroll, at_top);
+                if scope == crate::redraw::RedrawScope::Full
+                    || scope == crate::redraw::RedrawScope::BottomOnly
+                {
+                    self.history_hit_generation = self.history_hit_generation.wrapping_add(1);
+                    self.history_badge = badge;
+                }
             }
             OverlayMode::SearchPalette => {
                 let palette = crate::screen_draw::SearchPaletteView {

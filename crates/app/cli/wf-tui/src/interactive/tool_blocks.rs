@@ -37,10 +37,10 @@ pub(crate) struct ToolBlock {
     display_preview: Option<String>,
     /// Whether the payload reported truncation (body hidden by design).
     display_truncated: bool,
-    expandable: bool,
+    pub(crate) expandable: bool,
     expanded: bool,
-    summary_seq: u64,
-    body_len: usize,
+    pub(crate) summary_seq: u64,
+    pub(crate) body_len: usize,
 }
 
 /// Full-output viewing request drained by the application shell into a
@@ -443,7 +443,7 @@ impl InteractiveController {
 
     /// Move one block to its expanded or collapsed form (`None` toggles).
     /// Missing summaries (trimmed away) drop their bookkeeping.
-    fn toggle_tool_block_to(&mut self, tool_call_id: &str, expanded: Option<bool>) {
+    pub(crate) fn toggle_tool_block_to(&mut self, tool_call_id: &str, expanded: Option<bool>) {
         let config = self.tool_config;
         let Some(block) = self.tool_blocks.get(tool_call_id) else {
             return;

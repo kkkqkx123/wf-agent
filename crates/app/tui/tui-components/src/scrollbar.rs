@@ -53,6 +53,79 @@ pub fn split_content_gutter(area: Rect) -> (Rect, Rect) {
     (content, gutter)
 }
 
+/// Whether a terminal cell hits the one-cell gutter.
+pub fn gutter_contains(gutter: Rect, col: u16, row: u16) -> bool {
+    gutter.width > 0
+        && gutter.height > 0
+        && col == gutter.x
+        && row >= gutter.y
+        && row < gutter.y.saturating_add(gutter.height)
+}
+
+/// Thumb row range inside the gutter for a top-anchored window. Returns the
+/// inclusive start and exclusive end in gutter-relative rows. `None` when no
+/// bar should show.
+pub fn thumb_range(
+    total_rows: usize,
+    viewport_rows: usize,
+    top_position: usize,
+    gutter_height: usize,
+) -> Option<(usize, usize)> {
+    if !should_show(total_rows, viewport_rows) || gutter_height == 0 {
+        return None;
+    }
+    let gutter_height = gutter_height.max(1);
+    let max_top = total_rows.saturating_sub(viewport_rows);
+    let top = top_position.min(max_top);
+    let thumb_len = (viewport_rows.saturating_mul(viewport_rows) / total_rows.max(1)).max(1);
+    let thumb_len = thumb_len.min(gutter_height);
+    let travel = gutter_height.saturating_sub(thumb_len);
+    let start = if max_top == 0 {
+        0
+    } else {
+        top.saturating_mul(travel) / max_top.max(1)
+    };
+    Some((start, start.saturating_add(thumb_len).min(gutter_height)))
+}
+
+/// Whether a gutter-relative row hits the thumb.
+pub fn thumb_contains(
+    total_rows: usize,
+    viewport_rows: usize,
+    top_position: usize,
+    gutter_height: usize,
+    relative_row: usize,
+) -> bool {
+    thumb_range(total_rows, viewport_rows, top_position, gutter_height)
+        .is_some_and(|(start, end)| relative_row >= start && relative_row < end)
+}
+
+/// Convert a gutter press row to a top index by proportion. The press row is
+/// an absolute terminal row; the gutter supplies the origin and height.
+pub fn top_for_gutter_press(
+    press_row: u16,
+    gutter: Rect,
+    total_rows: usize,
+    viewport_rows: usize,
+) -> usize {
+    if gutter.height == 0 {
+        return 0;
+    }
+    let relative = press_row.saturating_sub(gutter.y) as usize;
+    let relative = relative.min(gutter.height.saturating_sub(1) as usize);
+    let max_top = total_rows.saturating_sub(viewport_rows);
+    if gutter.height <= 1 {
+        return max_top;
+    }
+    relative.saturating_mul(max_top) / (gutter.height as usize).saturating_sub(1).max(1)
+}
+
+/// Convert a top index back to a tail offset (rows above the tail).
+pub fn tail_offset_for_top(top: usize, total_rows: usize, viewport_rows: usize) -> usize {
+    let max = total_rows.saturating_sub(viewport_rows);
+    max.saturating_sub(top.min(max))
+}
+
 /// Paint a right-side vertical bar into `gutter` for a top-anchored window.
 pub fn render(
     frame: &mut Frame,
@@ -117,6 +190,37 @@ mod tests {
         assert_eq!((content.width, gutter.width), (9, 1));
         assert_eq!(gutter.x, 11);
         assert_eq!((gutter.y, gutter.height), (3, 5));
+    }
+
+    #[test]
+    fn gutter_hit_requires_right_column_and_height() {
+        let gutter = Rect::new(29, 2, 1, 10);
+        assert!(gutter_contains(gutter, 29, 2));
+        assert!(gutter_contains(gutter, 29, 11));
+        assert!(!gutter_contains(gutter, 28, 5));
+        assert!(!gutter_contains(gutter, 29, 1));
+        assert!(!gutter_contains(gutter, 29, 12));
+        assert!(!gutter_contains(Rect::new(0, 0, 0, 10), 0, 5));
+    }
+
+    #[test]
+    fn thumb_range_slides_with_top() {
+        let top_thumb = thumb_range(100, 10, 0, 10).expect("shows");
+        let bottom_thumb = thumb_range(100, 10, 90, 10).expect("shows");
+        assert!(top_thumb.0 == 0);
+        assert!(bottom_thumb.1 == 10);
+        assert!(thumb_contains(100, 10, 0, 10, top_thumb.0));
+        assert!(!thumb_contains(100, 10, 0, 10, bottom_thumb.0));
+        assert!(thumb_range(5, 10, 0, 10).is_none());
+    }
+
+    #[test]
+    fn gutter_press_proportion_converts_to_top() {
+        let gutter = Rect::new(29, 0, 1, 10);
+        assert_eq!(top_for_gutter_press(0, gutter, 100, 10), 0);
+        assert_eq!(top_for_gutter_press(9, gutter, 100, 10), 90);
+        assert_eq!(tail_offset_for_top(90, 100, 10), 0);
+        assert_eq!(tail_offset_for_top(0, 100, 10), 90);
     }
 
     #[test]

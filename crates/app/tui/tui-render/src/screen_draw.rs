@@ -872,13 +872,14 @@ pub struct HistoryOverlayView<'a> {
 
 /// Draw the history overlay over `area`, tail anchored: the viewport reads
 /// from the bottom up and only the rows inside the window are painted.
-/// Returns whether the viewport rests on the oldest loaded row.
+/// Returns whether the viewport rests on the oldest loaded row plus the
+/// badge hit rectangle for mouse clicks.
 pub fn draw_transcript_overlay(
     frame: &mut Frame,
     area: Rect,
     view: &mut HistoryOverlayView<'_>,
     theme: &Theme,
-) -> bool {
+) -> (bool, Option<Rect>) {
     use ratatui::widgets::Clear;
     frame.render_widget(Clear, area);
     let overlay_area = Rect {
@@ -933,7 +934,7 @@ pub fn draw_transcript_overlay(
     if let Some(gutter) = gutter {
         scrollbar::render(frame, gutter, rows.len(), capacity, top, theme);
     }
-    paint_overlay_jump_badge(frame, content, view.scroll, theme);
+    let badge = paint_overlay_jump_badge(frame, content, view.scroll, theme);
 
     if area.height > 0 {
         let status_area = Rect {
@@ -948,7 +949,7 @@ pub fn draw_transcript_overlay(
             status_area,
         );
     }
-    at_top
+    (at_top, badge)
 }
 
 /// One line below the overlay: the session, where loading stopped and which
@@ -976,30 +977,44 @@ fn history_status(view: &HistoryOverlayView<'_>, at_top: bool) -> String {
     }
 }
 
-/// Floating jump-to-latest badge over the last overlay content row.
-fn paint_overlay_jump_badge(frame: &mut Frame, inner: Rect, scroll: usize, theme: &Theme) {
-    if scroll == 0 || inner.width == 0 || inner.height == 0 {
-        return;
+/// Hit rectangle for the overlay badge. Returns `None` when the badge does
+/// not belong on screen.
+pub fn overlay_badge_rect(content: Rect, scroll: usize) -> Option<Rect> {
+    use unicode_width::UnicodeWidthStr;
+    if scroll == 0 || content.width == 0 || content.height == 0 {
+        return None;
     }
     let full = format!("↓ {scroll} more · End for latest");
     let short = format!("↓ {scroll} more");
-    let text = pick_overlay_badge_text(&full, &short, inner.width);
-    let Some(text) = text else {
-        return;
-    };
-    use unicode_width::UnicodeWidthStr;
+    let text = pick_overlay_badge_text(&full, &short, content.width)?;
     let text_width = text.width() as u16;
-    if text_width >= inner.width {
-        return;
+    if text_width >= content.width {
+        return None;
     }
-    let x = inner
+    let x = content
         .x
-        .saturating_add(inner.width.saturating_sub(text_width).saturating_sub(1));
-    let y = inner.y.saturating_add(inner.height.saturating_sub(1));
+        .saturating_add(content.width.saturating_sub(text_width).saturating_sub(1));
+    let y = content.y.saturating_add(content.height.saturating_sub(1));
+    Some(Rect::new(x, y, text_width, 1))
+}
+
+/// Floating jump-to-latest badge over the last overlay content row.
+/// Returns the hit rectangle when painted.
+fn paint_overlay_jump_badge(
+    frame: &mut Frame,
+    inner: Rect,
+    scroll: usize,
+    theme: &Theme,
+) -> Option<Rect> {
+    let rect = overlay_badge_rect(inner, scroll)?;
+    let full = format!("↓ {scroll} more · End for latest");
+    let short = format!("↓ {scroll} more");
+    let text = pick_overlay_badge_text(&full, &short, inner.width)?;
     let style = theme
         .style_for_role(ColorRole::Accent)
         .add_modifier(Modifier::BOLD);
-    frame.buffer_mut().set_string(x, y, text, style);
+    frame.buffer_mut().set_string(rect.x, rect.y, text, style);
+    Some(rect)
 }
 
 /// Choose the full or compact overlay badge text for the available width.
@@ -1011,5 +1026,29 @@ fn pick_overlay_badge_text<'a>(full: &'a str, short: &'a str, width: u16) -> Opt
         Some(short)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlay_badge_rect_anchors_bottom_right() {
+        let content = Rect::new(0, 0, 40, 12);
+        let rect = overlay_badge_rect(content, 5).expect("fits");
+        assert_eq!(rect.height, 1);
+        assert_eq!(rect.y, 11);
+        assert!(rect.x + rect.width < content.x + content.width);
+    }
+
+    #[test]
+    fn overlay_badge_rect_hides_at_tail_or_narrow() {
+        let content = Rect::new(0, 0, 40, 12);
+        assert!(overlay_badge_rect(content, 0).is_none());
+        let narrow = Rect::new(0, 0, 3, 12);
+        assert!(overlay_badge_rect(narrow, 5).is_none());
+        let empty = Rect::new(0, 0, 0, 0);
+        assert!(overlay_badge_rect(empty, 5).is_none());
     }
 }

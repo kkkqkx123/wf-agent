@@ -20,7 +20,7 @@ pub(crate) struct SubagentBlock {
     id: String,
     name: String,
     tool_call_id: Option<String>,
-    start_seq: u64,
+    pub(crate) start_seq: u64,
     end_seq: Option<u64>,
     success: Option<bool>,
     activity: Option<String>,

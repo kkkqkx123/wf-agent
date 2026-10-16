@@ -21,6 +21,7 @@
 pub(crate) mod anchors;
 pub(crate) mod copy;
 pub(crate) mod keys;
+pub(crate) mod mouse_hit;
 mod render;
 mod subagent_blocks;
 mod tool_blocks;
@@ -183,6 +184,17 @@ pub struct InteractiveController {
     /// grades a full frame. Visibility still requires overflow plus the
     /// shared minimum viewport and width guards.
     show_session_scrollbar: bool,
+    /// Mouse hit snapshot generation: bumped on every full or bottom frame
+    /// that repaints the badge. Press and release must share it, otherwise
+    /// the pair is a drag and never a click.
+    hit_generation: u64,
+    /// Badge rectangle published on the last full or bottom frame.
+    last_badge_rect: Option<ratatui::layout::Rect>,
+    /// Scrollback viewport published on the last frame for hit translation.
+    last_scroll_area: Option<ratatui::layout::Rect>,
+    /// Whether a gutter thumb drag is in progress. Only set by a press on
+    /// the thumb; track presses never enter drag.
+    gutter_drag: bool,
     /// Whether the session was torn down gracefully (user quit / runtime
     /// shutdown). Once set, late terminal error events are not rendered so
     /// quitting never flashes a spurious error row.
@@ -407,6 +419,10 @@ impl InteractiveController {
             tail_lag: 0,
             scroll_at_top: false,
             show_session_scrollbar: false,
+            hit_generation: 0,
+            last_badge_rect: None,
+            last_scroll_area: None,
+            gutter_drag: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
             pacer: SegmentedPacer::default(),
@@ -651,6 +667,40 @@ impl InteractiveController {
     /// frame: the text-width change grades full so no restart is needed.
     pub fn set_session_scrollbar(&mut self, enabled: bool) {
         self.show_session_scrollbar = enabled;
+    }
+
+    /// Mouse hit snapshot generation for press and release matching.
+    pub fn hit_generation(&self) -> u64 {
+        self.hit_generation
+    }
+
+    /// Badge rectangle published on the last full or bottom frame.
+    pub fn last_badge_rect(&self) -> Option<ratatui::layout::Rect> {
+        self.last_badge_rect
+    }
+
+    /// Scrollback viewport published on the last frame.
+    pub fn last_scroll_area(&self) -> Option<ratatui::layout::Rect> {
+        self.last_scroll_area
+    }
+
+    /// Publish one hit snapshot: the badge rectangle plus the viewport that
+    /// produced it. Bumps the generation so stale presses never land.
+    pub(crate) fn record_hit_frame(
+        &mut self,
+        scroll_area: ratatui::layout::Rect,
+        badge: Option<ratatui::layout::Rect>,
+    ) {
+        self.hit_generation = self.hit_generation.wrapping_add(1);
+        self.last_scroll_area = Some(scroll_area);
+        self.last_badge_rect = badge;
+    }
+
+    /// Drop any published hit snapshot (resize or overlay switch): presses
+    /// recorded against the old geometry can no longer land.
+    pub(crate) fn clear_hit_frame(&mut self) {
+        self.last_badge_rect = None;
+        self.last_scroll_area = None;
     }
 
     /// Apply a capability policy: minimal tiers drop the spinner and shimmer,

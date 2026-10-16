@@ -161,6 +161,11 @@ impl PreparedScrollback {
         &self.row_cache
     }
 
+    /// Row cache hit rate across all probes so far.
+    pub fn row_cache_hit_rate(&self) -> f64 {
+        self.row_cache.hit_rate()
+    }
+
     /// Auxiliary rendered-to-logical map backing this preparation.
     pub fn aux_map(&self) -> &AuxLineMap {
         &self.aux_map

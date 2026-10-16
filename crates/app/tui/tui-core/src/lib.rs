@@ -20,3 +20,4 @@ pub mod stream_pacer;
 pub mod tail;
 pub mod tool_output;
 pub mod width;
+pub mod wrap_map;

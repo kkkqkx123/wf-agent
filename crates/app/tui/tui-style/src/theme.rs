@@ -17,9 +17,11 @@ pub mod cache;
 pub mod data;
 pub mod derive;
 pub mod literal;
+pub mod oklab;
 pub mod osc;
 pub mod resolve;
 pub mod style;
+pub mod validate;
 
 pub use cache::{
     load_theme_cache, load_theme_file, load_theme_overrides, save_theme_cache, theme_cache_path,
@@ -30,7 +32,9 @@ pub use data::{
     ThemeKind, ThemeOverrides, ThemeSource,
 };
 pub use derive::{blend_rgb, derive_theme, is_light, luminance};
-pub use literal::{nearest_role, remap_literal};
+pub use literal::{nearest_role, remap_literal, remap_literal_relative};
+pub use oklab::{contrast_ratio, oklab_distance, rgb_to_oklab};
+pub use validate::{validate_theme, ThemeCheck, ThemeReport, ThemeWarning};
 pub use osc::{parse_osc_response, OscColorParser};
 pub use resolve::{
     fallback_theme, probe_theme, probe_theme_with_timeout, resolve_theme, OSC_PROBE_TIMEOUT,

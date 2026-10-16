@@ -25,6 +25,8 @@ fn oldest_key(map: &HashMap<AuxMapKey, CachedRows>) -> Option<AuxMapKey> {
 pub struct RowCache {
     entries: HashMap<AuxMapKey, CachedRows>,
     generation: u64,
+    hits: u64,
+    misses: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -40,8 +42,17 @@ impl RowCache {
     }
 
     /// Cached rows for `key`, if present.
-    pub fn get(&self, key: AuxMapKey) -> Option<&[Line<'static>]> {
-        self.entries.get(&key).map(|entry| entry.rows.as_slice())
+    pub fn get(&mut self, key: AuxMapKey) -> Option<&[Line<'static>]> {
+        match self.entries.get(&key) {
+            Some(entry) => {
+                self.hits += 1;
+                Some(entry.rows.as_slice())
+            }
+            None => {
+                self.misses += 1;
+                None
+            }
+        }
     }
 
     /// Store laid-out rows. When full, evict the oldest generation instead
@@ -76,5 +87,24 @@ impl RowCache {
     /// Whether the cache holds nothing.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Cache hits observed since creation.
+    pub fn hits(&self) -> u64 {
+        self.hits
+    }
+
+    /// Cache misses observed since creation.
+    pub fn misses(&self) -> u64 {
+        self.misses
+    }
+
+    /// Hit rate across all probes (1.0 when nothing was probed).
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.hits + self.misses;
+        if total == 0 {
+            return 1.0;
+        }
+        self.hits as f64 / total as f64
     }
 }

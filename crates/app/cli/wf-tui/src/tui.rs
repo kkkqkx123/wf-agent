@@ -1044,6 +1044,7 @@ impl TuiApp {
         self.frame_cache.capture(frame.buffer_mut());
         crate::post_process::finish_frame(
             frame.buffer_mut(),
+            &self.theme,
             self.theme_mode,
             self.theme_explicit,
             crate::post_process::EmojiPreference::Native,

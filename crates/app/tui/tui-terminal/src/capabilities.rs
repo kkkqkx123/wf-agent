@@ -52,6 +52,8 @@ pub struct TerminalCapabilities {
     /// positive evidence from a known emulator, passthrough proof, or an
     /// explicit environment override).
     pub osc52_clipboard: bool,
+    /// Inline image protocol available for charts and diagrams.
+    pub image_protocol: ImageProtocol,
 }
 
 impl Default for TerminalCapabilities {
@@ -68,6 +70,7 @@ impl Default for TerminalCapabilities {
             version: None,
             default_colors: None,
             osc52_clipboard: false,
+            image_protocol: ImageProtocol::None,
         }
     }
 }
@@ -189,6 +192,44 @@ impl TerminalType {
                 | Self::WindowsTerminal
         )
     }
+
+    /// Preferred inline image protocol for this terminal, if any. Multiplexed
+    /// or unknown terminals report none: image bytes would corrupt the stream
+    /// without a proven pass-through.
+    pub fn preferred_image_protocol(&self) -> ImageProtocol {
+        match self {
+            Self::Kitty | Self::Ghostty => ImageProtocol::Kitty,
+            Self::ITerm2 | Self::WezTerm => ImageProtocol::Iterm2,
+            Self::Alacritty | Self::Rio => ImageProtocol::Sixel,
+            Self::WindowsTerminal | Self::Tmux | Self::Screen | Self::Unknown => {
+                ImageProtocol::None
+            }
+        }
+    }
+}
+
+/// Inline terminal image protocol available for charts and diagrams.
+///
+/// Detection only advertises the protocol; no raster backend is bundled, so
+/// frames carry labeled placeholders until a product backend lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageProtocol {
+    /// No inline image support: diagrams render as text placeholders.
+    #[default]
+    None,
+    /// Kitty graphics protocol (`APC G`).
+    Kitty,
+    /// Sixel graphics (`DCS P q`).
+    Sixel,
+    /// iTerm2 inline images (`OSC 1337`).
+    Iterm2,
+}
+
+impl ImageProtocol {
+    /// Whether any inline image path is available.
+    pub fn is_available(self) -> bool {
+        !matches!(self, Self::None)
+    }
 }
 
 /// Orchestrates capability detection with concrete probe functions. No
@@ -226,6 +267,7 @@ impl TerminalProbe {
         probe_synchronized_output(&mut self.capabilities);
         probe_focus_events(&mut self.capabilities);
         probe_osc52_clipboard(&mut self.capabilities);
+        probe_image_protocol(&mut self.capabilities);
     }
 
     /// Get the detected capabilities.
@@ -359,6 +401,17 @@ pub fn decide_osc52_clipboard(env: &Osc52Env) -> bool {
 
 fn probe_osc52_clipboard(caps: &mut TerminalCapabilities) {
     caps.osc52_clipboard = decide_osc52_clipboard(&Osc52Env::detect());
+}
+
+/// Advertise the inline image protocol for the detected terminal type.
+/// Multiplexed sessions keep `None`: without pass-through proof, graphics
+/// sequences would corrupt the shared stream.
+fn probe_image_protocol(caps: &mut TerminalCapabilities) {
+    if std::env::var("TMUX").is_ok() || std::env::var("STY").is_ok() {
+        caps.image_protocol = ImageProtocol::None;
+        return;
+    }
+    caps.image_protocol = caps.terminal_type.preferred_image_protocol();
 }
 
 /// Heuristic keyboard enhancement detection via `TERM_PROGRAM` and version.
@@ -495,6 +548,40 @@ mod tests {
         assert!(!TerminalType::Tmux.supports_synchronized_output());
         assert!(!TerminalType::Screen.supports_synchronized_output());
         assert!(!TerminalType::Unknown.supports_synchronized_output());
+    }
+
+    #[test]
+    fn image_protocol_mapping_covers_known_terminals() {
+        assert_eq!(
+            TerminalType::Kitty.preferred_image_protocol(),
+            ImageProtocol::Kitty
+        );
+        assert_eq!(
+            TerminalType::Ghostty.preferred_image_protocol(),
+            ImageProtocol::Kitty
+        );
+        assert_eq!(
+            TerminalType::ITerm2.preferred_image_protocol(),
+            ImageProtocol::Iterm2
+        );
+        assert_eq!(
+            TerminalType::WezTerm.preferred_image_protocol(),
+            ImageProtocol::Iterm2
+        );
+        assert_eq!(
+            TerminalType::Alacritty.preferred_image_protocol(),
+            ImageProtocol::Sixel
+        );
+        assert_eq!(
+            TerminalType::Unknown.preferred_image_protocol(),
+            ImageProtocol::None
+        );
+        assert_eq!(
+            TerminalType::Tmux.preferred_image_protocol(),
+            ImageProtocol::None
+        );
+        assert!(!ImageProtocol::None.is_available());
+        assert!(ImageProtocol::Kitty.is_available());
     }
 
     #[test]

@@ -383,6 +383,55 @@ pub fn resolve_copy_text(
     }
 }
 
+/// Copy a visual wrapped-row range back to source text.
+///
+/// `intervals` maps each wrapped row to its `(logical, col_start, col_end)`
+/// source interval (see [`crate::wrap_map::WrappedColumnMap`]);
+/// `source_lines` holds the logical source rows. Rows between the endpoints
+/// copy whole; the endpoint rows clip to their covered columns so a
+/// cross-row selection aligns exactly instead of duplicating wrapped text.
+pub fn copy_wrapped_range(
+    intervals: &[(usize, usize, usize)],
+    source_lines: &[String],
+    anchor: usize,
+    focus: usize,
+) -> Option<String> {
+    let (from, to) = if anchor <= focus {
+        (anchor, focus)
+    } else {
+        (focus, anchor)
+    };
+    let (first_logical, first_start, _) = *intervals.get(from)?;
+    let (last_logical, _, last_end) = *intervals.get(to)?;
+    if first_logical == last_logical {
+        let text = source_lines.get(first_logical)?;
+        return Some(crate::wrap_map::WrappedColumnMap::slice_columns(
+            text,
+            first_start,
+            last_end,
+        ));
+    }
+    let mut out = Vec::new();
+    let first_text = source_lines.get(first_logical)?;
+    out.push(crate::wrap_map::WrappedColumnMap::slice_columns(
+        first_text,
+        first_start,
+        usize::MAX,
+    ));
+    let mut logical = first_logical + 1;
+    while logical < last_logical {
+        out.push(source_lines.get(logical)?.clone());
+        logical += 1;
+    }
+    let last_text = source_lines.get(last_logical)?;
+    out.push(crate::wrap_map::WrappedColumnMap::slice_columns(
+        last_text,
+        0,
+        last_end,
+    ));
+    Some(out.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

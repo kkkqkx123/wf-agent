@@ -87,6 +87,51 @@ impl DeferredFrameWork {
     }
 }
 
+/// Maximum placeholder label width before truncation.
+pub const PLACEHOLDER_MAX_LABEL: usize = 48;
+
+/// Whether a fenced code block holds a diagram source (mermaid only in this
+/// version): the draw path registers deferred diagram work and paints a
+/// labeled placeholder instead of the raw source.
+pub fn is_diagram_source(language: Option<&str>) -> bool {
+    language.is_some_and(|lang| lang.trim().eq_ignore_ascii_case("mermaid"))
+}
+
+/// Render a bordered placeholder box for an image or diagram item: a stable
+/// label line plus an optional hint, clipped to `width` and padded to
+/// `height` rows. Pure text output, no raster backend involved, so geometry
+/// stays deterministic across terminals with and without image protocols.
+pub fn placeholder_lines(label: &str, hint: &str, width: usize, height: usize) -> Vec<String> {
+    let width = width.max(4);
+    let height = height.max(3);
+    let inner = width.saturating_sub(2);
+    let mut short = label.trim();
+    if short.len() > PLACEHOLDER_MAX_LABEL {
+        short = &short[..PLACEHOLDER_MAX_LABEL];
+    }
+    let mut lines = Vec::with_capacity(height);
+    lines.push(format!("+{}+", "-".repeat(inner)));
+    let title = format!("[image] {short}");
+    lines.push(format!("|{:inner$}|", clip_to(title.as_str(), inner)));
+    if height > 3 && !hint.is_empty() {
+        lines.push(format!("|{:inner$}|", clip_to(hint, inner)));
+    }
+    while lines.len() + 1 < height {
+        lines.push(format!("|{:inner$}|", ""));
+    }
+    lines.push(format!("+{}+", "-".repeat(inner)));
+    lines
+}
+
+/// Render a diagram placeholder for a mermaid source block.
+pub fn diagram_placeholder_lines(label: &str, width: usize, height: usize) -> Vec<String> {
+    placeholder_lines(label, "mermaid diagram (text preview)", width, height)
+}
+
+fn clip_to(text: &str, width: usize) -> String {
+    text.chars().take(width).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +165,23 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(work.cleanups(), 1);
         assert!(work.pending().is_empty());
+    }
+
+    #[test]
+    fn mermaid_fences_route_to_diagrams() {
+        assert!(is_diagram_source(Some("mermaid")));
+        assert!(is_diagram_source(Some("MERMAID")));
+        assert!(!is_diagram_source(Some("rust")));
+        assert!(!is_diagram_source(None));
+    }
+
+    #[test]
+    fn placeholder_box_has_stable_geometry() {
+        let lines = diagram_placeholder_lines("flow", 20, 5);
+        assert_eq!(lines.len(), 5);
+        for line in &lines {
+            assert_eq!(line.len(), 20, "line was {line:?}");
+        }
+        assert!(lines[1].contains("flow"));
     }
 }

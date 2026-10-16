@@ -118,4 +118,23 @@
 - `tui-core/src/redraw.rs`：`InvalidationKind`（软/硬）与 `InvalidationSentinel`，`FrameCache::invalidate`。
 - `wf-tui/src/tui.rs`：外壳持有哨兵并在提交点统一应用（硬清屏仅来自绘制崩溃恢复与挂起恢复，重排/缩放仅软失效）。
 
-阶段四至六尚未实现，按上表推进。
+阶段四已实现，涉及：
+
+- `tui-style/src/theme/oklab.rs`（新增）：无依赖 OKLab 正/逆变换、感知距离、WCAG 对比度与三类色盲模拟，含往返与极值测试。
+- `tui-style/src/theme/validate.rs`（新增）：`validate_theme` 对比度/区分度/色盲安全校验，仅输出告警不自动改写；默认深浅调色板零告警。
+- `tui-style/src/theme/literal.rs`：新增 `remap_literal_relative`，按最近角色吸附并保留 OKLab 明度/彩度偏移；精确命中时与旧映射一致。
+- `tui-render/src/post_process.rs`：`finish_frame` 与 `adapt_buffer_for_palette` 接收主题，固定顺序先明暗适配后调色板；默认调色板逐字节不变，自定义调色板吸附到角色色。
+- `wf-tui/src/tui.rs`：提交点传入活动主题。
+
+阶段五已实现，涉及：
+
+- `tui-core/src/frame_metrics.rs`：`FrameMetric` 新增闪烁单元、键到绘制延迟、缓存命中与三段耗时；新增 `FlickerDetector`、`KeyPaintTracker`、`StageTiming`、`PrepHitRate`、`FrameBudgets` 与 `check_regression` 回归报告。
+- `tui-core/src/anchor.rs`：新增 `AnchorShift` 五态分类（稳定/重定位/上方插入/大跳/整体重排）与 `record_classified` 计数。
+- `tui-render/src/prep_cache/row_cache.rs`：行缓存命中/未命中计数与 `hit_rate`，`PreparedScrollback::row_cache_hit_rate` 暴露。
+
+阶段六已实现，涉及：
+
+- `tui-terminal/src/capabilities.rs`：新增 `ImageProtocol`（无/Kitty/Sixel/iTerm2）与终端类型映射及探测（多路复用下保持无）。
+- `tui-render/src/deferred.rs`：mermaid 围栏识别与定几何文本占位渲染（无栅格后端，按产品需要再接）。
+- `tui-core/src/wrap_map.rs`（新增）：包裹行到源列区间的映射与跨行复制裁剪，宽字形不断裂。
+- `tui-core/src/copy.rs`：新增 `copy_wrapped_range`，可视选区精确回映射到源文本。

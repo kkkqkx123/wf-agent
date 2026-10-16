@@ -1,6 +1,7 @@
 //! Literal color compatibility: map historical literal colors to semantic roles.
 
 use super::data::{ColorRole, Rgb, Theme};
+use super::oklab::{oklab_to_rgb, rgb_to_oklab};
 
 /// Squared Euclidean distance between two colors.
 fn color_distance_sq(a: Rgb, b: Rgb) -> u32 {
@@ -40,4 +41,53 @@ pub fn nearest_role(literal: Rgb) -> ColorRole {
 /// every migrated call site without touching draw code.
 pub fn remap_literal(literal: Rgb, theme: &Theme) -> Rgb {
     theme.rgb_for_role(nearest_role(literal))
+}
+
+/// Relative remap preserving the literal's OKLab offset from its role
+/// anchor: the delta between the literal and the dark-default role color is
+/// re-applied on top of the active theme role color. Exact role colors map
+/// exactly (zero delta keeps default output byte-identical) while tinted
+/// literals keep their lightness/chroma shift under a custom palette.
+pub fn remap_literal_relative(literal: Rgb, theme: &Theme) -> Rgb {
+    let role = nearest_role(literal);
+    let anchor = Theme::dark_default().rgb_for_role(role);
+    if literal == anchor {
+        return theme.rgb_for_role(role);
+    }
+    let literal_lab = rgb_to_oklab(literal);
+    let anchor_lab = rgb_to_oklab(anchor);
+    let target_lab = rgb_to_oklab(theme.rgb_for_role(role));
+    oklab_to_rgb(super::oklab::Oklab {
+        l: target_lab.l + (literal_lab.l - anchor_lab.l),
+        a: target_lab.a + (literal_lab.a - anchor_lab.a),
+        b: target_lab.b + (literal_lab.b - anchor_lab.b),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_remap_is_identity_on_defaults() {
+        let defaults = Theme::dark_default();
+        for literal in [
+            Rgb::new(0x22, 0xD3, 0xEE),
+            Rgb::new(0x4A, 0xDE, 0x80),
+            Rgb::new(0xE5, 0xE7, 0xEB),
+        ] {
+            assert_eq!(remap_literal_relative(literal, &defaults), literal);
+        }
+    }
+
+    #[test]
+    fn relative_remap_preserves_tint_offset() {
+        let mut custom = Theme::dark_default();
+        custom.accent = Rgb::new(0x11, 0x22, 0x33);
+        let exact = remap_literal_relative(Rgb::new(0x22, 0xD3, 0xEE), &custom);
+        assert_eq!(exact, Rgb::new(0x11, 0x22, 0x33));
+        // A tinted literal keeps a nonzero shift instead of collapsing.
+        let tinted = remap_literal_relative(Rgb::new(0x30, 0xE0, 0xF5), &custom);
+        assert_ne!(tinted, Rgb::new(0x11, 0x22, 0x33));
+    }
 }

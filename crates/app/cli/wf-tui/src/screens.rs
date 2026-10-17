@@ -172,6 +172,9 @@ impl Screens {
             ScreenKind::FileApprovals => {
                 screen_draw::draw_file_approvals(frame, area, data, self.selected, theme, ctx)
             }
+            ScreenKind::Conflicts => {
+                screen_draw::draw_conflicts(frame, area, data, self.selected, theme, ctx)
+            }
             ScreenKind::Settings => {
                 screen_draw::draw_settings(frame, area, data, settings_scroll, theme)
             }

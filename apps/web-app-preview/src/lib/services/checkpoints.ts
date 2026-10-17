@@ -32,6 +32,9 @@ type MergeCommitDoc = components['schemas']['MergeCommitDoc'];
 type GcStatsDoc = components['schemas']['GcStatsDoc'];
 type StoreStatsDoc = components['schemas']['StoreStatsDoc'];
 type StateFileLinkDoc = components['schemas']['StateFileLinkDoc'];
+type PartitionHistoryEntryDoc =
+	components['schemas']['PartitionHistoryEntryDoc'];
+type EntityMetadataDoc = components['schemas']['EntityMetadataDoc'];
 
 type CheckpointPage = NonNullable<
 	components['schemas']['ApiEnvelope_PageView_CheckpointDoc']['data']
@@ -810,5 +813,243 @@ export async function getStateFileLinks(
 				fileCommitId: d.file_commit_id ?? null,
 			} satisfies StateFileLink,
 		]),
+	);
+}
+
+/** Create a workflow execution checkpoint; returns the new checkpoint id. */
+export async function createExecutionCheckpoint(
+	executionId: string,
+): Promise<string> {
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/executions/{id}/checkpoints', {
+				params: { path: { id: executionId } },
+			}),
+		),
+		'Execution checkpoint',
+	);
+}
+
+/** Garbage-collect an execution's checkpoints; without `before` all are
+ * removed. Returns the number of checkpoints deleted. */
+export async function gcExecutionCheckpoints(
+	executionId: string,
+	before?: number,
+): Promise<number> {
+	return requireData(
+		await call<number>(
+			client.POST('/api/v1/executions/{id}/checkpoints/gc', {
+				params: { path: { id: executionId }, query: { before } },
+			}),
+		),
+		'Checkpoint GC',
+	);
+}
+
+/** Delete every checkpoint of one entity; `entityType` selects the domain
+ * (`checkpoint` for workflow executions, `agent_loop` for agent loops).
+ * Returns the number of checkpoints deleted. */
+export async function deleteCheckpointsByEntity(
+	entityId: string,
+	entityType: string,
+): Promise<number> {
+	return requireData(
+		await call<number>(
+			client.DELETE('/api/v1/checkpoints/entity/{entityId}', {
+				params: { path: { entityId }, query: { entity_type: entityType } },
+			}),
+		),
+		'Entity checkpoint delete',
+	);
+}
+
+/** Rename or move a file within an actor workspace. Empty `content` writes
+ * an empty destination; pass the raw new bytes to change content too.
+ * Returns the snapshot id of the recorded move. */
+export async function renameFile(
+	actor: string,
+	fromPath: string,
+	toPath: string,
+	content = '',
+): Promise<string> {
+	return requireData(
+		await call<string>(
+			client.POST('/api/v1/file-checkpoint/rename', {
+				body: { actor, from_path: fromPath, to_path: toPath, content },
+			}),
+		),
+		'File rename',
+	);
+}
+
+/** One commit in a partition's history, newest first. */
+export interface PartitionCommit {
+	snapshotId: string;
+	parents: string[];
+	message: string | null;
+	actor: string | null;
+	session: string | null;
+	tool: string | null;
+	timestamp: number;
+	isMerge: boolean;
+	hasConflicts: boolean;
+}
+
+/** Paged commit history of one partition ref. */
+export async function getPartitionHistory(
+	partitionId: string,
+	limit = 50,
+	offset = 0,
+): Promise<PageResult<PartitionCommit>> {
+	const data = await call<
+		| NonNullable<
+				components['schemas']['ApiEnvelope_PageView_PartitionHistoryEntryDoc']['data']
+		  >
+		| PartitionHistoryEntryDoc[]
+	>(
+		client.GET('/api/v1/file-checkpoint/partitions/{id}/history', {
+			params: { path: { id: partitionId }, query: { limit, offset } },
+		}),
+	);
+	const page = extractPage<PartitionHistoryEntryDoc>(data);
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as PartitionHistoryEntryDoc[])
+				: [];
+	return {
+		...page,
+		items: rows.map((d) => ({
+			snapshotId: d.snapshot_id,
+			parents: d.parents,
+			message: d.message ?? null,
+			actor: d.actor ?? null,
+			session: d.session ?? null,
+			tool: d.tool ?? null,
+			timestamp: d.timestamp,
+			isMerge: d.is_merge,
+			hasConflicts: d.has_conflicts,
+		})),
+	};
+}
+
+/** Aggregate statistics of the retained agent-loop checkpoints. */
+export interface AgentCheckpointStats {
+	total: number;
+	byType: Record<string, number>;
+	active: number;
+	avgBlobSize: number | null;
+}
+
+/** Statistics over every retained agent-loop checkpoint. */
+export async function getAgentCheckpointStats(): Promise<AgentCheckpointStats> {
+	const raw = (await call<unknown>(
+		client.GET('/api/v1/agent-checkpoints/stats'),
+	)) as {
+		total?: number;
+		by_type?: Record<string, number>;
+		active?: number;
+		avg_blob_size?: number | null;
+	} | null;
+	const data = requireData(raw, 'Agent checkpoint stats');
+	return {
+		total: data.total ?? 0,
+		byType: data.by_type ?? {},
+		active: data.active ?? 0,
+		avgBlobSize: data.avg_blob_size ?? null,
+	};
+}
+
+/** Checkpoints of a workflow's executions within an epoch-millis window. */
+export async function getCheckpointsByTimeRange(params: {
+	workflowId: string;
+	start: number;
+	end: number;
+	limit?: number;
+	offset?: number;
+}): Promise<PageResult<Checkpoint>> {
+	const data = await call<CheckpointPage | CheckpointDoc[]>(
+		client.GET('/api/v1/checkpoints/time-range', {
+			params: {
+				query: {
+					workflowId: params.workflowId,
+					start: params.start,
+					end: params.end,
+					limit: params.limit,
+					offset: params.offset,
+				},
+			},
+		}),
+	);
+	return toCheckpointPage(data);
+}
+
+/** Checkpoints of several entities in one call. `entityType` selects the
+ * domain (`checkpoint` for workflow executions, `agent_loop` for loops). */
+export async function getCheckpointsByEntities(params: {
+	entityIds: string[];
+	entityType?: string;
+	limit?: number;
+	offset?: number;
+}): Promise<PageResult<Checkpoint>> {
+	const ids = params.entityIds.filter((id) => id.trim().length > 0);
+	const data = await call<CheckpointPage | CheckpointDoc[]>(
+		client.GET('/api/v1/checkpoints/entities', {
+			params: {
+				query: {
+					entity_ids: ids.join(','),
+					entity_type: params.entityType,
+					limit: params.limit,
+					offset: params.offset,
+				},
+			},
+		}),
+	);
+	return toCheckpointPage(data);
+}
+
+/** Share the paged CheckpointDoc → view-model mapping across list queries. */
+function toCheckpointPage(
+	data: CheckpointPage | CheckpointDoc[] | undefined,
+): PageResult<Checkpoint> {
+	const page = extractPage<CheckpointDoc>(data);
+	const rows =
+		page.items.length > 0
+			? page.items
+			: Array.isArray(data)
+				? (data as CheckpointDoc[])
+				: [];
+	return {
+		...page,
+		items: rows.map((d, index) => toCheckpoint(d, index)),
+	};
+}
+
+/** Entity-scoped checkpoint metadata (opaque JSON object). */
+export async function getEntityMetadata(
+	entityId: string,
+): Promise<Record<string, unknown>> {
+	const d = requireData(
+		await call<EntityMetadataDoc>(
+			client.GET('/api/v1/checkpoints/entity/{entityId}/metadata', {
+				params: { path: { entityId } },
+			}),
+		),
+		'Entity metadata',
+	);
+	return (d.metadata ?? {}) as Record<string, unknown>;
+}
+
+/** Replace entity-scoped checkpoint metadata with the given JSON object. */
+export async function setEntityMetadata(
+	entityId: string,
+	metadata: Record<string, unknown>,
+): Promise<void> {
+	await call<unknown>(
+		client.PUT('/api/v1/checkpoints/entity/{entityId}/metadata', {
+			params: { path: { entityId } },
+			body: metadata,
+		}),
 	);
 }

@@ -28,7 +28,10 @@ const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 pub fn is_live_screen(kind: ScreenKind) -> bool {
     matches!(
         kind,
-        ScreenKind::Checkpoints | ScreenKind::FileWorkspace | ScreenKind::FileApprovals
+        ScreenKind::Checkpoints
+            | ScreenKind::FileWorkspace
+            | ScreenKind::FileApprovals
+            | ScreenKind::Conflicts
     )
 }
 
@@ -77,6 +80,7 @@ fn screens_for_event(payload: &serde_json::Value) -> Vec<ScreenKind> {
             ScreenKind::FileApprovals,
             ScreenKind::FileWorkspace,
             ScreenKind::Checkpoints,
+            ScreenKind::Conflicts,
         ],
         Some("CHECKPOINT_REVIEW_SUBMITTED") => vec![ScreenKind::FileApprovals],
         _ => Vec::new(),
@@ -101,7 +105,8 @@ mod tests {
             vec![
                 ScreenKind::FileApprovals,
                 ScreenKind::FileWorkspace,
-                ScreenKind::Checkpoints
+                ScreenKind::Checkpoints,
+                ScreenKind::Conflicts
             ]
         );
 

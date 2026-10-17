@@ -257,6 +257,7 @@ use utoipa::OpenApi;
         crate::api::checkpoint::file_approvals::handle_approve_changes,
         crate::api::checkpoint::file_approvals::handle_reject_changes,
         crate::api::checkpoint::file_provenance::handle_list_partitions,
+        crate::api::checkpoint::file_provenance::handle_partition_history,
         crate::api::checkpoint::file_provenance::handle_list_conflicts,
         crate::api::checkpoint::file_provenance::handle_get_actor_workspace,
         crate::api::checkpoint::file_provenance::handle_diff_actors,
@@ -588,6 +589,8 @@ use utoipa::OpenApi;
         crate::envelope::ApiEnvelope<crate::api::trigger::hooks::FireResponse>,
         crate::api::checkpoint::file_approvals::RejectResponse,
         crate::envelope::ApiEnvelope<crate::api::checkpoint::file_approvals::RejectResponse>,
+        crate::api::checkpoint::views::PartitionHistoryEntryDoc,
+        crate::envelope::ApiEnvelope<crate::paged::PageView<crate::api::checkpoint::views::PartitionHistoryEntryDoc>>,
         crate::api::agent::graphs::CappedPaths,
         crate::envelope::ApiEnvelope<crate::api::agent::graphs::CappedPaths>,
         crate::api::workflow::graphs::GraphNodeDoc,
@@ -959,6 +962,42 @@ mod tests {
             "route/annotation drift\nonly in annotations: {only_annotation:?}\nonly in routes: {only_route:?}"
         );
         assert!(!annotated.is_empty(), "expected a non-empty annotation set");
+    }
+
+    /// Every annotated handler must be registered in `ApiDoc::paths`. A
+    /// handler annotated and routed but missing from the paths list is served
+    /// at runtime yet absent from the published contract, so the TypeScript
+    /// codegen never emits it.
+    #[test]
+    fn annotations_are_registered_in_document() {
+        let v = doc();
+        let paths = v["paths"].as_object().expect("paths object");
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut missing = Vec::new();
+        for entry in walk_rs(&src_root) {
+            let rel = entry
+                .strip_prefix(&src_root)
+                .expect("source under src root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if should_skip_route_file(&rel) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&entry).expect("read source file");
+            for (method, path) in parse_utoipa_annotations(&text) {
+                let registered = paths
+                    .get(&path)
+                    .and_then(|item| item.get(method.to_ascii_lowercase().as_str()))
+                    .is_some();
+                if !registered {
+                    missing.push(format!("{method} {path}"));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "annotated handlers missing from ApiDoc paths: {missing:?}"
+        );
     }
 
     fn walk_rs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {

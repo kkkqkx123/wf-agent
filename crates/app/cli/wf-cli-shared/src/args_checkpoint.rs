@@ -32,17 +32,47 @@ pub enum CheckpointSub {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
     },
-    /// Create a file checkpoint for a workspace directory.
+    /// Create a file checkpoint for the bound workspace.
     FileCreate {
         /// Actor or entity id the file edits are attributed to.
         #[arg(value_name = "ID")]
         id: String,
-        /// Workspace root to scan.
-        #[arg(long, value_name = "PATH")]
-        path: String,
     },
     /// List file-checkpoint partitions of the bound workspace.
     FilePartitions,
+    /// Show the commit history of one file-checkpoint partition, newest first.
+    FilePartitionHistory {
+        /// Partition ref name.
+        #[arg(value_name = "PARTITION")]
+        partition: String,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into results.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+    },
+    /// Rename or move a file within an actor workspace.
+    FileRename {
+        /// Actor partition the rename is attributed to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Current workspace-relative path.
+        #[arg(value_name = "FROM")]
+        from: String,
+        /// New workspace-relative path.
+        #[arg(value_name = "TO")]
+        to: String,
+        /// Optional file supplying the destination content; empty when omitted.
+        #[arg(long, value_name = "FILE")]
+        content_file: Option<String>,
+    },
+    /// Report state-to-file association health for state checkpoints.
+    FileStateLinks {
+        /// Comma-separated state checkpoint ids.
+        #[arg(value_name = "IDS", value_delimiter = ',')]
+        ids: Vec<String>,
+    },
     /// List file changes by actor and/or path.
     FileChanges {
         /// Actor partition to query.
@@ -282,7 +312,8 @@ pub enum CheckpointSub {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
-        /// Explicit domain override, only needed for ambiguous ids.
+        /// Explicit domain override; agent loops must pass `agent`, workflow
+        /// executions default to the workflow chain endpoint.
         #[arg(long, value_enum)]
         domain: Option<CheckpointDomain>,
     },
@@ -294,6 +325,72 @@ pub enum CheckpointSub {
         /// Only delete checkpoints before this epoch millis (when omitted delete all of the execution).
         #[arg(long, value_name = "TIMESTAMP")]
         before: Option<i64>,
+        /// Explicit domain override, only needed for ambiguous ids.
+        #[arg(long, value_enum)]
+        domain: Option<CheckpointDomain>,
+    },
+    /// Show the latest checkpoint of an entity.
+    Latest {
+        /// Execution or entity id.
+        #[arg(value_name = "ENTITY")]
+        entity: String,
+        /// Explicit domain override, only needed for ambiguous ids.
+        #[arg(long, value_enum)]
+        domain: Option<CheckpointDomain>,
+    },
+    /// List checkpoints of several entities in one call.
+    Entities {
+        /// Execution or entity ids (comma-separated).
+        #[arg(value_name = "IDS", value_delimiter = ',')]
+        ids: Vec<String>,
+        /// Explicit domain override applied to every id.
+        #[arg(long, value_enum)]
+        domain: Option<CheckpointDomain>,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into results.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+    },
+    /// List checkpoints of a workflow's executions within a time range.
+    TimeRange {
+        /// Workflow id owning the executions.
+        #[arg(value_name = "WORKFLOW")]
+        workflow: String,
+        /// Start of the window (epoch millis).
+        #[arg(long, value_name = "MILLIS")]
+        start: i64,
+        /// End of the window (epoch millis).
+        #[arg(long, value_name = "MILLIS")]
+        end: i64,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into results.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+    },
+    /// Show entity-level checkpoint metadata.
+    MetadataGet {
+        /// Execution or entity id.
+        #[arg(value_name = "ENTITY")]
+        entity: String,
+    },
+    /// Replace entity-level checkpoint metadata with a JSON object.
+    MetadataSet {
+        /// Execution or entity id.
+        #[arg(value_name = "ENTITY")]
+        entity: String,
+        /// JSON object holding the metadata to store.
+        #[arg(long, value_name = "JSON")]
+        json: String,
+    },
+    /// Delete all checkpoints of an entity.
+    DeleteByEntity {
+        /// Execution or entity id.
+        #[arg(value_name = "ENTITY")]
+        entity: String,
         /// Explicit domain override, only needed for ambiguous ids.
         #[arg(long, value_enum)]
         domain: Option<CheckpointDomain>,
@@ -625,6 +722,89 @@ mod tests {
             panic!("expected checkpoint command");
         };
         assert!(matches!(sub, CheckpointSub::FileConflicts));
+    }
+
+    #[test]
+    fn checkpoint_extended_surface_parses() {
+        let cli = parse(&["checkpoint", "latest", "exec-1", "--domain", "agent"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::Latest { .. }));
+
+        let cli = parse(&[
+            "checkpoint",
+            "entities",
+            "a,b",
+            "--domain",
+            "workflow",
+            "--limit",
+            "5",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::Entities { ids, limit, .. } = sub else {
+            panic!("expected entities");
+        };
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(limit, Some(5));
+
+        let cli = parse(&[
+            "checkpoint",
+            "time-range",
+            "wf-1",
+            "--start",
+            "1",
+            "--end",
+            "2",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::TimeRange { .. }));
+
+        let cli = parse(&["checkpoint", "metadata-set", "exec-1", "--json", "{}"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::MetadataSet { .. }));
+
+        let cli = parse(&["checkpoint", "delete-by-entity", "exec-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::DeleteByEntity { .. }));
+
+        let cli = parse(&["checkpoint", "file-partition-history", "main"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FilePartitionHistory { .. }));
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-rename",
+            "agent-1",
+            "src/old.rs",
+            "src/new.rs",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileRename { .. }));
+
+        let cli = parse(&["checkpoint", "file-state-links", "cp-1,cp-2"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileStateLinks { ids } = sub else {
+            panic!("expected file-state-links");
+        };
+        assert_eq!(ids, vec!["cp-1".to_string(), "cp-2".to_string()]);
     }
 
     #[test]

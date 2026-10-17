@@ -21,6 +21,7 @@ pub enum ScreenKind {
     FileTimeline,
     EditSessions,
     FileApprovals,
+    Conflicts,
 }
 
 impl ScreenKind {
@@ -39,6 +40,7 @@ impl ScreenKind {
             Self::FileTimeline => "Timeline",
             Self::EditSessions => "Edit sessions",
             Self::FileApprovals => "Approvals",
+            Self::Conflicts => "Conflicts",
         }
     }
 
@@ -59,6 +61,7 @@ impl ScreenKind {
             Self::FileWorkspace,
             Self::EditSessions,
             Self::FileApprovals,
+            Self::Conflicts,
         ]
     }
 
@@ -88,7 +91,8 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         | ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
         | ScreenKind::EditSessions
-        | ScreenKind::FileApprovals => None,
+        | ScreenKind::FileApprovals
+        | ScreenKind::Conflicts => None,
     }
 }
 
@@ -294,6 +298,23 @@ pub struct ApprovalRow {
     pub submitted: String,
     pub status: String,
     /// Pre-rendered viewer text (actor, snapshot, submitted time, file list).
+    pub detail: String,
+}
+
+/// One unresolved merge conflict rendered on the conflicts screen: the file
+/// path, the ref the conflict lives on, the region count and the conflict id
+/// (`partition` + `snapshot_id`) used by the resolve action.
+#[derive(Debug, Clone)]
+pub struct ConflictRow {
+    pub path: String,
+    /// Ref the conflict lives on (`refs/wf/feat/*` or `refs/wf/main`).
+    pub partition: String,
+    /// Commit id (hex) of the conflicted merge commit.
+    pub snapshot_id: String,
+    pub regions: usize,
+    /// True when the merged bytes hold no markers (binary conflict).
+    pub binary: bool,
+    /// Pre-rendered viewer text (partition, snapshot, region excerpts).
     pub detail: String,
 }
 
@@ -546,6 +567,7 @@ pub enum ScreenData {
     FileTimeline(FileTimelineData),
     EditSessions(Vec<EditSessionRow>),
     FileApprovals(Vec<ApprovalRow>),
+    Conflicts(Vec<ConflictRow>),
 }
 
 impl ScreenData {
@@ -564,6 +586,7 @@ impl ScreenData {
             Self::FileTimeline(data) => data.rows.len(),
             Self::EditSessions(rows) => rows.len(),
             Self::FileApprovals(rows) => rows.len(),
+            Self::Conflicts(rows) => rows.len(),
         }
     }
 }
@@ -644,6 +667,12 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
         ScreenData::FileApprovals(rows) => ScreenData::FileApprovals(
             rows.iter()
                 .filter(|r| hits(&[&r.actor, &r.status, &r.submitted]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::Conflicts(rows) => ScreenData::Conflicts(
+            rows.iter()
+                .filter(|r| hits(&[&r.path, &r.partition]))
                 .cloned()
                 .collect(),
         ),

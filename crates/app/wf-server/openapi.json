@@ -19232,6 +19232,96 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/partitions/{id}/history": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_partition_history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Commit history of one partition ref, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageView_PartitionHistoryEntryDoc"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/redo/{id}": {
       "post": {
         "tags": [
@@ -40695,6 +40785,120 @@
           }
         }
       },
+      "ApiEnvelope_PageView_PartitionHistoryEntryDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "One page of a list response.",
+            "required": [
+              "items",
+              "limit",
+              "offset",
+              "has_more"
+            ],
+            "properties": {
+              "has_more": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "One commit in a partition history view\n(`wf_checkpoint::provenance::PartitionCommitView` mirrored).",
+                  "required": [
+                    "snapshot_id",
+                    "parents",
+                    "timestamp",
+                    "is_merge",
+                    "has_conflicts"
+                  ],
+                  "properties": {
+                    "actor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Owning actor from the `Wf-Actor` trailer, absent when unset."
+                    },
+                    "has_conflicts": {
+                      "type": "boolean",
+                      "description": "True when the commit carries the conflict-unresolved state."
+                    },
+                    "is_merge": {
+                      "type": "boolean",
+                      "description": "True when the commit has more than one parent."
+                    },
+                    "message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "First message line (intent), absent when the message is blank."
+                    },
+                    "parents": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Parent commit ids (hex); more than one marks a merge commit."
+                    },
+                    "session": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Edit session from the `Wf-Session` trailer, absent when unset."
+                    },
+                    "snapshot_id": {
+                      "type": "string",
+                      "description": "Commit id (hex)."
+                    },
+                    "timestamp": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Commit time (Unix milliseconds)."
+                    },
+                    "tool": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Origin tool from the `Wf-Tool` trailer, absent when unset."
+                    }
+                  }
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_PageView_Value": {
         "type": "object",
         "required": [
@@ -44755,6 +44959,71 @@
             "type": "integer",
             "format": "int64",
             "description": "Time of the head commit (Unix milliseconds)."
+          }
+        }
+      },
+      "PartitionHistoryEntryDoc": {
+        "type": "object",
+        "description": "One commit in a partition history view\n(`wf_checkpoint::provenance::PartitionCommitView` mirrored).",
+        "required": [
+          "snapshot_id",
+          "parents",
+          "timestamp",
+          "is_merge",
+          "has_conflicts"
+        ],
+        "properties": {
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Owning actor from the `Wf-Actor` trailer, absent when unset."
+          },
+          "has_conflicts": {
+            "type": "boolean",
+            "description": "True when the commit carries the conflict-unresolved state."
+          },
+          "is_merge": {
+            "type": "boolean",
+            "description": "True when the commit has more than one parent."
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "First message line (intent), absent when the message is blank."
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Parent commit ids (hex); more than one marks a merge commit."
+          },
+          "session": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Edit session from the `Wf-Session` trailer, absent when unset."
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Commit id (hex)."
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Commit time (Unix milliseconds)."
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Origin tool from the `Wf-Tool` trailer, absent when unset."
           }
         }
       },

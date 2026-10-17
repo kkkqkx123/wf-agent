@@ -8,6 +8,7 @@ mod approvals;
 mod catalog;
 mod checkpoints;
 pub(crate) mod common;
+mod conflicts;
 mod dashboard;
 mod detail;
 mod file_workspace;
@@ -28,6 +29,7 @@ use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind};
 use approvals::fetch_file_approvals;
 use catalog::{fetch_catalog, fetch_git, fetch_settings};
 use checkpoints::fetch_checkpoints;
+use conflicts::fetch_conflicts;
 use dashboard::{fetch_dashboard, fetch_executions, fetch_insights, fetch_workflows};
 use file_workspace::{fetch_file_timeline, fetch_file_workspace};
 use sessions::fetch_edit_sessions;
@@ -58,6 +60,7 @@ pub async fn fetch_for(
         ScreenKind::FileTimeline => fetch_file_timeline(client, file_timeline_path).await,
         ScreenKind::EditSessions => fetch_edit_sessions(client).await,
         ScreenKind::FileApprovals => fetch_file_approvals(client).await,
+        ScreenKind::Conflicts => fetch_conflicts(client).await,
         ScreenKind::Interactive => Ok((ScreenData::None, false)),
     }
 }

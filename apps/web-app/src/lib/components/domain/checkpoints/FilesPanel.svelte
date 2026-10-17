@@ -2,6 +2,7 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Badge from '@wf-agent/ui/components/Badge.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import PageState from '$lib/components/layout/PageState.svelte';
 	import FileChangesCard from './files/FileChangesCard.svelte';
 	import FilePreviewCard from './files/FilePreviewCard.svelte';
@@ -18,10 +19,12 @@
 		getFileTimeline,
 		listPartitions,
 		listConflicts,
+		getPartitionHistory,
 		type ConflictFile,
 		type FileContent,
 		type FileTimeline,
 		type FileTree,
+		type PartitionCommit,
 		type PartitionView,
 	} from '$lib/services/checkpoints';
 	import type { DiffFile } from '$lib/types/diff';
@@ -29,6 +32,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
+	import { formatRelativeTime } from '$lib/utils/format';
 
 	let {
 		onresolve,
@@ -178,6 +182,46 @@
 		selectedPreview = change;
 		void selectChange(change);
 	}
+
+	// ── partition commit history ──
+	const HISTORY_PAGE = 50;
+	let historyOpen = $state(false);
+	let historyTarget = $state<PartitionView | null>(null);
+	let historyCommits = $state<PartitionCommit[]>([]);
+	let historyHasMore = $state(false);
+	let historyLoading = $state(false);
+
+	function openHistory(partition: PartitionView): void {
+		historyTarget = partition;
+		historyCommits = [];
+		historyHasMore = false;
+		historyOpen = true;
+		void loadHistory(0);
+	}
+
+	async function loadHistory(offset: number): Promise<void> {
+		const target = historyTarget;
+		if (!target) return;
+		historyLoading = true;
+		try {
+			const page = await getPartitionHistory(
+				target.partitionId,
+				HISTORY_PAGE,
+				offset,
+			);
+			historyCommits =
+				offset === 0 ? page.items : [...historyCommits, ...page.items];
+			historyHasMore = page.hasMore;
+		} catch (e) {
+			console.error('Failed to load partition history:', e);
+			toasts.error(
+				'Partition history unavailable',
+				e instanceof Error ? e.message : undefined,
+			);
+		} finally {
+			historyLoading = false;
+		}
+	}
 </script>
 
 <PageState {loading} error={loadError} onretry={() => void loadShared()}>
@@ -232,6 +276,13 @@
 						<span class="shrink-0 font-mono text-micro text-muted-foreground"
 							>{partition.currentSnapshot.slice(0, 10)} · {partition.historyLen}</span
 						>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => openHistory(partition)}
+						>
+							History
+						</Button>
 					</li>
 				{/each}
 				{#if partitions.length > partitionShown}
@@ -288,6 +339,71 @@
 </div>
 
 <ReviewMergeCard {partitions} />
+
+<Dialog
+	bind:open={historyOpen}
+	title="Partition history"
+	description={historyTarget
+		? `${historyTarget.name} · newest commit first`
+		: 'Newest commit first'}
+	onclose={() => (historyTarget = null)}
+>
+	{#if historyTarget}
+		<p class="mb-2 font-mono text-micro text-muted-foreground">
+			{historyTarget.partitionId}
+		</p>
+	{/if}
+	{#if historyCommits.length === 0}
+		<p class="text-caption text-muted-foreground">
+			{historyLoading ? 'Loading commits…' : 'No commits reported.'}
+		</p>
+	{:else}
+		<ul class="max-h-96 space-y-2 overflow-y-auto">
+			{#each historyCommits as commit (commit.snapshotId)}
+				<li class="border-b border-border pb-2 last:border-b-0">
+					<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
+						<span class="font-mono">{commit.snapshotId.slice(0, 10)}</span>
+						<span class="min-w-0 flex-1 truncate">
+							{commit.message ?? '(no message)'}
+						</span>
+						{#if commit.isMerge}
+							<Badge variant="neutral">merge</Badge>
+						{/if}
+						{#if commit.hasConflicts}
+							<Badge variant="warning">conflicts</Badge>
+						{/if}
+						<span class="shrink-0 text-micro text-muted-foreground">
+							{formatRelativeTime(commit.timestamp)}
+						</span>
+					</div>
+					<div class="text-micro text-muted-foreground">
+						{commit.actor ?? 'unknown actor'}{commit.session
+							? ` · session ${commit.session}`
+							: ''}{commit.tool ? ` · ${commit.tool}` : ''}{commit.parents.length > 1
+							? ` · ${commit.parents.length} parents`
+							: ''}
+					</div>
+				</li>
+			{/each}
+		</ul>
+		{#if historyHasMore}
+			<Button
+				variant="ghost"
+				size="sm"
+				class="mt-2"
+				disabled={historyLoading}
+				onclick={() => void loadHistory(historyCommits.length)}
+			>
+				Load more
+			</Button>
+		{/if}
+	{/if}
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (historyOpen = false)}>
+			Close
+		</Button>
+	{/snippet}
+</Dialog>
 
 <div class="mt-3 grid gap-3 xl:grid-cols-2">
 	<SessionsCard />

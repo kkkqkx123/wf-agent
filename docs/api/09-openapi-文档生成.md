@@ -20,8 +20,8 @@
 `ApiDoc` 为空结构体，仅承载 `openapi` 属性，主要部分：
 
 - 基本信息：标题 `wf-server API`，版本 `v1`，描述覆盖 agent 循环、工作流、checkpoint、模板与 LLM 集成。
-- 路径列表：按 agent、workflow、checkpoint、trigger、template、llm、entity、observation、system、web 等域分组登记，当前 **452 个操作**（含 health/metrics/Prometheus `/metrics`）。登记的是 handler 函数，不是 URL 字符串。
-- 类型组件：登记响应体与请求体引用的具体类型；当前快照 72 个 component schema。
+- 路径列表：按 agent、workflow、checkpoint、trigger、template、llm、entity、observation、system、web 等域分组登记，当前 **511 个操作**（含 health/metrics/Prometheus `/metrics`）。登记的是 handler 函数，不是 URL 字符串。
+- 类型组件：登记响应体与请求体引用的具体类型；当前快照 221 个 component schema。
 - 标签：十个域标签，每个标签带一句话说明，供文档工具分组。
 - 服务器：`url = "/"`，路径字符串自带完整前缀（业务面带 `/api/v1`，根级路由写绝对路径），因此根级健康检查与 `/api/v1/*` 可出现在同一文档中。
 - 全局鉴权：声明全部操作默认使用 `api_key`；方案定义由 `SecurityAddon` 在文档生成后注入（API key，请求头 `x-api-key`，兼容查询参数 `api_key`，与 `middleware.rs` 一致）。
@@ -70,12 +70,13 @@
 `openapi::tests` 覆盖：
 
 1. 文档为合法 OpenAPI 3.1.0，标题正确，路径规模完整。
-2. 每个操作声明 200 成功响应，且操作总数为 **452**（一操作一注解 handler）。
-3. 全局错误响应（401/403/429/503/504）已注入。
-4. `securitySchemes` 注册为请求头位置的 API key（`x-api-key`）。
-5. 提交快照与当前 `ApiDoc` 一致（可用 `WF_REFRESH_OPENAPI=1` 重写）。
+2. 每个操作声明 200 成功响应；操作规模非空。
+3. 每个操作的 `operationId` 文档内唯一（`openapi-typescript` 以它为键，重名会静默覆盖并错误类型化调用点）。
+4. 全局错误响应（401/403/429/503/504）已注入。
+5. `securitySchemes` 注册为请求头位置的 API key（`x-api-key`）。
+6. 提交快照与当前 `ApiDoc` 一致（可用 `WF_REFRESH_OPENAPI=1` 重写）。
 
-操作总数断言约束「注解已登记」；`routes_match_utoipa_annotations` 解析源码 `.route` 与 `#[utoipa::path]` 做集合比对，显式排除 WS 与文档路由，补上「只加路由不加注解」的盲区。
+`routes_match_utoipa_annotations` 解析源码 `.route` 与 `#[utoipa::path]` 做集合比对，显式排除 WS 与文档路由，补上「只加路由不加注解」的盲区；`annotations_are_registered_in_document` 反向校验每个注解都出现在 `ApiDoc::paths` 中，补上「有注解有路由但漏登记」的盲区（该盲区曾让 `partitions/{id}/history` 从快照消失）。
 
 ## 7. 离线 TypeScript codegen
 
@@ -97,7 +98,7 @@
 1. handler 上方的 `#[utoipa::path]` 注解。
 2. `ApiDoc` 的 `paths(...)` 函数登记。
 3. `components(schemas(...))` 中新响应/请求类型的登记（本地类型需 `ToSchema`）。
-4. 测试中的操作总数（`ops == 452` 断言）。
+4. 用 `annotations_are_registered_in_document` 守卫确认登记未漏（无需手改计数断言）。
 
 随后刷新快照并按需重跑 codegen：`WF_REFRESH_OPENAPI=1` 相关测试 → `tools/openapi-codegen` 执行 `npm run gen` → 将本目录 `schema.d.ts` 复制到 `apps/web-app/src/lib/api/`。响应形态特殊（流或下载）时按第三章类别声明，错误保持 `ErrorResponse`。
 

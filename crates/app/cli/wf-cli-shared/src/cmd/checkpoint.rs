@@ -9,8 +9,10 @@ use crate::error::CliResult;
 use crate::output::{OutputEnvelope, OutputFormat};
 
 fn entity_type(domain: Option<CheckpointDomain>) -> Option<&'static str> {
+    // Workflow checkpoints are stored under the `checkpoint` entity type;
+    // only agent loops use `agent_loop`.
     match domain {
-        Some(CheckpointDomain::Workflow) => Some("workflow"),
+        Some(CheckpointDomain::Workflow) => Some("checkpoint"),
         Some(CheckpointDomain::Agent) => Some("agent_loop"),
         None => None,
     }
@@ -482,7 +484,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-file-index-status", data),
             )
         }
-        CheckpointSub::FileCreate { id, path: _ } => {
+        CheckpointSub::FileCreate { id } => {
             // The server attributes workspace checkpoints to an actor; the
             // CLI id names that actor.
             let body = serde_json::json!({"actor": id});
@@ -610,23 +612,35 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-delete", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Chain { id, domain: _ } => {
-            let data: serde_json::Value = client
-                .get_json(&format!("/api/v1/executions/{id}/checkpoints/chain"))
-                .await?;
+        CheckpointSub::Chain { id, domain } => {
+            let path = match domain {
+                Some(CheckpointDomain::Agent) => {
+                    format!("/api/v1/agent-loops/{id}/checkpoints/chain")
+                }
+                _ => format!("/api/v1/executions/{id}/checkpoints/chain"),
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Gc { id, before, domain } => {
-            let mut path = match before {
+        CheckpointSub::Gc {
+            id,
+            before,
+            domain,
+        } => {
+            let path = match before {
                 Some(ts) => format!("/api/v1/executions/{id}/checkpoints/gc?before={ts}"),
                 None => format!("/api/v1/executions/{id}/checkpoints/gc"),
             };
-            if let Some(entity) = entity_type(*domain) {
-                path.push_str(&format!("&domain={entity}"));
-            }
+            // The GC endpoint takes an execution-domain token, not the
+            // checkpoint entity type.
+            let path = match domain {
+                Some(CheckpointDomain::Workflow) => format!("{path}&domain=workflow"),
+                Some(CheckpointDomain::Agent) => format!("{path}&domain=agent"),
+                None => path,
+            };
             let deleted: serde_json::Value =
                 client.post_json(&path, &serde_json::json!({})).await?;
             let deleted = deleted.as_u64().unwrap_or(0) as usize;
@@ -634,6 +648,212 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-gc", data).with_entity(id.clone()),
+            )
+        }
+        CheckpointSub::Latest { entity, domain } => {
+            let mut path = format!(
+                "/api/v1/checkpoints/entity/{}/latest",
+                encode_segment(entity)
+            );
+            if let Some(entity_type) = entity_type(*domain) {
+                path.push_str(&format!("?entity_type={entity_type}"));
+            }
+            let data: serde_json::Value = client.get_json(&path).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-latest", data).with_entity(entity.clone()),
+            )
+        }
+        CheckpointSub::Entities {
+            ids,
+            domain,
+            limit,
+            offset,
+        } => {
+            if ids.is_empty() {
+                return Err(crate::error::CliError::Business(
+                    "at least one entity id is required".to_string(),
+                ));
+            }
+            let mut params = vec![format!("entity_ids={}", ids.join(","))];
+            if let Some(entity_type) = entity_type(*domain) {
+                params.push(format!("entity_type={entity_type}"));
+            }
+            if let Some(limit) = limit {
+                params.push(format!("limit={limit}"));
+            }
+            if let Some(offset) = offset {
+                params.push(format!("offset={offset}"));
+            }
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/checkpoints/entities?{}",
+                    params.join("&")
+                ))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-entities", data),
+            )
+        }
+        CheckpointSub::TimeRange {
+            workflow,
+            start,
+            end,
+            limit,
+            offset,
+        } => {
+            let mut params = vec![format!(
+                "workflowId={}&start={start}&end={end}",
+                encode_segment(workflow)
+            )];
+            if let Some(limit) = limit {
+                params.push(format!("limit={limit}"));
+            }
+            if let Some(offset) = offset {
+                params.push(format!("offset={offset}"));
+            }
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/checkpoints/time-range?{}",
+                    params.join("&")
+                ))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-time-range", data)
+                    .with_entity(workflow.clone()),
+            )
+        }
+        CheckpointSub::MetadataGet { entity } => {
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/checkpoints/entity/{}/metadata",
+                    encode_segment(entity)
+                ))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-metadata", data)
+                    .with_entity(entity.clone()),
+            )
+        }
+        CheckpointSub::MetadataSet { entity, json } => {
+            let parsed: serde_json::Value = serde_json::from_str(json).map_err(|e| {
+                crate::error::CliError::Business(format!("--json must be a JSON object: {e}"))
+            })?;
+            let object = match parsed {
+                serde_json::Value::Object(map) => map,
+                _ => {
+                    return Err(crate::error::CliError::Business(
+                        "--json must be a JSON object".to_string(),
+                    ));
+                }
+            };
+            let path = format!(
+                "/api/v1/checkpoints/entity/{}/metadata",
+                encode_segment(entity)
+            );
+            let data: serde_json::Value = client.put_json(&path, &object).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-metadata-set", data)
+                    .with_entity(entity.clone()),
+            )
+        }
+        CheckpointSub::DeleteByEntity { entity, domain } => {
+            let mut path = format!(
+                "/api/v1/checkpoints/entity/{}",
+                encode_segment(entity)
+            );
+            if let Some(entity_type) = entity_type(*domain) {
+                path.push_str(&format!("?entity_type={entity_type}"));
+            }
+            let removed: serde_json::Value = client.delete_json(&path).await?;
+            let removed = removed.as_u64().unwrap_or(0);
+            let data = serde_json::json!({"entity": entity, "deleted": removed});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-delete-by-entity", data)
+                    .with_entity(entity.clone()),
+            )
+        }
+        CheckpointSub::FilePartitionHistory {
+            partition,
+            limit,
+            offset,
+        } => {
+            let mut params: Vec<String> = Vec::new();
+            if let Some(limit) = limit {
+                params.push(format!("limit={limit}"));
+            }
+            if let Some(offset) = offset {
+                params.push(format!("offset={offset}"));
+            }
+            let mut path = format!(
+                "/api/v1/file-checkpoint/partitions/{}/history",
+                encode_segment(partition)
+            );
+            if !params.is_empty() {
+                path.push_str(&format!("?{}", params.join("&")));
+            }
+            let data: serde_json::Value = client.get_json(&path).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-partition-history", data)
+                    .with_entity(partition.clone()),
+            )
+        }
+        CheckpointSub::FileRename {
+            actor,
+            from,
+            to,
+            content_file,
+        } => {
+            let content = match content_file {
+                Some(file) => std::fs::read_to_string(file).map_err(|e| {
+                    crate::error::CliError::Business(format!(
+                        "failed to read content file {file}: {e}"
+                    ))
+                })?,
+                None => String::new(),
+            };
+            let body = serde_json::json!({
+                "actor": actor,
+                "from_path": from,
+                "to_path": to,
+                "content": content,
+            });
+            let snapshot: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/rename", &body)
+                .await?;
+            let data = serde_json::json!({
+                "actor": actor,
+                "from": from,
+                "to": to,
+                "snapshot": snapshot,
+            });
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-rename", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileStateLinks { ids } => {
+            if ids.is_empty() {
+                return Err(crate::error::CliError::Business(
+                    "at least one checkpoint id is required".to_string(),
+                ));
+            }
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/file-checkpoint/state-links?ids={}",
+                    ids.join(",")
+                ))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-state-links", data),
             )
         }
     }

@@ -453,7 +453,7 @@ pub fn draw_checkpoints(
         _ => Vec::new(),
     };
     let title = format!(
-        "Checkpoints ({}) (r refresh, R restore, Enter detail, t chain, d delete, Esc back)",
+        "Checkpoints ({}) (r refresh, R restore, c create, G purge, Enter detail, t chain, d delete, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let block = titled_block(&title, ColorRole::Highlight, theme);
@@ -608,7 +608,7 @@ pub fn draw_file_workspace(
         _ => Vec::new(),
     };
     let title = format!(
-        "File workspace ({}) (r refresh, Enter diff, t timeline, Esc back)",
+        "File workspace ({}) (r refresh, Enter diff, t timeline, s submit, m merge, M main, R revert, u undo, ^r redo, g gc, i reindex, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let (list_area, detail_area) = split_list_detail(area);
@@ -686,6 +686,74 @@ pub fn draw_file_approvals(
     );
 }
 
+pub fn draw_conflicts(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::Conflicts(rows) => rows
+            .iter()
+            .map(|r| {
+                let regions = if r.binary {
+                    "binary".to_string()
+                } else {
+                    format!("{} region(s)", r.regions)
+                };
+                format!("{} · {} · {}", r.path, regions, r.partition)
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let statuses: Vec<String> = match data {
+        ScreenData::Conflicts(rows) => rows
+            .iter()
+            .map(|r| {
+                let mut tags: Vec<String> = Vec::new();
+                if r.binary {
+                    tags.push("binary".to_string());
+                }
+                if !r.snapshot_id.is_empty() {
+                    tags.push(short_commit(&r.snapshot_id));
+                }
+                tags.join(" ")
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let title = format!(
+        "Conflicts ({}) (r refresh, o accept ours, t accept theirs, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::Conflicts(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| row.detail.lines().map(str::to_string).collect())
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
+/// Shorten a commit id for a row status badge.
+fn short_commit(id: &str) -> String {
+    id.chars().take(8).collect()
+}
+
 pub fn draw_git(
     frame: &mut Frame,
     area: Rect,
@@ -697,8 +765,7 @@ pub fn draw_git(
     let rows: Vec<String> = match data {
         ScreenData::Git(rows) => rows
             .iter()
-            .map(|r| format!("{} · {}", r.status, r.path))
-            .collect(),
+            .map(|r| format!("{} · {}", r.status, r.path))            .collect(),
         _ => Vec::new(),
     };
     let statuses: Vec<String> = match data {
@@ -821,7 +888,7 @@ pub fn draw_edit_sessions(
         _ => Vec::new(),
     };
     let title = format!(
-        "Edit sessions (read-only) ({}) (r refresh, Enter detail, Esc back)",
+        "Edit sessions ({}) (r refresh, b begin, X rollback, Enter detail, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let (list_area, detail_area) = split_list_detail(area);

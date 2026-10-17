@@ -27,7 +27,8 @@ pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
         ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
         | ScreenKind::EditSessions
-        | ScreenKind::FileApprovals => Duration::from_secs(5),
+        | ScreenKind::FileApprovals
+        | ScreenKind::Conflicts => Duration::from_secs(5),
         ScreenKind::Settings => DEFAULT_DATA_TTL,
         ScreenKind::Interactive => DEFAULT_DATA_TTL,
     }

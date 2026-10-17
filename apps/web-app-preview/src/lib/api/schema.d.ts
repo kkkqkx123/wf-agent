@@ -3690,6 +3690,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/file-checkpoint/partitions/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_partition_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/file-checkpoint/redo/{id}": {
         parameters: {
             query?: never;
@@ -7986,6 +8002,41 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_PageView_PartitionHistoryEntryDoc: {
+            /** @description One page of a list response. */
+            data?: {
+                has_more: boolean;
+                items: {
+                    /** @description Owning actor from the `Wf-Actor` trailer, absent when unset. */
+                    actor?: string | null;
+                    /** @description True when the commit carries the conflict-unresolved state. */
+                    has_conflicts: boolean;
+                    /** @description True when the commit has more than one parent. */
+                    is_merge: boolean;
+                    /** @description First message line (intent), absent when the message is blank. */
+                    message?: string | null;
+                    /** @description Parent commit ids (hex); more than one marks a merge commit. */
+                    parents: string[];
+                    /** @description Edit session from the `Wf-Session` trailer, absent when unset. */
+                    session?: string | null;
+                    /** @description Commit id (hex). */
+                    snapshot_id: string;
+                    /**
+                     * Format: int64
+                     * @description Commit time (Unix milliseconds).
+                     */
+                    timestamp: number;
+                    /** @description Origin tool from the `Wf-Tool` trailer, absent when unset. */
+                    tool?: string | null;
+                }[];
+                /** Format: int64 */
+                limit: number;
+                /** Format: int64 */
+                offset: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_PageView_Value: {
             /** @description One page of a list response. */
             data?: {
@@ -9258,6 +9309,33 @@ export interface components {
              * @description Time of the head commit (Unix milliseconds).
              */
             updated_at: number;
+        };
+        /**
+         * @description One commit in a partition history view
+         *     (`wf_checkpoint::provenance::PartitionCommitView` mirrored).
+         */
+        PartitionHistoryEntryDoc: {
+            /** @description Owning actor from the `Wf-Actor` trailer, absent when unset. */
+            actor?: string | null;
+            /** @description True when the commit carries the conflict-unresolved state. */
+            has_conflicts: boolean;
+            /** @description True when the commit has more than one parent. */
+            is_merge: boolean;
+            /** @description First message line (intent), absent when the message is blank. */
+            message?: string | null;
+            /** @description Parent commit ids (hex); more than one marks a merge commit. */
+            parents: string[];
+            /** @description Edit session from the `Wf-Session` trailer, absent when unset. */
+            session?: string | null;
+            /** @description Commit id (hex). */
+            snapshot_id: string;
+            /**
+             * Format: int64
+             * @description Commit time (Unix milliseconds).
+             */
+            timestamp: number;
+            /** @description Origin tool from the `Wf-Tool` trailer, absent when unset. */
+            tool?: string | null;
         };
         /**
          * @description One pending layered approval (`wf_checkpoint::approval::PendingApproval`
@@ -28839,6 +28917,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_Vec_PartitionDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_partition_history: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Commit history of one partition ref, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_PageView_PartitionHistoryEntryDoc"];
+                };
+            };
+            /** @description Invalid parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

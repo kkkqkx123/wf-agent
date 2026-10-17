@@ -13,6 +13,7 @@
 		onrestore,
 		onresume,
 		ondelete,
+		onpurge,
 	}: {
 		chain: Checkpoint[];
 		links?: Map<string, StateFileLink>;
@@ -20,6 +21,7 @@
 		onrestore: (checkpoint: Checkpoint) => void;
 		onresume: (checkpoint: Checkpoint) => void;
 		ondelete: (checkpoint: Checkpoint) => void;
+		onpurge: (checkpoint: Checkpoint) => void;
 	} = $props();
 </script>
 
@@ -79,6 +81,15 @@
 						onclick={() => ondelete(checkpoint)}
 					>
 						Delete
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={busy}
+						title="Delete every checkpoint of this entity"
+						onclick={() => onpurge(checkpoint)}
+					>
+						Purge entity
 					</Button>
 				</div>
 			{/snippet}

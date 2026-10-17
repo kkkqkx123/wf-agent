@@ -335,7 +335,8 @@ impl TuiApp {
                 | ScreenKind::FileWorkspace
                 | ScreenKind::FileTimeline
                 | ScreenKind::EditSessions
-                | ScreenKind::FileApprovals => {
+                | ScreenKind::FileApprovals
+                | ScreenKind::Conflicts => {
                     self.open_selected_cached_detail();
                 }
                 _ => {}
@@ -348,6 +349,56 @@ impl TuiApp {
                 self.app
                     .notice
                     .set(format!("Filter: {}", self.app.screen.exec_filter.label()));
+            }
+            CKey::Char('c')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.create_checkpoint_for_selected();
+            }
+            CKey::Char('G')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
+            {
+                self.delete_checkpoints_for_selected_entity();
+            }
+            CKey::Char('s')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.submit_file_workspace_for_review();
+            }
+            CKey::Char('m')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.merge_file_workspace_to_feature();
+            }
+            CKey::Char('u')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.undo_file_workspace_edit();
+            }
+            CKey::Char('g')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.run_file_workspace_gc();
+            }
+            CKey::Char('i')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.rebuild_file_workspace_index();
+            }
+            CKey::Char('b')
+                if self.app.screen.navigation.current_kind() == ScreenKind::EditSessions =>
+            {
+                self.begin_edit_session();
+            }
+            CKey::Char('X')
+                if self.app.screen.navigation.current_kind() == ScreenKind::EditSessions =>
+            {
+                self.rollback_selected_edit_session();
+            }
+            CKey::Char('r') if key.ctrl && !key.alt
+                && self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.redo_file_workspace_edit();
             }
             CKey::Char('r') => {
                 let kind = self.app.screen.navigation.current_kind();
@@ -415,6 +466,26 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
             {
                 self.open_selected_file_timeline();
+            }
+            CKey::Char('M')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.merge_file_workspace_to_main();
+            }
+            CKey::Char('R')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.rollback_file_workspace_feature();
+            }
+            CKey::Char('o')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Conflicts =>
+            {
+                self.resolve_selected_conflict_side(true);
+            }
+            CKey::Char('t')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Conflicts =>
+            {
+                self.resolve_selected_conflict_side(false);
             }
             CKey::Char('p')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>

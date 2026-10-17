@@ -22,8 +22,8 @@ use ratatui::Terminal;
 
 use wf_tui::screens::{
     catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, ApprovalRow,
-    CatalogKind, CatalogRow, CheckpointRow, DashboardData, EditSessionRow, ExecRow, ExecView,
-    FileChangeRow, FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData,
+    CatalogKind, CatalogRow, CheckpointRow, ConflictRow, DashboardData, EditSessionRow, ExecRow,
+    ExecView, FileChangeRow, FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData,
     LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind, Screens, SettingsData,
     WorkflowRow, WorkflowView,
 };
@@ -42,6 +42,7 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::FileWorkspace,
     ScreenKind::EditSessions,
     ScreenKind::FileApprovals,
+    ScreenKind::Conflicts,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -337,6 +338,17 @@ fn synthetic_file_approvals() -> ScreenData {
     }])
 }
 
+fn synthetic_conflicts() -> ScreenData {
+    ScreenData::Conflicts(vec![ConflictRow {
+        path: "src/merge.rs".into(),
+        partition: "refs/wf/feat/demo".into(),
+        snapshot_id: "abc12345def".into(),
+        regions: 1,
+        binary: false,
+        detail: "path: src/merge.rs\npartition: refs/wf/feat/demo\nregions: 1".into(),
+    }])
+}
+
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Dashboard => "Dashboard",
@@ -352,6 +364,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::FileTimeline => "Timeline",
         ScreenKind::EditSessions => "Edit sessions",
         ScreenKind::FileApprovals => "Approvals",
+        ScreenKind::Conflicts => "Conflicts",
     }
 }
 
@@ -370,6 +383,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::FileTimeline => Color::LightBlue,
         ScreenKind::EditSessions => Color::Magenta,
         ScreenKind::FileApprovals => Color::Yellow,
+        ScreenKind::Conflicts => Color::Red,
     }
 }
 
@@ -491,6 +505,7 @@ impl DemoState {
             ScreenKind::FileTimeline => synthetic_file_timeline(),
             ScreenKind::EditSessions => synthetic_edit_sessions(),
             ScreenKind::FileApprovals => synthetic_file_approvals(),
+            ScreenKind::Conflicts => synthetic_conflicts(),
         };
         self.screen_selected = 0;
         self.catalog_tab = None;

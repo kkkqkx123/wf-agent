@@ -2,8 +2,8 @@
 //!
 //! Sessions are staged edit batches (in-memory on the server until they
 //! commit); this screen lists them with their labels and creation times so
-//! the operator can see what is pending. Mutation (begin / rollback) stays on
-//! the CLI and web app.
+//! the operator can see what is pending. Begin and rollback are dispatched
+//! from the shell's key actions against the active execution's actor.
 
 use wf_client::WfClient;
 

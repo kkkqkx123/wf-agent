@@ -2,6 +2,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import {
 		undoEdit,
@@ -9,10 +10,39 @@
 		getActorWorkspace,
 		getIndexStatus,
 		rebuildIndex,
+		renameFile,
 	} from '$lib/services/checkpoints';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { checkpoints as store } from '$lib/stores/checkpoints.svelte';
 	import { fileWorkspace as workspace } from '$lib/stores/fileWorkspace.svelte';
+
+	let renameOpen = $state(false);
+	let renameFrom = $state('');
+	let renameTo = $state('');
+
+	async function runRename(): Promise<void> {
+		const actor = workspace.actor.trim();
+		const from = renameFrom.trim();
+		const to = renameTo.trim();
+		if (!actor || !from || !to) {
+			toasts.error('Enter an actor, source path and destination path');
+			return;
+		}
+		workspace.beginAction('rename');
+		try {
+			const snapshot = await renameFile(actor, from, to);
+			renameOpen = false;
+			renameFrom = '';
+			renameTo = '';
+			toasts.success('File renamed', `${from} → ${to} (${snapshot.slice(0, 10)})`);
+			store.bump('files');
+		} catch (e) {
+			console.error('Rename failed:', e);
+			toasts.error('Rename failed', e instanceof Error ? e.message : undefined);
+		} finally {
+			workspace.endAction();
+		}
+	}
 
 	async function loadWorkspace(): Promise<void> {
 		if (!workspace.actor.trim()) {
@@ -140,6 +170,14 @@
 			<Icon name="database" size={13} />
 			Rebuild index
 		</Button>
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={workspace.busy}
+			onclick={() => (renameOpen = true)}
+		>
+			Rename file
+		</Button>
 	</div>
 	{#if workspace.indexStatus}
 		<p class="mt-2 text-caption tabular-nums text-muted-foreground">
@@ -167,3 +205,43 @@
 		{/if}
 	{/if}
 </Card>
+
+<Dialog
+	bind:open={renameOpen}
+	title="Rename file"
+	description="Record a rename or move within the actor workspace. The destination is written with empty content unless a content write follows."
+	onclose={() => (renameOpen = false)}
+>
+	<div class="space-y-2">
+		<Input
+			label="From path"
+			size="sm"
+			value={renameFrom}
+			oninput={(event: Event) =>
+				(renameFrom = (event.target as HTMLInputElement).value)}
+			placeholder="src/old.rs"
+		/>
+		<Input
+			label="To path"
+			size="sm"
+			value={renameTo}
+			oninput={(event: Event) =>
+				(renameTo = (event.target as HTMLInputElement).value)}
+			placeholder="src/new.rs"
+		/>
+	</div>
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (renameOpen = false)}>
+			Cancel
+		</Button>
+		<Button
+			size="sm"
+			disabled={workspace.busy ||
+				!renameFrom.trim() ||
+				!renameTo.trim()}
+			onclick={() => void runRename()}
+		>
+			Rename
+		</Button>
+	{/snippet}
+</Dialog>

@@ -40,8 +40,8 @@
 			{/each}
 		</ul>
 		<p class="mt-1 font-mono text-micro text-muted-foreground">
-			Follow up with shell_output or shell_wait, confirm with shell_ack.
-			Offline clients re-query shell_tasks after reconnect.
+			Follow up with shell_output or shell_wait, confirm with shell_ack. Offline
+			clients re-query shell_tasks after reconnect.
 		</p>
 	</section>
 {/if}

@@ -45,17 +45,12 @@
 		type DisplayEdge,
 		type DisplayNode,
 		type GraphLayoutKind,
+		type GraphOverlay,
 		type GraphPreset,
 	} from '$lib/graph/display-model';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { cn } from '@wf-agent/ui/cn';
-
-	export interface GraphOverlay {
-		id: string;
-		label: string;
-		ids: string[];
-	}
 
 	interface Props {
 		nodes: DisplayNode[];

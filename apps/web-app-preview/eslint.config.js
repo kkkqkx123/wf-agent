@@ -24,6 +24,12 @@ export default defineConfig(
 				extraFileExtensions: ['.svelte'],
 			},
 		},
+		rules: {
+			// These files are parsed through TypeScript, which resolves names
+			// itself; the base no-undef rule cannot see type-only globals such
+			// as DOM lib types and reports them as undefined.
+			'no-undef': 'off',
+		},
 	},
 	{
 		ignores: ['.svelte-kit/**', 'build/**'],

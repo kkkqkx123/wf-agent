@@ -21,9 +21,9 @@ function message(overrides: Partial<LoopMessage>): LoopMessage {
 
 describe('resolveTranscriptAnchorKind', () => {
 	it('treats user messages as prompts', () => {
-		expect(
-			resolveTranscriptAnchorKind(message({ role: 'user' })),
-		).toBe('prompt');
+		expect(resolveTranscriptAnchorKind(message({ role: 'user' }))).toBe(
+			'prompt',
+		);
 	});
 
 	it('treats todo tool messages as todo anchors', () => {
@@ -48,16 +48,14 @@ describe('isTranscriptAnchor', () => {
 	it('enables prompts and todos by default', () => {
 		expect(TRANSCRIPT_ANCHOR_KINDS).toEqual(['prompt', 'todo']);
 		expect(isTranscriptAnchor(message({ role: 'user' }))).toBe(true);
-		expect(
-			isTranscriptAnchor(message({ toolName: 'update_todo_list' })),
-		).toBe(true);
+		expect(isTranscriptAnchor(message({ toolName: 'update_todo_list' }))).toBe(
+			true,
+		);
 		expect(isTranscriptAnchor(message({}))).toBe(false);
 	});
 
 	it('honours an explicit kind selection', () => {
-		expect(
-			isTranscriptAnchor(message({ role: 'user' }), ['todo']),
-		).toBe(false);
+		expect(isTranscriptAnchor(message({ role: 'user' }), ['todo'])).toBe(false);
 		expect(
 			isTranscriptAnchor(message({ toolName: 'update_todo_list' }), ['todo']),
 		).toBe(true);

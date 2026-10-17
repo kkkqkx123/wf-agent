@@ -203,8 +203,13 @@ pub fn draw_dashboard(
         ScreenData::Dashboard(d) => {
             let mut out = vec![
                 format!(
-                    "Workflows    : {}\nExecutions   : {} ({} running)\nCheckpoints  : {}",
-                    d.workflow_count, d.execution_count, d.running_count, d.checkpoint_count,
+                    "Workflows    : {}\nExecutions   : {} ({} running)\nCheckpoints  : {}\nFile store   : {} loose objects, {:.1} MiB",
+                    d.workflow_count,
+                    d.execution_count,
+                    d.running_count,
+                    d.checkpoint_count,
+                    d.store_objects,
+                    d.store_bytes as f64 / (1024.0 * 1024.0),
                 ),
                 String::new(),
                 "Screens (Enter open, more in sidebar):".to_string(),
@@ -581,6 +586,56 @@ pub fn draw_catalog(
         frame,
         detail_area,
         "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
+pub fn draw_file_workspace(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::FileWorkspace(rows) => rows
+            .iter()
+            .map(|r| format!("{} · {} · {}", r.change_type, r.path, r.actor))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let title = format!(
+        "File workspace ({}) (r refresh, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_rows(frame, list_area, block, &rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::FileWorkspace(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| {
+                tui_components::property_list::format_properties(&[
+                    ("path".to_string(), row.path.clone()),
+                    ("actor".to_string(), row.actor.clone()),
+                    ("change".to_string(), row.change_type.clone()),
+                ])
+                .into_iter()
+                .chain(std::iter::once(String::new()))
+                .chain(row.detail.lines().map(str::to_string))
+                .collect()
+            })
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Diff (Enter full)".to_string(),
         &detail,
         ctx.detail_scroll,
         theme,

@@ -457,3 +457,18 @@ pub(crate) struct StoreStatsDoc {
     #[serde(skip_serializing_if = "Option::is_none")]
     last_gc_ms: Option<i64>,
 }
+
+/// Health of the state-to-file association for one state checkpoint
+/// (`wf_checkpoint::file::StateFileLinkStatus` flattened).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct StateFileLinkDoc {
+    /// State checkpoint id that was queried.
+    checkpoint_id: String,
+    /// `linked` when the durable link exists, `pending` when the link write
+    /// failed and awaits startup compensation, `missing` when no link was
+    /// ever recorded.
+    state: String,
+    /// Linked file commit id; present for `linked` and `pending`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_commit_id: Option<String>,
+}

@@ -24,6 +24,7 @@ pub(super) fn data_ttl(kind: ScreenKind) -> Duration {
         ScreenKind::Executions | ScreenKind::Checkpoints => Duration::from_secs(3),
         ScreenKind::Insights => Duration::from_secs(10),
         ScreenKind::Catalog | ScreenKind::Git => Duration::from_secs(5),
+        ScreenKind::FileWorkspace => Duration::from_secs(5),
         ScreenKind::Settings => DEFAULT_DATA_TTL,
         ScreenKind::Interactive => DEFAULT_DATA_TTL,
     }
@@ -85,8 +86,13 @@ impl TuiApp {
         let client = self.client.clone();
         let tx = self.data_tx.clone();
         let filter = self.app.screen.exec_filter;
+        let execution_id = self
+            .sessions
+            .active()
+            .and_then(|session| session.session_id())
+            .map(str::to_owned);
         let handle = tokio::spawn(async move {
-            let result = fetch_for(&client, kind, filter).await;
+            let result = fetch_for(&client, kind, filter, execution_id.as_deref()).await;
             let _ = tx.send(DataResult::Screen(kind, result));
         });
         self.tasks.push(handle);

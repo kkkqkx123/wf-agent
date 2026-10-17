@@ -405,6 +405,30 @@ impl SqliteStorage {
         })
     }
 
+    /// Look up a still-pending state-to-file link, if any. Used by the
+    /// health query to distinguish "no link" from "link write deferred".
+    pub fn lookup_pending_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+    ) -> StorageResult<Option<String>> {
+        let key = format!("{PENDING_STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT value FROM meta_kv WHERE key = ?1")
+                .map_err(db_err)?;
+            let result = stmt.query_row(rusqlite::params![key], |row| {
+                let value: Vec<u8> = row.get(0)?;
+                String::from_utf8(value)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+            });
+            match result {
+                Ok(value) => Ok(Some(value)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(db_err(e)),
+            }
+        })
+    }
+
     /// Record a state-to-file link that could not be written to the primary
     /// key. Persisted so startup compensation can retry the link instead of
     /// losing the association.

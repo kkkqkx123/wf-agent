@@ -11,16 +11,18 @@ use crate::screens::{
 use super::common::{format_ts, items_of, page_of};
 
 pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> {
-    let (workflows, executions, sessions, checkpoints) = tokio::join!(
+    let (workflows, executions, sessions, checkpoints, store) = tokio::join!(
         client.get_json::<serde_json::Value>("/api/v1/workflows/summaries"),
         client.get_json::<serde_json::Value>("/api/v1/agent-executions"),
         client.get_json::<serde_json::Value>("/api/v1/agent-loops/summaries"),
         client.get_json::<serde_json::Value>("/api/v1/checkpoints"),
+        client.get_json::<serde_json::Value>("/api/v1/file-checkpoint/gc/stats"),
     );
     let workflows = items_of(&workflows.unwrap_or_default());
     let mut executions = items_of(&executions.unwrap_or_default());
     let sessions = items_of(&sessions.unwrap_or_default());
     let checkpoints = items_of(&checkpoints.unwrap_or_default());
+    let store = store.unwrap_or_default();
 
     let workflow_count = workflows.len();
     executions.extend(sessions.iter().cloned());
@@ -59,6 +61,11 @@ pub(super) async fn fetch_dashboard(client: &WfClient) -> CliResult<ScreenData> 
         execution_count,
         running_count,
         checkpoint_count,
+        store_bytes: store.get("store_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
+        store_objects: store
+            .get("loose_objects")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
         recent,
     }))
 }

@@ -262,6 +262,37 @@ pub fn store_stats(ctx: &ApiContext) -> ApiResult<wf_checkpoint::gc::StoreStats>
         .map_err(ApiError::execution_with_source)
 }
 
+/// Health view of the state-to-file association for one state checkpoint.
+/// `state` is `linked` / `pending` / `missing`; `file_commit_id` is present
+/// for the first two. Cheap: it never loads file bytes, so list and detail
+/// views can query a whole page in one call.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StateFileLinkView {
+    pub checkpoint_id: String,
+    #[serde(flatten)]
+    pub status: wf_checkpoint::file::StateFileLinkStatus,
+}
+
+/// Report how each state checkpoint is associated with a file snapshot.
+/// Order matches the request; unknown ids report `missing`.
+pub fn state_file_links(
+    ctx: &ApiContext,
+    checkpoint_ids: &[String],
+) -> ApiResult<Vec<StateFileLinkView>> {
+    let manager = manager(ctx)?;
+    let mut out = Vec::with_capacity(checkpoint_ids.len());
+    for id in checkpoint_ids {
+        let status = manager
+            .state_file_link_status(id)
+            .map_err(ApiError::execution_with_source)?;
+        out.push(StateFileLinkView {
+            checkpoint_id: id.clone(),
+            status,
+        });
+    }
+    Ok(out)
+}
+
 /// Maximum bytes returned by a single file content read; larger files are
 /// truncated with `truncated: true`.
 pub const MAX_FILE_CONTENT_BYTES: usize = 1024 * 1024;

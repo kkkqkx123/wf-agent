@@ -1,10 +1,11 @@
-//! Git-backed submit/merge/rollback: ref copies and true multi-parent
-//! merges on the commit DAG.
+//! Git-backed submit/merge/rollback: ref copies and full-ancestry merges
+//! on the commit DAG.
 //!
 //! Semantics enforced here:
 //! - edit to review is a ref copy, never a merge;
-//! - review to feature and feature to main are true merges with full
-//!   ancestry (multi-parent commits);
+//! - review to feature and feature to main carry full ancestry: a
+//!   multi-parent merge when the target ref already has a head, and a
+//!   single-parent fast-forward when the target is still empty;
 //! - review state is the explicit `review_state` table (pending / approved
 //!   / rejected); rejection deletes the review ref, approval deletes it
 //!   after a clean merge while the merge parents preserve history;
@@ -243,8 +244,10 @@ impl FileCheckpointManager {
         self.submit_for_review(entity_id)
     }
 
-    /// Merge a review head into a feature ref with a true multi-parent
-    /// merge. Conflicts advance the feature ref to an unresolved commit
+    /// Merge a review head into a feature ref with full ancestry: a
+    /// multi-parent merge when the feature already has a head, and a
+    /// single-parent fast-forward when the feature is still empty.
+    /// Conflicts advance the feature ref to an unresolved commit
     /// (blocking later main merges); clean merges mark the review
     /// approved.
     pub(crate) fn merge_review_into_feature(

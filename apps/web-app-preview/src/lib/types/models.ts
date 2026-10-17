@@ -512,6 +512,9 @@ export interface Skill {
 
 export type TemplateKind = 'node' | 'trigger' | 'agent' | 'workflow';
 
+/** Tab selection inside the template edit panel. */
+export type TemplateEditTab = 'json' | 'form' | 'graph';
+
 export interface Template {
 	id: string;
 	name: string;

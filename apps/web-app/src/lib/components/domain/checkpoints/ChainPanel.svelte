@@ -3,16 +3,19 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import type { Checkpoint } from '$lib/types/models';
+	import type { StateFileLink } from '$lib/services/checkpoints';
 	import { formatBytes, formatRelativeTime } from '$lib/utils/format';
 
 	let {
 		chain,
+		links = new Map(),
 		busy,
 		onrestore,
 		onresume,
 		ondelete,
 	}: {
 		chain: Checkpoint[];
+		links?: Map<string, StateFileLink>;
 		busy: boolean;
 		onrestore: (checkpoint: Checkpoint) => void;
 		onresume: (checkpoint: Checkpoint) => void;
@@ -27,6 +30,15 @@
 				<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
 					{checkpoint.restorable ? 'restorable' : 'locked'}
 				</Badge>
+				{#if links.get(checkpoint.id)?.state === 'pending'}
+					<span title="The file snapshot link write failed and awaits startup compensation">
+						<Badge variant="warning">file link pending</Badge>
+					</span>
+				{:else if links.get(checkpoint.id)?.state === 'linked'}
+					<span title="Linked to a file snapshot">
+						<Badge variant="neutral">file linked</Badge>
+					</span>
+				{/if}
 			{/snippet}
 			<div
 				class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground"

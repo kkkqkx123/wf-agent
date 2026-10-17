@@ -42,6 +42,34 @@ fn create_latest_file_checkpoint_with_retry(
     }
 }
 
+/// Project the entity's latest file snapshot and link it to the state
+/// checkpoint. Returns the file checkpoint id when one was created, or
+/// `None` when the entity has no file history. Runs inside a blocking task;
+/// shared by the synchronous and deferred paths so a change lands once.
+fn project_and_link(
+    manager: &FileCheckpointManager,
+    checkpoint_id: &str,
+    entity_id: &str,
+) -> Result<Option<String>, CheckpointError> {
+    let Some(file_checkpoint) = create_latest_file_checkpoint_with_retry(manager, entity_id)? else {
+        tracing::debug!(
+            entity_id = %entity_id,
+            checkpoint_id = %checkpoint_id,
+            "no file history for state checkpoint"
+        );
+        return Ok(None);
+    };
+    let file_checkpoint_id = file_checkpoint.id;
+    record_state_file_link_with_retry(manager, checkpoint_id, &file_checkpoint_id)?;
+    tracing::debug!(
+        entity_id = %entity_id,
+        checkpoint_id = %checkpoint_id,
+        file_checkpoint_id = %file_checkpoint_id,
+        "file projection correlated with state checkpoint"
+    );
+    Ok(Some(file_checkpoint_id))
+}
+
 /// True when the file projection must be skipped for the scope. Closed
 /// channels skip entirely; an explicit empty checkpoint range also skips
 /// because there is nothing to project and no link to record.
@@ -81,29 +109,12 @@ pub async fn save_file_snapshot_scoped(
     };
     let manager_for_task = manager.clone();
     let entity_id_owned = entity_id.to_string();
-    let outcome = tokio::task::spawn_blocking(move || {
-        create_latest_file_checkpoint_with_retry(&manager_for_task, &entity_id_owned)
+    let checkpoint_id_owned = checkpoint_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        project_and_link(&manager_for_task, &checkpoint_id_owned, &entity_id_owned)
     })
     .await
     .map_err(|e| CheckpointError::Internal(format!("file projection task failed: {e}")))??;
-    match outcome {
-        Some(file_checkpoint) => {
-            record_state_file_link_with_retry(manager, checkpoint_id, &file_checkpoint.id)?;
-            tracing::debug!(
-                entity_id = %entity_id,
-                checkpoint_id = %checkpoint_id,
-                file_checkpoint_id = %file_checkpoint.id,
-                "file projection correlated with state checkpoint"
-            );
-        }
-        None => {
-            tracing::debug!(
-                entity_id = %entity_id,
-                checkpoint_id = %checkpoint_id,
-                "no file history for state checkpoint"
-            );
-        }
-    }
     Ok(())
 }
 
@@ -189,34 +200,8 @@ pub async fn enqueue_persistence_scoped(
     let metrics = file_checkpoint_manager.and_then(|m| m.checkpoint_metrics_for_observability());
     let handle = tokio::task::spawn_blocking(move || {
         if let Some(manager) = file_manager {
-            match create_latest_file_checkpoint_with_retry(&manager, &entity_id_for_task) {
-                Ok(Some(file_checkpoint)) => {
-                    if let Err(err) = record_state_file_link_with_retry(
-                        &manager,
-                        &checkpoint_id_for_task,
-                        &file_checkpoint.id,
-                    ) {
-                        tracing::warn!(
-                            entity_id = %entity_id_for_task,
-                            checkpoint_id = %checkpoint_id_for_task,
-                            error = %err,
-                            "deferred state-to-file link failed (best-effort)"
-                        );
-                    }
-                    tracing::debug!(
-                        entity_id = %entity_id_for_task,
-                        checkpoint_id = %checkpoint_id_for_task,
-                        file_checkpoint_id = %file_checkpoint.id,
-                        "deferred file projection correlated with state checkpoint"
-                    );
-                }
-                Ok(None) => {
-                    tracing::debug!(
-                        entity_id = %entity_id_for_task,
-                        checkpoint_id = %checkpoint_id_for_task,
-                        "deferred file projection found no history"
-                    );
-                }
+            match project_and_link(&manager, &checkpoint_id_for_task, &entity_id_for_task) {
+                Ok(_) => {}
                 Err(err) => {
                     tracing::warn!(
                         entity_id = %entity_id_for_task,

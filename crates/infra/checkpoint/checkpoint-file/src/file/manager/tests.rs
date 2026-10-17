@@ -897,16 +897,39 @@ fn partition_history_lists_merges_newest_first() {
     manager
         .create_checkpoint("exec-1", &[entry("a.txt", b"two")])
         .unwrap();
-    let merged = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+    // First approval into an empty feature is a fast-forward: the feature
+    // head is a single-parent commit on the review's edit line.
+    let first = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
 
     let history = manager
         .partition_history("refs/wf/feat/feature-1", 50, 0)
         .unwrap();
     assert!(!history.is_empty(), "feature history must not be empty");
     let head = &history[0];
-    assert_eq!(head.snapshot_id, merged.merge_result.commit_id);
-    assert!(head.is_merge, "feature head after merge must be a merge");
+    assert_eq!(head.snapshot_id, first.merge_result.commit_id);
+    assert!(
+        !head.is_merge,
+        "first approval into an empty feature fast-forwards"
+    );
+    assert_eq!(head.parents.len(), 1);
+    assert!(!head.has_conflicts);
+
+    // A later edit merged into the existing feature is a true multi-parent
+    // merge, and it becomes the newest entry in the partition history.
+    manager
+        .create_checkpoint("exec-1", &[entry("a.txt", b"three")])
+        .unwrap();
+    let second = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+    assert_eq!(second.merge_result.parents.len(), 2);
+
+    let history = manager
+        .partition_history("refs/wf/feat/feature-1", 50, 0)
+        .unwrap();
+    let head = &history[0];
+    assert_eq!(head.snapshot_id, second.merge_result.commit_id);
+    assert!(head.is_merge, "second merge into a feature is a merge");
     assert_eq!(head.parents.len(), 2);
+    assert_eq!(head.parents[0], first.merge_result.commit_id);
     assert!(!head.has_conflicts);
 
     // Unknown refs are rejected instead of walking arbitrary ids.
@@ -925,7 +948,10 @@ fn partition_history_lists_merges_newest_first() {
         .unwrap();
     assert!(empty.is_empty());
 
-    // Approval transitions publish onto the attached bus.
+    // Approval transitions publish onto the attached bus. Checkpoint
+    // creation also emits FileChanged, so scan the drained queue for the
+    // approval events and assert their order instead of assuming they are
+    // the first two.
     let bus = CheckpointEventBus::new();
     let mut rx = bus.subscribe();
     let manager = FileCheckpointManager::new_in_memory()
@@ -937,17 +963,27 @@ fn partition_history_lists_merges_newest_first() {
     manager
         .approve_changes("exec-9", "feature-9", None, ConflictBehavior::Marker, None)
         .unwrap();
-    let first = rx.try_recv().expect("submit must publish");
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+    let submit = events
+        .iter()
+        .position(|event| matches!(event, CheckpointEvent::ReviewSubmitted { .. }))
+        .expect("submit must publish ReviewSubmitted");
+    let approve = events
+        .iter()
+        .position(|event| matches!(event, CheckpointEvent::ApprovalResolved { .. }))
+        .expect("approve must publish ApprovalResolved");
     assert!(
-        matches!(first, CheckpointEvent::ReviewSubmitted { .. }),
-        "submit publishes ReviewSubmitted, got {first:?}"
+        submit < approve,
+        "ReviewSubmitted must precede ApprovalResolved"
     );
-    let second = rx.try_recv().expect("approve must publish");
-    match second {
+    match &events[approve] {
         CheckpointEvent::ApprovalResolved { decision, .. } => {
-            assert_eq!(decision, crate::event::ApprovalDecision::Approved);
+            assert_eq!(*decision, crate::event::ApprovalDecision::Approved);
         }
-        other => panic!("approve publishes ApprovalResolved, got {other:?}"),
+        other => panic!("expected ApprovalResolved, got {other:?}"),
     }
 }
 

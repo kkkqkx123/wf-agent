@@ -1,5 +1,9 @@
 import { getHotkeyManager } from '@tanstack/hotkeys';
-import { effectiveHotkey, isShortcutDisabled, resolvedShortcutRows } from '$lib/shortcuts/registry';
+import {
+	effectiveHotkey,
+	isShortcutDisabled,
+	resolvedShortcutRows,
+} from '$lib/shortcuts/registry';
 
 /**
  * Shared vocabulary for canvas shortcuts. The global help overlay renders
@@ -44,7 +48,10 @@ export function registerCanvasShortcuts(
 	const manager = getHotkeyManager();
 	const handles: Array<{ unregister(): void }> = [];
 
-	function guarded(handlers: CanvasShortcutHandlers, fn: (handlers: CanvasShortcutHandlers) => void): void {
+	function guarded(
+		handlers: CanvasShortcutHandlers,
+		fn: (handlers: CanvasShortcutHandlers) => void,
+	): void {
 		if (!handlers.canWrite()) {
 			handlers.onreadonlywrite();
 			return;
@@ -52,7 +59,10 @@ export function registerCanvasShortcuts(
 		fn(handlers);
 	}
 
-	function bindWrite(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
+	function bindWrite(
+		actionId: string,
+		run: (handlers: CanvasShortcutHandlers) => void,
+	): void {
 		if (isShortcutDisabled(actionId)) return;
 		const hotkey = effectiveHotkey(actionId);
 		if (!hotkey) return;
@@ -63,12 +73,15 @@ export function registerCanvasShortcuts(
 					const handlers = get();
 					guarded(handlers, run);
 				},
-				{ target: root, ignoreInputs: true }
-			)
+				{ target: root, ignoreInputs: true },
+			),
 		);
 	}
 
-	function bindView(actionId: string, run: (handlers: CanvasShortcutHandlers) => void): void {
+	function bindView(
+		actionId: string,
+		run: (handlers: CanvasShortcutHandlers) => void,
+	): void {
 		if (isShortcutDisabled(actionId)) return;
 		const hotkey = effectiveHotkey(actionId);
 		if (!hotkey) return;
@@ -79,8 +92,8 @@ export function registerCanvasShortcuts(
 					const handlers = get();
 					run(handlers);
 				},
-				{ target: root, ignoreInputs: true }
-			)
+				{ target: root, ignoreInputs: true },
+			),
 		);
 	}
 
@@ -107,8 +120,8 @@ export function registerCanvasShortcuts(
 					const handlers = get();
 					if (handlers.canWrite()) handlers.toggleEdit();
 				},
-				{ target: root, ignoreInputs: false }
-			)
+				{ target: root, ignoreInputs: false },
+			),
 		);
 	}
 

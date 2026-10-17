@@ -24,6 +24,9 @@ type FileCheckpointSummaryDoc =
 	components['schemas']['FileCheckpointSummaryDoc'];
 type GitMergeOutcomeDoc = components['schemas']['GitMergeOutcomeDoc'];
 type MergeCommitDoc = components['schemas']['MergeCommitDoc'];
+type GcStatsDoc = components['schemas']['GcStatsDoc'];
+type StoreStatsDoc = components['schemas']['StoreStatsDoc'];
+type StateFileLinkDoc = components['schemas']['StateFileLinkDoc'];
 
 type CheckpointPage = NonNullable<
 	components['schemas']['ApiEnvelope_PageView_CheckpointDoc']['data']
@@ -683,6 +686,7 @@ export async function mergeToMain(
 }
 
 /** Roll back one merged feature from main by appending a revert commit. */
+/** Feature rollback result. */
 export async function rollbackFeature(
 	actor: string,
 	featureHead: string,
@@ -697,4 +701,81 @@ export async function rollbackFeature(
 		'Feature rollback',
 	);
 	return { revertCommit: d.revert_commit };
+}
+
+export interface StoreStats {
+	commits: number;
+	refs: number;
+	looseObjects: number;
+	storeBytes: number;
+	lastGcAt: string | null;
+}
+
+/** Read-only object-store statistics for the storage dashboard. */
+export async function getStoreStats(): Promise<StoreStats> {
+	const d = requireData(
+		await call<StoreStatsDoc>(client.GET('/api/v1/file-checkpoint/gc/stats')),
+		'Store statistics',
+	);
+	return {
+		commits: d.commits,
+		refs: d.refs,
+		looseObjects: d.loose_objects,
+		storeBytes: d.store_bytes,
+		lastGcAt: d.last_gc_ms != null ? toIso(d.last_gc_ms) : null,
+	};
+}
+
+export interface GcResult {
+	removedCheckpoints: number;
+	removedSnapshots: number;
+	reclaimedSnapshots: number;
+}
+
+/** Run a manual GC sweep on the file-checkpoint store. */
+export async function runGc(keepRecentHeads = 0): Promise<GcResult> {
+	const d = requireData(
+		await call<GcStatsDoc>(
+			client.POST('/api/v1/file-checkpoint/gc', {
+				params: { query: { keep_recent_heads: keepRecentHeads } },
+			}),
+		),
+		'GC run',
+	);
+	return {
+		removedCheckpoints: d.removed_checkpoints,
+		removedSnapshots: d.removed_snapshots,
+		reclaimedSnapshots: d.reclaimed_snapshots,
+	};
+}
+
+export type StateFileLinkState = 'linked' | 'pending' | 'missing';
+
+export interface StateFileLink {
+	checkpointId: string;
+	state: StateFileLinkState;
+	fileCommitId: string | null;
+}
+
+/** Health of the state-to-file association for a batch of state checkpoints. */
+export async function getStateFileLinks(
+	checkpointIds: string[],
+): Promise<Map<string, StateFileLink>> {
+	const ids = checkpointIds.filter((id) => id.length > 0);
+	if (ids.length === 0) return new Map();
+	const rows = await call<StateFileLinkDoc[]>(
+		client.GET('/api/v1/file-checkpoint/state-links', {
+			params: { query: { ids: ids.join(',') } },
+		}),
+	);
+	return new Map(
+		rows.map((d) => [
+			d.checkpoint_id,
+			{
+				checkpointId: d.checkpoint_id,
+				state: d.state as StateFileLinkState,
+				fileCommitId: d.file_commit_id ?? null,
+			} satisfies StateFileLink,
+		]),
+	);
 }

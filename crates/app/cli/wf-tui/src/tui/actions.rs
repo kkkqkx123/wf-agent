@@ -219,6 +219,11 @@ impl TuiApp {
                 rows.get(idx)
                     .map(|row| (format!("Git {}", row.path), row.detail.clone()))
             }
+            ScreenData::FileWorkspace(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx)
+                    .map(|row| (format!("File {}", row.path), row.detail.clone()))
+            }
             _ => None,
         };
         if let Some((title, text)) = detail {

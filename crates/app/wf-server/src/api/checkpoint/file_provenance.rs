@@ -48,6 +48,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
         .route("/file-checkpoint/gc/stats", get(handle_store_stats))
+        .route(
+            "/file-checkpoint/state-links",
+            get(handle_state_file_links),
+        )
         .route("/file-checkpoint/index/rebuild", post(handle_rebuild_index))
         .route("/file-checkpoint/index/status", get(handle_index_status))
         .route("/file-checkpoint/submit", post(handle_submit_review))
@@ -608,6 +612,37 @@ pub(crate) async fn handle_run_gc(
 pub(crate) async fn handle_store_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::store_stats(&state.ctx) {
         Ok(stats) => ok(stats).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct StateLinksQuery {
+    /// Comma-separated state checkpoint ids.
+    ids: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/file-checkpoint/state-links",
+    tag = "checkpoint",
+    params(StateLinksQuery),
+    responses((status = 200, description = "State-to-file association health per checkpoint: linked / pending / missing", body = crate::envelope::ApiEnvelope<Vec<crate::api::checkpoint::views::StateFileLinkDoc>>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_state_file_links(
+    State(state): State<ApiState>,
+    Query(query): Query<StateLinksQuery>,
+) -> impl IntoResponse {
+    let ids: Vec<String> = query
+        .ids
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    match wf_api::checkpoint::provenance::state_file_links(&state.ctx, &ids) {
+        Ok(links) => ok(links).into_response(),
         Err(err) => error_response(err),
     }
 }

@@ -231,7 +231,11 @@
 		if (target === null) {
 			resume();
 			try {
-				history.replaceState(null, '', window.location.pathname + window.location.search);
+				history.replaceState(
+					null,
+					'',
+					window.location.pathname + window.location.search,
+				);
 			} catch {
 				// Hash cleanup is best-effort.
 			}
@@ -321,7 +325,10 @@
 			following = true;
 			toTail();
 		},
-		{ enabled: !isShortcutDisabled('transcript.toBottom'), ignoreInputs: false }
+		{
+			enabled: !isShortcutDisabled('transcript.toBottom'),
+			ignoreInputs: false,
+		},
 	);
 	createHotkey(
 		effectiveHotkey('transcript.toTop'),
@@ -329,7 +336,7 @@
 			event.preventDefault();
 			toTop();
 		},
-		{ enabled: !isShortcutDisabled('transcript.toTop'), ignoreInputs: false }
+		{ enabled: !isShortcutDisabled('transcript.toTop'), ignoreInputs: false },
 	);
 	createHotkey(
 		effectiveHotkey('transcript.anchorNext'),
@@ -337,7 +344,10 @@
 			event.preventDefault();
 			scrollToNextAnchor();
 		},
-		{ enabled: !isShortcutDisabled('transcript.anchorNext'), ignoreInputs: false }
+		{
+			enabled: !isShortcutDisabled('transcript.anchorNext'),
+			ignoreInputs: false,
+		},
 	);
 	createHotkey(
 		effectiveHotkey('transcript.anchorPrev'),
@@ -345,7 +355,10 @@
 			event.preventDefault();
 			scrollToPrevAnchor();
 		},
-		{ enabled: !isShortcutDisabled('transcript.anchorPrev'), ignoreInputs: false }
+		{
+			enabled: !isShortcutDisabled('transcript.anchorPrev'),
+			ignoreInputs: false,
+		},
 	);
 
 	// Deep links: an empty hash follows the tail, a message hash reveals

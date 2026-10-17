@@ -6,6 +6,22 @@ use crate::file::{
 };
 use checkpoint_base::error::CheckpointError;
 
+/// Whether a state checkpoint is associated with a file snapshot, and how.
+/// Reported by the health query so callers can surface a state checkpoint
+/// whose file projection is missing or only deferred.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum StateFileLinkStatus {
+    /// The link was written; the linked file commit exists.
+    Linked { file_commit_id: String },
+    /// The primary link write failed and a startup compensation pass will
+    /// retry it. The association is known but not yet durable.
+    Pending { file_commit_id: String },
+    /// No link was ever recorded: file checkpointing was disabled for the
+    /// scope, or the projection found no file history.
+    Missing,
+}
+
 impl FileCheckpointManager {
     // ── restore ─────────────────────────────────────────────────────
 
@@ -79,6 +95,24 @@ impl FileCheckpointManager {
             recovered += 1;
         }
         Ok(recovered)
+    }
+
+    /// Report how a state checkpoint is associated with a file snapshot.
+    /// Prefers the durable link, then a pending link awaiting startup
+    /// compensation, and reports `Missing` when neither exists. This never
+    /// loads file bytes, so it is cheap enough for list/detail views.
+    pub fn state_file_link_status(
+        &self,
+        state_checkpoint_id: &str,
+    ) -> Result<StateFileLinkStatus, CheckpointError> {
+        let storage = self.storage_ref()?;
+        if let Some(file_commit_id) = storage.lookup_state_file_link(state_checkpoint_id)? {
+            return Ok(StateFileLinkStatus::Linked { file_commit_id });
+        }
+        if let Some(file_commit_id) = storage.lookup_pending_state_file_link(state_checkpoint_id)? {
+            return Ok(StateFileLinkStatus::Pending { file_commit_id });
+        }
+        Ok(StateFileLinkStatus::Missing)
     }
 
     /// Resolve the file set belonging to a state checkpoint: the linked

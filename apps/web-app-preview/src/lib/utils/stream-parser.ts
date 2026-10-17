@@ -283,16 +283,11 @@ export function handleExecutionFrame(
 			});
 			break;
 		case 'sub_agent_started':
-			callbacks.onSubAgent?.(
-				asString(frame.id),
-				asString(frame.name),
-				null,
-				{
-					toolCallId: asString(frame.tool_call_id) || undefined,
-					preview: asOptionalString(frame.preview),
-					background: frame.background === true,
-				},
-			);
+			callbacks.onSubAgent?.(asString(frame.id), asString(frame.name), null, {
+				toolCallId: asString(frame.tool_call_id) || undefined,
+				preview: asOptionalString(frame.preview),
+				background: frame.background === true,
+			});
 			break;
 		case 'sub_agent_ended':
 			callbacks.onSubAgent?.(

@@ -17,6 +17,7 @@ pub enum ScreenKind {
     Settings,
     Catalog,
     Git,
+    FileWorkspace,
 }
 
 impl ScreenKind {
@@ -31,6 +32,7 @@ impl ScreenKind {
             Self::Settings => "Settings",
             Self::Catalog => "Catalog",
             Self::Git => "Git",
+            Self::FileWorkspace => "Files",
         }
     }
 
@@ -45,6 +47,7 @@ impl ScreenKind {
             Self::Settings,
             Self::Catalog,
             Self::Git,
+            Self::FileWorkspace,
         ]
     }
 
@@ -69,7 +72,7 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         ScreenKind::Interactive => Some('4'),
         ScreenKind::Checkpoints => Some('5'),
         ScreenKind::Settings => Some('6'),
-        ScreenKind::Catalog | ScreenKind::Git => None,
+        ScreenKind::Catalog | ScreenKind::Git | ScreenKind::FileWorkspace => None,
     }
 }
 
@@ -88,6 +91,10 @@ pub struct DashboardData {
     pub execution_count: usize,
     pub running_count: usize,
     pub checkpoint_count: usize,
+    /// File-checkpoint object-store size in bytes, when reported.
+    pub store_bytes: u64,
+    /// File-checkpoint object-store loose object count, when reported.
+    pub store_objects: u64,
     pub recent: Vec<String>,
 }
 
@@ -362,6 +369,17 @@ pub struct GitRow {
     pub detail: String,
 }
 
+/// One file-checkpoint change row rendered on the file-workspace screen:
+/// the touched path, the actor it was attributed to, the change kind and
+/// the pre-rendered diff/detail text for the read-only viewer.
+#[derive(Debug, Clone)]
+pub struct FileChangeRow {
+    pub path: String,
+    pub actor: String,
+    pub change_type: String,
+    pub detail: String,
+}
+
 /// One search hit rendered in the search palette overlay.
 #[derive(Debug, Clone)]
 pub struct SearchRow {
@@ -458,6 +476,7 @@ pub enum ScreenData {
     Settings(SettingsData),
     Catalog(Vec<CatalogRow>),
     Git(Vec<GitRow>),
+    FileWorkspace(Vec<FileChangeRow>),
 }
 
 impl ScreenData {
@@ -472,6 +491,7 @@ impl ScreenData {
             Self::Settings(data) => data.profiles.len(),
             Self::Catalog(rows) => rows.len(),
             Self::Git(rows) => rows.len(),
+            Self::FileWorkspace(rows) => rows.len(),
         }
     }
 }
@@ -524,6 +544,12 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
         ScreenData::Git(rows) => ScreenData::Git(
             rows.iter()
                 .filter(|r| hits(&[&r.path, &r.status]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::FileWorkspace(rows) => ScreenData::FileWorkspace(
+            rows.iter()
+                .filter(|r| hits(&[&r.path, &r.actor, &r.change_type]))
                 .cloned()
                 .collect(),
         ),

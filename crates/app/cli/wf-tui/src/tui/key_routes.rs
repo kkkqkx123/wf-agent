@@ -330,7 +330,7 @@ impl TuiApp {
                 ScreenKind::Checkpoints => {
                     self.open_selected_checkpoint_detail();
                 }
-                ScreenKind::Catalog | ScreenKind::Git => {
+                ScreenKind::Catalog | ScreenKind::Git | ScreenKind::FileWorkspace => {
                     self.open_selected_cached_detail();
                 }
                 _ => {}

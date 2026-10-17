@@ -18892,6 +18892,56 @@
         ]
       }
     },
+    "/api/v1/file-checkpoint/gc/stats": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_store_stats",
+        "responses": {
+          "200": {
+            "description": "Object-store statistics: commits, refs, loose objects, on-disk bytes and last GC time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_StoreStatsDoc"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/api/v1/file-checkpoint/index/rebuild": {
       "post": {
         "tags": [
@@ -19633,6 +19683,67 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiEnvelope_String"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/file-checkpoint/state-links": {
+      "get": {
+        "tags": [
+          "checkpoint"
+        ],
+        "operationId": "handle_state_file_links",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Comma-separated state checkpoint ids.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "State-to-file association health per checkpoint: linked / pending / missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_StateFileLinkDoc"
                 }
               }
             }
@@ -40962,6 +41073,71 @@
           }
         }
       },
+      "ApiEnvelope_StoreStatsDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Read-only object-store statistics for the storage dashboard\n(`wf_checkpoint::gc::StoreStats` mirrored).",
+            "required": [
+              "commits",
+              "refs",
+              "loose_objects",
+              "store_bytes"
+            ],
+            "properties": {
+              "commits": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Commits reachable from any ref.",
+                "minimum": 0
+              },
+              "last_gc_ms": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "Time of the last completed GC run (Unix milliseconds), absent when\nno GC has run yet."
+              },
+              "loose_objects": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Loose objects currently in the object store.",
+                "minimum": 0
+              },
+              "refs": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Refs under the `refs/wf/` namespace.",
+                "minimum": 0
+              },
+              "store_bytes": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Total bytes occupied by the bare repository directory.",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_String": {
         "type": "object",
         "required": [
@@ -41503,32 +41679,34 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored).",
+              "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored): the same structured shape the user-repo git diffs return,\nso both surfaces share one schema.",
               "required": [
                 "path",
-                "kind"
+                "kind",
+                "hunks",
+                "additions",
+                "deletions",
+                "binary",
+                "truncated"
               ],
               "properties": {
                 "additions": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": "integer",
                   "minimum": 0
+                },
+                "binary": {
+                  "type": "boolean",
+                  "description": "True for non-text content (no hunks rendered)."
                 },
                 "deletions": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": "integer",
                   "minimum": 0
                 },
-                "diff": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "description": "Unified diff (text files only); absent for binary content."
+                "hunks": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiffHunkDoc"
+                  }
                 },
                 "kind": {
                   "type": "string",
@@ -41536,6 +41714,10 @@
                 },
                 "path": {
                   "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean",
+                  "description": "True when hunk lines were cut at the render cap."
                 }
               }
             }
@@ -41767,6 +41949,55 @@
                   "type": "integer",
                   "format": "int64",
                   "description": "Submission time (Unix milliseconds)."
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiEnvelope_Vec_StateFileLinkDoc": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Health of the state-to-file association for one state checkpoint\n(`wf_checkpoint::file::StateFileLinkStatus` flattened).",
+              "required": [
+                "checkpoint_id",
+                "state"
+              ],
+              "properties": {
+                "checkpoint_id": {
+                  "type": "string",
+                  "description": "State checkpoint id that was queried."
+                },
+                "file_commit_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Linked file commit id; present for `linked` and `pending`."
+                },
+                "state": {
+                  "type": "string",
+                  "description": "`linked` when the durable link exists, `pending` when the link write\nfailed and awaits startup compensation, `missing` when no link was\never recorded."
                 }
               }
             }
@@ -42955,6 +43186,27 @@
           }
         }
       },
+      "DiffHunkDoc": {
+        "type": "object",
+        "description": "One hunk of a per-file difference (`DiffHunkView` mirrored).",
+        "required": [
+          "header",
+          "lines"
+        ],
+        "properties": {
+          "header": {
+            "type": "string",
+            "description": "The `@@` hunk header."
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Raw unified lines (`+`/`-`/context)."
+          }
+        }
+      },
       "EditGroupDoc": {
         "type": "object",
         "description": "One staged edit group (`wf_checkpoint::file::session::EditGroup`\nmirrored): the group id stringifies to `sess-<ts>-<pid>-<n>`.",
@@ -43306,32 +43558,34 @@
       },
       "FileDiffDoc": {
         "type": "object",
-        "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored).",
+        "description": "Per-file difference view (`wf_checkpoint::provenance::FileDiffView`\nmirrored): the same structured shape the user-repo git diffs return,\nso both surfaces share one schema.",
         "required": [
           "path",
-          "kind"
+          "kind",
+          "hunks",
+          "additions",
+          "deletions",
+          "binary",
+          "truncated"
         ],
         "properties": {
           "additions": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "minimum": 0
+          },
+          "binary": {
+            "type": "boolean",
+            "description": "True for non-text content (no hunks rendered)."
           },
           "deletions": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "minimum": 0
           },
-          "diff": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Unified diff (text files only); absent for binary content."
+          "hunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffHunkDoc"
+            }
           },
           "kind": {
             "type": "string",
@@ -43339,6 +43593,10 @@
           },
           "path": {
             "type": "string"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when hunk lines were cut at the render cap."
           }
         }
       },
@@ -45125,6 +45383,31 @@
           }
         }
       },
+      "StateFileLinkDoc": {
+        "type": "object",
+        "description": "Health of the state-to-file association for one state checkpoint\n(`wf_checkpoint::file::StateFileLinkStatus` flattened).",
+        "required": [
+          "checkpoint_id",
+          "state"
+        ],
+        "properties": {
+          "checkpoint_id": {
+            "type": "string",
+            "description": "State checkpoint id that was queried."
+          },
+          "file_commit_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Linked file commit id; present for `linked` and `pending`."
+          },
+          "state": {
+            "type": "string",
+            "description": "`linked` when the durable link exists, `pending` when the link write\nfailed and awaits startup compensation, `missing` when no link was\never recorded."
+          }
+        }
+      },
       "StateTransitionDoc": {
         "type": "object",
         "description": "One status transition of a workflow execution.",
@@ -45143,6 +45426,50 @@
           },
           "to": {
             "type": "string"
+          }
+        }
+      },
+      "StoreStatsDoc": {
+        "type": "object",
+        "description": "Read-only object-store statistics for the storage dashboard\n(`wf_checkpoint::gc::StoreStats` mirrored).",
+        "required": [
+          "commits",
+          "refs",
+          "loose_objects",
+          "store_bytes"
+        ],
+        "properties": {
+          "commits": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Commits reachable from any ref.",
+            "minimum": 0
+          },
+          "last_gc_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Time of the last completed GC run (Unix milliseconds), absent when\nno GC has run yet."
+          },
+          "loose_objects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Loose objects currently in the object store.",
+            "minimum": 0
+          },
+          "refs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Refs under the `refs/wf/` namespace.",
+            "minimum": 0
+          },
+          "store_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total bytes occupied by the bare repository directory.",
+            "minimum": 0
           }
         }
       },

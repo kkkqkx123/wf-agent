@@ -4,8 +4,10 @@
 	import ChainPanel from '$lib/components/domain/checkpoints/ChainPanel.svelte';
 	import {
 		deleteCheckpoint,
+		getStateFileLinks,
 		restoreCheckpoint,
 		resumeFromCheckpoint,
+		type StateFileLink,
 	} from '$lib/services/checkpoints';
 	import type { Checkpoint } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -14,6 +16,22 @@
 	// No reload prop: the refetch is driven by `bump('chain')` notifying the
 	// route's live subscription, which reloads this tab.
 	let { chain }: { chain: Checkpoint[] } = $props();
+
+	// Health of the state-to-file association, keyed by checkpoint id. The
+	// whole page is queried in one call; cards without a link simply show no
+	// badge.
+	let links = $state<Map<string, StateFileLink>>(new Map());
+	$effect(() => {
+		const ids = chain.map((checkpoint) => checkpoint.id);
+		void loadLinks(ids);
+	});
+	async function loadLinks(ids: string[]): Promise<void> {
+		try {
+			links = await getStateFileLinks(ids);
+		} catch (e) {
+			console.error('Failed to load state-file links:', e);
+		}
+	}
 
 	// ── dialogs ──
 	let restoreOpen = $state(false);
@@ -86,6 +104,7 @@
 
 <ChainPanel
 	{chain}
+	{links}
 	busy={checkpointStore.busy}
 	onrestore={(checkpoint: Checkpoint) => {
 		restoreTarget = checkpoint;

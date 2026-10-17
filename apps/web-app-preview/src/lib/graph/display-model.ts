@@ -15,6 +15,13 @@ export type GraphPreset = 'workflow' | 'decision' | 'execution';
 
 export type GraphLayoutKind = 'layered' | 'columns' | 'force' | 'grid';
 
+/** A labeled set of node ids highlighted together, e.g. an analysis result. */
+export interface GraphOverlay {
+	id: string;
+	label: string;
+	ids: string[];
+}
+
 export interface DisplayNode {
 	id: string;
 	label: string;

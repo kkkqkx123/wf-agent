@@ -50,7 +50,7 @@
 | 范围捕获(ScopeCapture) | shell 执行范围与工作区根的交集解析、前像快照、后像差分;请求范围在工作区外时返回 None(明确"不捕获",而非全库扫描)。 |
 | 文件检查点(FileCheckpoint) | 一次文件提交的投影:id、Actor、提交统计、链长、是否完整快照等;一个操作 = 一个原子 commit。 |
 | FileCheckpointManager | 文件层门面:`ManagerStore` 管持久化句柄(SQLite、Git 库、latest 索引),`ManagerPolicy` 管行为配置(扫描、审批、阈值、GC)。 |
-| 状态→文件链接(state-file link) | 状态检查点成功投影文件后记录的关联,使恢复能解析"当时确切的文件集合"而非"最新"。 |
+| 状态→文件链接(state-file link) | 状态检查点成功投影文件后记录的关联,使恢复能解析"当时确切的文件集合"而非"最新"。健康度三态:`linked`(链接已持久化)、`pending`(主键写入失败,待启动补偿重放)、`missing`(从未记录,如文件通道关闭或无文件历史);查询经 `state_file_link_status`,只读不加载文件字节。 |
 | 溯源(provenance) | 基于 commit DAG 的读域:按 Actor/路径查变更、Actor 间/对主线/跨工作区 diff、文件时间线(含重命名相似度阈值)、分区视图、冲突枚举。源索引只是加速,索引缺失/损坏回退图扫描。 |
 | 审批(approval) | Actor 把变更提交到审批层,人工批准/拒绝后合并进 feature 分支。读模型:`PendingApproval`(提交内容按文件分块)、`MergeOutcome`、`ConflictView`(从合并字节中解析 `<<<<<<<` 标记区间;二进制冲突只在文件级)。 |
 | 冲突行为 | 冲突落盘为标准三路标记字节,并阻塞对应合并直到解决;策略可配置(`ConflictBehavior`)。 |

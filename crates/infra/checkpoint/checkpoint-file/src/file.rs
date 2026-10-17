@@ -16,3 +16,4 @@ pub use manager::{
     ApprovalPolicy, FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata,
     FileCheckpointOptions, FileContentEntry, FileProjection, FileState, WorkspaceRestoreResult,
 };
+pub use restore::StateFileLinkStatus;

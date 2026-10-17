@@ -56,12 +56,49 @@
 			toasts.error('Approval rejection failed');
 		}
 	}
+
+	async function decideBatch(
+		targets: Approval[],
+		granted: boolean,
+	): Promise<void> {
+		checkpointStore.beginAction(granted ? 'batch-approve' : 'batch-reject');
+		let decided = 0;
+		let failed = 0;
+		try {
+			for (const approval of targets) {
+				try {
+					if (granted) await approveApproval(approval.id);
+					else await rejectApproval(approval.id);
+					decided += 1;
+				} catch (e) {
+					failed += 1;
+					console.error('Batch decision failed:', e);
+				}
+			}
+			if (failed === 0) {
+				toasts.success(
+					`${granted ? 'Approved' : 'Rejected'} ${decided} approval(s)`,
+				);
+			} else {
+				toasts.warning(
+					`Decided ${decided}, ${failed} failed`,
+					'Re-run the failed items individually.',
+				);
+			}
+			checkpointStore.bump('approvals');
+			if (granted) checkpointStore.bump('files');
+		} finally {
+			checkpointStore.endAction();
+		}
+	}
 </script>
 
 <ApprovalsPanel
 	{approvals}
 	ondecide={(approval: Approval, granted: boolean) =>
 		void decideApproval(approval, granted)}
+	onbatch={(targets: Approval[], granted: boolean) =>
+		void decideBatch(targets, granted)}
 />
 
 <Dialog

@@ -3594,6 +3594,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/file-checkpoint/gc/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_store_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/file-checkpoint/index/rebuild": {
         parameters: {
             query?: never;
@@ -3764,6 +3780,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["handle_rollback_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/file-checkpoint/state-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["handle_state_file_links"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8035,6 +8067,42 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_StoreStatsDoc: {
+            /**
+             * @description Read-only object-store statistics for the storage dashboard
+             *     (`wf_checkpoint::gc::StoreStats` mirrored).
+             */
+            data?: {
+                /**
+                 * Format: int64
+                 * @description Commits reachable from any ref.
+                 */
+                commits: number;
+                /**
+                 * Format: int64
+                 * @description Time of the last completed GC run (Unix milliseconds), absent when
+                 *     no GC has run yet.
+                 */
+                last_gc_ms?: number | null;
+                /**
+                 * Format: int64
+                 * @description Loose objects currently in the object store.
+                 */
+                loose_objects: number;
+                /**
+                 * Format: int64
+                 * @description Refs under the `refs/wf/` namespace.
+                 */
+                refs: number;
+                /**
+                 * Format: int64
+                 * @description Total bytes occupied by the bare repository directory.
+                 */
+                store_bytes: number;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_String: {
             data?: string;
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -8159,13 +8227,16 @@ export interface components {
         };
         ApiEnvelope_Vec_FileDiffDoc: {
             data?: {
-                additions?: number | null;
-                deletions?: number | null;
-                /** @description Unified diff (text files only); absent for binary content. */
-                diff?: string | null;
+                additions: number;
+                /** @description True for non-text content (no hunks rendered). */
+                binary: boolean;
+                deletions: number;
+                hunks: components["schemas"]["DiffHunkDoc"][];
                 /** @description `added` | `modified` | `deleted` | `unchanged` (snake_case). */
                 kind: string;
                 path: string;
+                /** @description True when hunk lines were cut at the render cap. */
+                truncated: boolean;
             }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -8229,6 +8300,22 @@ export interface components {
                  * @description Submission time (Unix milliseconds).
                  */
                 submitted_at: number;
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
+        ApiEnvelope_Vec_StateFileLinkDoc: {
+            data?: {
+                /** @description State checkpoint id that was queried. */
+                checkpoint_id: string;
+                /** @description Linked file commit id; present for `linked` and `pending`. */
+                file_commit_id?: string | null;
+                /**
+                 * @description `linked` when the durable link exists, `pending` when the link write
+                 *     failed and awaits startup compensation, `missing` when no link was
+                 *     ever recorded.
+                 */
+                state: string;
             }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -8590,6 +8677,13 @@ export interface components {
             workflow_id: string;
             workflow_name: string;
         };
+        /** @description One hunk of a per-file difference (`DiffHunkView` mirrored). */
+        DiffHunkDoc: {
+            /** @description The `@@` hunk header. */
+            header: string;
+            /** @description Raw unified lines (`+`/`-`/context). */
+            lines: string[];
+        };
         /**
          * @description One staged edit group (`wf_checkpoint::file::session::EditGroup`
          *     mirrored): the group id stringifies to `sess-<ts>-<pid>-<n>`.
@@ -8730,16 +8824,20 @@ export interface components {
         };
         /**
          * @description Per-file difference view (`wf_checkpoint::provenance::FileDiffView`
-         *     mirrored).
+         *     mirrored): the same structured shape the user-repo git diffs return,
+         *     so both surfaces share one schema.
          */
         FileDiffDoc: {
-            additions?: number | null;
-            deletions?: number | null;
-            /** @description Unified diff (text files only); absent for binary content. */
-            diff?: string | null;
+            additions: number;
+            /** @description True for non-text content (no hunks rendered). */
+            binary: boolean;
+            deletions: number;
+            hunks: components["schemas"]["DiffHunkDoc"][];
             /** @description `added` | `modified` | `deleted` | `unchanged` (snake_case). */
             kind: string;
             path: string;
+            /** @description True when hunk lines were cut at the render cap. */
+            truncated: boolean;
         };
         /**
          * @description Capped version timeline for one file path
@@ -9345,12 +9443,60 @@ export interface components {
             /** @description Variable value (any JSON) */
             value: unknown;
         };
+        /**
+         * @description Health of the state-to-file association for one state checkpoint
+         *     (`wf_checkpoint::file::StateFileLinkStatus` flattened).
+         */
+        StateFileLinkDoc: {
+            /** @description State checkpoint id that was queried. */
+            checkpoint_id: string;
+            /** @description Linked file commit id; present for `linked` and `pending`. */
+            file_commit_id?: string | null;
+            /**
+             * @description `linked` when the durable link exists, `pending` when the link write
+             *     failed and awaits startup compensation, `missing` when no link was
+             *     ever recorded.
+             */
+            state: string;
+        };
         /** @description One status transition of a workflow execution. */
         StateTransitionDoc: {
             from: string;
             /** Format: int64 */
             timestamp: number;
             to: string;
+        };
+        /**
+         * @description Read-only object-store statistics for the storage dashboard
+         *     (`wf_checkpoint::gc::StoreStats` mirrored).
+         */
+        StoreStatsDoc: {
+            /**
+             * Format: int64
+             * @description Commits reachable from any ref.
+             */
+            commits: number;
+            /**
+             * Format: int64
+             * @description Time of the last completed GC run (Unix milliseconds), absent when
+             *     no GC has run yet.
+             */
+            last_gc_ms?: number | null;
+            /**
+             * Format: int64
+             * @description Loose objects currently in the object store.
+             */
+            loose_objects: number;
+            /**
+             * Format: int64
+             * @description Refs under the `refs/wf/` namespace.
+             */
+            refs: number;
+            /**
+             * Format: int64
+             * @description Total bytes occupied by the bare repository directory.
+             */
+            store_bytes: number;
         };
         SubmitReviewRequest: {
             /** @description Actor the edit line is attributed to (required, no anonymous writes). */
@@ -28307,6 +28453,70 @@ export interface operations {
             };
         };
     };
+    handle_store_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Object-store statistics: commits, refs, loose objects, on-disk bytes and last GC time */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_StoreStatsDoc"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     handle_rebuild_index: {
         parameters: {
             query?: never;
@@ -29122,6 +29332,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiEnvelope_String"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    handle_state_file_links: {
+        parameters: {
+            query: {
+                /** @description Comma-separated state checkpoint ids. */
+                ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description State-to-file association health per checkpoint: linked / pending / missing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_StateFileLinkDoc"];
                 };
             };
             /** @description Unauthorized: missing or invalid API key */

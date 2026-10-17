@@ -22,9 +22,9 @@ use ratatui::Terminal;
 
 use wf_tui::screens::{
     catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, CatalogKind,
-    CatalogRow, CheckpointRow, DashboardData, ExecRow, ExecView, GitRow, InsightTable,
-    InsightsData, LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind, Screens,
-    SettingsData, WorkflowRow, WorkflowView,
+    CatalogRow, CheckpointRow, DashboardData, ExecRow, ExecView, FileChangeRow, GitRow,
+    InsightTable, InsightsData, LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind,
+    Screens, SettingsData, WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -38,6 +38,7 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Settings,
     ScreenKind::Catalog,
     ScreenKind::Git,
+    ScreenKind::FileWorkspace,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -46,6 +47,8 @@ fn synthetic_dashboard() -> ScreenData {
         execution_count: 247,
         running_count: 3,
         checkpoint_count: 42,
+        store_bytes: 1_048_576,
+        store_objects: 12,
         recent: vec![
             "exec-a1b2 completed (2 iterations)".into(),
             "exec-c3d4 running (iteration 5)".into(),
@@ -278,6 +281,15 @@ fn synthetic_git() -> ScreenData {
     }])
 }
 
+fn synthetic_file_workspace() -> ScreenData {
+    ScreenData::FileWorkspace(vec![FileChangeRow {
+        path: "src/lib.rs".into(),
+        actor: "agent:demo".into(),
+        change_type: "modified".into(),
+        detail: "diff --modified src/lib.rs (+1 -0)\n@@ -1,1 +1,2 @@\n+// touched".into(),
+    }])
+}
+
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Dashboard => "Dashboard",
@@ -289,6 +301,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Settings => "Settings",
         ScreenKind::Catalog => "Catalog",
         ScreenKind::Git => "Git",
+        ScreenKind::FileWorkspace => "Files",
     }
 }
 
@@ -303,6 +316,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Settings => Color::White,
         ScreenKind::Catalog => Color::Green,
         ScreenKind::Git => Color::Blue,
+        ScreenKind::FileWorkspace => Color::Magenta,
     }
 }
 
@@ -420,6 +434,7 @@ impl DemoState {
             ScreenKind::Settings => synthetic_settings(),
             ScreenKind::Catalog => synthetic_catalog(),
             ScreenKind::Git => synthetic_git(),
+            ScreenKind::FileWorkspace => synthetic_file_workspace(),
         };
         self.screen_selected = 0;
         self.catalog_tab = None;

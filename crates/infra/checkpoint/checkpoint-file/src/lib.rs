@@ -37,7 +37,7 @@ pub use file::merge::MergeCommitResult;
 pub use file::util::sha256_hex;
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileState, WorkspaceRestoreResult,
+    FileContentEntry, FileState, StateFileLinkStatus, WorkspaceRestoreResult,
 };
 pub use provenance::{
     DeltaSummary, DiffHunkView, FileDiffKind, FileDiffView, PartitionCommitView, PartitionView,

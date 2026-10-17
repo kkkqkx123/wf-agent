@@ -160,6 +160,9 @@ impl Screens {
                 screen_draw::draw_catalog(frame, area, data, self.selected, theme, ctx)
             }
             ScreenKind::Git => screen_draw::draw_git(frame, area, data, self.selected, theme, ctx),
+            ScreenKind::FileWorkspace => {
+                screen_draw::draw_file_workspace(frame, area, data, self.selected, theme, ctx)
+            }
             ScreenKind::Settings => {
                 screen_draw::draw_settings(frame, area, data, settings_scroll, theme)
             }

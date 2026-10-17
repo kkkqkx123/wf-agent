@@ -77,6 +77,7 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Catalog,
     ScreenKind::Git,
     ScreenKind::FileWorkspace,
+    ScreenKind::EditSessions,
 ];
 
 /// Full-screen TUI application shell: owns the server client, the screen

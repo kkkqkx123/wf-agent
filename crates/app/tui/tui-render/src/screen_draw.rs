@@ -608,7 +608,7 @@ pub fn draw_file_workspace(
         _ => Vec::new(),
     };
     let title = format!(
-        "File workspace ({}) (r refresh, Enter detail, Esc back)",
+        "File workspace ({}) (r refresh, Enter diff, t timeline, Esc back)",
         list_suffix(rows.len(), ctx)
     );
     let (list_area, detail_area) = split_list_detail(area);
@@ -689,6 +689,112 @@ pub fn draw_git(
         frame,
         detail_area,
         "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
+/// Version timeline of one workspace file, opened from the Files screen.
+/// The name row marks renames (`← from`) so the rename chain reads top-down.
+pub fn draw_file_timeline(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::FileTimeline(d) => d
+            .rows
+            .iter()
+            .map(|r| {
+                let rename = r
+                    .moved_from
+                    .as_deref()
+                    .map(|from| format!(" ← {from}"))
+                    .unwrap_or_default();
+                format!(
+                    "{} · {} · {} ({}){rename}",
+                    r.timestamp, r.snapshot, r.path, r.source
+                )
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let original = match data {
+        ScreenData::FileTimeline(d) if !d.original_path.is_empty() => d.original_path.as_str(),
+        _ => "(no file selected)",
+    };
+    let title = format!(
+        "Timeline {original} ({}) (r refresh, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_rows(frame, list_area, block, &rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::FileTimeline(d) => d
+            .rows
+            .get(selected.min(d.rows.len().saturating_sub(1)))
+            .map(|row| row.detail.lines().map(str::to_string).collect())
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Version (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
+/// Staged edit sessions (edit groups), read-only.
+pub fn draw_edit_sessions(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::EditSessions(rows) => rows
+            .iter()
+            .map(|r| {
+                let label = if r.label.is_empty() {
+                    "-"
+                } else {
+                    r.label.as_str()
+                };
+                format!("{} · {label} · {}", short_id(&r.id), r.created_at)
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let title = format!(
+        "Edit sessions (read-only) ({}) (r refresh, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_rows(frame, list_area, block, &rows, selected, theme);
+
+    let detail = match data {
+        ScreenData::EditSessions(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| row.detail.lines().map(str::to_string).collect())
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Session (Enter full)".to_string(),
         &detail,
         ctx.detail_scroll,
         theme,

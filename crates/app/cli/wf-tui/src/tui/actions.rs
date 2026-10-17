@@ -224,12 +224,49 @@ impl TuiApp {
                 rows.get(idx)
                     .map(|row| (format!("File {}", row.path), row.detail.clone()))
             }
+            ScreenData::FileTimeline(data) => {
+                let idx = selected.min(data.rows.len().saturating_sub(1));
+                data.rows.get(idx).map(|row| {
+                    (
+                        format!("Timeline {}", row.path),
+                        row.detail.clone(),
+                    )
+                })
+            }
+            ScreenData::EditSessions(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx)
+                    .map(|row| (format!("Session {}", short_id(&row.id)), row.detail.clone()))
+            }
             _ => None,
         };
         if let Some((title, text)) = detail {
             self.modals
                 .push(Box::new(crate::file_viewer::FileViewer::new(title, &text)));
         }
+    }
+
+    /// Open the read-only version timeline for the file selected on the Files
+    /// screen. The path is captured before navigating so the timeline fetch
+    /// knows which file to follow; without a selection the notice explains it.
+    pub(super) fn open_selected_file_timeline(&mut self) {
+        let selected = self.app.screen.navigation.selected();
+        let path = match self.display_data() {
+            ScreenData::FileWorkspace(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx).map(|row| row.path.clone())
+            }
+            _ => None,
+        };
+        let Some(path) = path else {
+            self.app
+                .notice
+                .set("No file selected for a timeline.".to_string());
+            return;
+        };
+        self.app.screen.file_timeline_path = Some(path);
+        self.invalidate(ScreenKind::FileTimeline);
+        self.goto(ScreenKind::FileTimeline);
     }
 
     /// Open the full-text viewer for the selected execution subview.

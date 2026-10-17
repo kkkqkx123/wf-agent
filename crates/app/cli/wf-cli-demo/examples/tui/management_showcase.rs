@@ -22,9 +22,9 @@ use ratatui::Terminal;
 
 use wf_tui::screens::{
     catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, CatalogKind,
-    CatalogRow, CheckpointRow, DashboardData, ExecRow, ExecView, FileChangeRow, GitRow,
-    InsightTable, InsightsData, LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind,
-    Screens, SettingsData, WorkflowRow, WorkflowView,
+    CatalogRow, CheckpointRow, DashboardData, EditSessionRow, ExecRow, ExecView, FileChangeRow,
+    FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData, LocalSettings, ProfileRow,
+    ScreenContext, ScreenData, ScreenKind, Screens, SettingsData, WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -39,6 +39,7 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Catalog,
     ScreenKind::Git,
     ScreenKind::FileWorkspace,
+    ScreenKind::EditSessions,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -290,6 +291,40 @@ fn synthetic_file_workspace() -> ScreenData {
     }])
 }
 
+fn synthetic_file_timeline() -> ScreenData {
+    ScreenData::FileTimeline(FileTimelineData {
+        original_path: "src/lib.rs".into(),
+        truncated: false,
+        rows: vec![
+            FileTimelineRow {
+                path: "src/lib.rs".into(),
+                snapshot: "abcdef01...".into(),
+                timestamp: "2024-01-15 10:30:00".into(),
+                source: "agent:demo".into(),
+                moved_from: None,
+                detail: "path: src/lib.rs\nsource: agent:demo".into(),
+            },
+            FileTimelineRow {
+                path: "src/lib.rs".into(),
+                snapshot: "00112233...".into(),
+                timestamp: "2024-01-15 10:25:00".into(),
+                source: "manual".into(),
+                moved_from: Some("src/old.rs".into()),
+                detail: "path: src/lib.rs\nrenamed from: src/old.rs".into(),
+            },
+        ],
+    })
+}
+
+fn synthetic_edit_sessions() -> ScreenData {
+    ScreenData::EditSessions(vec![EditSessionRow {
+        id: "sess-1700000000-1-0".into(),
+        label: "format file".into(),
+        created_at: "2024-01-15 10:30:00".into(),
+        detail: "id: sess-1700000000-1-0\nlabel: format file".into(),
+    }])
+}
+
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Dashboard => "Dashboard",
@@ -302,6 +337,8 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::Catalog => "Catalog",
         ScreenKind::Git => "Git",
         ScreenKind::FileWorkspace => "Files",
+        ScreenKind::FileTimeline => "Timeline",
+        ScreenKind::EditSessions => "Edit sessions",
     }
 }
 
@@ -317,6 +354,8 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::Catalog => Color::Green,
         ScreenKind::Git => Color::Blue,
         ScreenKind::FileWorkspace => Color::Magenta,
+        ScreenKind::FileTimeline => Color::LightBlue,
+        ScreenKind::EditSessions => Color::Magenta,
     }
 }
 
@@ -435,6 +474,8 @@ impl DemoState {
             ScreenKind::Catalog => synthetic_catalog(),
             ScreenKind::Git => synthetic_git(),
             ScreenKind::FileWorkspace => synthetic_file_workspace(),
+            ScreenKind::FileTimeline => synthetic_file_timeline(),
+            ScreenKind::EditSessions => synthetic_edit_sessions(),
         };
         self.screen_selected = 0;
         self.catalog_tab = None;

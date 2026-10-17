@@ -56,9 +56,6 @@ impl crate::render_model::LayoutView for InteractiveController {
     fn overlay_active(&self) -> bool {
         self.pending_approval.is_some()
     }
-    fn side_panel_visible(&self) -> bool {
-        false
-    }
     fn diagram_visible(&self) -> bool {
         self.diagram_requested > 0
     }
@@ -127,9 +124,6 @@ impl crate::render_model::RenderView for InteractiveController {
     }
     fn perf_marker(&self) -> &str {
         "perf:full"
-    }
-    fn side_panel_visible(&self) -> bool {
-        false
     }
     fn diagram_visible(&self) -> bool {
         self.diagram_requested > 0

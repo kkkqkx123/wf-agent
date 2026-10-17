@@ -18,6 +18,8 @@ pub enum ScreenKind {
     Catalog,
     Git,
     FileWorkspace,
+    FileTimeline,
+    EditSessions,
 }
 
 impl ScreenKind {
@@ -33,9 +35,14 @@ impl ScreenKind {
             Self::Catalog => "Catalog",
             Self::Git => "Git",
             Self::FileWorkspace => "Files",
+            Self::FileTimeline => "Timeline",
+            Self::EditSessions => "Edit sessions",
         }
     }
 
+    /// Screens listed on the dashboard and the sidebar overlay. The file
+    /// timeline is context-bound (it needs a selected workspace file), so it
+    /// is reached from the Files screen instead of this browse list.
     pub fn all() -> &'static [ScreenKind] {
         &[
             Self::Dashboard,
@@ -48,6 +55,7 @@ impl ScreenKind {
             Self::Catalog,
             Self::Git,
             Self::FileWorkspace,
+            Self::EditSessions,
         ]
     }
 
@@ -72,7 +80,11 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         ScreenKind::Interactive => Some('4'),
         ScreenKind::Checkpoints => Some('5'),
         ScreenKind::Settings => Some('6'),
-        ScreenKind::Catalog | ScreenKind::Git | ScreenKind::FileWorkspace => None,
+        ScreenKind::Catalog
+        | ScreenKind::Git
+        | ScreenKind::FileWorkspace
+        | ScreenKind::FileTimeline
+        | ScreenKind::EditSessions => None,
     }
 }
 
@@ -380,6 +392,44 @@ pub struct FileChangeRow {
     pub detail: String,
 }
 
+/// One version entry rendered on the file-timeline screen: the path at that
+/// point in time, the commit that produced it, origin and rename context.
+#[derive(Debug, Clone)]
+pub struct FileTimelineRow {
+    pub path: String,
+    /// Short commit id.
+    pub snapshot: String,
+    /// Change time, pre-rendered.
+    pub timestamp: String,
+    /// Origin label (e.g. `manual`, `agent:loop-1`).
+    pub source: String,
+    /// Previous path when this entry follows a rename.
+    pub moved_from: Option<String>,
+    /// Pre-rendered viewer text for the read-only viewer.
+    pub detail: String,
+}
+
+/// Version timeline for one file path, including rename context.
+#[derive(Debug, Clone, Default)]
+pub struct FileTimelineData {
+    /// Original path (the first path the file was known at).
+    pub original_path: String,
+    /// Whether the server capped the entry list.
+    pub truncated: bool,
+    pub rows: Vec<FileTimelineRow>,
+}
+
+/// One staged edit session rendered on the edit-sessions screen.
+#[derive(Debug, Clone)]
+pub struct EditSessionRow {
+    pub id: String,
+    pub label: String,
+    /// Creation time, pre-rendered.
+    pub created_at: String,
+    /// Pre-rendered viewer text for the read-only viewer.
+    pub detail: String,
+}
+
 /// One search hit rendered in the search palette overlay.
 #[derive(Debug, Clone)]
 pub struct SearchRow {
@@ -477,6 +527,8 @@ pub enum ScreenData {
     Catalog(Vec<CatalogRow>),
     Git(Vec<GitRow>),
     FileWorkspace(Vec<FileChangeRow>),
+    FileTimeline(FileTimelineData),
+    EditSessions(Vec<EditSessionRow>),
 }
 
 impl ScreenData {
@@ -492,6 +544,8 @@ impl ScreenData {
             Self::Catalog(rows) => rows.len(),
             Self::Git(rows) => rows.len(),
             Self::FileWorkspace(rows) => rows.len(),
+            Self::FileTimeline(data) => data.rows.len(),
+            Self::EditSessions(rows) => rows.len(),
         }
     }
 }
@@ -550,6 +604,24 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
         ScreenData::FileWorkspace(rows) => ScreenData::FileWorkspace(
             rows.iter()
                 .filter(|r| hits(&[&r.path, &r.actor, &r.change_type]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::FileTimeline(data) => ScreenData::FileTimeline(FileTimelineData {
+            original_path: data.original_path.clone(),
+            truncated: data.truncated,
+            rows: data
+                .rows
+                .iter()
+                .filter(|r| {
+                    hits(&[&r.path, &r.source, r.moved_from.as_deref().unwrap_or("")])
+                })
+                .cloned()
+                .collect(),
+        }),
+        ScreenData::EditSessions(rows) => ScreenData::EditSessions(
+            rows.iter()
+                .filter(|r| hits(&[&r.id, &r.label]))
                 .cloned()
                 .collect(),
         ),

@@ -330,7 +330,11 @@ impl TuiApp {
                 ScreenKind::Checkpoints => {
                     self.open_selected_checkpoint_detail();
                 }
-                ScreenKind::Catalog | ScreenKind::Git | ScreenKind::FileWorkspace => {
+                ScreenKind::Catalog
+                | ScreenKind::Git
+                | ScreenKind::FileWorkspace
+                | ScreenKind::FileTimeline
+                | ScreenKind::EditSessions => {
                     self.open_selected_cached_detail();
                 }
                 _ => {}
@@ -405,6 +409,11 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
             {
                 self.open_selected_checkpoint_chain();
+            }
+            CKey::Char('t')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileWorkspace =>
+            {
+                self.open_selected_file_timeline();
             }
             CKey::Char('p')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>

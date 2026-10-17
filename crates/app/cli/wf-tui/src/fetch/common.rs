@@ -14,6 +14,20 @@ pub(super) fn items_of(data: &serde_json::Value) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
+/// Percent-encode a workspace path for the single-segment `{id}` routes
+/// (`/file-checkpoint/timeline/{id}`), where slashes must arrive encoded.
+pub(super) fn encode_segment(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 /// Split a list response into items plus the server truncation flag.
 /// Page responses carry `has_more`; cursor responses carry a next cursor.
 pub(super) fn page_of(data: &serde_json::Value) -> (Vec<serde_json::Value>, bool) {

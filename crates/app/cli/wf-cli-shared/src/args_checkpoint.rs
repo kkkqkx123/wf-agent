@@ -70,6 +70,59 @@ pub enum CheckpointSub {
         #[arg(value_name = "PATH")]
         path: String,
     },
+    /// List staged file edit sessions (edit groups), newest first.
+    FileSessionList {
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into results.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+    },
+    /// Begin a file edit session (edit group) and print its id.
+    FileSessionBegin {
+        /// Optional human-readable session label.
+        #[arg(long, value_name = "LABEL")]
+        label: Option<String>,
+    },
+    /// Roll back an entire edit session on an actor partition.
+    FileSessionRollback {
+        /// Edit session id to roll back.
+        #[arg(value_name = "SESSION")]
+        session: String,
+        /// Actor partition the session applies to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+    },
+    /// Undo the last edit on an actor partition.
+    FileUndo {
+        /// Actor partition to undo.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+    },
+    /// Redo the last undone edit on an actor partition.
+    FileRedo {
+        /// Actor partition to redo.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+    },
+    /// Show the reconstructed file set of an actor workspace.
+    FileWorkspace {
+        /// Actor partition to inspect.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+    },
+    /// List the file tree of an actor workspace.
+    FileTree {
+        /// Actor partition to inspect.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Optional path prefix filter.
+        #[arg(long, value_name = "PREFIX")]
+        prefix: Option<String>,
+    },
+    /// List files with unresolved merge conflicts.
+    FileConflicts,
     /// Restore the bound workspace from a file checkpoint as new content
     /// writes; commit history is not rewritten.
     FileRestore {
@@ -468,5 +521,71 @@ mod tests {
         };
         assert_eq!(before, Some(1000));
         assert_eq!(domain, Some(CheckpointDomain::Workflow));
+    }
+
+    #[test]
+    fn checkpoint_file_session_and_workspace_parses() {
+        let cli = parse(&["checkpoint", "file-session-list", "--limit", "10"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileSessionList { limit, offset } = sub else {
+            panic!("expected file-session-list");
+        };
+        assert_eq!(limit, Some(10));
+        assert_eq!(offset, None);
+
+        let cli = parse(&["checkpoint", "file-session-begin", "--label", "format"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileSessionBegin { label } = sub else {
+            panic!("expected file-session-begin");
+        };
+        assert_eq!(label.as_deref(), Some("format"));
+
+        let cli = parse(&["checkpoint", "file-session-rollback", "sess-1", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileSessionRollback { session, actor } = sub else {
+            panic!("expected file-session-rollback");
+        };
+        assert_eq!(session, "sess-1");
+        assert_eq!(actor, "agent-1");
+
+        let cli = parse(&["checkpoint", "file-undo", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileUndo { .. }));
+
+        let cli = parse(&["checkpoint", "file-redo", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileRedo { .. }));
+
+        let cli = parse(&["checkpoint", "file-workspace", "agent-1"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileWorkspace { .. }));
+
+        let cli = parse(&["checkpoint", "file-tree", "agent-1", "--prefix", "src/"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileTree { actor, prefix } = sub else {
+            panic!("expected file-tree");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(prefix.as_deref(), Some("src/"));
+
+        let cli = parse(&["checkpoint", "file-conflicts"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileConflicts));
     }
 }

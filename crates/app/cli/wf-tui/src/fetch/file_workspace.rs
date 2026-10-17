@@ -8,9 +8,9 @@
 use wf_client::WfClient;
 
 use crate::error::CliResult;
-use crate::screens::{FileChangeRow, ScreenData};
+use crate::screens::{FileChangeRow, FileTimelineData, FileTimelineRow, ScreenData};
 
-use super::common::items_of;
+use super::common::{encode_segment, format_ts, items_of};
 
 /// Render one per-file diff view as unified-diff text: a one-line header
 /// plus every hunk's header and raw lines. Binary files carry no hunks.
@@ -77,6 +77,90 @@ pub(super) async fn fetch_file_workspace(
     Ok((ScreenData::FileWorkspace(rows), false))
 }
 
+/// Build the version-timeline rows for one workspace file path, following
+/// renames. Without a path (nothing selected on the Files screen) the screen
+/// stays empty and says so.
+pub(super) async fn fetch_file_timeline(
+    client: &WfClient,
+    path: Option<&str>,
+) -> CliResult<(ScreenData, bool)> {
+    let Some(path) = path.filter(|p| !p.is_empty()) else {
+        return Ok((ScreenData::FileTimeline(FileTimelineData::default()), false));
+    };
+    let data: serde_json::Value = client
+        .get_json(&format!(
+            "/api/v1/file-checkpoint/timeline/{}",
+            encode_segment(path)
+        ))
+        .await?;
+    let original_path = data
+        .get("original_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or(path)
+        .to_string();
+    let truncated = data
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let entries = data
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let rows = entries.iter().map(timeline_row).collect();
+    Ok((
+        ScreenData::FileTimeline(FileTimelineData {
+            original_path,
+            truncated,
+            rows,
+        }),
+        truncated,
+    ))
+}
+
+/// Map one timeline entry to a display row, pre-rendering its viewer text.
+fn timeline_row(entry: &serde_json::Value) -> FileTimelineRow {
+    let path = entry
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let snapshot = entry
+        .get("snapshot_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let source = entry
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let moved_from = entry
+        .get("moved_from")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let timestamp = format_ts(entry.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0));
+    let mut detail = vec![
+        format!("path: {path}"),
+        format!("snapshot: {snapshot}"),
+        format!("source: {source}"),
+        format!("timestamp: {timestamp}"),
+    ];
+    if let Some(hash) = entry.get("content_hash").and_then(|v| v.as_str()) {
+        detail.push(format!("content hash: {hash}"));
+    }
+    if let Some(from) = &moved_from {
+        detail.push(format!("renamed from: {from}"));
+    }
+    FileTimelineRow {
+        path,
+        snapshot: crate::screens::short_id(snapshot),
+        timestamp,
+        source,
+        moved_from,
+        detail: detail.join("\n"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +196,34 @@ mod tests {
             "binary": false, "hunks": [],
         });
         assert!(render_diff(&empty).contains("(no textual changes)"));
+    }
+
+    #[test]
+    fn timeline_row_marks_rename_and_hash() {
+        let row = timeline_row(&serde_json::json!({
+            "path": "src/main.rs",
+            "snapshot_id": "abcdef0123456789",
+            "content_hash": "deadbeef",
+            "timestamp": 1_700_000_000_000_i64,
+            "source": "agent:loop-1",
+            "moved_from": "src/old.rs",
+        }));
+        assert_eq!(row.path, "src/main.rs");
+        assert_eq!(row.snapshot, "abcdef01...");
+        assert_eq!(row.moved_from.as_deref(), Some("src/old.rs"));
+        assert!(row.detail.contains("content hash: deadbeef"));
+        assert!(row.detail.contains("renamed from: src/old.rs"));
+    }
+
+    #[test]
+    fn timeline_row_without_rename_omits_the_line() {
+        let row = timeline_row(&serde_json::json!({
+            "path": "src/lib.rs",
+            "snapshot_id": "0123456789abcdef",
+            "timestamp": 1_700_000_000_000_i64,
+            "source": "manual",
+        }));
+        assert!(row.moved_from.is_none());
+        assert!(!row.detail.contains("renamed from:"));
     }
 }

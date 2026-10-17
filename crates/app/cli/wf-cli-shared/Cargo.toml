@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Shared logic for wf-cli targets (headless, mini, full TUI)"
 
 [dependencies]
+chrono.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

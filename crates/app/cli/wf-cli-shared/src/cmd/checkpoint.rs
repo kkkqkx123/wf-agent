@@ -6,7 +6,7 @@ use crate::args::{CheckpointDomain, CheckpointSub, Cli};
 use crate::cmd::render::render_envelope;
 use crate::connection::ClientHandle;
 use crate::error::CliResult;
-use crate::output::OutputEnvelope;
+use crate::output::{OutputEnvelope, OutputFormat};
 
 fn entity_type(domain: Option<CheckpointDomain>) -> Option<&'static str> {
     match domain {
@@ -131,10 +131,145 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     encode_segment(path)
                 ))
                 .await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_file_timeline(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-timeline", data)
+                        .with_entity(path.clone()),
+                )
+            }
+        }
+        CheckpointSub::FileSessionList { limit, offset } => {
+            let mut params: Vec<String> = Vec::new();
+            if let Some(limit) = limit {
+                params.push(format!("limit={limit}"));
+            }
+            if let Some(offset) = offset {
+                params.push(format!("offset={offset}"));
+            }
+            let path = if params.is_empty() {
+                "/api/v1/file-checkpoint/sessions".to_string()
+            } else {
+                format!("/api/v1/file-checkpoint/sessions?{}", params.join("&"))
+            };
+            let data: serde_json::Value = client.get_json(&path).await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_edit_sessions(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-session-list", data),
+                )
+            }
+        }
+        CheckpointSub::FileSessionBegin { label } => {
+            let body = serde_json::json!({"label": label});
+            let session: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/sessions", &body)
+                .await?;
+            let entity = session.as_str().unwrap_or_default().to_string();
+            let data = serde_json::json!({"session": session});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-file-timeline", data).with_entity(path.clone()),
+                OutputEnvelope::success("checkpoint-file-session-begin", data).with_entity(entity),
             )
+        }
+        CheckpointSub::FileSessionRollback { session, actor } => {
+            let snapshot: serde_json::Value = client
+                .post_json(
+                    &format!(
+                        "/api/v1/file-checkpoint/sessions/{}/rollback/{}",
+                        encode_segment(session),
+                        encode_segment(actor)
+                    ),
+                    &serde_json::json!({}),
+                )
+                .await?;
+            let data = serde_json::json!({"session": session, "actor": actor, "snapshot": snapshot});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-session-rollback", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileUndo { actor } => {
+            let snapshot: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/file-checkpoint/undo/{}", encode_segment(actor)),
+                    &serde_json::json!({}),
+                )
+                .await?;
+            let data = serde_json::json!({"actor": actor, "snapshot": snapshot});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-undo", data).with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileRedo { actor } => {
+            let snapshot: serde_json::Value = client
+                .post_json(
+                    &format!("/api/v1/file-checkpoint/redo/{}", encode_segment(actor)),
+                    &serde_json::json!({}),
+                )
+                .await?;
+            let data = serde_json::json!({"actor": actor, "snapshot": snapshot});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-redo", data).with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileWorkspace { actor } => {
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/file-checkpoint/workspace/{}",
+                    encode_segment(actor)
+                ))
+                .await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_workspace(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-workspace", data)
+                        .with_entity(actor.clone()),
+                )
+            }
+        }
+        CheckpointSub::FileTree { actor, prefix } => {
+            let mut path = format!("/api/v1/file-checkpoint/tree/{}", encode_segment(actor));
+            if let Some(prefix) = prefix {
+                path.push_str(&format!("?prefix={}", encode_segment(prefix)));
+            }
+            let data: serde_json::Value = client.get_json(&path).await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_file_tree(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-tree", data)
+                        .with_entity(actor.clone()),
+                )
+            }
+        }
+        CheckpointSub::FileConflicts => {
+            let data: serde_json::Value = client
+                .get_json("/api/v1/file-checkpoint/conflicts")
+                .await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_conflicts(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-conflicts", data),
+                )
+            }
         }
         CheckpointSub::FileRestore { entity, checkpoint } => {
             let body = serde_json::json!({"entity": entity, "checkpoint": checkpoint});

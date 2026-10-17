@@ -66,10 +66,6 @@ pub trait RenderView {
     fn perf_marker(&self) -> &str {
         "perf:full"
     }
-    /// Side panel visibility.
-    fn side_panel_visible(&self) -> bool {
-        false
-    }
     /// Diagram pane visibility.
     fn diagram_visible(&self) -> bool {
         false
@@ -116,7 +112,6 @@ pub trait LayoutView {
     fn width(&self) -> u16;
     fn height(&self) -> u16;
     fn overlay_active(&self) -> bool;
-    fn side_panel_visible(&self) -> bool;
     fn diagram_visible(&self) -> bool;
 }
 

@@ -271,7 +271,6 @@ mod tests {
         assert!(!model.is_processing());
         assert_eq!(model.queued_count(), 0);
         assert_eq!(model.perf_marker(), "perf:full");
-        assert!(!model.side_panel_visible());
         assert!(!model.diagram_visible());
         assert_eq!(model.image_signature(), 0);
     }

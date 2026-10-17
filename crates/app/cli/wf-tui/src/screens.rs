@@ -163,6 +163,12 @@ impl Screens {
             ScreenKind::FileWorkspace => {
                 screen_draw::draw_file_workspace(frame, area, data, self.selected, theme, ctx)
             }
+            ScreenKind::FileTimeline => {
+                screen_draw::draw_file_timeline(frame, area, data, self.selected, theme, ctx)
+            }
+            ScreenKind::EditSessions => {
+                screen_draw::draw_edit_sessions(frame, area, data, self.selected, theme, ctx)
+            }
             ScreenKind::Settings => {
                 screen_draw::draw_settings(frame, area, data, settings_scroll, theme)
             }

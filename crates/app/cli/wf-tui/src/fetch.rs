@@ -10,6 +10,7 @@ mod common;
 mod dashboard;
 mod detail;
 mod file_workspace;
+mod sessions;
 mod sidebar;
 
 pub use catalog::fetch_search_rows;
@@ -26,17 +27,21 @@ use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind};
 use catalog::{fetch_catalog, fetch_git, fetch_settings};
 use checkpoints::fetch_checkpoints;
 use dashboard::{fetch_dashboard, fetch_executions, fetch_insights, fetch_workflows};
-use file_workspace::fetch_file_workspace;
+use file_workspace::{fetch_file_timeline, fetch_file_workspace};
+use sessions::fetch_edit_sessions;
 
 /// Fetch data for the given screen kind. The flag reports server-side
 /// truncation (`has_more`) so list titles stay honest about capped pages.
 /// `execution_id` is the active session's execution, used by the
 /// file-workspace screen to resolve its `agent:{id}` actor partition.
+/// `file_timeline_path` is the workspace file the timeline screen follows,
+/// captured when it is opened from the Files screen.
 pub async fn fetch_for(
     client: &WfClient,
     kind: ScreenKind,
     filter: ExecStatusFilter,
     execution_id: Option<&str>,
+    file_timeline_path: Option<&str>,
 ) -> CliResult<(ScreenData, bool)> {
     match kind {
         ScreenKind::Dashboard => Ok((fetch_dashboard(client).await?, false)),
@@ -48,6 +53,8 @@ pub async fn fetch_for(
         ScreenKind::Catalog => fetch_catalog(client).await,
         ScreenKind::Git => fetch_git(client).await,
         ScreenKind::FileWorkspace => fetch_file_workspace(client, execution_id).await,
+        ScreenKind::FileTimeline => fetch_file_timeline(client, file_timeline_path).await,
+        ScreenKind::EditSessions => fetch_edit_sessions(client).await,
         ScreenKind::Interactive => Ok((ScreenData::None, false)),
     }
 }

@@ -42,8 +42,6 @@ pub struct TestRenderModel {
     pub footer: u64,
     /// Performance tier marker.
     pub perf: String,
-    /// Side panel visibility.
-    pub side_panel: bool,
     /// Diagram visibility.
     pub diagram: bool,
     /// Image collection signature.
@@ -130,9 +128,6 @@ impl LayoutView for TestRenderModel {
     fn overlay_active(&self) -> bool {
         self.overlay
     }
-    fn side_panel_visible(&self) -> bool {
-        self.side_panel
-    }
     fn diagram_visible(&self) -> bool {
         self.diagram
     }
@@ -201,9 +196,6 @@ impl RenderView for TestRenderModel {
     }
     fn perf_marker(&self) -> &str {
         &self.perf
-    }
-    fn side_panel_visible(&self) -> bool {
-        self.side_panel
     }
     fn diagram_visible(&self) -> bool {
         self.diagram

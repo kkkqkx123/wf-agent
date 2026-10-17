@@ -93,6 +93,9 @@ pub struct ScreenState {
     pub detail_inflight: Option<(DetailKey, Instant)>,
     /// Server truncation flags per list screen.
     pub truncated: HashMap<ScreenKind, bool>,
+    /// Workspace file whose version timeline the timeline screen follows;
+    /// captured when the screen is opened from the Files screen.
+    pub file_timeline_path: Option<String>,
 }
 
 impl ScreenState {
@@ -112,6 +115,7 @@ impl ScreenState {
             detail: None,
             detail_inflight: None,
             truncated: HashMap::new(),
+            file_timeline_path: None,
         }
     }
 

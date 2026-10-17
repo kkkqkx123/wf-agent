@@ -32,9 +32,11 @@ impl FileCheckpointManager {
                 storage.db_path().as_deref(),
             ));
         }
+        let max_file_size = self.policy.scan_config.max_file_size;
         let scanner = WorkspaceScanner::new(ScanConfig {
             custom_ignore_patterns: ignore_patterns,
             failure_behavior: opts.failure_behavior,
+            max_file_size,
         });
         let scan = scanner.scan(base_dir)?;
         let actor = self.actor_id_for(entity_id);
@@ -60,6 +62,7 @@ impl FileCheckpointManager {
             }
         }
         let mut entries = Vec::with_capacity(scan.files.len());
+        let mut oversized: Vec<String> = Vec::new();
         for state in &scan.files {
             let relative = match crate::file::util::validate_workspace_relative_path(&state.path) {
                 Ok(v) => v,
@@ -72,6 +75,17 @@ impl FileCheckpointManager {
                     FailureBehavior::Ignore => continue,
                 },
             };
+            // Oversized files stay on disk untouched: never read into
+            // memory, never stored, and (below) never deleted by restore.
+            // A previously tracked oversized file is dropped from the tree
+            // so its old bytes stop being checkpointed.
+            if max_file_size > 0 && state.size > max_file_size {
+                if tracked.contains(&relative) {
+                    entries.push(FileContentEntry::deleted(relative.clone()));
+                }
+                oversized.push(relative);
+                continue;
+            }
             let path = base_dir.join(&relative);
             match std::fs::read(&path) {
                 Ok(content) => entries.push(FileContentEntry::new(relative, content)),
@@ -105,11 +119,17 @@ impl FileCheckpointManager {
         entries.extend(Self::nested_gitlink_entries(&scan));
         let mut checkpoint = self.create_checkpoint(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
-        if let Err(err) = self
-            .storage_ref()?
-            .store_empty_dirs(&checkpoint.id, &scan.empty_dirs)
-        {
+        checkpoint.oversized_files = if oversized.is_empty() {
+            None
+        } else {
+            Some(oversized.clone())
+        };
+        let storage = self.storage_ref()?;
+        if let Err(err) = storage.store_empty_dirs(&checkpoint.id, &scan.empty_dirs) {
             tracing::warn!("storing empty dir manifest failed: {err}");
+        }
+        if let Err(err) = storage.store_oversized_files(&checkpoint.id, &oversized) {
+            tracing::warn!("storing oversized-file manifest failed: {err}");
         }
         Ok(checkpoint)
     }

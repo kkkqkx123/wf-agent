@@ -9,6 +9,7 @@ mod transaction;
 
 pub use discovery::{
     ChildDiscovery, ChildDiscoveryLoader, ChildDiscoveryResult, ChildDiscoverySummary,
+    ChildRestoreFailure,
 };
 pub use resolver::{CachedChildResolver, ChildCheckpointResolver, InMemoryChildResolver};
 pub use transaction::{

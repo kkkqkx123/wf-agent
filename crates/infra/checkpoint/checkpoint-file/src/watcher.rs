@@ -165,6 +165,7 @@ impl FileWatcher {
         let scanner = WorkspaceScanner::new(ScanConfig {
             custom_ignore_patterns: self.scanner.config().custom_ignore_patterns.clone(),
             failure_behavior: self.scanner.config().failure_behavior,
+            max_file_size: self.scanner.config().max_file_size,
         });
         let debounce = self.debounce;
         let root_for_task = root.clone();

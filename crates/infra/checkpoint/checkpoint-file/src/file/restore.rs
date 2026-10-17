@@ -54,6 +54,33 @@ impl FileCheckpointManager {
         Ok(())
     }
 
+    /// Persist a state-to-file association that could not be written to the
+    /// primary link key, so a later startup compensation pass can retry it.
+    pub fn record_pending_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+        file_commit_id: &str,
+    ) -> Result<(), CheckpointError> {
+        self.storage_ref()?
+            .record_pending_state_file_link(state_checkpoint_id, file_commit_id)?;
+        Ok(())
+    }
+
+    /// Retry every pending state-to-file link and return how many were
+    /// recovered. Call once at startup (and on demand) so a link write that
+    /// failed at checkpoint time does not permanently detach a state
+    /// checkpoint from its file snapshot.
+    pub fn retry_pending_state_file_links(&self) -> Result<usize, CheckpointError> {
+        let storage = self.storage_ref()?;
+        let mut recovered = 0usize;
+        for (state_id, file_id) in storage.list_pending_state_file_links()? {
+            storage.record_state_file_link(&state_id, &file_id)?;
+            storage.delete_pending_state_file_link(&state_id)?;
+            recovered += 1;
+        }
+        Ok(recovered)
+    }
+
     /// Resolve the file set belonging to a state checkpoint: the linked
     /// file commit when one was recorded and still exists. Checkpoints
     /// created before linking have no entry and report `None` so callers
@@ -186,5 +213,26 @@ mod tests {
             err,
             CheckpointError::Validation { .. } | CheckpointError::Io(_)
         ));
+    }
+
+    #[test]
+    fn pending_state_file_link_is_recovered() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .record_pending_state_file_link("state-1", "file-1")
+            .unwrap();
+
+        assert_eq!(manager.retry_pending_state_file_links().unwrap(), 1);
+        assert_eq!(
+            manager
+                .storage_ref()
+                .unwrap()
+                .lookup_state_file_link("state-1")
+                .unwrap()
+                .as_deref(),
+            Some("file-1")
+        );
+        // Retrying again finds nothing left to recover.
+        assert_eq!(manager.retry_pending_state_file_links().unwrap(), 0);
     }
 }

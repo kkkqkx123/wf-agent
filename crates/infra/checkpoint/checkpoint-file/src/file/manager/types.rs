@@ -45,6 +45,10 @@ pub struct FileCheckpoint {
     /// workspace restore. Kept in the projection index.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_dirs: Option<Vec<String>>,
+    /// Files excluded because they exceeded the scanner's content cap.
+    /// Opaque to the checkpoint: never captured, restored or deleted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oversized_files: Option<Vec<String>>,
 }
 
 /// Preferred alias for new call sites: this value is always a full

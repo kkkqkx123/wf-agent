@@ -67,7 +67,7 @@ pub fn scan_workspace(
 ) -> ApiResult<WorkspaceScanResult> {
     let config = ScanConfig {
         custom_ignore_patterns: ignore_patterns.to_vec(),
-        ..Default::default()
+        ..ScanConfig::default()
     };
     let scanner = WorkspaceScanner::new(config);
     let scan = scanner

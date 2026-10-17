@@ -13,6 +13,7 @@ use crate::coordinator::base::{
     decide_checkpoint_type_by_count, next_chain_position, prepare_context, stamp_custom_fields,
     CheckpointCoordinator,
 };
+use crate::coordinator::child_restore::ChildRestorePolicy;
 use crate::coordinator::persist::{delete_checkpoint, persist_checkpoint};
 use crate::coordinator::projection::{
     enqueue_persistence, restore_state_files, save_file_snapshot,
@@ -60,6 +61,8 @@ pub struct AgentCheckpointCoordinator {
     strategy: Option<StandardStrategy>,
     error_handler: checkpoint_base::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
+    /// Reaction to child execution restore failures (`BestEffort` default).
+    child_restore_policy: ChildRestorePolicy,
     file_checkpoint_manager: Option<FileCheckpointManager>,
     /// `contentConfig.async`: defer post-persist side effects to the
     /// background persistence queue.
@@ -80,6 +83,7 @@ impl AgentCheckpointCoordinator {
             strategy: None,
             error_handler: checkpoint_base::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
+            child_restore_policy: ChildRestorePolicy::default(),
             file_checkpoint_manager: None,
             async_persistence: false,
             persistence_queue: Arc::new(tokio::sync::Mutex::new(Vec::new())),
@@ -164,6 +168,13 @@ impl AgentCheckpointCoordinator {
     /// post-restore phase.
     pub fn with_restore_registry(mut self, registry: RestoreStrategyRegistry) -> Self {
         self.restore_registry = Some(registry);
+        self
+    }
+
+    /// Choose how child restore failures are handled (`BestEffort` default,
+    /// `Strict` fails the whole child restore phase).
+    pub fn with_child_restore_policy(mut self, policy: ChildRestorePolicy) -> Self {
+        self.child_restore_policy = policy;
         self
     }
 
@@ -580,11 +591,22 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
 
         // Post-restore phase: bring back the child executions spawned from
         // this one, located through their own records.
-        if let Ok(summary) = self
+        match self
             .restore_child_hierarchy(checkpoint_id, &entity.agent_loop_id)
             .await
         {
-            entity.restore_summary = Some(summary);
+            Ok(summary) => entity.restore_summary = Some(summary),
+            Err(err) if self.child_restore_policy == ChildRestorePolicy::Strict => {
+                return Err(err);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    checkpoint_id = %checkpoint_id,
+                    entity_id = %entity.agent_loop_id,
+                    error = %err,
+                    "child hierarchy restore failed; agent state restore still stands"
+                );
+            }
         }
 
         // restore the file set linked to this state checkpoint (falls back

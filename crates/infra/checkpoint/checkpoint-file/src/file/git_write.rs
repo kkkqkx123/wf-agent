@@ -203,6 +203,7 @@ impl FileCheckpointManager {
         files.sort_by(|a, b| a.path.cmp(&b.path));
         let full_hash = compute_full_hash(&files);
         let empty_dirs = storage.load_empty_dirs(commit_id)?;
+        let oversized_files = storage.load_oversized_files(commit_id)?;
         Ok(FileCheckpoint {
             id: commit_id.to_string(),
             timestamp: commit.committer_ts,
@@ -212,6 +213,11 @@ impl FileCheckpointManager {
                 None
             } else {
                 Some(empty_dirs)
+            },
+            oversized_files: if oversized_files.is_empty() {
+                None
+            } else {
+                Some(oversized_files)
             },
         })
     }
@@ -240,13 +246,20 @@ impl FileCheckpointManager {
             base_dir,
             storage.db_path().as_deref(),
         ));
+        let max_file_size = self.policy.scan_config.max_file_size;
         let scanner = WorkspaceScanner::new(ScanConfig {
             custom_ignore_patterns: ignore_patterns,
             failure_behavior: self.policy.scan_config.failure_behavior,
+            max_file_size,
         });
         let scan = scanner.scan(base_dir)?;
         let mut worktree: HashMap<String, Vec<u8>> = HashMap::with_capacity(scan.files.len());
         for file in &scan.files {
+            if max_file_size > 0 && file.size > max_file_size {
+                // Oversized files are opaque: never read into memory, never
+                // attributed as human edits.
+                continue;
+            }
             let path = base_dir.join(&file.path);
             match std::fs::read(&path) {
                 Ok(bytes) => {

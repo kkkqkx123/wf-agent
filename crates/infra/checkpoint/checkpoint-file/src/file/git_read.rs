@@ -134,6 +134,7 @@ impl FileCheckpointManager {
         let scanner = WorkspaceScanner::new(ScanConfig {
             custom_ignore_patterns: ignore_patterns,
             failure_behavior: opts.failure_behavior,
+            max_file_size: self.policy.scan_config.max_file_size,
         });
         let current = scanner.scan(base_dir)?;
         let current_map: HashMap<&str, &crate::file::FileState> =
@@ -193,10 +194,16 @@ impl FileCheckpointManager {
             }
         }
 
-        // Delete extras not in the target set; protected ignore names and
-        // anything inside a nested repository are never deleted, and files
-        // outside the checkpoint range are never deleted so parallel
-        // instances do not clean each other's workspaces.
+        // Oversized files were excluded from the checkpoint by the content
+        // cap: they are opaque on restore and must never be deleted.
+        let oversized = storage.load_oversized_files(commit_id)?;
+        let is_oversized = |path: &str| oversized.iter().any(|p| p == path);
+
+        // Delete extras not in the target set; protected ignore names,
+        // anything inside a nested repository, and oversized files are
+        // never deleted, and files outside the checkpoint range are never
+        // deleted so parallel instances do not clean each other's
+        // workspaces.
         let mut extras: Vec<&str> = current
             .files
             .iter()
@@ -205,6 +212,7 @@ impl FileCheckpointManager {
                 !target_hash.contains_key(*path)
                     && !is_hardcoded_ignored(path)
                     && !under_nested(path)
+                    && !is_oversized(path)
                     && in_range(path)
             })
             .collect();

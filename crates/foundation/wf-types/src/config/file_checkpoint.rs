@@ -114,4 +114,9 @@ pub struct FileCheckpointConfig {
     /// directory. Default (`false` / missing) stores outside the workspace.
     #[serde(default)]
     pub store_in_workspace: Option<bool>,
+    /// Per-file content cap in bytes. Files above it stay on disk untouched:
+    /// never captured, never restored, never deleted. `None` uses the
+    /// built-in 10 MiB default; `0` disables the cap.
+    #[serde(default)]
+    pub max_file_size: Option<u64>,
 }

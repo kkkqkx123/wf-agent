@@ -147,6 +147,46 @@ impl SqliteStorage {
         })
     }
 
+    pub fn store_oversized_files(&self, commit_id: &str, paths: &[String]) -> StorageResult<()> {
+        let payload = serde_json::to_vec(paths).unwrap_or_default();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO oversized_files (commit_id, paths, updated_at)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(commit_id) DO UPDATE SET paths = excluded.paths, updated_at = excluded.updated_at",
+                rusqlite::params![commit_id, payload, now_millis()],
+            )
+            .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
+    pub fn load_oversized_files(&self, commit_id: &str) -> StorageResult<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT paths FROM oversized_files WHERE commit_id = ?1")
+                .map_err(db_err)?;
+            let mut rows = stmt.query([commit_id]).map_err(db_err)?;
+            if let Some(row) = rows.next().map_err(db_err)? {
+                let payload: Vec<u8> = row.get(0).map_err(db_err)?;
+                Ok(serde_json::from_slice(&payload).unwrap_or_default())
+            } else {
+                Ok(Vec::new())
+            }
+        })
+    }
+
+    pub fn delete_oversized_files(&self, commit_id: &str) -> StorageResult<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM oversized_files WHERE commit_id = ?1",
+                [commit_id],
+            )
+            .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
     /// Single-level transaction owned by this call: the transaction object
     /// is the critical section, so nested manual begin/commit strings can no
     /// longer mis-pair `COMMIT`/`ROLLBACK` on the shared connection.
@@ -364,10 +404,76 @@ impl SqliteStorage {
             }
         })
     }
+
+    /// Record a state-to-file link that could not be written to the primary
+    /// key. Persisted so startup compensation can retry the link instead of
+    /// losing the association.
+    pub fn record_pending_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+        file_commit_id: &str,
+    ) -> StorageResult<()> {
+        let key = format!("{PENDING_STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO meta_kv (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, file_commit_id.as_bytes(), now_millis()],
+            )
+            .map_err(db_err)?;
+            Ok(())
+        })
+    }
+
+    /// Every still-pending state-to-file link as `(state_checkpoint_id,
+    /// file_commit_id)`.
+    pub fn list_pending_state_file_links(&self) -> StorageResult<Vec<(String, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn
+                .prepare("SELECT key, value FROM meta_kv WHERE key GLOB ?1")
+                .map_err(db_err)?;
+            let pattern = format!("{PENDING_STATE_FILE_LINK_PREFIX}*");
+            let rows = stmt
+                .query_map([pattern], |row| {
+                    let key: String = row.get(0)?;
+                    let value: Vec<u8> = row.get(1)?;
+                    let value = String::from_utf8(value)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    Ok((key, value))
+                })
+                .map_err(db_err)?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (key, value) = row.map_err(db_err)?;
+                let state_id = key
+                    .strip_prefix(PENDING_STATE_FILE_LINK_PREFIX)
+                    .unwrap_or(&key)
+                    .to_string();
+                out.push((state_id, value));
+            }
+            Ok(out)
+        })
+    }
+
+    /// Drop a pending state-to-file link after it has been retried.
+    pub fn delete_pending_state_file_link(
+        &self,
+        state_checkpoint_id: &str,
+    ) -> StorageResult<()> {
+        let key = format!("{PENDING_STATE_FILE_LINK_PREFIX}{state_checkpoint_id}");
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM meta_kv WHERE key = ?1", [key])
+                .map_err(db_err)?;
+            Ok(())
+        })
+    }
 }
 
 /// Key prefix for state-checkpoint to file-commit links in `meta_kv`.
 const STATE_FILE_LINK_PREFIX: &str = "state_file_link:";
+
+/// Key prefix for links whose primary write failed and await startup
+/// compensation in `meta_kv`.
+const PENDING_STATE_FILE_LINK_PREFIX: &str = "pending_state_file_link:";
 
 fn decode_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceIndexEntry> {
     let payload: Vec<u8> = row.get(4)?;

@@ -37,6 +37,8 @@ impl AgentCheckpointCoordinator {
             checkpoint_id,
             parent_entity_id,
             self.restore_registry.clone(),
+            self.child_restore_policy,
+            self.event_bus.as_ref(),
             move |id: String| {
                 let storage = Arc::clone(&storage);
                 async move {

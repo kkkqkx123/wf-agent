@@ -3,7 +3,44 @@ use crate::coordinator::queue::{push_persistence_handle, PersistenceQueue};
 use crate::{is_file_channel_closed, ResolvedFileScope};
 use checkpoint_base::error::CheckpointError;
 use checkpoint_file::event::CheckpointEventBus;
-use checkpoint_file::file::FileCheckpointManager;
+use checkpoint_file::file::{FileCheckpoint, FileCheckpointManager};
+
+/// Total file-projection attempts (one initial try plus retries) before the
+/// best-effort snapshot is abandoned.
+pub const FILE_PROJECTION_MAX_ATTEMPTS: u32 = 3;
+
+/// Initial retry backoff; doubled after every failed attempt.
+const FILE_PROJECTION_INITIAL_BACKOFF_MS: u64 = 100;
+
+/// Project the entity's latest file checkpoint with bounded retries so a
+/// transient git/SQLite failure does not leave a state checkpoint without a
+/// linked file snapshot. Only errors are retried; a missing history (`None`)
+/// is a normal outcome. Runs inside a blocking task.
+fn create_latest_file_checkpoint_with_retry(
+    manager: &FileCheckpointManager,
+    entity_id: &str,
+) -> Result<Option<FileCheckpoint>, CheckpointError> {
+    let mut attempt = 1;
+    let mut backoff_ms = FILE_PROJECTION_INITIAL_BACKOFF_MS;
+    loop {
+        match manager.create_latest_file_checkpoint(entity_id) {
+            Ok(outcome) => return Ok(outcome),
+            Err(err) if attempt < FILE_PROJECTION_MAX_ATTEMPTS => {
+                tracing::warn!(
+                    entity_id = %entity_id,
+                    attempt,
+                    max_attempts = FILE_PROJECTION_MAX_ATTEMPTS,
+                    error = %err,
+                    "file projection failed; retrying"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                attempt += 1;
+                backoff_ms *= 2;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
 
 /// True when the file projection must be skipped for the scope. Closed
 /// channels skip entirely; an explicit empty checkpoint range also skips
@@ -45,13 +82,13 @@ pub async fn save_file_snapshot_scoped(
     let manager_for_task = manager.clone();
     let entity_id_owned = entity_id.to_string();
     let outcome = tokio::task::spawn_blocking(move || {
-        manager_for_task.create_latest_file_checkpoint(&entity_id_owned)
+        create_latest_file_checkpoint_with_retry(&manager_for_task, &entity_id_owned)
     })
     .await
     .map_err(|e| CheckpointError::Internal(format!("file projection task failed: {e}")))??;
     match outcome {
         Some(file_checkpoint) => {
-            manager.record_state_file_link(checkpoint_id, &file_checkpoint.id)?;
+            record_state_file_link_with_retry(manager, checkpoint_id, &file_checkpoint.id)?;
             tracing::debug!(
                 entity_id = %entity_id,
                 checkpoint_id = %checkpoint_id,
@@ -68,6 +105,47 @@ pub async fn save_file_snapshot_scoped(
         }
     }
     Ok(())
+}
+
+/// Record the state-to-file link with bounded retries. When every attempt
+/// fails, a pending marker is persisted (best-effort) so startup compensation
+/// can re-link, and the original error is returned for loud reporting.
+pub fn record_state_file_link_with_retry(
+    manager: &FileCheckpointManager,
+    checkpoint_id: &str,
+    file_commit_id: &str,
+) -> Result<(), CheckpointError> {
+    let mut attempt = 1;
+    let mut backoff_ms = FILE_PROJECTION_INITIAL_BACKOFF_MS;
+    loop {
+        match manager.record_state_file_link(checkpoint_id, file_commit_id) {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt < FILE_PROJECTION_MAX_ATTEMPTS => {
+                tracing::warn!(
+                    checkpoint_id = %checkpoint_id,
+                    attempt,
+                    max_attempts = FILE_PROJECTION_MAX_ATTEMPTS,
+                    error = %err,
+                    "state-file link write failed; retrying"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                attempt += 1;
+                backoff_ms *= 2;
+            }
+            Err(err) => {
+                if let Err(mark_err) =
+                    manager.record_pending_state_file_link(checkpoint_id, file_commit_id)
+                {
+                    tracing::warn!(
+                        checkpoint_id = %checkpoint_id,
+                        error = %mark_err,
+                        "failed to record pending state-file link for compensation"
+                    );
+                }
+                return Err(err);
+            }
+        }
+    }
 }
 
 /// Defer the file projection to the background persistence queue. The
@@ -111,11 +189,13 @@ pub async fn enqueue_persistence_scoped(
     let metrics = file_checkpoint_manager.and_then(|m| m.checkpoint_metrics_for_observability());
     let handle = tokio::task::spawn_blocking(move || {
         if let Some(manager) = file_manager {
-            match manager.create_latest_file_checkpoint(&entity_id_for_task) {
+            match create_latest_file_checkpoint_with_retry(&manager, &entity_id_for_task) {
                 Ok(Some(file_checkpoint)) => {
-                    if let Err(err) =
-                        manager.record_state_file_link(&checkpoint_id_for_task, &file_checkpoint.id)
-                    {
+                    if let Err(err) = record_state_file_link_with_retry(
+                        &manager,
+                        &checkpoint_id_for_task,
+                        &file_checkpoint.id,
+                    ) {
                         tracing::warn!(
                             entity_id = %entity_id_for_task,
                             checkpoint_id = %checkpoint_id_for_task,
@@ -182,12 +262,26 @@ pub fn restore_state_files(
     let Some(manager) = file_checkpoint_manager else {
         return;
     };
-    if let Err(err) = manager.restore_state_files(entity_id, checkpoint_id) {
-        tracing::warn!(
-            checkpoint_id = %checkpoint_id,
-            entity_id = %entity_id,
-            error = %err,
-            "file checkpoint restore failed for state checkpoint; state restore still stands"
-        );
+    match manager.restore_state_files(entity_id, checkpoint_id) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            // No link means the state checkpoint was created without file
+            // history (or its file projection failed). The state restore is
+            // still valid; report at debug so the absence stays visible
+            // without flagging the common "no file history" case as a fault.
+            tracing::debug!(
+                checkpoint_id = %checkpoint_id,
+                entity_id = %entity_id,
+                "state checkpoint has no linked file snapshot; file state not restored"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                checkpoint_id = %checkpoint_id,
+                entity_id = %entity_id,
+                error = %err,
+                "file checkpoint restore failed for state checkpoint; state restore still stands"
+            );
+        }
     }
 }

@@ -25,6 +25,14 @@ CREATE TABLE IF NOT EXISTS empty_dirs (
     updated_at      INTEGER NOT NULL
 );
 
+-- Oversized-file manifests keyed by commit id: paths excluded because they
+-- exceeded the content cap. Opaque to capture and restore (never deleted).
+CREATE TABLE IF NOT EXISTS oversized_files (
+    commit_id       TEXT PRIMARY KEY,
+    paths           BLOB NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+
 -- Query-acceleration index: commit -> actor/session/tool/paths/timestamp.
 -- Lossy by design: dropping every row is safe, rebuild from the graph.
 CREATE TABLE IF NOT EXISTS source_index (

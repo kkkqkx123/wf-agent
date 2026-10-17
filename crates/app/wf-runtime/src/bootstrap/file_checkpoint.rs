@@ -19,6 +19,15 @@ pub fn init_file_checkpoint_manager(
     match wf_checkpoint::FileCheckpointManager::open_from_config(config) {
         Ok(manager) => {
             info!("File checkpoint manager initialized (layertwine Sqlite)");
+            match manager.retry_pending_state_file_links() {
+                Ok(0) => {}
+                Ok(recovered) => {
+                    info!(recovered, "Recovered pending state-to-file checkpoint links");
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to recover pending state-to-file links: {err}");
+                }
+            }
             let bus = wf_checkpoint::event::CheckpointEventBus::new();
             let handle = crate::checkpoint_event_bridge::spawn(event_bus, bus.clone());
             let manager = manager.with_event_bus(bus);

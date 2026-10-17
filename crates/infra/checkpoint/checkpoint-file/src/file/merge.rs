@@ -243,6 +243,7 @@ impl FileCheckpointManager {
                 for id in &pruned_commit_ids {
                     let _ = storage.delete_source_index(id);
                     let _ = storage.delete_empty_dirs(id);
+                    let _ = storage.delete_oversized_files(id);
                 }
             }
         }

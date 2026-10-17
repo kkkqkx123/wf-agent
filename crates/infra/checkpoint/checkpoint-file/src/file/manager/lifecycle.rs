@@ -111,6 +111,9 @@ impl FileCheckpointManager {
         manager.policy.scan_config = ScanConfig {
             custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
             failure_behavior: config.failure_behavior,
+            max_file_size: config
+                .max_file_size
+                .unwrap_or(crate::scan::DEFAULT_MAX_FILE_SIZE),
         };
         manager.policy.approval_policy = config.approval_policy;
         manager.policy.conflict_behavior = config.conflict_behavior;

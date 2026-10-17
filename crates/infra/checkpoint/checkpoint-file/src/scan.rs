@@ -18,14 +18,33 @@ use checkpoint_base::error::CheckpointError;
 /// scanned, committed or deleted by restore.
 pub const HARDCODED_IGNORE_DIRS: &[&str] = &[".git", "node_modules", ".wf-checkpoint-git"];
 
-/// Configuration for workspace scanning.
-#[derive(Debug, Clone, Default)]
+/// Files larger than this are not read into checkpoint content by default.
+/// They stay on disk untouched: never captured, never restored, never
+/// deleted. `0` disables the limit.
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
+/// Configuration for workspace scanning and content capture.
+#[derive(Debug, Clone)]
 pub struct ScanConfig {
     /// Additional ignore patterns (gitignore syntax).
     pub custom_ignore_patterns: Vec<String>,
     /// Per-file error handling: `Error` propagates, `Warn` logs and skips,
     /// `Ignore` skips silently.
     pub failure_behavior: FailureBehavior,
+    /// Per-file content cap. Files above it are recorded as opaque
+    /// oversized entries so capture never holds their bytes in memory and
+    /// restore never touches them. `0` disables the cap.
+    pub max_file_size: u64,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            custom_ignore_patterns: Vec::new(),
+            failure_behavior: FailureBehavior::default(),
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
+        }
+    }
 }
 
 /// Result of a full workspace scan.
@@ -601,6 +620,7 @@ mod tests {
         WorkspaceScanner::new(ScanConfig {
             custom_ignore_patterns: custom.into_iter().map(String::from).collect(),
             failure_behavior: behavior,
+            ..ScanConfig::default()
         })
     }
 

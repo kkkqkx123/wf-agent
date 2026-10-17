@@ -950,3 +950,52 @@ fn partition_history_lists_merges_newest_first() {
         other => panic!("approve publishes ApprovalResolved, got {other:?}"),
     }
 }
+
+#[test]
+fn oversized_files_are_opaque_to_capture_and_restore() {
+    let opts = FileCheckpointOptions::default();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("small.txt"), b"ok").unwrap();
+    std::fs::write(dir.path().join("big.bin"), b"0123456789").unwrap();
+
+    let mut manager = FileCheckpointManager::new_in_memory().unwrap();
+    manager.policy.scan_config.max_file_size = 4;
+    let cp = manager
+        .create_workspace_checkpoint("exec-1", dir.path(), &opts)
+        .unwrap();
+
+    assert!(
+        cp.files.iter().any(|f| f.path == "small.txt"),
+        "under-cap file captured"
+    );
+    assert!(
+        !cp.files.iter().any(|f| f.path == "big.bin"),
+        "oversized file excluded from the checkpoint tree"
+    );
+    assert_eq!(
+        cp.oversized_files.as_deref(),
+        Some(&["big.bin".to_string()][..]),
+        "oversized manifest records the excluded path"
+    );
+
+    // Missing on disk: restore must never recreate an oversized file.
+    std::fs::remove_file(dir.path().join("big.bin")).unwrap();
+    manager
+        .restore_workspace("exec-1", &cp.id, dir.path(), &opts)
+        .unwrap();
+    assert!(
+        !dir.path().join("big.bin").exists(),
+        "oversized file is never restored"
+    );
+
+    // Present on disk: restore must never delete an oversized file.
+    std::fs::write(dir.path().join("big.bin"), b"0123456789").unwrap();
+    let result = manager
+        .restore_workspace("exec-1", &cp.id, dir.path(), &opts)
+        .unwrap();
+    assert_eq!(result.deleted, 0);
+    assert!(
+        dir.path().join("big.bin").exists(),
+        "oversized file is never deleted"
+    );
+}

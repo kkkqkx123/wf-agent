@@ -85,11 +85,22 @@ impl ChildDiscovery {
     pub fn summarize_results(results: &[ChildDiscoveryResult]) -> ChildDiscoverySummary {
         let mut success = 0;
         let mut failed = 0;
+        let mut failures = Vec::new();
 
         for r in results {
             match r {
                 ChildDiscoveryResult::Success { .. } => success += 1,
-                ChildDiscoveryResult::Failed { .. } => failed += 1,
+                ChildDiscoveryResult::Failed {
+                    checkpoint_id,
+                    error,
+                } => {
+                    failed += 1;
+                    failures.push(ChildRestoreFailure {
+                        checkpoint_id: checkpoint_id.clone(),
+                        entity_id: String::new(),
+                        error: error.clone(),
+                    });
+                }
             }
         }
 
@@ -97,6 +108,9 @@ impl ChildDiscovery {
             total: results.len(),
             success,
             failed,
+            restored: 0,
+            skipped: 0,
+            failures,
         }
     }
 }
@@ -120,11 +134,34 @@ pub enum ChildDiscoveryResult {
     },
 }
 
+/// One child execution that could not be discovered or restored. Reported
+/// instead of only logged so callers can surface partial recovery to the
+/// user and decide whether manual intervention is required.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChildRestoreFailure {
+    /// Checkpoint id the child would have been restored from.
+    pub checkpoint_id: String,
+    /// Entity (execution) id the checkpoint belongs to. Empty when the
+    /// failure happened before the entity was resolved.
+    pub entity_id: String,
+    /// Human-readable failure reason.
+    pub error: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChildDiscoverySummary {
+    /// Discovered child executions.
     pub total: usize,
+    /// Children whose state was loaded successfully.
     pub success: usize,
+    /// Children that failed discovery or restore.
     pub failed: usize,
+    /// Children actually restored through a registered restore strategy.
+    pub restored: usize,
+    /// Children discovered but not restored (no strategy or no bytes).
+    pub skipped: usize,
+    /// Per-child failure details, in discovery order.
+    pub failures: Vec<ChildRestoreFailure>,
 }
 
 impl ChildDiscoverySummary {

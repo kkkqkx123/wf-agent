@@ -33,6 +33,7 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
         // into an empty (deny-all) scope here.
         default_scope: user.default_scope.clone(),
         store_in_workspace: user.store_in_workspace,
+        max_file_size: user.max_file_size,
     }
 }
 
@@ -162,6 +163,7 @@ mod tests {
             gc_retention: None,
             default_scope: None,
             store_in_workspace: None,
+            max_file_size: None,
         }
     }
 
@@ -229,6 +231,7 @@ mod tests {
             gc_retention: None,
             default_scope: None,
             store_in_workspace: None,
+            max_file_size: None,
         };
         assert!(validate_file_checkpoint_config(&config).is_ok());
     }
@@ -248,6 +251,7 @@ mod tests {
             gc_retention: None,
             default_scope: None,
             store_in_workspace: None,
+            max_file_size: None,
         }
     }
 

@@ -329,11 +329,7 @@ impl FileCheckpointManager {
             Ok(git) => git,
             Err(_) => return 0,
         };
-        let Some(main_head) = git
-            .read_ref(crate::git_store::REF_MAIN)
-            .ok()
-            .flatten()
-        else {
+        let Some(main_head) = git.read_ref(crate::git_store::REF_MAIN).ok().flatten() else {
             return 0;
         };
         let edit_refs = match git.list_refs(crate::git_store::REF_EDIT_PREFIX) {
@@ -345,7 +341,8 @@ impl FileCheckpointManager {
             let merged = git
                 .is_ancestor(&head, &main_head)
                 .or_else(|_| -> Result<bool, crate::git_store::GitStoreError> {
-                    let equal = git.read_ref(&name).ok().flatten().as_deref() == Some(head.as_str())
+                    let equal = git.read_ref(&name).ok().flatten().as_deref()
+                        == Some(head.as_str())
                         && head == main_head;
                     Ok(equal)
                 })

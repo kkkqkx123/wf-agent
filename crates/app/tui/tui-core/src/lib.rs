@@ -10,6 +10,7 @@ pub mod headless;
 pub mod keymap;
 pub mod observability;
 pub mod perf;
+pub mod plugin;
 pub mod prep_keys;
 pub mod redraw;
 pub mod reducer;

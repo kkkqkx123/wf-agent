@@ -239,6 +239,15 @@ impl InteractiveController {
         self.set_all_tool_blocks(any_collapsed);
     }
 
+    /// Replace the sidebar Todos snapshot from an `update_todo_list` result.
+    /// A payload that is not the expected JSON envelope leaves the previous
+    /// snapshot in place instead of blanking the section.
+    fn apply_todo_result(&mut self, result: &str) {
+        if let Some(todos) = crate::context_sidebar::parse_todo_items(result) {
+            self.todos = todos;
+        }
+    }
+
     /// Record a finished tool call as a collapsible block: one summary row
     /// plus collapsed preview rows. With the master switch off this keeps
     /// the legacy one-line lifecycle row. The parameters mirror the stream
@@ -254,6 +263,12 @@ impl InteractiveController {
         display: Option<&DisplayPayload>,
         elapsed_ms: Option<u64>,
     ) {
+        // The sidebar Todos section tracks the latest todo list regardless of
+        // how tool output is configured, so the snapshot updates before any
+        // detail-level early return.
+        if tool_name == "update_todo_list" && success {
+            self.apply_todo_result(result);
+        }
         let role = if success { Role::Add } else { Role::Error };
         let summary = match (success, elapsed_ms) {
             (true, Some(elapsed)) => format!("✓ {tool_name} ({elapsed}ms)"),

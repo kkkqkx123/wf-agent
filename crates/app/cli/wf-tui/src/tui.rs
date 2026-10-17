@@ -30,6 +30,7 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::context_sidebar::{SidebarPlugin, SidebarSnapshot};
 use crate::error::{CliError, CliResult};
 use crate::framer::FrameRequester;
 use crate::modal::ModalStack;
@@ -41,11 +42,13 @@ use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalGuard};
 use crate::theme::{self, Theme};
 use tui_core::keymap::Keymap;
+use tui_core::plugin::{PluginHost, Slot};
 use wf_client::WfClient;
 
 use data_cache::DataResult;
 use input_classify::{
-    load_copy_target, load_mouse_opt_in, load_performance_tier_override, load_theme_choice, map_key,
+    load_copy_target, load_mouse_opt_in, load_performance_tier_override, load_sidebar_opt_in,
+    load_theme_choice, map_key,
 };
 use signals::{sigtstp_handler, theme_reload_signals};
 
@@ -53,6 +56,13 @@ use mouse::MousePress;
 
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Width of the plugin session sidebar, in columns.
+const SIDEBAR_WIDTH: u16 = 30;
+
+/// Minimum total content width before the plugin session sidebar is shown;
+/// below it the chat column would be squeezed too far to stay readable.
+const SIDEBAR_MIN_WIDTH: u16 = 64;
 
 /// Sidebar entry order: index `i` is the row `j-k` moves and `Enter` opens.
 /// Digit keys follow the canonical map in `tui-core` and match this order.
@@ -93,6 +103,20 @@ pub struct TuiApp {
     /// Live chat session tabs shown on the Interactive screen. The active
     /// tab receives input and paints; background tabs keep streaming.
     sessions: SessionTabs,
+    /// Built-in UI plugins and the slot content they contribute to the
+    /// interactive session (see `tui_core::plugin`).
+    plugins: PluginHost<SidebarSnapshot>,
+    /// Whether the plugin session sidebar is shown on the interactive screen.
+    sidebar: bool,
+    /// Cached sidebar fetch results (files, git, mcp) merged into each frame's
+    /// snapshot; a `None` section keeps its previously cached rows.
+    sidebar_fetch: crate::fetch::SidebarFetch,
+    /// Session the cached file history belongs to; a switch refetches at once.
+    sidebar_fetch_session: Option<String>,
+    /// Last sidebar fetch completion, gating the refresh interval.
+    sidebar_fetched_at: Option<Instant>,
+    /// True while a sidebar fetch is in flight.
+    sidebar_fetch_inflight: bool,
     /// Set by the interactive controller when the user wants to leave it (Ctrl-C twice).
     interactive_exit: bool,
     /// Execution id selected on the executions screen to replay in Session.
@@ -271,6 +295,17 @@ impl TuiApp {
             feedback_rx,
             tasks: Vec::new(),
             sessions: SessionTabs::new(),
+            plugins: {
+                let mut plugins = PluginHost::new();
+                let handle = plugins.register(SidebarPlugin);
+                plugins.activate(handle);
+                plugins
+            },
+            sidebar: load_sidebar_opt_in(),
+            sidebar_fetch: crate::fetch::SidebarFetch::default(),
+            sidebar_fetch_session: None,
+            sidebar_fetched_at: None,
+            sidebar_fetch_inflight: false,
             interactive_exit: false,
             pending_replay: None,
             frame,
@@ -406,6 +441,7 @@ impl TuiApp {
             }
             self.ensure_interactive().await?;
             self.request_data(self.app.screen.navigation.current_kind());
+            self.request_sidebar_data();
 
             let now = self.now_ms();
             self.frame.set_now(now);
@@ -796,10 +832,36 @@ impl TuiApp {
             self.tab_strip_area = None;
         }
 
-        // Interactive is always the primary interface
+        // Interactive is always the primary interface. When the sidebar is
+        // enabled and the terminal is wide enough, the content column splits
+        // into the chat view and the plugin sidebar on the right.
         if on_interactive {
+            let show_sidebar = self.sidebar
+                && self.sessions.active().is_some()
+                && chunks[0].width >= SIDEBAR_MIN_WIDTH;
+            let (main_area, sidebar_area) = if show_sidebar {
+                let parts = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(40), Constraint::Length(SIDEBAR_WIDTH)])
+                    .split(chunks[0]);
+                (parts[0], Some(parts[1]))
+            } else {
+                (chunks[0], None)
+            };
             if let Some(session) = self.sessions.active_mut() {
-                session.draw(frame, chunks[0], &self.theme, scope);
+                session.draw(frame, main_area, &self.theme, scope);
+            }
+            if let Some(area) = sidebar_area {
+                let mut snapshot = self
+                    .sessions
+                    .active()
+                    .map(|session| session.sidebar_snapshot())
+                    .unwrap_or_default();
+                snapshot.files = self.sidebar_fetch.files.clone().unwrap_or_default();
+                snapshot.git = self.sidebar_fetch.git.clone().unwrap_or_default();
+                snapshot.mcp = self.sidebar_fetch.mcp.clone().unwrap_or_default();
+                self.plugins
+                    .render_slot(Slot::SIDEBAR, frame, area, &self.theme, &snapshot);
             }
         }
         if !on_interactive || self.sessions.is_empty() {

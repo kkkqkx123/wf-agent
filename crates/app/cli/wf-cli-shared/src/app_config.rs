@@ -64,6 +64,11 @@ pub struct BehaviorConfig {
     /// because the width change grades a full frame.
     #[serde(default)]
     pub session_scrollbar: bool,
+    /// Explicit opt-in for the plugin session sidebar on the interactive
+    /// screen. Defaults to off; takes effect instantly because the width
+    /// change grades a full frame.
+    #[serde(default)]
+    pub sidebar: bool,
     #[serde(default)]
     pub approval_timeout_secs: Option<u64>,
 }

@@ -1,8 +1,12 @@
 //! Context sidebar panels for the session workspace.
 
-use super::footer::format_tokens_compact;
+use ratatui::layout::Rect;
+use ratatui::Frame;
+use tui_core::plugin::{Plugin, PluginApi, Slot, SlotContent, SlotContext};
 use tui_core::reducer::UsageMeta;
 use tui_core::screen_data::short_id;
+
+use super::footer::format_tokens_compact;
 
 /// Display snapshot feeding the Context section: the last-request usage
 /// tally plus session identity. Breakdown rows stay hidden when the
@@ -16,6 +20,161 @@ pub struct ContextSnapshot {
     pub message_count: u32,
     pub execution_id: Option<String>,
     pub model: Option<String>,
+}
+
+/// Completion state of one todo entry, mirroring the `update_todo_list`
+/// status vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoState {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+impl TodoState {
+    /// Map an `update_todo_list` status string onto a state.
+    pub fn from_status(status: &str) -> Self {
+        match status {
+            "completed" => Self::Completed,
+            "in_progress" => Self::InProgress,
+            _ => Self::Pending,
+        }
+    }
+
+    /// Compact marker for the todo row.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Pending => "[ ]",
+            Self::InProgress => "[-]",
+            Self::Completed => "[x]",
+        }
+    }
+}
+
+/// One todo row: the task text plus its completion state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TodoLine {
+    pub content: String,
+    pub state: TodoState,
+}
+
+/// One path row (touched files, git changes). `status` is a short marker
+/// when the source provides one, otherwise empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileLine {
+    pub path: String,
+    pub status: String,
+}
+
+/// One MCP connection row: connection name plus availability.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpLine {
+    pub name: String,
+    pub status: String,
+}
+
+/// Git working-tree summary: the current branch plus changed files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitSection {
+    pub branch: Option<String>,
+    pub files: Vec<FileLine>,
+}
+
+/// Per-frame sidebar payload.
+///
+/// The session controller fills the session-owned sections (context, todos);
+/// the shell fills the fetched sections (files, git, mcp). A section with no
+/// rows hides itself, and a payload with no visible section reports height 0
+/// so the panel disappears.
+#[derive(Debug, Clone, Default)]
+pub struct SidebarSnapshot {
+    pub context: ContextSnapshot,
+    pub todos: Vec<TodoLine>,
+    pub files: Vec<FileLine>,
+    pub git: GitSection,
+    pub mcp: Vec<McpLine>,
+}
+
+impl SidebarSnapshot {
+    /// Non-empty sections in fixed order as `(title, plain rows)`.
+    pub fn sections(&self) -> Vec<(&'static str, Vec<String>)> {
+        let mut out = Vec::new();
+        if !self.files.is_empty() {
+            out.push(("Files", self.files.iter().map(format_file_line).collect()));
+        }
+        if !self.todos.is_empty() {
+            out.push((
+                "Todos",
+                self.todos
+                    .iter()
+                    .map(|todo| format!("{} {}", todo.state.glyph(), todo.content))
+                    .collect(),
+            ));
+        }
+        let context = context_lines(&self.context);
+        if !context.is_empty() {
+            out.push(("Context", context));
+        }
+        if !self.mcp.is_empty() {
+            out.push((
+                "MCP",
+                self.mcp
+                    .iter()
+                    .map(|mcp| format!("{} · {}", mcp.name, mcp.status))
+                    .collect(),
+            ));
+        }
+        if !self.git.files.is_empty() {
+            let mut rows: Vec<String> = self.git.files.iter().map(format_file_line).collect();
+            if let Some(branch) = self
+                .git
+                .branch
+                .as_deref()
+                .filter(|branch| !branch.is_empty())
+            {
+                rows.insert(0, format!("on {branch}"));
+            }
+            out.push(("Git", rows));
+        }
+        out
+    }
+
+    /// Body rows across visible sections, counting one header row each.
+    pub fn body_rows(&self) -> usize {
+        self.sections().iter().map(|(_, rows)| rows.len() + 1).sum()
+    }
+}
+
+fn format_file_line(file: &FileLine) -> String {
+    if file.status.is_empty() {
+        file.path.clone()
+    } else {
+        format!("{} {}", file.status, file.path)
+    }
+}
+
+/// Parse an `update_todo_list` result payload into todo rows. Returns `None`
+/// when the payload is not the expected JSON envelope, so callers keep the
+/// previous snapshot instead of blanking the section.
+pub fn parse_todo_items(result: &str) -> Option<Vec<TodoLine>> {
+    let value: serde_json::Value = serde_json::from_str(result).ok()?;
+    let items = value.get("items")?.as_array()?;
+    Some(
+        items
+            .iter()
+            .filter_map(|item| {
+                let content = item.get("content")?.as_str()?;
+                let status = item
+                    .get("status")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("pending");
+                Some(TodoLine {
+                    content: content.to_string(),
+                    state: TodoState::from_status(status),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Width of the ASCII usage bar in the Context section.
@@ -202,6 +361,63 @@ impl ContextSidebar {
     }
 }
 
+/// Sidebar slot content: every non-empty section inside one bordered panel.
+/// A payload with no visible section reports height 0 so the panel hides.
+pub struct SidebarContent;
+
+impl SlotContent<SidebarSnapshot> for SidebarContent {
+    fn desired_height(&self, _width: u16, data: &SidebarSnapshot) -> u16 {
+        let rows = data.body_rows();
+        if rows == 0 {
+            0
+        } else {
+            (rows as u16) + 2
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect, ctx: &SlotContext<'_, SidebarSnapshot>) {
+        use ratatui::style::{Color, Modifier, Style};
+        use ratatui::text::{Line, Span};
+        use ratatui::widgets::{Block, Borders, Paragraph};
+
+        let accent = Color::Rgb(ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b);
+        let header_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+        let block = Block::default()
+            .title(" Session ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(accent));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        for (title, rows) in ctx.data.sections() {
+            lines.push(Line::from(Span::styled(
+                format!("{title} ({})", rows.len()),
+                header_style,
+            )));
+            for row in rows {
+                lines.push(Line::from(format!("  {row}")));
+            }
+        }
+        frame.render_widget(Paragraph::new(lines), inner);
+    }
+}
+
+/// Built-in plugin contributing the session sidebar sections to
+/// `Slot::SIDEBAR`.
+pub struct SidebarPlugin;
+
+impl Plugin<SidebarSnapshot> for SidebarPlugin {
+    fn id(&self) -> &str {
+        "sidebar"
+    }
+
+    fn activate(&mut self, api: &mut PluginApi<SidebarSnapshot>) {
+        api.register_slot(Slot::SIDEBAR, 100, SidebarContent);
+    }
+
+    fn deactivate(&mut self) {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +502,90 @@ mod tests {
         };
         let lines = context_lines(&snapshot);
         assert_eq!(lines, vec!["500 in · 60 out (560 used)", "window unknown"]);
+    }
+
+    #[test]
+    fn sidebar_plugin_registers_and_hides_when_empty() {
+        use tui_core::plugin::PluginHost;
+
+        let mut host: PluginHost<SidebarSnapshot> = PluginHost::new();
+        let handle = host.register(SidebarPlugin);
+        host.activate(handle);
+        assert!(host.has_slot(Slot::SIDEBAR));
+
+        // Empty payload reports zero height, so the panel hides itself.
+        assert_eq!(
+            SidebarContent.desired_height(30, &SidebarSnapshot::default()),
+            0
+        );
+        let populated = SidebarSnapshot {
+            context: ContextSnapshot {
+                usage: Some(usage()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(SidebarContent.desired_height(30, &populated) > 0);
+    }
+
+    #[test]
+    fn sidebar_snapshot_lists_only_non_empty_sections_in_order() {
+        let snapshot = SidebarSnapshot {
+            todos: vec![
+                TodoLine {
+                    content: "write tests".to_string(),
+                    state: TodoState::InProgress,
+                },
+                TodoLine {
+                    content: "ship".to_string(),
+                    state: TodoState::Completed,
+                },
+            ],
+            files: vec![FileLine {
+                path: "src/main.rs".to_string(),
+                status: "M".to_string(),
+            }],
+            git: GitSection {
+                branch: Some("main".to_string()),
+                files: vec![FileLine {
+                    path: "src/lib.rs".to_string(),
+                    status: "?".to_string(),
+                }],
+            },
+            mcp: Vec::new(),
+            context: ContextSnapshot::default(),
+        };
+        let sections = snapshot.sections();
+        let titles: Vec<&str> = sections.iter().map(|(title, _)| *title).collect();
+        assert_eq!(titles, vec!["Files", "Todos", "Git"]);
+        let todos = &sections[1].1;
+        assert_eq!(todos, &["[-] write tests", "[x] ship"]);
+        // Git leads with the branch row, then status-marked paths.
+        assert_eq!(sections[2].1, vec!["on main", "? src/lib.rs"]);
+    }
+
+    #[test]
+    fn todo_state_maps_status_vocabulary() {
+        assert_eq!(TodoState::from_status("pending"), TodoState::Pending);
+        assert_eq!(TodoState::from_status("in_progress"), TodoState::InProgress);
+        assert_eq!(TodoState::from_status("completed"), TodoState::Completed);
+        assert_eq!(TodoState::from_status("mystery"), TodoState::Pending);
+    }
+
+    #[test]
+    fn todo_result_parses_items_and_rejects_junk() {
+        let rows = parse_todo_items(
+            r#"{"items":[{"content":"a","status":"in_progress"},{"content":"b","status":"completed"},{"content":"c","status":"pending"}],"total":3}"#,
+        )
+        .expect("well-formed payload parses");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].state, TodoState::InProgress);
+        assert_eq!(rows[1].state, TodoState::Completed);
+        assert_eq!(rows[2].state, TodoState::Pending);
+        // Junk and a missing `items` array both report `None` so the caller
+        // keeps the previous snapshot.
+        assert!(parse_todo_items("not json").is_none());
+        assert!(parse_todo_items(r#"{"total":3}"#).is_none());
     }
 
     #[test]

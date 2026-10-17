@@ -25,9 +25,9 @@ pub mod provenance;
 pub mod scan;
 pub mod scope;
 pub mod script_capture;
-pub mod store_path;
 pub mod session;
 pub(crate) mod storage;
+pub mod store_path;
 pub mod watcher;
 
 pub use approval::{ConflictView, MergeOutcome, PendingApproval};

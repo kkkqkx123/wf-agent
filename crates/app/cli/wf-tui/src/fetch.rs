@@ -9,11 +9,13 @@ mod checkpoints;
 mod common;
 mod dashboard;
 mod detail;
+mod sidebar;
 
 pub use catalog::fetch_search_rows;
 pub use checkpoints::{format_checkpoint_chain, format_checkpoint_detail};
 pub use common::format_ts;
 pub use detail::{fetch_exec_detail, fetch_workflow_detail};
+pub use sidebar::{fetch_sidebar, SidebarFetch};
 
 use wf_client::WfClient;
 

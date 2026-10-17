@@ -385,6 +385,30 @@ impl TuiApp {
         }
     }
 
+    pub(super) fn toggle_sidebar(&mut self) {
+        let Some(path) = crate::app_config::config_file_path() else {
+            self.app.notice.set("Config path unavailable.".to_string());
+            return;
+        };
+        let mut config = crate::app_config::ConfigManager::load(&path)
+            .map(|manager| manager.config().clone())
+            .unwrap_or_default();
+        config.behavior.sidebar = !config.behavior.sidebar;
+        let enabled = config.behavior.sidebar;
+        match crate::app_config::ConfigManager::save(&path, &config) {
+            Ok(()) => {
+                self.invalidate(ScreenKind::Settings);
+                self.sidebar = enabled;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                self.app.notice.set(format!(
+                    "sidebar {} (applies instantly)",
+                    if enabled { "on" } else { "off" }
+                ));
+            }
+            Err(err) => self.app.notice.set(format!("Save failed: {err}")),
+        }
+    }
+
     pub(super) fn cycle_copy_target(&mut self) {
         use crate::app_config::CopyTargetName;
         self.update_local_config(|config| {

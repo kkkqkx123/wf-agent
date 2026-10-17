@@ -801,11 +801,7 @@ mod tests {
     fn scan_detects_gitfile_submodule_form() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "app/.git", b"gitdir: .git-real\n");
-        write(
-            dir.path(),
-            "app/.git-real/HEAD",
-            b"ref: refs/heads/main\n",
-        );
+        write(dir.path(), "app/.git-real/HEAD", b"ref: refs/heads/main\n");
         write(
             dir.path(),
             "app/.git-real/refs/heads/main",
@@ -842,12 +838,19 @@ mod tests {
     #[test]
     fn scan_detached_nested_head_resolves_directly() {
         let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), "repo/.git/HEAD", format!("{NESTED_SHA}\n").as_bytes());
+        write(
+            dir.path(),
+            "repo/.git/HEAD",
+            format!("{NESTED_SHA}\n").as_bytes(),
+        );
 
         let scanner = make_scanner(vec![], FailureBehavior::Warn);
         let scan = scanner.scan(dir.path()).unwrap();
 
         assert_eq!(scan.nested_repos.len(), 1);
-        assert_eq!(scan.nested_repos[0].head_commit.as_deref(), Some(NESTED_SHA));
+        assert_eq!(
+            scan.nested_repos[0].head_commit.as_deref(),
+            Some(NESTED_SHA)
+        );
     }
 }

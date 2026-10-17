@@ -199,6 +199,7 @@ fn synthetic_settings() -> ScreenData {
             config_path: "~/.config/wf/tui.toml".into(),
             mouse_capture: false,
             session_scrollbar: false,
+            sidebar: false,
             copy_target: "message".into(),
             tool_output_enabled: true,
             tool_output_level: "medium".into(),

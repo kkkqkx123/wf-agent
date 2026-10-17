@@ -236,10 +236,12 @@ fn default_storage_config(
     in_workspace: bool,
 ) -> Result<wf_types::config::file_checkpoint::FileCheckpointStorageConfig, CheckpointError> {
     let Some(root) = workspace_root else {
-        return Ok(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
-            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
-            db_path: None,
-        });
+        return Ok(
+            wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+                db_path: None,
+            },
+        );
     };
     let store_dir = if in_workspace {
         Path::new(root).join(crate::git_store::CHECKPOINT_GIT_DIR_NAME)
@@ -247,8 +249,10 @@ fn default_storage_config(
         crate::store_path::global_store_dir(Path::new(root))
     };
     std::fs::create_dir_all(&store_dir).map_err(CheckpointError::Io)?;
-    Ok(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
-        storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
-        db_path: Some(store_dir.join("meta.db").to_string_lossy().into_owned()),
-    })
+    Ok(
+        wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+            storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+            db_path: Some(store_dir.join("meta.db").to_string_lossy().into_owned()),
+        },
+    )
 }

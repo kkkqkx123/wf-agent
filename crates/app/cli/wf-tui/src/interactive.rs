@@ -49,6 +49,7 @@ use wf_types::interaction::tool_approval::ToolApprovalRequestData;
 
 use crate::animation::AnimationController;
 use crate::approval_overlay::ApprovalRemembered;
+use crate::context_sidebar::{ContextSnapshot, SidebarSnapshot, TodoLine};
 use crate::footer::Footer;
 use crate::prep_cache::PreparedScrollback;
 use crate::reducer::Phase;
@@ -199,6 +200,8 @@ pub struct InteractiveController {
     /// Successful tool calls accumulated for the Low detail-level activity
     /// group. Flushed into one summary row at the next non-tool row.
     activity: Vec<(String, bool)>,
+    /// Latest `update_todo_list` snapshot feeding the sidebar Todos section.
+    todos: Vec<TodoLine>,
     /// Pending full-output viewer request drained by the shell into a modal.
     viewer_request: Option<tool_blocks::ToolViewerRequest>,
     /// Startup-resolved copy policy injected by the shell.
@@ -460,6 +463,7 @@ impl InteractiveController {
             anchor_disabled: HashSet::new(),
             tool_config: tui_core::tool_output::ToolOutputConfig::default(),
             activity: Vec::new(),
+            todos: Vec::new(),
             viewer_request: None,
             copy_policy: crate::copy::CopyPolicy::disabled(),
             pending_copy: None,
@@ -522,6 +526,24 @@ impl InteractiveController {
     /// Session this controller replays, as its footer reports it.
     pub fn session_id(&self) -> Option<&str> {
         self.footer.state.execution_id.as_deref()
+    }
+
+    /// Snapshot of the session-owned sidebar sections. The shell overlays the
+    /// fetched sections (files, git, mcp) before rendering. The context window
+    /// is unknown here, so it stays `None` until a model catalog lookup lands.
+    pub fn sidebar_snapshot(&self) -> SidebarSnapshot {
+        SidebarSnapshot {
+            context: ContextSnapshot {
+                usage: self.footer.state.usage,
+                context_window: None,
+                iteration: self.footer.state.iteration,
+                message_count: self.footer.state.message_count,
+                execution_id: self.footer.state.execution_id.clone(),
+                model: self.footer.state.model.clone(),
+            },
+            todos: self.todos.clone(),
+            ..Default::default()
+        }
     }
 
     // Replay-history loading and pagination live in the sibling `replay`

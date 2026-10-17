@@ -64,6 +64,8 @@ pub(super) enum DataResult {
         title: String,
         result: crate::error::CliResult<Vec<String>>,
     },
+    /// Fresh sidebar section data (files, git, mcp) for the session panel.
+    Sidebar(crate::fetch::SidebarFetch),
 }
 
 impl TuiApp {
@@ -88,6 +90,57 @@ impl TuiApp {
             let _ = tx.send(DataResult::Screen(kind, result));
         });
         self.tasks.push(handle);
+    }
+
+    /// Request the sidebar's fetched sections (files, git, mcp) unless the
+    /// panel is hidden, a fetch is in flight, or the cache is still fresh. A
+    /// session switch bypasses the interval so the file history never lags one
+    /// session behind, clearing the stale rows while the new fetch runs.
+    pub(super) fn request_sidebar_data(&mut self) {
+        if !self.sidebar {
+            return;
+        }
+        let Some(execution_id) = self
+            .sessions
+            .active()
+            .and_then(|session| session.session_id())
+            .map(str::to_owned)
+        else {
+            return;
+        };
+        if self.sidebar_fetch_session.as_deref() != Some(execution_id.as_str()) {
+            self.sidebar_fetch_session = Some(execution_id.clone());
+            self.sidebar_fetch.files = None;
+        } else if self.sidebar_fetched_at.is_some_and(|at| {
+            at.elapsed() < Duration::from_millis(self.perf_policy.sidebar_refresh_interval_ms)
+        }) {
+            return;
+        }
+        if self.sidebar_fetch_inflight {
+            return;
+        }
+        self.sidebar_fetch_inflight = true;
+        let client = self.client.clone();
+        let tx = self.data_tx.clone();
+        let handle = tokio::spawn(async move {
+            let fetch = crate::fetch::fetch_sidebar(&client, Some(execution_id)).await;
+            let _ = tx.send(DataResult::Sidebar(fetch));
+        });
+        self.tasks.push(handle);
+    }
+
+    /// Fold a fetched sidebar payload into the cache, keeping the previous
+    /// rows for any section the fetch could not reach.
+    fn merge_sidebar_fetch(&mut self, fetch: crate::fetch::SidebarFetch) {
+        if fetch.git.is_some() {
+            self.sidebar_fetch.git = fetch.git;
+        }
+        if fetch.files.is_some() {
+            self.sidebar_fetch.files = fetch.files;
+        }
+        if fetch.mcp.is_some() {
+            self.sidebar_fetch.mcp = fetch.mcp;
+        }
     }
 
     /// Fetch search hits for the palette's submitted query.
@@ -310,6 +363,12 @@ impl TuiApp {
                             self.app.notice.set(format!("{title}: {err}"));
                         }
                     }
+                    changed = true;
+                }
+                DataResult::Sidebar(fetch) => {
+                    self.sidebar_fetch_inflight = false;
+                    self.sidebar_fetched_at = Some(Instant::now());
+                    self.merge_sidebar_fetch(fetch);
                     changed = true;
                 }
             }

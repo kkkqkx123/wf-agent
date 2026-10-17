@@ -681,6 +681,10 @@ pub fn draw_settings(
                     d.local.session_scrollbar
                 )
             ));
+            out.push(format!(
+                "  [b] {} (instant)",
+                tui_components::property_list::format_toggle("sidebar", d.local.sidebar)
+            ));
             out.push(format!("  [c] copy_target: {}", d.local.copy_target));
             out.push(format!(
                 "  [e] {} · [l] level {}",
@@ -707,7 +711,7 @@ pub fn draw_settings(
             ));
             out.push(String::new());
             out.push(
-                "Local changes save to the config file; restart applies them (session_scrollbar instant)."
+                "Local changes save to the config file; restart applies them (session_scrollbar / sidebar instant)."
                     .to_string(),
             );
             out

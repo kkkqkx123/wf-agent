@@ -154,7 +154,9 @@ impl FileCheckpointManager {
         let under_nested = |relative: &str| -> bool {
             nested_dirs.iter().any(|dir| {
                 relative == dir
-                    || relative.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+                    || relative
+                        .strip_prefix(dir)
+                        .is_some_and(|rest| rest.starts_with('/'))
             })
         };
 

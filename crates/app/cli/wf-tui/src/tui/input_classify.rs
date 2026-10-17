@@ -255,6 +255,20 @@ pub(crate) fn load_session_scrollbar_opt_in() -> bool {
     }
 }
 
+/// Best-effort session sidebar opt-in from the user config file. A missing
+/// or unreadable config means off. Takes effect instantly because the width
+/// change grades a full frame.
+pub(crate) fn load_sidebar_opt_in() -> bool {
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return false,
+    };
+    match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager.config().behavior.sidebar,
+        Err(_) => false,
+    }
+}
+
 /// Best-effort default copy target from `[terminal] copy_target`. A
 /// missing or unreadable config (or an unknown value, which fails the
 /// whole file parse and falls back here) means the message default.

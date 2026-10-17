@@ -441,6 +441,11 @@ impl TuiApp {
             {
                 self.toggle_session_scrollbar();
             }
+            CKey::Char('b')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
+                self.toggle_sidebar();
+            }
             CKey::Char('c')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
             {

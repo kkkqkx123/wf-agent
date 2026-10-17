@@ -128,8 +128,7 @@ impl FileCheckpointManager {
             .filter_map(|nested| {
                 let head = nested.head_commit.as_deref()?;
                 let path = format!("{}/.git", nested.path);
-                let relative =
-                    crate::file::util::validate_workspace_relative_path(&path).ok()?;
+                let relative = crate::file::util::validate_workspace_relative_path(&path).ok()?;
                 Some(FileContentEntry::new(
                     relative,
                     format!("gitlink:{head}").into_bytes(),

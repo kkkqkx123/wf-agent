@@ -411,6 +411,7 @@ pub struct LocalSettings {
     pub config_path: String,
     pub mouse_capture: bool,
     pub session_scrollbar: bool,
+    pub sidebar: bool,
     pub copy_target: String,
     pub tool_output_enabled: bool,
     pub tool_output_level: String,

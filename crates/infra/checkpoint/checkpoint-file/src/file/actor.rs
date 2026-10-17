@@ -304,7 +304,7 @@ impl FileCheckpointManager {
         git.delete_ref(&crate::git_store::edit_ref_for_actor(actor.as_str()))
             .map_err(map_git_error)?;
         self.store.latest_checkpoints.remove(actor.as_str());
-        self.redo_stacks.remove(actor.as_str());
+        self.redo_stacks.clear(actor.as_str())?;
         Ok(())
     }
 

@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS source_index_paths (
 );
 
 CREATE INDEX IF NOT EXISTS idx_source_index_paths_path ON source_index_paths(path);
+
+-- Per-actor redo history: undone commit ids, newest last. Persisted so an
+-- undone edit can still be redone after a restart. Capped in memory; the
+-- stored blob is the whole stack for the actor.
+CREATE TABLE IF NOT EXISTS redo_stacks (
+    actor           TEXT PRIMARY KEY,
+    entries         BLOB NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
 ";
 
 pub const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode=WAL;";

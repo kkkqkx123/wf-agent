@@ -47,6 +47,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_diff_against_main),
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
+        .route("/file-checkpoint/gc/stats", get(handle_store_stats))
         .route("/file-checkpoint/index/rebuild", post(handle_rebuild_index))
         .route("/file-checkpoint/index/status", get(handle_index_status))
         .route("/file-checkpoint/submit", post(handle_submit_review))
@@ -592,6 +593,20 @@ pub(crate) async fn handle_run_gc(
     Query(query): Query<GcQuery>,
 ) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::run_gc(&state.ctx, query.keep_recent_heads) {
+        Ok(stats) => ok(stats).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/file-checkpoint/gc/stats",
+    tag = "checkpoint",
+    responses((status = 200, description = "Object-store statistics: commits, refs, loose objects, on-disk bytes and last GC time", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::views::StoreStatsDoc>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_store_stats(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::store_stats(&state.ctx) {
         Ok(stats) => ok(stats).into_response(),
         Err(err) => error_response(err),
     }

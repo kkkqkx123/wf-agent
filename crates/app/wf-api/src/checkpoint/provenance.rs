@@ -254,6 +254,14 @@ pub fn run_gc(ctx: &ApiContext, keep_recent_heads: usize) -> ApiResult<GcStats> 
         .map_err(ApiError::execution_with_source)
 }
 
+/// Read-only object-store statistics for the storage dashboard: reachable
+/// commits, managed refs, loose objects, on-disk bytes and last GC time.
+pub fn store_stats(ctx: &ApiContext) -> ApiResult<wf_checkpoint::gc::StoreStats> {
+    manager(ctx)?
+        .store_stats()
+        .map_err(ApiError::execution_with_source)
+}
+
 /// Maximum bytes returned by a single file content read; larger files are
 /// truncated with `truncated: true`.
 pub const MAX_FILE_CONTENT_BYTES: usize = 1024 * 1024;

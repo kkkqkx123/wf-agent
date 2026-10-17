@@ -60,9 +60,9 @@ pub struct FileCheckpointManager {
     /// committed session trailers survive in the commit graph.
     pub(crate) pending_batches: Arc<DashMap<String, crate::file::git_write::PendingEditBatch>>,
     /// Undone edit-ref heads per actor, for redo after a local undo.
-    /// In-memory only: a restart drops redo history while committed history
-    /// stays reachable from the refs.
-    pub(crate) redo_stacks: Arc<DashMap<String, Vec<String>>>,
+    /// Memory-cached with a SQLite mirror so redo survives a restart while
+    /// committed history stays reachable from the refs.
+    pub(crate) redo_stacks: Arc<crate::file::redo_store::RedoStackStore>,
     /// Unified checkpoint metrics collector. Clones share the same slot so
     /// a collector attached after construction still observes every handle.
     /// Absent collectors add zero overhead.

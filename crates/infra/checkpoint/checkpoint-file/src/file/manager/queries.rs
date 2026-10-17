@@ -96,4 +96,27 @@ impl FileCheckpointManager {
             needs_rebuild: total_commits > 0 && indexed_commits != total_commits,
         })
     }
+
+    /// Read-only object-store statistics for the storage dashboard: reachable
+    /// commits, managed refs, loose objects, on-disk bytes and the last GC
+    /// time. Measured directly off the store; no graph walk beyond the commit
+    /// enumeration `all_commits` already performs.
+    pub fn store_stats(&self) -> Result<crate::gc::StoreStats, CheckpointError> {
+        use crate::file::git_write::map_git_error;
+        let git = self.git_ref()?;
+        let storage = self.storage_ref()?;
+        let commits = git.all_commits().map_err(map_git_error)?.len() as u64;
+        let refs = git.list_refs("refs/wf/").map_err(map_git_error)?.len() as u64;
+        let loose_objects = Self::list_object_ids(git).len() as u64;
+        let store_bytes = crate::file::util::dir_size_bytes(git.git_dir());
+        let last_gc_ms = crate::storage::MetadataStore::load_metadata(storage, crate::gc::LAST_GC_KEY)?
+            .and_then(|value| value.parse::<i64>().ok());
+        Ok(crate::gc::StoreStats {
+            commits,
+            refs,
+            loose_objects,
+            store_bytes,
+            last_gc_ms,
+        })
+    }
 }

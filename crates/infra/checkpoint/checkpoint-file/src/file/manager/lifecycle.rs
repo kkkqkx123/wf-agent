@@ -43,12 +43,12 @@ impl FileCheckpointManager {
     pub fn open(
         config: &wf_types::config::file_checkpoint::FileCheckpointStorageConfig,
     ) -> Result<Self, CheckpointError> {
-        let storage = match &config.db_path {
+        let storage = Arc::new(match &config.db_path {
             Some(path) => SqliteStorage::new_full(Path::new(path)),
             None => SqliteStorage::new_full_in_memory(),
-        }?;
+        }?);
         Ok(Self {
-            store: ManagerStore::with_sqlite(Arc::new(storage)),
+            store: ManagerStore::with_sqlite(storage.clone()),
             policy: ManagerPolicy::default(),
             clock: CheckpointClock::system(),
             event_bus: None,
@@ -57,7 +57,7 @@ impl FileCheckpointManager {
             actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),
-            redo_stacks: Arc::new(DashMap::new()),
+            redo_stacks: Arc::new(crate::file::redo_store::RedoStackStore::new(storage)?),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         })
     }
@@ -160,10 +160,9 @@ impl FileCheckpointManager {
     /// In-memory backend for tests and tooling. Storage is created here (the
     /// coordinator entry point) and injected downward into the store.
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
+        let storage = Arc::new(SqliteStorage::new_full_in_memory()?);
         Ok(Self {
-            store: ManagerStore::new_in_memory_backend(Arc::new(
-                SqliteStorage::new_full_in_memory()?,
-            ))?,
+            store: ManagerStore::new_in_memory_backend(storage.clone())?,
             policy: ManagerPolicy::default(),
             clock: CheckpointClock::system(),
             event_bus: None,
@@ -172,7 +171,7 @@ impl FileCheckpointManager {
             actor_index: ActorCache::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
             pending_batches: Arc::new(DashMap::new()),
-            redo_stacks: Arc::new(DashMap::new()),
+            redo_stacks: Arc::new(crate::file::redo_store::RedoStackStore::new(storage)?),
             checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         })
     }

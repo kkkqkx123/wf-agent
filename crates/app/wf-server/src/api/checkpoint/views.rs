@@ -439,3 +439,21 @@ pub(crate) struct GcStatsDoc {
     /// Unreachable blobs dropped by the reclaim sweep.
     reclaimed_snapshots: u64,
 }
+
+/// Read-only object-store statistics for the storage dashboard
+/// (`wf_checkpoint::gc::StoreStats` mirrored).
+#[derive(Serialize, ToSchema)]
+pub(crate) struct StoreStatsDoc {
+    /// Commits reachable from any ref.
+    commits: u64,
+    /// Refs under the `refs/wf/` namespace.
+    refs: u64,
+    /// Loose objects currently in the object store.
+    loose_objects: u64,
+    /// Total bytes occupied by the bare repository directory.
+    store_bytes: u64,
+    /// Time of the last completed GC run (Unix milliseconds), absent when
+    /// no GC has run yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_gc_ms: Option<i64>,
+}

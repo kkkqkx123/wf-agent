@@ -51,3 +51,26 @@ pub struct GcRetention {
     /// the built-in protected set.
     pub keep_recent_heads: usize,
 }
+
+/// Metadata key holding the timestamp (Unix milliseconds) of the last
+/// completed GC run, persisted so the storage dashboard can report it.
+pub const LAST_GC_KEY: &str = "file_checkpoint.last_gc_ms";
+
+/// Read-only object-store statistics for the storage dashboard. Counts are
+/// honest measurements of the store as it is; reachability-based
+/// reclaimable estimates are deliberately not derived here because that
+/// requires a full graph walk.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StoreStats {
+    /// Commits reachable from any ref.
+    pub commits: u64,
+    /// Refs under the `refs/wf/` namespace.
+    pub refs: u64,
+    /// Loose objects currently in the object store.
+    pub loose_objects: u64,
+    /// Total bytes occupied by the bare repository directory.
+    pub store_bytes: u64,
+    /// Time of the last completed GC run (Unix milliseconds), when recorded.
+    #[serde(default)]
+    pub last_gc_ms: Option<i64>,
+}

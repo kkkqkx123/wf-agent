@@ -99,7 +99,7 @@ impl FileCheckpointManager {
             self.store
                 .latest_checkpoints
                 .insert(actor.as_str().to_string(), id.clone());
-            self.redo_stacks.remove(actor.as_str());
+            self.redo_stacks.clear(actor.as_str())?;
         }
         for path in &paths {
             let bytes = files.get(path).and_then(|c| c.as_deref());

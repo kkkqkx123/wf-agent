@@ -272,6 +272,7 @@ use utoipa::OpenApi;
         crate::api::checkpoint::file_provenance::handle_redo_edit,
         crate::api::checkpoint::file_provenance::handle_rename_file,
         crate::api::checkpoint::file_provenance::handle_run_gc,
+        crate::api::checkpoint::file_provenance::handle_store_stats,
         crate::api::checkpoint::file_provenance::handle_rebuild_index,
         crate::api::checkpoint::file_provenance::handle_index_status,
         crate::api::checkpoint::file_provenance::handle_submit_review,

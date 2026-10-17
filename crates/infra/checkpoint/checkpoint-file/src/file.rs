@@ -6,6 +6,7 @@ pub mod git_read;
 pub mod git_write;
 pub mod manager;
 pub mod merge;
+pub(crate) mod redo_store;
 pub mod restore;
 pub mod session;
 pub mod util;

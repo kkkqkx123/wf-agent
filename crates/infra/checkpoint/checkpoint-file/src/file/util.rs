@@ -226,6 +226,27 @@ pub(crate) fn root_actor(execution_id: wf_types::Id) -> checkpoint_base::actor::
     })
 }
 
+/// Sum of file sizes under a directory tree (recursive). Best-effort:
+/// unreadable entries are skipped so a stats read never fails against a
+/// store being written concurrently.
+pub(crate) fn dir_size_bytes(root: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return 0;
+    };
+    let mut total = 0u64;
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            total += dir_size_bytes(&entry.path());
+        } else {
+            total += metadata.len();
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -294,13 +294,7 @@ impl FileCheckpointManager {
                         break;
                     }
                     git.delete_ref(&refname).map_err(map_git_error)?;
-                    let mut stack = self
-                        .redo_stacks
-                        .entry(actor.as_str().to_string())
-                        .or_default();
-                    for id in visited {
-                        stack.push(id);
-                    }
+                    self.redo_stacks.push_many(actor.as_str(), visited)?;
                     self.store.latest_checkpoints.remove(actor.as_str());
                     return Err(CheckpointError::NotFound {
                         id: format!("no commits for actor '{}'", actor.as_str()),
@@ -331,13 +325,7 @@ impl FileCheckpointManager {
             }
             match git.compare_and_swap(&refname, Some(head.as_str()), &cursor) {
                 Ok(()) => {
-                    let mut stack = self
-                        .redo_stacks
-                        .entry(actor.as_str().to_string())
-                        .or_default();
-                    for id in visited {
-                        stack.push(id);
-                    }
+                    self.redo_stacks.push_many(actor.as_str(), visited)?;
                     self.store
                         .latest_checkpoints
                         .insert(actor.as_str().to_string(), cursor.clone());
@@ -381,10 +369,7 @@ impl FileCheckpointManager {
                     })?;
             match git.compare_and_swap(&refname, Some(head.as_str()), &parent) {
                 Ok(()) => {
-                    self.redo_stacks
-                        .entry(actor.as_str().to_string())
-                        .or_default()
-                        .push(head);
+                    self.redo_stacks.push(actor.as_str(), head)?;
                     self.store
                         .latest_checkpoints
                         .insert(actor.as_str().to_string(), parent.clone());
@@ -408,8 +393,7 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let next = self
             .redo_stacks
-            .get(actor.as_str())
-            .and_then(|stack| stack.last().cloned())
+            .last(actor.as_str())
             .ok_or_else(|| CheckpointError::Validation {
                 reason: format!("no redo available for actor '{}'", actor.as_str()),
             })?;
@@ -418,9 +402,7 @@ impl FileCheckpointManager {
         let current = git.read_ref(&refname).map_err(map_git_error)?;
         git.compare_and_swap(&refname, current.as_deref(), &next)
             .map_err(map_git_error)?;
-        self.redo_stacks
-            .get_mut(actor.as_str())
-            .and_then(|mut stack| stack.pop());
+        self.redo_stacks.pop(actor.as_str())?;
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), next.clone());
@@ -430,9 +412,6 @@ impl FileCheckpointManager {
     /// Whether a redo is available on an actor's edit ref.
     pub fn can_redo(&self, entity_id: &str) -> Result<bool, CheckpointError> {
         let actor = self.actor_id_for(entity_id);
-        Ok(self
-            .redo_stacks
-            .get(actor.as_str())
-            .is_some_and(|stack| !stack.is_empty()))
+        Ok(self.redo_stacks.is_available(actor.as_str()))
     }
 }

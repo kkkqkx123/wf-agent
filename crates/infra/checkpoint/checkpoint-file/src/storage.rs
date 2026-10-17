@@ -2,6 +2,7 @@ pub(crate) mod connection;
 pub(crate) mod git_meta;
 pub(crate) mod meta;
 pub(crate) mod migrations;
+pub(crate) mod redo;
 pub(crate) mod repository;
 
 pub(crate) use connection::SqliteStorage;

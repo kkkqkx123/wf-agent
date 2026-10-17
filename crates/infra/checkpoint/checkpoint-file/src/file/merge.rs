@@ -141,6 +141,7 @@ impl FileCheckpointManager {
         };
         stats.removed_edit_refs = self.collect_merged_edit_refs() as u64;
         stats.packed_objects = self.pack_loose_objects().unwrap_or(0) as u64;
+        self.record_last_gc();
         if let Some(ref metrics) = self.checkpoint_metrics() {
             metrics.record_cleanup(
                 stats.removed_checkpoints,
@@ -152,6 +153,23 @@ impl FileCheckpointManager {
             bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
         }
         Ok(stats)
+    }
+
+    /// Record the completion time of the GC run so the storage dashboard
+    /// can report it. Auxiliary: a failed write never fails the GC that
+    /// already succeeded, but it is logged so a broken store stays visible.
+    fn record_last_gc(&self) {
+        let Ok(storage) = self.storage_ref() else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Err(err) = crate::storage::MetadataStore::store_metadata(
+            storage,
+            crate::gc::LAST_GC_KEY,
+            &now.to_string(),
+        ) {
+            tracing::warn!(error = %err, "failed to record last GC timestamp");
+        }
     }
 
     /// Content-reclaim sweep: identical to [`Self::run_gc`] in the Git
@@ -281,7 +299,7 @@ impl FileCheckpointManager {
         }
     }
 
-    fn list_object_ids(git: &crate::git_store::GitStore) -> Vec<String> {
+    pub(crate) fn list_object_ids(git: &crate::git_store::GitStore) -> Vec<String> {
         let objects = git.git_dir().join("objects");
         if !objects.is_dir() {
             return Vec::new();

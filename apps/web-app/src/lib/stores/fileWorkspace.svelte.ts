@@ -23,7 +23,6 @@ class FileWorkspaceStore {
 	indexStatus = $state<IndexStatus | null>(null);
 
 	action = $state<string | null>(null);
-	actionError = $state<string | null>(null);
 
 	setActor(value: string): void {
 		this.actor = value;
@@ -38,12 +37,10 @@ class FileWorkspaceStore {
 
 	beginAction(key: string): void {
 		this.action = key;
-		this.actionError = null;
 	}
 
-	endAction(error?: string): void {
+	endAction(): void {
 		this.action = null;
-		this.actionError = error ?? null;
 	}
 
 	get busy(): boolean {

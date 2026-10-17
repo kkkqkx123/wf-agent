@@ -2,7 +2,12 @@ import { client } from '$lib/api/client';
 import { call, extractPage, requireData } from '$lib/api/envelope';
 import type { PageResult } from '$lib/api/envelope';
 import type { components } from '$lib/api/schema';
-import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
+import type {
+	Approval,
+	Checkpoint,
+	FileChange,
+	FileChangeType,
+} from '$lib/types/models';
 import { toDiffFile } from '$lib/types/diff';
 import type { DiffFile } from '$lib/types/diff';
 
@@ -105,19 +110,32 @@ export async function listLoopCheckpoints(
 	return rows.map((d, index) => toCheckpoint(d, index));
 }
 
+/** Narrow a wire change kind onto the view-model vocabulary. */
+function toFileChangeType(kind: string): FileChangeType | null {
+	switch (kind) {
+		case 'added':
+		case 'modified':
+		case 'deleted':
+		case 'renamed':
+			return kind;
+		default:
+			return null;
+	}
+}
+
 function toFileChange(d: DeltaSummaryDoc, index: number): FileChange {
-	// DeltaSummary carries no change kind; the view keeps the previous
-	// `modified` fallback. `source` is the origin label (actor id /
-	// `human` / `merge` / `review`) and doubles as the actor owning the
-	// change; `snapshot_id` scopes the row id to its commit.
+	// DeltaSummary reports the change relative to the parent commit: kind plus
+	// added/removed line counts. `source` is the origin label (actor id /
+	// `human` / `merge` / `review`) and doubles as the actor owning the change;
+	// `snapshot_id` scopes the row id to its commit.
 	return {
 		id: d.snapshot_id ? `${d.snapshot_id}:${d.file}` : `fc-${index}`,
 		path: d.file,
-		changeType: 'modified',
+		changeType: toFileChangeType(d.kind),
 		actor: d.source ?? '',
 		at: toIso(d.timestamp),
-		additions: 0,
-		deletions: 0,
+		additions: d.additions,
+		deletions: d.deletions,
 		session: '',
 	};
 }
@@ -155,18 +173,33 @@ export async function getFileChangesPage(params?: {
 }
 
 function toApproval(d: PendingApprovalDoc, index: number): Approval {
-	// The wire row carries actor + snapshot + changes; the titled view
-	// fields are absent there. `{id}` on approve/reject is the actor
-	// partition id, and every listed item is pending by definition.
+	// The wire row carries actor + snapshot + the submitted file set; the
+	// titled view fields are derived from that file set so the card is not
+	// blank. `{id}` on approve/reject is the actor partition id, and every
+	// listed item is pending by definition.
+	const files = d.changes.map((change) => change.file);
+	const actor = d.actor;
+	const executionId = actor.startsWith('agent:')
+		? actor.slice('agent:'.length)
+		: actor;
+	const detail =
+		files.length === 0
+			? 'No file rows recorded on the submitted snapshot.'
+			: files.length > 8
+				? `${files.slice(0, 8).join(', ')} … +${files.length - 8} more`
+				: files.join(', ');
 	return {
-		id: d.actor || `approval-${index}`,
-		title: '',
-		kind: '',
-		requester: d.actor,
+		id: actor || `approval-${index}`,
+		title:
+			files.length === 0
+				? 'Pending file changes'
+				: `${files.length} file(s) pending review`,
+		kind: 'file review',
+		requester: actor,
 		requestedAt: toIso(d.submitted_at),
 		status: 'pending',
-		detail: '',
-		executionId: '',
+		detail,
+		executionId,
 	};
 }
 

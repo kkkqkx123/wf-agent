@@ -40543,16 +40543,33 @@
                     "source",
                     "timestamp",
                     "snapshot_id",
-                    "hash"
+                    "hash",
+                    "kind",
+                    "additions",
+                    "deletions"
                   ],
                   "properties": {
+                    "additions": {
+                      "type": "integer",
+                      "description": "Lines added relative to the parent.",
+                      "minimum": 0
+                    },
+                    "deletions": {
+                      "type": "integer",
+                      "description": "Lines removed relative to the parent.",
+                      "minimum": 0
+                    },
                     "file": {
                       "type": "string",
                       "description": "Relative file path."
                     },
                     "hash": {
                       "type": "string",
-                      "description": "Content hash (SHA-256 hex) of the resulting file bytes."
+                      "description": "Content hash (SHA-256 hex) of the resulting file bytes; empty for a\ndeletion tombstone."
+                    },
+                    "kind": {
+                      "type": "string",
+                      "description": "Change kind relative to the parent commit: `added` | `modified` |\n`deleted`."
                     },
                     "message": {
                       "type": [
@@ -43111,16 +43128,33 @@
           "source",
           "timestamp",
           "snapshot_id",
-          "hash"
+          "hash",
+          "kind",
+          "additions",
+          "deletions"
         ],
         "properties": {
+          "additions": {
+            "type": "integer",
+            "description": "Lines added relative to the parent.",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "description": "Lines removed relative to the parent.",
+            "minimum": 0
+          },
           "file": {
             "type": "string",
             "description": "Relative file path."
           },
           "hash": {
             "type": "string",
-            "description": "Content hash (SHA-256 hex) of the resulting file bytes."
+            "description": "Content hash (SHA-256 hex) of the resulting file bytes; empty for a\ndeletion tombstone."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Change kind relative to the parent commit: `added` | `modified` |\n`deleted`."
           },
           "message": {
             "type": [

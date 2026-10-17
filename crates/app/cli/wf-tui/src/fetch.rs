@@ -4,9 +4,10 @@
 //! [`ScreenData`] model. The fetch runs on a background task against
 //! `wf-server`; the draw path only sees the cached result.
 
+mod approvals;
 mod catalog;
 mod checkpoints;
-mod common;
+pub(crate) mod common;
 mod dashboard;
 mod detail;
 mod file_workspace;
@@ -24,6 +25,7 @@ use wf_client::WfClient;
 use crate::error::CliResult;
 use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind};
 
+use approvals::fetch_file_approvals;
 use catalog::{fetch_catalog, fetch_git, fetch_settings};
 use checkpoints::fetch_checkpoints;
 use dashboard::{fetch_dashboard, fetch_executions, fetch_insights, fetch_workflows};
@@ -55,6 +57,7 @@ pub async fn fetch_for(
         ScreenKind::FileWorkspace => fetch_file_workspace(client, execution_id).await,
         ScreenKind::FileTimeline => fetch_file_timeline(client, file_timeline_path).await,
         ScreenKind::EditSessions => fetch_edit_sessions(client).await,
+        ScreenKind::FileApprovals => fetch_file_approvals(client).await,
         ScreenKind::Interactive => Ok((ScreenData::None, false)),
     }
 }

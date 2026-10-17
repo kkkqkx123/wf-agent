@@ -20,7 +20,7 @@ use crate::file::{FileCheckpoint, FileState};
 use crate::git_store::{
     commit_message, edit_ref_for_actor, CommitOnRefOutcome, GitStoreError, MODE_FILE, REF_HUMAN,
 };
-use crate::provenance::DeltaSummary;
+use crate::provenance::{DeltaSummary, FileDiffKind};
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use checkpoint_base::actor::id::ActorId;
 use checkpoint_base::error::CheckpointError;
@@ -171,6 +171,13 @@ impl FileCheckpointManager {
                 timestamp: wf_common::now(),
                 snapshot_id: commit_id.to_string(),
                 hash,
+                kind: if bytes.is_some() {
+                    FileDiffKind::Modified
+                } else {
+                    FileDiffKind::Deleted
+                },
+                additions: 0,
+                deletions: 0,
                 message: None,
             }),
         ));

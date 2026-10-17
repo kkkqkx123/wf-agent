@@ -189,7 +189,8 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     &serde_json::json!({}),
                 )
                 .await?;
-            let data = serde_json::json!({"session": session, "actor": actor, "snapshot": snapshot});
+            let data =
+                serde_json::json!({"session": session, "actor": actor, "snapshot": snapshot});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-file-session-rollback", data)
@@ -258,9 +259,8 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             }
         }
         CheckpointSub::FileConflicts => {
-            let data: serde_json::Value = client
-                .get_json("/api/v1/file-checkpoint/conflicts")
-                .await?;
+            let data: serde_json::Value =
+                client.get_json("/api/v1/file-checkpoint/conflicts").await?;
             if cli.output == OutputFormat::Text {
                 crate::cmd::checkpoint_view::print_conflicts(&data);
                 Ok(())
@@ -268,6 +268,100 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 render_envelope(
                     cli.output,
                     OutputEnvelope::success("checkpoint-file-conflicts", data),
+                )
+            }
+        }
+        CheckpointSub::FileConflictResolve {
+            actor,
+            feature,
+            resolutions,
+            session,
+        } => {
+            let mut map = serde_json::Map::new();
+            for pair in resolutions {
+                let Some((path, file)) = pair.split_once('=') else {
+                    return Err(crate::error::CliError::Business(format!(
+                        "resolution must be PATH=FILE, got {pair:?}"
+                    )));
+                };
+                let content = std::fs::read_to_string(file).map_err(|e| {
+                    crate::error::CliError::Business(format!(
+                        "failed to read resolution file {file}: {e}"
+                    ))
+                })?;
+                map.insert(path.to_string(), serde_json::Value::String(content));
+            }
+            if map.is_empty() {
+                return Err(crate::error::CliError::Business(
+                    "at least one --resolve PATH=FILE is required".to_string(),
+                ));
+            }
+            let body = serde_json::json!({
+                "actor": actor,
+                "feature": feature,
+                "resolutions": map,
+                "session": session,
+            });
+            let data: serde_json::Value = client
+                .post_json("/api/v1/file-checkpoint/conflicts/resolve", &body)
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-conflict-resolve", data)
+                    .with_entity(actor.clone()),
+            )
+        }
+        CheckpointSub::FileContent {
+            actor,
+            path,
+            commit,
+        } => {
+            let mut query = format!(
+                "actor={}&path={}",
+                encode_segment(actor),
+                encode_segment(path)
+            );
+            if let Some(commit) = commit {
+                query.push_str(&format!("&version={}", encode_segment(commit)));
+            }
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/file-checkpoint/content?{query}"))
+                .await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_file_content(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-content", data)
+                        .with_entity(path.clone()),
+                )
+            }
+        }
+        CheckpointSub::FileDiffActors { actor_a, actor_b } => {
+            let data: serde_json::Value = client
+                .get_json(&format!(
+                    "/api/v1/file-checkpoint/diff/actors/{}/{}",
+                    encode_segment(actor_a),
+                    encode_segment(actor_b)
+                ))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-file-diff-actors", data)
+                    .with_entity(actor_a.clone()),
+            )
+        }
+        CheckpointSub::FileStats => {
+            let data: serde_json::Value =
+                client.get_json("/api/v1/file-checkpoint/gc/stats").await?;
+            if cli.output == OutputFormat::Text {
+                crate::cmd::checkpoint_view::print_store_stats(&data);
+                Ok(())
+            } else {
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-file-stats", data),
                 )
             }
         }

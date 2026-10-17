@@ -3,6 +3,7 @@
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import DiffView from '@wf-agent/ui/components/DiffView.svelte';
 	import JsonViewer from '@wf-agent/ui/components/JsonViewer.svelte';
 	import StreamMarkdown from '$lib/components/chat/StreamMarkdown.svelte';
@@ -68,9 +69,7 @@
 <div class="space-y-3">
 	{#if diffLoading}
 		<Card title="Selected delta">
-			<p class="text-caption text-muted-foreground">
-				Loading diff against main…
-			</p>
+			<Skeleton shape="block" height="6rem" />
 		</Card>
 	{:else if mainDiff && !mainDiff.binary}
 		<DiffView

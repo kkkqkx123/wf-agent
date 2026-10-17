@@ -3,6 +3,7 @@
 	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Textarea from '@wf-agent/ui/components/Textarea.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import FilesPanel from '$lib/components/domain/checkpoints/FilesPanel.svelte';
 	import {
 		getFileContent,
@@ -151,15 +152,49 @@
 	</div>
 	<div class="mt-2">
 		{#if resolveLoading}
-			<p class="text-caption text-muted-foreground">
-				Loading conflicted content…
-			</p>
+			<Skeleton lines={6} />
 		{:else if resolveBinary}
 			<p class="text-caption text-warning">
 				Binary file: resolve it in the terminal, the frontend cannot merge
 				binary content.
 			</p>
 		{:else}
+			{#if resolveTarget && resolveTarget.regions.length > 0}
+				<div
+					class="mb-2 max-h-48 overflow-y-auto rounded-md border border-border"
+				>
+					{#each resolveTarget.regions as region, index (index)}
+						<div class="border-b border-border p-2 last:border-b-0">
+							<p class="text-micro text-muted-foreground">
+								Region {index + 1} · line {region.startLine}
+							</p>
+							<div class="mt-1 grid gap-2 sm:grid-cols-3">
+								<div>
+									<p class="text-micro text-muted-foreground">base</p>
+									<pre
+										class="whitespace-pre-wrap font-mono text-micro">{region.base.join(
+											'\n',
+										) || '∅'}</pre>
+								</div>
+								<div>
+									<p class="text-micro text-muted-foreground">ours</p>
+									<pre
+										class="whitespace-pre-wrap font-mono text-micro">{region.ours.join(
+											'\n',
+										) || '∅'}</pre>
+								</div>
+								<div>
+									<p class="text-micro text-muted-foreground">theirs</p>
+									<pre
+										class="whitespace-pre-wrap font-mono text-micro">{region.theirs.join(
+											'\n',
+										) || '∅'}</pre>
+								</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
 			<Textarea
 				label="Resolved content"
 				bind:value={resolveContent}

@@ -10,10 +10,12 @@
 
 	let {
 		approvals,
+		progress = null,
 		ondecide,
 		onbatch,
 	}: {
 		approvals: Approval[];
+		progress?: string | null;
 		ondecide: (approval: Approval, granted: boolean) => void;
 		onbatch: (approvals: Approval[], granted: boolean) => void;
 	} = $props();
@@ -31,7 +33,8 @@
 
 	const visible = $derived(
 		approvals.filter((approval) => {
-			if (statusFilter !== 'all' && approval.status !== statusFilter) return false;
+			if (statusFilter !== 'all' && approval.status !== statusFilter)
+				return false;
 			const needle = actorFilter.trim().toLowerCase();
 			if (needle && !approval.requester.toLowerCase().includes(needle))
 				return false;
@@ -41,7 +44,9 @@
 
 	// Only pending approvals are decidable, so only they can be selected.
 	const selectable = $derived(visible.filter((a) => a.status === 'pending'));
-	const selectedPending = $derived(selectable.filter((a) => selected.has(a.id)));
+	const selectedPending = $derived(
+		selectable.filter((a) => selected.has(a.id)),
+	);
 
 	function toggle(id: string): void {
 		const next = new Set(selected);
@@ -97,6 +102,10 @@
 			placeholder="Filter by requester"
 		/>
 	</div>
+
+	{#if progress}
+		<p class="mb-2 text-caption text-muted-foreground">{progress}…</p>
+	{/if}
 
 	{#if selectable.length > 0}
 		<label

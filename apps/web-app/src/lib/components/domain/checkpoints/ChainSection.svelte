@@ -38,6 +38,8 @@
 	let restoreTarget = $state<Checkpoint | null>(null);
 	let deleteOpen = $state(false);
 	let deleteTarget = $state<Checkpoint | null>(null);
+	let resumeOpen = $state(false);
+	let resumeTarget = $state<Checkpoint | null>(null);
 
 	async function runRestore(): Promise<void> {
 		const target = restoreTarget;
@@ -63,17 +65,17 @@
 		}
 	}
 
-	async function runResume(checkpoint: Checkpoint): Promise<void> {
-		if (checkpoint.entityType === 'agent_loop') {
-			toasts.error('Resume unavailable for agent-loop checkpoints');
-			return;
-		}
+	async function runResume(): Promise<void> {
+		const target = resumeTarget;
+		if (!target) return;
 		checkpointStore.beginAction('resume');
 		try {
-			await resumeFromCheckpoint(checkpoint.id);
+			await resumeFromCheckpoint(target.id);
+			resumeOpen = false;
+			resumeTarget = null;
 			toasts.success(
 				'Resume requested',
-				`Execution continues from ${checkpoint.id.slice(0, 10)}`,
+				`Execution continues from ${target.id.slice(0, 10)}`,
 			);
 		} catch (e) {
 			console.error('Resume failed:', e);
@@ -110,7 +112,10 @@
 		restoreTarget = checkpoint;
 		restoreOpen = true;
 	}}
-	onresume={(checkpoint: Checkpoint) => void runResume(checkpoint)}
+	onresume={(checkpoint: Checkpoint) => {
+		resumeTarget = checkpoint;
+		resumeOpen = true;
+	}}
 	ondelete={(checkpoint: Checkpoint) => {
 		deleteTarget = checkpoint;
 		deleteOpen = true;
@@ -167,6 +172,32 @@
 			onclick={() => void runDelete()}
 		>
 			Delete
+		</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog
+	bind:open={resumeOpen}
+	title="Resume execution"
+	description="The execution continues from this checkpoint. Completed steps are not replayed."
+	onclose={() => (resumeTarget = null)}
+>
+	{#if resumeTarget}
+		<p class="text-caption">
+			Resume <span class="font-mono">{resumeTarget.id}</span>
+			({resumeTarget.kind} · {resumeTarget.actor}).
+		</p>
+	{/if}
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (resumeOpen = false)}>
+			Cancel
+		</Button>
+		<Button
+			size="sm"
+			disabled={checkpointStore.busy}
+			onclick={() => void runResume()}
+		>
+			Resume from here
 		</Button>
 	{/snippet}
 </Dialog>

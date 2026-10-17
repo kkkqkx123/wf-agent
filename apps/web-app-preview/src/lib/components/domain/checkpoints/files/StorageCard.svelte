@@ -2,6 +2,7 @@
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import {
 		getStoreStats,
 		runGc,
@@ -14,12 +15,15 @@
 
 	let stats = $state<StoreStats | null>(null);
 	let gcNote = $state<string | null>(null);
+	let error = $state<string | null>(null);
 
 	async function loadStats(): Promise<void> {
 		try {
 			stats = await getStoreStats();
+			error = null;
 		} catch (e) {
 			console.error('Failed to load store stats:', e);
+			error = e instanceof Error ? e.message : 'Store statistics unavailable';
 		}
 	}
 
@@ -33,11 +37,10 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('GC failed:', e);
-			workspace.endAction('GC failed');
 			toasts.error('GC failed', e instanceof Error ? e.message : undefined);
-			return;
+		} finally {
+			workspace.endAction();
 		}
-		workspace.endAction();
 	}
 
 	// The storage footprint is refreshed alongside the other file-tab
@@ -66,8 +69,13 @@
 					: 'no GC yet'}
 			</span>
 		</div>
+	{:else if error}
+		<p class="text-caption text-destructive">{error}</p>
+		<Button variant="ghost" size="sm" onclick={() => void loadStats()}>
+			Retry
+		</Button>
 	{:else}
-		<p class="text-caption text-muted-foreground">Loading store statistics…</p>
+		<Skeleton lines={4} />
 	{/if}
 	{#if gcNote}
 		<p class="mt-1.5 text-micro text-muted-foreground">{gcNote}</p>

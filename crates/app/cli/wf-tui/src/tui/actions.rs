@@ -4,7 +4,7 @@
 
 use crate::modal::{ConfirmModal, ModalResult, ModelPicker};
 use crate::overlay::Feedback;
-use crate::screens::{short_id, CheckpointRow, ScreenData, ScreenKind};
+use crate::screens::{short_id, ApprovalRow, CheckpointRow, ScreenData, ScreenKind};
 use wf_client::WfClient;
 
 use super::data_cache::DataResult;
@@ -226,17 +226,23 @@ impl TuiApp {
             }
             ScreenData::FileTimeline(data) => {
                 let idx = selected.min(data.rows.len().saturating_sub(1));
-                data.rows.get(idx).map(|row| {
-                    (
-                        format!("Timeline {}", row.path),
-                        row.detail.clone(),
-                    )
-                })
+                data.rows
+                    .get(idx)
+                    .map(|row| (format!("Timeline {}", row.path), row.detail.clone()))
             }
             ScreenData::EditSessions(rows) => {
                 let idx = selected.min(rows.len().saturating_sub(1));
                 rows.get(idx)
                     .map(|row| (format!("Session {}", short_id(&row.id)), row.detail.clone()))
+            }
+            ScreenData::FileApprovals(rows) => {
+                let idx = selected.min(rows.len().saturating_sub(1));
+                rows.get(idx).map(|row| {
+                    (
+                        format!("Approval {}", short_id(&row.actor)),
+                        row.detail.clone(),
+                    )
+                })
             }
             _ => None,
         };
@@ -676,6 +682,111 @@ impl TuiApp {
                 Err(_) => "Model change cancelled".to_string(),
             };
             let _ = tx.send(Feedback::Notice(result));
+        }));
+    }
+
+    /// Selected pending approval row, or `None` off the screen.
+    fn selected_approval_row(&self) -> Option<ApprovalRow> {
+        let ScreenData::FileApprovals(rows) = self.display_data() else {
+            return None;
+        };
+        let idx = self
+            .app
+            .screen
+            .navigation
+            .selected()
+            .min(rows.len().saturating_sub(1));
+        rows.get(idx).cloned()
+    }
+
+    /// Approve the selected pending file changes after confirmation. The
+    /// actor partition doubles as the approval id.
+    pub(super) fn approve_selected_approval(&mut self) {
+        let Some(row) = self.selected_approval_row() else {
+            self.app
+                .notice
+                .set("No pending approval selected.".to_string());
+            return;
+        };
+        let actor = row.actor.clone();
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Approve changes",
+            format!(
+                "Approve {} file(s) from {}? The change merges into its feature ref.",
+                row.files, actor
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let path = format!(
+                        "/api/v1/file-checkpoint/approvals/{}/approve",
+                        crate::fetch::common::encode_segment(&actor)
+                    );
+                    match client
+                        .post_json::<_, serde_json::Value>(&path, &serde_json::json!({}))
+                        .await
+                    {
+                        Ok(_) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::FileApprovals));
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::FileWorkspace));
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
+                            format!("Approved {actor}")
+                        }
+                        Err(err) => format!("Approve failed: {err}"),
+                    }
+                }
+                _ => "Approve cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
+        }));
+    }
+
+    /// Reject the selected pending file changes after confirmation.
+    pub(super) fn reject_selected_approval(&mut self) {
+        let Some(row) = self.selected_approval_row() else {
+            self.app
+                .notice
+                .set("No pending approval selected.".to_string());
+            return;
+        };
+        let actor = row.actor.clone();
+        let rx = self.modals.push_with_result(Box::new(ConfirmModal::new(
+            "Reject changes",
+            format!(
+                "Reject {} file(s) from {}? The pending review ref is removed; history is untouched.",
+                row.files, actor
+            ),
+        )));
+        let tx = self.feedback_tx.clone();
+        let client = self.client.clone();
+        self.tasks.push(tokio::spawn(async move {
+            let outcome = match rx.await {
+                Ok(ModalResult::Confirmed) => {
+                    let path = format!(
+                        "/api/v1/file-checkpoint/approvals/{}/reject",
+                        crate::fetch::common::encode_segment(&actor)
+                    );
+                    match client
+                        .post_json::<_, serde_json::Value>(
+                            &path,
+                            &serde_json::json!({ "reason": null }),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::FileApprovals));
+                            let _ = tx.send(Feedback::Refresh(ScreenKind::Checkpoints));
+                            format!("Rejected {actor}")
+                        }
+                        Err(err) => format!("Reject failed: {err}"),
+                    }
+                }
+                _ => "Reject cancelled".to_string(),
+            };
+            let _ = tx.send(Feedback::Notice(outcome));
         }));
     }
 }

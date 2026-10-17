@@ -20,6 +20,7 @@ mod workspace;
 pub use conflicts::{list_conflicts, parse_marker_conflicts, unresolved_merges};
 pub use diff::{diff_actors, diff_against_main, diff_workspaces};
 pub use index::rebuild_source_index;
+pub(crate) use queries::tree_delta;
 pub use queries::{
     list_changes_by_actor, list_changes_by_path, list_partitions, partition_history,
 };

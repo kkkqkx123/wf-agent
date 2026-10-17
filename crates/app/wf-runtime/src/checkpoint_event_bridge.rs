@@ -66,6 +66,15 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
                     serde_json::json!(summary.timestamp),
                 );
                 metadata.insert("hash".to_string(), serde_json::json!(summary.hash));
+                metadata.insert("kind".to_string(), serde_json::json!(summary.kind));
+                metadata.insert(
+                    "additions".to_string(),
+                    serde_json::json!(summary.additions),
+                );
+                metadata.insert(
+                    "deletions".to_string(),
+                    serde_json::json!(summary.deletions),
+                );
             }
             (EventType::CheckpointFileChanged, metadata)
         }

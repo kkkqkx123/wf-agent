@@ -644,10 +644,44 @@ router.on('POST', '/api/v1/hooks/{name}', () => ({
 
 // ---------- file checkpoint ----------
 router.on('GET', '/api/v1/file-checkpoint/changes', (_p, query) => {
-        return pageView(camelToSnakeDeep(fileChanges), +(query.limit ?? 100), +(query.offset ?? 0));
+        return pageView(
+                fileChanges.map((change) => ({
+                        file: change.path,
+                        source: change.actor,
+                        timestamp: change.at,
+                        snapshot_id: change.id,
+                        hash: 'preview',
+                        kind: change.changeType ?? 'modified',
+                        additions: change.additions ?? 0,
+                        deletions: change.deletions ?? 0,
+                        message: change.session || null,
+                })),
+                +(query.limit ?? 100),
+                +(query.offset ?? 0),
+        );
 });
 router.on('GET', '/api/v1/file-checkpoint/approvals/pending', () => {
-        return pageView(camelToSnakeDeep(approvals));
+        return pageView(
+                approvals
+                        .filter((approval) => approval.status === 'pending')
+                        .map((approval) => ({
+                                actor: approval.requester,
+                                snapshot_id: approval.id,
+                                submitted_at: approval.requestedAt,
+                                changes: [
+                                        {
+                                                file: `preview/${approval.id}.rs`,
+                                                source: approval.requester,
+                                                timestamp: approval.requestedAt,
+                                                snapshot_id: approval.id,
+                                                hash: 'preview',
+                                                kind: 'modified',
+                                                additions: 1,
+                                                deletions: 0,
+                                        },
+                                ],
+                        })),
+        );
 });
 router.on('GET', '/api/v1/file-checkpoint/content', (_p, query) => {
         const path = String(query.path ?? fileChanges[0]?.path ?? 'preview.txt');

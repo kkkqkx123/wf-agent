@@ -7928,10 +7928,22 @@ export interface components {
             data?: {
                 has_more: boolean;
                 items: {
+                    /** @description Lines added relative to the parent. */
+                    additions: number;
+                    /** @description Lines removed relative to the parent. */
+                    deletions: number;
                     /** @description Relative file path. */
                     file: string;
-                    /** @description Content hash (SHA-256 hex) of the resulting file bytes. */
+                    /**
+                     * @description Content hash (SHA-256 hex) of the resulting file bytes; empty for a
+                     *     deletion tombstone.
+                     */
                     hash: string;
+                    /**
+                     * @description Change kind relative to the parent commit: `added` | `modified` |
+                     *     `deleted`.
+                     */
+                    kind: string;
                     /** @description Optional human-readable description of the edit intent. */
                     message?: string | null;
                     /** @description Commit id (hex). */
@@ -8651,10 +8663,22 @@ export interface components {
          *     (`wf_checkpoint::provenance::DeltaSummary` mirrored).
          */
         DeltaSummaryDoc: {
+            /** @description Lines added relative to the parent. */
+            additions: number;
+            /** @description Lines removed relative to the parent. */
+            deletions: number;
             /** @description Relative file path. */
             file: string;
-            /** @description Content hash (SHA-256 hex) of the resulting file bytes. */
+            /**
+             * @description Content hash (SHA-256 hex) of the resulting file bytes; empty for a
+             *     deletion tombstone.
+             */
             hash: string;
+            /**
+             * @description Change kind relative to the parent commit: `added` | `modified` |
+             *     `deleted`.
+             */
+            kind: string;
             /** @description Optional human-readable description of the edit intent. */
             message?: string | null;
             /** @description Commit id (hex). */

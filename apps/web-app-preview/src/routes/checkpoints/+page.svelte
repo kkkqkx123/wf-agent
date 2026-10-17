@@ -53,6 +53,12 @@
 	let approvalsDirty = $state(false);
 	let stopLive: (() => void) | null = null;
 
+	/** Drop decided rows from the local list before the refetch lands. */
+	function removeApprovals(ids: string[]): void {
+		const decided = new Set(ids);
+		approvals = approvals.filter((approval) => !decided.has(approval.id));
+	}
+
 	// ── header dialog ──
 	let createOpen = $state(false);
 
@@ -270,7 +276,7 @@
 			{:else if tab === 'files'}
 				<FilesSection />
 			{:else}
-				<ApprovalsSection {approvals} />
+				<ApprovalsSection {approvals} onremove={removeApprovals} />
 			{/if}
 		</PageState>
 	</div>

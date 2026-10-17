@@ -38,6 +38,7 @@ pub use tui_terminal::{
 pub mod fetch;
 pub mod history_overlay;
 pub mod interactive;
+pub mod live;
 pub mod pager;
 pub mod replay;
 pub mod screens;

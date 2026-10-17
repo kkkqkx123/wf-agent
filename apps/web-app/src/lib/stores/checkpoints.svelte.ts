@@ -55,9 +55,8 @@ class CheckpointStore {
 	selectedChangeId = $state<string | null>(null);
 	selectedApprovalId = $state<string | null>(null);
 
-	// ── in-flight action + error ──
+	// ── in-flight action ──
 	action = $state<string | null>(null);
-	actionError = $state<string | null>(null);
 
 	// ── live subscription ──
 	liveState = $state<StreamState>('closed');
@@ -84,12 +83,10 @@ class CheckpointStore {
 
 	beginAction(key: string): void {
 		this.action = key;
-		this.actionError = null;
 	}
 
-	endAction(error?: string): void {
+	endAction(): void {
 		this.action = null;
-		this.actionError = error ?? null;
 	}
 
 	get busy(): boolean {

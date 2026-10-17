@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Dialog from '@wf-agent/ui/components/Dialog.svelte';
 	import Input from '@wf-agent/ui/components/Input.svelte';
 	import Select from '@wf-agent/ui/components/Select.svelte';
 	import {
@@ -40,6 +41,17 @@
 	let reviewFeaturesText = $state('');
 	let rollbackHead = $state('');
 	let mergeTargets = $state<string[]>([]);
+
+	// Confirmation gates for the main-line mutations: merging into main and
+	// appending a revert commit both rewrite shared history, so the button
+	// opens a dialog that names the exact target before running.
+	let mergeMainOpen = $state(false);
+	let rollbackOpen = $state(false);
+
+	const pendingMainFeatures = $derived([
+		...mergeTargets,
+		...parseExtraFeatures(reviewFeaturesText),
+	]);
 
 	const targetOptions = $derived([
 		...featureNames.map((name) => ({ value: name, label: name })),
@@ -132,6 +144,7 @@
 		workspace.beginAction('merge-main');
 		try {
 			const outcome = await mergeToMain(actor, features);
+			mergeMainOpen = false;
 			if (outcome.conflictFiles.length > 0) {
 				toasts.warning(
 					'Merge to main has conflicts',
@@ -166,6 +179,7 @@
 		workspace.beginAction('rollback-feature');
 		try {
 			const { revertCommit } = await rollbackFeature(actor, head);
+			rollbackOpen = false;
 			toasts.success('Feature rolled back', revertCommit.slice(0, 10));
 			store.bump('files');
 		} catch (e) {
@@ -280,14 +294,11 @@
 				variant="outline"
 				size="sm"
 				disabled={workspace.busy}
-				onclick={() => void runMergeToMain()}
+				onclick={() => (mergeMainOpen = true)}
 			>
 				Merge to main
 			</Button>
 		</div>
-		{#if workspace.actionError}
-			<p class="mt-2 text-caption text-destructive">{workspace.actionError}</p>
-		{/if}
 	</Card>
 
 	<Card
@@ -321,10 +332,58 @@
 				variant="outline"
 				size="sm"
 				disabled={workspace.busy || !rollbackHead.trim()}
-				onclick={() => void runRollbackMergedFeature()}
+				onclick={() => (rollbackOpen = true)}
 			>
 				Roll back feature
 			</Button>
 		</div>
 	</Card>
 </div>
+
+<Dialog
+	bind:open={mergeMainOpen}
+	title="Merge into main"
+	description="Each feature is merged into main in order with its own merge commit. Main is the shared line; confirm the feature order before continuing."
+	onclose={() => (mergeMainOpen = false)}
+>
+	<p class="text-caption">
+		Merging into main:
+		<span class="font-mono">{pendingMainFeatures.join(', ') || '—'}</span>
+	</p>
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (mergeMainOpen = false)}>
+			Cancel
+		</Button>
+		<Button
+			size="sm"
+			disabled={workspace.busy || pendingMainFeatures.length === 0}
+			onclick={() => void runMergeToMain()}
+		>
+			Merge to main
+		</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog
+	bind:open={rollbackOpen}
+	title="Roll back merged feature"
+	description="Appends a revert commit; other merged features are left untouched."
+	onclose={() => (rollbackOpen = false)}
+>
+	<p class="text-caption">
+		Revert <span class="font-mono">{rollbackHead.trim()}</span> as a new commit on
+		main.
+	</p>
+	{#snippet footer()}
+		<Button variant="ghost" size="sm" onclick={() => (rollbackOpen = false)}>
+			Cancel
+		</Button>
+		<Button
+			size="sm"
+			disabled={workspace.busy || !rollbackHead.trim()}
+			onclick={() => void runRollbackMergedFeature()}
+		>
+			Roll back
+		</Button>
+	{/snippet}
+</Dialog>

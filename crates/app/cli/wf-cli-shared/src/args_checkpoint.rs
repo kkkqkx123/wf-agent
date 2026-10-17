@@ -123,6 +123,44 @@ pub enum CheckpointSub {
     },
     /// List files with unresolved merge conflicts.
     FileConflicts,
+    /// Resolve merge conflicts on a feature ref by writing full-file contents.
+    FileConflictResolve {
+        /// Actor the resolution is attributed to.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Feature name for `refs/wf/feat/<name>`.
+        #[arg(value_name = "FEATURE")]
+        feature: String,
+        /// Repeatable `PATH=FILE` pair; the file supplies the resolved bytes.
+        #[arg(long = "resolve", value_name = "PATH=FILE")]
+        resolutions: Vec<String>,
+        /// Optional session attribution recorded alongside the actor.
+        #[arg(long, value_name = "SESSION")]
+        session: Option<String>,
+    },
+    /// Read one file's content from an actor workspace, optionally at a commit.
+    FileContent {
+        /// Actor partition to read.
+        #[arg(value_name = "ACTOR")]
+        actor: String,
+        /// Workspace-relative file path.
+        #[arg(value_name = "PATH")]
+        path: String,
+        /// Historical commit id to read the version at.
+        #[arg(long, value_name = "COMMIT")]
+        commit: Option<String>,
+    },
+    /// Show the per-file diff between two actor workspaces.
+    FileDiffActors {
+        /// Left-hand actor partition.
+        #[arg(value_name = "ACTOR_A")]
+        actor_a: String,
+        /// Right-hand actor partition.
+        #[arg(value_name = "ACTOR_B")]
+        actor_b: String,
+    },
+    /// Show the object-store footprint of the file-checkpoint store.
+    FileStats,
     /// Restore the bound workspace from a file checkpoint as new content
     /// writes; commit history is not rewritten.
     FileRestore {
@@ -587,5 +625,69 @@ mod tests {
             panic!("expected checkpoint command");
         };
         assert!(matches!(sub, CheckpointSub::FileConflicts));
+    }
+
+    #[test]
+    fn checkpoint_file_probe_surface_parses() {
+        let cli = parse(&["checkpoint", "file-content", "agent-1", "src/main.rs"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileContent {
+            actor,
+            path,
+            commit,
+        } = sub
+        else {
+            panic!("expected file-content");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(path, "src/main.rs");
+        assert_eq!(commit, None);
+
+        let cli = parse(&["checkpoint", "file-diff-actors", "a1", "a2"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileDiffActors { actor_a, actor_b } = sub else {
+            panic!("expected file-diff-actors");
+        };
+        assert_eq!(actor_a, "a1");
+        assert_eq!(actor_b, "a2");
+
+        let cli = parse(&["checkpoint", "file-stats"]).unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        assert!(matches!(sub, CheckpointSub::FileStats));
+
+        let cli = parse(&[
+            "checkpoint",
+            "file-conflict-resolve",
+            "agent-1",
+            "demo",
+            "--resolve",
+            "src/main.rs=/tmp/resolved.rs",
+        ])
+        .unwrap();
+        let Some(Command::Checkpoint { sub }) = cli.command else {
+            panic!("expected checkpoint command");
+        };
+        let CheckpointSub::FileConflictResolve {
+            actor,
+            feature,
+            resolutions,
+            session,
+        } = sub
+        else {
+            panic!("expected file-conflict-resolve");
+        };
+        assert_eq!(actor, "agent-1");
+        assert_eq!(feature, "demo");
+        assert_eq!(
+            resolutions,
+            vec!["src/main.rs=/tmp/resolved.rs".to_string()]
+        );
+        assert_eq!(session, None);
     }
 }

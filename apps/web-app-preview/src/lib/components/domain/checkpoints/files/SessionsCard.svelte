@@ -37,14 +37,13 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('Begin session failed:', e);
-			workspace.endAction('Begin session failed');
 			toasts.error(
 				'Begin session failed',
 				e instanceof Error ? e.message : undefined,
 			);
-			return;
+		} finally {
+			workspace.endAction();
 		}
-		workspace.endAction();
 	}
 
 	async function runRollbackSession(session: EditSession): Promise<void> {
@@ -98,9 +97,6 @@
 			placeholder="Actor owning the session partition"
 		/>
 	</div>
-	{#if workspace.actionError}
-		<p class="mb-2 text-caption text-destructive">{workspace.actionError}</p>
-	{/if}
 	{#if sessions.length === 0}
 		<p class="text-caption text-muted-foreground">No staged edit sessions.</p>
 	{:else}

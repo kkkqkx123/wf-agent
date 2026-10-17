@@ -20,6 +20,7 @@ pub enum ScreenKind {
     FileWorkspace,
     FileTimeline,
     EditSessions,
+    FileApprovals,
 }
 
 impl ScreenKind {
@@ -37,6 +38,7 @@ impl ScreenKind {
             Self::FileWorkspace => "Files",
             Self::FileTimeline => "Timeline",
             Self::EditSessions => "Edit sessions",
+            Self::FileApprovals => "Approvals",
         }
     }
 
@@ -56,6 +58,7 @@ impl ScreenKind {
             Self::Git,
             Self::FileWorkspace,
             Self::EditSessions,
+            Self::FileApprovals,
         ]
     }
 
@@ -84,7 +87,8 @@ pub fn screen_digit(kind: ScreenKind) -> Option<char> {
         | ScreenKind::Git
         | ScreenKind::FileWorkspace
         | ScreenKind::FileTimeline
-        | ScreenKind::EditSessions => None,
+        | ScreenKind::EditSessions
+        | ScreenKind::FileApprovals => None,
     }
 }
 
@@ -279,6 +283,18 @@ pub struct CheckpointRow {
     pub entity_type: String,
     pub checkpoint_type: String,
     pub status: String,
+}
+
+/// One pending file-change approval row rendered on the approvals screen.
+/// The actor partition is the approve/reject id used by the API.
+#[derive(Debug, Clone)]
+pub struct ApprovalRow {
+    pub actor: String,
+    pub files: usize,
+    pub submitted: String,
+    pub status: String,
+    /// Pre-rendered viewer text (actor, snapshot, submitted time, file list).
+    pub detail: String,
 }
 
 /// Catalog entry kind: the four merged source groups.
@@ -529,6 +545,7 @@ pub enum ScreenData {
     FileWorkspace(Vec<FileChangeRow>),
     FileTimeline(FileTimelineData),
     EditSessions(Vec<EditSessionRow>),
+    FileApprovals(Vec<ApprovalRow>),
 }
 
 impl ScreenData {
@@ -546,6 +563,7 @@ impl ScreenData {
             Self::FileWorkspace(rows) => rows.len(),
             Self::FileTimeline(data) => data.rows.len(),
             Self::EditSessions(rows) => rows.len(),
+            Self::FileApprovals(rows) => rows.len(),
         }
     }
 }
@@ -613,15 +631,19 @@ pub fn apply_list_filter(data: &ScreenData, query: &str) -> ScreenData {
             rows: data
                 .rows
                 .iter()
-                .filter(|r| {
-                    hits(&[&r.path, &r.source, r.moved_from.as_deref().unwrap_or("")])
-                })
+                .filter(|r| hits(&[&r.path, &r.source, r.moved_from.as_deref().unwrap_or("")]))
                 .cloned()
                 .collect(),
         }),
         ScreenData::EditSessions(rows) => ScreenData::EditSessions(
             rows.iter()
                 .filter(|r| hits(&[&r.id, &r.label]))
+                .cloned()
+                .collect(),
+        ),
+        ScreenData::FileApprovals(rows) => ScreenData::FileApprovals(
+            rows.iter()
+                .filter(|r| hits(&[&r.actor, &r.status, &r.submitted]))
                 .cloned()
                 .collect(),
         ),

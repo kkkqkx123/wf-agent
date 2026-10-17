@@ -56,6 +56,10 @@ use mouse::MousePress;
 
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
+/// Upper bound on the idle poll interval while a live checkpoint screen is
+/// visible: the event subscription invalidates those screens out of band, so
+/// the loop must wake often enough to apply the pending refresh.
+const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Width of the plugin session sidebar, in columns.
 const SIDEBAR_WIDTH: u16 = 30;
@@ -78,6 +82,7 @@ pub(super) const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Git,
     ScreenKind::FileWorkspace,
     ScreenKind::EditSessions,
+    ScreenKind::FileApprovals,
 ];
 
 /// Full-screen TUI application shell: owns the server client, the screen
@@ -386,6 +391,14 @@ impl TuiApp {
             }
         });
 
+        // Subscribe to the checkpoint event stream so the checkpoint screens
+        // invalidate themselves without a manual refresh. The handle lives in
+        // `tasks` and is aborted during teardown.
+        self.tasks.push(crate::live::spawn(
+            self.client.clone(),
+            self.feedback_tx.clone(),
+        ));
+
         // Prime the screen the user lands on before the first draw.
         self.request_data(ScreenKind::Dashboard);
 
@@ -501,7 +514,7 @@ impl TuiApp {
             // Poll until the next redraw is due (or a key arrives). Idle loops
             // back off by idle time; a pending / streaming loop waits at most
             // the rate-limit floor so we never busy-spin.
-            let timeout = if interactive || self.pending_scope.is_pending() {
+            let mut timeout = if interactive || self.pending_scope.is_pending() {
                 self.frame
                     .deadline()
                     .map(|d| Duration::from_millis(d.saturating_sub(now)))
@@ -510,6 +523,12 @@ impl TuiApp {
                 let idle_ms = self.last_active.elapsed().as_millis() as u64;
                 crate::redraw::idle_poll_interval(idle_ms)
             };
+            // The event subscription invalidates the checkpoint screens out of
+            // band; wake often enough to apply a pending refresh while one is
+            // visible without busy-spinning on unrelated screens.
+            if crate::live::is_live_screen(self.app.screen.navigation.current_kind()) {
+                timeout = timeout.min(LIVE_POLL_INTERVAL);
+            }
 
             if event::poll(timeout).map_err(|e| CliError::Terminal(format!("poll failed: {e}")))? {
                 let ev = event::read()

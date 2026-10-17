@@ -21,10 +21,11 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use wf_tui::screens::{
-    catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, CatalogKind,
-    CatalogRow, CheckpointRow, DashboardData, EditSessionRow, ExecRow, ExecView, FileChangeRow,
-    FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData, LocalSettings, ProfileRow,
-    ScreenContext, ScreenData, ScreenKind, Screens, SettingsData, WorkflowRow, WorkflowView,
+    catalog_tab_from_index, catalog_tab_index, catalog_tab_label, filter_catalog, ApprovalRow,
+    CatalogKind, CatalogRow, CheckpointRow, DashboardData, EditSessionRow, ExecRow, ExecView,
+    FileChangeRow, FileTimelineData, FileTimelineRow, GitRow, InsightTable, InsightsData,
+    LocalSettings, ProfileRow, ScreenContext, ScreenData, ScreenKind, Screens, SettingsData,
+    WorkflowRow, WorkflowView,
 };
 use wf_tui::theme::{probe_theme, Theme};
 
@@ -40,6 +41,7 @@ const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Git,
     ScreenKind::FileWorkspace,
     ScreenKind::EditSessions,
+    ScreenKind::FileApprovals,
 ];
 
 fn synthetic_dashboard() -> ScreenData {
@@ -325,6 +327,16 @@ fn synthetic_edit_sessions() -> ScreenData {
     }])
 }
 
+fn synthetic_file_approvals() -> ScreenData {
+    ScreenData::FileApprovals(vec![ApprovalRow {
+        actor: "agent:demo".into(),
+        files: 2,
+        submitted: "2024-01-15 10:30:00".into(),
+        status: "pending".into(),
+        detail: "actor: agent:demo\nfiles: 2\n--- files ---\nsrc/lib.rs\nsrc/main.rs".into(),
+    }])
+}
+
 fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Dashboard => "Dashboard",
@@ -339,6 +351,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
         ScreenKind::FileWorkspace => "Files",
         ScreenKind::FileTimeline => "Timeline",
         ScreenKind::EditSessions => "Edit sessions",
+        ScreenKind::FileApprovals => "Approvals",
     }
 }
 
@@ -356,6 +369,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
         ScreenKind::FileWorkspace => Color::Magenta,
         ScreenKind::FileTimeline => Color::LightBlue,
         ScreenKind::EditSessions => Color::Magenta,
+        ScreenKind::FileApprovals => Color::Yellow,
     }
 }
 
@@ -476,6 +490,7 @@ impl DemoState {
             ScreenKind::FileWorkspace => synthetic_file_workspace(),
             ScreenKind::FileTimeline => synthetic_file_timeline(),
             ScreenKind::EditSessions => synthetic_edit_sessions(),
+            ScreenKind::FileApprovals => synthetic_file_approvals(),
         };
         self.screen_selected = 0;
         self.catalog_tab = None;

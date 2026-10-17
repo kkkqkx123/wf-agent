@@ -145,8 +145,16 @@ pub(crate) struct DeltaSummaryDoc {
     timestamp: i64,
     /// Commit id (hex).
     snapshot_id: String,
-    /// Content hash (SHA-256 hex) of the resulting file bytes.
+    /// Content hash (SHA-256 hex) of the resulting file bytes; empty for a
+    /// deletion tombstone.
     hash: String,
+    /// Change kind relative to the parent commit: `added` | `modified` |
+    /// `deleted`.
+    kind: String,
+    /// Lines added relative to the parent.
+    additions: usize,
+    /// Lines removed relative to the parent.
+    deletions: usize,
     /// Optional human-readable description of the edit intent.
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,

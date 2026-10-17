@@ -2,7 +2,7 @@
 
 use crate::approval::ConflictView;
 
-/// One recorded change of a commit.
+/// One recorded change of a commit, relative to its first parent.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeltaSummary {
     /// Relative file path.
@@ -13,8 +13,15 @@ pub struct DeltaSummary {
     pub timestamp: i64,
     /// Commit id (hex).
     pub snapshot_id: String,
-    /// Content hash (SHA-256 hex) of the resulting file bytes.
+    /// Content hash (SHA-256 hex) of the resulting file bytes; empty for a
+    /// deletion tombstone (no resulting bytes).
     pub hash: String,
+    /// Change kind relative to the parent commit.
+    pub kind: FileDiffKind,
+    /// Lines added relative to the parent; zero for binary or deleted files.
+    pub additions: usize,
+    /// Lines removed relative to the parent; zero for binary or added files.
+    pub deletions: usize,
     /// Optional human-readable description of the edit intent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,

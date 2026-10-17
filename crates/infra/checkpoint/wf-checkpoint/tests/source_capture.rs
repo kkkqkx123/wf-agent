@@ -20,6 +20,7 @@ use checkpoint_base::actor::id::{ActorId, ActorKind};
 use checkpoint_file::file::FileCheckpointManager;
 use checkpoint_file::script_capture::WorkspaceChangeCollector;
 use checkpoint_file::watcher::ManualChangeService;
+use checkpoint_file::FileDiffKind;
 use wf_types::config::file_checkpoint::{FailureBehavior, FileCheckpointConfig};
 use wf_types::Id;
 
@@ -269,7 +270,9 @@ fn source_index_rebuilds_from_graph() {
     let after = manager
         .list_changes_by_actor(agent.as_str(), None, None)
         .unwrap();
-    assert_eq!(after.len(), 3);
+    // Delta semantics: one added file per commit, unchanged files skipped.
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|c| c.kind == FileDiffKind::Added));
 }
 
 async fn wait_until(mut cond: impl FnMut() -> bool, timeout_ms: u64) {

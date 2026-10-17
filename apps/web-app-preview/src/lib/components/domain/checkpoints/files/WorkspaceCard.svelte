@@ -45,11 +45,10 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('Undo failed:', e);
-			workspace.endAction('Undo failed');
 			toasts.error('Undo failed', e instanceof Error ? e.message : undefined);
-			return;
+		} finally {
+			workspace.endAction();
 		}
-		workspace.endAction();
 	}
 
 	async function runRedo(): Promise<void> {
@@ -65,11 +64,10 @@
 			store.bump('files');
 		} catch (e) {
 			console.error('Redo failed:', e);
-			workspace.endAction('Redo failed');
 			toasts.error('Redo failed', e instanceof Error ? e.message : undefined);
-			return;
+		} finally {
+			workspace.endAction();
 		}
-		workspace.endAction();
 	}
 
 	async function runRebuildIndex(): Promise<void> {
@@ -83,14 +81,13 @@
 			);
 		} catch (e) {
 			console.error('Index rebuild failed:', e);
-			workspace.endAction('Rebuild failed');
 			toasts.error(
 				'Index rebuild failed',
 				e instanceof Error ? e.message : undefined,
 			);
-			return;
+		} finally {
+			workspace.endAction();
 		}
-		workspace.endAction();
 	}
 </script>
 
@@ -144,9 +141,6 @@
 			Rebuild index
 		</Button>
 	</div>
-	{#if workspace.actionError}
-		<p class="mt-2 text-caption text-destructive">{workspace.actionError}</p>
-	{/if}
 	{#if workspace.indexStatus}
 		<p class="mt-2 text-caption tabular-nums text-muted-foreground">
 			Index: {workspace.indexStatus.indexedCommits}/{workspace.indexStatus

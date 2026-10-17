@@ -164,14 +164,63 @@ pub(crate) fn print_edit_sessions(view: &serde_json::Value) {
     {
         let limit = view.get("limit").and_then(|v| v.as_u64()).unwrap_or(0);
         let offset = view.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
-        println!("  (more results; continue with --offset {})", offset + limit);
+        println!(
+            "  (more results; continue with --offset {})",
+            offset + limit
+        );
+    }
+}
+
+/// One file's content, or its binary/truncation note when unreadable as text.
+pub(crate) fn print_file_content(view: &serde_json::Value) {
+    let path = str_field(view, "path");
+    if view
+        .get("is_binary")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let size = view.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!(
+            "{path}  binary  {size} B  {}",
+            short_id(str_field(view, "hash"))
+        );
+        return;
+    }
+    match view.get("content").and_then(|v| v.as_str()) {
+        Some(content) => print!("{content}"),
+        None => println!("{path}: no content at this version"),
+    }
+    if view
+        .get("truncated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        eprintln!("(content truncated)");
+    }
+}
+
+/// Object-store footprint of the file-checkpoint store.
+pub(crate) fn print_store_stats(view: &serde_json::Value) {
+    let commits = view.get("commits").and_then(|v| v.as_u64()).unwrap_or(0);
+    let refs = view.get("refs").and_then(|v| v.as_u64()).unwrap_or(0);
+    let loose = view
+        .get("loose_objects")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let bytes = view
+        .get("store_bytes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    println!("{commits} commits, {refs} refs, {loose} loose objects, {bytes} bytes");
+    match view.get("last_gc_ms").and_then(|v| v.as_i64()) {
+        Some(ts) => println!("last GC: {}", format_ts(ts)),
+        None => println!("last GC: never"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn short_id_trims_and_passes_through() {
         assert_eq!(short_id("abcdef0123456789"), "abcdef0");

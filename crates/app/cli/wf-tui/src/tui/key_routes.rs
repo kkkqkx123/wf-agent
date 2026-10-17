@@ -334,7 +334,8 @@ impl TuiApp {
                 | ScreenKind::Git
                 | ScreenKind::FileWorkspace
                 | ScreenKind::FileTimeline
-                | ScreenKind::EditSessions => {
+                | ScreenKind::EditSessions
+                | ScreenKind::FileApprovals => {
                     self.open_selected_cached_detail();
                 }
                 _ => {}
@@ -434,6 +435,16 @@ impl TuiApp {
                 if self.app.screen.navigation.current_kind() == ScreenKind::Checkpoints =>
             {
                 self.delete_selected_checkpoint();
+            }
+            CKey::Char('y')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileApprovals =>
+            {
+                self.approve_selected_approval();
+            }
+            CKey::Char('n')
+                if self.app.screen.navigation.current_kind() == ScreenKind::FileApprovals =>
+            {
+                self.reject_selected_approval();
             }
             CKey::Char('m')
                 if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>

@@ -41,6 +41,8 @@
 	// the resolve dialog) ──
 	let partitions = $state<PartitionView[]>([]);
 	let conflicts = $state<ConflictFile[]>([]);
+	const PARTITION_PAGE = 50;
+	let partitionShown = $state(PARTITION_PAGE);
 
 	// ── preview orchestration (selection + parallel diff/content/
 	// timeline/tree pulls for the selected change) ──
@@ -80,6 +82,7 @@
 			]);
 			partitions = parts;
 			conflicts = found;
+			partitionShown = PARTITION_PAGE;
 		} catch (e) {
 			console.error('Failed to load file workspace segment:', e);
 			loadError =
@@ -213,7 +216,7 @@
 			<p class="text-caption text-muted-foreground">No partitions reported.</p>
 		{:else}
 			<ul class="space-y-1.5">
-				{#each partitions as partition (partition.partitionId)}
+				{#each partitions.slice(0, partitionShown) as partition (partition.partitionId)}
 					<li
 						class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption"
 					>
@@ -231,6 +234,20 @@
 						>
 					</li>
 				{/each}
+				{#if partitions.length > partitionShown}
+					<li>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => (partitionShown += PARTITION_PAGE)}
+						>
+							Show {Math.min(
+								PARTITION_PAGE,
+								partitions.length - partitionShown,
+							)} more ({partitions.length - partitionShown} remaining)
+						</Button>
+					</li>
+				{/if}
 			</ul>
 		{/if}
 	</Card>

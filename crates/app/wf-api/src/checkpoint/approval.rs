@@ -125,8 +125,13 @@ fn review_prompt(
     let mut changes = String::new();
     for change in &pending.changes {
         changes.push_str(&format!(
-            "- file: {} (source: {}, hash: {})",
-            change.file, change.source, change.hash
+            "- file: {} (kind: {:?}, +{}, -{}, source: {}, hash: {})",
+            change.file,
+            change.kind,
+            change.additions,
+            change.deletions,
+            change.source,
+            change.hash
         ));
         if let Some(message) = change.message.as_deref() {
             changes.push_str(&format!(" intent: {message}"));

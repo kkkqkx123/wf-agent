@@ -642,6 +642,50 @@ pub fn draw_file_workspace(
     );
 }
 
+pub fn draw_file_approvals(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+    ctx: &ScreenContext,
+) {
+    let rows: Vec<String> = match data {
+        ScreenData::FileApprovals(rows) => rows
+            .iter()
+            .map(|r| format!("{} file(s) · {} · {}", r.files, r.actor, r.submitted))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let statuses: Vec<String> = match data {
+        ScreenData::FileApprovals(rows) => rows.iter().map(|r| r.status.clone()).collect(),
+        _ => Vec::new(),
+    };
+    let title = format!(
+        "Approvals ({}) (r refresh, y approve, n reject, Enter detail, Esc back)",
+        list_suffix(rows.len(), ctx)
+    );
+    let (list_area, detail_area) = split_list_detail(area);
+    let block = titled_block(&title, ColorRole::Highlight, theme);
+    render_status_rows(frame, list_area, block, &rows, &statuses, selected, theme);
+
+    let detail = match data {
+        ScreenData::FileApprovals(rows) => rows
+            .get(selected.min(rows.len().saturating_sub(1)))
+            .map(|row| row.detail.lines().map(str::to_string).collect())
+            .unwrap_or_else(|| vec![EMPTY_TEXT.to_string()]),
+        _ => vec![LOADING_TEXT.to_string()],
+    };
+    draw_detail_pane(
+        frame,
+        detail_area,
+        "Detail (Enter full)".to_string(),
+        &detail,
+        ctx.detail_scroll,
+        theme,
+    );
+}
+
 pub fn draw_git(
     frame: &mut Frame,
     area: Rect,

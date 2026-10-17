@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
+	import Skeleton from '@wf-agent/ui/components/Skeleton.svelte';
 	import CursorPager from '@wf-agent/ui/components/CursorPager.svelte';
 	import { toneText } from '@wf-agent/ui/components/variants';
 	import type { StatusTone } from '@wf-agent/ui/status';
@@ -78,7 +79,7 @@
 
 <Card title="Changes" description="Recent file deltas grouped by session">
 	{#if loading && changes.length === 0}
-		<p class="text-caption text-muted-foreground">Loading changes…</p>
+		<Skeleton lines={5} />
 	{:else if loadError && changes.length === 0}
 		<p class="text-caption text-destructive">{loadError}</p>
 		<Button variant="ghost" size="sm" onclick={() => void reload()}>
@@ -108,20 +109,24 @@
 							</p>
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
-							<span
-								class={cn(
-									'text-micro',
-									toneText(CHANGE_TONE[change.changeType]),
-								)}
-							>
-								{change.changeType}
-							</span>
-							<span class="text-micro tabular-nums text-success">
-								+{change.additions}
-							</span>
-							<span class="text-micro tabular-nums text-destructive">
-								-{change.deletions}
-							</span>
+							{#if change.changeType}
+								<span
+									class={cn(
+										'text-micro',
+										toneText(CHANGE_TONE[change.changeType]),
+									)}
+								>
+									{change.changeType}
+								</span>
+							{/if}
+							{#if change.additions !== null && change.deletions !== null}
+								<span class="text-micro tabular-nums text-success">
+									+{change.additions}
+								</span>
+								<span class="text-micro tabular-nums text-destructive">
+									-{change.deletions}
+								</span>
+							{/if}
 						</div>
 					</button>
 				</li>

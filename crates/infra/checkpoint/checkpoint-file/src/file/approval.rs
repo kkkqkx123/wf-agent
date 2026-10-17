@@ -12,10 +12,9 @@ use crate::event::{ApprovalDecision, CheckpointEventBus};
 use crate::file::git_merge::{conflict_details, GitMergeOutcome};
 use crate::file::git_write::map_git_error;
 use crate::file::merge::MergeCommitResult;
-use crate::file::util::{resolve_restore_target, sha256_hex, validate_workspace_relative_path};
+use crate::file::util::{resolve_restore_target, validate_workspace_relative_path};
 use crate::file::FileCheckpointManager;
 use crate::git_store::{feat_ref_for_name, REF_REVIEW_PREFIX};
-use crate::provenance::DeltaSummary;
 use crate::storage::ReviewStatus;
 use checkpoint_base::error::CheckpointError;
 
@@ -51,19 +50,21 @@ impl FileCheckpointManager {
             let actor = commit
                 .trailer(crate::git_store::TRAILER_ACTOR)
                 .unwrap_or_default();
-            let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
-            let mut changes: Vec<DeltaSummary> = files
-                .iter()
-                .map(|(path, bytes)| DeltaSummary {
-                    file: path.clone(),
-                    source: actor.clone(),
-                    timestamp: commit.committer_ts,
-                    snapshot_id: head.clone(),
-                    hash: sha256_hex(bytes),
-                    message: None,
-                })
-                .collect();
-            changes.sort_by(|a, b| a.file.cmp(&b.file));
+            // The actor edit line is a disconnected root, so the baseline for
+            // "submitted changes" is the main ref tree (the workspace state
+            // before the actor's edits). This yields correct Added/Modified/
+            // Deleted kinds instead of a per-commit delta that would only
+            // show the last commit's files.
+            let baseline = match git.read_ref(crate::git_store::REF_MAIN).map_err(map_git_error)? {
+                Some(main_head) => git
+                    .read_commit(&main_head)
+                    .ok()
+                    .map(|c| git.tree_to_bytes(&c.tree))
+                    .transpose()
+                    .map_err(map_git_error)?,
+                None => None,
+            };
+            let changes = crate::provenance::tree_delta(git, baseline.as_ref(), &commit)?;
             views.push(PendingApproval {
                 actor,
                 snapshot_id: head,

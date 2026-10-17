@@ -425,11 +425,13 @@ export type FileChangeType = 'added' | 'modified' | 'deleted' | 'renamed';
 export interface FileChange {
 	id: string;
 	path: string;
-	changeType: FileChangeType;
+	/** Absent when the wire row carries no change kind (the delta feed). */
+	changeType: FileChangeType | null;
 	actor: string;
 	at: string;
-	additions: number;
-	deletions: number;
+	/** Absent when the wire row carries no line counts. */
+	additions: number | null;
+	deletions: number | null;
 	session: string;
 }
 

@@ -115,6 +115,49 @@ fn structured_view(path: &str, before: &[u8], after: &[u8]) -> FileDiffView {
     }
 }
 
+/// Change kind and line counts for one path between an optional before and
+/// after state. `before == None` marks an addition, `after == None` a
+/// deletion. Identical bytes report `Unchanged` with zero counts; binary
+/// content reports the kind without line counts.
+pub(crate) fn delta_counts(
+    before: Option<&[u8]>,
+    after: Option<&[u8]>,
+) -> (FileDiffKind, usize, usize) {
+    match (before, after) {
+        (None, None) => (FileDiffKind::Unchanged, 0, 0),
+        (None, Some(after)) => match std::str::from_utf8(after) {
+            Ok(after) => {
+                let stats = diff_stats_for_text("", after);
+                (FileDiffKind::Added, stats.added_lines, 0)
+            }
+            Err(_) => (FileDiffKind::Added, 0, 0),
+        },
+        (Some(before), None) => match std::str::from_utf8(before) {
+            Ok(before) => {
+                let stats = diff_stats_for_text(before, "");
+                (FileDiffKind::Deleted, 0, stats.removed_lines)
+            }
+            Err(_) => (FileDiffKind::Deleted, 0, 0),
+        },
+        (Some(before), Some(after)) => {
+            if before == after {
+                return (FileDiffKind::Unchanged, 0, 0);
+            }
+            match (std::str::from_utf8(before), std::str::from_utf8(after)) {
+                (Ok(before), Ok(after)) => {
+                    let stats = diff_stats_for_text(before, after);
+                    (
+                        FileDiffKind::Modified,
+                        stats.added_lines,
+                        stats.removed_lines,
+                    )
+                }
+                _ => (FileDiffKind::Modified, 0, 0),
+            }
+        }
+    }
+}
+
 /// Diff between two actor workspaces. Identifier maps are compared first;
 /// only files with differing identifiers load bytes for content diff.
 pub fn diff_actors(
@@ -212,5 +255,29 @@ mod tests {
             MAX_DIFF_LINES
         );
         assert!(view.additions >= MAX_DIFF_LINES);
+    }
+
+    #[test]
+    fn delta_counts_classifies_add_modify_delete() {
+        let (kind, add, del) = delta_counts(None, Some(b"one\ntwo\n"));
+        assert_eq!(kind, FileDiffKind::Added);
+        assert_eq!((add, del), (2, 0));
+
+        let (kind, add, del) = delta_counts(Some(b"one\ntwo\n"), Some(b"one\nthree\n"));
+        assert_eq!(kind, FileDiffKind::Modified);
+        assert_eq!((add, del), (1, 1));
+
+        let (kind, add, del) = delta_counts(Some(b"one\ntwo\n"), None);
+        assert_eq!(kind, FileDiffKind::Deleted);
+        assert_eq!((add, del), (0, 2));
+
+        let (kind, add, del) = delta_counts(Some(b"same"), Some(b"same"));
+        assert_eq!(kind, FileDiffKind::Unchanged);
+        assert_eq!((add, del), (0, 0));
+
+        // Binary content reports the kind without line counts.
+        let (kind, add, del) = delta_counts(None, Some(&[0xff, 0x00]));
+        assert_eq!(kind, FileDiffKind::Added);
+        assert_eq!((add, del), (0, 0));
     }
 }

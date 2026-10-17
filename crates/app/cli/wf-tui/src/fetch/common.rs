@@ -16,7 +16,7 @@ pub(super) fn items_of(data: &serde_json::Value) -> Vec<serde_json::Value> {
 
 /// Percent-encode a workspace path for the single-segment `{id}` routes
 /// (`/file-checkpoint/timeline/{id}`), where slashes must arrive encoded.
-pub(super) fn encode_segment(path: &str) -> String {
+pub(crate) fn encode_segment(path: &str) -> String {
     let mut out = String::with_capacity(path.len());
     for byte in path.bytes() {
         if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {

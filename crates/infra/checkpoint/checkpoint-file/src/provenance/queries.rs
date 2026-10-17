@@ -11,7 +11,7 @@ use crate::git_store::{
 use crate::storage::SqliteStorage;
 use checkpoint_base::error::CheckpointError;
 
-use super::types::{DeltaSummary, PartitionCommitView, PartitionView};
+use super::types::{DeltaSummary, FileDiffKind, PartitionCommitView, PartitionView};
 
 /// Maximum commits a fallback graph scan may walk when the source index is
 /// empty. Larger stores must rebuild the index; cold full scans stay bounded.
@@ -39,29 +39,99 @@ fn intent_line(message: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Expand one commit into per-file change summaries.
-fn summaries_for_commit(
+/// Bytes of `path` in the commit's first parent, when the parent exists and
+/// holds the path. Used to classify additions/modifications/deletions.
+fn parent_bytes(
     git: &GitStore,
     commit: &GitCommit,
+    path: &str,
+) -> Result<Option<Vec<u8>>, CheckpointError> {
+    let Some(parent_id) = commit.parents.first() else {
+        return Ok(None);
+    };
+    let Ok(parent) = git.read_commit(parent_id) else {
+        return Ok(None);
+    };
+    let files = git.tree_to_files(&parent.tree).map_err(map_git_error)?;
+    let Some((_, blob)) = files.get(path) else {
+        return Ok(None);
+    };
+    Ok(Some(git.read_blob(blob).map_err(map_git_error)?))
+}
+
+/// Per-file deltas of one commit's tree relative to an explicit baseline
+/// tree (`None` treats every file as added). Unchanged files are skipped.
+/// Deletions carry an empty hash and a deletion tombstone.
+pub(crate) fn tree_delta(
+    git: &GitStore,
+    before: Option<&std::collections::HashMap<String, Vec<u8>>>,
+    commit: &GitCommit,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-    let files = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
+    let current = git.tree_to_bytes(&commit.tree).map_err(map_git_error)?;
     let source = commit
         .trailer(TRAILER_ACTOR)
         .unwrap_or_else(|| "agent".to_string());
     let message = intent_line(&commit.message);
-    let mut out: Vec<DeltaSummary> = files
-        .iter()
-        .map(|(path, bytes)| DeltaSummary {
+    let mut out: Vec<DeltaSummary> = Vec::new();
+    for (path, bytes) in &current {
+        let prior = before
+            .as_ref()
+            .and_then(|files| files.get(path))
+            .map(Vec::as_slice);
+        let (kind, additions, deletions) = super::diff::delta_counts(prior, Some(bytes));
+        if kind == FileDiffKind::Unchanged {
+            continue;
+        }
+        out.push(DeltaSummary {
             file: path.clone(),
             source: source.clone(),
             timestamp: commit.committer_ts,
             snapshot_id: commit.id.clone(),
             hash: sha256_hex(bytes),
+            kind,
+            additions,
+            deletions,
             message: message.clone(),
-        })
-        .collect();
+        });
+    }
+    if let Some(before) = before {
+        for (path, bytes) in before {
+            if current.contains_key(path) {
+                continue;
+            }
+            let (kind, additions, deletions) = super::diff::delta_counts(Some(bytes), None);
+            out.push(DeltaSummary {
+                file: path.clone(),
+                source: source.clone(),
+                timestamp: commit.committer_ts,
+                snapshot_id: commit.id.clone(),
+                hash: String::new(),
+                kind,
+                additions,
+                deletions,
+                message: message.clone(),
+            });
+        }
+    }
     out.sort_by(|a, b| a.file.cmp(&b.file));
     Ok(out)
+}
+
+/// Per-file deltas of one commit relative to its first parent: added,
+/// modified and deleted paths only (unchanged files are skipped). A root
+/// commit reports its full tree as additions.
+pub(crate) fn commit_deltas(
+    git: &GitStore,
+    commit: &GitCommit,
+) -> Result<Vec<DeltaSummary>, CheckpointError> {
+    let parent = match commit.parents.first() {
+        Some(id) => match git.read_commit(id) {
+            Ok(parent) => Some(git.tree_to_bytes(&parent.tree).map_err(map_git_error)?),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    tree_delta(git, parent.as_ref(), commit)
 }
 
 /// Summary for a single path at a commit without expanding other files.
@@ -77,6 +147,8 @@ fn summary_for_path(
         return Ok(None);
     };
     let bytes = git.read_blob(blob).map_err(map_git_error)?;
+    let before = parent_bytes(git, commit, path)?;
+    let (kind, additions, deletions) = super::diff::delta_counts(before.as_deref(), Some(&bytes));
     let source = commit
         .trailer(TRAILER_ACTOR)
         .unwrap_or_else(|| "agent".to_string());
@@ -86,6 +158,9 @@ fn summary_for_path(
         timestamp: commit.committer_ts,
         snapshot_id: commit.id.clone(),
         hash: sha256_hex(&bytes),
+        kind,
+        additions,
+        deletions,
         message: intent_line(&commit.message),
     }))
 }
@@ -305,12 +380,17 @@ pub fn list_changes_by_path(
             let source = commit
                 .trailer(TRAILER_ACTOR)
                 .unwrap_or_else(|| "agent".to_string());
+            let before = parent_bytes(git, &commit, path)?;
+            let (kind, additions, deletions) = super::diff::delta_counts(before.as_deref(), None);
             changes.push(DeltaSummary {
                 file: path.to_string(),
                 source,
                 timestamp: commit.committer_ts,
                 snapshot_id: commit.id.clone(),
                 hash: String::new(),
+                kind,
+                additions,
+                deletions,
                 message: intent_line(&commit.message),
             });
         }
@@ -344,7 +424,7 @@ pub fn list_changes_by_actor(
                 continue;
             }
         }
-        for summary in summaries_for_commit(git, &commit)? {
+        for summary in commit_deltas(git, &commit)? {
             if path_matches(&summary.file, path_filter) {
                 changes.push(summary);
             }

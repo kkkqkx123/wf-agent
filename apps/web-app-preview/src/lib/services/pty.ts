@@ -19,6 +19,7 @@ export async function createPty(input?: {
 	command?: string;
 	rows?: number;
 	cols?: number;
+	title?: string;
 }): Promise<PtySession> {
 	const data = await call<unknown>(
 		client.POST('/api/v1/pty', {
@@ -27,6 +28,7 @@ export async function createPty(input?: {
 				command: input?.command,
 				rows: input?.rows,
 				cols: input?.cols,
+				title: input?.title,
 			},
 		}),
 	);
@@ -46,15 +48,18 @@ export async function getPty(id: string): Promise<PtySession> {
 	return requireData(data, 'PTY session') as PtySession;
 }
 
-export async function resizePty(
+export async function updatePty(
 	id: string,
-	rows: number,
-	cols: number,
+	input: { title?: string; rows?: number; cols?: number },
 ): Promise<PtySession> {
 	const data = await call<unknown>(
-		client.POST('/api/v1/pty/{id}/resize', {
+		client.PUT('/api/v1/pty/{id}', {
 			params: { path: { id } },
-			body: { rows, cols },
+			body: {
+				title: input.title,
+				rows: input.rows,
+				cols: input.cols,
+			},
 		}),
 	);
 	return requireData(data, 'PTY session') as PtySession;
@@ -69,6 +74,8 @@ export async function closePty(id: string): Promise<void> {
 export interface PtySocket {
 	/** Current underlying socket, null while disconnected. */
 	socket(): WebSocket | null;
+	/** Send user input to the session. Queued before the socket opens. */
+	send(data: string | ArrayBuffer | Uint8Array): void;
 	/** Close the socket and never reopen it. */
 	dispose(): void;
 }
@@ -117,6 +124,48 @@ export function connectPty(
 ): PtySocket {
 	let ws: WebSocket | null = null;
 	let disposed = false;
+	let pending: Array<string | ArrayBuffer | Uint8Array> = [];
+
+	function flushPending(target: WebSocket): void {
+		if (pending.length === 0) return;
+		const items = pending;
+		pending = [];
+		for (let i = 0; i < items.length; i += 1) {
+			if (disposed) {
+				pending = items.slice(i);
+				return;
+			}
+			if (target.readyState !== WebSocket.OPEN) {
+				pending = items.slice(i);
+				return;
+			}
+			try {
+				target.send(items[i] as string);
+			} catch {
+				pending = items.slice(i);
+				return;
+			}
+		}
+	}
+
+	function send(data: string | ArrayBuffer | Uint8Array): void {
+		if (disposed) return;
+		if (!data) return;
+		if (typeof data === 'string' && data.length === 0) return;
+		if (data instanceof Uint8Array && data.length === 0) return;
+		if (data instanceof ArrayBuffer && data.byteLength === 0) return;
+		const current = ws;
+		if (current && current.readyState === WebSocket.OPEN) {
+			try {
+				current.send(data as string);
+			} catch {
+				// Keep unsent input for the next connection.
+				if (pending.length < 200) pending.push(data);
+			}
+			return;
+		}
+		if (pending.length < 200) pending.push(data);
+	}
 
 	void fetchConnectTicket(id).then((ticket) => {
 		if (disposed) return;
@@ -133,6 +182,11 @@ export function connectPty(
 		const socket = new WebSocket(url.toString());
 		ws = socket;
 		socket.binaryType = 'arraybuffer';
+
+		socket.onopen = () => {
+			if (disposed) return;
+			flushPending(socket);
+		};
 
 		socket.onmessage = (event: MessageEvent) => {
 			if (disposed) return;
@@ -190,8 +244,12 @@ export function connectPty(
 		socket() {
 			return ws;
 		},
+		send(data: string | ArrayBuffer | Uint8Array): void {
+			send(data);
+		},
 		dispose() {
 			disposed = true;
+			pending = [];
 			if (ws && ws.readyState <= WebSocket.OPEN) {
 				ws.close(1000);
 			}
@@ -203,32 +261,45 @@ export function connectPty(
 /**
  * Merge rapid output chunks into single writes so large bursts do not
  * overwhelm the xterm render loop. Flush is scheduled on a microtask.
+ * Completion callbacks queue until pending writes settle.
  */
 export function createTerminalWriter(
-	write: (data: string) => void,
-): { push(data: string): void; flush(): void } {
+	write: (data: string, done?: () => void) => void,
+	schedule: (flush: () => void) => void = queueMicrotask,
+): { push(data: string): void; flush(done?: () => void): void } {
 	let chunks: string[] | undefined;
+	let waits: Array<() => void> | undefined;
 	let scheduled = false;
 	let writing = false;
+
+	const settle = () => {
+		if (scheduled || writing || chunks?.length) return;
+		const list = waits;
+		if (!list?.length) return;
+		waits = undefined;
+		for (const fn of list) fn();
+	};
 
 	const run = () => {
 		if (writing) return;
 		scheduled = false;
 		const items = chunks;
-		if (!items?.length) return;
-		chunks = [];
-		writing = true;
-		try {
-			write(items.join(''));
-		} finally {
-			writing = false;
-			// `write` may have enqueued re-entrant pushes while running.
-			const pending = chunks;
-			if (pending && pending.length > 0) {
-				scheduled = true;
-				queueMicrotask(run);
-			}
+		if (!items?.length) {
+			settle();
+			return;
 		}
+		chunks = undefined;
+		writing = true;
+		write(items.join(''), () => {
+			writing = false;
+			if (chunks?.length) {
+				if (scheduled) return;
+				scheduled = true;
+				schedule(run);
+				return;
+			}
+			settle();
+		});
 	};
 
 	return {
@@ -238,9 +309,17 @@ export function createTerminalWriter(
 			else chunks = [data];
 			if (scheduled || writing) return;
 			scheduled = true;
-			queueMicrotask(run);
+			schedule(run);
 		},
-		flush() {
+		flush(done?: () => void) {
+			if (!scheduled && !writing && !chunks?.length) {
+				done?.();
+				return;
+			}
+			if (done) {
+				if (waits) waits.push(done);
+				else waits = [done];
+			}
 			run();
 		},
 	};

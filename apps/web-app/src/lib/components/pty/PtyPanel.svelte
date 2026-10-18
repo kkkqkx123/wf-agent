@@ -25,14 +25,33 @@
 	let autoSpawned = false;
 	let failedId = $state<string | null>(null);
 	let instance: TerminalInstance | undefined = $state();
+	let editingId = $state<string | null>(null);
+	let editingTitle = $state('');
+
+	function startRename(id: string, title: string): void {
+		editingId = id;
+		editingTitle = title;
+	}
+
+	function commitRename(id: string): void {
+		if (editingId !== id) return;
+		editingId = null;
+		store.rename(id, editingTitle);
+	}
+
+	function cancelRename(): void {
+		editingId = null;
+	}
 
 	onMount(() => {
-		if (!autoSpawned && store.sessions.length === 0) {
-			autoSpawned = true;
-			void store.spawn().then((session) => {
-				if (session) instance?.focus();
-			});
-		}
+		void store.reconcile().then(() => {
+			if (!autoSpawned && store.sessions.length === 0) {
+				autoSpawned = true;
+				void store.spawn().then((session) => {
+					if (session) instance?.focus();
+				});
+			}
+		});
 	});
 
 	onDestroy(() => {
@@ -84,19 +103,34 @@
 						? 'border-primary bg-primary/10'
 						: 'bg-muted/40'}"
 				>
-					<button
-						type="button"
-						class="cursor-pointer px-1 py-0.5 hover:text-foreground"
-						onclick={() => {
-							store.setActive(session.id);
-							instance?.focus();
-						}}
-					>
-						{session.title}
-						{#if session.status === 'exited'}
-							<span class="text-muted-foreground">(exited)</span>
-						{/if}
-					</button>
+					{#if editingId === session.id}
+						<input
+							class="w-24 bg-transparent px-1 py-0.5 outline-none"
+							bind:value={editingTitle}
+							onblur={() => commitRename(session.id)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') commitRename(session.id);
+								else if (e.key === 'Escape') cancelRename();
+							}}
+							onclick={(e) => e.stopPropagation()}
+						/>
+					{:else}
+						<button
+							type="button"
+							class="cursor-pointer px-1 py-0.5 hover:text-foreground"
+							title="Double-click to rename"
+							onclick={() => {
+								store.setActive(session.id);
+								instance?.focus();
+							}}
+							ondblclick={() => startRename(session.id, session.title)}
+						>
+							{session.title}
+							{#if session.status === 'exited'}
+								<span class="text-muted-foreground">(exited)</span>
+							{/if}
+						</button>
+					{/if}
 					<IconButton
 						icon="chevron-left"
 						label="Move left"

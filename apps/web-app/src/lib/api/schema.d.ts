@@ -4937,7 +4937,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_pty_id"];
-        put?: never;
+        put: operations["put_pty_id"];
         post?: never;
         delete: operations["delete_pty"];
         options?: never;
@@ -4971,22 +4971,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["post_pty_connect_token"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/pty/{id}/resize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_pty_resize"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8140,6 +8124,7 @@ export interface components {
                 /** Format: int32 */
                 rows: number;
                 status: components["schemas"]["PtySessionStatus"];
+                title: string;
             };
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -8486,6 +8471,7 @@ export interface components {
                 /** Format: int32 */
                 rows: number;
                 status: components["schemas"]["PtySessionStatus"];
+                title: string;
             }[];
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
@@ -8781,6 +8767,7 @@ export interface components {
             cwd?: string | null;
             /** Format: int32 */
             rows?: number | null;
+            title?: string | null;
         };
         /**
          * @description One cursor page of a list response.
@@ -9506,6 +9493,7 @@ export interface components {
             /** Format: int32 */
             rows: number;
             status: components["schemas"]["PtySessionStatus"];
+            title: string;
         };
         /** @enum {string} */
         PtySessionStatus: "running" | "exited";
@@ -9557,12 +9545,6 @@ export interface components {
             values?: {
                 [key: string]: unknown;
             };
-        };
-        ResizePtyBody: {
-            /** Format: int32 */
-            cols?: number;
-            /** Format: int32 */
-            rows?: number;
         };
         ResolveConflictsRequest: {
             actor: string;
@@ -9889,6 +9871,13 @@ export interface components {
         UpdateLoopStatusBody: {
             /** @description New status value (e.g., "running", "paused", "completed", "failed") */
             status: string;
+        };
+        UpdatePtyBody: {
+            /** Format: int32 */
+            cols?: number | null;
+            /** Format: int32 */
+            rows?: number | null;
+            title?: string | null;
         };
         UpsertFavoriteBody: {
             pinned?: boolean | null;
@@ -35874,6 +35863,67 @@ export interface operations {
             };
         };
     };
+    put_pty_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePtyBody"];
+            };
+        };
+        responses: {
+            /** @description PTY session updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_PtySession"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     delete_pty: {
         parameters: {
             query?: never;
@@ -36039,67 +36089,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    post_pty_resize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResizePtyBody"];
-            };
-        };
-        responses: {
-            /** @description PTY session resized */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_PtySession"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

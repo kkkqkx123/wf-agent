@@ -309,7 +309,7 @@ use utoipa::OpenApi;
         crate::api::pty::handle_list_pty,
         crate::api::pty::handle_get_pty,
         crate::api::pty::handle_delete_pty,
-        crate::api::pty::handle_resize_pty,
+        crate::api::pty::handle_update_pty,
         crate::api::pty::handle_connect_pty,
         crate::api::pty::handle_pty_connect_token,
         // ── trigger ──
@@ -686,7 +686,7 @@ use utoipa::OpenApi;
         crate::api::pty::PtySession,
         crate::api::pty::PtySessionStatus,
         crate::api::pty::CreatePtyBody,
-        crate::api::pty::ResizePtyBody,
+        crate::api::pty::UpdatePtyBody,
         crate::api::ticket::StreamTicket,
         crate::api::web::preferences::ReplacePreferencesBody,
         crate::api::workflow::approvals::RespondBody,

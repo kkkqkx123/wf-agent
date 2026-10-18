@@ -8,7 +8,6 @@
 	import {
 		connectPty,
 		createTerminalWriter,
-		resizePty,
 		getPty,
 	} from '$lib/services/pty';
 	import type { PtySession } from '$lib/services/pty';
@@ -38,6 +37,8 @@
 	let serializeAddon: SerializeAddon;
 	let fitFrame: number | undefined;
 	let sizeTimer: ReturnType<typeof setTimeout> | undefined;
+	let pendingSize: { rows: number; cols: number } | undefined;
+	let lastSize: { rows: number; cols: number } | undefined;
 	let resizeObserver: ResizeObserver;
 	let connected = false;
 	let tries = 0;
@@ -46,6 +47,7 @@
 	let socket: ReturnType<typeof connectPty> | null = null;
 	let writer: ReturnType<typeof createTerminalWriter>;
 	let cursor = 0;
+	let textareaFocusCleanup: (() => void) | undefined;
 
 	const encoder = new TextEncoder();
 
@@ -67,12 +69,29 @@
 	}
 
 	function scheduleResize(rows: number, cols: number): void {
-		if (sizeTimer !== undefined) clearTimeout(sizeTimer);
+		if (disposed) return;
+		if (lastSize?.cols === cols && lastSize?.rows === rows) {
+			pendingSize = undefined;
+			if (sizeTimer !== undefined) clearTimeout(sizeTimer);
+			sizeTimer = undefined;
+			return;
+		}
+		pendingSize = { cols, rows };
+		if (!lastSize) {
+			lastSize = pendingSize;
+			store.syncSize(session.id, rows, cols);
+			return;
+		}
+		if (sizeTimer !== undefined) return;
 		sizeTimer = setTimeout(() => {
 			sizeTimer = undefined;
+			const next = pendingSize;
+			if (!next) return;
+			pendingSize = undefined;
 			if (disposed) return;
-			store.patch(session.id, { rows, cols });
-			resizePty(session.id, rows, cols).catch(() => {});
+			if (lastSize?.cols === next.cols && lastSize?.rows === next.rows) return;
+			lastSize = next;
+			store.syncSize(session.id, next.rows, next.cols);
 		}, RESIZE_DEBOUNCE_MS);
 	}
 
@@ -99,7 +118,7 @@
 			onConnectFailed?.(session.id);
 			return;
 		}
-		const delay = Math.min(250 * 2 ** tries, 4000);
+		const delay = Math.min(250 * 2 ** Math.min(tries, 4), 4000);
 		tries += 1;
 		reconnectTimer = setTimeout(() => {
 			reconnectTimer = undefined;
@@ -163,6 +182,42 @@
 
 	export function focus(): void {
 		term?.focus();
+		term?.textarea?.focus();
+	}
+
+	function handleCopy(event: ClipboardEvent): void {
+		const selection = term?.getSelection();
+		if (!selection) return;
+		const clipboard = event.clipboardData;
+		if (!clipboard) return;
+		event.preventDefault();
+		clipboard.setData('text/plain', selection);
+	}
+
+	function handlePaste(event: ClipboardEvent): void {
+		const clipboard = event.clipboardData;
+		const text = clipboard?.getData('text/plain') ?? clipboard?.getData('text') ?? '';
+		if (!text) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (exitHandled) return;
+		socket?.send(text);
+	}
+
+	function handlePointerDown(): void {
+		const active = document.activeElement;
+		if (active instanceof HTMLElement && active !== container && !container.contains(active)) {
+			active.blur();
+		}
+		focus();
+	}
+
+	function handleLinkClick(event: MouseEvent): void {
+		if (event.button !== 0) return;
+		if (event.altKey) return;
+		if (!event.shiftKey && !event.ctrlKey && !event.metaKey) {
+			event.stopImmediatePropagation();
+		}
 	}
 
 	onMount(() => {
@@ -186,8 +241,8 @@
 		term.loadAddon(new WebLinksAddon());
 		term.open(container);
 
-		writer = createTerminalWriter((data) => {
-			term.write(data);
+		writer = createTerminalWriter((data, done) => {
+			term.write(data, done);
 		});
 
 		const applyTheme = (): void => {
@@ -205,13 +260,51 @@
 			applyTheme();
 		});
 
+		container.addEventListener('copy', handleCopy, true);
+		container.addEventListener('paste', handlePaste, true);
+		container.addEventListener('pointerdown', handlePointerDown);
+		container.addEventListener('click', handleLinkClick, { capture: true });
+		const textarea = term.textarea;
+		const onTextareaFocus = () => {
+			if (!disposed) term.options.cursorBlink = true;
+		};
+		const onTextareaBlur = () => {
+			if (!disposed) term.options.cursorBlink = false;
+		};
+		textarea?.addEventListener('focus', onTextareaFocus);
+		textarea?.addEventListener('blur', onTextareaBlur);
+		textareaFocusCleanup = () => {
+			textarea?.removeEventListener('focus', onTextareaFocus);
+			textarea?.removeEventListener('blur', onTextareaBlur);
+		};
+
 		resizeObserver = new ResizeObserver(() => scheduleFit());
 		resizeObserver.observe(container);
+		const handleWindowResize = () => scheduleFit();
+		window.addEventListener('resize', handleWindowResize);
 
 		const onTermResize = term.onResize((size: { rows: number; cols: number }) => {
 			scheduleResize(size.rows, size.cols);
 		});
-		onDestroy(() => onTermResize.dispose());
+		const onTermData = term.onData((data: string) => {
+			if (disposed || exitHandled) return;
+			socket?.send(data);
+		});
+		const onTermBinary = term.onBinary((data: string) => {
+			if (disposed || exitHandled) return;
+			socket?.send(data);
+		});
+		onDestroy(() => {
+			onTermResize.dispose();
+			onTermData.dispose();
+			onTermBinary.dispose();
+			window.removeEventListener('resize', handleWindowResize);
+			container.removeEventListener('copy', handleCopy, true);
+			container.removeEventListener('paste', handlePaste, true);
+			container.removeEventListener('pointerdown', handlePointerDown);
+			container.removeEventListener('click', handleLinkClick, { capture: true });
+			textareaFocusCleanup?.();
+		});
 
 		if (restore) {
 			term.write(restore);
@@ -235,21 +328,24 @@
 		resizeObserver?.disconnect();
 		socket?.dispose();
 		socket = null;
-		writer?.flush();
-		try {
-			const buffer = serializeAddon?.serialize();
-			if (buffer && buffer.length > 0) {
-				store.saveBuffer(
-					session.id,
-					buffer,
-					term.buffer.active.viewportY,
-					cursor,
-				);
+		const finalize = () => {
+			try {
+				const buffer = serializeAddon?.serialize();
+				if (buffer && buffer.length > 0 && term) {
+					store.saveBuffer(
+						session.id,
+						buffer,
+						term.buffer.active.viewportY,
+						cursor,
+					);
+				}
+			} catch {
+				// Serialization may fail after dispose; skip persistence.
 			}
-		} catch {
-			// Serialization may fail after dispose; skip persistence.
-		}
-		term?.dispose();
+			term?.dispose();
+		};
+		if (writer) writer.flush(finalize);
+		else finalize();
 	});
 </script>
 

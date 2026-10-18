@@ -19,8 +19,12 @@ use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/pty", post(handle_create_pty).get(handle_list_pty))
-        .route("/pty/{id}", get(handle_get_pty).delete(handle_delete_pty))
-        .route("/pty/{id}/resize", post(handle_resize_pty))
+        .route(
+            "/pty/{id}",
+            get(handle_get_pty)
+                .put(handle_update_pty)
+                .delete(handle_delete_pty),
+        )
         .route("/pty/{id}/connect", get(handle_connect_pty))
         .route(
             "/pty/{id}/connect-token",
@@ -39,6 +43,7 @@ pub(crate) enum PtySessionStatus {
 pub(crate) struct PtySession {
     pub id: String,
     pub cwd: String,
+    pub title: String,
     pub status: PtySessionStatus,
     pub exit_code: Option<i32>,
     pub pid: Option<u32>,
@@ -56,6 +61,8 @@ pub(crate) struct CreatePtyBody {
     rows: Option<u16>,
     #[serde(default)]
     cols: Option<u16>,
+    #[serde(default)]
+    title: Option<String>,
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
@@ -68,19 +75,13 @@ pub(crate) struct ConnectQuery {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
-pub(crate) struct ResizePtyBody {
-    #[serde(default = "default_rows")]
-    rows: u32,
-    #[serde(default = "default_cols")]
-    cols: u32,
-}
-
-fn default_rows() -> u32 {
-    24
-}
-
-fn default_cols() -> u32 {
-    80
+pub(crate) struct UpdatePtyBody {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    rows: Option<u32>,
+    #[serde(default)]
+    cols: Option<u32>,
 }
 
 #[utoipa::path(post, path = "/api/v1/pty", operation_id = "post_pty", tag = "pty", request_body = CreatePtyBody, responses((status = 200, description = "PTY session created", body = crate::envelope::ApiEnvelope<PtySession>)), security(("api_key" = [])))]
@@ -93,8 +94,16 @@ pub(crate) async fn handle_create_pty(
         command: None,
         rows: None,
         cols: None,
+        title: None,
     });
-    match wf_api::pty::create_pty_session(&state.ctx, body.cwd, body.command, body.rows, body.cols)
+    match wf_api::pty::create_pty_session(
+        &state.ctx,
+        body.cwd,
+        body.command,
+        body.rows,
+        body.cols,
+        body.title,
+    )
     {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
@@ -132,17 +141,24 @@ pub(crate) async fn handle_delete_pty(
     }
 }
 
-#[utoipa::path(post, path = "/api/v1/pty/{id}/resize", operation_id = "post_pty_resize", tag = "pty", params(IdPath), request_body = ResizePtyBody, responses((status = 200, description = "PTY session resized", body = crate::envelope::ApiEnvelope<PtySession>)), security(("api_key" = [])))]
-pub(crate) async fn handle_resize_pty(
+#[utoipa::path(put, path = "/api/v1/pty/{id}", operation_id = "put_pty_id", tag = "pty", params(IdPath), request_body = UpdatePtyBody, responses((status = 200, description = "PTY session updated", body = crate::envelope::ApiEnvelope<PtySession>)), security(("api_key" = [])))]
+pub(crate) async fn handle_update_pty(
     State(state): State<ApiState>,
     Path(id): Path<String>,
-    body: Option<axum::Json<ResizePtyBody>>,
+    body: Option<axum::Json<UpdatePtyBody>>,
 ) -> impl IntoResponse {
     let _ = state;
-    let body = body
-        .map(|b| b.0)
-        .unwrap_or(ResizePtyBody { rows: 24, cols: 80 });
-    match wf_api::pty::resize_pty_session(&id, body.rows as u16, body.cols as u16) {
+    let body = body.map(|b| b.0).unwrap_or(UpdatePtyBody {
+        title: None,
+        rows: None,
+        cols: None,
+    });
+    match wf_api::pty::update_pty_session(
+        &id,
+        body.title,
+        body.rows.map(|v| v.min(u16::MAX as u32) as u16),
+        body.cols.map(|v| v.min(u16::MAX as u32) as u16),
+    ) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }

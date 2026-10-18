@@ -37,6 +37,7 @@ pub enum PtySessionStatus {
 pub struct PtySession {
     pub id: String,
     pub cwd: String,
+    pub title: String,
     pub status: PtySessionStatus,
     pub exit_code: Option<i32>,
     pub pid: Option<u32>,
@@ -108,6 +109,7 @@ struct Output {
 pub struct PtyState {
     id: String,
     cwd: String,
+    title: Mutex<String>,
     pid: u32,
     status: Mutex<PtySessionStatus>,
     exit_code: Mutex<Option<i32>>,
@@ -216,8 +218,9 @@ impl PtyManager {
         command: Option<String>,
         rows: Option<u16>,
         cols: Option<u16>,
+        title: Option<String>,
     ) -> PtyResult<PtySession> {
-        create_with_context(ctx, cwd, command, rows, cols, &self.inner)
+        create_with_context(ctx, cwd, command, rows, cols, title, &self.inner)
     }
 
     pub fn list(&self) -> Vec<PtySession> {
@@ -228,8 +231,14 @@ impl PtyManager {
         get_session(&self.inner, id)
     }
 
-    pub fn resize(&self, id: &str, rows: u16, cols: u16) -> PtyResult<PtySession> {
-        resize_session(&self.inner, id, rows, cols)
+    pub fn update(
+        &self,
+        id: &str,
+        title: Option<String>,
+        rows: Option<u16>,
+        cols: Option<u16>,
+    ) -> PtyResult<PtySession> {
+        update_session(&self.inner, id, title, rows, cols)
     }
 
     pub fn remove(&self, id: &str) -> PtyResult<bool> {
@@ -273,6 +282,7 @@ fn create_with_context(
     command: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
+    title: Option<String>,
     inner: &Mutex<ManagerInner>,
 ) -> PtyResult<PtySession> {
     let rows = rows.unwrap_or(24).max(1);
@@ -328,6 +338,7 @@ fn create_with_context(
     let state = Arc::new(PtyState {
         id: id.clone(),
         cwd: cwd_path.to_string_lossy().to_string(),
+        title: Mutex::new(title.unwrap_or_default()),
         status: Mutex::new(PtySessionStatus::Running),
         exit_code: Mutex::new(None),
         pid,
@@ -356,14 +367,38 @@ fn create_with_context(
     thread::spawn(move || {
         let mut reader = reader;
         let mut buf = [0u8; 8192];
+        let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                    append_output(&state_r, text);
+                Ok(0) => {
+                    if !carry.is_empty() {
+                        let text = String::from_utf8_lossy(&carry).to_string();
+                        carry.clear();
+                        if !text.is_empty() {
+                            append_output(&state_r, text);
+                        }
+                    }
+                    break;
                 }
-                Err(_) => break,
+                Ok(n) => {
+                    carry.extend_from_slice(&buf[..n]);
+                    let text = decode_complete(&mut carry);
+                    if text.is_empty() {
+                        state_r.touch();
+                    } else {
+                        append_output(&state_r, text);
+                    }
+                }
+                Err(_) => {
+                    if !carry.is_empty() {
+                        let text = String::from_utf8_lossy(&carry).to_string();
+                        carry.clear();
+                        if !text.is_empty() {
+                            append_output(&state_r, text);
+                        }
+                    }
+                    break;
+                }
             }
         }
     });
@@ -546,6 +581,7 @@ fn session_view(state: &PtyState) -> PtySession {
     PtySession {
         id: state.id.clone(),
         cwd: state.cwd.clone(),
+        title: lock(&state.title).clone(),
         status: *lock(&state.status),
         exit_code: *lock(&state.exit_code),
         pid: Some(state.pid),
@@ -574,28 +610,38 @@ fn get_session(inner: &Mutex<ManagerInner>, id: &str) -> PtyResult<PtySession> {
     Ok(session_view(&state))
 }
 
-fn resize_session(
+fn update_session(
     inner: &Mutex<ManagerInner>,
     id: &str,
-    rows: u16,
-    cols: u16,
+    title: Option<String>,
+    rows: Option<u16>,
+    cols: Option<u16>,
 ) -> PtyResult<PtySession> {
     let state = lookup(inner, id)?;
-    let rows = rows.max(1);
-    let cols = cols.max(1);
-    {
-        let master = lock(&state.master);
-        if let Some(m) = master.as_ref() {
-            let _ = m.resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            });
+    if let Some(title) = title {
+        let trimmed = title.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(PtyError::Invalid("pty title must not be empty".to_string()));
         }
+        *lock(&state.title) = trimmed;
     }
-    *lock(&state.rows) = rows;
-    *lock(&state.cols) = cols;
+    if rows.is_some() || cols.is_some() {
+        let rows = rows.unwrap_or(*lock(&state.rows)).max(1);
+        let cols = cols.unwrap_or(*lock(&state.cols)).max(1);
+        {
+            let master = lock(&state.master);
+            if let Some(m) = master.as_ref() {
+                let _ = m.resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                });
+            }
+        }
+        *lock(&state.rows) = rows;
+        *lock(&state.cols) = cols;
+    }
     state.touch();
     Ok(session_view(&state))
 }
@@ -678,7 +724,43 @@ fn replay_slice(buffer: &str, start: usize, end: usize, cursor: Option<i64>) -> 
     } else if req >= end {
         String::new()
     } else {
-        buffer[req - start..].to_string()
+        let mut offset = (req - start).min(buffer.len());
+        while offset < buffer.len() && !buffer.is_char_boundary(offset) {
+            offset += 1;
+        }
+        buffer[offset..].to_string()
+    }
+}
+
+fn incomplete_tail_len(bytes: &[u8]) -> usize {
+    let window = bytes.len().min(4);
+    for len in 1..=window {
+        let start = bytes.len() - len;
+        let tail = &bytes[start..];
+        if std::str::from_utf8(tail).is_ok() {
+            continue;
+        }
+        if std::str::from_utf8(tail).unwrap_err().error_len().is_none() {
+            return len;
+        }
+    }
+    0
+}
+
+fn decode_complete(prefix: &mut Vec<u8>) -> String {
+    if prefix.is_empty() {
+        return String::new();
+    }
+    let tail = incomplete_tail_len(prefix);
+    if tail == 0 {
+        let text = String::from_utf8_lossy(prefix).to_string();
+        prefix.clear();
+        text
+    } else {
+        let split = prefix.len() - tail;
+        let text = String::from_utf8_lossy(&prefix[..split]).to_string();
+        prefix.drain(..split);
+        text
     }
 }
 
@@ -714,8 +796,9 @@ pub fn create_pty_session(
     command: Option<String>,
     rows: Option<u16>,
     cols: Option<u16>,
+    title: Option<String>,
 ) -> PtyResult<PtySession> {
-    global_manager().create_with_context(Some(ctx), cwd, command, rows, cols)
+    global_manager().create_with_context(Some(ctx), cwd, command, rows, cols, title)
 }
 
 pub fn list_pty_sessions() -> Vec<PtySession> {
@@ -726,8 +809,13 @@ pub fn get_pty_session(id: &str) -> PtyResult<PtySession> {
     global_manager().get(id)
 }
 
-pub fn resize_pty_session(id: &str, rows: u16, cols: u16) -> PtyResult<PtySession> {
-    global_manager().resize(id, rows, cols)
+pub fn update_pty_session(
+    id: &str,
+    title: Option<String>,
+    rows: Option<u16>,
+    cols: Option<u16>,
+) -> PtyResult<PtySession> {
+    global_manager().update(id, title, rows, cols)
 }
 
 pub fn remove_pty_session(id: &str) -> PtyResult<bool> {
@@ -754,6 +842,7 @@ mod tests {
         Arc::new(PtyState {
             id: "pty-test".to_string(),
             cwd: "/tmp".to_string(),
+            title: Mutex::new(String::new()),
             pid: 1,
             status: Mutex::new(PtySessionStatus::Running),
             exit_code: Mutex::new(None),
@@ -833,5 +922,30 @@ mod tests {
         // Second finalize is a no-op: status stays and nothing re-announces.
         finalize_exit(&state, Some(9), "process");
         assert_eq!(*lock(&state.exit_code), Some(3));
+    }
+
+    #[test]
+    fn replay_slice_clamps_mid_char_offset_to_boundary() {
+        let buffer = "a\u{e9}bc".to_string();
+        let end = buffer.len();
+        let mid = 2;
+        assert!(!buffer.is_char_boundary(mid));
+        let out = replay_slice(&buffer, 0, end, Some(mid as i64));
+        assert_eq!(out, "bc");
+    }
+
+    #[test]
+    fn decode_complete_holds_split_multibyte_sequence() {
+        let emoji = "\u{1f600}";
+        let bytes = emoji.as_bytes();
+        let mut carry: Vec<u8> = Vec::new();
+        carry.extend_from_slice(&bytes[..2]);
+        let first = decode_complete(&mut carry);
+        assert!(first.is_empty());
+        assert_eq!(carry.len(), 2);
+        carry.extend_from_slice(&bytes[2..]);
+        let second = decode_complete(&mut carry);
+        assert_eq!(second, emoji);
+        assert!(carry.is_empty());
     }
 }

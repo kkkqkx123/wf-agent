@@ -25518,6 +25518,64 @@
           }
         ]
       },
+      "put": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "put_pty_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePtyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PTY session updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PtySession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "pty"
@@ -25682,66 +25740,6 @@
                 }
               }
             }
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/pty/{id}/resize": {
-      "post": {
-        "tags": [
-          "pty"
-        ],
-        "operationId": "post_pty_resize",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResizePtyBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "PTY session resized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_PtySession"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -41378,6 +41376,7 @@
             "required": [
               "id",
               "cwd",
+              "title",
               "status",
               "rows",
               "cols"
@@ -41416,6 +41415,9 @@
               },
               "status": {
                 "$ref": "#/components/schemas/PtySessionStatus"
+              },
+              "title": {
+                "type": "string"
               }
             }
           },
@@ -42726,6 +42728,7 @@
               "required": [
                 "id",
                 "cwd",
+                "title",
                 "status",
                 "rows",
                 "cols"
@@ -42764,6 +42767,9 @@
                 },
                 "status": {
                   "$ref": "#/components/schemas/PtySessionStatus"
+                },
+                "title": {
+                  "type": "string"
                 }
               }
             }
@@ -43745,6 +43751,12 @@
             ],
             "format": "int32",
             "minimum": 0
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -45729,6 +45741,7 @@
         "required": [
           "id",
           "cwd",
+          "title",
           "status",
           "rows",
           "cols"
@@ -45767,6 +45780,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/PtySessionStatus"
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -45933,21 +45949,6 @@
             "propertyNames": {
               "type": "string"
             }
-          }
-        }
-      },
-      "ResizePtyBody": {
-        "type": "object",
-        "properties": {
-          "cols": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "rows": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -46913,6 +46914,33 @@
           "status": {
             "type": "string",
             "description": "New status value (e.g., \"running\", \"paused\", \"completed\", \"failed\")"
+          }
+        }
+      },
+      "UpdatePtyBody": {
+        "type": "object",
+        "properties": {
+          "cols": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

@@ -9,8 +9,6 @@ pub struct UserGitConfig {
     pub command_timeout_ms: u64,
     #[serde(default = "default_remote_timeout_ms")]
     pub remote_timeout_ms: u64,
-    #[serde(default = "default_terminal_idle_secs")]
-    pub terminal_idle_secs: u64,
 }
 
 fn default_command_timeout_ms() -> u64 {
@@ -21,10 +19,6 @@ fn default_remote_timeout_ms() -> u64 {
     120_000
 }
 
-fn default_terminal_idle_secs() -> u64 {
-    600
-}
-
 impl Default for UserGitConfig {
     fn default() -> Self {
         Self {
@@ -32,7 +26,6 @@ impl Default for UserGitConfig {
             repo_root: None,
             command_timeout_ms: default_command_timeout_ms(),
             remote_timeout_ms: default_remote_timeout_ms(),
-            terminal_idle_secs: default_terminal_idle_secs(),
         }
     }
 }

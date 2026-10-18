@@ -2,12 +2,9 @@ import { SvelteSet } from 'svelte/reactivity';
 import { toasts } from '$lib/stores/toast.svelte';
 import { git as gitStore } from '$lib/stores/git.svelte';
 import {
-	closeTerminal,
-	createTerminal,
 	getCommitFiles,
 	getDiff,
 	getDiffRange,
-	getFingerprint,
 	getMeta,
 	getRegistry,
 	getStatus,
@@ -20,10 +17,7 @@ import {
 	listSubmodules,
 	listTags,
 	listWorktrees,
-	readTerminalOutput,
-	resizeTerminal,
 	runAction,
-	sendTerminalInput,
 	type BranchEntry,
 	type CommitEntry,
 	type CommitFileEntry,
@@ -125,10 +119,6 @@ export class GitWorkbench {
 
 	token = $state('');
 	terminalOpen = $state(false);
-	terminalId = $state<string | null>(null);
-	terminalText = $state('');
-	terminalInput = $state('');
-	terminalOffset = $state(0);
 
 	dialogAction = $state<string | null>(null);
 	dialogOpen = $state(false);
@@ -228,11 +218,10 @@ export class GitWorkbench {
 		this.focusKeyInput();
 	}
 
-	/** Detach the live subscription and close any open terminal session. */
+	/** Detach the live subscription. */
 	stop(): void {
 		this.stopLive?.();
 		this.stopLive = null;
-		if (this.terminalId) void closeTerminal(this.terminalId).catch(() => {});
 	}
 
 	specFor(action: string): RegistryEntry | undefined {
@@ -365,11 +354,9 @@ export class GitWorkbench {
 		}
 		if (result.kind === 'command') {
 			this.token = '';
-			if (!this.terminalOpen) await this.toggleTerminal();
-			if (result.preview) {
-				this.terminalInput = result.preview;
-				await this.sendTerminal();
-			}
+			toasts.info(
+				'Open the Terminal panel to run commands directly in the repository.',
+			);
 			return;
 		}
 		this.token = '';
@@ -477,11 +464,6 @@ export class GitWorkbench {
 		try {
 			const outcome = await runAction(action, params, confirm);
 			toasts.success(outcome.message || action, outcome.echo);
-			// Echoing the equivalent command into an open terminal teaches
-			// the CLI form of the action that just ran.
-			if (this.terminalOpen && this.terminalId && outcome.echo) {
-				this.terminalText += `> ${outcome.echo}\n`;
-			}
 			await this.reload();
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'Git action failed';
@@ -494,51 +476,6 @@ export class GitWorkbench {
 
 	async toggleTerminal(): Promise<void> {
 		this.terminalOpen = !this.terminalOpen;
-		if (this.terminalOpen && !this.terminalId) {
-			try {
-				const session = await createTerminal();
-				this.terminalId = session.id;
-				this.terminalText = '';
-				this.terminalOffset = 0;
-				await resizeTerminal(session.id, 24, 120).catch(() => {});
-			} catch (e) {
-				toasts.error(
-					'Terminal unavailable',
-					e instanceof Error ? e.message : undefined,
-				);
-				this.terminalOpen = false;
-			}
-		}
-		if (!this.terminalOpen && this.terminalId) {
-			const id = this.terminalId;
-			this.terminalId = null;
-			await closeTerminal(id).catch(() => {});
-		}
-	}
-
-	clearTerminal(): void {
-		// Clearing drops the display buffer only: the server-side output
-		// cursor stays where it is, so later slices keep appending.
-		this.terminalText = '';
-	}
-
-	async restartTerminal(): Promise<void> {
-		const previous = this.terminalId;
-		this.terminalId = null;
-		this.terminalText = '';
-		this.terminalOffset = 0;
-		if (previous) await closeTerminal(previous).catch(() => {});
-		try {
-			const session = await createTerminal();
-			this.terminalId = session.id;
-			await resizeTerminal(session.id, 24, 120).catch(() => {});
-		} catch (e) {
-			toasts.error(
-				'Terminal unavailable',
-				e instanceof Error ? e.message : undefined,
-			);
-			this.terminalOpen = false;
-		}
 	}
 
 	async loadMoreCommits(): Promise<void> {
@@ -559,34 +496,6 @@ export class GitWorkbench {
 			);
 		} finally {
 			this.commitsLoading = false;
-		}
-	}
-
-	async sendTerminal(): Promise<void> {
-		if (!this.terminalId || !this.terminalInput.trim()) return;
-		const input = this.terminalInput;
-		this.terminalInput = '';
-		try {
-			const before = await getFingerprint().catch(() => null);
-			await sendTerminalInput(this.terminalId, input);
-			const output = await readTerminalOutput(
-				this.terminalId,
-				this.terminalOffset,
-			);
-			this.terminalText += output;
-			this.terminalOffset += output.length;
-			const after = await getFingerprint().catch(() => null);
-			const key = (
-				fp: { statusHash: string; head: string; branchSummary: string } | null,
-			) => (fp ? `${fp.statusHash}:${fp.head}:${fp.branchSummary}` : '');
-			if (key(before) !== key(after)) {
-				await this.reload();
-			}
-		} catch (e) {
-			toasts.error(
-				'Terminal input failed',
-				e instanceof Error ? e.message : undefined,
-			);
 		}
 	}
 }

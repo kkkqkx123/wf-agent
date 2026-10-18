@@ -896,11 +896,43 @@ router.on('POST', '/api/v1/git/action', (_p, _q, body) => {
 	const action = (body as { action?: string } | undefined)?.action ?? 'unknown';
 	return { action, ok: true, message: `preview ${action}`, echo: `git preview ${action}` };
 });
-router.on('POST', '/api/v1/git/terminal', () => ({ id: 'preview-terminal-1', cwd: '/preview/wf-agent', output_len: 0, closed: false }));
-router.on('POST', '/api/v1/git/terminal/{id}/input', () => ({ id: 'preview-terminal-1', cwd: '/preview/wf-agent', output_len: 18, closed: false }));
-router.on('GET', '/api/v1/git/terminal/{id}/output', () => ({ output: '$ git status\npreview output\n' }));
-router.on('POST', '/api/v1/git/terminal/{id}/resize', () => ({ id: 'preview-terminal-1', cwd: '/preview/wf-agent', output_len: 18, closed: false }));
-router.on('POST', '/api/v1/git/terminal/{id}/close', () => ({ closed: true }));
+let previewPtySeq = 0;
+router.on('POST', '/api/v1/pty', (_p, _q, body) => {
+	const b = (body ?? {}) as { rows?: number; cols?: number };
+	previewPtySeq += 1;
+	return {
+		id: `pty-preview-${previewPtySeq}`,
+		cwd: '/preview/wf-agent',
+		status: 'running',
+		exit_code: null,
+		pid: 42000 + previewPtySeq,
+		rows: b.rows ?? 24,
+		cols: b.cols ?? 80,
+	};
+});
+router.on('GET', '/api/v1/pty', () => ([]));
+router.on('GET', '/api/v1/pty/{id}', (params) => ({
+	id: params.id,
+	cwd: '/preview/wf-agent',
+	status: 'running',
+	exit_code: null,
+	pid: 42000,
+	rows: 24,
+	cols: 80,
+}));
+router.on('POST', '/api/v1/pty/{id}/resize', (params, _q, body) => {
+	const b = (body ?? {}) as { rows?: number; cols?: number };
+	return {
+		id: params.id,
+		cwd: '/preview/wf-agent',
+		status: 'running',
+		exit_code: null,
+		pid: 42000,
+		rows: b.rows ?? 24,
+		cols: b.cols ?? 80,
+	};
+});
+router.on('DELETE', '/api/v1/pty/{id}', () => ({ removed: true }));
 
 // ---------------------------------------------------------------------------
 // Public client object — mirrors openapi-fetch surface used by services

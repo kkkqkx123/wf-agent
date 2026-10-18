@@ -11,7 +11,6 @@ pub mod parse;
 pub mod queries;
 pub mod registry;
 pub mod runner;
-pub mod terminal;
 pub mod types;
 
 pub use actions::{execute_action, ActionRequest};
@@ -25,10 +24,6 @@ pub use queries::{
     reflog, remotes, stash_list, status, submodule_status, tags, worktrees,
 };
 pub use registry::{action_registry, registry_snapshot};
-pub use terminal::{
-    close_terminal_session, create_terminal_session, terminal_input, terminal_output,
-    terminal_resize,
-};
 pub use types::{
     BranchEntry, CommitEntry, CommitFileEntry, DangerLevel, DiffFileView, DiffHunk, FileEntry,
     FileKind, Fingerprint, GitError, GitResult, ReflogEntry, RegistryEntry, RemoteEntry, RepoMeta,

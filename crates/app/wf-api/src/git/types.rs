@@ -209,8 +209,7 @@ pub enum GitError {
     Command(String),
     #[error("git command timed out after {0}ms")]
     Timeout(u64),
-    #[error("terminal session not found: {0}")]
-    NoSession(String),
+
 }
 
 pub type GitResult<T> = Result<T, GitError>;
@@ -221,7 +220,7 @@ impl From<GitError> for crate::ApiError {
             GitError::UnknownAction(_) | GitError::PathEscape(_) | GitError::Precondition(_) => {
                 crate::ApiError::Validation(err.to_string())
             }
-            GitError::NotInitialized(_) | GitError::NoSession(_) => crate::ApiError::NotFound {
+            GitError::NotInitialized(_) => crate::ApiError::NotFound {
                 entity_type: "user-git".to_string(),
                 id: err.to_string(),
             },

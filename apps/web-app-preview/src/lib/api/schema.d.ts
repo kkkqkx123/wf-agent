@@ -4186,86 +4186,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/git/terminal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_git_terminal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/git/terminal/{id}/close": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_git_terminal_close"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/git/terminal/{id}/input": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_git_terminal_input"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/git/terminal/{id}/output": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_git_terminal_output"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/git/terminal/{id}/resize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_git_terminal_resize"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/git/worktrees": {
         parameters: {
             query?: never;
@@ -4972,6 +4892,70 @@ export interface paths {
         put: operations["handle_set_preference"];
         post?: never;
         delete: operations["handle_delete_preference"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_pty"];
+        put?: never;
+        post: operations["post_pty"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pty/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_pty_id"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_pty"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pty/{id}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_pty_connect"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pty/{id}/resize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_pty_resize"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -8111,6 +8095,23 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_PtySession: {
+            data?: {
+                /** Format: int32 */
+                cols: number;
+                cwd: string;
+                /** Format: int32 */
+                exit_code?: number | null;
+                id: string;
+                /** Format: int32 */
+                pid?: number | null;
+                /** Format: int32 */
+                rows: number;
+                status: components["schemas"]["PtySessionStatus"];
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_ReachabilityDoc: {
             /** @description Reachability analysis result (sets rendered as sorted arrays). */
             data?: {
@@ -8431,6 +8432,23 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_Vec_PtySession: {
+            data?: {
+                /** Format: int32 */
+                cols: number;
+                cwd: string;
+                /** Format: int32 */
+                exit_code?: number | null;
+                id: string;
+                /** Format: int32 */
+                pid?: number | null;
+                /** Format: int32 */
+                rows: number;
+                status: components["schemas"]["PtySessionStatus"];
+            }[];
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_Vec_StateFileLinkDoc: {
             data?: {
                 /** @description State checkpoint id that was queried. */
@@ -8714,6 +8732,14 @@ export interface components {
         CreateFromTemplateBody: {
             overrides: unknown;
             template_name: string;
+        };
+        CreatePtyBody: {
+            /** Format: int32 */
+            cols?: number | null;
+            command?: string | null;
+            cwd?: string | null;
+            /** Format: int32 */
+            rows?: number | null;
         };
         /**
          * @description One cursor page of a list response.
@@ -9427,6 +9453,21 @@ export interface components {
             resource_kind: string;
             warning_count: number;
         };
+        PtySession: {
+            /** Format: int32 */
+            cols: number;
+            cwd: string;
+            /** Format: int32 */
+            exit_code?: number | null;
+            id: string;
+            /** Format: int32 */
+            pid?: number | null;
+            /** Format: int32 */
+            rows: number;
+            status: components["schemas"]["PtySessionStatus"];
+        };
+        /** @enum {string} */
+        PtySessionStatus: "running" | "exited";
         /**
          * @description Wire shape of the query endpoints: filters (basic + advanced
          *     expressions) plus sort / pagination overrides.
@@ -9475,6 +9516,12 @@ export interface components {
             values?: {
                 [key: string]: unknown;
             };
+        };
+        ResizePtyBody: {
+            /** Format: int32 */
+            cols?: number;
+            /** Format: int32 */
+            rows?: number;
         };
         ResolveConflictsRequest: {
             actor: string;
@@ -9728,15 +9775,6 @@ export interface components {
             updated_at: number;
             /** Format: int64 */
             usage_count: number;
-        };
-        TerminalInputBody: {
-            input: string;
-        };
-        TerminalResizeBody: {
-            /** Format: int32 */
-            cols?: number;
-            /** Format: int32 */
-            rows?: number;
         };
         /**
          * @description One lifecycle event on the history timeline.
@@ -31177,299 +31215,6 @@ export interface operations {
             };
         };
     };
-    post_git_terminal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Terminal session created */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    post_git_terminal_close: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Terminal closed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    post_git_terminal_input: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TerminalInputBody"];
-            };
-        };
-        responses: {
-            /** @description Input executed, output appended */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_git_terminal_output: {
-        parameters: {
-            query?: {
-                offset?: number;
-            };
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Terminal output slice */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    post_git_terminal_resize: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TerminalResizeBody"];
-            };
-        };
-        responses: {
-            /** @description Terminal resized */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiEnvelope_Value"];
-                };
-            };
-            /** @description Unauthorized: missing or invalid API key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden: API key lacks access */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Too many requests: rate limit exceeded (see Retry-After) */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable: resource limit reached */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Gateway timeout: upstream operation timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     get_git_worktrees: {
         parameters: {
             query?: never;
@@ -35833,6 +35578,354 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_pty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PTY sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Vec_PtySession"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_pty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePtyBody"];
+            };
+        };
+        responses: {
+            /** @description PTY session created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_PtySession"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_pty_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PTY session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_PtySession"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_pty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PTY session removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_Value"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_pty_connect: {
+        parameters: {
+            query?: {
+                cursor?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PTY websocket stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_pty_resize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResizePtyBody"];
+            };
+        };
+        responses: {
+            /** @description PTY session resized */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_PtySession"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden: API key lacks access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {

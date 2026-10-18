@@ -21158,275 +21158,6 @@
         ]
       }
     },
-    "/api/v1/git/terminal": {
-      "post": {
-        "tags": [
-          "git"
-        ],
-        "operationId": "post_git_terminal",
-        "responses": {
-          "200": {
-            "description": "Terminal session created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/git/terminal/{id}/close": {
-      "post": {
-        "tags": [
-          "git"
-        ],
-        "operationId": "post_git_terminal_close",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Terminal closed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/git/terminal/{id}/input": {
-      "post": {
-        "tags": [
-          "git"
-        ],
-        "operationId": "post_git_terminal_input",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TerminalInputBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Input executed, output appended",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/git/terminal/{id}/output": {
-      "get": {
-        "tags": [
-          "git"
-        ],
-        "operationId": "get_git_terminal_output",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Terminal output slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
-    "/api/v1/git/terminal/{id}/resize": {
-      "post": {
-        "tags": [
-          "git"
-        ],
-        "operationId": "post_git_terminal_resize",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TerminalResizeBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Terminal resized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiEnvelope_Value"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized: missing or invalid API key"
-          },
-          "403": {
-            "description": "Forbidden: API key lacks access"
-          },
-          "429": {
-            "description": "Too many requests: rate limit exceeded (see Retry-After)"
-          },
-          "503": {
-            "description": "Service unavailable: resource limit reached"
-          },
-          "504": {
-            "description": "Gateway timeout: upstream operation timed out"
-          }
-        },
-        "security": [
-          {
-            "api_key": []
-          }
-        ]
-      }
-    },
     "/api/v1/git/worktrees": {
       "get": {
         "tags": [
@@ -25579,6 +25310,309 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pty": {
+      "get": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "get_pty",
+        "responses": {
+          "200": {
+            "description": "PTY sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Vec_PtySession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "post_pty",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePtyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PTY session created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PtySession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pty/{id}": {
+      "get": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "get_pty_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PTY session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PtySession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "delete_pty",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PTY session removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_Value"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pty/{id}/connect": {
+      "get": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "get_pty_connect",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PTY websocket stream",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pty/{id}/resize": {
+      "post": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "post_pty_resize",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResizePtyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "PTY session resized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PtySession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -41201,6 +41235,73 @@
           }
         }
       },
+      "ApiEnvelope_PtySession": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "cwd",
+              "status",
+              "rows",
+              "cols"
+            ],
+            "properties": {
+              "cols": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "exit_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32"
+              },
+              "id": {
+                "type": "string"
+              },
+              "pid": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "status": {
+                "$ref": "#/components/schemas/PtySessionStatus"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_ReachabilityDoc": {
         "type": "object",
         "required": [
@@ -42443,6 +42544,76 @@
           }
         }
       },
+      "ApiEnvelope_Vec_PtySession": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "cwd",
+                "status",
+                "rows",
+                "cols"
+              ],
+              "properties": {
+                "cols": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "exit_code": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "pid": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "rows": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                "status": {
+                  "$ref": "#/components/schemas/PtySessionStatus"
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_Vec_StateFileLinkDoc": {
         "type": "object",
         "required": [
@@ -43372,6 +43543,39 @@
           "overrides": {},
           "template_name": {
             "type": "string"
+          }
+        }
+      },
+      "CreatePtyBody": {
+        "type": "object",
+        "properties": {
+          "cols": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rows": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -45351,6 +45555,59 @@
           }
         }
       },
+      "PtySession": {
+        "type": "object",
+        "required": [
+          "id",
+          "cwd",
+          "status",
+          "rows",
+          "cols"
+        ],
+        "properties": {
+          "cols": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/PtySessionStatus"
+          }
+        }
+      },
+      "PtySessionStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "exited"
+        ]
+      },
       "QueryBody": {
         "type": "object",
         "description": "Wire shape of the query endpoints: filters (basic + advanced\nexpressions) plus sort / pagination overrides.",
@@ -45507,6 +45764,21 @@
             "propertyNames": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ResizePtyBody": {
+        "type": "object",
+        "properties": {
+          "cols": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -46245,32 +46517,6 @@
           "usage_count": {
             "type": "integer",
             "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
-      "TerminalInputBody": {
-        "type": "object",
-        "required": [
-          "input"
-        ],
-        "properties": {
-          "input": {
-            "type": "string"
-          }
-        }
-      },
-      "TerminalResizeBody": {
-        "type": "object",
-        "properties": {
-          "cols": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "rows": {
-            "type": "integer",
-            "format": "int32",
             "minimum": 0
           }
         }

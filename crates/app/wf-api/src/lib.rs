@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod audit;
 pub mod checkpoint;
 pub mod entity;
+pub mod pty;
 pub mod execution_artifacts;
 pub mod execution_hierarchy;
 pub mod execution_history;

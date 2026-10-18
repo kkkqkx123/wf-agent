@@ -20,10 +20,14 @@
 	const workbench = new GitWorkbench();
 	workbench.panel =
 		requested === 'files' ||
+		requested === 'conflicts' ||
 		requested === 'worktrees' ||
+		requested === 'remotes' ||
+		requested === 'tags' ||
 		requested === 'submodules' ||
 		requested === 'branches' ||
 		requested === 'commits' ||
+		requested === 'reflog' ||
 		requested === 'stash'
 			? (requested as PanelId)
 			: 'status';

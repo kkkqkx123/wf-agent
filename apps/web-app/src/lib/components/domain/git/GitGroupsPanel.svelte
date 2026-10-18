@@ -130,10 +130,37 @@
 					</ul>
 				{/if}
 				<p class="text-micro text-muted-foreground">
-					Worktree and submodule writes are unavailable here; use the terminal.
-					Lists refresh with the page.
+					Worktree and submodule actions are available via the key input and
+					action buttons. Lists refresh with the page.
 				</p>
 			</div>
+		{/if}
+	{:else if panel === 'conflicts'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleConflicts as file (file.path)}
+				<li>
+					<button
+						type="button"
+						onclick={() => void workbench.selectFile(file.path)}
+						aria-pressed={gitStore.selectionFor('files') === file.path}
+						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
+							'files',
+						) === file.path
+							? 'bg-accent/70'
+							: ''}"
+					>
+						<p class="truncate font-mono text-caption">{file.path}</p>
+						<p class="text-micro text-muted-foreground">
+							{file.staged}{file.unstaged}
+						</p>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleConflicts.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No conflicted files.
+			</p>
 		{/if}
 	{:else if panel === 'worktrees'}
 		<ul class="mt-2 space-y-1">
@@ -196,6 +223,45 @@
 		{#if workbench.visibleSubmodules.length === 0}
 			<p class="mt-2 text-caption text-muted-foreground">
 				No submodules match the filter.
+			</p>
+		{/if}
+	{:else if panel === 'remotes'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleRemotes as remote (remote.name)}
+				<li>
+					<p class="truncate font-mono text-caption">{remote.name}</p>
+					<p class="truncate text-micro text-muted-foreground">{remote.url}</p>
+					{#if remote.branches.length > 0}
+						<p class="text-micro text-muted-foreground">
+							{remote.branches.join(', ')}
+						</p>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleRemotes.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No remotes match the filter.
+			</p>
+		{/if}
+	{:else if panel === 'tags'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleTags as tag (tag.name)}
+				<li>
+					<button
+						type="button"
+						onclick={() => gitStore.select('commits', tag.commit)}
+						class="block w-full px-2 py-1 text-left hover:bg-accent/50"
+					>
+						<p class="truncate font-mono text-caption">{tag.name}</p>
+						<p class="text-micro text-muted-foreground">{tag.commit}</p>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleTags.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No tags match the filter.
 			</p>
 		{/if}
 	{:else if panel === 'branches'}
@@ -288,6 +354,35 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if panel === 'reflog'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleReflogs as entry (entry.selector)}
+				<li>
+					<button
+						type="button"
+						onclick={() => void workbench.selectCommit(entry.id)}
+						aria-pressed={gitStore.selectionFor('commits') === entry.id}
+						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
+							'commits',
+						) === entry.id
+							? 'bg-accent/70'
+							: ''}"
+					>
+						<p class="truncate font-mono text-caption">
+							{entry.shortId} {entry.message}
+						</p>
+						<p class="text-micro text-muted-foreground">
+							{entry.selector}
+						</p>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleReflogs.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No reflog entries match the filter.
+			</p>
+		{/if}
 		{#if workbench.visibleCommits.length === 0}
 			<p class="mt-2 text-caption text-muted-foreground">
 				No commits match the filter.

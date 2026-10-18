@@ -14,6 +14,7 @@ import {
 	listBranches,
 	listCommits,
 	listFiles,
+	listReflog,
 	listRemotes,
 	listStash,
 	listSubmodules,
@@ -27,6 +28,7 @@ import {
 	type CommitEntry,
 	type CommitFileEntry,
 	type GitFile,
+	type ReflogEntry,
 	type RegistryEntry,
 	type RemoteEntry,
 	type RepoMeta,
@@ -43,8 +45,14 @@ import { CLIENT_ONLY_ACTIONS, confirmTarget, parseToken } from '$lib/git/parse';
 export const PANELS = [
 	{ id: 'status', label: 'Status' },
 	{ id: 'files', label: 'Files' },
+	{ id: 'conflicts', label: 'Conflicts' },
+	{ id: 'worktrees', label: 'Worktrees' },
+	{ id: 'submodules', label: 'Submodules' },
 	{ id: 'branches', label: 'Branches' },
+	{ id: 'remotes', label: 'Remotes' },
+	{ id: 'tags', label: 'Tags' },
 	{ id: 'commits', label: 'Commits' },
+	{ id: 'reflog', label: 'Reflog' },
 	{ id: 'stash', label: 'Stash' },
 ] as const;
 
@@ -85,6 +93,7 @@ export class GitWorkbench {
 	commitsOffset = $state(0);
 	commitsHasMore = $state(false);
 	commitsLoading = $state(false);
+	reflogs = $state<ReflogEntry[]>([]);
 	stash = $state<StashEntry[]>([]);
 	diff = $state<DiffFile[]>([]);
 	diffSource = $state<'unstaged' | 'commit'>('unstaged');
@@ -103,8 +112,14 @@ export class GitWorkbench {
 	filters = $state<Record<PanelId, string>>({
 		status: '',
 		files: '',
+		conflicts: '',
+		worktrees: '',
+		submodules: '',
 		branches: '',
+		remotes: '',
+		tags: '',
 		commits: '',
+		reflog: '',
 		stash: '',
 	});
 
@@ -127,8 +142,23 @@ export class GitWorkbench {
 	visibleFiles = $derived(
 		this.files.filter((f) => f.path.includes(this.filterQuery)),
 	);
+	visibleConflicts = $derived(
+		this.files
+			.filter((f) => f.kind === 'conflicted')
+			.filter((f) => f.path.includes(this.filterQuery)),
+	);
 	visibleBranches = $derived(
 		this.branches.filter((b) => b.name.includes(this.filterQuery)),
+	);
+	visibleRemotes = $derived(
+		this.remotes.filter((r) =>
+			r.name.includes(this.filterQuery) || r.url.includes(this.filterQuery),
+		),
+	);
+	visibleTags = $derived(
+		this.tags.filter((t) =>
+			t.name.includes(this.filterQuery) || t.commit.includes(this.filterQuery),
+		),
 	);
 	visibleCommits = $derived(
 		this.commits.filter(
@@ -137,11 +167,33 @@ export class GitWorkbench {
 				c.shortId.includes(this.filterQuery),
 		),
 	);
+	visibleReflogs = $derived(
+		this.reflogs.filter(
+			(r) =>
+				r.message.includes(this.filterQuery) ||
+				r.shortId.includes(this.filterQuery) ||
+				r.selector.includes(this.filterQuery),
+		),
+	);
 	visibleStash = $derived(
 		this.stash.filter(
 			(s) =>
 				s.message.includes(this.filterQuery) ||
 				s.name.includes(this.filterQuery),
+		),
+	);
+	visibleWorktrees = $derived(
+		this.worktrees.filter(
+			(w) =>
+				w.path.includes(this.filterQuery) ||
+				w.branch.includes(this.filterQuery),
+		),
+	);
+	visibleSubmodules = $derived(
+		this.submodules.filter(
+			(s) =>
+				s.path.includes(this.filterQuery) ||
+				s.commit.includes(this.filterQuery),
 		),
 	);
 	dialogSpec = $derived(
@@ -205,32 +257,30 @@ export class GitWorkbench {
 				return;
 			}
 			this.noRepo = false;
-			const [f, b, c, s, st, wt, sm] = await Promise.all([
+			const [f, b, c, rf, s, st, wt, sm, rm, tg] = await Promise.all([
 				listFiles().catch(() => []),
 				listBranches().catch(() => []),
 				listCommits({ limit: 50 }).catch(() => []),
+				listReflog().catch(() => []),
 				listStash().catch(() => []),
 				getStatus().catch(() => null),
 				listWorktrees().catch(() => []),
 				listSubmodules().catch(() => []),
+				listRemotes().catch(() => []),
+				listTags().catch(() => []),
 			]);
 			this.files = f;
 			this.branches = b;
 			this.commits = c;
 			this.commitsOffset = c.length;
 			this.commitsHasMore = c.length >= 50;
+			this.reflogs = rf;
 			this.stash = s;
 			this.status = st;
 			this.worktrees = wt;
 			this.submodules = sm;
-			if (this.panel === 'branches') {
-				const [rm, tg] = await Promise.all([
-					listRemotes().catch(() => []),
-					listTags().catch(() => []),
-				]);
-				this.remotes = rm;
-				this.tags = tg;
-			}
+			this.remotes = rm;
+			this.tags = tg;
 			try {
 				this.registry = await getRegistry();
 				const drift = checkDrift(
@@ -278,6 +328,14 @@ export class GitWorkbench {
 		this.diff = await getDiff(path).catch(() => []);
 		this.diffSource = 'unstaged';
 		this.focusKeyInput();
+	}
+
+	async stageHunk(path: string, hunkIndex: number): Promise<void> {
+		await this.dispatchAction(
+			'stage.hunk',
+			{ path, hunkIndex: String(hunkIndex) },
+			undefined,
+		);
 	}
 
 	async selectCommit(id: string): Promise<void> {
@@ -337,7 +395,11 @@ export class GitWorkbench {
 	}
 
 	paramDefault(action: string, key: string): string {
-		if (key === 'path') return gitStore.selectedFile ?? '';
+		if (key === 'path') {
+			if (this.panel === 'submodules') return gitStore.selectedSubmodule ?? '';
+			if (this.panel === 'worktrees') return gitStore.selectedWorktree ?? '';
+			return gitStore.selectedFile ?? '';
+		}
 		if (key === 'index' && this.panel === 'stash') {
 			const entry = this.stash.find((s) => s.name === gitStore.selectedStash);
 			return entry ? String(entry.index) : '';
@@ -396,7 +458,12 @@ export class GitWorkbench {
 			return;
 		}
 		if (spec?.params.includes('path') && !params.path) {
-			const selected = gitStore.selectedFile;
+			const selected =
+				this.panel === 'submodules'
+					? gitStore.selectedSubmodule
+					: this.panel === 'worktrees'
+						? gitStore.selectedWorktree
+						: gitStore.selectedFile;
 			if (!selected) {
 				toasts.error(
 					'No file selected',

@@ -235,6 +235,26 @@ export async function restoreFromCheckpoint(
 	return true;
 }
 
+export interface RestorePreview {
+	checkpointId: string;
+	executionId: string;
+	status: string;
+	currentNodeId: string | null;
+	nodeResultKeys: string[];
+	variableKeys: string[];
+}
+
+/** Preview what a restore would bring back, without side effects. */
+export async function previewRestoreCheckpoint(
+	checkpointId: string,
+): Promise<RestorePreview> {
+	return call<RestorePreview>(
+		client.GET('/api/v1/executions/checkpoints/{cid}/preview', {
+			params: { path: { cid: checkpointId } },
+		}),
+	);
+}
+
 /** Restore a listed checkpoint through the endpoint matching its entity. */
 export async function restoreCheckpoint(target: Checkpoint): Promise<boolean> {
 	const loopId =
@@ -416,6 +436,16 @@ export async function deleteCheckpoint(id: string): Promise<void> {
 	await call<unknown>(
 		client.DELETE('/api/v1/checkpoints/{id}', {
 			params: { path: { id } },
+		}),
+	);
+}
+
+/** Replace the tags on a checkpoint. */
+export async function setCheckpointTags(id: string, tags: string[]): Promise<void> {
+	await call<unknown>(
+		client.PUT('/api/v1/checkpoints/{id}/tags', {
+			params: { path: { id } },
+			body: tags,
 		}),
 	);
 }

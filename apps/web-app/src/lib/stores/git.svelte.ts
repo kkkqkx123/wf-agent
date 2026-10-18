@@ -3,8 +3,12 @@ import { getFingerprint } from '$lib/services/git';
 export type GitPanel =
 	| 'status'
 	| 'files'
+	| 'conflicts'
 	| 'branches'
+	| 'remotes'
+	| 'tags'
 	| 'commits'
+	| 'reflog'
 	| 'stash'
 	| 'worktrees'
 	| 'submodules';

@@ -707,6 +707,105 @@ fn dispatch_write(
             let path = param(request, "path")?;
             Ok(finish(format!("open worktree {path} in terminal"), format!("cd {path}")))
         }
+        "reset.soft" | "reset.mixed" | "reset.hard" => {
+            let commit = param(request, "commit")?;
+            if action == "reset.hard" {
+                require_confirm(request, &commit, action)?;
+            }
+            let flag = if action == "reset.soft" {
+                "--soft"
+            } else if action == "reset.mixed" {
+                "--mixed"
+            } else {
+                "--hard"
+            };
+            let argv = vec!["reset".to_string(), flag.to_string(), commit.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("reset {flag} to {commit}"), echo))
+        }
+        "stash.rename" => {
+            let index = param(request, "index")?;
+            let message = param(request, "message")?;
+            let idx: usize = index.trim().parse().unwrap_or(0);
+            let target = format!("stash@{{{idx}}}");
+            let commit = run_git(
+                &root,
+                &["rev-parse", &target],
+                command_timeout_ms(ctx, false),
+            )?
+            .stdout
+            .trim()
+            .to_string();
+            // Drop the old stash entry, then re-store it under the new message.
+            let _ = run_git(
+                &root,
+                &["stash", "drop", &target],
+                command_timeout_ms(ctx, false),
+            );
+            let argv = vec![
+                "stash".to_string(),
+                "store".to_string(),
+                "-m".to_string(),
+                message.clone(),
+                commit,
+            ];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("renamed stash {target}"), echo))
+        }
+        "branch.set-upstream" => {
+            let branch = param(request, "branch")?;
+            let remote = param(request, "remote")?;
+            validate_branch_name(&branch)?;
+            let upstream = format!("{remote}/{branch}");
+            let argv = vec![
+                "branch".to_string(),
+                format!("--set-upstream-to={upstream}"),
+                branch.clone(),
+            ];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("set upstream for {branch} to {upstream}"), echo))
+        }
+        "branch.unset-upstream" => {
+            let branch = param(request, "branch")?;
+            validate_branch_name(&branch)?;
+            let argv = vec![
+                "branch".to_string(),
+                "--unset-upstream".to_string(),
+                branch.clone(),
+            ];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("unset upstream for {branch}"), echo))
+        }
+        "conflict.accept-ours" | "conflict.accept-theirs" => {
+            let path = param(request, "path")?;
+            validate_repo_path(&root, &path)?;
+            let side = if action == "conflict.accept-ours" {
+                "--ours"
+            } else {
+                "--theirs"
+            };
+            let argv = vec![
+                "checkout".to_string(),
+                side.to_string(),
+                "--".to_string(),
+                path.clone(),
+            ];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            let argv = vec!["add".to_string(), "--".to_string(), path.clone()];
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("accepted {side} for {path}"), echo))
+        }
         _ => {
             let _ = spec;
             Err(GitError::UnknownAction(action.to_string()))

@@ -23,6 +23,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/git/stash", get(handle_git_stash))
         .route("/git/submodules", get(handle_git_submodules))
         .route("/git/worktrees", get(handle_git_worktrees))
+        .route("/git/reflog", get(handle_git_reflog))
         .route("/git/fingerprint", get(handle_git_fingerprint))
         .route("/git/registry", get(handle_git_registry))
 }
@@ -171,6 +172,14 @@ pub(crate) async fn handle_git_submodules(State(state): State<ApiState>) -> impl
 #[utoipa::path(get, path = "/api/v1/git/worktrees", operation_id = "get_git_worktrees", tag = "git", responses((status = 200, description = "Worktrees read-only", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
 pub(crate) async fn handle_git_worktrees(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::git::worktrees(&state.ctx) {
+        Ok(entries) => ok(entries).into_response(),
+        Err(err) => error_response(err.into()),
+    }
+}
+
+#[utoipa::path(get, path = "/api/v1/git/reflog", operation_id = "get_git_reflog", tag = "git", responses((status = 200, description = "Reflog entries", body = crate::envelope::ApiEnvelope<serde_json::Value>)), security(("api_key" = [])))]
+pub(crate) async fn handle_git_reflog(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::git::reflog(&state.ctx, 100) {
         Ok(entries) => ok(entries).into_response(),
         Err(err) => error_response(err.into()),
     }

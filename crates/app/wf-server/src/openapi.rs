@@ -300,6 +300,7 @@ use utoipa::OpenApi;
         crate::api::git::readonly::handle_git_stash,
         crate::api::git::readonly::handle_git_submodules,
         crate::api::git::readonly::handle_git_worktrees,
+        crate::api::git::readonly::handle_git_reflog,
         crate::api::git::readonly::handle_git_fingerprint,
         crate::api::git::readonly::handle_git_registry,
         crate::api::git::actions::handle_git_action,

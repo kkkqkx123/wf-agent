@@ -163,6 +163,15 @@ pub struct WorktreeEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReflogEntry {
+    pub id: String,
+    pub short_id: String,
+    pub selector: String,
+    pub message: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Fingerprint {
     pub status_hash: String,
     pub head: String,

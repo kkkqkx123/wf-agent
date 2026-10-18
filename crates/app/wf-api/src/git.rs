@@ -22,7 +22,7 @@ pub use parse::{
 };
 pub use queries::{
     branches, commit_files, commits, diff_refs, diff_unstaged, file_entries, fingerprint, meta,
-    remotes, stash_list, status, submodule_status, tags, worktrees,
+    reflog, remotes, stash_list, status, submodule_status, tags, worktrees,
 };
 pub use registry::{action_registry, registry_snapshot};
 pub use terminal::{
@@ -31,6 +31,6 @@ pub use terminal::{
 };
 pub use types::{
     BranchEntry, CommitEntry, CommitFileEntry, DangerLevel, DiffFileView, DiffHunk, FileEntry,
-    FileKind, Fingerprint, GitError, GitResult, RegistryEntry, RemoteEntry, RepoMeta, StashEntry,
-    StatusView, SubmoduleEntry, TagEntry, WorktreeEntry,
+    FileKind, Fingerprint, GitError, GitResult, ReflogEntry, RegistryEntry, RemoteEntry, RepoMeta,
+    StashEntry, StatusView, SubmoduleEntry, TagEntry, WorktreeEntry,
 };

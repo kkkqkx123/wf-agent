@@ -10,7 +10,7 @@ use super::parse::{
 use super::runner::run_git;
 use super::types::{
     BranchEntry, CommitEntry, CommitFileEntry, DiffFileView, FileEntry, Fingerprint, GitError,
-    GitResult, RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry, TagEntry,
+    GitResult, ReflogEntry, RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry, TagEntry,
     WorktreeEntry,
 };
 use crate::infra::context::ApiContext;
@@ -428,5 +428,39 @@ pub fn worktrees(ctx: &ApiContext) -> GitResult<Vec<WorktreeEntry>> {
         }
     }
     flush(&mut path, &mut branch, &mut commit, &mut bare, &mut entries);
+    Ok(entries)
+}
+
+pub fn reflog(ctx: &ApiContext, limit: u32) -> GitResult<Vec<ReflogEntry>> {
+    let root = repo_root(ctx)?;
+    let timeout = command_timeout_ms(ctx, false);
+    let limit = limit.clamp(1, 200).to_string();
+    let out = run_git(
+        &root,
+        &[
+            "reflog",
+            &format!("-n{limit}"),
+            "--format=%H%x1f%h%x1f%gD%x1f%gs%x1f%ct",
+        ],
+        timeout,
+    )?;
+    let mut entries = Vec::new();
+    for line in out.stdout.lines() {
+        let fields: Vec<&str> = line.split('\u{001f}').collect();
+        if fields.len() < 5 {
+            continue;
+        }
+        let id = fields[0].trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        entries.push(ReflogEntry {
+            id: id.clone(),
+            short_id: fields[1].trim().to_string(),
+            selector: fields[2].trim().to_string(),
+            message: fields[3].trim().to_string(),
+            timestamp: fields[4].trim().parse().unwrap_or(0),
+        });
+    }
     Ok(entries)
 }

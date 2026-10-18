@@ -96,6 +96,14 @@ export interface WorktreeEntry {
 	bare: boolean;
 }
 
+export interface ReflogEntry {
+	id: string;
+	shortId: string;
+	selector: string;
+	message: string;
+	timestamp: number;
+}
+
 export interface RegistryEntry {
 	id: string;
 	danger: string;
@@ -274,6 +282,19 @@ export async function listSubmodules(): Promise<SubmoduleEntry[]> {
 	const data = await call<unknown>(client.GET('/api/v1/git/submodules'));
 	const rows = requireData(data, 'Git submodules') as SubmoduleEntry[];
 	return Array.isArray(rows) ? rows : [];
+}
+
+/** Reflog entries of the user repository. */
+export async function listReflog(): Promise<ReflogEntry[]> {
+	const data = await call<unknown>(client.GET('/api/v1/git/reflog'));
+	const rows = requireData(data, 'Git reflog') as Array<Record<string, unknown>>;
+	return (Array.isArray(rows) ? rows : []).map((r) => ({
+		id: String(r.id ?? ''),
+		shortId: String(r.short_id ?? String(r.id ?? '').slice(0, 7)),
+		selector: String(r.selector ?? ''),
+		message: String(r.message ?? ''),
+		timestamp: Number(r.timestamp ?? 0),
+	}));
 }
 
 export async function getRegistry(): Promise<RegistryEntry[]> {

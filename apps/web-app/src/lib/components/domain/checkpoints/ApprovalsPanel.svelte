@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import Button from '@wf-agent/ui/components/Button.svelte';
 	import Card from '@wf-agent/ui/components/Card.svelte';
 	import Icon from '@wf-agent/ui/icons/Icon.svelte';
@@ -29,7 +30,7 @@
 
 	let statusFilter = $state('all');
 	let actorFilter = $state('');
-	let selected = $state<Set<string>>(new Set());
+	let selected = new SvelteSet<string>();
 
 	const visible = $derived(
 		approvals.filter((approval) => {
@@ -49,24 +50,22 @@
 	);
 
 	function toggle(id: string): void {
-		const next = new Set(selected);
-		if (next.has(id)) next.delete(id);
-		else next.add(id);
-		selected = next;
+		if (selected.has(id)) selected.delete(id);
+		else selected.add(id);
 	}
 
 	function toggleAll(): void {
-		selected =
-			selectable.length > 0 && selectedPending.length === selectable.length
-				? new Set()
-				: new Set(selectable.map((a) => a.id));
+		selected.clear();
+		if (!(selectable.length > 0 && selectedPending.length === selectable.length)) {
+			for (const item of selectable) selected.add(item.id);
+		}
 	}
 
 	function batch(granted: boolean): void {
 		const targets = selectedPending;
 		if (targets.length === 0) return;
 		onbatch(targets, granted);
-		selected = new Set();
+		selected.clear();
 	}
 </script>
 

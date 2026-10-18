@@ -55,6 +55,23 @@
 		</p>
 		{#each workbench.diff as file (file.path)}
 			<div class="mb-2">
+				{#if workbench.diffSource === 'unstaged'}
+					{@const hunkCount = file.lines.filter((l) => l.type === 'meta').length}
+					{#if hunkCount > 0}
+						<div class="mb-1 flex flex-wrap gap-1">
+							{#each Array.from({ length: hunkCount }, (_, i) => i) as i (i)}
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={gitStore.busy}
+									onclick={() => void workbench.stageHunk(file.path, i)}
+								>
+									Stage hunk {i + 1}
+								</Button>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 				<DiffView
 					lines={file.lines}
 					title={file.truncated

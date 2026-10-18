@@ -55,6 +55,7 @@ fn profile(base_url: String, id: &str) -> LlmProfile {
         proxy: None,
         no_proxy: None,
         circuit_breaker: None,
+        prompt_caching: None,
     }
 }
 
@@ -84,6 +85,8 @@ fn request(text: &str) -> LlmRequest {
         dead_loop_detection: None,
         protocol_auto_converted: None,
         timeout_ms: None,
+        prompt_caching: None,
+        cached_content: None,
     }
 }
 

@@ -23,6 +23,7 @@ fn tool_call(id: &str, name: &str, args: &str) -> LlmToolCall {
             name: name.to_string(),
             arguments: args.to_string(),
         },
+        call_id: None,
     }
 }
 

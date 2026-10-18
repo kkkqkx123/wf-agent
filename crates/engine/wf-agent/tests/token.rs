@@ -18,6 +18,7 @@ fn tool_call(id: &str, name: &str, args: &str) -> LlmToolCall {
             name: name.to_string(),
             arguments: args.to_string(),
         },
+        call_id: None,
     }
 }
 
@@ -133,6 +134,7 @@ async fn token_events_emitted_when_limit_crossed() {
             proxy: None,
             no_proxy: None,
             circuit_breaker: None,
+            prompt_caching: None,
         })
         .expect("mock profile registers");
     let coordinator = AgentLoopCoordinator::new(gateway, registry_with_echo()).with_event_bus(bus);

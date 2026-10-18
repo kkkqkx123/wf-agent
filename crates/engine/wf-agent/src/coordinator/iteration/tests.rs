@@ -28,6 +28,7 @@ fn tool_call_message(tool_call_id: &str) -> Message {
                 name: "mock_write".to_string(),
                 arguments: "{}".to_string(),
             },
+            call_id: None,
         }]),
         thinking: None,
         thinking_signature: None,
@@ -416,6 +417,7 @@ async fn blocking_tool_call_executes_and_continues() {
             name: "echo".to_string(),
             arguments: r#"{"text":"ping"}"#.to_string(),
         },
+        call_id: None,
     }]));
 
     let entity = running_entity("agent-block-tool").await;
@@ -449,6 +451,7 @@ async fn blocking_attempt_completion_ends_the_loop() {
             name: "attempt_completion".to_string(),
             arguments: r#"{"result":"all done"}"#.to_string(),
         },
+        call_id: None,
     }]));
 
     let entity = running_entity("agent-block-done").await;

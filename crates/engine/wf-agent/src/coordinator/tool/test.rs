@@ -66,6 +66,7 @@ fn make_tool_call(id: &str, name: &str) -> wf_types::message::LlmToolCall {
             name: name.to_string(),
             arguments: "{}".to_string(),
         },
+        call_id: None,
     }
 }
 

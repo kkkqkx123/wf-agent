@@ -450,6 +450,7 @@ mod tests {
                 name: "shell".to_string(),
                 arguments: "{}".to_string(),
             },
+            call_id: None,
         };
         let result = execute_tool_call(&ctx, &call, None, None).await;
         assert_eq!(result.role, MessageRole::Tool);
@@ -523,6 +524,7 @@ mod tests {
                 name: "echo_tool".to_string(),
                 arguments: "{\"x\": 1}".to_string(),
             },
+            call_id: None,
         };
 
         let ok = execute_tool_call(&ctx, &call, None, None).await;
@@ -618,6 +620,7 @@ mod tests {
                 name: "echo_tool".to_string(),
                 arguments: "{\"x\": 1}".to_string(),
             },
+            call_id: None,
         };
 
         let ok = execute_tool_call(&ctx, &call, None, None).await;

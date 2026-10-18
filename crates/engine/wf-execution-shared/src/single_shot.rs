@@ -220,6 +220,7 @@ mod tests {
             proxy: None,
             no_proxy: None,
             circuit_breaker: None,
+            prompt_caching: None,
         }
     }
 
@@ -268,6 +269,8 @@ mod tests {
             dead_loop_detection: None,
             protocol_auto_converted: None,
             timeout_ms: None,
+            prompt_caching: None,
+            cached_content: None,
         }
     }
 
@@ -279,6 +282,7 @@ mod tests {
                 name: name.to_string(),
                 arguments: arguments.to_string(),
             },
+            call_id: None,
         }
     }
 

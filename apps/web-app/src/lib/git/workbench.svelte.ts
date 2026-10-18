@@ -43,6 +43,8 @@ import { CLIENT_ONLY_ACTIONS, confirmTarget, parseToken } from '$lib/git/parse';
 export const PANELS = [
 	{ id: 'status', label: 'Status' },
 	{ id: 'files', label: 'Files' },
+	{ id: 'worktrees', label: 'Worktrees' },
+	{ id: 'submodules', label: 'Submodules' },
 	{ id: 'branches', label: 'Branches' },
 	{ id: 'commits', label: 'Commits' },
 	{ id: 'stash', label: 'Stash' },
@@ -103,6 +105,8 @@ export class GitWorkbench {
 	filters = $state<Record<PanelId, string>>({
 		status: '',
 		files: '',
+		worktrees: '',
+		submodules: '',
 		branches: '',
 		commits: '',
 		stash: '',
@@ -142,6 +146,20 @@ export class GitWorkbench {
 			(s) =>
 				s.message.includes(this.filterQuery) ||
 				s.name.includes(this.filterQuery),
+		),
+	);
+	visibleWorktrees = $derived(
+		this.worktrees.filter(
+			(w) =>
+				w.path.includes(this.filterQuery) ||
+				w.branch.includes(this.filterQuery),
+		),
+	);
+	visibleSubmodules = $derived(
+		this.submodules.filter(
+			(s) =>
+				s.path.includes(this.filterQuery) ||
+				s.commit.includes(this.filterQuery),
 		),
 	);
 	dialogSpec = $derived(
@@ -337,7 +355,11 @@ export class GitWorkbench {
 	}
 
 	paramDefault(action: string, key: string): string {
-		if (key === 'path') return gitStore.selectedFile ?? '';
+		if (key === 'path') {
+			if (this.panel === 'submodules') return gitStore.selectedSubmodule ?? '';
+			if (this.panel === 'worktrees') return gitStore.selectedWorktree ?? '';
+			return gitStore.selectedFile ?? '';
+		}
 		if (key === 'index' && this.panel === 'stash') {
 			const entry = this.stash.find((s) => s.name === gitStore.selectedStash);
 			return entry ? String(entry.index) : '';
@@ -396,7 +418,12 @@ export class GitWorkbench {
 			return;
 		}
 		if (spec?.params.includes('path') && !params.path) {
-			const selected = gitStore.selectedFile;
+			const selected =
+				this.panel === 'submodules'
+					? gitStore.selectedSubmodule
+					: this.panel === 'worktrees'
+						? gitStore.selectedWorktree
+						: gitStore.selectedFile;
 			if (!selected) {
 				toasts.error(
 					'No file selected',

@@ -135,6 +135,69 @@
 				</p>
 			</div>
 		{/if}
+	{:else if panel === 'worktrees'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleWorktrees as worktree (worktree.path)}
+				<li>
+					<button
+						type="button"
+						onclick={() => gitStore.select('worktrees', worktree.path)}
+						aria-pressed={gitStore.selectionFor('worktrees') ===
+							worktree.path}
+						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
+							'worktrees',
+						) === worktree.path
+							? 'bg-accent/70'
+							: ''}"
+					>
+						<p class="truncate font-mono text-caption">
+							{worktree.path}
+						</p>
+						<p class="text-micro text-muted-foreground">
+							{worktree.branch || '(detached)'}{worktree.bare
+								? ' · bare'
+								: ''} · {worktree.commit}
+						</p>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleWorktrees.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No worktrees match the filter.
+			</p>
+		{/if}
+	{:else if panel === 'submodules'}
+		<ul class="mt-2 space-y-1">
+			{#each workbench.visibleSubmodules as submodule (submodule.path)}
+				<li>
+					<button
+						type="button"
+						onclick={() =>
+							gitStore.select('submodules', submodule.path)}
+						aria-pressed={gitStore.selectionFor('submodules') ===
+							submodule.path}
+						class="block w-full px-2 py-1 text-left hover:bg-accent/50 {gitStore.selectionFor(
+							'submodules',
+						) === submodule.path
+							? 'bg-accent/70'
+							: ''}"
+					>
+						<p class="truncate font-mono text-caption">
+							{submodule.path}
+						</p>
+						<p class="text-micro text-muted-foreground">
+							{submodule.commit} · {submodule.status}
+						</p>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if workbench.visibleSubmodules.length === 0}
+			<p class="mt-2 text-caption text-muted-foreground">
+				No submodules match the filter.
+			</p>
+		{/if}
 	{:else if panel === 'branches'}
 		<ul class="mt-2 space-y-1">
 			{#each workbench.visibleBranches as branch (branch.name)}

@@ -376,6 +376,7 @@ mod tests {
                 proxy: None,
                 no_proxy: None,
                 circuit_breaker: None,
+                prompt_caching: None,
             })
             .expect("mock profile registers");
         (ctx, mock)
@@ -400,6 +401,7 @@ mod tests {
                 name: REVIEW_VERDICT_TOOL.to_string(),
                 arguments: arguments.to_string(),
             },
+            call_id: None,
         }
     }
 

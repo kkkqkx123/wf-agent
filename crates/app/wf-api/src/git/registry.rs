@@ -231,10 +231,10 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
     },
     ActionSpec {
         id: "fetch",
-        danger: DangerLevel::Readonly,
+        danger: DangerLevel::Recoverable,
         params: &["remote"],
-        available: false,
-        unavailable_reason: Some("fetch runs from the terminal or a scheduled refresh"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: false,
     },
     ActionSpec {
@@ -297,32 +297,32 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         id: "commit.reword",
         danger: DangerLevel::HistoryRewrite,
         params: &["commit", "message"],
-        available: false,
-        unavailable_reason: Some("commit reword needs an interactive rebase; use the terminal"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: true,
     },
     ActionSpec {
         id: "commit.squash",
         danger: DangerLevel::HistoryRewrite,
         params: &["base"],
-        available: false,
-        unavailable_reason: Some("commit squash needs an interactive rebase; use the terminal"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: true,
     },
     ActionSpec {
         id: "commit.fixup",
         danger: DangerLevel::HistoryRewrite,
         params: &["commit"],
-        available: false,
-        unavailable_reason: Some("commit fixup needs an interactive rebase; use the terminal"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: true,
     },
     ActionSpec {
         id: "commit.drop",
         danger: DangerLevel::HistoryRewrite,
         params: &["commit"],
-        available: false,
-        unavailable_reason: Some("commit drop needs an interactive rebase; use the terminal"),
+        available: true,
+        unavailable_reason: None,
         needs_confirm: true,
     },
     ActionSpec {
@@ -356,6 +356,158 @@ pub const ACTION_SPECS: &[ActionSpec] = &[
         available: false,
         unavailable_reason: Some("submodule writes are unavailable"),
         needs_confirm: true,
+    },
+    ActionSpec {
+        id: "stage.hunk",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "hunkIndex"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "stage.lines",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "lineRanges"],
+        available: false,
+        unavailable_reason: Some("line-level staging is not implemented"),
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "remote.add",
+        danger: DangerLevel::Recoverable,
+        params: &["name", "url"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "remote.remove",
+        danger: DangerLevel::Destructive,
+        params: &["name"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "remote.set-url",
+        danger: DangerLevel::Recoverable,
+        params: &["name", "url"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "tag.delete",
+        danger: DangerLevel::Destructive,
+        params: &["tag"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "tag.push",
+        danger: DangerLevel::HistoryRewrite,
+        params: &["tag", "remote"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "tag.checkout",
+        danger: DangerLevel::Recoverable,
+        params: &["tag"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "commit.reorder",
+        danger: DangerLevel::HistoryRewrite,
+        params: &["commit", "direction"],
+        available: false,
+        unavailable_reason: Some("commit reorder is not implemented"),
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "submodule.init",
+        danger: DangerLevel::Recoverable,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "submodule.update",
+        danger: DangerLevel::Recoverable,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "submodule.add",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "url"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "submodule.set-url",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "url"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "submodule.remove",
+        danger: DangerLevel::Destructive,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "submodule.enter",
+        danger: DangerLevel::Readonly,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "worktree.add",
+        danger: DangerLevel::Recoverable,
+        params: &["path", "branch"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "worktree.remove",
+        danger: DangerLevel::Destructive,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: true,
+    },
+    ActionSpec {
+        id: "worktree.switch",
+        danger: DangerLevel::Recoverable,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
+    },
+    ActionSpec {
+        id: "worktree.open",
+        danger: DangerLevel::Readonly,
+        params: &["path"],
+        available: true,
+        unavailable_reason: None,
+        needs_confirm: false,
     },
 ];
 
@@ -427,20 +579,17 @@ mod tests {
     }
 
     #[test]
-    fn history_rewrites_that_need_an_editor_are_marked_unavailable() {
-        // The registry is the single source of availability the workbench
-        // gates on: anything dispatch cannot honour must read unavailable
-        // here instead of failing at call time.
+    fn history_rewrites_that_need_an_editor_are_now_available() {
+        // These actions are now implemented via GIT_SEQUENCE_EDITOR or
+        // reset --soft, so they should be available.
         for id in [
             "commit.reword",
             "commit.squash",
             "commit.fixup",
             "commit.drop",
-            "fetch",
         ] {
             let spec = action_spec(id).unwrap();
-            assert!(!spec.available, "{id} must be marked unavailable");
-            assert!(spec.unavailable_reason.is_some(), "{id} needs a reason");
+            assert!(spec.available, "{id} must be marked available");
         }
     }
 }

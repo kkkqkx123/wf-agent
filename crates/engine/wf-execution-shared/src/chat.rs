@@ -154,6 +154,7 @@ mod tests {
             proxy: None,
             no_proxy: None,
             circuit_breaker: None,
+            prompt_caching: None,
         }
     }
 

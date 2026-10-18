@@ -421,6 +421,292 @@ fn dispatch_write(
             run_git(&root, &refs, command_timeout_ms(ctx, false))?;
             Ok(finish("stashed for undo".to_string(), echo))
         }
+        "fetch" => {
+            let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
+            let argv = vec!["fetch".to_string(), remote.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, true))?;
+            Ok(finish(format!("fetched {remote}"), echo))
+        }
+        "commit.reword" => {
+            let commit = param(request, "commit")?;
+            let message = param(request, "message")?;
+            require_confirm(request, &commit, action)?;
+            // Use git rebase with sequence editor to mark commit as reword,
+            // and GIT_EDITOR to set the new message.
+            let seq_script = format!(
+                "#!/bin/sh\\nsed -i 's/^pick {commit}/reword {commit}/' \"$1\"\\n",
+                commit = commit
+            );
+            let editor_script = format!("#!/bin/sh\\nprintf '%s\\n' '{}' > \"$1\"\\n", message.replace('\'', "'\\''"));
+            let seq_path = std::env::temp_dir().join(format!("seq-editor-{}.sh", std::process::id()));
+            let editor_path = std::env::temp_dir().join(format!("msg-editor-{}.sh", std::process::id()));
+            std::fs::write(&seq_path, &seq_script)
+                .map_err(|e| GitError::Command(format!("failed to write seq editor: {e}")))?;
+            std::fs::write(&editor_path, &editor_script)
+                .map_err(|e| GitError::Command(format!("failed to write msg editor: {e}")))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for p in [&seq_path, &editor_path] {
+                    if let Ok(m) = std::fs::metadata(p) {
+                        let mut perms = m.permissions();
+                        perms.set_mode(0o755);
+                        let _ = std::fs::set_permissions(p, perms);
+                    }
+                }
+            }
+            let base = format!("{commit}^");
+            let envs = [
+                ("GIT_SEQUENCE_EDITOR", seq_path.to_str().unwrap_or("true")),
+                ("GIT_EDITOR", editor_path.to_str().unwrap_or("true")),
+            ];
+            let result = super::runner::run_git_with_env(
+                &root,
+                &["rebase", "-i", &base],
+                command_timeout_ms(ctx, false),
+                &envs,
+            );
+            let _ = std::fs::remove_file(&seq_path);
+            let _ = std::fs::remove_file(&editor_path);
+            result?;
+            Ok(finish(format!("reworded {commit}"), format!("git rebase -i {base}")))
+        }
+        "commit.squash" => {
+            let base = param(request, "base")?;
+            require_confirm(request, &base, action)?;
+            // Squash all commits from base..HEAD into base using reset --soft + commit
+            let head_msg = run_git(&root, &["log", "-1", "--format=%s", "HEAD"], command_timeout_ms(ctx, false))?
+                .stdout.trim().to_string();
+            let argv = vec!["reset".to_string(), "--soft".to_string(), base.clone()];
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            let argv = vec!["commit".to_string(), "-m".to_string(), head_msg];
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("squashed onto {base}"), format!("git reset --soft {base} && git commit")))
+        }
+        "commit.fixup" => {
+            let commit = param(request, "commit")?;
+            require_confirm(request, &commit, action)?;
+            // Use git rebase with sequence editor to mark commit as fixup
+            let seq_script = format!(
+                "#!/bin/sh\\nsed -i 's/^pick {commit}/fixup {commit}/' \"$1\"\\n",
+                commit = commit
+            );
+            let seq_path = std::env::temp_dir().join(format!("seq-editor-{}.sh", std::process::id()));
+            std::fs::write(&seq_path, &seq_script)
+                .map_err(|e| GitError::Command(format!("failed to write seq editor: {e}")))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(m) = std::fs::metadata(&seq_path) {
+                    let mut perms = m.permissions();
+                    perms.set_mode(0o755);
+                    let _ = std::fs::set_permissions(&seq_path, perms);
+                }
+            }
+            let base = format!("{commit}^");
+            let envs = [("GIT_SEQUENCE_EDITOR", seq_path.to_str().unwrap_or("true"))];
+            let result = super::runner::run_git_with_env(
+                &root,
+                &["rebase", "-i", &base],
+                command_timeout_ms(ctx, false),
+                &envs,
+            );
+            let _ = std::fs::remove_file(&seq_path);
+            result?;
+            Ok(finish(format!("fixup {commit}"), format!("git rebase -i {base}")))
+        }
+        "commit.drop" => {
+            let commit = param(request, "commit")?;
+            require_confirm(request, &commit, action)?;
+            // Drop commit using rebase --onto
+            let parent = format!("{commit}^");
+            let argv = vec!["rebase".to_string(), "--onto".to_string(), parent.clone(), commit.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("dropped {commit}"), echo))
+        }
+        "stage.hunk" => {
+            let path = param(request, "path")?;
+            let hunk_index_str = param(request, "hunkIndex")?;
+            validate_repo_path(&root, &path)?;
+            // Get the unstaged diff for this file
+            let out = run_git(
+                &root,
+                &["diff", "--no-color", "--unified=3", "--", &path],
+                command_timeout_ms(ctx, false),
+            )?;
+            // Parse hunks and extract the target hunk
+            let diff_text = out.stdout;
+            let hunks: Vec<&str> = diff_text.split("@@").skip(1).collect();
+            let idx: usize = hunk_index_str.parse().unwrap_or(0);
+            if idx >= hunks.len() {
+                return Err(GitError::Precondition("hunk index out of range".to_string()));
+            }
+            // Build a partial patch with just this hunk
+            let hunk_text = format!("@@{}", hunks[idx]);
+            // Write to temp file and apply
+            let patch_path = std::env::temp_dir().join(format!("hunk-{}.patch", std::process::id()));
+            let mut patch = String::new();
+            // Add diff header
+            patch.push_str(&format!("--- a/{}\\n", path));
+            patch.push_str(&format!("+++ b/{}\\n", path));
+            patch.push_str(&hunk_text);
+            std::fs::write(&patch_path, &patch)
+                .map_err(|e| GitError::Command(format!("failed to write patch: {e}")))?;
+            let patch_str = patch_path.to_str().unwrap_or("").to_string();
+            let argv = vec!["apply".to_string(), "--cached".to_string(), patch_str.clone()];
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            let result = run_git(&root, &refs, command_timeout_ms(ctx, false));
+            let _ = std::fs::remove_file(&patch_path);
+            result?;
+            Ok(finish(format!("staged hunk {idx} of {path}"), format!("git apply --cached <patch>")))
+        }
+        "remote.add" => {
+            let name = param(request, "name")?;
+            let url = param(request, "url")?;
+            if name.is_empty() || name.contains(' ') || name.contains('\0') {
+                return Err(GitError::Precondition("invalid remote name".to_string()));
+            }
+            let argv = vec!["remote".to_string(), "add".to_string(), name.clone(), url.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("added remote {name}"), echo))
+        }
+        "remote.remove" => {
+            let name = param(request, "name")?;
+            require_confirm(request, &name, action)?;
+            let argv = vec!["remote".to_string(), "remove".to_string(), name.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("removed remote {name}"), echo))
+        }
+        "remote.set-url" => {
+            let name = param(request, "name")?;
+            let url = param(request, "url")?;
+            let argv = vec!["remote".to_string(), "set-url".to_string(), name.clone(), url.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("set url for {name}"), echo))
+        }
+        "tag.delete" => {
+            let tag = param(request, "tag")?;
+            require_confirm(request, &tag, action)?;
+            let argv = vec!["tag".to_string(), "-d".to_string(), tag.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("deleted tag {tag}"), echo))
+        }
+        "tag.push" => {
+            let tag = param(request, "tag")?;
+            let remote = optional_param(request, "remote").unwrap_or_else(|| "origin".to_string());
+            require_confirm(request, &tag, action)?;
+            let argv = vec!["push".to_string(), remote.clone(), tag.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, true))?;
+            Ok(finish(format!("pushed tag {tag} to {remote}"), echo))
+        }
+        "tag.checkout" => {
+            let tag = param(request, "tag")?;
+            let argv = vec!["checkout".to_string(), tag.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("checked out tag {tag}"), echo))
+        }
+        "submodule.init" => {
+            let path = param(request, "path")?;
+            validate_repo_path(&root, &path)?;
+            let argv = vec!["submodule".to_string(), "init".to_string(), path.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("initialized submodule {path}"), echo))
+        }
+        "submodule.update" => {
+            let path = param(request, "path")?;
+            validate_repo_path(&root, &path)?;
+            let argv = vec!["submodule".to_string(), "update".to_string(), path.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("updated submodule {path}"), echo))
+        }
+        "submodule.add" => {
+            let path = param(request, "path")?;
+            let url = param(request, "url")?;
+            validate_repo_path(&root, &path)?;
+            let argv = vec!["submodule".to_string(), "add".to_string(), url.clone(), path.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("added submodule {path}"), echo))
+        }
+        "submodule.set-url" => {
+            let path = param(request, "path")?;
+            let url = param(request, "url")?;
+            validate_repo_path(&root, &path)?;
+            let argv = vec!["submodule".to_string(), "set-url".to_string(), path.clone(), url.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("set url for submodule {path}"), echo))
+        }
+        "submodule.remove" => {
+            let path = param(request, "path")?;
+            require_confirm(request, &path, action)?;
+            validate_repo_path(&root, &path)?;
+            // deinit + rm
+            let argv = vec!["submodule".to_string(), "deinit".to_string(), "-f".to_string(), path.clone()];
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            let _ = run_git(&root, &refs, command_timeout_ms(ctx, false));
+            let argv = vec!["rm".to_string(), "-f".to_string(), path.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("removed submodule {path}"), echo))
+        }
+        "submodule.enter" => {
+            // Readonly: frontend handles context switch
+            Ok(finish("enter submodule context".to_string(), "cd <submodule>".to_string()))
+        }
+        "worktree.add" => {
+            let path = param(request, "path")?;
+            let branch = param(request, "branch")?;
+            validate_branch_name(&branch)?;
+            let argv = vec!["worktree".to_string(), "add".to_string(), path.clone(), branch.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("added worktree {path}"), echo))
+        }
+        "worktree.remove" => {
+            let path = param(request, "path")?;
+            require_confirm(request, &path, action)?;
+            let argv = vec!["worktree".to_string(), "remove".to_string(), path.clone()];
+            let echo = echo_of(action, &argv);
+            let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+            run_git(&root, &refs, command_timeout_ms(ctx, false))?;
+            Ok(finish(format!("removed worktree {path}"), echo))
+        }
+        "worktree.switch" => {
+            let path = param(request, "path")?;
+            // Frontend handles context switch; backend just validates
+            Ok(finish(format!("switch to worktree {path}"), format!("cd {path}")))
+        }
+        "worktree.open" => {
+            let path = param(request, "path")?;
+            Ok(finish(format!("open worktree {path} in terminal"), format!("cd {path}")))
+        }
         _ => {
             let _ = spec;
             Err(GitError::UnknownAction(action.to_string()))

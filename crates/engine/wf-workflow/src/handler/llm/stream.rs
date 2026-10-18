@@ -118,6 +118,7 @@ pub async fn run_streaming_request(
                     reasoning_content: None,
                     reasoning_signature: None,
                     reasoning_tokens: None,
+                    refusal: None,
                     metadata: None,
                     stream_stats: None,
                 });

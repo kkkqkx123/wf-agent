@@ -20,6 +20,8 @@
 	const workbench = new GitWorkbench();
 	workbench.panel =
 		requested === 'files' ||
+		requested === 'worktrees' ||
+		requested === 'submodules' ||
 		requested === 'branches' ||
 		requested === 'commits' ||
 		requested === 'stash'

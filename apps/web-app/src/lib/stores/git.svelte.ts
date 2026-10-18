@@ -1,6 +1,13 @@
 import { getFingerprint } from '$lib/services/git';
 
-export type GitPanel = 'status' | 'files' | 'branches' | 'commits' | 'stash';
+export type GitPanel =
+	| 'status'
+	| 'files'
+	| 'branches'
+	| 'commits'
+	| 'stash'
+	| 'worktrees'
+	| 'submodules';
 
 type GitListener = () => void;
 
@@ -9,6 +16,8 @@ class GitStore {
 	selectedCommit = $state<string | null>(null);
 	selectedBranch = $state<string | null>(null);
 	selectedStash = $state<string | null>(null);
+	selectedWorktree = $state<string | null>(null);
+	selectedSubmodule = $state<string | null>(null);
 
 	action = $state<string | null>(null);
 	actionError = $state<string | null>(null);
@@ -25,6 +34,8 @@ class GitStore {
 		else if (panel === 'commits') this.selectedCommit = id;
 		else if (panel === 'branches') this.selectedBranch = id;
 		else if (panel === 'stash') this.selectedStash = id;
+		else if (panel === 'worktrees') this.selectedWorktree = id;
+		else if (panel === 'submodules') this.selectedSubmodule = id;
 	}
 
 	selectionFor(panel: GitPanel): string | null {
@@ -32,6 +43,8 @@ class GitStore {
 		if (panel === 'commits') return this.selectedCommit;
 		if (panel === 'branches') return this.selectedBranch;
 		if (panel === 'stash') return this.selectedStash;
+		if (panel === 'worktrees') return this.selectedWorktree;
+		if (panel === 'submodules') return this.selectedSubmodule;
 		return null;
 	}
 

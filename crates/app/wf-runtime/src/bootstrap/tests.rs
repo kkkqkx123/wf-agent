@@ -971,6 +971,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
         proxy: None,
         no_proxy: None,
         circuit_breaker: None,
+        prompt_caching: None,
     }];
     let gateway = init_llm_gateway(
         &LlmConfig {
@@ -1010,6 +1011,7 @@ fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
                 proxy: None,
                 no_proxy: None,
                 circuit_breaker: None,
+                prompt_caching: None,
             }],
             provider_definitions: Vec::new(),
         },

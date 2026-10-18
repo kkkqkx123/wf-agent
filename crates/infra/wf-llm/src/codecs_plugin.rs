@@ -194,6 +194,8 @@ mod tests {
             dead_loop_detection: None,
             protocol_auto_converted: None,
             timeout_ms: None,
+            prompt_caching: None,
+            cached_content: None,
         };
         let profile = LlmProfile {
             id: "p1".to_string(),
@@ -221,6 +223,7 @@ mod tests {
             proxy: None,
             no_proxy: None,
             circuit_breaker: None,
+            prompt_caching: None,
         };
         let http = adapter.build_request(&request, &profile).unwrap();
         assert_eq!(http.method(), reqwest::Method::POST);

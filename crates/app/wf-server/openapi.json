@@ -10444,6 +10444,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "Single-use stream ticket; when present the stream authenticates with it\ninstead of the API key.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10481,6 +10490,53 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/events/stream-ticket": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "post_events_stream_ticket",
+        "responses": {
+          "200": {
+            "description": "SSE stream ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_StreamTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Origin or marker check failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
           },
           "503": {
             "description": "Service unavailable: resource limit reached"
@@ -25534,6 +25590,15 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "Single-use connect ticket; when present the handshake authenticates\nwith it instead of the API key.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -25550,6 +25615,73 @@
           },
           "403": {
             "description": "Forbidden: API key lacks access"
+          },
+          "429": {
+            "description": "Too many requests: rate limit exceeded (see Retry-After)"
+          },
+          "503": {
+            "description": "Service unavailable: resource limit reached"
+          },
+          "504": {
+            "description": "Gateway timeout: upstream operation timed out"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pty/{id}/connect-token": {
+      "post": {
+        "tags": [
+          "pty"
+        ],
+        "operationId": "post_pty_connect_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WebSocket connect ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_StreamTicket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized: missing or invalid API key"
+          },
+          "403": {
+            "description": "Origin or marker check failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PTY session not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Too many requests: rate limit exceeded (see Retry-After)"
@@ -41714,6 +41846,43 @@
           }
         }
       },
+      "ApiEnvelope_StreamTicket": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "ticket",
+              "expires_in"
+            ],
+            "properties": {
+              "expires_in": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "ticket": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApiErrorBody"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiEnvelope_String": {
         "type": "object",
         "required": [
@@ -46339,6 +46508,22 @@
             "format": "int64",
             "description": "Total bytes occupied by the bare repository directory.",
             "minimum": 0
+          }
+        }
+      },
+      "StreamTicket": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "properties": {
+          "expires_in": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ticket": {
+            "type": "string"
           }
         }
       },

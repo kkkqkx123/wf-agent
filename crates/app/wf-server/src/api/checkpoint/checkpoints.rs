@@ -50,10 +50,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/checkpoints/{id}",
             get(handle_get_checkpoint).delete(handle_delete_checkpoint),
         )
-        .route(
-            "/checkpoints/{id}/tags",
-            put(handle_update_checkpoint_tags),
-        )
+        .route("/checkpoints/{id}/tags", put(handle_update_checkpoint_tags))
         .route(
             "/checkpoints/entity/{entityId}",
             get(handle_list_checkpoints_by_entity).delete(handle_delete_checkpoints_by_entity),
@@ -236,7 +233,9 @@ pub(crate) async fn handle_preview_restore_checkpoint(
     {
         return error_response(e);
     }
-    match wf_api::workflow::workflow_execution::preview_restore_checkpoint(&state.ctx, &path.cid).await {
+    match wf_api::workflow::workflow_execution::preview_restore_checkpoint(&state.ctx, &path.cid)
+        .await
+    {
         Ok(preview) => {
             let doc = crate::api::checkpoint::views::RestorePreviewDoc {
                 checkpoint_id: preview.checkpoint_id,
@@ -441,7 +440,8 @@ pub(crate) async fn handle_update_checkpoint_tags(
     Path(path): Path<IdPath>,
     Json(tags): Json<Vec<String>>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::record::update_checkpoint_tags(&state.ctx.storage, &path.id, tags).await
+    match wf_api::checkpoint::record::update_checkpoint_tags(&state.ctx.storage, &path.id, tags)
+        .await
     {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),

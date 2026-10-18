@@ -10,8 +10,8 @@ use super::parse::{
 use super::runner::run_git;
 use super::types::{
     BranchEntry, CommitEntry, CommitFileEntry, DiffFileView, FileEntry, Fingerprint, GitError,
-    GitResult, ReflogEntry, RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry, TagEntry,
-    WorktreeEntry,
+    GitResult, ReflogEntry, RemoteEntry, RepoMeta, StashEntry, StatusView, SubmoduleEntry,
+    TagEntry, WorktreeEntry,
 };
 use crate::infra::context::ApiContext;
 

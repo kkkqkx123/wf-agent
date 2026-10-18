@@ -1,4 +1,5 @@
-import { API_BASE_URL, resolveApiKey } from '$lib/api/client';
+import { API_BASE_URL, client, resolveApiKey } from '$lib/api/client';
+import { call } from '$lib/api/envelope';
 import type { EventRecord } from '$lib/types/models';
 
 export type StreamState = 'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -44,9 +45,28 @@ export interface EventStreamOptions {
 }
 
 /**
- * Open the filtered events SSE stream. The server authenticates via the
- * `api_key` query parameter (EventSource cannot set headers), matching the
- * wf-server query-param auth mode. Reconnects with `since=<last timestamp>`
+ * Fetch a single-use ticket for the events stream. Returns undefined when the
+ * endpoint is unavailable so callers fall back to the key query parameter.
+ */
+async function fetchStreamTicket(): Promise<string | undefined> {
+	try {
+		const data = await call<unknown>(
+			client.POST('/api/v1/events/stream-ticket', {
+				headers: { 'x-wf-ticket': '1' },
+			}),
+		);
+		const ticket = (data as { ticket?: unknown })?.ticket;
+		return typeof ticket === 'string' ? ticket : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Open the filtered events SSE stream. The handshake authenticates with a
+ * single-use ticket minted by a header-keyed request, so the persistent API
+ * key never lands in the stream URL (EventSource cannot set headers).
+ * Reconnects with `since=<last timestamp>`, minting a fresh ticket each time
  * so the bounded server-side backlog fills any gap.
  */
 export function openEventStream(options: EventStreamOptions): () => void {
@@ -58,49 +78,61 @@ export function openEventStream(options: EventStreamOptions): () => void {
 	let closed = false;
 
 	function connect(since: number | null): void {
-		const params = new URLSearchParams();
-		if (options.executionId) params.set('execution_id', options.executionId);
-		if (options.agentLoopId) params.set('agent_loop_id', options.agentLoopId);
-		if (options.workflowId) params.set('workflow_id', options.workflowId);
-		if (options.checkpointOnly) params.set('checkpoint_only', 'true');
-		if (options.filePath) params.set('file_path', options.filePath);
-		if (options.snapshotId) params.set('snapshot_id', options.snapshotId);
-		if (since !== null) params.set('since', String(since));
-		const key = resolveApiKey();
-		if (key) params.set('api_key', key);
-
 		onState(attempt === 0 ? 'connecting' : 'reconnecting');
-		source = new EventSource(
-			`${API_BASE_URL}/api/v1/events/stream?${params.toString()}`,
-		);
-		source.onmessage = (message) => {
-			let frame: StreamFrame;
-			try {
-				frame = JSON.parse(message.data as string) as StreamFrame;
-			} catch {
-				return;
-			}
-			if (frame.type === 'connected') {
-				attempt = 0;
-				onState('open');
-				return;
-			}
-			if (typeof frame.timestamp === 'number') {
-				lastTimestamp = frame.timestamp;
-			}
-			onEvent(toEventRecord(frame));
-		};
-		source.onerror = () => {
+		// The handshake authenticates with a single-use ticket (the persistent
+		// key stays in the minting request's header); fall back to the key
+		// query parameter only when the endpoint is unavailable.
+		void fetchStreamTicket().then((ticket) => {
 			if (closed) return;
-			source?.close();
-			source = null;
-			attempt += 1;
-			const delay = Math.min(1000 * 2 ** attempt, 10_000);
-			onState('reconnecting');
-			timer = setTimeout(() => {
-				if (!closed) connect(lastTimestamp || null);
-			}, delay);
-		};
+			const params = new URLSearchParams();
+			if (options.executionId)
+				params.set('execution_id', options.executionId);
+			if (options.agentLoopId)
+				params.set('agent_loop_id', options.agentLoopId);
+			if (options.workflowId) params.set('workflow_id', options.workflowId);
+			if (options.checkpointOnly) params.set('checkpoint_only', 'true');
+			if (options.filePath) params.set('file_path', options.filePath);
+			if (options.snapshotId) params.set('snapshot_id', options.snapshotId);
+			if (since !== null) params.set('since', String(since));
+			if (ticket) {
+				params.set('ticket', ticket);
+			} else {
+				const key = resolveApiKey();
+				if (key) params.set('api_key', key);
+			}
+
+			source = new EventSource(
+				`${API_BASE_URL}/api/v1/events/stream?${params.toString()}`,
+			);
+			source.onmessage = (message) => {
+				let frame: StreamFrame;
+				try {
+					frame = JSON.parse(message.data as string) as StreamFrame;
+				} catch {
+					return;
+				}
+				if (frame.type === 'connected') {
+					attempt = 0;
+					onState('open');
+					return;
+				}
+				if (typeof frame.timestamp === 'number') {
+					lastTimestamp = frame.timestamp;
+				}
+				onEvent(toEventRecord(frame));
+			};
+			source.onerror = () => {
+				if (closed) return;
+				source?.close();
+				source = null;
+				attempt += 1;
+				const delay = Math.min(1000 * 2 ** attempt, 10_000);
+				onState('reconnecting');
+				timer = setTimeout(() => {
+					if (!closed) connect(lastTimestamp || null);
+				}, delay);
+			};
+		});
 	}
 
 	connect(null);

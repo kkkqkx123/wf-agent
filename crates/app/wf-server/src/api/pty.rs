@@ -1,12 +1,12 @@
 use std::time::Duration;
 
+use axum::body::{Body, Bytes};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, Request};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
-use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
-use axum::body::{Body, Bytes};
-use axum::http::Request;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -22,6 +22,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/pty/{id}", get(handle_get_pty).delete(handle_delete_pty))
         .route("/pty/{id}/resize", post(handle_resize_pty))
         .route("/pty/{id}/connect", get(handle_connect_pty))
+        .route(
+            "/pty/{id}/connect-token",
+            post(handle_pty_connect_token),
+        )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -58,6 +62,9 @@ pub(crate) struct CreatePtyBody {
 #[into_params(parameter_in = Query)]
 pub(crate) struct ConnectQuery {
     cursor: Option<i64>,
+    /// Single-use connect ticket; when present the handshake authenticates
+    /// with it instead of the API key.
+    ticket: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -87,13 +94,8 @@ pub(crate) async fn handle_create_pty(
         rows: None,
         cols: None,
     });
-    match wf_api::pty::create_pty_session(
-        &state.ctx,
-        body.cwd,
-        body.command,
-        body.rows,
-        body.cols,
-    ) {
+    match wf_api::pty::create_pty_session(&state.ctx, body.cwd, body.command, body.rows, body.cols)
+    {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }
@@ -137,14 +139,35 @@ pub(crate) async fn handle_resize_pty(
     body: Option<axum::Json<ResizePtyBody>>,
 ) -> impl IntoResponse {
     let _ = state;
-    let body = body.map(|b| b.0).unwrap_or(ResizePtyBody {
-        rows: 24,
-        cols: 80,
-    });
+    let body = body
+        .map(|b| b.0)
+        .unwrap_or(ResizePtyBody { rows: 24, cols: 80 });
     match wf_api::pty::resize_pty_session(&id, body.rows as u16, body.cols as u16) {
         Ok(view) => ok(view).into_response(),
         Err(err) => error_response(err.into()),
     }
+}
+
+#[utoipa::path(post, path = "/api/v1/pty/{id}/connect-token", operation_id = "post_pty_connect_token", tag = "pty", params(IdPath), responses((status = 200, description = "WebSocket connect ticket", body = crate::envelope::ApiEnvelope<crate::api::ticket::StreamTicket>), (status = 403, description = "Origin or marker check failed", body = crate::envelope::ErrorResponse), (status = 404, description = "PTY session not found", body = crate::envelope::ErrorResponse)), security(("api_key" = [])))]
+pub(crate) async fn handle_pty_connect_token(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !crate::api::ticket::ticket_request_authorized(&headers, &state.config.cors) {
+        return crate::envelope::forbidden("invalid PTY connect-token request");
+    }
+    // The session must exist before a ticket is bound to it.
+    if let Err(err) = wf_api::pty::get_pty_session(&id) {
+        return error_response(err.into());
+    }
+    let scope = crate::api::ticket::TicketScope::Pty { id };
+    let ticket = crate::api::ticket::issue(scope);
+    ok(crate::api::ticket::StreamTicket {
+        ticket,
+        expires_in: crate::api::ticket::TICKET_TTL_SECS,
+    })
+    .into_response()
 }
 
 #[utoipa::path(get, path = "/api/v1/pty/{id}/connect", operation_id = "get_pty_connect", tag = "pty", params(IdPath, ConnectQuery), responses((status = 200, description = "PTY websocket stream", body = serde_json::Value)), security(("api_key" = [])))]
@@ -155,7 +178,31 @@ pub(crate) async fn handle_connect_pty(
     ws: WebSocketUpgrade,
     request: Request<Body>,
 ) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_pty_socket(socket, state, id, query.cursor, request))
+    ws.on_upgrade(move |socket| handle_pty_socket(socket, state, id, query.cursor, query.ticket, request))
+}
+
+/// A ticket (when present) is the credential: consume it and require an
+/// allowed origin. Otherwise fall back to the API key handshake.
+fn authorize_pty_handshake(
+    state: &ApiState,
+    id: &str,
+    ticket: Option<&str>,
+    request: &Request<Body>,
+) -> Result<(), (u16, String)> {
+    if let Some(ticket) = ticket {
+        let origin = request
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|v| v.to_str().ok());
+        let scope = crate::api::ticket::TicketScope::Pty { id: id.to_string() };
+        if crate::middleware::origin_allowed(origin, &state.config.cors)
+            && crate::api::ticket::consume(ticket, &scope)
+        {
+            return Ok(());
+        }
+        return Err((4003, "invalid PTY connect ticket".to_string()));
+    }
+    authenticate_connection(&state.config.auth, request).map_err(|msg| (4001, msg))
 }
 
 async fn handle_pty_socket(
@@ -163,20 +210,28 @@ async fn handle_pty_socket(
     state: ApiState,
     id: String,
     cursor: Option<i64>,
+    ticket: Option<String>,
     request: Request<Body>,
 ) {
-    if let Err(msg) = authenticate_connection(&state.config.auth, &request) {
-        let mut socket = socket;
-        let _ = socket
-            .send(Message::Close(Some(CloseFrame {
-                code: 4001,
-                reason: msg.into(),
-            })))
-            .await;
-        return;
+    match authorize_pty_handshake(&state, &id, ticket.as_deref(), &request) {
+        Ok(()) => {}
+        Err((code, reason)) => {
+            let mut socket = socket;
+            let _ = socket
+                .send(Message::Close(Some(CloseFrame {
+                    code,
+                    reason: reason.into(),
+                })))
+                .await;
+            return;
+        }
     }
 
-    let (replay, cursor0, mut rx, _state) = match wf_api::pty::attach_pty_session(&id, cursor) {
+    let wf_api::pty::PtyAttachment {
+        replay,
+        cursor: cursor0,
+        mut rx,
+    } = match wf_api::pty::attach_pty_session(&id, cursor) {
         Ok(v) => v,
         Err(e) => {
             let mut socket = socket;
@@ -202,7 +257,7 @@ async fn handle_pty_socket(
     // One control frame carries the absolute cursor after replay so the client can
     // resume later; live output frames stay raw text and the client accumulates
     // its own cursor from frame lengths.
-    let meta = serde_json::json!({"cursor": cursor0});
+    let meta = serde_json::json!({ "cursor": cursor0 });
     let mut bytes = vec![0u8];
     bytes.extend_from_slice(meta.to_string().as_bytes());
     let _ = sender.send(Message::Binary(Bytes::from(bytes))).await;
@@ -217,18 +272,48 @@ async fn handle_pty_socket(
                         break;
                     }
                 }
-                text = rx.recv() => {
-                    match text {
-                        Ok(t) => {
+                frame = rx.recv() => {
+                    match frame {
+                        None => break,
+                        Some(wf_api::pty::PtyFrame::Data(t)) => {
+                            let len = t.len();
                             if sender.send(Message::Text(t.into())).await.is_err() {
                                 break;
                             }
+                            rx.credit(len);
                         }
-                        Err(_) => break,
+                        Some(wf_api::pty::PtyFrame::Exited { exit_code, reason }) => {
+                            let meta = serde_json::json!({
+                                "event": "exited",
+                                "exit_code": exit_code,
+                                "reason": reason,
+                            });
+                            let mut bytes = vec![0u8];
+                            bytes.extend_from_slice(meta.to_string().as_bytes());
+                            let _ = sender.send(Message::Binary(Bytes::from(bytes))).await;
+                            let _ = sender
+                                .send(Message::Close(Some(CloseFrame {
+                                    code: 4010,
+                                    reason: format!("pty exited ({reason})").into(),
+                                })))
+                                .await;
+                            break;
+                        }
+                        Some(wf_api::pty::PtyFrame::Overflow) => {
+                            let _ = sender
+                                .send(Message::Close(Some(CloseFrame {
+                                    code: 4008,
+                                    reason: "output backlog exceeded, resume with cursor".into(),
+                                })))
+                                .await;
+                            break;
+                        }
                     }
                 }
             }
         }
+        // `rx` drops here: the attachment guard detaches the subscriber.
+        drop(rx);
     });
 
     while let Some(Ok(msg)) = receiver.next().await {
@@ -278,4 +363,3 @@ fn authenticate_connection(auth: &AuthConfig, request: &Request<Body>) -> Result
         Some(_) => Ok(()),
     }
 }
-

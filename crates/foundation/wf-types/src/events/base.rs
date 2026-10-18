@@ -179,6 +179,10 @@ pub enum EventType {
     WorkflowErrorBranchSuspended,
     /// A suspended error branch resumed from its branch target.
     WorkflowErrorBranchResumed,
+    /// A PTY terminal session stopped producing output: process exit, idle
+    /// reclaim or explicit removal. Metadata carries `session_id`, `exit_code`
+    /// and `reason` (process/idle/removed).
+    PtyExited,
 }
 
 impl EventType {
@@ -328,6 +332,7 @@ impl EventType {
             EventType::WorkflowErrorBranchTaken => "WORKFLOW_ERROR_BRANCH_TAKEN",
             EventType::WorkflowErrorBranchSuspended => "WORKFLOW_ERROR_BRANCH_SUSPENDED",
             EventType::WorkflowErrorBranchResumed => "WORKFLOW_ERROR_BRANCH_RESUMED",
+            EventType::PtyExited => "PTY_EXITED",
         }
     }
 }

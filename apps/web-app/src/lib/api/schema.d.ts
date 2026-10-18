@@ -1901,6 +1901,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events/stream-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_events_stream_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events/time-range": {
         parameters: {
             query?: never;
@@ -4939,6 +4955,22 @@ export interface paths {
         get: operations["get_pty_connect"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pty/{id}/connect-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_pty_connect_token"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8231,6 +8263,15 @@ export interface components {
             error?: null | components["schemas"]["ApiErrorBody"];
             success: boolean;
         };
+        ApiEnvelope_StreamTicket: {
+            data?: {
+                /** Format: int64 */
+                expires_in: number;
+                ticket: string;
+            };
+            error?: null | components["schemas"]["ApiErrorBody"];
+            success: boolean;
+        };
         ApiEnvelope_String: {
             data?: string;
             error?: null | components["schemas"]["ApiErrorBody"];
@@ -9722,6 +9763,11 @@ export interface components {
              * @description Total bytes occupied by the bare repository directory.
              */
             store_bytes: number;
+        };
+        StreamTicket: {
+            /** Format: int64 */
+            expires_in: number;
+            ticket: string;
         };
         SubmitReviewRequest: {
             /** @description Actor the edit line is attributed to (required, no anonymous writes). */
@@ -20223,6 +20269,11 @@ export interface operations {
                  *     raw timestamps stay accepted for compat but are not documented.
                  */
                 since?: string;
+                /**
+                 * @description Single-use stream ticket; when present the stream authenticates with it
+                 *     instead of the API key.
+                 */
+                ticket?: string;
             };
             header?: never;
             path?: never;
@@ -20277,6 +20328,63 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_events_stream_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE stream ticket */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_StreamTicket"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origin or marker check failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Service unavailable: resource limit reached */
             503: {
@@ -35827,6 +35935,11 @@ export interface operations {
         parameters: {
             query?: {
                 cursor?: number;
+                /**
+                 * @description Single-use connect ticket; when present the handshake authenticates
+                 *     with it instead of the API key.
+                 */
+                ticket?: string;
             };
             header?: never;
             path: {
@@ -35858,6 +35971,74 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Too many requests: rate limit exceeded (see Retry-After) */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable: resource limit reached */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Gateway timeout: upstream operation timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_pty_connect_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket connect ticket */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiEnvelope_StreamTicket"];
+                };
+            };
+            /** @description Unauthorized: missing or invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origin or marker check failed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description PTY session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Too many requests: rate limit exceeded (see Retry-After) */
             429: {

@@ -5,6 +5,7 @@ pub mod git;
 pub mod llm;
 pub mod observation;
 pub mod pty;
+pub(crate) mod ticket;
 pub mod system;
 pub mod template;
 pub mod trigger;

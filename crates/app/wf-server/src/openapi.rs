@@ -311,6 +311,7 @@ use utoipa::OpenApi;
         crate::api::pty::handle_delete_pty,
         crate::api::pty::handle_resize_pty,
         crate::api::pty::handle_connect_pty,
+        crate::api::pty::handle_pty_connect_token,
         // ── trigger ──
         crate::api::trigger::executions::handle_list_trigger_executions,
         crate::api::trigger::executions::handle_save_trigger_execution,
@@ -535,6 +536,7 @@ use utoipa::OpenApi;
         crate::api::system::events::handle_agent_turn_events,
         crate::api::system::events::handle_agent_tool_execution_events,
         crate::api::system::events::handle_event_stream,
+        crate::api::system::events::handle_events_stream_ticket,
         crate::api::system::health::handle_root,
         crate::api::system::health::handle_health,
         crate::api::system::health::handle_info,
@@ -685,6 +687,7 @@ use utoipa::OpenApi;
         crate::api::pty::PtySessionStatus,
         crate::api::pty::CreatePtyBody,
         crate::api::pty::ResizePtyBody,
+        crate::api::ticket::StreamTicket,
         crate::api::web::preferences::ReplacePreferencesBody,
         crate::api::workflow::approvals::RespondBody,
         crate::api::agent::executions::ResumeCheckpointBody,

@@ -229,12 +229,8 @@ pub async fn preview_restore_checkpoint(
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default();
     node_result_keys.sort();
-    let mut variable_keys: Vec<String> = snapshot
-        .variable_state
-        .variables
-        .keys()
-        .cloned()
-        .collect();
+    let mut variable_keys: Vec<String> =
+        snapshot.variable_state.variables.keys().cloned().collect();
     variable_keys.sort();
     Ok(RestorePreview {
         checkpoint_id: checkpoint_id.to_string(),

@@ -48,10 +48,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
         .route("/file-checkpoint/gc/stats", get(handle_store_stats))
-        .route(
-            "/file-checkpoint/state-links",
-            get(handle_state_file_links),
-        )
+        .route("/file-checkpoint/state-links", get(handle_state_file_links))
         .route("/file-checkpoint/index/rebuild", post(handle_rebuild_index))
         .route("/file-checkpoint/index/status", get(handle_index_status))
         .route("/file-checkpoint/submit", post(handle_submit_review))

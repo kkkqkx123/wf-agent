@@ -107,8 +107,7 @@
 			void sessionAlive().then((alive) => {
 				if (disposed) return;
 				if (!alive) {
-					store.patch(session.id, { status: 'exited' });
-					onSessionExited?.(session.id);
+					markExited();
 					return;
 				}
 				open(startCursor);
@@ -116,17 +115,29 @@
 		}, delay);
 	}
 
+	// Terminal close codes: the session is gone or stopped; stay view-only.
+	const TERMINAL_CLOSE_CODES = new Set([4001, 4004, 4010]);
+
+	let exitHandled = false;
+
+	function markExited(): void {
+		if (exitHandled) return;
+		exitHandled = true;
+		store.patch(session.id, { status: 'exited' });
+		onSessionExited?.(session.id);
+	}
+
 	function open(startCursor: number): void {
 		if (disposed) return;
 		clearReconnect();
 		socket?.dispose();
 
-		const handle = connectPty(session.id, startCursor, {
-			reconnect: false,
+		socket = connectPty(session.id, startCursor, {
 			onMeta: (next) => {
 				cursor = next;
 				if (!connected) {
 					connected = true;
+					tries = 0;
 					onConnect?.(session.id);
 				}
 			},
@@ -135,22 +146,18 @@
 				writer.push(chunk);
 				cursor += byteLength(chunk);
 			},
-			onServerClose: () => {
-				store.patch(session.id, { status: 'exited' });
-				onSessionExited?.(session.id);
+			onExit: () => {
+				markExited();
 			},
-		});
-		socket = handle;
-
-		// Detect abnormal close ourselves: the service only fires onServerClose
-		// for explicit server close frames, so poll the close code once the
-		// socket leaves the OPEN state.
-		const watch = handle.socket();
-		if (!watch) return;
-		watch.addEventListener('close', () => {
-			if (disposed) return;
-			connected = false;
-			scheduleReconnect(cursor);
+			onClose: (code) => {
+				if (disposed) return;
+				connected = false;
+				if (TERMINAL_CLOSE_CODES.has(code)) {
+					markExited();
+					return;
+				}
+				scheduleReconnect(cursor);
+			},
 		});
 	}
 

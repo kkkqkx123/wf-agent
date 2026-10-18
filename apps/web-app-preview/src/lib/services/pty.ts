@@ -67,60 +67,69 @@ export async function closePty(id: string): Promise<void> {
 }
 
 export interface PtySocket {
-	/** Close the websocket (sends code 1000). */
-	close(): void;
 	/** Current underlying socket, null while disconnected. */
 	socket(): WebSocket | null;
-	/** Terminate the socket and do not reconnect. */
+	/** Close the socket and never reopen it. */
 	dispose(): void;
-	/** Register a callback fired with the close code on abnormal disconnect. */
-	onClose(listener: (code: number) => void): void;
 }
 
 export interface PtySocketOptions {
-	/** Reconnect with exponential backoff after abnormal close. */
-	reconnect?: boolean;
 	/** Called after the server replay frame arrives; cursor starts at `value`. */
 	onMeta?: (cursor: number) => void;
 	/** Called with raw terminal output chunks. */
 	onData?: (chunk: string) => void;
-	/** Called when the server closes the stream (session exited or removed). */
-	onServerClose?: (code: number) => void;
+	/** Called when the server reports the session exited (control frame). */
+	onExit?: (info: { exitCode: number | null; reason: string }) => void;
+	/** Called with the close code whenever the socket leaves the open state. */
+	onClose?: (code: number, reason: string) => void;
 }
 
 /**
- * Open the PTY websocket for a session. The URL carries the API key as a
- * query parameter (browsers cannot set WebSocket headers) and the resume
- * cursor so the server replays everything after it.
+ * Fetch a single-use connect ticket for the session. The persistent API key
+ * travels in the request header, never in the websocket URL. Returns
+ * undefined when the endpoint is unavailable so the caller can fall back.
+ */
+async function fetchConnectTicket(id: string): Promise<string | undefined> {
+	try {
+		const data = await call<unknown>(
+			client.POST('/api/v1/pty/{id}/connect-token', {
+				params: { path: { id } },
+				headers: { 'x-wf-ticket': '1' },
+			}),
+		);
+		const ticket = (data as { ticket?: unknown })?.ticket;
+		return typeof ticket === 'string' ? ticket : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Open the PTY websocket for a session. The handshake authenticates with a
+ * single-use connect ticket (the resume cursor tells the server what to
+ * replay). Reconnect policy is the caller's decision, driven by `onClose`;
+ * every (re)connect mints a fresh ticket because tickets are one-time.
  */
 export function connectPty(
 	id: string,
 	cursor: number,
 	options: PtySocketOptions = {},
 ): PtySocket {
-	const key = resolveApiKey();
-	const base = API_BASE_URL;
-	const url = new URL(`${base}/api/v1/pty/${id}/connect`);
-	if (key) url.searchParams.set('api_key', key);
-	url.searchParams.set('cursor', String(cursor));
-	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-
 	let ws: WebSocket | null = null;
 	let disposed = false;
-	let tries = 0;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	let listeners: Array<(code: number) => void> = [];
-	let gotMeta = false;
 
-	const clearTimer = () => {
-		if (timer !== undefined) {
-			clearTimeout(timer);
-			timer = undefined;
-		}
-	};
-
-	const open = () => {
+	void fetchConnectTicket(id).then((ticket) => {
 		if (disposed) return;
+		const url = new URL(`${API_BASE_URL}/api/v1/pty/${id}/connect`);
+		if (ticket) {
+			url.searchParams.set('ticket', ticket);
+		} else {
+			const key = resolveApiKey();
+			if (key) url.searchParams.set('api_key', key);
+		}
+		url.searchParams.set('cursor', String(cursor));
+		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+
 		const socket = new WebSocket(url.toString());
 		ws = socket;
 		socket.binaryType = 'arraybuffer';
@@ -133,14 +142,31 @@ export function connectPty(
 				try {
 					const meta = JSON.parse(
 						new TextDecoder().decode(bytes.subarray(1)),
-					) as { cursor?: unknown };
+					) as {
+						cursor?: unknown;
+						event?: unknown;
+						exit_code?: unknown;
+						reason?: unknown;
+					};
+					if (meta.event === 'exited') {
+						options.onExit?.({
+							exitCode:
+								typeof meta.exit_code === 'number'
+									? meta.exit_code
+									: null,
+							reason:
+								typeof meta.reason === 'string'
+									? meta.reason
+									: 'process',
+						});
+						return;
+					}
 					const next = meta?.cursor;
 					if (
 						typeof next === 'number' &&
 						Number.isSafeInteger(next) &&
 						next >= 0
 					) {
-						gotMeta = true;
 						options.onMeta?.(next);
 					}
 				} catch {
@@ -156,46 +182,20 @@ export function connectPty(
 		socket.onclose = (event: CloseEvent) => {
 			if (disposed) return;
 			ws = null;
-			if (event.code === 1000) return;
-			clearTimer();
-			if (!options.reconnect) return;
-			// Never reconnect after the session is gone: replay only carries
-			// output while the server still holds the session.
-			if (gotMeta && event.code === 4404) {
-				options.onServerClose?.(event.code);
-				return;
-			}
-			const delay = Math.min(250 * 2 ** tries, 4000);
-			tries += 1;
-			timer = setTimeout(open, delay);
+			options.onClose?.(event.code, event.reason);
 		};
-	};
-
-	open();
+	});
 
 	return {
-		close() {
-			disposed = true;
-			clearTimer();
-			if (ws && ws.readyState <= WebSocket.OPEN) {
-				ws.close(1000);
-			}
-			ws = null;
-		},
 		socket() {
 			return ws;
 		},
 		dispose() {
 			disposed = true;
-			clearTimer();
-			listeners = [];
 			if (ws && ws.readyState <= WebSocket.OPEN) {
 				ws.close(1000);
 			}
 			ws = null;
-		},
-		onClose(listener) {
-			listeners.push(listener);
 		},
 	};
 }

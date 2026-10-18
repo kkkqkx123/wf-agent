@@ -119,5 +119,3 @@ pub fn run_git(root: &Path, args: &[&str], timeout_ms: u64) -> GitResult<GitOutp
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     })
 }
-
-

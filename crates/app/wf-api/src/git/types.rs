@@ -209,7 +209,6 @@ pub enum GitError {
     Command(String),
     #[error("git command timed out after {0}ms")]
     Timeout(u64),
-
 }
 
 pub type GitResult<T> = Result<T, GitError>;

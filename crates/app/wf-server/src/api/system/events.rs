@@ -7,15 +7,17 @@ use std::time::Duration;
 use utoipa::IntoParams;
 
 use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use wf_api::EventSubscriptionOptions;
 
-use crate::envelope::{err, error_response, ok, ApiError};
+use crate::api::ticket::{self, StreamTicket, TicketScope};
+use crate::envelope::{err, error_response, forbidden, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::paged::{fetch_size, ok_cursor_page, ok_page, resolve_cursor_page, resolve_page};
 use crate::router::ApiState;
@@ -43,6 +45,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/events/stats", get(handle_event_stats))
         .route("/events/stream", get(handle_event_stream))
+        .route(
+            "/events/stream-ticket",
+            post(handle_events_stream_ticket),
+        )
         .route("/events/search", get(handle_search_events))
         .route("/events/size", get(handle_event_size))
         .route("/events/time-range", get(handle_event_time_range))
@@ -547,6 +553,35 @@ pub(crate) struct StreamEventsQuery {
     /// Opaque reconnect cursor (same hex token as the websocket `cursor`);
     /// raw timestamps stay accepted for compat but are not documented.
     since: Option<String>,
+    /// Single-use stream ticket; when present the stream authenticates with it
+    /// instead of the API key.
+    ticket: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/events/stream-ticket",
+    operation_id = "post_events_stream_ticket",
+    tag = "system",
+    responses(
+        (status = 200, description = "SSE stream ticket", body = crate::envelope::ApiEnvelope<StreamTicket>),
+        (status = 403, description = "Origin or marker check failed", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_events_stream_ticket(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !ticket::ticket_request_authorized(&headers, &state.config.cors) {
+        return forbidden("invalid event stream ticket request");
+    }
+    let issued = ticket::issue(TicketScope::Events);
+    ok(StreamTicket {
+        ticket: issued,
+        expires_in: ticket::TICKET_TTL_SECS,
+    })
+    .into_response()
 }
 
 #[utoipa::path(
@@ -563,8 +598,21 @@ pub(crate) struct StreamEventsQuery {
 )]
 pub(crate) async fn handle_event_stream(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Query(query): Query<StreamEventsQuery>,
 ) -> Response {
+    // A ticket (when present) is the credential: consume it and require an
+    // allowed origin. Otherwise the global API-key middleware already ran.
+    if let Some(presented) = query.ticket.as_deref() {
+        let origin = headers
+            .get(header::ORIGIN)
+            .and_then(|value| value.to_str().ok());
+        if !crate::middleware::origin_allowed(origin, &state.config.cors)
+            || !ticket::consume(presented, &TicketScope::Events)
+        {
+            return forbidden("invalid event stream ticket");
+        }
+    }
     if SSE_CLIENTS.fetch_add(1, Ordering::SeqCst) >= MAX_SSE_CLIENTS {
         SSE_CLIENTS.fetch_sub(1, Ordering::SeqCst);
         tracing::warn!(target: "wf_server", "SSE connection rejected: max connections ({MAX_SSE_CLIENTS}) reached");

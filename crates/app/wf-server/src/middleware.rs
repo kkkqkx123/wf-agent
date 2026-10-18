@@ -440,6 +440,15 @@ async fn request_logging(req: Request<Body>, next: Next) -> Response {
 // CORS
 // ---------------------------------------------------------------------------
 
+/// Whether a request origin is permitted by the CORS policy. A missing
+/// origin is never allowed; `*` permits any present origin.
+pub(crate) fn origin_allowed(origin: Option<&str>, cors: &CorsConfig) -> bool {
+    let Some(origin) = origin else {
+        return false;
+    };
+    cors.allowed_origins.iter().any(|allowed| allowed == "*" || allowed == origin)
+}
+
 async fn cors_middleware(
     config: Arc<ServerMiddlewareConfig>,
     req: Request<Body>,
@@ -452,10 +461,7 @@ async fn cors_middleware(
         .and_then(|v| v.to_str().ok())
         .map(ToOwned::to_owned);
 
-    let allowed = origin
-        .as_deref()
-        .map(|o| cors.allowed_origins.iter().any(|a| a == "*" || a == o))
-        .unwrap_or(false);
+    let allowed = origin_allowed(origin.as_deref(), cors);
 
     if req.method() == Method::OPTIONS {
         let mut response = StatusCode::OK.into_response();
@@ -518,6 +524,11 @@ async fn auth_middleware(
         return next.run(req).await;
     }
     if is_excluded(req.uri().path(), &auth.excluded_paths) {
+        return next.run(req).await;
+    }
+    // Stream handshakes that present a single-use ticket authenticate in
+    // their own handler; the ticket is the credential, not the API key.
+    if crate::api::ticket::is_stream_ticket_request(req.uri()) {
         return next.run(req).await;
     }
 
@@ -712,6 +723,34 @@ mod tests {
         let app = test_router(ServerMiddlewareConfig::default());
         let response = app.clone().oneshot(request("GET", "/hello")).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn stream_ticket_request_bypasses_key_check() {
+        let mut config = ServerMiddlewareConfig::default();
+        config.auth.enabled = true;
+        config.auth.api_keys = vec!["secret".to_string()];
+        let app = apply(
+            Router::new().route("/api/v1/events/stream", get(|| async { "ok" })),
+            Arc::new(config),
+        );
+
+        // No key and no ticket: rejected by the auth middleware.
+        let blocked = app
+            .clone()
+            .oneshot(request("GET", "/api/v1/events/stream"))
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), StatusCode::UNAUTHORIZED);
+
+        // A ticket param makes the middleware defer to the stream handler,
+        // which performs the real ticket validation.
+        let deferred = app
+            .clone()
+            .oneshot(request("GET", "/api/v1/events/stream?ticket=abc"))
+            .await
+            .unwrap();
+        assert_eq!(deferred.status(), StatusCode::OK);
     }
 
     #[tokio::test]

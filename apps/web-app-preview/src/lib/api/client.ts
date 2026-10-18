@@ -934,6 +934,17 @@ router.on('POST', '/api/v1/pty/{id}/resize', (params, _q, body) => {
 });
 router.on('DELETE', '/api/v1/pty/{id}', () => ({ removed: true }));
 
+// Single-use stream tickets: the shared frontend mints a ticket before the
+// websocket / SSE handshake so the persistent key never enters the stream URL.
+router.on('POST', '/api/v1/pty/{id}/connect-token', () => ({
+	ticket: 'preview-pty-ticket',
+	expires_in: 60,
+}));
+router.on('POST', '/api/v1/events/stream-ticket', () => ({
+	ticket: 'preview-stream-ticket',
+	expires_in: 60,
+}));
+
 // ---------------------------------------------------------------------------
 // Public client object — mirrors openapi-fetch surface used by services
 // ---------------------------------------------------------------------------
